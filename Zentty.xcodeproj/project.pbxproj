@@ -74,7 +74,7 @@
 
 /* Begin PBXFileReference section */
 		0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
-		19A1B2C3D4E5F60718293A4B /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
+		19A1B2C3D4E5F60718293A4B /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutResolverTests.swift; sourceTree = "<group>"; };
 		2A94FD26FCD146425105D3FD /* KeyboardShortcutResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutResolver.swift; sourceTree = "<group>"; };
 		3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerView.swift; sourceTree = "<group>"; };
@@ -576,6 +576,7 @@
 		91A4A41546D294D209429708 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Zentty/Info.plist;
@@ -605,6 +606,7 @@
 		BC09C6831896151FBEFE2CC3 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Zentty/Info.plist;
