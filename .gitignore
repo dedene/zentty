@@ -1,2 +1,5 @@
 .superpowers/
 .worktrees/
+*.profraw
+*.xcuserstate
+xcuserdata/
