@@ -11,12 +11,18 @@ final class TerminalPaneHostView: NSView {
             adapter.metadataDidChange = onMetadataDidChange
         }
     }
+    var onFocusDidChange: ((Bool) -> Void)? {
+        didSet {
+            (terminalView as? any TerminalFocusReporting)?.onFocusDidChange = onFocusDidChange
+        }
+    }
 
     init(adapter: any TerminalAdapter) {
         self.adapter = adapter
         self.terminalView = adapter.makeTerminalView()
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        (terminalView as? any TerminalFocusReporting)?.onFocusDidChange = onFocusDidChange
         setup()
     }
 
@@ -34,6 +40,14 @@ final class TerminalPaneHostView: NSView {
         hasStartedSession = true
     }
 
+    func focusTerminal() {
+        guard window?.firstResponder !== terminalView else {
+            return
+        }
+
+        window?.makeFirstResponder(terminalView)
+    }
+
     private func setup() {
         addSubview(terminalView)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
@@ -44,5 +58,9 @@ final class TerminalPaneHostView: NSView {
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    var terminalViewForTesting: NSView {
+        terminalView
     }
 }

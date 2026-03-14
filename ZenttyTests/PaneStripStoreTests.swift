@@ -2,12 +2,19 @@ import XCTest
 @testable import Zentty
 
 final class PaneStripStoreTests: XCTestCase {
+    func test_store_starts_with_single_focused_pane() {
+        let store = PaneStripStore()
+
+        XCTAssertEqual(store.state.panes.map(\.title), ["shell"])
+        XCTAssertEqual(store.state.focusedPane?.title, "shell")
+    }
+
     func test_split_inserts_adjacent_pane_and_focuses_it() {
-        let store = PaneStripStore(state: .pocDefault)
+        let store = PaneStripStore()
 
         store.send(.split)
 
-        XCTAssertEqual(store.state.panes.map(\.title), ["logs", "editor", "pane 1", "tests", "shell"])
+        XCTAssertEqual(store.state.panes.map(\.title), ["shell", "pane 1"])
         XCTAssertEqual(store.state.focusedPane?.title, "pane 1")
     }
 
@@ -16,8 +23,8 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.send(.closeFocusedPane)
 
-        XCTAssertEqual(store.state.panes.map(\.title), ["logs", "tests", "shell"])
-        XCTAssertEqual(store.state.focusedPane?.title, "tests")
+        XCTAssertEqual(store.state.panes.map(\.title), ["shell"])
+        XCTAssertEqual(store.state.focusedPane?.title, "shell")
     }
 
     func test_close_keeps_at_least_one_pane_in_the_strip() {
@@ -34,7 +41,17 @@ final class PaneStripStoreTests: XCTestCase {
     }
 
     func test_focus_commands_update_the_focused_pane() {
-        let store = PaneStripStore(state: .pocDefault)
+        let store = PaneStripStore(
+            state: PaneStripState(
+                panes: [
+                    PaneState(id: PaneID("logs"), title: "logs"),
+                    PaneState(id: PaneID("editor"), title: "editor"),
+                    PaneState(id: PaneID("tests"), title: "tests"),
+                    PaneState(id: PaneID("shell"), title: "shell"),
+                ],
+                focusedPaneID: PaneID("editor")
+            )
+        )
 
         store.send(.focusRight)
         XCTAssertEqual(store.state.focusedPane?.title, "tests")

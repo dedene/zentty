@@ -44,11 +44,15 @@ final class RootViewController: NSViewController {
         appCanvasView.onFocusSettled = { [weak self] paneID in
             self?.paneStripStore.focusPane(id: paneID)
         }
+        appCanvasView.onPaneSelected = { [weak self] paneID in
+            self?.paneStripStore.focusPane(id: paneID)
+        }
         appCanvasView.render(paneStripStore.state)
     }
 
     func activateWindowBindingsIfNeeded() {
         installKeyboardMonitorIfNeeded()
+        appCanvasView.focusCurrentPaneIfNeeded()
     }
 
     private func installKeyboardMonitorIfNeeded() {

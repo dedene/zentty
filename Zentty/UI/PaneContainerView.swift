@@ -11,6 +11,12 @@ final class PaneContainerView: NSView {
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let terminalAdapter: any TerminalAdapter
     private lazy var terminalHostView = TerminalPaneHostView(adapter: terminalAdapter)
+    var onSelected: (() -> Void)?
+    var onMetadataDidChange: ((TerminalMetadata) -> Void)? {
+        didSet {
+            terminalHostView.onMetadataDidChange = onMetadataDidChange
+        }
+    }
 
     init(
         title: String,
@@ -54,6 +60,14 @@ final class PaneContainerView: NSView {
         addSubview(header)
         addSubview(terminalHostView)
 
+        terminalHostView.onMetadataDidChange = onMetadataDidChange
+        terminalHostView.onFocusDidChange = { [weak self] isFocused in
+            guard isFocused else {
+                return
+            }
+
+            self?.onSelected?()
+        }
         try? terminalHostView.startSessionIfNeeded()
 
         NSLayoutConstraint.activate([
@@ -86,6 +100,16 @@ final class PaneContainerView: NSView {
         layer?.shadowOpacity = Float(max(0, emphasis - 0.88) * 2.2)
         layer?.shadowRadius = 6 + max(0, emphasis - 0.92) * 24
         alphaValue = 0.9 + (emphasis - 0.9) * 0.5
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onSelected?()
+        focusTerminal()
+        super.mouseDown(with: event)
+    }
+
+    func focusTerminal() {
+        terminalHostView.focusTerminal()
     }
 
     var titleTextForTesting: String {

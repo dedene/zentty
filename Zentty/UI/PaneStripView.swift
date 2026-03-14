@@ -2,6 +2,8 @@ import AppKit
 
 final class PaneStripView: NSView {
     var onFocusSettled: ((PaneID) -> Void)?
+    var onPaneSelected: ((PaneID) -> Void)?
+    var onPaneMetadataDidChange: ((PaneID, TerminalMetadata) -> Void)?
 
     private let motionController = PaneStripMotionController()
     private let gestureDriver = TrackpadPanGestureDriver()
@@ -15,6 +17,7 @@ final class PaneStripView: NSView {
     private var currentOffset: CGFloat = 0
     private var gestureBaseOffset: CGFloat = 0
     private var isInteracting = false
+    private var lastFocusedPaneID: PaneID?
 
     override var fittingSize: NSSize {
         let width = max(bounds.width, 1)
@@ -75,6 +78,10 @@ final class PaneStripView: NSView {
         renderCurrentState(state, animated: !orderedPaneIDs.isEmpty && !isInteracting)
     }
 
+    func focusCurrentPaneIfNeeded() {
+        syncFocusedTerminal(with: currentState?.focusedPaneID, force: true)
+    }
+
     private func renderCurrentState(_ state: PaneStripState, animated: Bool) {
         let presentation = motionController.presentation(for: state, in: bounds.size)
         currentPresentation = presentation
@@ -104,6 +111,7 @@ final class PaneStripView: NSView {
             currentOffset = targetOffset
         }
         lastRenderedSize = bounds.size
+        syncFocusedTerminal(with: state.focusedPaneID)
     }
 
     private func subtitle(for index: Int, focusedIndex: Int) -> String {
@@ -132,9 +140,17 @@ final class PaneStripView: NSView {
                 emphasis: panePresentation.emphasis,
                 isFocused: panePresentation.isFocused
             )
+            paneView.onSelected = { [weak self] in
+                self?.onPaneSelected?(pane.id)
+            }
+            paneView.onMetadataDidChange = { [weak self] metadata in
+                self?.onPaneMetadataDidChange?(pane.id, metadata)
+            }
             paneViews[panePresentation.paneID] = paneView
             viewportView.addSubview(paneView)
         }
+
+        lastFocusedPaneID = nil
     }
 
     private func applyPresentation(_ presentation: StripPresentation, state: PaneStripState, offset: CGFloat) {
@@ -208,5 +224,21 @@ final class PaneStripView: NSView {
         }
 
         onFocusSettled?(settledPaneID)
+    }
+
+    private func syncFocusedTerminal(with paneID: PaneID?, force: Bool = false) {
+        guard let paneID else {
+            lastFocusedPaneID = nil
+            return
+        }
+
+        guard force || paneID != lastFocusedPaneID else {
+            return
+        }
+
+        lastFocusedPaneID = paneID
+        DispatchQueue.main.async { [weak self] in
+            self?.paneViews[paneID]?.focusTerminal()
+        }
     }
 }

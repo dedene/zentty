@@ -41,11 +41,42 @@ final class TerminalPaneHostViewTests: XCTestCase {
 
         XCTAssertEqual(receivedMetadata, metadata)
     }
+
+    func test_focus_terminal_makes_adapter_view_first_responder() {
+        let adapter = TerminalAdapterSpy()
+        let hostView = TerminalPaneHostView(adapter: adapter)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+
+        window.contentView = hostView
+        window.makeKeyAndOrderFront(nil)
+        hostView.focusTerminal()
+
+        XCTAssertTrue(window.firstResponder === hostView.terminalViewForTesting)
+    }
+
+    func test_focus_changes_from_terminal_view_are_forwarded() {
+        let adapter = TerminalAdapterSpy()
+        let hostView = TerminalPaneHostView(adapter: adapter)
+        var didBecomeFocused = false
+
+        hostView.onFocusDidChange = { isFocused in
+            didBecomeFocused = isFocused
+        }
+
+        _ = adapter.terminalView.becomeFirstResponder()
+
+        XCTAssertTrue(didBecomeFocused)
+    }
 }
 
 @MainActor
 private final class TerminalAdapterSpy: TerminalAdapter {
-    let terminalView = NSView()
+    let terminalView = FirstResponderTerminalView()
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     private(set) var startSessionCallCount = 0
 
@@ -55,5 +86,23 @@ private final class TerminalAdapterSpy: TerminalAdapter {
 
     func startSession() throws {
         startSessionCallCount += 1
+    }
+}
+
+private final class FirstResponderTerminalView: NSView, TerminalFocusReporting {
+    var onFocusDidChange: ((Bool) -> Void)?
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        onFocusDidChange?(true)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        onFocusDidChange?(false)
+        return true
     }
 }

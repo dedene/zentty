@@ -23,8 +23,23 @@ final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering {
     }
 }
 
-final class TerminalSurfaceMockView: NSView {
+final class TerminalSurfaceMockView: NSView, TerminalFocusReporting {
     private let contentLabel = NSTextField(wrappingLabelWithString: "")
+    var onFocusDidChange: ((Bool) -> Void)?
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        onFocusDidChange?(true)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        onFocusDidChange?(false)
+        return true
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

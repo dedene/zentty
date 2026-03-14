@@ -6,6 +6,11 @@ final class AppCanvasView: NSView {
             paneStripView.onFocusSettled = onFocusSettled
         }
     }
+    var onPaneSelected: ((PaneID) -> Void)? {
+        didSet {
+            paneStripView.onPaneSelected = onPaneSelected
+        }
+    }
 
     private enum Layout {
         static let stripTopInset: CGFloat = 10
@@ -14,6 +19,8 @@ final class AppCanvasView: NSView {
 
     private let contextStripView = ContextStripView()
     private let paneStripView = PaneStripView()
+    private var currentState: PaneStripState?
+    private var metadataByPaneID: [PaneID: TerminalMetadata] = [:]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -43,6 +50,10 @@ final class AppCanvasView: NSView {
 
         contextStripView.translatesAutoresizingMaskIntoConstraints = false
         paneStripView.translatesAutoresizingMaskIntoConstraints = false
+        paneStripView.onPaneMetadataDidChange = { [weak self] paneID, metadata in
+            self?.metadataByPaneID[paneID] = metadata
+            self?.renderFocusedContext()
+        }
 
         contentView.addSubview(contextStripView)
         contentView.addSubview(paneStripView)
@@ -73,7 +84,21 @@ final class AppCanvasView: NSView {
     }
 
     func render(_ state: PaneStripState) {
-        contextStripView.render(state)
+        currentState = state
+        renderFocusedContext()
         paneStripView.render(state)
+    }
+
+    func focusCurrentPaneIfNeeded() {
+        paneStripView.focusCurrentPaneIfNeeded()
+    }
+
+    private func renderFocusedContext() {
+        guard let currentState else {
+            return
+        }
+
+        let metadata = currentState.focusedPaneID.flatMap { metadataByPaneID[$0] }
+        contextStripView.render(currentState, metadata: metadata)
     }
 }

@@ -2,8 +2,9 @@ import AppKit
 import QuartzCore
 
 @MainActor
-final class LibghosttyView: NSView {
+final class LibghosttyView: NSView, TerminalFocusReporting {
     private var surfaceController: (any LibghosttySurfaceControlling)?
+    var onFocusDidChange: ((Bool) -> Void)?
 
     override var acceptsFirstResponder: Bool {
         true
@@ -46,12 +47,19 @@ final class LibghosttyView: NSView {
 
     override func becomeFirstResponder() -> Bool {
         surfaceController?.setFocused(true)
+        onFocusDidChange?(true)
         return true
     }
 
     override func resignFirstResponder() -> Bool {
         surfaceController?.setFocused(false)
+        onFocusDidChange?(false)
         return true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
     }
 
     func bind(surfaceController: any LibghosttySurfaceControlling) {

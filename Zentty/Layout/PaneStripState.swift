@@ -166,11 +166,8 @@ struct PaneStripState: Equatable, Sendable {
 extension PaneStripState {
     static let pocDefault = PaneStripState(
         panes: [
-            PaneState(id: PaneID("logs"), title: "logs"),
-            PaneState(id: PaneID("editor"), title: "editor"),
-            PaneState(id: PaneID("tests"), title: "tests"),
             PaneState(id: PaneID("shell"), title: "shell"),
         ],
-        focusedPaneID: PaneID("editor")
+        focusedPaneID: PaneID("shell")
     )
 }
