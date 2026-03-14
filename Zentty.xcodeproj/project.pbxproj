@@ -24,14 +24,14 @@
 		6A1D2E3F4B5C6D7E8F901236 /* TerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */; };
 		6A1D2E3F4B5C6D7E8F901238 /* TerminalMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */; };
 		6A1D2E3F4B5C6D7E8F90123A /* TerminalPaneHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */; };
+		6B1D2E3F4B5C6D7E8F90123A /* LibghosttyAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B1D2E3F4B5C6D7E8F901239 /* LibghosttyAdapterTests.swift */; };
+		6C1D2E3F4B5C6D7E8F90123A /* LibghosttyViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1D2E3F4B5C6D7E8F901239 /* LibghosttyViewTests.swift */; };
 		6D1D2E3F4B5C6D7E8F90123C /* TerminalAdapterRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1D2E3F4B5C6D7E8F90123B /* TerminalAdapterRegistry.swift */; };
 		6E1D2E3F4B5C6D7E8F90123E /* MockTerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E1D2E3F4B5C6D7E8F90123D /* MockTerminalAdapter.swift */; };
 		6F1D2E3F4B5C6D7E8F901240 /* LibghosttyAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F1D2E3F4B5C6D7E8F90123F /* LibghosttyAdapter.swift */; };
 		701D2E3F4B5C6D7E8F901242 /* LibghosttyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 701D2E3F4B5C6D7E8F901241 /* LibghosttyView.swift */; };
 		702D2E3F4B5C6D7E8F901244 /* LibghosttySurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702D2E3F4B5C6D7E8F901243 /* LibghosttySurface.swift */; };
 		703D2E3F4B5C6D7E8F901246 /* LibghosttyRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703D2E3F4B5C6D7E8F901245 /* LibghosttyRuntime.swift */; };
-		6B1D2E3F4B5C6D7E8F90123A /* LibghosttyAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B1D2E3F4B5C6D7E8F901239 /* LibghosttyAdapterTests.swift */; };
-		6C1D2E3F4B5C6D7E8F90123A /* LibghosttyViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1D2E3F4B5C6D7E8F901239 /* LibghosttyViewTests.swift */; };
 		7B2C3D4E5F60718293A4B5C6 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7B2C3D4E5F60718293A4B5C5 /* GhosttyKit.xcframework */; };
 		801ECD25402540B6F022BC3F /* KeyboardShortcutResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A94FD26FCD146425105D3FD /* KeyboardShortcutResolver.swift */; };
 		87EA948CE9A1C6B7DF2A1FBD /* ZenttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */; };
@@ -61,17 +61,6 @@
 		};
 /* End PBXContainerItemProxy section */
 
-/* Begin PBXFrameworksBuildPhase section */
-		7B2C3D4E5F60718293A4B5C8 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				7B2C3D4E5F60718293A4B5C6 /* GhosttyKit.xcframework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXFrameworksBuildPhase section */
-
 /* Begin PBXFileReference section */
 		0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		19A1B2C3D4E5F60718293A4B /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
@@ -79,9 +68,10 @@
 		2A94FD26FCD146425105D3FD /* KeyboardShortcutResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutResolver.swift; sourceTree = "<group>"; };
 		3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerView.swift; sourceTree = "<group>"; };
 		3D36706DB3DF677FA13DC722 /* PaneStripState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripState.swift; sourceTree = "<group>"; };
-		4B3A29181716151413121110 /* AppMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBuilder.swift; sourceTree = "<group>"; };
 		474B9A1AC6A427A707683CA3 /* PaneCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneCommand.swift; sourceTree = "<group>"; };
+		4B3A29181716151413121110 /* AppMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBuilder.swift; sourceTree = "<group>"; };
 		4DBA5050D2AB5F66D5F0B804 /* PaneStripStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripStateTests.swift; sourceTree = "<group>"; };
+		51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripView.swift; sourceTree = "<group>"; };
 		55E6D7C8B9A0F1E203142536 /* PaneContainerViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerViewTests.swift; sourceTree = "<group>"; };
 		5A2D8C9B19A64C02B8F3F1A0 /* PaneLayoutSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutSizing.swift; sourceTree = "<group>"; };
 		5A2D8C9B19A64C02B8F3F1A2 /* PaneStripViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripViewTests.swift; sourceTree = "<group>"; };
@@ -90,20 +80,19 @@
 		6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdapter.swift; sourceTree = "<group>"; };
 		6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMetadata.swift; sourceTree = "<group>"; };
 		6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostView.swift; sourceTree = "<group>"; };
+		6B1D2E3F4B5C6D7E8F901239 /* LibghosttyAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapterTests.swift; sourceTree = "<group>"; };
+		6BC138BE273ED92291124633 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		6C1D2E3F4B5C6D7E8F901239 /* LibghosttyViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyViewTests.swift; sourceTree = "<group>"; };
 		6D1D2E3F4B5C6D7E8F90123B /* TerminalAdapterRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdapterRegistry.swift; sourceTree = "<group>"; };
 		6E1D2E3F4B5C6D7E8F90123D /* MockTerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockTerminalAdapter.swift; sourceTree = "<group>"; };
 		6F1D2E3F4B5C6D7E8F90123F /* LibghosttyAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapter.swift; sourceTree = "<group>"; };
+		6F5E4D3C2B1A098765432112 /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		701D2E3F4B5C6D7E8F901241 /* LibghosttyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyView.swift; sourceTree = "<group>"; };
 		702D2E3F4B5C6D7E8F901243 /* LibghosttySurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttySurface.swift; sourceTree = "<group>"; };
 		703D2E3F4B5C6D7E8F901245 /* LibghosttyRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyRuntime.swift; sourceTree = "<group>"; };
-		6B1D2E3F4B5C6D7E8F901239 /* LibghosttyAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapterTests.swift; sourceTree = "<group>"; };
-		6C1D2E3F4B5C6D7E8F901239 /* LibghosttyViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyViewTests.swift; sourceTree = "<group>"; };
-		7B2C3D4E5F60718293A4B5C5 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
-		51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripView.swift; sourceTree = "<group>"; };
-		6F5E4D3C2B1A098765432112 /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
-		6BC138BE273ED92291124633 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		7120EEE7A0C06BD8315283B9 /* MainWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowControllerTests.swift; sourceTree = "<group>"; };
 		74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyTests.swift; sourceTree = "<group>"; };
+		7B2C3D4E5F60718293A4B5C5 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		7B93F46C5542A31805301C02 /* RootViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewController.swift; sourceTree = "<group>"; };
 		8085EEB54A83D5D7F7A68CAB /* AppCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCanvasView.swift; sourceTree = "<group>"; };
 		8DEEB96E79CCE6DC7CB29BFD /* PaneStripStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripStore.swift; sourceTree = "<group>"; };
@@ -116,10 +105,21 @@
 		DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
 		E5BDEE21BACB5E0E7AB95AE0 /* ZenttyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZenttyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE4A79EE9DA488020E7D0C71 /* Zentty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Zentty.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		FD6261C82AADF1EDAAA09BC9 /* PaneStripMotionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripMotionController.swift; sourceTree = "<group>"; };
 		F16261C82AADF1EDAAA09BC9 /* TrackpadPanGestureDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackpadPanGestureDriver.swift; sourceTree = "<group>"; };
+		FD6261C82AADF1EDAAA09BC9 /* PaneStripMotionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripMotionController.swift; sourceTree = "<group>"; };
 		FF4944514D465B85C6D9A3AC /* RootViewCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewCompositionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7B2C3D4E5F60718293A4B5C8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7B2C3D4E5F60718293A4B5C6 /* GhosttyKit.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		1C0506CDB868054B09C5CA8D /* AppState */ = {
@@ -159,12 +159,20 @@
 			);
 			sourceTree = "<group>";
 		};
-		7B2C3D4E5F60718293A4B5C7 /* FrameworksLocal */ = {
+		6A1D2E3F4B5C6D7E8F90123B /* Terminal */ = {
 			isa = PBXGroup;
 			children = (
-				7B2C3D4E5F60718293A4B5C5 /* GhosttyKit.xcframework */,
+				6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */,
+				6D1D2E3F4B5C6D7E8F90123B /* TerminalAdapterRegistry.swift */,
+				6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */,
+				6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */,
+				6E1D2E3F4B5C6D7E8F90123D /* MockTerminalAdapter.swift */,
+				6F1D2E3F4B5C6D7E8F90123F /* LibghosttyAdapter.swift */,
+				701D2E3F4B5C6D7E8F901241 /* LibghosttyView.swift */,
+				702D2E3F4B5C6D7E8F901243 /* LibghosttySurface.swift */,
+				703D2E3F4B5C6D7E8F901245 /* LibghosttyRuntime.swift */,
 			);
-			path = FrameworksLocal;
+			path = Terminal;
 			sourceTree = "<group>";
 		};
 		77D242A536F1FD4B6EE328F9 /* Products */ = {
@@ -174,6 +182,14 @@
 				E5BDEE21BACB5E0E7AB95AE0 /* ZenttyTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		7B2C3D4E5F60718293A4B5C7 /* FrameworksLocal */ = {
+			isa = PBXGroup;
+			children = (
+				7B2C3D4E5F60718293A4B5C5 /* GhosttyKit.xcframework */,
+			);
+			path = FrameworksLocal;
 			sourceTree = "<group>";
 		};
 		7F1FD0AFD7DC8203464D5523 /* Layout */ = {
@@ -193,22 +209,6 @@
 				474B9A1AC6A427A707683CA3 /* PaneCommand.swift */,
 			);
 			path = Input;
-			sourceTree = "<group>";
-		};
-		6A1D2E3F4B5C6D7E8F90123B /* Terminal */ = {
-			isa = PBXGroup;
-			children = (
-				6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */,
-				6D1D2E3F4B5C6D7E8F90123B /* TerminalAdapterRegistry.swift */,
-				6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */,
-				6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */,
-				6E1D2E3F4B5C6D7E8F90123D /* MockTerminalAdapter.swift */,
-				6F1D2E3F4B5C6D7E8F90123F /* LibghosttyAdapter.swift */,
-				701D2E3F4B5C6D7E8F901241 /* LibghosttyView.swift */,
-				702D2E3F4B5C6D7E8F901243 /* LibghosttySurface.swift */,
-				703D2E3F4B5C6D7E8F901245 /* LibghosttyRuntime.swift */,
-			);
-			path = Terminal;
 			sourceTree = "<group>";
 		};
 		928C5204454C83A419DEEAFF /* ZenttyTests */ = {
@@ -577,9 +577,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Zentty/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Zentty;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -607,9 +609,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Zentty/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Zentty;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
