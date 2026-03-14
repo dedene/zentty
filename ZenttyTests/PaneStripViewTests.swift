@@ -120,6 +120,52 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_resize_reuses_existing_pane_views_and_does_not_restart_sessions() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            adapterFactory: { adapterFactory.makeAdapter() }
+        )
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let originalPaneViews = try XCTUnwrap(
+            Dictionary(
+                uniqueKeysWithValues: paneStripView.descendantPaneViews().map { paneView in
+                    (paneView.paneID, paneView)
+                }
+            )
+        )
+        XCTAssertEqual(adapterFactory.adapters.map(\.startSessionCallCount), [1, 1])
+
+        paneStripView.frame.size = NSSize(width: 1580, height: 820)
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let resizedPaneViews = try XCTUnwrap(
+            Dictionary(
+                uniqueKeysWithValues: paneStripView.descendantPaneViews().map { paneView in
+                    (paneView.paneID, paneView)
+                }
+            )
+        )
+
+        XCTAssertEqual(Set(resizedPaneViews.keys), Set(originalPaneViews.keys))
+        for (paneID, paneView) in resizedPaneViews {
+            XCTAssertTrue(paneView === originalPaneViews[paneID])
+        }
+        XCTAssertEqual(adapterFactory.adapters.map(\.startSessionCallCount), [1, 1])
+    }
+
+    @MainActor
     func test_single_pane_initially_fills_available_width_then_split_uses_column_widths() throws {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
         let singlePane = PaneStripState(

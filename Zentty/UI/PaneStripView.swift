@@ -121,6 +121,7 @@ final class PaneStripView: NSView {
         lastInsertionTransition = insertionTransition
         currentPresentation = presentation
         let targetOffset = isInteracting ? currentOffset : presentation.targetOffset
+        let shouldAnimate = animated && window?.inLiveResize != true && !inLiveResize
         reconcilePaneViews(
             with: state,
             presentation: presentation,
@@ -130,13 +131,19 @@ final class PaneStripView: NSView {
         orderedPaneIDs = presentation.panes.map(\.paneID)
 
         let updates = {
-            self.applyPresentation(presentation, state: state, offset: targetOffset)
+            self.applyPresentation(
+                presentation,
+                state: state,
+                offset: targetOffset,
+                animated: shouldAnimate
+            )
         }
 
-        if animated {
+        if shouldAnimate {
             motionController.animate(in: self, updates: updates)
         } else {
             updates()
+            viewportView.layoutSubtreeIfNeeded()
         }
 
         if !isInteracting {
@@ -146,7 +153,12 @@ final class PaneStripView: NSView {
         syncFocusedTerminal(with: state.focusedPaneID)
     }
 
-    private func applyPresentation(_ presentation: StripPresentation, state: PaneStripState, offset: CGFloat) {
+    private func applyPresentation(
+        _ presentation: StripPresentation,
+        state: PaneStripState,
+        offset: CGFloat,
+        animated: Bool
+    ) {
         presentation.panes.enumerated().forEach { index, panePresentation in
             guard let paneView = paneViews[panePresentation.paneID] else {
                 return
@@ -160,7 +172,12 @@ final class PaneStripView: NSView {
                 emphasis: panePresentation.emphasis,
                 isFocused: panePresentation.isFocused
             )
-            paneView.animator().frame = panePresentation.frame.offsetBy(dx: -offset, dy: 0)
+            let targetFrame = panePresentation.frame.offsetBy(dx: -offset, dy: 0)
+            if animated {
+                paneView.animator().frame = targetFrame
+            } else {
+                paneView.frame = targetFrame
+            }
         }
     }
 
@@ -297,7 +314,12 @@ final class PaneStripView: NSView {
             contentWidth: currentPresentation.contentWidth,
             viewportWidth: bounds.width
         )
-        applyPresentation(currentPresentation, state: currentState, offset: currentOffset)
+        applyPresentation(
+            currentPresentation,
+            state: currentState,
+            offset: currentOffset,
+            animated: false
+        )
     }
 
     private func finishInteraction(translationX: CGFloat) {

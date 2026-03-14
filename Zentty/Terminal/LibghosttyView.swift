@@ -44,7 +44,10 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         layer?.contentsScale = currentScaleFactor
+        CATransaction.commit()
         syncViewport()
     }
 
@@ -133,6 +136,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         }
 
         let backingBounds = convertToBacking(bounds)
+        syncLayerGeometry(backingBounds: backingBounds)
         let viewportSize = CGSize(
             width: max(1, backingBounds.width),
             height: max(1, backingBounds.height)
@@ -143,6 +147,22 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
             scale: currentScaleFactor,
             displayID: currentDisplayID
         )
+    }
+
+    private func syncLayerGeometry(backingBounds: CGRect) {
+        let scale = currentScaleFactor
+        let drawableSize = CGSize(
+            width: max(1, floor(backingBounds.width)),
+            height: max(1, floor(backingBounds.height))
+        )
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.contentsScale = scale
+        if let metalLayer = layer as? CAMetalLayer, metalLayer.drawableSize != drawableSize {
+            metalLayer.drawableSize = drawableSize
+        }
+        CATransaction.commit()
     }
 
     private func fallbackText(for event: NSEvent) -> String? {
