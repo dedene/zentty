@@ -95,6 +95,13 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             return false
         }
 
+        let originalMods = Self.modsFromEvent(event)
+        let translatedFlags = Self.translatedModifierFlags(
+            from: event.modifierFlags,
+            ghosttyModifiers: ghostty_surface_key_translation_mods(surface, originalMods)
+        )
+        let translatedEvent = Self.translatedEvent(from: event, modifierFlags: translatedFlags)
+
         var keyEvent = ghostty_input_key_s()
         switch action {
         case .press:
@@ -104,21 +111,30 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         case .repeatPress:
             keyEvent.action = GHOSTTY_ACTION_REPEAT
         }
-        keyEvent.mods = modsFromEvent(event)
-        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.mods = originalMods
+        keyEvent.consumed_mods = Self.consumedModsFromFlags(translatedFlags)
         keyEvent.keycode = UInt32(event.keyCode)
-        keyEvent.unshifted_codepoint = 0
+        keyEvent.unshifted_codepoint = Self.unshiftedCodepointFromEvent(event)
         keyEvent.composing = composing
 
-        if let text {
-            return text.withCString { cString in
+        let effectiveText: String?
+        if action == .release {
+            effectiveText = nil
+        } else if let text, !text.isEmpty {
+            effectiveText = text
+        } else {
+            effectiveText = Self.textForKeyEvent(translatedEvent)
+        }
+
+        if let effectiveText, Self.shouldSendText(effectiveText) {
+            return effectiveText.withCString { cString in
                 keyEvent.text = cString
                 return ghostty_surface_key(surface, keyEvent)
             }
-        } else {
-            keyEvent.text = nil
-            return ghostty_surface_key(surface, keyEvent)
         }
+
+        keyEvent.text = nil
+        return ghostty_surface_key(surface, keyEvent)
     }
 
     func sendText(_ text: String) {
@@ -149,7 +165,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         metadataDidChange(metadata)
     }
 
-    private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
+    static func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
         var rawValue = GHOSTTY_MODS_NONE.rawValue
 
         if event.modifierFlags.contains(.shift) {
@@ -165,6 +181,104 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             rawValue |= GHOSTTY_MODS_SUPER.rawValue
         }
 
-        return ghostty_input_mods_e(rawValue: rawValue) ?? GHOSTTY_MODS_NONE
+        return ghostty_input_mods_e(rawValue: rawValue)
+    }
+
+    static func translatedModifierFlags(
+        from eventModifierFlags: NSEvent.ModifierFlags,
+        ghosttyModifiers: ghostty_input_mods_e
+    ) -> NSEvent.ModifierFlags {
+        var translatedFlags = eventModifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
+            let shouldInclude: Bool
+            switch flag {
+            case .shift:
+                shouldInclude = (ghosttyModifiers.rawValue & GHOSTTY_MODS_SHIFT.rawValue) != 0
+            case .control:
+                shouldInclude = (ghosttyModifiers.rawValue & GHOSTTY_MODS_CTRL.rawValue) != 0
+            case .option:
+                shouldInclude = (ghosttyModifiers.rawValue & GHOSTTY_MODS_ALT.rawValue) != 0
+            case .command:
+                shouldInclude = (ghosttyModifiers.rawValue & GHOSTTY_MODS_SUPER.rawValue) != 0
+            default:
+                shouldInclude = translatedFlags.contains(flag)
+            }
+            if shouldInclude {
+                translatedFlags.insert(flag)
+            } else {
+                translatedFlags.remove(flag)
+            }
+        }
+
+        return translatedFlags
+    }
+
+    static func translatedEvent(from event: NSEvent, modifierFlags: NSEvent.ModifierFlags) -> NSEvent {
+        guard modifierFlags != event.modifierFlags.intersection(.deviceIndependentFlagsMask) else {
+            return event
+        }
+
+        return NSEvent.keyEvent(
+            with: event.type,
+            location: event.locationInWindow,
+            modifierFlags: modifierFlags,
+            timestamp: event.timestamp,
+            windowNumber: event.windowNumber,
+            context: nil,
+            characters: event.characters(byApplyingModifiers: modifierFlags) ?? event.characters ?? "",
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+            isARepeat: event.isARepeat,
+            keyCode: event.keyCode
+        ) ?? event
+    }
+
+    static func consumedModsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        var rawValue = GHOSTTY_MODS_NONE.rawValue
+
+        if flags.contains(.shift) {
+            rawValue |= GHOSTTY_MODS_SHIFT.rawValue
+        }
+        if flags.contains(.option) {
+            rawValue |= GHOSTTY_MODS_ALT.rawValue
+        }
+
+        return ghostty_input_mods_e(rawValue: rawValue)
+    }
+
+    static func textForKeyEvent(_ event: NSEvent) -> String? {
+        guard let characters = event.characters, !characters.isEmpty else {
+            return nil
+        }
+
+        if characters.count == 1, let scalar = characters.unicodeScalars.first {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if scalar.value < 0x20, flags.contains(.control) {
+                return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
+            }
+            if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
+                return nil
+            }
+        }
+
+        return characters
+    }
+
+    static func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
+        guard
+            let characters = event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers ?? event.characters,
+            let scalar = characters.unicodeScalars.first
+        else {
+            return 0
+        }
+
+        return scalar.value
+    }
+
+    static func shouldSendText(_ text: String) -> Bool {
+        guard let first = text.utf8.first else {
+            return false
+        }
+        return first >= 0x20
     }
 }

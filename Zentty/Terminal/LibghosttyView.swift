@@ -74,6 +74,20 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
             return
         }
 
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
+            let controlText = event.charactersIgnoringModifiers ?? event.characters
+            let handled = surfaceController.sendKey(
+                event: event,
+                action: event.isARepeat ? .repeatPress : .press,
+                text: controlText,
+                composing: false
+            )
+            if handled {
+                return
+            }
+        }
+
         keyTextAccumulator = ""
         interpretKeyEvents([event])
         let keyText = keyTextAccumulator.isEmpty ? fallbackText(for: event) : keyTextAccumulator

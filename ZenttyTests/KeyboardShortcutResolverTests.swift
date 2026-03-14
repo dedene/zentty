@@ -57,4 +57,18 @@ final class KeyboardShortcutResolverTests: XCTestCase {
 
         XCTAssertNil(command)
     }
+
+    func test_returns_nil_for_terminal_owned_shortcuts() {
+        XCTAssertNil(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .leftArrow, modifiers: [.option])
+            )
+        )
+
+        XCTAssertNil(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .character("c"), modifiers: [])
+            )
+        )
+    }
 }
