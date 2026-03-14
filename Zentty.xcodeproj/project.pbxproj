@@ -20,6 +20,10 @@
 		5A2D8C9B19A64C02B8F3F1A1 /* PaneLayoutSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2D8C9B19A64C02B8F3F1A0 /* PaneLayoutSizing.swift */; };
 		5A2D8C9B19A64C02B8F3F1A3 /* PaneStripViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2D8C9B19A64C02B8F3F1A2 /* PaneStripViewTests.swift */; };
 		5C2E8D9B19A64C02B8F3F1A3 /* PaneStripMotionControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C2E8D9B19A64C02B8F3F1A2 /* PaneStripMotionControllerTests.swift */; };
+		6A1D2E3F4B5C6D7E8F901234 /* TerminalPaneHostViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901233 /* TerminalPaneHostViewTests.swift */; };
+		6A1D2E3F4B5C6D7E8F901236 /* TerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */; };
+		6A1D2E3F4B5C6D7E8F901238 /* TerminalMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */; };
+		6A1D2E3F4B5C6D7E8F90123A /* TerminalPaneHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */; };
 		801ECD25402540B6F022BC3F /* KeyboardShortcutResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A94FD26FCD146425105D3FD /* KeyboardShortcutResolver.swift */; };
 		87EA948CE9A1C6B7DF2A1FBD /* ZenttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */; };
 		8F0F568491CA91D81FE0BE47 /* PaneStripStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBA5050D2AB5F66D5F0B804 /* PaneStripStateTests.swift */; };
@@ -62,6 +66,10 @@
 		5A2D8C9B19A64C02B8F3F1A0 /* PaneLayoutSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutSizing.swift; sourceTree = "<group>"; };
 		5A2D8C9B19A64C02B8F3F1A2 /* PaneStripViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripViewTests.swift; sourceTree = "<group>"; };
 		5C2E8D9B19A64C02B8F3F1A2 /* PaneStripMotionControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripMotionControllerTests.swift; sourceTree = "<group>"; };
+		6A1D2E3F4B5C6D7E8F901233 /* TerminalPaneHostViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostViewTests.swift; sourceTree = "<group>"; };
+		6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdapter.swift; sourceTree = "<group>"; };
+		6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMetadata.swift; sourceTree = "<group>"; };
+		6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostView.swift; sourceTree = "<group>"; };
 		51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripView.swift; sourceTree = "<group>"; };
 		6F5E4D3C2B1A098765432112 /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		6BC138BE273ED92291124633 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
@@ -106,6 +114,7 @@
 				86D8A35364B8935BD9D2D219 /* Input */,
 				7F1FD0AFD7DC8203464D5523 /* Layout */,
 				E839246BBEECA8F611076C8E /* Motion */,
+				6A1D2E3F4B5C6D7E8F90123B /* Terminal */,
 				DF5F1230FC57111D71EAF9A9 /* UI */,
 			);
 			path = Zentty;
@@ -148,6 +157,16 @@
 			path = Input;
 			sourceTree = "<group>";
 		};
+		6A1D2E3F4B5C6D7E8F90123B /* Terminal */ = {
+			isa = PBXGroup;
+			children = (
+				6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */,
+				6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */,
+				6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */,
+			);
+			path = Terminal;
+			sourceTree = "<group>";
+		};
 		928C5204454C83A419DEEAFF /* ZenttyTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -157,6 +176,7 @@
 				7120EEE7A0C06BD8315283B9 /* MainWindowControllerTests.swift */,
 				55E6D7C8B9A0F1E203142536 /* PaneContainerViewTests.swift */,
 				5C2E8D9B19A64C02B8F3F1A2 /* PaneStripMotionControllerTests.swift */,
+				6A1D2E3F4B5C6D7E8F901233 /* TerminalPaneHostViewTests.swift */,
 				4DBA5050D2AB5F66D5F0B804 /* PaneStripStateTests.swift */,
 				5A2D8C9B19A64C02B8F3F1A2 /* PaneStripViewTests.swift */,
 				AE8E84FD25CC1033F027FE62 /* PaneStripStoreTests.swift */,
@@ -298,6 +318,9 @@
 				A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */,
 				581E3A1AB04E391540AC02F1 /* SidebarView.swift in Sources */,
 				1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */,
+				6A1D2E3F4B5C6D7E8F901236 /* TerminalAdapter.swift in Sources */,
+				6A1D2E3F4B5C6D7E8F901238 /* TerminalMetadata.swift in Sources */,
+				6A1D2E3F4B5C6D7E8F90123A /* TerminalPaneHostView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -310,6 +333,7 @@
 				ADDC80F33AD74B2D67F3A005 /* MainWindowControllerTests.swift in Sources */,
 				44F6A7B8C9D0E1F203142536 /* PaneContainerViewTests.swift in Sources */,
 				5C2E8D9B19A64C02B8F3F1A3 /* PaneStripMotionControllerTests.swift in Sources */,
+				6A1D2E3F4B5C6D7E8F901234 /* TerminalPaneHostViewTests.swift in Sources */,
 				8F0F568491CA91D81FE0BE47 /* PaneStripStateTests.swift in Sources */,
 				5A2D8C9B19A64C02B8F3F1A3 /* PaneStripViewTests.swift in Sources */,
 				C5B93AB63BA8FD549DF63C95 /* PaneStripStoreTests.swift in Sources */,

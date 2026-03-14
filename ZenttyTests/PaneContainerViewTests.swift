@@ -20,9 +20,9 @@ final class PaneContainerViewTests: XCTestCase {
         }
 
         guard let terminalSurfaceView = paneView.descendantSubviews().first(where: {
-            String(describing: type(of: $0)) == "TerminalSurfaceMockView"
+            String(describing: type(of: $0)) == "TerminalPaneHostView"
         }) else {
-            return XCTFail("Expected dedicated terminal surface view")
+            return XCTFail("Expected dedicated terminal host view")
         }
 
         XCTAssertLessThan(terminalSurfaceView.frame.maxY, headerView.frame.minY)

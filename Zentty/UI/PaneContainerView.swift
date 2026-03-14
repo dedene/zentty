@@ -9,7 +9,8 @@ final class PaneContainerView: NSView {
 
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
-    private let terminalSurfaceView = TerminalSurfaceMockView()
+    private let mockTerminalAdapter = MockTerminalAdapter()
+    private lazy var terminalHostView = TerminalPaneHostView(adapter: mockTerminalAdapter)
 
     init(title: String, subtitle: String, width: CGFloat, height: CGFloat, emphasis: CGFloat, isFocused: Bool) {
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
@@ -41,27 +42,27 @@ final class PaneContainerView: NSView {
         header.orientation = .horizontal
         header.translatesAutoresizingMaskIntoConstraints = false
 
-        terminalSurfaceView.translatesAutoresizingMaskIntoConstraints = false
-
         addSubview(header)
-        addSubview(terminalSurfaceView)
+        addSubview(terminalHostView)
+
+        try? terminalHostView.startSessionIfNeeded()
 
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: topAnchor, constant: Layout.outerInset),
             header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.outerInset),
             header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.outerInset),
 
-            terminalSurfaceView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Layout.headerBottomSpacing),
-            terminalSurfaceView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.outerInset),
-            terminalSurfaceView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.outerInset),
-            terminalSurfaceView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.outerInset),
+            terminalHostView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Layout.headerBottomSpacing),
+            terminalHostView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.outerInset),
+            terminalHostView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.outerInset),
+            terminalHostView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.outerInset),
         ])
     }
 
     func render(title: String, subtitle: String, width: CGFloat, height: CGFloat, emphasis: CGFloat, isFocused: Bool) {
         titleLabel.stringValue = title
         subtitleLabel.stringValue = subtitle
-        terminalSurfaceView.render(title: title, isFocused: isFocused)
+        mockTerminalAdapter.render(title: title, isFocused: isFocused)
 
         frame.size = NSSize(width: width, height: height)
         layer?.borderColor = (isFocused
@@ -80,6 +81,24 @@ final class PaneContainerView: NSView {
 
     var titleTextForTesting: String {
         titleLabel.stringValue
+    }
+}
+
+@MainActor
+private final class MockTerminalAdapter: TerminalAdapter {
+    private let surfaceView = TerminalSurfaceMockView()
+
+    var metadataDidChange: ((TerminalMetadata) -> Void)?
+
+    func makeTerminalView() -> NSView {
+        surfaceView
+    }
+
+    func startSession() throws {}
+
+    func render(title: String, isFocused: Bool) {
+        surfaceView.render(title: title, isFocused: isFocused)
+        metadataDidChange?(TerminalMetadata(title: title))
     }
 }
 
