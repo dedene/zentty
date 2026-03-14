@@ -1,6 +1,8 @@
 import AppKit
 
 final class PaneStripView: NSView {
+    private let stack = NSStackView()
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setup()
@@ -15,19 +17,11 @@ final class PaneStripView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
 
-        let stack = NSStackView()
         stack.orientation = .horizontal
         stack.alignment = .top
         stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
-
-        [
-            PaneContainerView(title: "logs", subtitle: "left", emphasized: false),
-            PaneContainerView(title: "editor", subtitle: "focused", emphasized: true),
-            PaneContainerView(title: "tests", subtitle: "right", emphasized: false),
-            PaneContainerView(title: "shell", subtitle: "far right", emphasized: false),
-        ].forEach(stack.addArrangedSubview)
 
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 18),
@@ -35,5 +29,34 @@ final class PaneStripView: NSView {
             stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -18),
             stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -18),
         ])
+    }
+
+    func render(_ state: PaneStripState) {
+        stack.arrangedSubviews.forEach { view in
+            stack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        state.layoutItems.enumerated().forEach { index, item in
+            stack.addArrangedSubview(
+                PaneContainerView(
+                    title: item.pane.title,
+                    subtitle: subtitle(for: index, focusedIndex: state.focusedIndex),
+                    emphasized: item.isFocused
+                )
+            )
+        }
+    }
+
+    private func subtitle(for index: Int, focusedIndex: Int) -> String {
+        if index == focusedIndex {
+            return "focused"
+        }
+
+        if index < focusedIndex {
+            return index == focusedIndex - 1 ? "left" : "off-left"
+        }
+
+        return index == focusedIndex + 1 ? "right" : "off-right"
     }
 }

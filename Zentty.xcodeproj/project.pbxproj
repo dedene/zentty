@@ -8,14 +8,22 @@
 
 /* Begin PBXBuildFile section */
 		1383C76F463DAE3D42A4C7FC /* ContextStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC63FD2674437F1139255B3E /* ContextStripView.swift */; };
+		1E9155B18597D48510ACEDD8 /* PaneStripStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DEEB96E79CCE6DC7CB29BFD /* PaneStripStore.swift */; };
+		4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 474B9A1AC6A427A707683CA3 /* PaneCommand.swift */; };
 		48F07B2E3A80B9D431002E57 /* PaneContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */; };
 		581E3A1AB04E391540AC02F1 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */; };
+		801ECD25402540B6F022BC3F /* KeyboardShortcutResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A94FD26FCD146425105D3FD /* KeyboardShortcutResolver.swift */; };
 		87EA948CE9A1C6B7DF2A1FBD /* ZenttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */; };
+		8F0F568491CA91D81FE0BE47 /* PaneStripStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBA5050D2AB5F66D5F0B804 /* PaneStripStateTests.swift */; };
 		9D7601CFA6D9A38A2C6B4E58 /* PaneStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */; };
+		A3BA15B5A0157C439C268E41 /* KeyboardShortcutResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */; };
 		A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B93F46C5542A31805301C02 /* RootViewController.swift */; };
 		AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */; };
 		C384A9FA26C72AC1B662D7A4 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3CFC2B870895651B043DF45 /* AppDelegate.swift */; };
+		C5B93AB63BA8FD549DF63C95 /* PaneStripStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8E84FD25CC1033F027FE62 /* PaneStripStoreTests.swift */; };
 		EBD8B30A46636BC41AACF9CD /* RootViewCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF4944514D465B85C6D9A3AC /* RootViewCompositionTests.swift */; };
+		ED97F9FB42E05ECE3179E60D /* PaneStripState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D36706DB3DF677FA13DC722 /* PaneStripState.swift */; };
+		F33474EA4FEC1975F4FB4754 /* KeyboardShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D348923237491F345AB193 /* KeyboardShortcut.swift */; };
 		FE927A90AB3D0A3AE1AF2004 /* AppCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8085EEB54A83D5D7F7A68CAB /* AppCanvasView.swift */; };
 /* End PBXBuildFile section */
 
@@ -31,13 +39,21 @@
 
 /* Begin PBXFileReference section */
 		0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutResolverTests.swift; sourceTree = "<group>"; };
+		2A94FD26FCD146425105D3FD /* KeyboardShortcutResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutResolver.swift; sourceTree = "<group>"; };
 		3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerView.swift; sourceTree = "<group>"; };
+		3D36706DB3DF677FA13DC722 /* PaneStripState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripState.swift; sourceTree = "<group>"; };
+		474B9A1AC6A427A707683CA3 /* PaneCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneCommand.swift; sourceTree = "<group>"; };
+		4DBA5050D2AB5F66D5F0B804 /* PaneStripStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripStateTests.swift; sourceTree = "<group>"; };
 		51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripView.swift; sourceTree = "<group>"; };
 		74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyTests.swift; sourceTree = "<group>"; };
 		7B93F46C5542A31805301C02 /* RootViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewController.swift; sourceTree = "<group>"; };
 		8085EEB54A83D5D7F7A68CAB /* AppCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCanvasView.swift; sourceTree = "<group>"; };
+		8DEEB96E79CCE6DC7CB29BFD /* PaneStripStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripStore.swift; sourceTree = "<group>"; };
 		A3CFC2B870895651B043DF45 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		AE8E84FD25CC1033F027FE62 /* PaneStripStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripStoreTests.swift; sourceTree = "<group>"; };
 		B530C90C0E34C9180D7FA019 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B8D348923237491F345AB193 /* KeyboardShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcut.swift; sourceTree = "<group>"; };
 		BC63FD2674437F1139255B3E /* ContextStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextStripView.swift; sourceTree = "<group>"; };
 		CBF4079FD49C87B216061EB3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
@@ -47,12 +63,23 @@
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		1C0506CDB868054B09C5CA8D /* AppState */ = {
+			isa = PBXGroup;
+			children = (
+				8DEEB96E79CCE6DC7CB29BFD /* PaneStripStore.swift */,
+			);
+			path = AppState;
+			sourceTree = "<group>";
+		};
 		3113646FB0F299F70B834339 /* Zentty */ = {
 			isa = PBXGroup;
 			children = (
 				A3CFC2B870895651B043DF45 /* AppDelegate.swift */,
 				B530C90C0E34C9180D7FA019 /* Info.plist */,
 				DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */,
+				1C0506CDB868054B09C5CA8D /* AppState */,
+				86D8A35364B8935BD9D2D219 /* Input */,
+				7F1FD0AFD7DC8203464D5523 /* Layout */,
 				DF5F1230FC57111D71EAF9A9 /* UI */,
 			);
 			path = Zentty;
@@ -76,10 +103,31 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		7F1FD0AFD7DC8203464D5523 /* Layout */ = {
+			isa = PBXGroup;
+			children = (
+				3D36706DB3DF677FA13DC722 /* PaneStripState.swift */,
+			);
+			path = Layout;
+			sourceTree = "<group>";
+		};
+		86D8A35364B8935BD9D2D219 /* Input */ = {
+			isa = PBXGroup;
+			children = (
+				B8D348923237491F345AB193 /* KeyboardShortcut.swift */,
+				2A94FD26FCD146425105D3FD /* KeyboardShortcutResolver.swift */,
+				474B9A1AC6A427A707683CA3 /* PaneCommand.swift */,
+			);
+			path = Input;
+			sourceTree = "<group>";
+		};
 		928C5204454C83A419DEEAFF /* ZenttyTests */ = {
 			isa = PBXGroup;
 			children = (
 				CBF4079FD49C87B216061EB3 /* Info.plist */,
+				1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */,
+				4DBA5050D2AB5F66D5F0B804 /* PaneStripStateTests.swift */,
+				AE8E84FD25CC1033F027FE62 /* PaneStripStoreTests.swift */,
 				FF4944514D465B85C6D9A3AC /* RootViewCompositionTests.swift */,
 				74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */,
 			);
@@ -182,8 +230,13 @@
 				FE927A90AB3D0A3AE1AF2004 /* AppCanvasView.swift in Sources */,
 				C384A9FA26C72AC1B662D7A4 /* AppDelegate.swift in Sources */,
 				1383C76F463DAE3D42A4C7FC /* ContextStripView.swift in Sources */,
+				F33474EA4FEC1975F4FB4754 /* KeyboardShortcut.swift in Sources */,
+				801ECD25402540B6F022BC3F /* KeyboardShortcutResolver.swift in Sources */,
 				AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */,
+				4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */,
 				48F07B2E3A80B9D431002E57 /* PaneContainerView.swift in Sources */,
+				ED97F9FB42E05ECE3179E60D /* PaneStripState.swift in Sources */,
+				1E9155B18597D48510ACEDD8 /* PaneStripStore.swift in Sources */,
 				9D7601CFA6D9A38A2C6B4E58 /* PaneStripView.swift in Sources */,
 				A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */,
 				581E3A1AB04E391540AC02F1 /* SidebarView.swift in Sources */,
@@ -194,6 +247,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A3BA15B5A0157C439C268E41 /* KeyboardShortcutResolverTests.swift in Sources */,
+				8F0F568491CA91D81FE0BE47 /* PaneStripStateTests.swift in Sources */,
+				C5B93AB63BA8FD549DF63C95 /* PaneStripStoreTests.swift in Sources */,
 				EBD8B30A46636BC41AACF9CD /* RootViewCompositionTests.swift in Sources */,
 				87EA948CE9A1C6B7DF2A1FBD /* ZenttyTests.swift in Sources */,
 			);

@@ -61,4 +61,9 @@ final class AppCanvasView: NSView {
             paneStripView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
     }
+
+    func render(_ state: PaneStripState) {
+        contextStripView.render(state)
+        paneStripView.render(state)
+    }
 }
