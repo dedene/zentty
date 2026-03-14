@@ -7,8 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1383C76F463DAE3D42A4C7FC /* ContextStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC63FD2674437F1139255B3E /* ContextStripView.swift */; };
+		48F07B2E3A80B9D431002E57 /* PaneContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */; };
+		581E3A1AB04E391540AC02F1 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */; };
 		87EA948CE9A1C6B7DF2A1FBD /* ZenttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */; };
+		9D7601CFA6D9A38A2C6B4E58 /* PaneStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */; };
+		A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B93F46C5542A31805301C02 /* RootViewController.swift */; };
+		AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */; };
 		C384A9FA26C72AC1B662D7A4 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3CFC2B870895651B043DF45 /* AppDelegate.swift */; };
+		EBD8B30A46636BC41AACF9CD /* RootViewCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF4944514D465B85C6D9A3AC /* RootViewCompositionTests.swift */; };
+		FE927A90AB3D0A3AE1AF2004 /* AppCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8085EEB54A83D5D7F7A68CAB /* AppCanvasView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -22,12 +30,20 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerView.swift; sourceTree = "<group>"; };
+		51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripView.swift; sourceTree = "<group>"; };
 		74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyTests.swift; sourceTree = "<group>"; };
+		7B93F46C5542A31805301C02 /* RootViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewController.swift; sourceTree = "<group>"; };
+		8085EEB54A83D5D7F7A68CAB /* AppCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCanvasView.swift; sourceTree = "<group>"; };
 		A3CFC2B870895651B043DF45 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B530C90C0E34C9180D7FA019 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		BC63FD2674437F1139255B3E /* ContextStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextStripView.swift; sourceTree = "<group>"; };
 		CBF4079FD49C87B216061EB3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
 		E5BDEE21BACB5E0E7AB95AE0 /* ZenttyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZenttyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE4A79EE9DA488020E7D0C71 /* Zentty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Zentty.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FF4944514D465B85C6D9A3AC /* RootViewCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewCompositionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -36,6 +52,8 @@
 			children = (
 				A3CFC2B870895651B043DF45 /* AppDelegate.swift */,
 				B530C90C0E34C9180D7FA019 /* Info.plist */,
+				DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */,
+				DF5F1230FC57111D71EAF9A9 /* UI */,
 			);
 			path = Zentty;
 			sourceTree = "<group>";
@@ -62,9 +80,23 @@
 			isa = PBXGroup;
 			children = (
 				CBF4079FD49C87B216061EB3 /* Info.plist */,
+				FF4944514D465B85C6D9A3AC /* RootViewCompositionTests.swift */,
 				74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */,
 			);
 			path = ZenttyTests;
+			sourceTree = "<group>";
+		};
+		DF5F1230FC57111D71EAF9A9 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				8085EEB54A83D5D7F7A68CAB /* AppCanvasView.swift */,
+				BC63FD2674437F1139255B3E /* ContextStripView.swift */,
+				3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */,
+				51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */,
+				7B93F46C5542A31805301C02 /* RootViewController.swift */,
+				0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */,
+			);
+			path = UI;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -147,7 +179,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FE927A90AB3D0A3AE1AF2004 /* AppCanvasView.swift in Sources */,
 				C384A9FA26C72AC1B662D7A4 /* AppDelegate.swift in Sources */,
+				1383C76F463DAE3D42A4C7FC /* ContextStripView.swift in Sources */,
+				AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */,
+				48F07B2E3A80B9D431002E57 /* PaneContainerView.swift in Sources */,
+				9D7601CFA6D9A38A2C6B4E58 /* PaneStripView.swift in Sources */,
+				A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */,
+				581E3A1AB04E391540AC02F1 /* SidebarView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -155,6 +194,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EBD8B30A46636BC41AACF9CD /* RootViewCompositionTests.swift in Sources */,
 				87EA948CE9A1C6B7DF2A1FBD /* ZenttyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -305,6 +345,7 @@
 					"@loader_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.peterdedene.zenttyTests;
+				PRODUCT_NAME = ZenttyTests;
 				SDKROOT = macosx;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
 			};
@@ -356,6 +397,7 @@
 					"@loader_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.peterdedene.zenttyTests;
+				PRODUCT_NAME = ZenttyTests;
 				SDKROOT = macosx;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
 			};

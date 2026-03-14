@@ -35,6 +35,7 @@ targets:
       path: ZenttyTests/Info.plist
     settings:
       base:
+        PRODUCT_NAME: ZenttyTests
         PRODUCT_BUNDLE_IDENTIFIER: com.peterdedene.zenttyTests
         INFOPLIST_FILE: ZenttyTests/Info.plist
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty"
