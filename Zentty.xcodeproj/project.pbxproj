@@ -24,6 +24,7 @@
 		6A1D2E3F4B5C6D7E8F901236 /* TerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */; };
 		6A1D2E3F4B5C6D7E8F901238 /* TerminalMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */; };
 		6A1D2E3F4B5C6D7E8F90123A /* TerminalPaneHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */; };
+		7B2C3D4E5F60718293A4B5C6 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7B2C3D4E5F60718293A4B5C5 /* GhosttyKit.xcframework */; };
 		801ECD25402540B6F022BC3F /* KeyboardShortcutResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A94FD26FCD146425105D3FD /* KeyboardShortcutResolver.swift */; };
 		87EA948CE9A1C6B7DF2A1FBD /* ZenttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */; };
 		8F0F568491CA91D81FE0BE47 /* PaneStripStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBA5050D2AB5F66D5F0B804 /* PaneStripStateTests.swift */; };
@@ -52,6 +53,17 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		7B2C3D4E5F60718293A4B5C8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7B2C3D4E5F60718293A4B5C6 /* GhosttyKit.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
 /* Begin PBXFileReference section */
 		0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		19A1B2C3D4E5F60718293A4B /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
@@ -70,6 +82,7 @@
 		6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdapter.swift; sourceTree = "<group>"; };
 		6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMetadata.swift; sourceTree = "<group>"; };
 		6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostView.swift; sourceTree = "<group>"; };
+		7B2C3D4E5F60718293A4B5C5 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripView.swift; sourceTree = "<group>"; };
 		6F5E4D3C2B1A098765432112 /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		6BC138BE273ED92291124633 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
@@ -123,10 +136,19 @@
 		37CB5D1993A4151C254A16D2 = {
 			isa = PBXGroup;
 			children = (
+				7B2C3D4E5F60718293A4B5C7 /* FrameworksLocal */,
 				3113646FB0F299F70B834339 /* Zentty */,
 				928C5204454C83A419DEEAFF /* ZenttyTests */,
 				77D242A536F1FD4B6EE328F9 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		7B2C3D4E5F60718293A4B5C7 /* FrameworksLocal */ = {
+			isa = PBXGroup;
+			children = (
+				7B2C3D4E5F60718293A4B5C5 /* GhosttyKit.xcframework */,
+			);
+			path = FrameworksLocal;
 			sourceTree = "<group>";
 		};
 		77D242A536F1FD4B6EE328F9 /* Products */ = {
@@ -233,6 +255,8 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 8CF3F2B2CC3B4077397556BF /* Build configuration list for PBXNativeTarget "Zentty" */;
 			buildPhases = (
+				7B2C3D4E5F60718293A4B5C9 /* Verify GhosttyKit */,
+				7B2C3D4E5F60718293A4B5C8 /* Frameworks */,
 				7F3DAA66194F5E5435D20992 /* Sources */,
 				29A1B2C3D4E5F60718293A4B /* Resources */,
 			);
@@ -294,6 +318,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		7B2C3D4E5F60718293A4B5C9 /* Verify GhosttyKit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Verify GhosttyKit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "FRAMEWORK_PATH=\"${PROJECT_DIR}/FrameworksLocal/GhosttyKit.xcframework\"\nif [ ! -d \"$FRAMEWORK_PATH\" ]; then\n  echo \"error: GhosttyKit.xcframework not found. Run scripts/build_ghosttykit.sh first.\"\n  exit 1\nfi\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		7F3DAA66194F5E5435D20992 /* Sources */ = {
