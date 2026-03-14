@@ -97,9 +97,9 @@ final class PaneStripStateTests: XCTestCase {
         )
 
         let items = state.layoutItems(in: CGSize(width: 2200, height: 780))
-        XCTAssertEqual(items[0].width, 1092, accuracy: 0.001)
-        XCTAssertEqual(items[1].width, 1092, accuracy: 0.001)
-        XCTAssertEqual(items[2].width, 1092, accuracy: 0.001)
+        XCTAssertEqual(items[0].width, 1087, accuracy: 0.001)
+        XCTAssertEqual(items[1].width, 1087, accuracy: 0.001)
+        XCTAssertEqual(items[2].width, 1087, accuracy: 0.001)
     }
 
     func test_narrow_layout_clamps_pane_width_to_minimum() {
@@ -170,8 +170,25 @@ final class PaneStripStateTests: XCTestCase {
 
         let items = state.layoutItems(in: CGSize(width: 1200, height: 780))
 
-        XCTAssertEqual(items[0].width, 592, accuracy: 0.001)
-        XCTAssertEqual(items[1].width, 592, accuracy: 0.001)
+        XCTAssertEqual(items[0].width, 587, accuracy: 0.001)
+        XCTAssertEqual(items[1].width, 587, accuracy: 0.001)
+    }
+
+    func test_two_pane_layout_preserves_symmetric_outer_margins() {
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("pane-1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+
+        let items = state.layoutItems(in: CGSize(width: 1200, height: 780))
+        let sizing = PaneLayoutSizing.balanced
+        let totalWidth = items.map(\.width).reduce(0, +) + sizing.interPaneSpacing
+        let contentWidth = 1200 - (sizing.horizontalInset * 2)
+
+        XCTAssertEqual(totalWidth, contentWidth, accuracy: 0.001)
     }
 
     func test_layout_height_expands_with_container_height() {

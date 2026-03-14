@@ -147,8 +147,103 @@ final class PaneStripViewTests: XCTestCase {
 
         XCTAssertEqual(fullWidth, 1184, accuracy: 0.001)
         XCTAssertTrue(paneViews.contains(where: { $0 === originalShellView }))
-        XCTAssertEqual(paneViews[0].frame.width, 592, accuracy: 0.001)
-        XCTAssertEqual(paneViews[1].frame.width, 592, accuracy: 0.001)
+        XCTAssertEqual(paneViews[0].frame.width, 587, accuracy: 0.001)
+        XCTAssertEqual(paneViews[1].frame.width, 587, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_first_split_keeps_symmetric_left_and_right_canvas_margins() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let splitState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("pane-1"), title: "pane 1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+
+        paneStripView.render(splitState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let paneViews = paneStripView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        let leftMargin = try XCTUnwrap(paneViews.first?.frame.minX)
+        let lastPaneMaxX = try XCTUnwrap(paneViews.last?.frame.maxX)
+        let rightMargin = paneStripView.bounds.width - lastPaneMaxX
+
+        XCTAssertEqual(leftMargin, rightMargin, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_split_from_single_pane_seeds_new_pane_from_right_edge_of_original_pane() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let singlePane = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let splitState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("pane-1"), title: "pane 1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+
+        paneStripView.render(singlePane)
+        paneStripView.layoutSubtreeIfNeeded()
+        let originalShellFrame = try XCTUnwrap(paneStripView.descendantPaneViews().first?.frame)
+        let splitPresentation = PaneStripMotionController().presentation(
+            for: splitState,
+            in: paneStripView.bounds.size
+        )
+
+        paneStripView.render(splitState)
+
+        let transition = try XCTUnwrap(paneStripView.lastInsertionTransitionForTesting)
+        let finalFrame = try XCTUnwrap(
+            splitPresentation.panes.first(where: { $0.paneID == PaneID("pane-1") })?.frame
+                .offsetBy(dx: -splitPresentation.targetOffset, dy: 0)
+        )
+
+        XCTAssertEqual(transition.side, .right)
+        XCTAssertEqual(transition.paneID, PaneID("pane-1"))
+        XCTAssertGreaterThan(transition.initialFrame.minX, originalShellFrame.maxX)
+        XCTAssertGreaterThan(transition.initialFrame.minX, finalFrame.minX)
+    }
+
+    @MainActor
+    func test_split_from_multi_pane_seeds_new_pane_from_right_of_left_neighbor() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let twoPaneState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        let splitState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+                PaneState(id: PaneID("pane-1"), title: "pane 1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+
+        paneStripView.render(twoPaneState)
+        paneStripView.layoutSubtreeIfNeeded()
+        let editorFrame = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleTextForTesting == "editor" })?.frame
+        )
+
+        paneStripView.render(splitState)
+
+        let transition = try XCTUnwrap(paneStripView.lastInsertionTransitionForTesting)
+
+        XCTAssertEqual(transition.side, .right)
+        XCTAssertEqual(transition.paneID, PaneID("pane-1"))
+        XCTAssertGreaterThan(transition.initialFrame.minX, editorFrame.maxX)
     }
 
     private func makePane(_ title: String) -> PaneState {

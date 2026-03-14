@@ -24,8 +24,12 @@ struct PaneLayoutSizing: Equatable, Sendable {
             return available
         }
 
+        // Reserve one inter-pane gutter so the first split keeps symmetric
+        // breathing room on both sides of the strip.
+        let effectiveAvailable = max(0, available - interPaneSpacing)
+
         return clamp(
-            available * defaultPaneWidthRatio,
+            effectiveAvailable * defaultPaneWidthRatio,
             min: minimumPaneWidth,
             max: min(maximumPaneWidth, available)
         )
