@@ -11,6 +11,13 @@ struct PaneID: Hashable, Equatable, Sendable {
 struct PaneState: Equatable, Sendable {
     let id: PaneID
     var title: String
+    var sessionRequest: TerminalSessionRequest
+
+    init(id: PaneID, title: String, sessionRequest: TerminalSessionRequest = TerminalSessionRequest()) {
+        self.id = id
+        self.title = title
+        self.sessionRequest = sessionRequest
+    }
 }
 
 enum PanePlacement: Sendable {

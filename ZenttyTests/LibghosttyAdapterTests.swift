@@ -19,6 +19,7 @@ final class LibghosttyAdapterTests: XCTestCase {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)
         let terminalView = adapter.makeTerminalView()
+        let request = TerminalSessionRequest(workingDirectory: "/tmp/project")
         let metadata = TerminalMetadata(
             title: "editor",
             currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
@@ -29,10 +30,11 @@ final class LibghosttyAdapterTests: XCTestCase {
 
         adapter.metadataDidChange = { receivedMetadata = $0 }
 
-        try adapter.startSession()
+        try adapter.startSession(using: request)
 
         XCTAssertEqual(runtime.makeSurfaceCallCount, 1)
         XCTAssertTrue(runtime.lastHostView === terminalView)
+        XCTAssertEqual(runtime.lastRequest, request)
 
         runtime.lastMetadataHandler?(metadata)
 
@@ -73,13 +75,16 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
     private(set) var makeSurfaceCallCount = 0
     private(set) weak var lastHostView: LibghosttyView?
     private(set) var lastMetadataHandler: ((TerminalMetadata) -> Void)?
+    private(set) var lastRequest: TerminalSessionRequest?
 
     func makeSurface(
         for hostView: LibghosttyView,
+        request: TerminalSessionRequest,
         metadataDidChange: @escaping (TerminalMetadata) -> Void
     ) throws -> any LibghosttySurfaceControlling {
         makeSurfaceCallCount += 1
         lastHostView = hostView
+        lastRequest = request
         lastMetadataHandler = metadataDidChange
         return LibghosttySurfaceControllerSpy()
     }
@@ -89,4 +94,6 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) {}
     func refresh() {}
+    func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool { true }
+    func sendText(_ text: String) {}
 }

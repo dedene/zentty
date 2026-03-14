@@ -2,15 +2,14 @@ import AppKit
 
 final class PaneContainerView: NSView {
     enum Layout {
-        static let outerInset: CGFloat = 12
-        static let headerBottomSpacing: CGFloat = 10
-        static let terminalInnerInset: CGFloat = 12
+        static let borderWidth: CGFloat = 1
     }
 
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let subtitleLabel = NSTextField(labelWithString: "")
     private let terminalAdapter: any TerminalAdapter
     private lazy var terminalHostView = TerminalPaneHostView(adapter: terminalAdapter)
+    private(set) var paneID: PaneID
+    private var sessionRequest: TerminalSessionRequest
+    private var titleTextStorage: String
     var onSelected: (() -> Void)?
     var onMetadataDidChange: ((TerminalMetadata) -> Void)? {
         didSet {
@@ -19,19 +18,21 @@ final class PaneContainerView: NSView {
     }
 
     init(
-        title: String,
-        subtitle: String,
+        pane: PaneState,
         width: CGFloat,
         height: CGFloat,
         emphasis: CGFloat,
         isFocused: Bool,
         adapter: (any TerminalAdapter)? = nil
     ) {
+        self.paneID = pane.id
+        self.sessionRequest = pane.sessionRequest
+        self.titleTextStorage = pane.title
         self.terminalAdapter = adapter ?? TerminalAdapterRegistry.makeAdapter()
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
         translatesAutoresizingMaskIntoConstraints = true
         setup()
-        render(title: title, subtitle: subtitle, width: width, height: height, emphasis: emphasis, isFocused: isFocused)
+        render(pane: pane, width: width, height: height, emphasis: emphasis, isFocused: isFocused)
     }
 
     @available(*, unavailable)
@@ -43,21 +44,11 @@ final class PaneContainerView: NSView {
         wantsLayer = true
         layer?.cornerRadius = 16
         layer?.cornerCurve = .continuous
-        layer?.borderWidth = 1
+        layer?.borderWidth = Layout.borderWidth
         layer?.shadowOffset = .zero
+        layer?.masksToBounds = true
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-
-        titleLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-
-        subtitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        subtitleLabel.textColor = .secondaryLabelColor
-
-        let header = NSStackView(views: [titleLabel, NSView(), subtitleLabel])
-        header.orientation = .horizontal
-        header.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(header)
         addSubview(terminalHostView)
 
         terminalHostView.onMetadataDidChange = onMetadataDidChange
@@ -68,24 +59,21 @@ final class PaneContainerView: NSView {
 
             self?.onSelected?()
         }
-        try? terminalHostView.startSessionIfNeeded()
+        try? terminalHostView.startSessionIfNeeded(using: sessionRequest)
 
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: topAnchor, constant: Layout.outerInset),
-            header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.outerInset),
-            header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.outerInset),
-
-            terminalHostView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Layout.headerBottomSpacing),
-            terminalHostView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.outerInset),
-            terminalHostView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.outerInset),
-            terminalHostView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.outerInset),
+            terminalHostView.topAnchor.constraint(equalTo: topAnchor),
+            terminalHostView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            terminalHostView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            terminalHostView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
-    func render(title: String, subtitle: String, width: CGFloat, height: CGFloat, emphasis: CGFloat, isFocused: Bool) {
-        titleLabel.stringValue = title
-        subtitleLabel.stringValue = subtitle
-        (terminalAdapter as? TerminalPreviewRendering)?.renderPreview(title: title, isFocused: isFocused)
+    func render(pane: PaneState, width: CGFloat, height: CGFloat, emphasis: CGFloat, isFocused: Bool) {
+        paneID = pane.id
+        sessionRequest = pane.sessionRequest
+        titleTextStorage = pane.title
+        (terminalAdapter as? TerminalPreviewRendering)?.renderPreview(title: pane.title, isFocused: isFocused)
 
         frame.size = NSSize(width: width, height: height)
         layer?.borderColor = (isFocused
@@ -113,6 +101,6 @@ final class PaneContainerView: NSView {
     }
 
     var titleTextForTesting: String {
-        titleLabel.stringValue
+        titleTextStorage
     }
 }

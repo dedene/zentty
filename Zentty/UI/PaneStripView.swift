@@ -8,6 +8,7 @@ final class PaneStripView: NSView {
     private let motionController = PaneStripMotionController()
     private let gestureDriver = TrackpadPanGestureDriver()
     private let viewportView = NSView()
+    private let adapterFactory: @MainActor () -> any TerminalAdapter
 
     private var currentState: PaneStripState?
     private var currentPresentation: StripPresentation?
@@ -26,6 +27,16 @@ final class PaneStripView: NSView {
     }
 
     override init(frame frameRect: NSRect) {
+        self.adapterFactory = { TerminalAdapterRegistry.makeAdapter() }
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    init(
+        frame frameRect: NSRect = .zero,
+        adapterFactory: @escaping @MainActor () -> any TerminalAdapter
+    ) {
+        self.adapterFactory = adapterFactory
         super.init(frame: frameRect)
         setup()
     }
@@ -86,16 +97,8 @@ final class PaneStripView: NSView {
         let presentation = motionController.presentation(for: state, in: bounds.size)
         currentPresentation = presentation
         let targetOffset = isInteracting ? currentOffset : presentation.targetOffset
-        let nextPaneIDs = presentation.panes.map(\.paneID)
-
-        guard orderedPaneIDs == nextPaneIDs else {
-            rebuildPaneViews(with: state, presentation: presentation)
-            orderedPaneIDs = nextPaneIDs
-            applyPresentation(presentation, state: state, offset: targetOffset)
-            currentOffset = targetOffset
-            lastRenderedSize = bounds.size
-            return
-        }
+        reconcilePaneViews(with: state, presentation: presentation)
+        orderedPaneIDs = presentation.panes.map(\.paneID)
 
         let updates = {
             self.applyPresentation(presentation, state: state, offset: targetOffset)
@@ -114,31 +117,46 @@ final class PaneStripView: NSView {
         syncFocusedTerminal(with: state.focusedPaneID)
     }
 
-    private func subtitle(for index: Int, focusedIndex: Int) -> String {
-        if index == focusedIndex {
-            return "focused"
-        }
-
-        if index < focusedIndex {
-            return index == focusedIndex - 1 ? "left" : "off-left"
-        }
-
-        return index == focusedIndex + 1 ? "right" : "off-right"
-    }
-
-    private func rebuildPaneViews(with state: PaneStripState, presentation: StripPresentation) {
-        viewportView.subviews.forEach { $0.removeFromSuperview() }
-        paneViews.removeAll()
-
+    private func applyPresentation(_ presentation: StripPresentation, state: PaneStripState, offset: CGFloat) {
         presentation.panes.enumerated().forEach { index, panePresentation in
+            guard let paneView = paneViews[panePresentation.paneID] else {
+                return
+            }
+
             let pane = state.panes[index]
-            let paneView = PaneContainerView(
-                title: pane.title,
-                subtitle: subtitle(for: index, focusedIndex: state.focusedIndex),
+            paneView.render(
+                pane: pane,
                 width: panePresentation.frame.width,
                 height: panePresentation.frame.height,
                 emphasis: panePresentation.emphasis,
                 isFocused: panePresentation.isFocused
+            )
+            paneView.animator().frame = panePresentation.frame.offsetBy(dx: -offset, dy: 0)
+        }
+    }
+
+    private func reconcilePaneViews(with state: PaneStripState, presentation: StripPresentation) {
+        let nextPaneIDs = Set(presentation.panes.map(\.paneID))
+        let obsoletePaneIDs = Set(paneViews.keys).subtracting(nextPaneIDs)
+
+        for paneID in obsoletePaneIDs {
+            paneViews[paneID]?.removeFromSuperview()
+            paneViews.removeValue(forKey: paneID)
+        }
+
+        presentation.panes.enumerated().forEach { index, panePresentation in
+            guard paneViews[panePresentation.paneID] == nil else {
+                return
+            }
+
+            let pane = state.panes[index]
+            let paneView = PaneContainerView(
+                pane: pane,
+                width: panePresentation.frame.width,
+                height: panePresentation.frame.height,
+                emphasis: panePresentation.emphasis,
+                isFocused: panePresentation.isFocused,
+                adapter: adapterFactory()
             )
             paneView.onSelected = { [weak self] in
                 self?.onPaneSelected?(pane.id)
@@ -150,26 +168,7 @@ final class PaneStripView: NSView {
             viewportView.addSubview(paneView)
         }
 
-        lastFocusedPaneID = nil
-    }
-
-    private func applyPresentation(_ presentation: StripPresentation, state: PaneStripState, offset: CGFloat) {
-        presentation.panes.enumerated().forEach { index, panePresentation in
-            guard let paneView = paneViews[panePresentation.paneID] else {
-                return
-            }
-
-            let pane = state.panes[index]
-            paneView.render(
-                title: pane.title,
-                subtitle: subtitle(for: index, focusedIndex: state.focusedIndex),
-                width: panePresentation.frame.width,
-                height: panePresentation.frame.height,
-                emphasis: panePresentation.emphasis,
-                isFocused: panePresentation.isFocused
-            )
-            paneView.animator().frame = panePresentation.frame.offsetBy(dx: -offset, dy: 0)
-        }
+        lastFocusedPaneID = lastFocusedPaneID.flatMap { paneViews[$0] == nil ? nil : $0 }
     }
 
     private func beginInteraction() {

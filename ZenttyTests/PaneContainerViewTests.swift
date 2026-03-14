@@ -4,10 +4,9 @@ import XCTest
 
 @MainActor
 final class PaneContainerViewTests: XCTestCase {
-    func test_pane_uses_dedicated_terminal_surface_that_fills_below_header() {
+    func test_pane_hosts_terminal_edge_to_edge_without_internal_header() {
         let paneView = PaneContainerView(
-            title: "editor",
-            subtitle: "focused",
+            pane: PaneState(id: PaneID("editor"), title: "editor"),
             width: 420,
             height: 520,
             emphasis: 1,
@@ -15,18 +14,14 @@ final class PaneContainerViewTests: XCTestCase {
         )
         paneView.layoutSubtreeIfNeeded()
 
-        guard let headerView = paneView.descendantSubviews().first(where: { $0 is NSStackView }) else {
-            return XCTFail("Expected header stack view")
-        }
-
         guard let terminalSurfaceView = paneView.descendantSubviews().first(where: {
             String(describing: type(of: $0)) == "TerminalPaneHostView"
         }) else {
             return XCTFail("Expected dedicated terminal host view")
         }
 
-        XCTAssertLessThan(terminalSurfaceView.frame.maxY, headerView.frame.minY)
-        XCTAssertGreaterThan(terminalSurfaceView.frame.height, paneView.frame.height * 0.5)
+        XCTAssertFalse(paneView.descendantSubviews().contains { $0 is NSStackView })
+        XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
     }
 }
 

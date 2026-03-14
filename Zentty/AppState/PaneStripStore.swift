@@ -8,6 +8,7 @@ final class PaneStripStore {
     var onChange: ((PaneStripState) -> Void)?
 
     private var nextPaneNumber: Int
+    private var metadataByPaneID: [PaneID: TerminalMetadata] = [:]
 
     init(state: PaneStripState = .pocDefault) {
         self.state = state
@@ -23,7 +24,9 @@ final class PaneStripStore {
                 return
             }
 
-            state.closeFocusedPane()
+            if let removedPane = state.closeFocusedPane() {
+                metadataByPaneID.removeValue(forKey: removedPane.id)
+            }
         case .focusLeft:
             state.moveFocusLeft()
         case .focusRight:
@@ -39,12 +42,21 @@ final class PaneStripStore {
         state.focusPane(id: id)
     }
 
+    func updateMetadata(id: PaneID, metadata: TerminalMetadata) {
+        metadataByPaneID[id] = metadata
+    }
+
     private func makePane() -> PaneState {
         defer {
             nextPaneNumber += 1
         }
 
         let title = "pane \(nextPaneNumber)"
-        return PaneState(id: PaneID("pane-\(nextPaneNumber)"), title: title)
+        let workingDirectory = state.focusedPaneID.flatMap { metadataByPaneID[$0]?.currentWorkingDirectory }
+        return PaneState(
+            id: PaneID("pane-\(nextPaneNumber)"),
+            title: title,
+            sessionRequest: TerminalSessionRequest(workingDirectory: workingDirectory)
+        )
     }
 }

@@ -10,6 +10,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     init(
         app: ghostty_app_t,
         hostView: LibghosttyView,
+        request: TerminalSessionRequest,
         metadataDidChange: @escaping (TerminalMetadata) -> Void
     ) throws {
         self.metadataDidChange = metadataDidChange
@@ -25,11 +26,23 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         config.scale_factor = Double(hostView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1)
         config.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
 
-        guard let surface = ghostty_surface_new(app, &config) else {
+        var createdSurface: ghostty_surface_t?
+        if let workingDirectory = request.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workingDirectory.isEmpty {
+            workingDirectory.withCString { cString in
+                config.working_directory = cString
+                createdSurface = ghostty_surface_new(app, &config)
+            }
+        } else {
+            createdSurface = ghostty_surface_new(app, &config)
+        }
+
+        guard let surface = createdSurface else {
             throw LibghosttyRuntime.Error.surfaceCreationFailed
         }
 
         self.surface = surface
+        metadata.currentWorkingDirectory = request.workingDirectory
         updateViewport(
             size: hostView.convertToBacking(hostView.bounds).size,
             scale: hostView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1,
@@ -77,6 +90,50 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         ghostty_surface_refresh(surface)
     }
 
+    func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool {
+        guard let surface else {
+            return false
+        }
+
+        var keyEvent = ghostty_input_key_s()
+        switch action {
+        case .press:
+            keyEvent.action = GHOSTTY_ACTION_PRESS
+        case .release:
+            keyEvent.action = GHOSTTY_ACTION_RELEASE
+        case .repeatPress:
+            keyEvent.action = GHOSTTY_ACTION_REPEAT
+        }
+        keyEvent.mods = modsFromEvent(event)
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.keycode = UInt32(event.keyCode)
+        keyEvent.unshifted_codepoint = 0
+        keyEvent.composing = composing
+
+        if let text {
+            return text.withCString { cString in
+                keyEvent.text = cString
+                return ghostty_surface_key(surface, keyEvent)
+            }
+        } else {
+            keyEvent.text = nil
+            return ghostty_surface_key(surface, keyEvent)
+        }
+    }
+
+    func sendText(_ text: String) {
+        guard let surface else {
+            return
+        }
+
+        text.utf8CString.withUnsafeBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else {
+                return
+            }
+            ghostty_surface_text(surface, baseAddress, UInt(buffer.count - 1))
+        }
+    }
+
     func handle(payload: LibghosttySurfaceActionPayload) {
         switch payload {
         case .setTitle(let title):
@@ -90,5 +147,24 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
 
     private func publishMetadata() {
         metadataDidChange(metadata)
+    }
+
+    private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
+        var rawValue = GHOSTTY_MODS_NONE.rawValue
+
+        if event.modifierFlags.contains(.shift) {
+            rawValue |= GHOSTTY_MODS_SHIFT.rawValue
+        }
+        if event.modifierFlags.contains(.control) {
+            rawValue |= GHOSTTY_MODS_CTRL.rawValue
+        }
+        if event.modifierFlags.contains(.option) {
+            rawValue |= GHOSTTY_MODS_ALT.rawValue
+        }
+        if event.modifierFlags.contains(.command) {
+            rawValue |= GHOSTTY_MODS_SUPER.rawValue
+        }
+
+        return ghostty_input_mods_e(rawValue: rawValue) ?? GHOSTTY_MODS_NONE
     }
 }

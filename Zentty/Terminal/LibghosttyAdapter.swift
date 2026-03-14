@@ -4,8 +4,15 @@ import AppKit
 protocol LibghosttyRuntimeProviding: AnyObject {
     func makeSurface(
         for hostView: LibghosttyView,
+        request: TerminalSessionRequest,
         metadataDidChange: @escaping (TerminalMetadata) -> Void
     ) throws -> any LibghosttySurfaceControlling
+}
+
+enum TerminalKeyAction: Equatable {
+    case press
+    case release
+    case repeatPress
 }
 
 @MainActor
@@ -13,6 +20,8 @@ protocol LibghosttySurfaceControlling: AnyObject {
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?)
     func setFocused(_ isFocused: Bool)
     func refresh()
+    func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool
+    func sendText(_ text: String)
 }
 
 @MainActor
@@ -31,13 +40,14 @@ final class LibghosttyAdapter: TerminalAdapter {
         hostView
     }
 
-    func startSession() throws {
+    func startSession(using request: TerminalSessionRequest) throws {
         guard surfaceController == nil else {
             return
         }
 
         let surfaceController = try runtime.makeSurface(
             for: hostView,
+            request: request,
             metadataDidChange: { [weak self] metadata in
                 self?.metadataDidChange?(metadata)
             }

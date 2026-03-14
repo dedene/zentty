@@ -30,6 +30,55 @@ final class LibghosttyViewTests: XCTestCase {
 
         XCTAssertEqual(surface.focusUpdates, [true, false])
     }
+
+    func test_key_down_forwards_text_to_surface() throws {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.bind(surfaceController: surface)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        view.keyDown(with: event)
+
+        XCTAssertEqual(surface.keyEvents.count, 1)
+        XCTAssertEqual(surface.keyEvents[0].text, "a")
+        XCTAssertEqual(surface.keyEvents[0].action, .press)
+    }
+
+    func test_key_up_forwards_release_to_surface() throws {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.bind(surfaceController: surface)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        view.keyUp(with: event)
+
+        XCTAssertEqual(surface.keyEvents.count, 1)
+        XCTAssertEqual(surface.keyEvents[0].action, .release)
+    }
 }
 
 private final class LibghosttySurfaceViewportSpy: LibghosttySurfaceControlling {
@@ -39,8 +88,15 @@ private final class LibghosttySurfaceViewportSpy: LibghosttySurfaceControlling {
         let displayID: UInt32?
     }
 
+    struct KeyEventRecord: Equatable {
+        let action: TerminalKeyAction
+        let text: String?
+        let composing: Bool
+    }
+
     private(set) var viewportUpdates: [ViewportUpdate] = []
     private(set) var focusUpdates: [Bool] = []
+    private(set) var keyEvents: [KeyEventRecord] = []
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {
         viewportUpdates.append(.init(size: size, scale: scale, displayID: displayID))
@@ -51,4 +107,11 @@ private final class LibghosttySurfaceViewportSpy: LibghosttySurfaceControlling {
     }
 
     func refresh() {}
+
+    func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool {
+        keyEvents.append(.init(action: action, text: text, composing: composing))
+        return true
+    }
+
+    func sendText(_ text: String) {}
 }

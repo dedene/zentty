@@ -145,6 +145,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
 
     func makeSurface(
         for hostView: LibghosttyView,
+        request: TerminalSessionRequest,
         metadataDidChange: @escaping (TerminalMetadata) -> Void
     ) throws -> any LibghosttySurfaceControlling {
         guard let app else {
@@ -154,6 +155,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         return try LibghosttySurface(
             app: app,
             hostView: hostView,
+            request: request,
             metadataDidChange: metadataDidChange
         )
     }

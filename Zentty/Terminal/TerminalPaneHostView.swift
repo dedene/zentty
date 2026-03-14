@@ -31,12 +31,12 @@ final class TerminalPaneHostView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func startSessionIfNeeded() throws {
+    func startSessionIfNeeded(using request: TerminalSessionRequest) throws {
         guard !hasStartedSession else {
             return
         }
 
-        try adapter.startSession()
+        try adapter.startSession(using: request)
         hasStartedSession = true
     }
 

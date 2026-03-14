@@ -15,7 +15,12 @@ final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering {
         surfaceView
     }
 
-    func startSession() throws {}
+    func startSession(using request: TerminalSessionRequest) throws {
+        metadataDidChange?(TerminalMetadata(
+            title: "shell",
+            currentWorkingDirectory: request.workingDirectory
+        ))
+    }
 
     func renderPreview(title: String, isFocused: Bool) {
         surfaceView.render(title: title, isFocused: isFocused)
@@ -24,6 +29,10 @@ final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering {
 }
 
 final class TerminalSurfaceMockView: NSView, TerminalFocusReporting {
+    private enum Layout {
+        static let contentInset: CGFloat = 12
+    }
+
     private let contentLabel = NSTextField(wrappingLabelWithString: "")
     var onFocusDidChange: ((Bool) -> Void)?
 
@@ -63,9 +72,9 @@ final class TerminalSurfaceMockView: NSView, TerminalFocusReporting {
         addSubview(contentLabel)
 
         NSLayoutConstraint.activate([
-            contentLabel.topAnchor.constraint(equalTo: topAnchor, constant: PaneContainerView.Layout.terminalInnerInset),
-            contentLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: PaneContainerView.Layout.terminalInnerInset),
-            contentLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -PaneContainerView.Layout.terminalInnerInset),
+            contentLabel.topAnchor.constraint(equalTo: topAnchor, constant: Layout.contentInset),
+            contentLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset),
+            contentLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Layout.contentInset),
         ])
     }
 

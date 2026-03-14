@@ -11,6 +11,7 @@ final class AppCanvasView: NSView {
             paneStripView.onPaneSelected = onPaneSelected
         }
     }
+    var onPaneMetadataDidChange: ((PaneID, TerminalMetadata) -> Void)?
 
     private enum Layout {
         static let stripTopInset: CGFloat = 10
@@ -53,6 +54,7 @@ final class AppCanvasView: NSView {
         paneStripView.onPaneMetadataDidChange = { [weak self] paneID, metadata in
             self?.metadataByPaneID[paneID] = metadata
             self?.renderFocusedContext()
+            self?.onPaneMetadataDidChange?(paneID, metadata)
         }
 
         contentView.addSubview(contextStripView)

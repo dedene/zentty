@@ -47,6 +47,9 @@ final class RootViewController: NSViewController {
         appCanvasView.onPaneSelected = { [weak self] paneID in
             self?.paneStripStore.focusPane(id: paneID)
         }
+        appCanvasView.onPaneMetadataDidChange = { [weak self] paneID, metadata in
+            self?.paneStripStore.updateMetadata(id: paneID, metadata: metadata)
+        }
         appCanvasView.render(paneStripStore.state)
     }
 

@@ -84,8 +84,69 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertLessThan(updatedFrames["tests"]!.midX, initialFrames["tests"]!.midX)
     }
 
+    @MainActor
+    func test_split_reuses_existing_pane_views_and_only_starts_one_new_session() {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 980, height: 680),
+            adapterFactory: { adapterFactory.makeAdapter() }
+        )
+        let singlePane = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let splitState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("pane-1"), title: "pane 1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+
+        paneStripView.render(singlePane)
+        paneStripView.layoutSubtreeIfNeeded()
+        let originalShellView = try? XCTUnwrap(paneStripView.descendantPaneViews().first)
+        XCTAssertEqual(adapterFactory.adapters.map(\.startSessionCallCount), [1])
+
+        paneStripView.render(splitState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let paneViews = paneStripView.descendantPaneViews()
+        XCTAssertEqual(paneViews.count, 2)
+        XCTAssertTrue(paneViews.contains(where: { $0 === originalShellView }))
+        XCTAssertEqual(adapterFactory.adapters.map(\.startSessionCallCount), [1, 1])
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
+    }
+}
+
+@MainActor
+private final class TerminalAdapterFactorySpy {
+    private(set) var adapters: [PaneStripTerminalAdapterSpy] = []
+
+    func makeAdapter() -> any TerminalAdapter {
+        let adapter = PaneStripTerminalAdapterSpy()
+        adapters.append(adapter)
+        return adapter
+    }
+}
+
+@MainActor
+private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
+    let terminalView = NSView()
+    var metadataDidChange: ((TerminalMetadata) -> Void)?
+    private(set) var startSessionCallCount = 0
+
+    func makeTerminalView() -> NSView {
+        terminalView
+    }
+
+    func startSession(using request: TerminalSessionRequest) throws {
+        startSessionCallCount += 1
     }
 }
 

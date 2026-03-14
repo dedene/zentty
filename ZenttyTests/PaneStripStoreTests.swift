@@ -11,11 +11,16 @@ final class PaneStripStoreTests: XCTestCase {
 
     func test_split_inserts_adjacent_pane_and_focuses_it() {
         let store = PaneStripStore()
+        store.updateMetadata(
+            id: PaneID("shell"),
+            metadata: TerminalMetadata(currentWorkingDirectory: "/tmp/project")
+        )
 
         store.send(.split)
 
         XCTAssertEqual(store.state.panes.map(\.title), ["shell", "pane 1"])
         XCTAssertEqual(store.state.focusedPane?.title, "pane 1")
+        XCTAssertEqual(store.state.focusedPane?.sessionRequest.workingDirectory, "/tmp/project")
     }
 
     func test_close_removes_focused_pane_and_moves_focus_to_nearest_neighbor() {

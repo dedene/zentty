@@ -19,10 +19,11 @@ final class TerminalPaneHostViewTests: XCTestCase {
         let adapter = TerminalAdapterSpy()
         let hostView = TerminalPaneHostView(adapter: adapter)
 
-        try hostView.startSessionIfNeeded()
-        try hostView.startSessionIfNeeded()
+        try hostView.startSessionIfNeeded(using: TerminalSessionRequest(workingDirectory: "/tmp/project"))
+        try hostView.startSessionIfNeeded(using: TerminalSessionRequest(workingDirectory: "/tmp/project"))
 
         XCTAssertEqual(adapter.startSessionCallCount, 1)
+        XCTAssertEqual(adapter.lastRequest, TerminalSessionRequest(workingDirectory: "/tmp/project"))
     }
 
     func test_metadata_callback_is_forwarded_to_host_observer() {
@@ -79,13 +80,15 @@ private final class TerminalAdapterSpy: TerminalAdapter {
     let terminalView = FirstResponderTerminalView()
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     private(set) var startSessionCallCount = 0
+    private(set) var lastRequest: TerminalSessionRequest?
 
     func makeTerminalView() -> NSView {
         terminalView
     }
 
-    func startSession() throws {
+    func startSession(using request: TerminalSessionRequest) throws {
         startSessionCallCount += 1
+        lastRequest = request
     }
 }
 
