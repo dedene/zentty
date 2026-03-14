@@ -77,17 +77,15 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         ghostty_surface_refresh(surface)
     }
 
-    func handle(action: ghostty_action_s) {
-        switch action.tag {
-        case GHOSTTY_ACTION_SET_TITLE:
-            metadata.title = action.action.set_title.title.map { String(cString: $0) }
-            publishMetadata()
-        case GHOSTTY_ACTION_PWD:
-            metadata.currentWorkingDirectory = action.action.pwd.pwd.map { String(cString: $0) }
-            publishMetadata()
-        default:
-            break
+    func handle(payload: LibghosttySurfaceActionPayload) {
+        switch payload {
+        case .setTitle(let title):
+            metadata.title = title
+        case .pwd(let path):
+            metadata.currentWorkingDirectory = path
         }
+
+        publishMetadata()
     }
 
     private func publishMetadata() {

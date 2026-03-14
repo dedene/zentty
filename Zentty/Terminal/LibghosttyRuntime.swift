@@ -1,6 +1,24 @@
 import AppKit
 import GhosttyKit
 
+enum LibghosttySurfaceActionPayload: Equatable {
+    case setTitle(String?)
+    case pwd(String?)
+}
+
+func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> LibghosttySurfaceActionPayload? {
+    switch action.tag {
+    case GHOSTTY_ACTION_SET_TITLE:
+        let title = action.action.set_title.title.map { String(cString: $0) }
+        return .setTitle(title)
+    case GHOSTTY_ACTION_PWD:
+        let pwd = action.action.pwd.pwd.map { String(cString: $0) }
+        return .pwd(pwd)
+    default:
+        return nil
+    }
+}
+
 private func libghosttyWakeupCallback(userdata: UnsafeMutableRawPointer?) {
     guard let userdata else {
         return
@@ -32,16 +50,15 @@ private func libghosttyActionCallback(
     }
 
     let owner = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue()
-    DispatchQueue.main.async {
-        owner.handle(action: action)
-    }
-
-    switch action.tag {
-    case GHOSTTY_ACTION_SET_TITLE, GHOSTTY_ACTION_PWD:
-        return true
-    default:
+    guard let payload = copyLibghosttySurfaceActionPayload(from: action) else {
         return false
     }
+
+    DispatchQueue.main.async {
+        owner.handle(payload: payload)
+    }
+
+    return true
 }
 
 @MainActor

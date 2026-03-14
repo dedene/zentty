@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyKit
 import XCTest
 @testable import Zentty
 
@@ -36,6 +37,34 @@ final class LibghosttyAdapterTests: XCTestCase {
         runtime.lastMetadataHandler?(metadata)
 
         XCTAssertEqual(receivedMetadata, metadata)
+    }
+
+    func test_copy_action_payload_copies_pwd_string_before_async_boundary() {
+        let duplicated = strdup("/tmp/project")
+        defer { free(duplicated) }
+
+        let action = ghostty_action_s(
+            tag: GHOSTTY_ACTION_PWD,
+            action: ghostty_action_u(pwd: ghostty_action_pwd_s(pwd: duplicated))
+        )
+
+        let payload = copyLibghosttySurfaceActionPayload(from: action)
+
+        XCTAssertEqual(payload, .pwd("/tmp/project"))
+    }
+
+    func test_copy_action_payload_copies_title_string_before_async_boundary() {
+        let duplicated = strdup("shell")
+        defer { free(duplicated) }
+
+        let action = ghostty_action_s(
+            tag: GHOSTTY_ACTION_SET_TITLE,
+            action: ghostty_action_u(set_title: ghostty_action_set_title_s(title: duplicated))
+        )
+
+        let payload = copyLibghosttySurfaceActionPayload(from: action)
+
+        XCTAssertEqual(payload, .setTitle("shell"))
     }
 }
 
