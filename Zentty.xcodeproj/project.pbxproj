@@ -19,6 +19,7 @@
 		A3BA15B5A0157C439C268E41 /* KeyboardShortcutResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */; };
 		A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B93F46C5542A31805301C02 /* RootViewController.swift */; };
 		AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */; };
+		C01A739643B858C0F3A69C88 /* PaneStripMotionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD6261C82AADF1EDAAA09BC9 /* PaneStripMotionController.swift */; };
 		C384A9FA26C72AC1B662D7A4 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3CFC2B870895651B043DF45 /* AppDelegate.swift */; };
 		C5B93AB63BA8FD549DF63C95 /* PaneStripStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8E84FD25CC1033F027FE62 /* PaneStripStoreTests.swift */; };
 		EBD8B30A46636BC41AACF9CD /* RootViewCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF4944514D465B85C6D9A3AC /* RootViewCompositionTests.swift */; };
@@ -59,6 +60,7 @@
 		DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
 		E5BDEE21BACB5E0E7AB95AE0 /* ZenttyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZenttyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE4A79EE9DA488020E7D0C71 /* Zentty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Zentty.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FD6261C82AADF1EDAAA09BC9 /* PaneStripMotionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripMotionController.swift; sourceTree = "<group>"; };
 		FF4944514D465B85C6D9A3AC /* RootViewCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewCompositionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -80,6 +82,7 @@
 				1C0506CDB868054B09C5CA8D /* AppState */,
 				86D8A35364B8935BD9D2D219 /* Input */,
 				7F1FD0AFD7DC8203464D5523 /* Layout */,
+				E839246BBEECA8F611076C8E /* Motion */,
 				DF5F1230FC57111D71EAF9A9 /* UI */,
 			);
 			path = Zentty;
@@ -145,6 +148,14 @@
 				0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */,
 			);
 			path = UI;
+			sourceTree = "<group>";
+		};
+		E839246BBEECA8F611076C8E /* Motion */ = {
+			isa = PBXGroup;
+			children = (
+				FD6261C82AADF1EDAAA09BC9 /* PaneStripMotionController.swift */,
+			);
+			path = Motion;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -235,6 +246,7 @@
 				AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */,
 				4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */,
 				48F07B2E3A80B9D431002E57 /* PaneContainerView.swift in Sources */,
+				C01A739643B858C0F3A69C88 /* PaneStripMotionController.swift in Sources */,
 				ED97F9FB42E05ECE3179E60D /* PaneStripState.swift in Sources */,
 				1E9155B18597D48510ACEDD8 /* PaneStripStore.swift in Sources */,
 				9D7601CFA6D9A38A2C6B4E58 /* PaneStripView.swift in Sources */,

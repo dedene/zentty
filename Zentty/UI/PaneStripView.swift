@@ -1,7 +1,10 @@
 import AppKit
 
 final class PaneStripView: NSView {
+    private let motionController = PaneStripMotionController()
     private let stack = NSStackView()
+    private var orderedPaneIDs: [PaneID] = []
+    private var paneViews: [PaneID: PaneContainerView] = [:]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -32,19 +35,16 @@ final class PaneStripView: NSView {
     }
 
     func render(_ state: PaneStripState) {
-        stack.arrangedSubviews.forEach { view in
-            stack.removeArrangedSubview(view)
-            view.removeFromSuperview()
+        let nextPaneIDs = state.layoutItems.map(\.pane.id)
+
+        guard orderedPaneIDs == nextPaneIDs else {
+            rebuildStack(with: state)
+            orderedPaneIDs = nextPaneIDs
+            return
         }
 
-        state.layoutItems.enumerated().forEach { index, item in
-            stack.addArrangedSubview(
-                PaneContainerView(
-                    title: item.pane.title,
-                    subtitle: subtitle(for: index, focusedIndex: state.focusedIndex),
-                    emphasized: item.isFocused
-                )
-            )
+        motionController.animate(in: self) {
+            self.applyState(state)
         }
     }
 
@@ -58,5 +58,35 @@ final class PaneStripView: NSView {
         }
 
         return index == focusedIndex + 1 ? "right" : "off-right"
+    }
+
+    private func rebuildStack(with state: PaneStripState) {
+        stack.arrangedSubviews.forEach { view in
+            stack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        paneViews.removeAll()
+
+        state.layoutItems.enumerated().forEach { index, item in
+            let paneView = PaneContainerView(
+                title: item.pane.title,
+                subtitle: subtitle(for: index, focusedIndex: state.focusedIndex),
+                emphasized: item.isFocused
+            )
+            paneViews[item.pane.id] = paneView
+            stack.addArrangedSubview(paneView)
+        }
+    }
+
+    private func applyState(_ state: PaneStripState) {
+        state.layoutItems.enumerated().forEach { index, item in
+            paneViews[item.pane.id]?.render(
+                title: item.pane.title,
+                subtitle: subtitle(for: index, focusedIndex: state.focusedIndex),
+                width: item.width,
+                isFocused: item.isFocused
+            )
+        }
     }
 }

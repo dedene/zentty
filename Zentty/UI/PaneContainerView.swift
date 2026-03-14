@@ -1,10 +1,16 @@
 import AppKit
 
 final class PaneContainerView: NSView {
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let subtitleLabel = NSTextField(labelWithString: "")
+    private let screen = NSTextField(wrappingLabelWithString: "")
+    private var widthConstraint: NSLayoutConstraint!
+
     init(title: String, subtitle: String, emphasized: Bool) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        setup(title: title, subtitle: subtitle, emphasized: emphasized)
+        setup()
+        render(title: title, subtitle: subtitle, width: emphasized ? 408 : 248, isFocused: emphasized)
     }
 
     @available(*, unavailable)
@@ -12,24 +18,14 @@ final class PaneContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setup(title: String, subtitle: String, emphasized: Bool) {
+    private func setup() {
         wantsLayer = true
         layer?.cornerRadius = 20
         layer?.cornerCurve = .continuous
         layer?.borderWidth = 1
-        layer?.borderColor = (emphasized
-            ? NSColor.systemBlue.withAlphaComponent(0.30)
-            : NSColor.separatorColor.withAlphaComponent(0.18)
-        ).cgColor
-        layer?.backgroundColor = (emphasized
-            ? NSColor.systemBlue.withAlphaComponent(0.06)
-            : NSColor.white.withAlphaComponent(0.22)
-        ).cgColor
 
-        let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
 
-        let subtitleLabel = NSTextField(labelWithString: subtitle)
         subtitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         subtitleLabel.textColor = .secondaryLabelColor
 
@@ -37,7 +33,6 @@ final class PaneContainerView: NSView {
         header.orientation = .horizontal
         header.translatesAutoresizingMaskIntoConstraints = false
 
-        let screen = NSTextField(wrappingLabelWithString: "$ \(title)\nplaceholder terminal content\nspatial pane shell")
         screen.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         screen.textColor = NSColor(calibratedRed: 0.83, green: 0.96, blue: 0.85, alpha: 1)
         screen.wantsLayer = true
@@ -45,14 +40,15 @@ final class PaneContainerView: NSView {
         screen.layer?.cornerCurve = .continuous
         screen.layer?.backgroundColor = NSColor(calibratedRed: 0.08, green: 0.10, blue: 0.14, alpha: 0.96).cgColor
         screen.translatesAutoresizingMaskIntoConstraints = false
+        screen.alphaValue = 0.96
 
         addSubview(header)
         addSubview(screen)
 
-        let width: CGFloat = emphasized ? 408 : 248
+        widthConstraint = widthAnchor.constraint(equalToConstant: 248)
+        widthConstraint.isActive = true
 
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: width),
             heightAnchor.constraint(equalToConstant: 360),
 
             header.topAnchor.constraint(equalTo: topAnchor, constant: 14),
@@ -64,5 +60,23 @@ final class PaneContainerView: NSView {
             screen.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             screen.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14),
         ])
+    }
+
+    func render(title: String, subtitle: String, width: CGFloat, isFocused: Bool) {
+        titleLabel.stringValue = title
+        subtitleLabel.stringValue = subtitle
+        screen.stringValue = "$ \(title)\nplaceholder terminal content\nspatial pane shell"
+
+        widthConstraint.constant = width
+        layer?.borderColor = (isFocused
+            ? NSColor.systemBlue.withAlphaComponent(0.30)
+            : NSColor.separatorColor.withAlphaComponent(0.18)
+        ).cgColor
+        layer?.backgroundColor = (isFocused
+            ? NSColor.systemBlue.withAlphaComponent(0.06)
+            : NSColor.white.withAlphaComponent(0.22)
+        ).cgColor
+        alphaValue = isFocused ? 1 : 0.92
+        screen.alphaValue = isFocused ? 1 : 0.94
     }
 }
