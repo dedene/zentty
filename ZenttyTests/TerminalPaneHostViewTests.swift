@@ -24,6 +24,23 @@ final class TerminalPaneHostViewTests: XCTestCase {
 
         XCTAssertEqual(adapter.startSessionCallCount, 1)
     }
+
+    func test_metadata_callback_is_forwarded_to_host_observer() {
+        let adapter = TerminalAdapterSpy()
+        let hostView = TerminalPaneHostView(adapter: adapter)
+        let metadata = TerminalMetadata(
+            title: "shell",
+            currentWorkingDirectory: "/tmp/project",
+            processName: "zsh",
+            gitBranch: "main"
+        )
+        var receivedMetadata: TerminalMetadata?
+
+        hostView.onMetadataDidChange = { receivedMetadata = $0 }
+        adapter.metadataDidChange?(metadata)
+
+        XCTAssertEqual(receivedMetadata, metadata)
+    }
 }
 
 @MainActor

@@ -24,6 +24,14 @@
 		6A1D2E3F4B5C6D7E8F901236 /* TerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */; };
 		6A1D2E3F4B5C6D7E8F901238 /* TerminalMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */; };
 		6A1D2E3F4B5C6D7E8F90123A /* TerminalPaneHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */; };
+		6D1D2E3F4B5C6D7E8F90123C /* TerminalAdapterRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1D2E3F4B5C6D7E8F90123B /* TerminalAdapterRegistry.swift */; };
+		6E1D2E3F4B5C6D7E8F90123E /* MockTerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E1D2E3F4B5C6D7E8F90123D /* MockTerminalAdapter.swift */; };
+		6F1D2E3F4B5C6D7E8F901240 /* LibghosttyAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F1D2E3F4B5C6D7E8F90123F /* LibghosttyAdapter.swift */; };
+		701D2E3F4B5C6D7E8F901242 /* LibghosttyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 701D2E3F4B5C6D7E8F901241 /* LibghosttyView.swift */; };
+		702D2E3F4B5C6D7E8F901244 /* LibghosttySurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702D2E3F4B5C6D7E8F901243 /* LibghosttySurface.swift */; };
+		703D2E3F4B5C6D7E8F901246 /* LibghosttyRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703D2E3F4B5C6D7E8F901245 /* LibghosttyRuntime.swift */; };
+		6B1D2E3F4B5C6D7E8F90123A /* LibghosttyAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B1D2E3F4B5C6D7E8F901239 /* LibghosttyAdapterTests.swift */; };
+		6C1D2E3F4B5C6D7E8F90123A /* LibghosttyViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1D2E3F4B5C6D7E8F901239 /* LibghosttyViewTests.swift */; };
 		7B2C3D4E5F60718293A4B5C6 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7B2C3D4E5F60718293A4B5C5 /* GhosttyKit.xcframework */; };
 		801ECD25402540B6F022BC3F /* KeyboardShortcutResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A94FD26FCD146425105D3FD /* KeyboardShortcutResolver.swift */; };
 		87EA948CE9A1C6B7DF2A1FBD /* ZenttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */; };
@@ -82,6 +90,14 @@
 		6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdapter.swift; sourceTree = "<group>"; };
 		6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMetadata.swift; sourceTree = "<group>"; };
 		6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostView.swift; sourceTree = "<group>"; };
+		6D1D2E3F4B5C6D7E8F90123B /* TerminalAdapterRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdapterRegistry.swift; sourceTree = "<group>"; };
+		6E1D2E3F4B5C6D7E8F90123D /* MockTerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockTerminalAdapter.swift; sourceTree = "<group>"; };
+		6F1D2E3F4B5C6D7E8F90123F /* LibghosttyAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapter.swift; sourceTree = "<group>"; };
+		701D2E3F4B5C6D7E8F901241 /* LibghosttyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyView.swift; sourceTree = "<group>"; };
+		702D2E3F4B5C6D7E8F901243 /* LibghosttySurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttySurface.swift; sourceTree = "<group>"; };
+		703D2E3F4B5C6D7E8F901245 /* LibghosttyRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyRuntime.swift; sourceTree = "<group>"; };
+		6B1D2E3F4B5C6D7E8F901239 /* LibghosttyAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapterTests.swift; sourceTree = "<group>"; };
+		6C1D2E3F4B5C6D7E8F901239 /* LibghosttyViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyViewTests.swift; sourceTree = "<group>"; };
 		7B2C3D4E5F60718293A4B5C5 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripView.swift; sourceTree = "<group>"; };
 		6F5E4D3C2B1A098765432112 /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
@@ -183,8 +199,14 @@
 			isa = PBXGroup;
 			children = (
 				6A1D2E3F4B5C6D7E8F901235 /* TerminalAdapter.swift */,
+				6D1D2E3F4B5C6D7E8F90123B /* TerminalAdapterRegistry.swift */,
 				6A1D2E3F4B5C6D7E8F901237 /* TerminalMetadata.swift */,
 				6A1D2E3F4B5C6D7E8F901239 /* TerminalPaneHostView.swift */,
+				6E1D2E3F4B5C6D7E8F90123D /* MockTerminalAdapter.swift */,
+				6F1D2E3F4B5C6D7E8F90123F /* LibghosttyAdapter.swift */,
+				701D2E3F4B5C6D7E8F901241 /* LibghosttyView.swift */,
+				702D2E3F4B5C6D7E8F901243 /* LibghosttySurface.swift */,
+				703D2E3F4B5C6D7E8F901245 /* LibghosttyRuntime.swift */,
 			);
 			path = Terminal;
 			sourceTree = "<group>";
@@ -195,6 +217,8 @@
 				6F5E4D3C2B1A098765432112 /* AppDelegateTests.swift */,
 				CBF4079FD49C87B216061EB3 /* Info.plist */,
 				1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */,
+				6B1D2E3F4B5C6D7E8F901239 /* LibghosttyAdapterTests.swift */,
+				6C1D2E3F4B5C6D7E8F901239 /* LibghosttyViewTests.swift */,
 				7120EEE7A0C06BD8315283B9 /* MainWindowControllerTests.swift */,
 				55E6D7C8B9A0F1E203142536 /* PaneContainerViewTests.swift */,
 				5C2E8D9B19A64C02B8F3F1A2 /* PaneStripMotionControllerTests.swift */,
@@ -366,8 +390,14 @@
 				581E3A1AB04E391540AC02F1 /* SidebarView.swift in Sources */,
 				1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */,
 				6A1D2E3F4B5C6D7E8F901236 /* TerminalAdapter.swift in Sources */,
+				6D1D2E3F4B5C6D7E8F90123C /* TerminalAdapterRegistry.swift in Sources */,
 				6A1D2E3F4B5C6D7E8F901238 /* TerminalMetadata.swift in Sources */,
 				6A1D2E3F4B5C6D7E8F90123A /* TerminalPaneHostView.swift in Sources */,
+				6E1D2E3F4B5C6D7E8F90123E /* MockTerminalAdapter.swift in Sources */,
+				6F1D2E3F4B5C6D7E8F901240 /* LibghosttyAdapter.swift in Sources */,
+				701D2E3F4B5C6D7E8F901242 /* LibghosttyView.swift in Sources */,
+				702D2E3F4B5C6D7E8F901244 /* LibghosttySurface.swift in Sources */,
+				703D2E3F4B5C6D7E8F901246 /* LibghosttyRuntime.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -381,6 +411,8 @@
 				44F6A7B8C9D0E1F203142536 /* PaneContainerViewTests.swift in Sources */,
 				5C2E8D9B19A64C02B8F3F1A3 /* PaneStripMotionControllerTests.swift in Sources */,
 				6A1D2E3F4B5C6D7E8F901234 /* TerminalPaneHostViewTests.swift in Sources */,
+				6B1D2E3F4B5C6D7E8F90123A /* LibghosttyAdapterTests.swift in Sources */,
+				6C1D2E3F4B5C6D7E8F90123A /* LibghosttyViewTests.swift in Sources */,
 				8F0F568491CA91D81FE0BE47 /* PaneStripStateTests.swift in Sources */,
 				5A2D8C9B19A64C02B8F3F1A3 /* PaneStripViewTests.swift in Sources */,
 				C5B93AB63BA8FD549DF63C95 /* PaneStripStoreTests.swift in Sources */,
@@ -552,6 +584,19 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				OTHER_LDFLAGS = (
+					"-lc++",
+					"-framework",
+					Metal,
+					"-framework",
+					QuartzCore,
+					"-framework",
+					IOSurface,
+					"-framework",
+					UniformTypeIdentifiers,
+					"-framework",
+					Carbon,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.peterdedene.zentty;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -568,6 +613,19 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-lc++",
+					"-framework",
+					Metal,
+					"-framework",
+					QuartzCore,
+					"-framework",
+					IOSurface,
+					"-framework",
+					UniformTypeIdentifiers,
+					"-framework",
+					Carbon,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.peterdedene.zentty;
 				SDKROOT = macosx;
