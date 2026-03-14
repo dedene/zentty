@@ -97,9 +97,9 @@ final class PaneStripStateTests: XCTestCase {
         )
 
         let items = state.layoutItems(in: CGSize(width: 2200, height: 780))
-        XCTAssertEqual(items[0].width, PaneLayoutSizing.balanced.maximumPaneWidth)
-        XCTAssertEqual(items[1].width, PaneLayoutSizing.balanced.maximumPaneWidth)
-        XCTAssertEqual(items[2].width, PaneLayoutSizing.balanced.maximumPaneWidth)
+        XCTAssertEqual(items[0].width, 1092, accuracy: 0.001)
+        XCTAssertEqual(items[1].width, 1092, accuracy: 0.001)
+        XCTAssertEqual(items[2].width, 1092, accuracy: 0.001)
     }
 
     func test_narrow_layout_clamps_pane_width_to_minimum() {
@@ -143,6 +143,35 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(Set(compactItems.map(\.width)).count, 1)
         XCTAssertEqual(compactItems.map(\.isFocused), [false, true, false])
         XCTAssertEqual(shiftedFocusItems.map(\.isFocused), [false, false, true])
+    }
+
+    func test_single_pane_uses_full_available_width() {
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+
+        let items = state.layoutItems(in: CGSize(width: 1200, height: 780))
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].width, 1184, accuracy: 0.001)
+    }
+
+    func test_multi_pane_uses_half_width_by_default_like_niri_columns() {
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("pane-1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+
+        let items = state.layoutItems(in: CGSize(width: 1200, height: 780))
+
+        XCTAssertEqual(items[0].width, 592, accuracy: 0.001)
+        XCTAssertEqual(items[1].width, 592, accuracy: 0.001)
     }
 
     func test_layout_height_expands_with_container_height() {

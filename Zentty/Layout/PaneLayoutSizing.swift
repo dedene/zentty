@@ -9,20 +9,25 @@ struct PaneLayoutSizing: Equatable, Sendable {
     let interPaneSpacing: CGFloat
 
     static let balanced = PaneLayoutSizing(
-        defaultPaneWidthRatio: 0.34,
+        defaultPaneWidthRatio: 0.5,
         minimumPaneWidth: 280,
-        maximumPaneWidth: 520,
+        maximumPaneWidth: .greatestFiniteMagnitude,
         horizontalInset: 8,
         verticalInset: 8,
         interPaneSpacing: 10
     )
 
-    func paneWidth(for containerWidth: CGFloat) -> CGFloat {
+    func paneWidth(for containerWidth: CGFloat, paneCount: Int) -> CGFloat {
         let available = max(0, containerWidth - (horizontalInset * 2))
+
+        guard paneCount > 1 else {
+            return available
+        }
+
         return clamp(
             available * defaultPaneWidthRatio,
             min: minimumPaneWidth,
-            max: maximumPaneWidth
+            max: min(maximumPaneWidth, available)
         )
     }
 

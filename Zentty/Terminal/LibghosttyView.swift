@@ -73,7 +73,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
 
         keyTextAccumulator = ""
         interpretKeyEvents([event])
-        let keyText = keyTextAccumulator.isEmpty ? nil : keyTextAccumulator
+        let keyText = keyTextAccumulator.isEmpty ? fallbackText(for: event) : keyTextAccumulator
         _ = surfaceController.sendKey(
             event: event,
             action: event.isARepeat ? .repeatPress : .press,
@@ -143,6 +143,19 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
             scale: currentScaleFactor,
             displayID: currentDisplayID
         )
+    }
+
+    private func fallbackText(for event: NSEvent) -> String? {
+        guard let characters = event.characters, !characters.isEmpty else {
+            return nil
+        }
+
+        let scalarValues = characters.unicodeScalars
+        guard !scalarValues.allSatisfy({ CharacterSet.controlCharacters.contains($0) }) else {
+            return nil
+        }
+
+        return characters
     }
 }
 

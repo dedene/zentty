@@ -119,6 +119,38 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertEqual(adapterFactory.adapters.map(\.startSessionCallCount), [1, 1])
     }
 
+    @MainActor
+    func test_single_pane_initially_fills_available_width_then_split_uses_column_widths() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let singlePane = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let splitState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("pane-1"), title: "pane 1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+
+        paneStripView.render(singlePane)
+        paneStripView.layoutSubtreeIfNeeded()
+        let originalShellView = try XCTUnwrap(paneStripView.descendantPaneViews().first)
+        let fullWidth = originalShellView.frame.width
+
+        paneStripView.render(splitState)
+        paneStripView.layoutSubtreeIfNeeded()
+        let paneViews = paneStripView.descendantPaneViews()
+
+        XCTAssertEqual(fullWidth, 1184, accuracy: 0.001)
+        XCTAssertTrue(paneViews.contains(where: { $0 === originalShellView }))
+        XCTAssertEqual(paneViews[0].frame.width, 592, accuracy: 0.001)
+        XCTAssertEqual(paneViews[1].frame.width, 592, accuracy: 0.001)
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }

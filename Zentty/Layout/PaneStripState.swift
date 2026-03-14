@@ -67,7 +67,7 @@ struct PaneStripState: Equatable, Sendable {
     }
 
     func layoutItems(in containerSize: CGSize) -> [PaneLayoutItem] {
-        let paneWidth = layoutSizing.paneWidth(for: containerSize.width)
+        let paneWidth = layoutSizing.paneWidth(for: containerSize.width, paneCount: panes.count)
         let paneHeight = layoutSizing.paneHeight(for: containerSize.height)
 
         return panes.map { pane in
