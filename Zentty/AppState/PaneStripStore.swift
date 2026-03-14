@@ -35,6 +35,10 @@ final class PaneStripStore {
         }
     }
 
+    func focusPane(id: PaneID) {
+        state.focusPane(id: id)
+    }
+
     private func makePane() -> PaneState {
         defer {
             nextPaneNumber += 1

@@ -86,21 +86,80 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.focusedIndex, 1)
     }
 
-    func test_width_assignments_use_primary_for_focus_and_secondary_for_neighbors() {
+    func test_wide_layout_clamps_pane_width_to_maximum() {
         let state = PaneStripState(
             panes: [
                 makePane("logs"),
                 makePane("editor"),
                 makePane("tests"),
             ],
-            focusedPaneID: PaneID("editor"),
-            widthProfile: PaneWidthProfile(primary: 408, secondary: 248)
+            focusedPaneID: PaneID("editor")
         )
 
-        let items = state.layoutItems
+        let items = state.layoutItems(in: CGSize(width: 2200, height: 780))
+        XCTAssertEqual(items[0].width, PaneLayoutSizing.balanced.maximumPaneWidth)
+        XCTAssertEqual(items[1].width, PaneLayoutSizing.balanced.maximumPaneWidth)
+        XCTAssertEqual(items[2].width, PaneLayoutSizing.balanced.maximumPaneWidth)
+    }
 
-        XCTAssertEqual(items.map(\.width), [248, 408, 248])
-        XCTAssertEqual(items.map(\.isFocused), [false, true, false])
+    func test_narrow_layout_clamps_pane_width_to_minimum() {
+        let state = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+
+        let items = state.layoutItems(in: CGSize(width: 560, height: 780))
+        XCTAssertEqual(items[0].width, PaneLayoutSizing.balanced.minimumPaneWidth)
+        XCTAssertEqual(items[1].width, PaneLayoutSizing.balanced.minimumPaneWidth)
+        XCTAssertEqual(items[2].width, PaneLayoutSizing.balanced.minimumPaneWidth)
+    }
+
+    func test_layout_uses_one_stable_pane_width_across_focus_states() {
+        let state = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        let otherFocusedState = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("tests")
+        )
+
+        let compactItems = state.layoutItems(in: CGSize(width: 960, height: 780))
+        let shiftedFocusItems = otherFocusedState.layoutItems(in: CGSize(width: 960, height: 780))
+
+        XCTAssertEqual(compactItems.map(\.width), shiftedFocusItems.map(\.width))
+        XCTAssertEqual(Set(compactItems.map(\.width)).count, 1)
+        XCTAssertEqual(compactItems.map(\.isFocused), [false, true, false])
+        XCTAssertEqual(shiftedFocusItems.map(\.isFocused), [false, false, true])
+    }
+
+    func test_layout_height_expands_with_container_height() {
+        let state = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+
+        let compactItems = state.layoutItems(in: CGSize(width: 1200, height: 520))
+        let tallItems = state.layoutItems(in: CGSize(width: 1200, height: 820))
+
+        XCTAssertLessThan(compactItems[1].height, tallItems[1].height)
+        XCTAssertGreaterThan(tallItems[1].height, 360)
     }
 
     func test_move_focus_commands_stop_at_strip_edges() {
@@ -129,6 +188,20 @@ final class PaneStripStateTests: XCTestCase {
 
         state.moveFocusToLast()
         XCTAssertEqual(state.focusedPane?.title, "tests")
+    }
+
+    func test_focus_pane_ignores_unknown_ids() {
+        var state = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ]
+        )
+
+        state.focusPane(id: PaneID("missing"))
+
+        XCTAssertEqual(state.focusedPane?.title, "logs")
     }
 
     private func makePane(_ title: String) -> PaneState {

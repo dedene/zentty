@@ -18,31 +18,25 @@ enum PanePlacement: Sendable {
     case afterFocused
 }
 
-struct PaneWidthProfile: Equatable, Sendable {
-    let primary: CGFloat
-    let secondary: CGFloat
-
-    static let pocDefault = PaneWidthProfile(primary: 408, secondary: 248)
-}
-
 struct PaneLayoutItem: Equatable, Sendable {
     let pane: PaneState
     let width: CGFloat
+    let height: CGFloat
     let isFocused: Bool
 }
 
 struct PaneStripState: Equatable, Sendable {
     private(set) var panes: [PaneState]
     private(set) var focusedPaneID: PaneID?
-    let widthProfile: PaneWidthProfile
+    let layoutSizing: PaneLayoutSizing
 
     init(
         panes: [PaneState],
         focusedPaneID: PaneID? = nil,
-        widthProfile: PaneWidthProfile = .pocDefault
+        layoutSizing: PaneLayoutSizing = .balanced
     ) {
         self.panes = panes
-        self.widthProfile = widthProfile
+        self.layoutSizing = layoutSizing
         self.focusedPaneID = PaneStripState.resolveFocusedPaneID(
             panes: panes,
             preferredID: focusedPaneID
@@ -65,12 +59,16 @@ struct PaneStripState: Equatable, Sendable {
         return panes.firstIndex { $0.id == focusedPaneID } ?? 0
     }
 
-    var layoutItems: [PaneLayoutItem] {
-        panes.map { pane in
+    func layoutItems(in containerSize: CGSize) -> [PaneLayoutItem] {
+        let paneWidth = layoutSizing.paneWidth(for: containerSize.width)
+        let paneHeight = layoutSizing.paneHeight(for: containerSize.height)
+
+        return panes.map { pane in
             let isFocused = pane.id == focusedPaneID
             return PaneLayoutItem(
                 pane: pane,
-                width: isFocused ? widthProfile.primary : widthProfile.secondary,
+                width: paneWidth,
+                height: paneHeight,
                 isFocused: isFocused
             )
         }
@@ -90,6 +88,14 @@ struct PaneStripState: Equatable, Sendable {
 
     mutating func moveFocusToLast() {
         focusedPaneID = panes.last?.id
+    }
+
+    mutating func focusPane(id: PaneID) {
+        guard panes.contains(where: { $0.id == id }) else {
+            return
+        }
+
+        focusedPaneID = id
     }
 
     mutating func insertPane(_ pane: PaneState, placement: PanePlacement) {

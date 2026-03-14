@@ -13,7 +13,7 @@ final class SidebarView: NSView {
 
     private func setup() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
 
         let stack = NSStackView()
         stack.orientation = .vertical

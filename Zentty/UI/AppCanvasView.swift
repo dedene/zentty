@@ -1,7 +1,17 @@
 import AppKit
 
 final class AppCanvasView: NSView {
-    private let sidebarView = SidebarView()
+    var onFocusSettled: ((PaneID) -> Void)? {
+        didSet {
+            paneStripView.onFocusSettled = onFocusSettled
+        }
+    }
+
+    private enum Layout {
+        static let stripTopInset: CGFloat = 10
+        static let stripBottomInset: CGFloat = 12
+    }
+
     private let contextStripView = ContextStripView()
     private let paneStripView = PaneStripView()
 
@@ -17,7 +27,7 @@ final class AppCanvasView: NSView {
 
     private func setup() {
         wantsLayer = true
-        layer?.cornerRadius = 26
+        layer?.cornerRadius = 14
         layer?.cornerCurve = .continuous
         layer?.borderWidth = 1
         layer?.borderColor = NSColor.white.withAlphaComponent(0.55).cgColor
@@ -31,11 +41,9 @@ final class AppCanvasView: NSView {
         contentView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentView)
 
-        sidebarView.translatesAutoresizingMaskIntoConstraints = false
         contextStripView.translatesAutoresizingMaskIntoConstraints = false
         paneStripView.translatesAutoresizingMaskIntoConstraints = false
 
-        contentView.addSubview(sidebarView)
         contentView.addSubview(contextStripView)
         contentView.addSubview(paneStripView)
 
@@ -45,20 +53,22 @@ final class AppCanvasView: NSView {
             contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            sidebarView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            sidebarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            sidebarView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            sidebarView.widthAnchor.constraint(equalToConstant: 92),
-
             contextStripView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            contextStripView.leadingAnchor.constraint(equalTo: sidebarView.trailingAnchor),
+            contextStripView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             contextStripView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            contextStripView.heightAnchor.constraint(equalToConstant: 52),
+            contextStripView.heightAnchor.constraint(
+                equalToConstant: ContextStripView.preferredHeight),
 
-            paneStripView.topAnchor.constraint(equalTo: contextStripView.bottomAnchor),
-            paneStripView.leadingAnchor.constraint(equalTo: sidebarView.trailingAnchor),
+            paneStripView.topAnchor.constraint(
+                equalTo: contextStripView.bottomAnchor,
+                constant: Layout.stripTopInset
+            ),
+            paneStripView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             paneStripView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            paneStripView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            paneStripView.bottomAnchor.constraint(
+                equalTo: contentView.bottomAnchor,
+                constant: -Layout.stripBottomInset
+            ),
         ])
     }
 

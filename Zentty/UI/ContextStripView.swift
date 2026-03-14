@@ -1,9 +1,11 @@
 import AppKit
 
 final class ContextStripView: NSView {
-    private let workspaceChip = ContextStripView.makeChip(text: "api.zentty", emphasized: true)
-    private let focusedChip = ContextStripView.makeChip(text: "focused pane: editor", emphasized: false)
-    private let cwdChip = ContextStripView.makeChip(text: "cwd: ~/src/zentty/editor", emphasized: false)
+    static let preferredHeight: CGFloat = 34
+
+    private let workspaceChip = ContextStripView.makeChip(text: "api.zentty")
+    private let focusedLabel = ContextStripView.makeLabel(text: "editor", color: .secondaryLabelColor, weight: .medium)
+    private let cwdLabel = ContextStripView.makeLabel(text: "cwd ~/src/zentty/editor", color: .tertiaryLabelColor, weight: .regular)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -17,36 +19,33 @@ final class ContextStripView: NSView {
 
     private func setup() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
 
-        let stack = NSStackView(views: [workspaceChip, focusedChip, cwdChip])
+        let stack = NSStackView(views: [workspaceChip, focusedLabel, cwdLabel])
         stack.orientation = .horizontal
-        stack.spacing = 8
+        stack.spacing = 10
         stack.alignment = .centerY
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
     func render(_ state: PaneStripState) {
         let focusedTitle = state.focusedPane?.title ?? "none"
-        focusedChip.stringValue = "focused pane: \(focusedTitle)"
-        cwdChip.stringValue = "cwd: ~/src/zentty/\(focusedTitle)"
+        focusedLabel.stringValue = focusedTitle
+        cwdLabel.stringValue = "cwd ~/src/zentty/\(focusedTitle)"
     }
 
-    private static func makeChip(text: String, emphasized: Bool) -> NSTextField {
+    private static func makeChip(text: String) -> NSTextField {
         let chip = NSTextField(labelWithString: text)
-        chip.font = NSFont.systemFont(ofSize: 12, weight: emphasized ? .semibold : .medium)
-        chip.textColor = emphasized ? .labelColor : .secondaryLabelColor
+        chip.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        chip.textColor = .labelColor
         chip.wantsLayer = true
-        chip.layer?.backgroundColor = (emphasized
-            ? NSColor.systemBlue.withAlphaComponent(0.14)
-            : NSColor.white.withAlphaComponent(0.18)
-        ).cgColor
+        chip.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.11).cgColor
         chip.layer?.cornerRadius = 11
         chip.layer?.cornerCurve = .continuous
         chip.translatesAutoresizingMaskIntoConstraints = false
@@ -56,5 +55,18 @@ final class ContextStripView: NSView {
             chip.heightAnchor.constraint(equalToConstant: 24),
         ])
         return chip
+    }
+
+    private static func makeLabel(
+        text: String,
+        color: NSColor,
+        weight: NSFont.Weight
+    ) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = NSFont.systemFont(ofSize: 12, weight: weight)
+        label.textColor = color
+        label.lineBreakMode = .byTruncatingMiddle
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return label
     }
 }
