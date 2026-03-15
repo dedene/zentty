@@ -1,7 +1,7 @@
 import AppKit
 
 enum SidebarWidthPreference {
-    static let defaultWidth: CGFloat = 240
+    static let defaultWidth: CGFloat = 280
     static let minimumWidth: CGFloat = 180
     static let maximumWidth: CGFloat = 360
     static let persistenceKey = "RootViewController.sidebarWidth"

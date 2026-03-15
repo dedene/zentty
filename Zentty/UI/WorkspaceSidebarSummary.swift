@@ -17,6 +17,8 @@ struct WorkspaceSidebarSummary: Equatable {
     let attentionText: String?
     let unreadCount: Int?
     let isActive: Bool
+    let showsGeneratedTitle: Bool
+    let showsPaneCount: Bool
 }
 
 enum WorkspaceSidebarSummaryBuilder {
@@ -33,7 +35,6 @@ enum WorkspaceSidebarSummaryBuilder {
         for workspace: WorkspaceState,
         isActive: Bool
     ) -> WorkspaceSidebarSummary {
-        let paneCountText = paneCountSummary(for: workspace.paneStripState.panes.count)
         let focusedPane = workspace.paneStripState.focusedPane
         let metadata = workspace.paneStripState.focusedPaneID.flatMap { workspace.metadataByPaneID[$0] }
 
@@ -42,9 +43,10 @@ enum WorkspaceSidebarSummaryBuilder {
             metadata?.title,
             metadata?.processName,
             focusedPane?.title
-        ) ?? paneCountText
+        ) ?? "shell"
 
-        let detailText = detailSummary(metadata: metadata, fallback: paneCountText)
+        let detailText = detailSummary(metadata: metadata)
+        let isGeneratedTitle = isGeneratedWorkspaceTitle(workspace.title)
 
         return WorkspaceSidebarSummary(
             workspaceID: workspace.id,
@@ -52,31 +54,24 @@ enum WorkspaceSidebarSummaryBuilder {
             badgeText: badge(for: workspace.title),
             summaryText: summaryText,
             detailText: detailText,
-            paneCountText: paneCountText,
+            paneCountText: "",
             attentionState: nil,
             attentionText: nil,
             unreadCount: nil,
-            isActive: isActive
+            isActive: isActive,
+            showsGeneratedTitle: !isGeneratedTitle,
+            showsPaneCount: false
         )
     }
 
     private static func detailSummary(
-        metadata: TerminalMetadata?,
-        fallback: String
+        metadata: TerminalMetadata?
     ) -> String {
         let compactDirectory = metadata?.currentWorkingDirectory.flatMap(compactDirectoryName)
         let branch = trimmed(metadata?.gitBranch)
         let components = [compactDirectory, branch].compactMap { $0 }
 
-        guard !components.isEmpty else {
-            return fallback
-        }
-
         return components.joined(separator: " • ")
-    }
-
-    private static func paneCountSummary(for paneCount: Int) -> String {
-        paneCount == 1 ? "1 pane" : "\(paneCount) panes"
     }
 
     private static func badge(for title: String) -> String {
@@ -128,5 +123,17 @@ enum WorkspaceSidebarSummaryBuilder {
         }
 
         return value
+    }
+
+    private static func isGeneratedWorkspaceTitle(_ title: String) -> Bool {
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.uppercased() == "MAIN" {
+            return true
+        }
+
+        return normalized.range(
+            of: #"^WS \d+$"#,
+            options: .regularExpression
+        ) != nil
     }
 }

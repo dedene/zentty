@@ -64,7 +64,8 @@ if [[ ! -d "${SOURCE_DIR}/.git" ]]; then
   git clone "${repo}" "${SOURCE_DIR}"
 fi
 
-git -C "${SOURCE_DIR}" fetch --tags --prune origin
+# Ghostty updates the moving `tip` tag, so cached clones need forced tag refreshes.
+git -C "${SOURCE_DIR}" fetch --tags --prune --force origin
 git -C "${SOURCE_DIR}" checkout --detach "${revision}"
 
 (

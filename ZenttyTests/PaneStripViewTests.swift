@@ -85,11 +85,39 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_workspace_switch_with_no_shared_panes_skips_cross_workspace_animation() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
+        let mainState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("main-shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("main-shell")
+        )
+        let workspace2State = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("workspace-2-shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("workspace-2-shell")
+        )
+
+        paneStripView.render(mainState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(workspace2State)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(paneStripView.lastRenderWasAnimatedForTesting)
+    }
+
+    @MainActor
     func test_split_reuses_existing_pane_views_and_only_starts_one_new_session() {
         let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
         let paneStripView = PaneStripView(
             frame: NSRect(x: 0, y: 0, width: 980, height: 680),
-            adapterFactory: { adapterFactory.makeAdapter() }
+            runtimeRegistry: runtimeRegistry
         )
         let singlePane = PaneStripState(
             panes: [
@@ -122,9 +150,12 @@ final class PaneStripViewTests: XCTestCase {
     @MainActor
     func test_resize_reuses_existing_pane_views_and_does_not_restart_sessions() throws {
         let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
         let paneStripView = PaneStripView(
             frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
-            adapterFactory: { adapterFactory.makeAdapter() }
+            runtimeRegistry: runtimeRegistry
         )
         let state = PaneStripState(
             panes: [
@@ -301,8 +332,8 @@ final class PaneStripViewTests: XCTestCase {
 private final class TerminalAdapterFactorySpy {
     private(set) var adapters: [PaneStripTerminalAdapterSpy] = []
 
-    func makeAdapter() -> any TerminalAdapter {
-        let adapter = PaneStripTerminalAdapterSpy()
+    func makeAdapter(for paneID: PaneID) -> any TerminalAdapter {
+        let adapter = PaneStripTerminalAdapterSpy(paneID: paneID)
         adapters.append(adapter)
         return adapter
     }
@@ -310,9 +341,15 @@ private final class TerminalAdapterFactorySpy {
 
 @MainActor
 private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
+    let paneID: PaneID
     let terminalView = NSView()
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     private(set) var startSessionCallCount = 0
+    private(set) var lastSurfaceActivity = TerminalSurfaceActivity()
+
+    init(paneID: PaneID) {
+        self.paneID = paneID
+    }
 
     func makeTerminalView() -> NSView {
         terminalView
@@ -320,6 +357,10 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
 
     func startSession(using request: TerminalSessionRequest) throws {
         startSessionCallCount += 1
+    }
+
+    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
+        lastSurfaceActivity = activity
     }
 }
 

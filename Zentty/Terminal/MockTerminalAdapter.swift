@@ -8,6 +8,8 @@ protocol TerminalPreviewRendering: AnyObject {
 @MainActor
 final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering {
     private let surfaceView = TerminalSurfaceMockView()
+    private var metadata = TerminalMetadata()
+    private var surfaceActivity = TerminalSurfaceActivity()
 
     var metadataDidChange: ((TerminalMetadata) -> Void)?
 
@@ -16,15 +18,20 @@ final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering {
     }
 
     func startSession(using request: TerminalSessionRequest) throws {
-        metadataDidChange?(TerminalMetadata(
-            title: "shell",
-            currentWorkingDirectory: request.workingDirectory
-        ))
+        metadata.title = "shell"
+        metadata.currentWorkingDirectory = request.workingDirectory
+        metadataDidChange?(metadata)
+    }
+
+    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
+        surfaceActivity = activity
+        surfaceView.alphaValue = activity.isVisible ? (activity.isFocused ? 1 : 0.94) : 0
     }
 
     func renderPreview(title: String, isFocused: Bool) {
         surfaceView.render(title: title, isFocused: isFocused)
-        metadataDidChange?(TerminalMetadata(title: title))
+        metadata.title = title
+        metadataDidChange?(metadata)
     }
 }
 

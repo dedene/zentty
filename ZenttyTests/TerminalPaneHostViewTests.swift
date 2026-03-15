@@ -73,6 +73,15 @@ final class TerminalPaneHostViewTests: XCTestCase {
 
         XCTAssertTrue(didBecomeFocused)
     }
+
+    func test_surface_activity_is_forwarded_to_adapter() {
+        let adapter = TerminalAdapterSpy()
+        let hostView = TerminalPaneHostView(adapter: adapter)
+
+        hostView.setSurfaceActivity(TerminalSurfaceActivity(isVisible: false, isFocused: false))
+
+        XCTAssertEqual(adapter.lastSurfaceActivity, TerminalSurfaceActivity(isVisible: false, isFocused: false))
+    }
 }
 
 @MainActor
@@ -81,6 +90,7 @@ private final class TerminalAdapterSpy: TerminalAdapter {
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     private(set) var startSessionCallCount = 0
     private(set) var lastRequest: TerminalSessionRequest?
+    private(set) var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: true, isFocused: false)
 
     func makeTerminalView() -> NSView {
         terminalView
@@ -89,6 +99,10 @@ private final class TerminalAdapterSpy: TerminalAdapter {
     func startSession(using request: TerminalSessionRequest) throws {
         startSessionCallCount += 1
         lastRequest = request
+    }
+
+    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
+        lastSurfaceActivity = activity
     }
 }
 

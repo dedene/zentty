@@ -2,12 +2,20 @@ import XCTest
 @testable import Zentty
 
 final class KeyboardShortcutResolverTests: XCTestCase {
-    func test_resolves_split_shortcut() {
+    func test_resolves_split_after_shortcut() {
         let command = KeyboardShortcutResolver.resolve(
             .init(key: .character("d"), modifiers: [.command])
         )
 
-        XCTAssertEqual(command, .split)
+        XCTAssertEqual(command, .splitAfterFocusedPane)
+    }
+
+    func test_resolves_split_before_shortcut() {
+        let command = KeyboardShortcutResolver.resolve(
+            .init(key: .character("d"), modifiers: [.command, .shift])
+        )
+
+        XCTAssertEqual(command, .splitBeforeFocusedPane)
     }
 
     func test_resolves_close_shortcut() {

@@ -33,6 +33,7 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         registry.synchronize(with: workspaces)
         let initialMainRuntime = try XCTUnwrap(registry.runtime(for: mainShell.id))
         let initialWebRuntime = try XCTUnwrap(registry.runtime(for: webShell.id))
+        XCTAssertEqual(adapterFactory.adapters.map(\.startSessionCallCount), [0, 0])
 
         registry.updateSurfaceActivities(
             workspaces: workspaces,
@@ -171,6 +172,22 @@ final class PaneRuntimeRegistryTests: XCTestCase {
                 )
             )
         ])
+
+        registry.updateSurfaceActivities(
+            workspaces: [
+                WorkspaceState(
+                    id: WorkspaceID("workspace-main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [shell, split],
+                        focusedPaneID: split.id
+                    )
+                )
+            ],
+            activeWorkspaceID: WorkspaceID("workspace-main"),
+            windowIsVisible: true,
+            windowIsKey: true
+        )
 
         let shellAdapter = try XCTUnwrap(adapterFactory.adaptersByPaneID[shell.id])
         let splitAdapter = try XCTUnwrap(adapterFactory.adaptersByPaneID[split.id])

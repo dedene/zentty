@@ -4,3 +4,4 @@
 *.xcuserstate
 xcuserdata/
 FrameworksLocal/
+tmp/
