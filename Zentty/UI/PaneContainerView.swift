@@ -3,6 +3,7 @@ import AppKit
 final class PaneContainerView: NSView {
     enum Layout {
         static let borderWidth: CGFloat = 1
+        static let cornerRadius: CGFloat = 6
         static let overlayInset: CGFloat = 18
         static let overlayButtonTopSpacing: CGFloat = 14
         static let overlayButtonHeight: CGFloat = 30
@@ -60,7 +61,7 @@ final class PaneContainerView: NSView {
 
     private func setup() {
         wantsLayer = true
-        layer?.cornerRadius = 16
+        layer?.cornerRadius = Layout.cornerRadius
         layer?.cornerCurve = .continuous
         layer?.borderWidth = Layout.borderWidth
         layer?.shadowOffset = .zero

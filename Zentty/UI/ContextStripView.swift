@@ -1,7 +1,7 @@
 import AppKit
 
 final class ContextStripView: NSView {
-    static let preferredHeight: CGFloat = 34
+    static let preferredHeight: CGFloat = 24
 
     private let workspaceChip = ContextStripView.makeChip(text: "API")
     private let focusedLabel = ContextStripView.makeLabel(text: "shell", color: .secondaryLabelColor, weight: .medium)
