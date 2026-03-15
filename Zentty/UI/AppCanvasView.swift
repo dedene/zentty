@@ -17,8 +17,8 @@ final class AppCanvasView: NSView {
         }
     }
     private enum Layout {
-        static let stripTopInset: CGFloat = 10
-        static let stripBottomInset: CGFloat = 12
+        static let stripTopInset: CGFloat = 0
+        static let stripBottomInset: CGFloat = 0
     }
 
     private let contextStripView = ContextStripView()
