@@ -17,19 +17,25 @@ struct PaneLayoutSizing: Equatable, Sendable {
         interPaneSpacing: 10
     )
 
-    func paneWidth(for containerWidth: CGFloat, paneCount: Int) -> CGFloat {
+    func standardColumnWidth(for containerWidth: CGFloat) -> CGFloat {
         let available = max(0, containerWidth - (horizontalInset * 2))
-
-        guard paneCount > 1 else {
-            return available
-        }
-
-        // Reserve one inter-pane gutter so the first split keeps symmetric
-        // breathing room on both sides of the strip.
         let effectiveAvailable = max(0, available - interPaneSpacing)
 
         return clamp(
             effectiveAvailable * defaultPaneWidthRatio,
+            min: minimumPaneWidth,
+            max: min(maximumPaneWidth, available)
+        )
+    }
+
+    func leadingReadableWidth(
+        for containerWidth: CGFloat,
+        leadingVisibleInset: CGFloat
+    ) -> CGFloat {
+        let available = max(0, containerWidth - (horizontalInset * 2))
+        let readableWidth = max(0, available - max(0, leadingVisibleInset))
+        return clamp(
+            readableWidth,
             min: minimumPaneWidth,
             max: min(maximumPaneWidth, available)
         )

@@ -63,7 +63,7 @@ final class LibghosttyAdapterTests: XCTestCase {
         let inheritedConfig = ghostty_surface_config_new()
 
         try sourceAdapter.startSession(using: TerminalSessionRequest())
-        runtime.lastSurfaceController?.inheritedConfig = inheritedConfig
+        runtime.lastSurfaceController?.inheritedConfigContext = inheritedConfig.context
 
         splitAdapter.prepareSessionStart(from: sourceAdapter)
         try splitAdapter.startSession(using: TerminalSessionRequest(inheritFromPaneID: PaneID("source")))
@@ -101,6 +101,19 @@ final class LibghosttyAdapterTests: XCTestCase {
 
         XCTAssertEqual(payload, .setTitle("shell"))
     }
+
+    func test_make_runtime_config_enables_clipboard_callbacks() {
+        let config = LibghosttyRuntime.makeRuntimeConfig(
+            userdata: UnsafeMutableRawPointer(bitPattern: 0x1)
+        )
+
+        XCTAssertTrue(config.supports_selection_clipboard)
+        XCTAssertNotNil(config.wakeup_cb)
+        XCTAssertNotNil(config.action_cb)
+        XCTAssertNotNil(config.read_clipboard_cb)
+        XCTAssertNotNil(config.confirm_read_clipboard_cb)
+        XCTAssertNotNil(config.write_clipboard_cb)
+    }
 }
 
 @MainActor
@@ -132,13 +145,33 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
 private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling {
     private(set) var refreshCallCount = 0
     private(set) var focusValues: [Bool] = []
-    var inheritedConfig: ghostty_surface_config_s?
+    private(set) var bindingActions: [String] = []
+    var selectionPresent = false
+    var inheritedConfigContext: ghostty_surface_context_e?
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) { focusValues.append(isFocused) }
     func refresh() { refreshCallCount += 1 }
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool { true }
+    func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {}
+    func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags) {}
+    func sendMouseButton(
+        state: ghostty_input_mouse_state_e,
+        button: ghostty_input_mouse_button_e,
+        modifiers: NSEvent.ModifierFlags
+    ) {}
     func sendText(_ text: String) {}
+    func performBindingAction(_ action: String) -> Bool {
+        bindingActions.append(action)
+        return true
+    }
+    func hasSelection() -> Bool { selectionPresent }
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {
-        inheritedConfig
+        guard let inheritedConfigContext else {
+            return nil
+        }
+
+        var config = ghostty_surface_config_new()
+        config.context = inheritedConfigContext
+        return config
     }
 }

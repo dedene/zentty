@@ -3,7 +3,7 @@ import AppKit
 final class PaneContainerView: NSView {
     enum Layout {
         static let borderWidth: CGFloat = 1
-        static let cornerRadius: CGFloat = 8
+        static let cornerRadius: CGFloat = ShellMetrics.paneRadius
         static let overlayInset: CGFloat = 18
         static let overlayButtonTopSpacing: CGFloat = 14
         static let overlayButtonHeight: CGFloat = 30
@@ -29,6 +29,7 @@ final class PaneContainerView: NSView {
     private var currentIsFocused: Bool
     var onSelected: (() -> Void)?
     var onCloseRequested: (() -> Void)?
+    var onScrollWheel: ((NSEvent) -> Bool)?
     var onMetadataDidChange: ((TerminalMetadata) -> Void)? {
         didSet {}
     }
@@ -129,6 +130,14 @@ final class PaneContainerView: NSView {
         onSelected?()
         focusTerminal()
         super.mouseDown(with: event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        if onScrollWheel?(event) == true {
+            return
+        }
+
+        super.scrollWheel(with: event)
     }
 
     func prepareForRemoval() {

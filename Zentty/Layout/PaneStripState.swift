@@ -8,15 +8,27 @@ struct PaneID: Hashable, Equatable, Sendable {
     }
 }
 
+enum PaneWidthRole: Equatable, Sendable {
+    case leadingReadable
+    case standardColumn
+}
+
 struct PaneState: Equatable, Sendable {
     let id: PaneID
     var title: String
     var sessionRequest: TerminalSessionRequest
+    var widthRole: PaneWidthRole
 
-    init(id: PaneID, title: String, sessionRequest: TerminalSessionRequest = TerminalSessionRequest()) {
+    init(
+        id: PaneID,
+        title: String,
+        sessionRequest: TerminalSessionRequest = TerminalSessionRequest(),
+        widthRole: PaneWidthRole = .standardColumn
+    ) {
         self.id = id
         self.title = title
         self.sessionRequest = sessionRequest
+        self.widthRole = widthRole
     }
 }
 
@@ -30,6 +42,7 @@ struct PaneLayoutItem: Equatable, Sendable {
     let width: CGFloat
     let height: CGFloat
     let isFocused: Bool
+    let widthRole: PaneWidthRole
 }
 
 struct PaneStripState: Equatable, Sendable {
@@ -42,10 +55,11 @@ struct PaneStripState: Equatable, Sendable {
         focusedPaneID: PaneID? = nil,
         layoutSizing: PaneLayoutSizing = .balanced
     ) {
-        self.panes = panes
+        let normalizedPanes = PaneStripState.normalizePaneRoles(in: panes)
+        self.panes = normalizedPanes
         self.layoutSizing = layoutSizing
         self.focusedPaneID = PaneStripState.resolveFocusedPaneID(
-            panes: panes,
+            panes: normalizedPanes,
             preferredID: focusedPaneID
         )
     }
@@ -66,17 +80,30 @@ struct PaneStripState: Equatable, Sendable {
         return panes.firstIndex { $0.id == focusedPaneID } ?? 0
     }
 
-    func layoutItems(in containerSize: CGSize) -> [PaneLayoutItem] {
-        let paneWidth = layoutSizing.paneWidth(for: containerSize.width, paneCount: panes.count)
+    func layoutItems(
+        in containerSize: CGSize,
+        leadingVisibleInset: CGFloat = 0
+    ) -> [PaneLayoutItem] {
         let paneHeight = layoutSizing.paneHeight(for: containerSize.height)
 
         return panes.map { pane in
             let isFocused = pane.id == focusedPaneID
+            let paneWidth: CGFloat
+            switch pane.widthRole {
+            case .leadingReadable:
+                paneWidth = layoutSizing.leadingReadableWidth(
+                    for: containerSize.width,
+                    leadingVisibleInset: leadingVisibleInset
+                )
+            case .standardColumn:
+                paneWidth = layoutSizing.standardColumnWidth(for: containerSize.width)
+            }
             return PaneLayoutItem(
                 pane: pane,
                 width: paneWidth,
                 height: paneHeight,
-                isFocused: isFocused
+                isFocused: isFocused,
+                widthRole: pane.widthRole
             )
         }
     }
@@ -123,6 +150,7 @@ struct PaneStripState: Equatable, Sendable {
         }
 
         panes.insert(pane, at: insertionIndex)
+        panes = Self.normalizePaneRoles(in: panes)
         focusedPaneID = pane.id
     }
 
@@ -143,6 +171,7 @@ struct PaneStripState: Equatable, Sendable {
             return removedPane
         }
 
+        panes = Self.normalizePaneRoles(in: panes)
         let nextIndex = min(removalIndex, panes.count - 1)
         self.focusedPaneID = panes[nextIndex].id
         return removedPane
@@ -167,6 +196,14 @@ struct PaneStripState: Equatable, Sendable {
         }
 
         return panes.contains(where: { $0.id == preferredID }) ? preferredID : panes.first?.id
+    }
+
+    private static func normalizePaneRoles(in panes: [PaneState]) -> [PaneState] {
+        panes.enumerated().map { index, pane in
+            var pane = pane
+            pane.widthRole = index == 0 ? .leadingReadable : .standardColumn
+            return pane
+        }
     }
 }
 

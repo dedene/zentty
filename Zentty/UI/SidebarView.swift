@@ -1,10 +1,17 @@
 import AppKit
 
 final class SidebarView: NSView {
+    private enum Layout {
+        static let contentInset: CGFloat = ShellMetrics.sidebarContentInset
+        static let topInset: CGFloat = ShellMetrics.sidebarTopInset
+        static let bottomInset: CGFloat = ShellMetrics.sidebarBottomInset
+    }
+
     var onSelectWorkspace: ((WorkspaceID) -> Void)?
     var onCreateWorkspace: (() -> Void)?
     var onResizeWidth: ((CGFloat) -> Void)?
 
+    private let backgroundView = GlassSurfaceView(style: .sidebar)
     private let listScrollView = NSScrollView()
     private let listDocumentView = FlippedSidebarDocumentView()
     private let listStack = NSStackView()
@@ -28,11 +35,11 @@ final class SidebarView: NSView {
 
     private func setup() {
         wantsLayer = true
-        layer?.backgroundColor = currentTheme.sidebarBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
 
         listStack.orientation = .vertical
         listStack.alignment = .width
-        listStack.spacing = 4
+        listStack.spacing = 6
         listStack.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         listStack.translatesAutoresizingMaskIntoConstraints = false
 
@@ -55,14 +62,20 @@ final class SidebarView: NSView {
             self?.handleResizePan(recognizer)
         }
 
+        addSubview(backgroundView)
         addSubview(listScrollView)
         addSubview(resizeHandleView)
 
         NSLayoutConstraint.activate([
-            listScrollView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            listScrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            listScrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            listScrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            backgroundView.topAnchor.constraint(equalTo: topAnchor),
+            backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            listScrollView.topAnchor.constraint(equalTo: topAnchor, constant: Layout.topInset),
+            listScrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset),
+            listScrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.contentInset),
+            listScrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.bottomInset),
 
             listDocumentView.widthAnchor.constraint(equalTo: listScrollView.contentView.widthAnchor),
 
@@ -122,9 +135,10 @@ final class SidebarView: NSView {
         currentTheme = theme
         addWorkspaceButton.configure(theme: theme, animated: animated)
         resizeHandleView.apply()
+        backgroundView.apply(theme: theme, animated: animated)
 
         performThemeAnimation(animated: animated) {
-            self.layer?.backgroundColor = theme.sidebarBackground.cgColor
+            self.layer?.backgroundColor = NSColor.clear.cgColor
         }
 
         workspaceButtons.enumerated().forEach { index, button in
@@ -269,7 +283,7 @@ private final class WorkspaceRowButton: NSButton {
         title = ""
         image = nil
         wantsLayer = true
-        layer?.cornerRadius = 14
+        layer?.cornerRadius = ShellMetrics.rowRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = false
         translatesAutoresizingMaskIntoConstraints = false
@@ -295,7 +309,7 @@ private final class WorkspaceRowButton: NSButton {
         addSubview(textStack)
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 58),
+            heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarRowHeight),
 
             textStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -362,10 +376,13 @@ private final class WorkspaceRowButton: NSButton {
         detailLabel.textColor = currentTheme.tertiaryText
 
         let activeBackground = currentTheme.sidebarButtonActiveBackground
-        let hoverBackground = currentTheme.sidebarButtonInactiveBackground.withAlphaComponent(0.32)
-        let inactiveBackground = NSColor.clear
+        let inactiveAlpha = currentTheme.sidebarButtonInactiveBackground.srgbClamped.alphaComponent
+        let hoverBackground = currentTheme.sidebarButtonInactiveBackground
+            .mixed(towards: currentTheme.sidebarButtonActiveBackground, amount: 0.18)
+            .withAlphaComponent(min(inactiveAlpha + 0.08, 0.24))
+        let inactiveBackground = currentTheme.sidebarButtonInactiveBackground
         let activeBorder = currentTheme.sidebarButtonActiveBorder
-        let inactiveBorder = NSColor.clear
+        let inactiveBorder = currentTheme.sidebarBorder.withAlphaComponent(self.isHovered ? 0.14 : 0.08)
 
         performThemeAnimation(animated: animated) {
             self.layer?.zPosition = summary.isActive ? 10 : 0
@@ -375,10 +392,10 @@ private final class WorkspaceRowButton: NSButton {
                     : (self.isHovered ? hoverBackground : inactiveBackground)
             ).cgColor
             self.layer?.borderColor = (summary.isActive ? activeBorder : inactiveBorder).cgColor
-            self.layer?.borderWidth = summary.isActive ? 1 : 0
-            self.layer?.shadowColor = NSColor.black.withAlphaComponent(summary.isActive ? 0.18 : 0).cgColor
+            self.layer?.borderWidth = 1
+            self.layer?.shadowColor = NSColor.black.withAlphaComponent(summary.isActive ? 0.08 : 0.02).cgColor
             self.layer?.shadowOpacity = 1
-            self.layer?.shadowRadius = summary.isActive ? 14 : 0
+            self.layer?.shadowRadius = summary.isActive ? 12 : 4
             self.layer?.shadowOffset = CGSize(width: 0, height: -1)
         }
     }
@@ -407,12 +424,12 @@ private final class SidebarFooterButton: NSButton {
         contentTintColor = .secondaryLabelColor
         font = NSFont.systemFont(ofSize: 13, weight: .medium)
         wantsLayer = true
-        layer?.cornerRadius = 12
+        layer?.cornerRadius = ShellMetrics.pillRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = false
         setButtonType(.momentaryChange)
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 36).isActive = true
+        heightAnchor.constraint(equalToConstant: ShellMetrics.footerHeight).isActive = true
 
         if let cell = cell as? NSButtonCell {
             cell.alignment = .left

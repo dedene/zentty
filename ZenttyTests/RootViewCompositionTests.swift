@@ -8,20 +8,49 @@ final class RootViewCompositionTests: XCTestCase {
         super.tearDown()
     }
 
-    func test_root_controller_places_sidebar_outside_inner_canvas() {
+    func test_root_controller_layers_full_width_canvas_beneath_sidebar_overlay() throws {
         let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
         controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
 
         XCTAssertNotNil(controller.view)
         let rootSubviews = controller.view.subviews
         let sidebarView = rootSubviews.first { $0 is SidebarView } as? SidebarView
-        let appCanvasView = rootSubviews.first { $0 is AppCanvasView }
+        let appCanvasView = try XCTUnwrap(rootSubviews.first { $0 is AppCanvasView })
 
         XCTAssertNotNil(sidebarView)
-        XCTAssertNotNil(appCanvasView)
-        XCTAssertFalse(appCanvasView?.containsDescendant(ofType: SidebarView.self) ?? true)
+        XCTAssertFalse(appCanvasView.containsDescendant(ofType: SidebarView.self))
+        XCTAssertFalse(rootSubviews.contains { $0 is ContentShellView })
         XCTAssertEqual(sidebarView?.workspacePrimaryTextsForTesting, ["shell"])
         XCTAssertEqual(sidebarView?.workspaceDetailTextsForTesting, [""])
+        XCTAssertEqual(
+            appCanvasView.frame.minX,
+            ShellMetrics.outerInset,
+            accuracy: 0.5
+        )
+    }
+
+    func test_root_controller_keeps_window_chrome_as_sibling_overlay_above_canvas() throws {
+        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let rootSubviews = controller.view.subviews
+        let appCanvasView = try XCTUnwrap(rootSubviews.first { $0 is AppCanvasView })
+        let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView })
+
+        XCTAssertTrue(rootSubviews.contains { $0 is SidebarView })
+        XCTAssertFalse(rootSubviews.contains { $0 is ContentShellView })
+        XCTAssertFalse(appCanvasView.containsDescendant(ofType: WindowChromeView.self))
+        XCTAssertEqual(windowChromeView.frame.minY, appCanvasView.frame.maxY, accuracy: 0.5)
+    }
+
+    func test_window_chrome_keeps_only_trailing_context_strip_without_title_label() {
+        let windowChromeView = WindowChromeView()
+
+        XCTAssertEqual(windowChromeView.titleTextForTesting, "")
     }
 
     func test_context_strip_prefers_terminal_metadata_and_keeps_exact_cwd() {
@@ -180,7 +209,7 @@ final class RootViewCompositionTests: XCTestCase {
 
         XCTAssertEqual(sidebarView.addWorkspaceTitleForTesting, "New workspace")
         XCTAssertFalse(sidebarView.hasVisibleDividerForTesting)
-        XCTAssertLessThan(sidebarView.firstWorkspaceTopInsetForTesting, 18)
+        XCTAssertGreaterThan(sidebarView.firstWorkspaceMinYForTesting, 40)
         XCTAssertLessThan(sidebarView.addWorkspaceMaxYForTesting, sidebarView.firstWorkspaceMinYForTesting)
     }
 
@@ -227,6 +256,12 @@ private extension NSView {
     func containsDescendant<T: NSView>(ofType type: T.Type) -> Bool {
         subviews.contains { subview in
             subview is T || subview.containsDescendant(ofType: type)
+        }
+    }
+
+    func containsDescendant(named className: String) -> Bool {
+        subviews.contains { subview in
+            String(describing: type(of: subview)) == className || subview.containsDescendant(named: className)
         }
     }
 }

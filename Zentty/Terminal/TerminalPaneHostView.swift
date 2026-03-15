@@ -58,6 +58,14 @@ final class TerminalPaneHostView: NSView {
         window?.makeFirstResponder(terminalView)
     }
 
+    override func scrollWheel(with event: NSEvent) {
+        if let nextResponder {
+            nextResponder.scrollWheel(with: event)
+        } else {
+            super.scrollWheel(with: event)
+        }
+    }
+
     private func setup() {
         addSubview(terminalView)
         terminalView.translatesAutoresizingMaskIntoConstraints = false

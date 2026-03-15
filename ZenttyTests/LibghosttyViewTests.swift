@@ -233,6 +233,164 @@ final class LibghosttyViewTests: XCTestCase {
 
         XCTAssertEqual(LibghosttySurface.unshiftedCodepointFromEvent(event), Character("a").unicodeScalars.first?.value)
     }
+
+    func test_mouse_drag_forwards_pointer_updates_and_left_button_events_to_surface() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let view = LibghosttyView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let surface = LibghosttySurfaceViewportSpy()
+        view.bind(surfaceController: surface)
+        window.contentView = view
+
+        let mouseDown = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 40, y: 30),
+            modifierFlags: [.shift],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let mouseDragged = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDragged,
+            location: NSPoint(x: 80, y: 70),
+            modifierFlags: [.shift],
+            timestamp: 0.1,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let mouseUp = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: NSPoint(x: 80, y: 70),
+            modifierFlags: [.shift],
+            timestamp: 0.2,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 2,
+            clickCount: 1,
+            pressure: 0
+        ))
+
+        view.mouseDown(with: mouseDown)
+        view.mouseDragged(with: mouseDragged)
+        view.mouseUp(with: mouseUp)
+
+        let expectedDownY = view.bounds.height - 30
+        let expectedDragY = view.bounds.height - 70
+
+        XCTAssertEqual(surface.mouseRecords, [
+            .position(CGPoint(x: 40, y: expectedDownY), [.shift]),
+            .button(GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, [.shift]),
+            .position(CGPoint(x: 80, y: expectedDragY), [.shift]),
+            .position(CGPoint(x: 80, y: expectedDragY), [.shift]),
+            .button(GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, [.shift]),
+        ])
+    }
+
+    func test_vertical_scroll_forwards_mouse_scroll_event_to_surface() throws {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.bind(surfaceController: surface)
+
+        let event = try makeScrollEvent(
+            deltaX: 0,
+            deltaY: 24,
+            phase: .began,
+            momentumPhase: .began,
+            precise: true
+        )
+
+        view.scrollWheel(with: event)
+
+        XCTAssertEqual(surface.scrollRecords, [
+            .init(x: 0, y: 24, precision: true, momentum: .began),
+        ])
+    }
+
+    func test_horizontal_scroll_is_not_forwarded_to_terminal_surface() throws {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.bind(surfaceController: surface)
+
+        let event = try makeScrollEvent(deltaX: 48, deltaY: 6, precise: true)
+
+        view.scrollWheel(with: event)
+
+        XCTAssertTrue(surface.scrollRecords.isEmpty)
+    }
+
+    func test_shift_wheel_scroll_is_not_forwarded_to_terminal_surface() throws {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.bind(surfaceController: surface)
+
+        let event = try makeScrollEvent(
+            deltaX: 0,
+            deltaY: 1,
+            precise: false,
+            modifierFlags: [.shift]
+        )
+
+        view.scrollWheel(with: event)
+
+        XCTAssertTrue(surface.scrollRecords.isEmpty)
+    }
+
+    @objc func test_copy_action_dispatches_copy_to_clipboard_binding() {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.bind(surfaceController: surface)
+
+        view.perform(Selector(("copy:")), with: nil)
+
+        XCTAssertEqual(surface.bindingActions, ["copy_to_clipboard"])
+    }
+
+    @objc func test_paste_action_dispatches_paste_from_clipboard_binding() {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.bind(surfaceController: surface)
+
+        view.perform(Selector(("paste:")), with: nil)
+
+        XCTAssertEqual(surface.bindingActions, ["paste_from_clipboard"])
+    }
+
+    @objc func test_select_all_action_dispatches_select_all_binding() {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.bind(surfaceController: surface)
+
+        view.perform(Selector(("selectAll:")), with: nil)
+
+        XCTAssertEqual(surface.bindingActions, ["select_all"])
+    }
+
+    @objc func test_copy_menu_item_validation_reflects_surface_selection_state() {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        let copyItem = NSMenuItem(title: "Copy", action: Selector(("copy:")), keyEquivalent: "c")
+        view.bind(surfaceController: surface)
+
+        let validator = view as? NSMenuItemValidation
+
+        XCTAssertNotNil(validator)
+
+        XCTAssertFalse(validator?.validateMenuItem(copyItem) ?? true)
+
+        surface.selectionPresent = true
+
+        XCTAssertTrue(validator?.validateMenuItem(copyItem) ?? false)
+    }
 }
 
 private final class LibghosttySurfaceViewportSpy: LibghosttySurfaceControlling {
@@ -250,9 +408,25 @@ private final class LibghosttySurfaceViewportSpy: LibghosttySurfaceControlling {
         let keyCode: UInt16
     }
 
+    struct ScrollRecord: Equatable {
+        let x: Double
+        let y: Double
+        let precision: Bool
+        let momentum: NSEvent.Phase
+    }
+
+    enum MouseRecord: Equatable {
+        case position(CGPoint, NSEvent.ModifierFlags)
+        case button(ghostty_input_mouse_state_e, ghostty_input_mouse_button_e, NSEvent.ModifierFlags)
+    }
+
     private(set) var viewportUpdates: [ViewportUpdate] = []
     private(set) var focusUpdates: [Bool] = []
     private(set) var keyEvents: [KeyEventRecord] = []
+    private(set) var mouseRecords: [MouseRecord] = []
+    private(set) var scrollRecords: [ScrollRecord] = []
+    private(set) var bindingActions: [String] = []
+    var selectionPresent = false
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {
         viewportUpdates.append(.init(size: size, scale: scale, displayID: displayID))
@@ -275,9 +449,81 @@ private final class LibghosttySurfaceViewportSpy: LibghosttySurfaceControlling {
         return true
     }
 
+    func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {
+        scrollRecords.append(.init(x: x, y: y, precision: precision, momentum: momentum))
+    }
+
+    func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags) {
+        mouseRecords.append(.position(position, modifiers))
+    }
+
+    func sendMouseButton(
+        state: ghostty_input_mouse_state_e,
+        button: ghostty_input_mouse_button_e,
+        modifiers: NSEvent.ModifierFlags
+    ) {
+        mouseRecords.append(.button(state, button, modifiers))
+    }
+
     func sendText(_ text: String) {}
+
+    func performBindingAction(_ action: String) -> Bool {
+        bindingActions.append(action)
+        return true
+    }
+
+    func hasSelection() -> Bool {
+        selectionPresent
+    }
 
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {
         nil
     }
+}
+
+private func makeScrollEvent(
+    deltaX: Int32 = 0,
+    deltaY: Int32 = 0,
+    phase: NSEvent.Phase = [],
+    momentumPhase: NSEvent.Phase = [],
+    precise: Bool,
+    modifierFlags: NSEvent.ModifierFlags = []
+) throws -> NSEvent {
+    let source = try XCTUnwrap(CGEventSource(stateID: .hidSystemState))
+    let units: CGScrollEventUnit = precise ? .pixel : .line
+    let cgEvent = try XCTUnwrap(
+        CGEvent(
+            scrollWheelEvent2Source: source,
+            units: units,
+            wheelCount: 2,
+            wheel1: deltaY,
+            wheel2: deltaX,
+            wheel3: 0
+        )
+    )
+
+    cgEvent.flags = makeCGEventFlags(from: modifierFlags)
+    cgEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
+    cgEvent.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentumPhase.rawValue))
+
+    return try XCTUnwrap(NSEvent(cgEvent: cgEvent))
+}
+
+private func makeCGEventFlags(from modifierFlags: NSEvent.ModifierFlags) -> CGEventFlags {
+    var flags: CGEventFlags = []
+
+    if modifierFlags.contains(.shift) {
+        flags.insert(.maskShift)
+    }
+    if modifierFlags.contains(.control) {
+        flags.insert(.maskControl)
+    }
+    if modifierFlags.contains(.option) {
+        flags.insert(.maskAlternate)
+    }
+    if modifierFlags.contains(.command) {
+        flags.insert(.maskCommand)
+    }
+
+    return flags
 }

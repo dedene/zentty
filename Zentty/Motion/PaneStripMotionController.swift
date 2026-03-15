@@ -22,8 +22,15 @@ final class PaneStripMotionController {
         static let secondaryEmphasis: CGFloat = 0.92
     }
 
-    func presentation(for state: PaneStripState, in viewportSize: CGSize) -> StripPresentation {
-        let layoutItems = state.layoutItems(in: viewportSize)
+    func presentation(
+        for state: PaneStripState,
+        in viewportSize: CGSize,
+        leadingVisibleInset: CGFloat = 0
+    ) -> StripPresentation {
+        let layoutItems = state.layoutItems(
+            in: viewportSize,
+            leadingVisibleInset: leadingVisibleInset
+        )
         let sizing = state.layoutSizing
         let paneHeight = sizing.paneHeight(for: viewportSize.height)
 
@@ -44,7 +51,12 @@ final class PaneStripMotionController {
             viewportSize.width,
             cursorX - trailingSpacing + sizing.horizontalInset
         )
-        let targetOffset = targetOffset(forFocusedPaneIn: presentations, viewportWidth: viewportSize.width, contentWidth: contentWidth)
+        let targetOffset = targetOffset(
+            forFocusedPaneIn: presentations,
+            viewportWidth: viewportSize.width,
+            contentWidth: contentWidth,
+            leadingVisibleInset: leadingVisibleInset
+        )
 
         return StripPresentation(
             panes: presentations,
@@ -56,25 +68,46 @@ final class PaneStripMotionController {
     func targetOffset(
         forFocusedPaneIn presentations: [PanePresentation],
         viewportWidth: CGFloat,
-        contentWidth: CGFloat
+        contentWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0
     ) -> CGFloat {
         guard let focusedPane = presentations.first(where: \.isFocused) else {
             return 0
         }
 
-        let unclampedOffset = focusedPane.frame.midX - (viewportWidth / 2)
-        return clampedOffset(unclampedOffset, contentWidth: contentWidth, viewportWidth: viewportWidth)
+        let viewportMidX = viewportWidth / 2
+        let centeredOffset = focusedPane.frame.midX - viewportMidX
+        let unclampedOffset: CGFloat
+        if presentations.first?.paneID == focusedPane.paneID, leadingVisibleInset > 0 {
+            let readableLeadingOffset = focusedPane.frame.minX - leadingVisibleInset
+            unclampedOffset = min(centeredOffset, readableLeadingOffset)
+        } else {
+            unclampedOffset = centeredOffset
+        }
+        return clampedOffset(
+            unclampedOffset,
+            contentWidth: contentWidth,
+            viewportWidth: viewportWidth,
+            leadingVisibleInset: leadingVisibleInset
+        )
     }
 
-    func clampedOffset(_ proposedOffset: CGFloat, contentWidth: CGFloat, viewportWidth: CGFloat) -> CGFloat {
+    func clampedOffset(
+        _ proposedOffset: CGFloat,
+        contentWidth: CGFloat,
+        viewportWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0
+    ) -> CGFloat {
+        let minOffset = -max(0, leadingVisibleInset)
         let maxOffset = max(0, contentWidth - viewportWidth)
-        return min(max(0, proposedOffset), maxOffset)
+        return min(max(minOffset, proposedOffset), maxOffset)
     }
 
     func nearestSettlePaneID(
         in presentation: StripPresentation,
         proposedOffset: CGFloat,
-        viewportWidth: CGFloat
+        viewportWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0
     ) -> PaneID? {
         guard !presentation.panes.isEmpty else {
             return nil
@@ -83,7 +116,8 @@ final class PaneStripMotionController {
         let settledOffset = clampedOffset(
             proposedOffset,
             contentWidth: presentation.contentWidth,
-            viewportWidth: viewportWidth
+            viewportWidth: viewportWidth,
+            leadingVisibleInset: leadingVisibleInset
         )
         let viewportMidX = settledOffset + (viewportWidth / 2)
 

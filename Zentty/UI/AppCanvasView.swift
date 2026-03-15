@@ -16,16 +16,12 @@ final class AppCanvasView: NSView {
             paneStripView.onPaneCloseRequested = onPaneCloseRequested
         }
     }
-    private enum Layout {
-        static let stripTopInset: CGFloat = 0
-        static let stripBottomInset: CGFloat = 0
+    var leadingVisibleInset: CGFloat = 0 {
+        didSet {
+            paneStripView.leadingVisibleInset = leadingVisibleInset
+        }
     }
-
-    private let contextStripView = ContextStripView()
     private let paneStripView: PaneStripView
-    private var currentState: PaneStripState?
-    private var currentWorkspaceName = "MAIN"
-    private var metadataByPaneID: [PaneID: TerminalMetadata] = [:]
     private var currentTheme = ZenttyTheme.fallback(for: nil)
 
     init(frame frameRect: NSRect = .zero, runtimeRegistry: PaneRuntimeRegistry) {
@@ -41,52 +37,20 @@ final class AppCanvasView: NSView {
 
     private func setup() {
         wantsLayer = true
-        layer?.cornerRadius = 14
-        layer?.cornerCurve = .continuous
-        layer?.borderWidth = 1
-        layer?.borderColor = currentTheme.canvasBorder.cgColor
-        layer?.backgroundColor = currentTheme.canvasBackground.cgColor
-        layer?.shadowColor = currentTheme.canvasShadow.cgColor
-        layer?.shadowOpacity = 1
-        layer?.shadowRadius = 32
-        layer?.shadowOffset = CGSize(width: 0, height: 18)
+        layer?.backgroundColor = NSColor.clear.cgColor
 
-        let contentView = NSView()
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(contentView)
-
-        contextStripView.translatesAutoresizingMaskIntoConstraints = false
         paneStripView.translatesAutoresizingMaskIntoConstraints = false
-
-        contentView.addSubview(contextStripView)
-        contentView.addSubview(paneStripView)
+        addSubview(paneStripView)
 
         NSLayoutConstraint.activate([
-            contentView.topAnchor.constraint(equalTo: topAnchor),
-            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            contextStripView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            contextStripView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            contextStripView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            contextStripView.heightAnchor.constraint(
-                equalToConstant: ContextStripView.preferredHeight),
-
-            paneStripView.topAnchor.constraint(
-                equalTo: contextStripView.bottomAnchor,
-                constant: Layout.stripTopInset
-            ),
-            paneStripView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            paneStripView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            paneStripView.bottomAnchor.constraint(
-                equalTo: contentView.bottomAnchor,
-                constant: -Layout.stripBottomInset
-            ),
+            paneStripView.topAnchor.constraint(equalTo: topAnchor),
+            paneStripView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            paneStripView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            paneStripView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
-        contextStripView.apply(theme: currentTheme, animated: false)
         paneStripView.apply(theme: currentTheme, animated: false)
+        paneStripView.leadingVisibleInset = leadingVisibleInset
     }
 
     func render(
@@ -95,11 +59,7 @@ final class AppCanvasView: NSView {
         metadataByPaneID: [PaneID: TerminalMetadata] = [:],
         theme: ZenttyTheme
     ) {
-        currentWorkspaceName = workspaceName
-        currentState = state
-        self.metadataByPaneID = metadataByPaneID
         apply(theme: theme, animated: true)
-        renderFocusedContext()
         paneStripView.render(state)
     }
 
@@ -108,8 +68,8 @@ final class AppCanvasView: NSView {
     }
 
     func updateMetadata(for paneID: PaneID, metadata: TerminalMetadata) {
-        metadataByPaneID[paneID] = metadata
-        renderFocusedContext()
+        _ = paneID
+        _ = metadata
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {
@@ -117,25 +77,6 @@ final class AppCanvasView: NSView {
             return
         }
         currentTheme = theme
-        contextStripView.apply(theme: theme, animated: animated)
         paneStripView.apply(theme: theme, animated: animated)
-        performThemeAnimation(animated: animated) {
-            self.layer?.borderColor = theme.canvasBorder.cgColor
-            self.layer?.backgroundColor = theme.canvasBackground.cgColor
-            self.layer?.shadowColor = theme.canvasShadow.cgColor
-        }
-    }
-
-    private func renderFocusedContext() {
-        guard let currentState else {
-            return
-        }
-
-        let metadata = currentState.focusedPaneID.flatMap { metadataByPaneID[$0] }
-        contextStripView.render(
-            workspaceName: currentWorkspaceName,
-            state: currentState,
-            metadata: metadata
-        )
     }
 }

@@ -2,6 +2,8 @@ import XCTest
 @testable import Zentty
 
 final class PaneStripMotionControllerTests: XCTestCase {
+    private let sidebarInset: CGFloat = 290
+
     @MainActor
     func test_focus_change_produces_new_target_offset() {
         let controller = PaneStripMotionController()
@@ -73,6 +75,111 @@ final class PaneStripMotionControllerTests: XCTestCase {
             max(0, lastFocused.contentWidth - size.width),
             accuracy: 0.001
         )
+    }
+
+    @MainActor
+    func test_leading_visible_inset_pushes_first_focused_pane_clear_of_sidebar() {
+        let controller = PaneStripMotionController()
+        let size = CGSize(width: 1200, height: 680)
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let baselinePresentation = controller.presentation(
+            for: state,
+            in: size
+        )
+        let insetPresentation = controller.presentation(
+            for: state,
+            in: size,
+            leadingVisibleInset: sidebarInset
+        )
+
+        XCTAssertLessThan(insetPresentation.targetOffset, baselinePresentation.targetOffset)
+        XCTAssertEqual(insetPresentation.targetOffset, -282, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_leading_visible_inset_does_not_shift_layout_frames_right() throws {
+        let controller = PaneStripMotionController()
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let presentation = controller.presentation(
+            for: state,
+            in: CGSize(width: 1200, height: 680),
+            leadingVisibleInset: sidebarInset
+        )
+
+        let firstPane = try XCTUnwrap(presentation.panes.first)
+
+        XCTAssertEqual(firstPane.frame.minX, state.layoutSizing.horizontalInset, accuracy: 0.001)
+        XCTAssertEqual(firstPane.frame.minX, 8, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_leading_visible_inset_reduces_first_focused_pane_width_by_sidebar_gutter() throws {
+        let controller = PaneStripMotionController()
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+
+        let baselinePresentation = controller.presentation(
+            for: state,
+            in: CGSize(width: 1200, height: 680)
+        )
+        let insetPresentation = controller.presentation(
+            for: state,
+            in: CGSize(width: 1200, height: 680),
+            leadingVisibleInset: sidebarInset
+        )
+
+        let baselineFirstPane = try XCTUnwrap(baselinePresentation.panes.first)
+        let insetFirstPane = try XCTUnwrap(insetPresentation.panes.first)
+
+        XCTAssertEqual(insetFirstPane.frame.width, baselineFirstPane.frame.width - sidebarInset, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_nearest_settle_ignores_leading_visible_inset() throws {
+        let controller = PaneStripMotionController()
+        let size = CGSize(width: 980, height: 680)
+        let presentation = controller.presentation(
+            for: PaneStripState(
+                panes: [
+                    PaneState(id: PaneID("logs"), title: "logs"),
+                    PaneState(id: PaneID("editor"), title: "editor"),
+                    PaneState(id: PaneID("tests"), title: "tests"),
+                ],
+                focusedPaneID: PaneID("editor")
+            ),
+            in: size
+        )
+
+        let proposedOffset = presentation.targetOffset + 140
+        let baselinePaneID = controller.nearestSettlePaneID(
+            in: presentation,
+            proposedOffset: proposedOffset,
+            viewportWidth: size.width
+        )
+        let insetPaneID = controller.nearestSettlePaneID(
+            in: presentation,
+            proposedOffset: proposedOffset,
+            viewportWidth: size.width,
+            leadingVisibleInset: 290
+        )
+
+        XCTAssertEqual(try XCTUnwrap(insetPaneID), try XCTUnwrap(baselinePaneID))
     }
 
     @MainActor

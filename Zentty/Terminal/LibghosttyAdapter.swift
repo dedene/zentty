@@ -23,7 +23,16 @@ protocol LibghosttySurfaceControlling: AnyObject {
     func setFocused(_ isFocused: Bool)
     func refresh()
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool
+    func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase)
+    func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags)
+    func sendMouseButton(
+        state: ghostty_input_mouse_state_e,
+        button: ghostty_input_mouse_button_e,
+        modifiers: NSEvent.ModifierFlags
+    )
     func sendText(_ text: String)
+    func performBindingAction(_ action: String) -> Bool
+    func hasSelection() -> Bool
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s?
 }
 

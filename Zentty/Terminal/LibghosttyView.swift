@@ -1,7 +1,14 @@
 import AppKit
+import GhosttyKit
 import QuartzCore
 
 final class LibghosttyView: NSView, TerminalFocusReporting {
+    private enum BindingAction {
+        static let copyToClipboard = "copy_to_clipboard"
+        static let pasteFromClipboard = "paste_from_clipboard"
+        static let selectAll = "select_all"
+    }
+
     private var surfaceController: (any LibghosttySurfaceControlling)?
     private var keyTextAccumulator = ""
     private var markedTextStorage = ""
@@ -65,7 +72,48 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        super.mouseDown(with: event)
+        forwardMousePosition(event)
+        surfaceController?.sendMouseButton(
+            state: GHOSTTY_MOUSE_PRESS,
+            button: GHOSTTY_MOUSE_LEFT,
+            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        )
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        forwardMousePosition(event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        forwardMousePosition(event)
+        surfaceController?.sendMouseButton(
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: GHOSTTY_MOUSE_LEFT,
+            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        )
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        if Self.shouldRouteScrollToPaneSwitch(event) {
+            if let nextResponder {
+                nextResponder.scrollWheel(with: event)
+            } else {
+                super.scrollWheel(with: event)
+            }
+            return
+        }
+
+        guard let surfaceController else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        surfaceController.sendMouseScroll(
+            x: event.scrollingDeltaX,
+            y: event.scrollingDeltaY,
+            precision: event.hasPreciseScrollingDeltas,
+            momentum: event.momentumPhase
+        )
     }
 
     override func keyDown(with event: NSEvent) {
@@ -123,6 +171,18 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     }
 
     nonisolated override func doCommand(by selector: Selector) {}
+
+    @IBAction func copy(_ sender: Any?) {
+        _ = surfaceController?.performBindingAction(BindingAction.copyToClipboard)
+    }
+
+    @IBAction func paste(_ sender: Any?) {
+        _ = surfaceController?.performBindingAction(BindingAction.pasteFromClipboard)
+    }
+
+    @IBAction override func selectAll(_ sender: Any?) {
+        _ = surfaceController?.performBindingAction(BindingAction.selectAll)
+    }
 
     func bind(surfaceController: any LibghosttySurfaceControlling) {
         self.surfaceController = surfaceController
@@ -190,6 +250,41 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         }
 
         return characters
+    }
+
+    private static func shouldRouteScrollToPaneSwitch(_ event: NSEvent) -> Bool {
+        let horizontalDelta = abs(event.scrollingDeltaX)
+        let verticalDelta = abs(event.scrollingDeltaY)
+
+        if horizontalDelta > verticalDelta, horizontalDelta > 0 {
+            return true
+        }
+
+        let deviceIndependentFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return !event.hasPreciseScrollingDeltas
+            && deviceIndependentFlags.contains(.shift)
+            && verticalDelta > 0
+            && verticalDelta >= horizontalDelta
+    }
+
+    private func forwardMousePosition(_ event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let position = CGPoint(x: point.x, y: bounds.height - point.y)
+        surfaceController?.sendMousePosition(
+            position,
+            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        )
+    }
+}
+
+extension LibghosttyView: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(copy(_:)):
+            return surfaceController?.hasSelection() ?? false
+        default:
+            return true
+        }
     }
 }
 

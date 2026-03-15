@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyKit
+import UniformTypeIdentifiers
 
 enum LibghosttySurfaceActionPayload: Equatable {
     case setTitle(String?)
@@ -100,15 +101,8 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         ghostty_config_finalize(config)
         self.config = config
 
-        var runtimeConfig = ghostty_runtime_config_s(
-            userdata: Unmanaged.passUnretained(self).toOpaque(),
-            supports_selection_clipboard: false,
-            wakeup_cb: libghosttyWakeupCallback,
-            action_cb: libghosttyActionCallback,
-            read_clipboard_cb: nil,
-            confirm_read_clipboard_cb: nil,
-            write_clipboard_cb: nil,
-            close_surface_cb: nil
+        var runtimeConfig = Self.makeRuntimeConfig(
+            userdata: Unmanaged.passUnretained(self).toOpaque()
         )
 
         guard let app = ghostty_app_new(&runtimeConfig, config) else {
@@ -162,6 +156,19 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         )
     }
 
+    static func makeRuntimeConfig(userdata: UnsafeMutableRawPointer?) -> ghostty_runtime_config_s {
+        ghostty_runtime_config_s(
+            userdata: userdata,
+            supports_selection_clipboard: true,
+            wakeup_cb: libghosttyWakeupCallback,
+            action_cb: libghosttyActionCallback,
+            read_clipboard_cb: libghosttyReadClipboardCallback,
+            confirm_read_clipboard_cb: libghosttyConfirmReadClipboardCallback,
+            write_clipboard_cb: libghosttyWriteClipboardCallback,
+            close_surface_cb: nil
+        )
+    }
+
     @objc
     private func applicationDidBecomeActive() {
         guard let app else {
@@ -194,5 +201,124 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             setenv("GHOSTTY_RESOURCES_DIR", candidate.path, 1)
             return
         }
+    }
+}
+
+private func libghosttyReadClipboardCallback(
+    userdata: UnsafeMutableRawPointer?,
+    location: ghostty_clipboard_e,
+    state: UnsafeMutableRawPointer?
+) -> Bool {
+    guard
+        let userdata,
+        let surface = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue().surface,
+        let pasteboard = NSPasteboard.ghostty(location),
+        let string = pasteboard.getOpinionatedStringContents()
+    else {
+        return false
+    }
+
+    string.withCString { pointer in
+        ghostty_surface_complete_clipboard_request(surface, pointer, state, false)
+    }
+    return true
+}
+
+private func libghosttyConfirmReadClipboardCallback(
+    userdata: UnsafeMutableRawPointer?,
+    string: UnsafePointer<CChar>?,
+    state: UnsafeMutableRawPointer?,
+    _: ghostty_clipboard_request_e
+) {
+    guard
+        let userdata,
+        let surface = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue().surface,
+        let string
+    else {
+        return
+    }
+
+    ghostty_surface_complete_clipboard_request(surface, string, state, true)
+}
+
+private func libghosttyWriteClipboardCallback(
+    _: UnsafeMutableRawPointer?,
+    location: ghostty_clipboard_e,
+    content: UnsafePointer<ghostty_clipboard_content_s>?,
+    len: Int,
+    _: Bool
+) {
+    guard let pasteboard = NSPasteboard.ghostty(location), let content, len > 0 else {
+        return
+    }
+
+    let entries = (0..<len).compactMap { index -> (mime: String, data: String)? in
+        guard
+            let mime = content[index].mime,
+            let data = content[index].data
+        else {
+            return nil
+        }
+
+        return (String(cString: mime), String(cString: data))
+    }
+    guard entries.isEmpty == false else {
+        return
+    }
+
+    let types = entries.compactMap { NSPasteboard.PasteboardType(mimeType: $0.mime) }
+    pasteboard.declareTypes(types, owner: nil)
+
+    for entry in entries {
+        guard let type = NSPasteboard.PasteboardType(mimeType: entry.mime) else {
+            continue
+        }
+        pasteboard.setString(entry.data, forType: type)
+    }
+}
+
+private extension NSPasteboard.PasteboardType {
+    init?(mimeType: String) {
+        switch mimeType {
+        case "text/plain":
+            self = .string
+            return
+        default:
+            break
+        }
+
+        guard let type = UTType(mimeType: mimeType) else {
+            self.init(mimeType)
+            return
+        }
+
+        self.init(type.identifier)
+    }
+}
+
+private extension NSPasteboard {
+    static var zenttySelection: NSPasteboard {
+        NSPasteboard(name: .init("com.peterdedene.zentty.selection"))
+    }
+
+    static func ghostty(_ clipboard: ghostty_clipboard_e) -> NSPasteboard? {
+        switch clipboard {
+        case GHOSTTY_CLIPBOARD_STANDARD:
+            return .general
+        case GHOSTTY_CLIPBOARD_SELECTION:
+            return zenttySelection
+        default:
+            return nil
+        }
+    }
+
+    func getOpinionatedStringContents() -> String? {
+        if let urls = readObjects(forClasses: [NSURL.self]) as? [URL], urls.isEmpty == false {
+            return urls
+                .map { $0.isFileURL ? $0.path : $0.absoluteString }
+                .joined(separator: " ")
+        }
+
+        return string(forType: .string)
     }
 }

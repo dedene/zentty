@@ -26,10 +26,15 @@ struct GhosttyResolvedTheme: Equatable {
 struct ZenttyTheme: Equatable {
     let windowBackground: NSColor
     let sidebarBackground: NSColor
+    let sidebarBorder: NSColor
+    let sidebarShadow: NSColor
+    let topChromeBackground: NSColor
+    let topChromeBorder: NSColor
     let canvasBackground: NSColor
     let canvasBorder: NSColor
     let canvasShadow: NSColor
     let contextStripBackground: NSColor
+    let contextStripBorder: NSColor
     let workspaceChipBackground: NSColor
     let workspaceChipText: NSColor
     let primaryText: NSColor
@@ -49,45 +54,75 @@ struct ZenttyTheme: Equatable {
     let sidebarButtonActiveBorder: NSColor
     let sidebarButtonActiveText: NSColor
     let sidebarButtonInactiveText: NSColor
+    let underlapShadow: NSColor
+    let reducedTransparency: Bool
 
     static let animationDuration: CFTimeInterval = 0.20
 
     static func == (lhs: ZenttyTheme, rhs: ZenttyTheme) -> Bool {
         [
-            lhs.windowBackground, lhs.sidebarBackground, lhs.canvasBackground, lhs.canvasBorder,
-            lhs.canvasShadow, lhs.contextStripBackground, lhs.workspaceChipBackground, lhs.workspaceChipText,
+            lhs.windowBackground, lhs.sidebarBackground, lhs.sidebarBorder, lhs.sidebarShadow,
+            lhs.topChromeBackground, lhs.topChromeBorder, lhs.canvasBackground, lhs.canvasBorder,
+            lhs.canvasShadow, lhs.contextStripBackground, lhs.contextStripBorder, lhs.workspaceChipBackground, lhs.workspaceChipText,
             lhs.primaryText, lhs.secondaryText, lhs.tertiaryText, lhs.paneBorderFocused,
             lhs.paneBorderUnfocused, lhs.paneFillFocused, lhs.paneFillUnfocused, lhs.paneShadow,
             lhs.startupSurface, lhs.failureOverlayBackground, lhs.failurePrimaryText,
             lhs.failureSecondaryText, lhs.sidebarButtonActiveBackground, lhs.sidebarButtonInactiveBackground,
             lhs.sidebarButtonActiveBorder, lhs.sidebarButtonActiveText, lhs.sidebarButtonInactiveText,
+            lhs.underlapShadow,
         ].map(\.themeToken) == [
-            rhs.windowBackground, rhs.sidebarBackground, rhs.canvasBackground, rhs.canvasBorder,
-            rhs.canvasShadow, rhs.contextStripBackground, rhs.workspaceChipBackground, rhs.workspaceChipText,
+            rhs.windowBackground, rhs.sidebarBackground, rhs.sidebarBorder, rhs.sidebarShadow,
+            rhs.topChromeBackground, rhs.topChromeBorder, rhs.canvasBackground, rhs.canvasBorder,
+            rhs.canvasShadow, rhs.contextStripBackground, rhs.contextStripBorder, rhs.workspaceChipBackground, rhs.workspaceChipText,
             rhs.primaryText, rhs.secondaryText, rhs.tertiaryText, rhs.paneBorderFocused,
             rhs.paneBorderUnfocused, rhs.paneFillFocused, rhs.paneFillUnfocused, rhs.paneShadow,
             rhs.startupSurface, rhs.failureOverlayBackground, rhs.failurePrimaryText,
             rhs.failureSecondaryText, rhs.sidebarButtonActiveBackground, rhs.sidebarButtonInactiveBackground,
             rhs.sidebarButtonActiveBorder, rhs.sidebarButtonActiveText, rhs.sidebarButtonInactiveText,
+            rhs.underlapShadow,
         ].map(\.themeToken)
+            && lhs.reducedTransparency == rhs.reducedTransparency
     }
 
-    init(resolvedTheme: GhosttyResolvedTheme) {
+    init(
+        resolvedTheme: GhosttyResolvedTheme,
+        reduceTransparency: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    ) {
         let background = resolvedTheme.background.srgbClamped
         let foreground = resolvedTheme.foreground.srgbClamped
         let accent = (resolvedTheme.cursorColor).srgbClamped
 
         let opacityHint = min(max(resolvedTheme.backgroundOpacity ?? 0.92, 0.78), 0.97)
         let softnessHint = min(max((resolvedTheme.backgroundBlurRadius ?? 0) / 120, 0), 0.10)
-        let baseWindow = background.mixed(towards: foreground, amount: 0.10 + softnessHint)
-        let baseCanvas = background.mixed(towards: foreground, amount: 0.018 + (softnessHint * 0.18))
+        let baseWindow = background.mixed(
+            towards: foreground,
+            amount: background.isDarkThemeColor ? 0.04 + (softnessHint * 0.25) : 0.08 + (softnessHint * 0.35)
+        )
+        let baseCanvas = background.mixed(
+            towards: foreground,
+            amount: background.isDarkThemeColor ? 0.05 + (softnessHint * 0.35) : 0.10 + (softnessHint * 0.35)
+        )
+        let baseSidebar = background.isDarkThemeColor
+            ? background
+                .mixed(towards: NSColor.black, amount: 0.24)
+                .mixed(towards: accent, amount: 0.04)
+            : background
+                .mixed(towards: foreground, amount: 0.08 + softnessHint)
 
+        self.reducedTransparency = reduceTransparency
         windowBackground = baseWindow.withAlphaComponent(1)
-        sidebarBackground = windowBackground
-        canvasBackground = baseCanvas.withAlphaComponent(min(opacityHint + 0.05, 1))
-        canvasBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.18 : 0.16)
-        canvasShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.16 + softnessHint : 0.07 + (softnessHint * 0.5))
-        contextStripBackground = NSColor.clear
+        sidebarBackground = baseSidebar.withAlphaComponent(reduceTransparency ? 0.92 : (background.isDarkThemeColor ? 0.42 : 0.74))
+        sidebarBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.10)
+        sidebarShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.05)
+        canvasBackground = baseCanvas.withAlphaComponent(reduceTransparency ? 1 : min(opacityHint + 0.02, 0.96))
+        topChromeBackground = canvasBackground
+        topChromeBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.06 : 0.08)
+        canvasBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.14)
+        canvasShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 + softnessHint : 0.06 + (softnessHint * 0.35))
+        contextStripBackground = accent
+            .mixed(towards: baseCanvas, amount: background.isDarkThemeColor ? 0.88 : 0.92)
+            .withAlphaComponent(reduceTransparency ? 0.94 : 0.74)
+        contextStripBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.10 : 0.12)
         workspaceChipBackground = accent
             .mixed(towards: background, amount: background.isDarkThemeColor ? 0.82 : 0.88)
             .withAlphaComponent(0.92)
@@ -105,17 +140,21 @@ struct ZenttyTheme: Equatable {
         failurePrimaryText = foreground.withAlphaComponent(0.96)
         failureSecondaryText = foreground.withAlphaComponent(0.72)
         sidebarButtonActiveBackground = accent
-            .mixed(towards: background, amount: background.isDarkThemeColor ? 0.78 : 0.86)
-            .withAlphaComponent(0.94)
-        sidebarButtonInactiveBackground = foreground
-            .mixed(towards: background, amount: background.isDarkThemeColor ? 0.92 : 0.96)
-            .withAlphaComponent(0.22)
-        sidebarButtonActiveBorder = accent.withAlphaComponent(background.isDarkThemeColor ? 0.48 : 0.34)
+            .mixed(towards: baseSidebar, amount: background.isDarkThemeColor ? 0.78 : 0.86)
+            .withAlphaComponent(background.isDarkThemeColor ? 0.58 : 0.82)
+        sidebarButtonInactiveBackground = baseSidebar
+            .mixed(towards: foreground, amount: background.isDarkThemeColor ? 0.06 : 0.18)
+            .withAlphaComponent(background.isDarkThemeColor ? 0.14 : 0.22)
+        sidebarButtonActiveBorder = accent.withAlphaComponent(background.isDarkThemeColor ? 0.34 : 0.30)
         sidebarButtonActiveText = foreground.withAlphaComponent(0.98)
         sidebarButtonInactiveText = foreground.withAlphaComponent(0.62)
+        underlapShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.06)
     }
 
-    static func fallback(for appearance: NSAppearance?) -> ZenttyTheme {
+    static func fallback(
+        for appearance: NSAppearance?,
+        reduceTransparency: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    ) -> ZenttyTheme {
         let isDarkMode = appearance?.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let resolvedTheme = GhosttyResolvedTheme(
             background: isDarkMode
@@ -133,7 +172,7 @@ struct ZenttyTheme: Equatable {
             backgroundOpacity: isDarkMode ? 0.92 : 0.94,
             backgroundBlurRadius: 18
         )
-        return ZenttyTheme(resolvedTheme: resolvedTheme)
+        return ZenttyTheme(resolvedTheme: resolvedTheme, reduceTransparency: reduceTransparency)
     }
 }
 

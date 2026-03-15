@@ -3,6 +3,8 @@ import XCTest
 @testable import Zentty
 
 final class PaneStripViewTests: XCTestCase {
+    private let sidebarInset: CGFloat = 290
+
     @MainActor
     func test_pane_frames_update_when_container_width_changes() {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1400, height: 720))
@@ -82,6 +84,161 @@ final class PaneStripViewTests: XCTestCase {
 
         XCTAssertLessThan(updatedFrames["editor"]!.minX, initialFrames["editor"]!.minX)
         XCTAssertLessThan(updatedFrames["tests"]!.midX, initialFrames["tests"]!.midX)
+    }
+
+    @MainActor
+    func test_leading_occlusion_mask_is_not_applied_at_rest() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        paneStripView.leadingVisibleInset = 290
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(paneStripView.leadingMaskMinXForTesting, 0, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_rightward_motion_does_not_toggle_occlusion_mask() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        paneStripView.leadingVisibleInset = 290
+        let rightFocused = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("tests")
+        )
+        let leftFocused = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+
+        paneStripView.render(rightFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.render(leftFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(paneStripView.leadingMaskMinXForTesting, 0, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_leftward_motion_does_not_toggle_occlusion_mask() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        paneStripView.leadingVisibleInset = 290
+        let leftFocused = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        let rightFocused = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("tests")
+        )
+
+        paneStripView.render(leftFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.render(rightFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(paneStripView.leadingMaskMinXForTesting, 0, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_leading_visible_inset_pushes_first_focused_pane_right_of_sidebar() {
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let insetStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        insetStripView.leadingVisibleInset = 290
+
+        insetStripView.render(state)
+        insetStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThanOrEqual(insetStripView.descendantPaneViews()[0].frame.minX, 289.999)
+    }
+
+    @MainActor
+    func test_leading_visible_inset_reduces_first_focused_pane_rendered_width() {
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let baselineStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let insetStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        insetStripView.leadingVisibleInset = 290
+
+        baselineStripView.render(state)
+        baselineStripView.layoutSubtreeIfNeeded()
+        insetStripView.render(state)
+        insetStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            insetStripView.descendantPaneViews()[0].frame.width,
+            baselineStripView.descendantPaneViews()[0].frame.width - 290,
+            accuracy: 0.001
+        )
+    }
+
+    @MainActor
+    func test_focus_change_does_not_change_rendered_pane_widths() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        paneStripView.leadingVisibleInset = sidebarInset
+        let firstFocused = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let lastFocused = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("tests")
+        )
+
+        paneStripView.render(firstFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+        let firstFocusedWidths = paneStripView.descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+            .map { $0.frame.width }
+
+        paneStripView.render(lastFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+        let lastFocusedWidths = paneStripView.descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+            .map { $0.frame.width }
+
+        XCTAssertEqual(firstFocusedWidths, lastFocusedWidths)
     }
 
     @MainActor
@@ -199,6 +356,7 @@ final class PaneStripViewTests: XCTestCase {
     @MainActor
     func test_single_pane_initially_fills_available_width_then_split_uses_column_widths() throws {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        paneStripView.leadingVisibleInset = sidebarInset
         let singlePane = PaneStripState(
             panes: [
                 PaneState(id: PaneID("shell"), title: "shell"),
@@ -220,17 +378,18 @@ final class PaneStripViewTests: XCTestCase {
 
         paneStripView.render(splitState)
         paneStripView.layoutSubtreeIfNeeded()
-        let paneViews = paneStripView.descendantPaneViews()
+        let paneViews = paneStripView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
 
-        XCTAssertEqual(fullWidth, 1184, accuracy: 0.001)
+        XCTAssertEqual(fullWidth, 894, accuracy: 0.001)
         XCTAssertTrue(paneViews.contains(where: { $0 === originalShellView }))
-        XCTAssertEqual(paneViews[0].frame.width, 587, accuracy: 0.001)
+        XCTAssertEqual(paneViews[0].frame.width, fullWidth, accuracy: 0.001)
         XCTAssertEqual(paneViews[1].frame.width, 587, accuracy: 0.001)
     }
 
     @MainActor
-    func test_first_split_keeps_symmetric_left_and_right_canvas_margins() throws {
+    func test_first_split_scrolls_to_make_new_pane_visible_without_resizing_first_pane() throws {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        paneStripView.leadingVisibleInset = sidebarInset
         let splitState = PaneStripState(
             panes: [
                 PaneState(id: PaneID("shell"), title: "shell"),
@@ -243,16 +402,18 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.layoutSubtreeIfNeeded()
 
         let paneViews = paneStripView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
-        let leftMargin = try XCTUnwrap(paneViews.first?.frame.minX)
-        let lastPaneMaxX = try XCTUnwrap(paneViews.last?.frame.maxX)
-        let rightMargin = paneStripView.bounds.width - lastPaneMaxX
+        let firstPane = try XCTUnwrap(paneViews.first)
+        let lastPane = try XCTUnwrap(paneViews.last)
 
-        XCTAssertEqual(leftMargin, rightMargin, accuracy: 0.001)
+        XCTAssertEqual(firstPane.frame.width, 894, accuracy: 0.001)
+        XCTAssertLessThan(firstPane.frame.minX, 0)
+        XCTAssertLessThanOrEqual(lastPane.frame.maxX, paneStripView.bounds.width - 7.999)
     }
 
     @MainActor
     func test_split_from_single_pane_seeds_new_pane_from_right_edge_of_original_pane() throws {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        paneStripView.leadingVisibleInset = sidebarInset
         let singlePane = PaneStripState(
             panes: [
                 PaneState(id: PaneID("shell"), title: "shell"),
@@ -272,7 +433,8 @@ final class PaneStripViewTests: XCTestCase {
         let originalShellFrame = try XCTUnwrap(paneStripView.descendantPaneViews().first?.frame)
         let splitPresentation = PaneStripMotionController().presentation(
             for: splitState,
-            in: paneStripView.bounds.size
+            in: paneStripView.bounds.size,
+            leadingVisibleInset: sidebarInset
         )
 
         paneStripView.render(splitState)
@@ -292,6 +454,7 @@ final class PaneStripViewTests: XCTestCase {
     @MainActor
     func test_split_from_multi_pane_seeds_new_pane_from_right_of_left_neighbor() throws {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        paneStripView.leadingVisibleInset = sidebarInset
         let twoPaneState = PaneStripState(
             panes: [
                 PaneState(id: PaneID("shell"), title: "shell"),
@@ -323,8 +486,140 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertGreaterThan(transition.initialFrame.minX, editorFrame.maxX)
     }
 
+    @MainActor
+    func test_split_from_multi_pane_preserves_existing_widths_and_reveals_new_pane() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        paneStripView.leadingVisibleInset = sidebarInset
+        let twoPaneState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        let splitState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+                PaneState(id: PaneID("pane-1"), title: "pane 1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+
+        paneStripView.render(twoPaneState)
+        paneStripView.layoutSubtreeIfNeeded()
+        let twoPaneWidths = paneStripView.descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+            .map { $0.frame.width }
+
+        paneStripView.render(splitState)
+        paneStripView.layoutSubtreeIfNeeded()
+        let splitPaneViews = paneStripView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+
+        XCTAssertEqual(splitPaneViews[0].frame.width, twoPaneWidths[0], accuracy: 0.001)
+        XCTAssertEqual(splitPaneViews[1].frame.width, twoPaneWidths[1], accuracy: 0.001)
+        XCTAssertEqual(splitPaneViews[2].frame.width, 587, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(splitPaneViews[2].frame.maxX, paneStripView.bounds.width - 7.999)
+    }
+
+    @MainActor
+    func test_pane_strip_does_not_install_pan_gesture_recognizer() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
+
+        XCTAssertFalse(paneStripView.gestureRecognizers.contains(where: { $0 is NSPanGestureRecognizer }))
+    }
+
+    @MainActor
+    func test_horizontal_scroll_changes_focus_once_per_gesture() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
+        paneStripView.render(makeScrollTestState(focusedPaneID: PaneID("editor")))
+        paneStripView.layoutSubtreeIfNeeded()
+
+        var settledPaneIDs: [PaneID] = []
+        paneStripView.onFocusSettled = { settledPaneIDs.append($0) }
+
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 24, phase: .began, precise: true))
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 24, phase: .changed, precise: true))
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 30, phase: .changed, precise: true))
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 0, phase: .ended, precise: true))
+
+        XCTAssertEqual(settledPaneIDs, [PaneID("logs")])
+    }
+
+    @MainActor
+    func test_subthreshold_horizontal_scroll_does_not_change_focus() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
+        paneStripView.render(makeScrollTestState(focusedPaneID: PaneID("editor")))
+        paneStripView.layoutSubtreeIfNeeded()
+
+        var settledPaneIDs: [PaneID] = []
+        paneStripView.onFocusSettled = { settledPaneIDs.append($0) }
+
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 12, phase: .began, precise: true))
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 12, phase: .ended, precise: true))
+
+        XCTAssertTrue(settledPaneIDs.isEmpty)
+    }
+
+    @MainActor
+    func test_shift_wheel_scroll_changes_focus_to_adjacent_pane() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
+        paneStripView.render(makeScrollTestState(focusedPaneID: PaneID("editor")))
+        paneStripView.layoutSubtreeIfNeeded()
+
+        var settledPaneID: PaneID?
+        paneStripView.onFocusSettled = { settledPaneID = $0 }
+
+        paneStripView.scrollWheel(with: try makeScrollEvent(
+            deltaY: -1,
+            precise: false,
+            modifierFlags: [.shift]
+        ))
+
+        XCTAssertEqual(settledPaneID, PaneID("tests"))
+    }
+
+    @MainActor
+    func test_plain_vertical_scroll_does_not_change_focus() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
+        paneStripView.render(makeScrollTestState(focusedPaneID: PaneID("editor")))
+        paneStripView.layoutSubtreeIfNeeded()
+
+        var settledPaneIDs: [PaneID] = []
+        paneStripView.onFocusSettled = { settledPaneIDs.append($0) }
+
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaY: -2, precise: false))
+
+        XCTAssertTrue(settledPaneIDs.isEmpty)
+    }
+
+    @MainActor
+    func test_scroll_switching_clamps_at_strip_edges() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
+        paneStripView.render(makeScrollTestState(focusedPaneID: PaneID("logs")))
+        paneStripView.layoutSubtreeIfNeeded()
+
+        var settledPaneIDs: [PaneID] = []
+        paneStripView.onFocusSettled = { settledPaneIDs.append($0) }
+
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 60, precise: true))
+
+        XCTAssertTrue(settledPaneIDs.isEmpty)
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
+    }
+
+    private func makeScrollTestState(focusedPaneID: PaneID) -> PaneStripState {
+        PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: focusedPaneID
+        )
     }
 }
 
@@ -379,4 +674,49 @@ private extension NSView {
         walk(self)
         return paneViews
     }
+}
+
+private func makeScrollEvent(
+    deltaX: Int32 = 0,
+    deltaY: Int32 = 0,
+    phase: NSEvent.Phase = [],
+    precise: Bool,
+    modifierFlags: NSEvent.ModifierFlags = []
+) throws -> NSEvent {
+    let source = try XCTUnwrap(CGEventSource(stateID: .hidSystemState))
+    let units: CGScrollEventUnit = precise ? .pixel : .line
+    let cgEvent = try XCTUnwrap(
+        CGEvent(
+            scrollWheelEvent2Source: source,
+            units: units,
+            wheelCount: 2,
+            wheel1: deltaY,
+            wheel2: deltaX,
+            wheel3: 0
+        )
+    )
+
+    cgEvent.flags = makeCGEventFlags(from: modifierFlags)
+    cgEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
+
+    return try XCTUnwrap(NSEvent(cgEvent: cgEvent))
+}
+
+private func makeCGEventFlags(from modifierFlags: NSEvent.ModifierFlags) -> CGEventFlags {
+    var flags: CGEventFlags = []
+
+    if modifierFlags.contains(.shift) {
+        flags.insert(.maskShift)
+    }
+    if modifierFlags.contains(.control) {
+        flags.insert(.maskControl)
+    }
+    if modifierFlags.contains(.option) {
+        flags.insert(.maskAlternate)
+    }
+    if modifierFlags.contains(.command) {
+        flags.insert(.maskCommand)
+    }
+
+    return flags
 }

@@ -43,4 +43,17 @@ final class MainWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(window.frame.integral, manualFrame.integral)
     }
+
+    func test_show_window_repositions_traffic_lights_with_comfortable_inset() throws {
+        let controller = MainWindowController()
+        controller.showWindow(nil)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+
+        let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
+        let buttonSuperview = try XCTUnwrap(closeButton.superview)
+        let topInset = buttonSuperview.bounds.maxY - closeButton.frame.maxY
+
+        XCTAssertEqual(closeButton.frame.minX, ShellMetrics.trafficLightLeadingInset, accuracy: 1.0)
+        XCTAssertEqual(topInset, ShellMetrics.trafficLightTopInset, accuracy: 1.0)
+    }
 }

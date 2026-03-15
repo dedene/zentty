@@ -86,8 +86,79 @@ final class GhosttyThemeResolverTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(theme.windowBackground.themeToken, theme.sidebarBackground.themeToken)
+        XCTAssertNotEqual(theme.windowBackground.themeToken, theme.sidebarBackground.themeToken)
         XCTAssertNotEqual(theme.canvasBackground.themeToken, theme.startupSurface.themeToken)
         XCTAssertNotEqual(theme.windowBackground.themeToken, theme.canvasBackground.themeToken)
+        XCTAssertEqual(theme.topChromeBackground.themeToken, theme.canvasBackground.themeToken)
+    }
+
+    func test_derived_theme_creates_distinct_shell_material_from_window_background() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            )
+        )
+
+        XCTAssertNotEqual(theme.windowBackground.themeToken, theme.sidebarBackground.themeToken)
+    }
+
+    func test_derived_theme_keeps_sidebar_darker_than_stitched_content_shell_for_dark_themes() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            )
+        )
+
+        XCTAssertLessThan(theme.sidebarBackground.perceivedLuminance, theme.canvasBackground.perceivedLuminance)
+        XCTAssertNotEqual(theme.sidebarBackground.themeToken, theme.canvasBackground.themeToken)
+    }
+
+    func test_dark_theme_sidebar_uses_translucent_glass_fill_instead_of_opaque_slab() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            )
+        )
+
+        XCTAssertLessThan(theme.sidebarBackground.srgbClamped.alphaComponent, 0.5)
+    }
+
+    func test_dark_theme_sidebar_rows_stay_translucent_enough_to_reveal_underlap_motion() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            )
+        )
+
+        XCTAssertLessThan(theme.sidebarButtonActiveBackground.srgbClamped.alphaComponent, 0.7)
+        XCTAssertLessThan(theme.sidebarButtonInactiveBackground.srgbClamped.alphaComponent, 0.2)
     }
 }

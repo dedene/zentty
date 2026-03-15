@@ -8,15 +8,11 @@ final class RootViewController: NSViewController {
     private let themeResolver = GhosttyThemeResolver()
     private let themeWatcher = GhosttyThemeWatcher()
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
+    private let windowChromeView = WindowChromeView()
     private var hasInstalledKeyMonitor = false
     private var hasInstalledWindowObservers = false
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var sidebarWidthConstraint: NSLayoutConstraint?
-
-    private enum Layout {
-        static let outerInset: CGFloat = 6
-        static let canvasGap: CGFloat = 8
-    }
 
     init(sidebarWidthDefaults: UserDefaults = .standard) {
         self.sidebarWidthDefaults = sidebarWidthDefaults
@@ -41,10 +37,12 @@ final class RootViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        sidebarView.translatesAutoresizingMaskIntoConstraints = false
         appCanvasView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(sidebarView)
+        windowChromeView.translatesAutoresizingMaskIntoConstraints = false
+        sidebarView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appCanvasView)
+        view.addSubview(windowChromeView)
+        view.addSubview(sidebarView)
 
         let sidebarWidthConstraint = sidebarView.widthAnchor.constraint(
             equalToConstant: SidebarWidthPreference.restoredWidth(from: sidebarWidthDefaults)
@@ -52,15 +50,20 @@ final class RootViewController: NSViewController {
         self.sidebarWidthConstraint = sidebarWidthConstraint
 
         NSLayoutConstraint.activate([
-            sidebarView.topAnchor.constraint(equalTo: view.topAnchor, constant: Layout.outerInset),
-            sidebarView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Layout.outerInset),
-            sidebarView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -Layout.outerInset),
+            sidebarView.topAnchor.constraint(equalTo: view.topAnchor, constant: ShellMetrics.outerInset),
+            sidebarView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: ShellMetrics.outerInset),
+            sidebarView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -ShellMetrics.outerInset),
             sidebarWidthConstraint,
 
-            appCanvasView.topAnchor.constraint(equalTo: view.topAnchor, constant: Layout.outerInset),
-            appCanvasView.leadingAnchor.constraint(equalTo: sidebarView.trailingAnchor, constant: Layout.canvasGap),
-            appCanvasView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -Layout.outerInset),
-            appCanvasView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -Layout.outerInset),
+            appCanvasView.topAnchor.constraint(equalTo: windowChromeView.bottomAnchor),
+            appCanvasView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: ShellMetrics.outerInset),
+            appCanvasView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -ShellMetrics.outerInset),
+            appCanvasView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -ShellMetrics.outerInset),
+
+            windowChromeView.topAnchor.constraint(equalTo: view.topAnchor, constant: ShellMetrics.outerInset),
+            windowChromeView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: ShellMetrics.outerInset),
+            windowChromeView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -ShellMetrics.outerInset),
+            windowChromeView.heightAnchor.constraint(equalToConstant: WindowChromeView.preferredHeight),
         ])
 
         paneStripStore.onChange = { [weak self] _ in
@@ -90,13 +93,11 @@ final class RootViewController: NSViewController {
             }
 
             self.paneStripStore.updateMetadata(id: paneID, metadata: metadata)
-            if self.paneStripStore.activeWorkspace?.paneStripState.panes.contains(where: { $0.id == paneID }) == true {
-                self.appCanvasView.updateMetadata(for: paneID, metadata: metadata)
-            }
         }
         themeWatcher.onChange = { [weak self] in
             self?.refreshTheme(animated: true)
         }
+        updateCanvasLeadingInset()
         refreshTheme(animated: false)
         renderCurrentWorkspace()
     }
@@ -174,30 +175,35 @@ final class RootViewController: NSViewController {
             return
         }
 
-        appCanvasView.render(
-            workspaceName: workspace.title,
-            state: workspace.paneStripState,
-            metadataByPaneID: workspace.metadataByPaneID,
-            theme: currentTheme
-        )
+        let metadata = workspace.paneStripState.focusedPaneID.flatMap { workspace.metadataByPaneID[$0] }
+        windowChromeView.render(workspaceName: workspace.title, state: workspace.paneStripState, metadata: metadata)
+        appCanvasView.render(workspaceName: workspace.title, state: workspace.paneStripState, metadataByPaneID: workspace.metadataByPaneID, theme: currentTheme)
         updateRuntimeSurfaceActivities()
     }
 
     private func refreshTheme(animated: Bool) {
         let resolution = themeResolver.resolve(for: view.effectiveAppearance)
-        let theme = resolution.map { ZenttyTheme(resolvedTheme: $0.theme) }
-            ?? ZenttyTheme.fallback(for: view.effectiveAppearance)
+        let theme = resolution.map {
+            ZenttyTheme(
+                resolvedTheme: $0.theme,
+                reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            )
+        } ?? ZenttyTheme.fallback(
+            for: view.effectiveAppearance,
+            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        )
         let didChange = theme != currentTheme
         currentTheme = theme
         apply(theme: theme, animated: animated && didChange)
         sidebarView.apply(theme: theme, animated: animated && didChange)
+        windowChromeView.apply(theme: theme, animated: animated && didChange)
         appCanvasView.apply(theme: theme, animated: animated && didChange)
         themeWatcher.watch(urls: resolution?.watchedURLs ?? [themeResolver.configURL])
     }
 
     private func apply(theme: ZenttyTheme, animated: Bool) {
         performThemeAnimation(animated: animated) {
-            self.view.layer?.backgroundColor = theme.windowBackground.cgColor
+            self.view.layer?.backgroundColor = theme.startupSurface.cgColor
         }
     }
 
@@ -217,6 +223,7 @@ final class RootViewController: NSViewController {
     private func setSidebarWidth(_ width: CGFloat, persist: Bool) {
         let clampedWidth = SidebarWidthPreference.clamped(width)
         sidebarWidthConstraint?.constant = clampedWidth
+        updateCanvasLeadingInset()
         view.layoutSubtreeIfNeeded()
 
         if persist {
@@ -226,6 +233,10 @@ final class RootViewController: NSViewController {
 
     var sidebarWidthForTesting: CGFloat {
         sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
+    }
+
+    private func updateCanvasLeadingInset() {
+        appCanvasView.leadingVisibleInset = (sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth) + ShellMetrics.shellGap
     }
 }
 

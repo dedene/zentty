@@ -3,7 +3,7 @@ import GhosttyKit
 
 @MainActor
 final class LibghosttySurface: LibghosttySurfaceControlling {
-    nonisolated(unsafe) private var surface: ghostty_surface_t?
+    nonisolated(unsafe) var surface: ghostty_surface_t?
     private var metadata = TerminalMetadata()
     private let metadataDidChange: (TerminalMetadata) -> Void
 
@@ -152,6 +152,57 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         }
     }
 
+    func performBindingAction(_ action: String) -> Bool {
+        guard let surface else {
+            return false
+        }
+
+        return action.withCString { cString in
+            ghostty_surface_binding_action(surface, cString, UInt(action.lengthOfBytes(using: .utf8)))
+        }
+    }
+
+    func hasSelection() -> Bool {
+        guard let surface else {
+            return false
+        }
+
+        return ghostty_surface_has_selection(surface)
+    }
+
+    func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {
+        guard let surface else {
+            return
+        }
+
+        ghostty_surface_mouse_scroll(
+            surface,
+            x,
+            y,
+            Self.scrollMods(precision: precision, momentum: momentum)
+        )
+    }
+
+    func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags) {
+        guard let surface else {
+            return
+        }
+
+        ghostty_surface_mouse_pos(surface, position.x, position.y, Self.modsFromFlags(modifiers))
+    }
+
+    func sendMouseButton(
+        state: ghostty_input_mouse_state_e,
+        button: ghostty_input_mouse_button_e,
+        modifiers: NSEvent.ModifierFlags
+    ) {
+        guard let surface else {
+            return
+        }
+
+        _ = ghostty_surface_mouse_button(surface, state, button, Self.modsFromFlags(modifiers))
+    }
+
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {
         guard let surface else {
             return nil
@@ -176,22 +227,52 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     }
 
     static func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
-        var rawValue = GHOSTTY_MODS_NONE.rawValue
+        modsFromFlags(event.modifierFlags)
+    }
 
-        if event.modifierFlags.contains(.shift) {
+    static func modsFromFlags(_ modifierFlags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        var rawValue = GHOSTTY_MODS_NONE.rawValue
+        let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        if flags.contains(.shift) {
             rawValue |= GHOSTTY_MODS_SHIFT.rawValue
         }
-        if event.modifierFlags.contains(.control) {
+        if flags.contains(.control) {
             rawValue |= GHOSTTY_MODS_CTRL.rawValue
         }
-        if event.modifierFlags.contains(.option) {
+        if flags.contains(.option) {
             rawValue |= GHOSTTY_MODS_ALT.rawValue
         }
-        if event.modifierFlags.contains(.command) {
+        if flags.contains(.command) {
             rawValue |= GHOSTTY_MODS_SUPER.rawValue
         }
 
         return ghostty_input_mods_e(rawValue: rawValue)
+    }
+
+    static func scrollMods(precision: Bool, momentum: NSEvent.Phase) -> ghostty_input_scroll_mods_t {
+        var rawValue: Int32 = precision ? 0b0000_0001 : 0
+        rawValue |= scrollMomentumValue(from: momentum) << 1
+        return rawValue
+    }
+
+    static func scrollMomentumValue(from phase: NSEvent.Phase) -> Int32 {
+        switch phase {
+        case .began:
+            1
+        case .stationary:
+            2
+        case .changed:
+            3
+        case .ended:
+            4
+        case .cancelled:
+            5
+        case .mayBegin:
+            6
+        default:
+            0
+        }
     }
 
     static func translatedModifierFlags(

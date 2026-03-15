@@ -2,6 +2,8 @@ import XCTest
 @testable import Zentty
 
 final class PaneStripStateTests: XCTestCase {
+    private let sidebarInset: CGFloat = 290
+
     func test_initial_focus_defaults_to_first_pane() {
         let state = PaneStripState(
             panes: [
@@ -30,6 +32,7 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.panes.map(\.title), ["logs", "editor", "shell", "tests"])
         XCTAssertEqual(state.focusedPane?.title, "shell")
         XCTAssertEqual(state.focusedIndex, 2)
+        XCTAssertEqual(state.panes.map(\.widthRole), [.leadingReadable, .standardColumn, .standardColumn, .standardColumn])
     }
 
     func test_insert_before_focused_places_new_pane_adjacent_and_focuses_it() {
@@ -47,6 +50,7 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.panes.map(\.title), ["logs", "shell", "editor", "tests"])
         XCTAssertEqual(state.focusedPane?.title, "shell")
         XCTAssertEqual(state.focusedIndex, 1)
+        XCTAssertEqual(state.panes.map(\.widthRole), [.leadingReadable, .standardColumn, .standardColumn, .standardColumn])
     }
 
     func test_close_focused_pane_prefers_right_neighbor_when_available() {
@@ -66,6 +70,7 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.panes.map(\.title), ["logs", "tests", "shell"])
         XCTAssertEqual(state.focusedPane?.title, "tests")
         XCTAssertEqual(state.focusedIndex, 1)
+        XCTAssertEqual(state.panes.map(\.widthRole), [.leadingReadable, .standardColumn, .standardColumn])
     }
 
     func test_close_last_focused_pane_falls_back_to_left_neighbor() {
@@ -84,9 +89,10 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.panes.map(\.title), ["logs", "editor"])
         XCTAssertEqual(state.focusedPane?.title, "editor")
         XCTAssertEqual(state.focusedIndex, 1)
+        XCTAssertEqual(state.panes.map(\.widthRole), [.leadingReadable, .standardColumn])
     }
 
-    func test_wide_layout_clamps_pane_width_to_maximum() {
+    func test_first_pane_defaults_to_leading_readable_role() {
         let state = PaneStripState(
             panes: [
                 makePane("logs"),
@@ -96,56 +102,10 @@ final class PaneStripStateTests: XCTestCase {
             focusedPaneID: PaneID("editor")
         )
 
-        let items = state.layoutItems(in: CGSize(width: 2200, height: 780))
-        XCTAssertEqual(items[0].width, 1087, accuracy: 0.001)
-        XCTAssertEqual(items[1].width, 1087, accuracy: 0.001)
-        XCTAssertEqual(items[2].width, 1087, accuracy: 0.001)
+        XCTAssertEqual(state.panes.map(\.widthRole), [.leadingReadable, .standardColumn, .standardColumn])
     }
 
-    func test_narrow_layout_clamps_pane_width_to_minimum() {
-        let state = PaneStripState(
-            panes: [
-                makePane("logs"),
-                makePane("editor"),
-                makePane("tests"),
-            ],
-            focusedPaneID: PaneID("editor")
-        )
-
-        let items = state.layoutItems(in: CGSize(width: 560, height: 780))
-        XCTAssertEqual(items[0].width, PaneLayoutSizing.balanced.minimumPaneWidth)
-        XCTAssertEqual(items[1].width, PaneLayoutSizing.balanced.minimumPaneWidth)
-        XCTAssertEqual(items[2].width, PaneLayoutSizing.balanced.minimumPaneWidth)
-    }
-
-    func test_layout_uses_one_stable_pane_width_across_focus_states() {
-        let state = PaneStripState(
-            panes: [
-                makePane("logs"),
-                makePane("editor"),
-                makePane("tests"),
-            ],
-            focusedPaneID: PaneID("editor")
-        )
-        let otherFocusedState = PaneStripState(
-            panes: [
-                makePane("logs"),
-                makePane("editor"),
-                makePane("tests"),
-            ],
-            focusedPaneID: PaneID("tests")
-        )
-
-        let compactItems = state.layoutItems(in: CGSize(width: 960, height: 780))
-        let shiftedFocusItems = otherFocusedState.layoutItems(in: CGSize(width: 960, height: 780))
-
-        XCTAssertEqual(compactItems.map(\.width), shiftedFocusItems.map(\.width))
-        XCTAssertEqual(Set(compactItems.map(\.width)).count, 1)
-        XCTAssertEqual(compactItems.map(\.isFocused), [false, true, false])
-        XCTAssertEqual(shiftedFocusItems.map(\.isFocused), [false, false, true])
-    }
-
-    func test_single_pane_uses_full_available_width() {
+    func test_single_pane_uses_readable_width_when_sidebar_inset_is_present() {
         let state = PaneStripState(
             panes: [
                 makePane("shell"),
@@ -153,28 +113,138 @@ final class PaneStripStateTests: XCTestCase {
             focusedPaneID: PaneID("shell")
         )
 
-        let items = state.layoutItems(in: CGSize(width: 1200, height: 780))
+        let items = state.layoutItems(
+            in: CGSize(width: 1200, height: 780),
+            leadingVisibleInset: sidebarInset
+        )
 
         XCTAssertEqual(items.count, 1)
-        XCTAssertEqual(items[0].width, 1184, accuracy: 0.001)
+        XCTAssertEqual(items[0].widthRole, .leadingReadable)
+        XCTAssertEqual(items[0].width, 894, accuracy: 0.001)
     }
 
-    func test_multi_pane_uses_half_width_by_default_like_niri_columns() {
+    func test_multi_pane_uses_stable_role_based_widths() {
         let state = PaneStripState(
             panes: [
                 makePane("shell"),
                 makePane("pane-1"),
+                makePane("pane-2"),
             ],
             focusedPaneID: PaneID("pane-1")
         )
 
-        let items = state.layoutItems(in: CGSize(width: 1200, height: 780))
+        let items = state.layoutItems(
+            in: CGSize(width: 1200, height: 780),
+            leadingVisibleInset: sidebarInset
+        )
 
-        XCTAssertEqual(items[0].width, 587, accuracy: 0.001)
+        XCTAssertEqual(items.map(\.widthRole), [.leadingReadable, .standardColumn, .standardColumn])
+        XCTAssertEqual(items[0].width, 894, accuracy: 0.001)
         XCTAssertEqual(items[1].width, 587, accuracy: 0.001)
+        XCTAssertEqual(items[2].width, 587, accuracy: 0.001)
     }
 
-    func test_two_pane_layout_preserves_symmetric_outer_margins() {
+    func test_focus_change_does_not_change_layout_widths() {
+        let editorFocused = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("pane-1"),
+                makePane("pane-2"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+        let shellFocusedState = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("pane-1"),
+                makePane("pane-2"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+
+        let editorFocusedItems = editorFocused.layoutItems(
+            in: CGSize(width: 1200, height: 780),
+            leadingVisibleInset: sidebarInset
+        )
+        let shellFocusedItems = shellFocusedState.layoutItems(
+            in: CGSize(width: 1200, height: 780),
+            leadingVisibleInset: sidebarInset
+        )
+
+        XCTAssertEqual(editorFocusedItems.map(\.width), shellFocusedItems.map(\.width))
+    }
+
+    func test_inserting_pane_preserves_existing_widths() {
+        var state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("pane-1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+        let originalItems = state.layoutItems(
+            in: CGSize(width: 1200, height: 780),
+            leadingVisibleInset: sidebarInset
+        )
+
+        state.insertPane(makePane("pane-2"), placement: .afterFocused)
+        let updatedItems = state.layoutItems(
+            in: CGSize(width: 1200, height: 780),
+            leadingVisibleInset: sidebarInset
+        )
+
+        XCTAssertEqual(updatedItems[0].width, originalItems[0].width, accuracy: 0.001)
+        XCTAssertEqual(updatedItems[1].width, originalItems[1].width, accuracy: 0.001)
+        XCTAssertEqual(updatedItems[2].width, 587, accuracy: 0.001)
+    }
+
+    func test_closing_leading_pane_promotes_new_first_pane_to_readable_role() {
+        var state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("pane-1"),
+                makePane("pane-2"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+
+        _ = state.closeFocusedPane()
+
+        XCTAssertEqual(state.panes.map(\.title), ["pane-1", "pane-2"])
+        XCTAssertEqual(state.panes.map(\.widthRole), [.leadingReadable, .standardColumn])
+    }
+
+    func test_standard_column_width_is_independent_of_pane_count() {
+        let twoPaneState = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("pane-1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+        let threePaneState = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("pane-1"),
+                makePane("pane-2"),
+            ],
+            focusedPaneID: PaneID("pane-2")
+        )
+
+        let twoPaneItems = twoPaneState.layoutItems(
+            in: CGSize(width: 1200, height: 780),
+            leadingVisibleInset: sidebarInset
+        )
+        let threePaneItems = threePaneState.layoutItems(
+            in: CGSize(width: 1200, height: 780),
+            leadingVisibleInset: sidebarInset
+        )
+
+        XCTAssertEqual(twoPaneItems[1].width, threePaneItems[1].width, accuracy: 0.001)
+        XCTAssertEqual(threePaneItems[1].width, threePaneItems[2].width, accuracy: 0.001)
+    }
+
+    func test_narrow_layout_clamps_role_based_widths_to_minimum() {
         let state = PaneStripState(
             panes: [
                 makePane("shell"),
@@ -183,12 +253,12 @@ final class PaneStripStateTests: XCTestCase {
             focusedPaneID: PaneID("pane-1")
         )
 
-        let items = state.layoutItems(in: CGSize(width: 1200, height: 780))
-        let sizing = PaneLayoutSizing.balanced
-        let totalWidth = items.map(\.width).reduce(0, +) + sizing.interPaneSpacing
-        let contentWidth = 1200 - (sizing.horizontalInset * 2)
-
-        XCTAssertEqual(totalWidth, contentWidth, accuracy: 0.001)
+        let items = state.layoutItems(
+            in: CGSize(width: 560, height: 780),
+            leadingVisibleInset: sidebarInset
+        )
+        XCTAssertEqual(items[0].width, PaneLayoutSizing.balanced.minimumPaneWidth)
+        XCTAssertEqual(items[1].width, PaneLayoutSizing.balanced.minimumPaneWidth)
     }
 
     func test_layout_height_expands_with_container_height() {

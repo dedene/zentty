@@ -1,7 +1,7 @@
 import AppKit
 
 final class ContextStripView: NSView {
-    static let preferredHeight: CGFloat = 24
+    static let preferredHeight: CGFloat = 26
 
     private let focusedLabel = ContextStripView.makeLabel(text: "shell", color: .secondaryLabelColor, weight: .medium)
     private let cwdLabel = ContextStripView.makeLabel(text: "", color: .tertiaryLabelColor, weight: .regular)
@@ -20,7 +20,11 @@ final class ContextStripView: NSView {
 
     private func setup() {
         wantsLayer = true
+        layer?.cornerRadius = ShellMetrics.pillRadius
+        layer?.cornerCurve = .continuous
+        layer?.borderWidth = 1
         layer?.backgroundColor = currentTheme.contextStripBackground.cgColor
+        layer?.borderColor = currentTheme.contextStripBorder.cgColor
 
         let stack = NSStackView(views: [focusedLabel, cwdLabel, branchLabel])
         stack.orientation = .horizontal
@@ -31,6 +35,7 @@ final class ContextStripView: NSView {
 
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
@@ -75,6 +80,7 @@ final class ContextStripView: NSView {
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = theme.contextStripBackground.cgColor
+            self.layer?.borderColor = theme.contextStripBorder.cgColor
         }
     }
 
