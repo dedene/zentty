@@ -80,12 +80,11 @@ struct ZenttyTheme: Equatable {
         let opacityHint = min(max(resolvedTheme.backgroundOpacity ?? 0.92, 0.78), 0.97)
         let softnessHint = min(max((resolvedTheme.backgroundBlurRadius ?? 0) / 120, 0), 0.10)
         let baseWindow = background.mixed(towards: foreground, amount: 0.10 + softnessHint)
-        let baseSidebar = background.mixed(towards: foreground, amount: 0.14 + softnessHint)
-        let baseCanvas = background.mixed(towards: foreground, amount: 0.06 + (softnessHint * 0.6))
+        let baseCanvas = background.mixed(towards: foreground, amount: 0.018 + (softnessHint * 0.18))
 
         windowBackground = baseWindow.withAlphaComponent(1)
-        sidebarBackground = baseSidebar.withAlphaComponent(opacityHint)
-        canvasBackground = baseCanvas.withAlphaComponent(opacityHint)
+        sidebarBackground = windowBackground
+        canvasBackground = baseCanvas.withAlphaComponent(min(opacityHint + 0.05, 1))
         canvasBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.18 : 0.16)
         canvasShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.16 + softnessHint : 0.07 + (softnessHint * 0.5))
         contextStripBackground = NSColor.clear

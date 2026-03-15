@@ -86,8 +86,8 @@ final class GhosttyThemeResolverTests: XCTestCase {
             )
         )
 
-        XCTAssertNotEqual(theme.sidebarBackground.themeHexString, theme.startupSurface.themeHexString)
-        XCTAssertNotEqual(theme.canvasBackground.themeHexString, theme.startupSurface.themeHexString)
-        XCTAssertNotEqual(theme.windowBackground.themeHexString, theme.sidebarBackground.themeHexString)
+        XCTAssertEqual(theme.windowBackground.themeToken, theme.sidebarBackground.themeToken)
+        XCTAssertNotEqual(theme.canvasBackground.themeToken, theme.startupSurface.themeToken)
+        XCTAssertNotEqual(theme.windowBackground.themeToken, theme.canvasBackground.themeToken)
     }
 }
