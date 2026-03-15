@@ -1,10 +1,12 @@
 import AppKit
+import GhosttyKit
 
 @MainActor
 protocol LibghosttyRuntimeProviding: AnyObject {
     func makeSurface(
         for hostView: LibghosttyView,
         request: TerminalSessionRequest,
+        configTemplate: ghostty_surface_config_s?,
         metadataDidChange: @escaping (TerminalMetadata) -> Void
     ) throws -> any LibghosttySurfaceControlling
 }
@@ -22,6 +24,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
     func refresh()
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool
     func sendText(_ text: String)
+    func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s?
 }
 
 @MainActor
@@ -30,6 +33,7 @@ final class LibghosttyAdapter: TerminalAdapter {
     private let hostView = LibghosttyView()
     private var surfaceController: (any LibghosttySurfaceControlling)?
     private var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: false, isFocused: false)
+    private var inheritedConfigTemplate: ghostty_surface_config_s?
 
     var metadataDidChange: ((TerminalMetadata) -> Void)?
 
@@ -49,6 +53,7 @@ final class LibghosttyAdapter: TerminalAdapter {
         let surfaceController = try runtime.makeSurface(
             for: hostView,
             request: request,
+            configTemplate: inheritedConfigTemplate,
             metadataDidChange: { [weak self] metadata in
                 self?.metadataDidChange?(metadata)
             }
@@ -74,5 +79,25 @@ final class LibghosttyAdapter: TerminalAdapter {
             hostView.layoutSubtreeIfNeeded()
             surfaceController.refresh()
         }
+    }
+}
+
+extension LibghosttyAdapter: TerminalSessionInheritanceConfiguring {
+    func prepareSessionStart(from sourceAdapter: (any TerminalAdapter)?) {
+        guard surfaceController == nil else {
+            return
+        }
+
+        guard
+            let sourceAdapter = sourceAdapter as? LibghosttyAdapter,
+            let inheritedConfig = sourceAdapter.surfaceController?.inheritedConfig(
+                for: GHOSTTY_SURFACE_CONTEXT_SPLIT
+            )
+        else {
+            inheritedConfigTemplate = nil
+            return
+        }
+
+        inheritedConfigTemplate = inheritedConfig
     }
 }

@@ -56,6 +56,24 @@ final class LibghosttyAdapterTests: XCTestCase {
         XCTAssertEqual(surfaceController.focusValues.last, true)
     }
 
+    func test_prepare_session_start_uses_inherited_config_from_source_surface() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let sourceAdapter = LibghosttyAdapter(runtime: runtime)
+        let splitAdapter = LibghosttyAdapter(runtime: runtime)
+        let inheritedConfig = ghostty_surface_config_new()
+
+        try sourceAdapter.startSession(using: TerminalSessionRequest())
+        runtime.lastSurfaceController?.inheritedConfig = inheritedConfig
+
+        splitAdapter.prepareSessionStart(from: sourceAdapter)
+        try splitAdapter.startSession(using: TerminalSessionRequest(inheritFromPaneID: PaneID("source")))
+
+        XCTAssertEqual(runtime.makeSurfaceCallCount, 2)
+        XCTAssertEqual(runtime.receivedConfigTemplates.count, 2)
+        XCTAssertNil(runtime.receivedConfigTemplates[0])
+        XCTAssertEqual(runtime.receivedConfigTemplates[1]?.context, inheritedConfig.context)
+    }
+
     func test_copy_action_payload_copies_pwd_string_before_async_boundary() {
         let duplicated = strdup("/tmp/project")
         defer { free(duplicated) }
@@ -92,16 +110,19 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
     private(set) var lastMetadataHandler: ((TerminalMetadata) -> Void)?
     private(set) var lastRequest: TerminalSessionRequest?
     private(set) var lastSurfaceController: LibghosttySurfaceControllerSpy?
+    private(set) var receivedConfigTemplates: [ghostty_surface_config_s?] = []
 
     func makeSurface(
         for hostView: LibghosttyView,
         request: TerminalSessionRequest,
+        configTemplate: ghostty_surface_config_s?,
         metadataDidChange: @escaping (TerminalMetadata) -> Void
     ) throws -> any LibghosttySurfaceControlling {
         makeSurfaceCallCount += 1
         lastHostView = hostView
         lastRequest = request
         lastMetadataHandler = metadataDidChange
+        receivedConfigTemplates.append(configTemplate)
         let surfaceController = LibghosttySurfaceControllerSpy()
         lastSurfaceController = surfaceController
         return surfaceController
@@ -111,9 +132,13 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
 private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling {
     private(set) var refreshCallCount = 0
     private(set) var focusValues: [Bool] = []
+    var inheritedConfig: ghostty_surface_config_s?
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) { focusValues.append(isFocused) }
     func refresh() { refreshCallCount += 1 }
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool { true }
     func sendText(_ text: String) {}
+    func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {
+        inheritedConfig
+    }
 }

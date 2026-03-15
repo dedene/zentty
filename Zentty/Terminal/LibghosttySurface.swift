@@ -11,11 +11,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         app: ghostty_app_t,
         hostView: LibghosttyView,
         request: TerminalSessionRequest,
+        configTemplate: ghostty_surface_config_s?,
         metadataDidChange: @escaping (TerminalMetadata) -> Void
     ) throws {
         self.metadataDidChange = metadataDidChange
 
-        var config = ghostty_surface_config_new()
+        var config = configTemplate ?? ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
         config.platform = ghostty_platform_u(
             macos: ghostty_platform_macos_s(
@@ -49,6 +50,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             displayID: hostView.currentDisplayID
         )
         setFocused(hostView.window?.firstResponder === hostView)
+        publishMetadata()
     }
 
     deinit {
@@ -148,6 +150,14 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             }
             ghostty_surface_text(surface, baseAddress, UInt(buffer.count - 1))
         }
+    }
+
+    func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {
+        guard let surface else {
+            return nil
+        }
+
+        return ghostty_surface_inherited_config(surface, context)
     }
 
     func handle(payload: LibghosttySurfaceActionPayload) {

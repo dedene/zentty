@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyKit
 import XCTest
 @testable import Zentty
 
@@ -275,4 +276,8 @@ private final class LibghosttySurfaceViewportSpy: LibghosttySurfaceControlling {
     }
 
     func sendText(_ text: String) {}
+
+    func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {
+        nil
+    }
 }
