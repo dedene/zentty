@@ -3,8 +3,13 @@ import XCTest
 
 @MainActor
 final class RootViewCompositionTests: XCTestCase {
+    override func tearDown() {
+        SidebarWidthPreference.resetForTesting()
+        super.tearDown()
+    }
+
     func test_root_controller_places_sidebar_outside_inner_canvas() {
-        let controller = RootViewController()
+        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
         controller.loadViewIfNeeded()
 
         XCTAssertNotNil(controller.view)
@@ -37,10 +42,10 @@ final class RootViewCompositionTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(contextStripView.workspaceTextForTesting, "WEB")
-        XCTAssertEqual(contextStripView.focusedTextForTesting, "zsh")
+        XCTAssertEqual(contextStripView.focusedTextForTesting, "")
         XCTAssertEqual(contextStripView.cwdTextForTesting, "cwd ~/src/zentty")
         XCTAssertEqual(contextStripView.branchTextForTesting, "branch main")
+        XCTAssertTrue(contextStripView.isFocusedHiddenForTesting)
         XCTAssertFalse(contextStripView.isHidden)
         XCTAssertFalse(contextStripView.isBranchHiddenForTesting)
     }
@@ -65,6 +70,7 @@ final class RootViewCompositionTests: XCTestCase {
 
         XCTAssertEqual(contextStripView.focusedTextForTesting, "fish")
         XCTAssertEqual(contextStripView.cwdTextForTesting, "")
+        XCTAssertFalse(contextStripView.isFocusedHiddenForTesting)
         XCTAssertTrue(contextStripView.isBranchHiddenForTesting)
 
         contextStripView.render(
@@ -75,29 +81,43 @@ final class RootViewCompositionTests: XCTestCase {
 
         XCTAssertEqual(contextStripView.focusedTextForTesting, "pane 2")
         XCTAssertEqual(contextStripView.cwdTextForTesting, "")
+        XCTAssertFalse(contextStripView.isFocusedHiddenForTesting)
         XCTAssertTrue(contextStripView.isBranchHiddenForTesting)
     }
 
     func test_sidebar_view_emits_selected_workspace_id() throws {
         let sidebarView = SidebarView()
-        let workspaces = [
-            WorkspaceState(
-                id: WorkspaceID("workspace-api"),
+        let summaries = [
+            WorkspaceSidebarSummary(
+                workspaceID: WorkspaceID("workspace-api"),
                 title: "API",
-                paneStripState: .pocDefault
+                badgeText: "A",
+                summaryText: "shell",
+                detailText: "1 pane",
+                paneCountText: "1 pane",
+                attentionState: nil,
+                attentionText: nil,
+                unreadCount: nil,
+                isActive: true
             ),
-            WorkspaceState(
-                id: WorkspaceID("workspace-web"),
+            WorkspaceSidebarSummary(
+                workspaceID: WorkspaceID("workspace-web"),
                 title: "WEB",
-                paneStripState: .pocDefault
+                badgeText: "W",
+                summaryText: "editor",
+                detailText: "project • main",
+                paneCountText: "2 panes",
+                attentionState: nil,
+                attentionText: nil,
+                unreadCount: nil,
+                isActive: false
             ),
         ]
         var selectedWorkspaceID: WorkspaceID?
 
         sidebarView.onSelectWorkspace = { selectedWorkspaceID = $0 }
         sidebarView.render(
-            workspaces: workspaces,
-            activeWorkspaceID: WorkspaceID("workspace-api"),
+            summaries: summaries,
             theme: ZenttyTheme.fallback(for: nil)
         )
 
@@ -105,6 +125,21 @@ final class RootViewCompositionTests: XCTestCase {
         webButton.performClick(nil)
 
         XCTAssertEqual(selectedWorkspaceID, WorkspaceID("workspace-web"))
+    }
+
+    func test_root_controller_restores_persisted_sidebar_width() {
+        let defaults = SidebarWidthPreference.userDefaultsForTesting()
+        defaults.set(312, forKey: SidebarWidthPreference.persistenceKey)
+        let controller = RootViewController(sidebarWidthDefaults: defaults)
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.sidebarWidthForTesting, 312, accuracy: 0.001)
+    }
+
+    func test_sidebar_width_clamps_to_supported_range() {
+        XCTAssertEqual(SidebarWidthPreference.clamped(120), SidebarWidthPreference.minimumWidth, accuracy: 0.001)
+        XCTAssertEqual(SidebarWidthPreference.clamped(500), SidebarWidthPreference.maximumWidth, accuracy: 0.001)
     }
 }
 

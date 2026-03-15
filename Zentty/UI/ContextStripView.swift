@@ -3,7 +3,6 @@ import AppKit
 final class ContextStripView: NSView {
     static let preferredHeight: CGFloat = 24
 
-    private let workspaceChip = ContextStripView.makeChip(text: "API")
     private let focusedLabel = ContextStripView.makeLabel(text: "shell", color: .secondaryLabelColor, weight: .medium)
     private let cwdLabel = ContextStripView.makeLabel(text: "", color: .tertiaryLabelColor, weight: .regular)
     private let branchLabel = ContextStripView.makeLabel(text: "branch", color: .tertiaryLabelColor, weight: .regular)
@@ -23,7 +22,7 @@ final class ContextStripView: NSView {
         wantsLayer = true
         layer?.backgroundColor = currentTheme.contextStripBackground.cgColor
 
-        let stack = NSStackView(views: [workspaceChip, focusedLabel, cwdLabel, branchLabel])
+        let stack = NSStackView(views: [focusedLabel, cwdLabel, branchLabel])
         stack.orientation = .horizontal
         stack.spacing = 10
         stack.alignment = .centerY
@@ -39,14 +38,20 @@ final class ContextStripView: NSView {
     }
 
     func render(workspaceName: String, state: PaneStripState, metadata: TerminalMetadata?) {
-        workspaceChip.stringValue = workspaceName
         let focusedTitle = metadata?.title
             ?? metadata?.processName
             ?? state.focusedPane?.title
             ?? "pane"
+        let hasExactPathContext = metadata?.currentWorkingDirectory?.isEmpty == false
+            || metadata?.gitBranch?.isEmpty == false
 
-        focusedLabel.stringValue = focusedTitle
-        focusedLabel.isHidden = focusedTitle.isEmpty
+        if hasExactPathContext {
+            focusedLabel.stringValue = ""
+            focusedLabel.isHidden = true
+        } else {
+            focusedLabel.stringValue = focusedTitle
+            focusedLabel.isHidden = focusedTitle.isEmpty
+        }
         if let cwd = metadata?.currentWorkingDirectory, !cwd.isEmpty {
             cwdLabel.stringValue = "cwd \(Self.compactPath(cwd))"
             cwdLabel.isHidden = false
@@ -64,39 +69,21 @@ final class ContextStripView: NSView {
 
     func apply(theme: ZenttyTheme, animated: Bool) {
         currentTheme = theme
-        workspaceChip.textColor = theme.workspaceChipText
         focusedLabel.textColor = theme.secondaryText
         cwdLabel.textColor = theme.tertiaryText
         branchLabel.textColor = theme.tertiaryText
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = theme.contextStripBackground.cgColor
-            self.workspaceChip.layer?.backgroundColor = theme.workspaceChipBackground.cgColor
         }
     }
 
-    var workspaceTextForTesting: String { workspaceChip.stringValue }
+    var workspaceTextForTesting: String { "" }
     var focusedTextForTesting: String { focusedLabel.stringValue }
     var cwdTextForTesting: String { cwdLabel.stringValue }
     var branchTextForTesting: String { branchLabel.stringValue }
+    var isFocusedHiddenForTesting: Bool { focusedLabel.isHidden }
     var isBranchHiddenForTesting: Bool { branchLabel.isHidden }
-
-    private static func makeChip(text: String) -> NSTextField {
-        let chip = NSTextField(labelWithString: text)
-        chip.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        chip.textColor = .labelColor
-        chip.wantsLayer = true
-        chip.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.11).cgColor
-        chip.layer?.cornerRadius = 11
-        chip.layer?.cornerCurve = .continuous
-        chip.translatesAutoresizingMaskIntoConstraints = false
-        chip.setContentHuggingPriority(.required, for: .horizontal)
-        chip.lineBreakMode = .byTruncatingMiddle
-        NSLayoutConstraint.activate([
-            chip.heightAnchor.constraint(equalToConstant: 24),
-        ])
-        return chip
-    }
 
     private static func makeLabel(
         text: String,

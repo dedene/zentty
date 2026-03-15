@@ -2,6 +2,7 @@ import AppKit
 
 final class RootViewController: NSViewController {
     private let paneStripStore = PaneStripStore()
+    private let sidebarWidthDefaults: UserDefaults
     private let sidebarView = SidebarView()
     private let runtimeRegistry = PaneRuntimeRegistry()
     private let themeResolver = GhosttyThemeResolver()
@@ -10,11 +11,21 @@ final class RootViewController: NSViewController {
     private var hasInstalledKeyMonitor = false
     private var hasInstalledWindowObservers = false
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var sidebarWidthConstraint: NSLayoutConstraint?
 
     private enum Layout {
         static let outerInset: CGFloat = 6
-        static let sidebarWidth: CGFloat = 84
         static let canvasGap: CGFloat = 8
+    }
+
+    init(sidebarWidthDefaults: UserDefaults = .standard) {
+        self.sidebarWidthDefaults = sidebarWidthDefaults
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
     override func loadView() {
@@ -35,11 +46,16 @@ final class RootViewController: NSViewController {
         view.addSubview(sidebarView)
         view.addSubview(appCanvasView)
 
+        let sidebarWidthConstraint = sidebarView.widthAnchor.constraint(
+            equalToConstant: SidebarWidthPreference.restoredWidth(from: sidebarWidthDefaults)
+        )
+        self.sidebarWidthConstraint = sidebarWidthConstraint
+
         NSLayoutConstraint.activate([
             sidebarView.topAnchor.constraint(equalTo: view.topAnchor, constant: Layout.outerInset),
             sidebarView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Layout.outerInset),
             sidebarView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -Layout.outerInset),
-            sidebarView.widthAnchor.constraint(equalToConstant: Layout.sidebarWidth),
+            sidebarWidthConstraint,
 
             appCanvasView.topAnchor.constraint(equalTo: view.topAnchor, constant: Layout.outerInset),
             appCanvasView.leadingAnchor.constraint(equalTo: sidebarView.trailingAnchor, constant: Layout.canvasGap),
@@ -64,6 +80,9 @@ final class RootViewController: NSViewController {
         }
         sidebarView.onCreateWorkspace = { [weak self] in
             self?.paneStripStore.createWorkspace()
+        }
+        sidebarView.onResizeWidth = { [weak self] width in
+            self?.setSidebarWidth(width, persist: true)
         }
         runtimeRegistry.onMetadataDidChange = { [weak self] paneID, metadata in
             guard let self else {
@@ -144,8 +163,10 @@ final class RootViewController: NSViewController {
     private func renderCurrentWorkspace() {
         runtimeRegistry.synchronize(with: paneStripStore.workspaces)
         sidebarView.render(
-            workspaces: paneStripStore.workspaces,
-            activeWorkspaceID: paneStripStore.activeWorkspaceID,
+            summaries: WorkspaceSidebarSummaryBuilder.summaries(
+                for: paneStripStore.workspaces,
+                activeWorkspaceID: paneStripStore.activeWorkspaceID
+            ),
             theme: currentTheme
         )
 
@@ -191,6 +212,20 @@ final class RootViewController: NSViewController {
             windowIsVisible: view.window?.isVisible ?? false,
             windowIsKey: view.window?.isKeyWindow ?? false
         )
+    }
+
+    private func setSidebarWidth(_ width: CGFloat, persist: Bool) {
+        let clampedWidth = SidebarWidthPreference.clamped(width)
+        sidebarWidthConstraint?.constant = clampedWidth
+        view.layoutSubtreeIfNeeded()
+
+        if persist {
+            SidebarWidthPreference.persist(clampedWidth, in: sidebarWidthDefaults)
+        }
+    }
+
+    var sidebarWidthForTesting: CGFloat {
+        sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
     }
 }
 
