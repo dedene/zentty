@@ -41,6 +41,21 @@ final class LibghosttyAdapterTests: XCTestCase {
         XCTAssertEqual(receivedMetadata, metadata)
     }
 
+    func test_starting_visible_surface_refreshes_after_first_visibility_update() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        XCTAssertEqual(surfaceController.refreshCallCount, 0)
+
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
+
+        XCTAssertEqual(surfaceController.refreshCallCount, 1)
+        XCTAssertEqual(surfaceController.focusValues.last, true)
+    }
+
     func test_copy_action_payload_copies_pwd_string_before_async_boundary() {
         let duplicated = strdup("/tmp/project")
         defer { free(duplicated) }
@@ -76,6 +91,7 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
     private(set) weak var lastHostView: LibghosttyView?
     private(set) var lastMetadataHandler: ((TerminalMetadata) -> Void)?
     private(set) var lastRequest: TerminalSessionRequest?
+    private(set) var lastSurfaceController: LibghosttySurfaceControllerSpy?
 
     func makeSurface(
         for hostView: LibghosttyView,
@@ -86,14 +102,18 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
         lastHostView = hostView
         lastRequest = request
         lastMetadataHandler = metadataDidChange
-        return LibghosttySurfaceControllerSpy()
+        let surfaceController = LibghosttySurfaceControllerSpy()
+        lastSurfaceController = surfaceController
+        return surfaceController
     }
 }
 
 private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling {
+    private(set) var refreshCallCount = 0
+    private(set) var focusValues: [Bool] = []
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
-    func setFocused(_ isFocused: Bool) {}
-    func refresh() {}
+    func setFocused(_ isFocused: Bool) { focusValues.append(isFocused) }
+    func refresh() { refreshCallCount += 1 }
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool { true }
     func sendText(_ text: String) {}
 }

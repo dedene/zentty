@@ -20,11 +20,11 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertNotNil(sidebarView)
         XCTAssertNotNil(appCanvasView)
         XCTAssertFalse(appCanvasView?.containsDescendant(ofType: SidebarView.self) ?? true)
-        XCTAssertEqual(sidebarView?.workspaceTitlesForTesting, ["MAIN"])
-        XCTAssertEqual(sidebarView?.activeWorkspaceTitleForTesting, "MAIN")
+        XCTAssertEqual(sidebarView?.workspacePrimaryTextsForTesting, ["shell"])
+        XCTAssertEqual(sidebarView?.workspaceDetailTextsForTesting, [""])
     }
 
-    func test_context_strip_prefers_terminal_metadata_and_compacts_home_directory() {
+    func test_context_strip_prefers_terminal_metadata_and_keeps_exact_cwd() {
         let contextStripView = ContextStripView()
         let state = PaneStripState(
             panes: [PaneState(id: PaneID("shell"), title: "shell")],
@@ -98,7 +98,9 @@ final class RootViewCompositionTests: XCTestCase {
                 attentionState: nil,
                 attentionText: nil,
                 unreadCount: nil,
-                isActive: true
+                isActive: true,
+                showsGeneratedTitle: true,
+                showsPaneCount: true
             ),
             WorkspaceSidebarSummary(
                 workspaceID: WorkspaceID("workspace-web"),
@@ -110,7 +112,9 @@ final class RootViewCompositionTests: XCTestCase {
                 attentionState: nil,
                 attentionText: nil,
                 unreadCount: nil,
-                isActive: false
+                isActive: false,
+                showsGeneratedTitle: true,
+                showsPaneCount: true
             ),
         ]
         var selectedWorkspaceID: WorkspaceID?
@@ -137,9 +141,85 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(controller.sidebarWidthForTesting, 312, accuracy: 0.001)
     }
 
+    func test_root_controller_uses_new_default_sidebar_width() {
+        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.sidebarWidthForTesting, 280, accuracy: 0.001)
+    }
+
     func test_sidebar_width_clamps_to_supported_range() {
         XCTAssertEqual(SidebarWidthPreference.clamped(120), SidebarWidthPreference.minimumWidth, accuracy: 0.001)
         XCTAssertEqual(SidebarWidthPreference.clamped(500), SidebarWidthPreference.maximumWidth, accuracy: 0.001)
+    }
+
+    func test_sidebar_places_add_workspace_button_below_last_row_without_visible_divider() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-main"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    summaryText: "shell",
+                    detailText: "project • main",
+                    paneCountText: "",
+                    attentionState: nil,
+                    attentionText: nil,
+                    unreadCount: nil,
+                    isActive: true,
+                    showsGeneratedTitle: false,
+                    showsPaneCount: false
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(sidebarView.addWorkspaceTitleForTesting, "New workspace")
+        XCTAssertFalse(sidebarView.hasVisibleDividerForTesting)
+        XCTAssertLessThan(sidebarView.firstWorkspaceTopInsetForTesting, 18)
+        XCTAssertLessThan(sidebarView.addWorkspaceMaxYForTesting, sidebarView.firstWorkspaceMinYForTesting)
+    }
+
+    func test_sidebar_uses_full_width_tabs_and_no_header_label() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-main"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    summaryText: "shell",
+                    detailText: "",
+                    paneCountText: "",
+                    attentionState: nil,
+                    attentionText: nil,
+                    unreadCount: nil,
+                    isActive: true,
+                    showsGeneratedTitle: false,
+                    showsPaneCount: false
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(sidebarView.isHeaderHiddenForTesting)
+        XCTAssertGreaterThan(sidebarView.firstWorkspaceWidthForTesting, 258)
+    }
+
+    func test_sidebar_resize_hit_area_is_centered_on_outer_edge_without_hover_fill() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+
+        sidebarView.layoutSubtreeIfNeeded()
+
+        XCTAssertLessThan(sidebarView.resizeHandleMinXForTesting, sidebarView.bounds.maxX)
+        XCTAssertGreaterThan(sidebarView.resizeHandleMaxXForTesting, sidebarView.bounds.maxX)
+        XCTAssertEqual(sidebarView.resizeHandleFillAlphaForTesting, 0, accuracy: 0.001)
     }
 }
 

@@ -29,6 +29,7 @@ final class LibghosttyAdapter: TerminalAdapter {
     private let runtime: any LibghosttyRuntimeProviding
     private let hostView = LibghosttyView()
     private var surfaceController: (any LibghosttySurfaceControlling)?
+    private var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: false, isFocused: false)
 
     var metadataDidChange: ((TerminalMetadata) -> Void)?
 
@@ -55,5 +56,23 @@ final class LibghosttyAdapter: TerminalAdapter {
 
         hostView.bind(surfaceController: surfaceController)
         self.surfaceController = surfaceController
+        setSurfaceActivity(lastSurfaceActivity)
+    }
+
+    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
+        let wasVisible = lastSurfaceActivity.isVisible
+        lastSurfaceActivity = activity
+
+        guard let surfaceController else {
+            return
+        }
+
+        surfaceController.setFocused(activity.isVisible && activity.isFocused)
+
+        if !wasVisible && activity.isVisible {
+            hostView.needsLayout = true
+            hostView.layoutSubtreeIfNeeded()
+            surfaceController.refresh()
+        }
     }
 }
