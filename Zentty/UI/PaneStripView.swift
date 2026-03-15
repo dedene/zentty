@@ -251,6 +251,7 @@ final class PaneStripView: NSView {
             }
             paneViews[panePresentation.paneID] = paneView
             viewportView.addSubview(paneView)
+            paneView.activateSessionIfNeeded()
         }
 
         lastFocusedPaneID = lastFocusedPaneID.flatMap { paneViews[$0] == nil ? nil : $0 }

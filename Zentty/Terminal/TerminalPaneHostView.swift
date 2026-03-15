@@ -164,6 +164,9 @@ final class PaneRuntime {
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
+        if activity.isVisible {
+            ensureStarted()
+        }
         hostViewValue.setSurfaceActivity(activity)
     }
 
@@ -248,7 +251,6 @@ final class PaneRuntimeRegistry {
                 let runtime = runtime(for: pane)
                 let sourceRuntime = pane.sessionRequest.inheritFromPaneID.flatMap { runtimes[$0] }
                 runtime.prepareSessionStart(from: sourceRuntime)
-                runtime.ensureStarted()
             }
         }
 

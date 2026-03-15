@@ -3,7 +3,7 @@ import AppKit
 final class PaneContainerView: NSView {
     enum Layout {
         static let borderWidth: CGFloat = 1
-        static let cornerRadius: CGFloat = 6
+        static let cornerRadius: CGFloat = 8
         static let overlayInset: CGFloat = 18
         static let overlayButtonTopSpacing: CGFloat = 14
         static let overlayButtonHeight: CGFloat = 30
@@ -84,7 +84,6 @@ final class PaneContainerView: NSView {
         runtimeObserverID = runtime.addObserver { [weak self] snapshot in
             self?.handleRuntimeSnapshot(snapshot)
         }
-        runtime.ensureStarted()
         apply(theme: currentTheme, animated: false)
 
         NSLayoutConstraint.activate([
@@ -100,7 +99,9 @@ final class PaneContainerView: NSView {
         ])
     }
 
-    func render(pane: PaneState, width: CGFloat, height: CGFloat, emphasis: CGFloat, isFocused: Bool) {
+    func render(
+        pane: PaneState, width: CGFloat, height: CGFloat, emphasis: CGFloat, isFocused: Bool
+    ) {
         paneID = pane.id
         titleTextStorage = pane.title
         currentEmphasis = emphasis
@@ -139,6 +140,11 @@ final class PaneContainerView: NSView {
 
     func focusTerminal() {
         runtime.hostView.focusTerminal()
+    }
+
+    func activateSessionIfNeeded() {
+        layoutSubtreeIfNeeded()
+        runtime.ensureStarted()
     }
 
     var titleTextForTesting: String {
@@ -204,11 +210,15 @@ final class PaneContainerView: NSView {
         statusOverlayView.addSubview(closeButton)
 
         NSLayoutConstraint.activate([
-            statusTitleLabel.topAnchor.constraint(equalTo: statusOverlayView.topAnchor, constant: Layout.overlayInset),
-            statusTitleLabel.leadingAnchor.constraint(equalTo: statusOverlayView.leadingAnchor, constant: Layout.overlayInset),
-            statusTitleLabel.trailingAnchor.constraint(equalTo: statusOverlayView.trailingAnchor, constant: -Layout.overlayInset),
+            statusTitleLabel.topAnchor.constraint(
+                equalTo: statusOverlayView.topAnchor, constant: Layout.overlayInset),
+            statusTitleLabel.leadingAnchor.constraint(
+                equalTo: statusOverlayView.leadingAnchor, constant: Layout.overlayInset),
+            statusTitleLabel.trailingAnchor.constraint(
+                equalTo: statusOverlayView.trailingAnchor, constant: -Layout.overlayInset),
 
-            statusMessageLabel.topAnchor.constraint(equalTo: statusTitleLabel.bottomAnchor, constant: 8),
+            statusMessageLabel.topAnchor.constraint(
+                equalTo: statusTitleLabel.bottomAnchor, constant: 8),
             statusMessageLabel.leadingAnchor.constraint(equalTo: statusTitleLabel.leadingAnchor),
             statusMessageLabel.trailingAnchor.constraint(equalTo: statusTitleLabel.trailingAnchor),
 
@@ -218,7 +228,8 @@ final class PaneContainerView: NSView {
             ),
             retryButton.leadingAnchor.constraint(equalTo: statusMessageLabel.leadingAnchor),
             retryButton.heightAnchor.constraint(equalToConstant: Layout.overlayButtonHeight),
-            retryButton.bottomAnchor.constraint(lessThanOrEqualTo: statusOverlayView.bottomAnchor, constant: -Layout.overlayInset),
+            retryButton.bottomAnchor.constraint(
+                lessThanOrEqualTo: statusOverlayView.bottomAnchor, constant: -Layout.overlayInset),
 
             closeButton.centerYAnchor.constraint(equalTo: retryButton.centerYAnchor),
             closeButton.leadingAnchor.constraint(equalTo: retryButton.trailingAnchor, constant: 10),
@@ -273,14 +284,14 @@ final class PaneContainerView: NSView {
         let emphasis = currentEmphasis
         let isFocused = currentIsFocused
         performThemeAnimation(animated: animated) {
-            self.layer?.borderColor = (isFocused
+            self.layer?.borderColor =
+                (isFocused
                 ? theme.paneBorderFocused
-                : theme.paneBorderUnfocused
-            ).cgColor
-            self.layer?.backgroundColor = (isFocused
+                : theme.paneBorderUnfocused).cgColor
+            self.layer?.backgroundColor =
+                (isFocused
                 ? theme.paneFillFocused
-                : theme.startupSurface
-            ).cgColor
+                : theme.startupSurface).cgColor
             self.layer?.shadowColor = theme.paneShadow.cgColor
         }
         layer?.shadowOpacity = Float(max(0, emphasis - 0.88) * 2.2)

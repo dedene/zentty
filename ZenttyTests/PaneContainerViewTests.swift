@@ -41,6 +41,7 @@ final class PaneContainerViewTests: XCTestCase {
             runtime: runtime,
             theme: ZenttyTheme.fallback(for: nil)
         )
+        runtime.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
 
         XCTAssertEqual(adapter.startSessionCallCount, 1)
         XCTAssertEqual(paneView.statusTitleForTesting, "Pane failed to start")
@@ -61,6 +62,7 @@ final class PaneContainerViewTests: XCTestCase {
             runtime: runtime,
             theme: ZenttyTheme.fallback(for: nil)
         )
+        runtime.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
 
         paneView.retryButtonForTesting.performClick(nil)
         adapter.metadataDidChange?(TerminalMetadata(currentWorkingDirectory: "/tmp/project"))
@@ -82,6 +84,7 @@ final class PaneContainerViewTests: XCTestCase {
             runtime: runtime,
             theme: ZenttyTheme.fallback(for: nil)
         )
+        runtime.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
         var didRequestClose = false
 
         paneView.onCloseRequested = {
