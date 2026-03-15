@@ -14,8 +14,11 @@
 		2D8A6B7C5E4F3102A1B9C8D7 /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F5E4D3C2B1A098765432112 /* AppDelegateTests.swift */; };
 		3C7B6A5D4E3F2109B8A7C6D5 /* AppMenuBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B3A29181716151413121110 /* AppMenuBuilder.swift */; };
 		44F6A7B8C9D0E1F203142536 /* PaneContainerViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55E6D7C8B9A0F1E203142536 /* PaneContainerViewTests.swift */; };
+		45A1B2C3D4E5F60718293A4B /* GhosttyThemeResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A1B2C3D4E5F60718293A4A /* GhosttyThemeResolverTests.swift */; };
 		4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 474B9A1AC6A427A707683CA3 /* PaneCommand.swift */; };
 		48F07B2E3A80B9D431002E57 /* PaneContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */; };
+		49A1B2C3D4E5F60718293A4B /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A1B2C3D4E5F60718293A4A /* AppTheme.swift */; };
+		4AA1B2C3D4E5F60718293A4B /* GhosttyThemeResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AA1B2C3D4E5F60718293A4A /* GhosttyThemeResolver.swift */; };
 		581E3A1AB04E391540AC02F1 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */; };
 		5A2D8C9B19A64C02B8F3F1A1 /* PaneLayoutSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2D8C9B19A64C02B8F3F1A0 /* PaneLayoutSizing.swift */; };
 		5A2D8C9B19A64C02B8F3F1A3 /* PaneStripViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2D8C9B19A64C02B8F3F1A2 /* PaneStripViewTests.swift */; };
@@ -67,6 +70,9 @@
 		1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutResolverTests.swift; sourceTree = "<group>"; };
 		2A94FD26FCD146425105D3FD /* KeyboardShortcutResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutResolver.swift; sourceTree = "<group>"; };
 		3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerView.swift; sourceTree = "<group>"; };
+		45A1B2C3D4E5F60718293A4A /* GhosttyThemeResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyThemeResolverTests.swift; sourceTree = "<group>"; };
+		49A1B2C3D4E5F60718293A4A /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		4AA1B2C3D4E5F60718293A4A /* GhosttyThemeResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyThemeResolver.swift; sourceTree = "<group>"; };
 		3D36706DB3DF677FA13DC722 /* PaneStripState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripState.swift; sourceTree = "<group>"; };
 		474B9A1AC6A427A707683CA3 /* PaneCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneCommand.swift; sourceTree = "<group>"; };
 		4B3A29181716151413121110 /* AppMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBuilder.swift; sourceTree = "<group>"; };
@@ -215,6 +221,7 @@
 			isa = PBXGroup;
 			children = (
 				6F5E4D3C2B1A098765432112 /* AppDelegateTests.swift */,
+				45A1B2C3D4E5F60718293A4A /* GhosttyThemeResolverTests.swift */,
 				CBF4079FD49C87B216061EB3 /* Info.plist */,
 				1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */,
 				6B1D2E3F4B5C6D7E8F901239 /* LibghosttyAdapterTests.swift */,
@@ -235,8 +242,10 @@
 		DF5F1230FC57111D71EAF9A9 /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				49A1B2C3D4E5F60718293A4A /* AppTheme.swift */,
 				8085EEB54A83D5D7F7A68CAB /* AppCanvasView.swift */,
 				BC63FD2674437F1139255B3E /* ContextStripView.swift */,
+				4AA1B2C3D4E5F60718293A4A /* GhosttyThemeResolver.swift */,
 				3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */,
 				51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */,
 				7B93F46C5542A31805301C02 /* RootViewController.swift */,
@@ -371,10 +380,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				49A1B2C3D4E5F60718293A4B /* AppTheme.swift in Sources */,
 				FE927A90AB3D0A3AE1AF2004 /* AppCanvasView.swift in Sources */,
 				C384A9FA26C72AC1B662D7A4 /* AppDelegate.swift in Sources */,
 				3C7B6A5D4E3F2109B8A7C6D5 /* AppMenuBuilder.swift in Sources */,
 				1383C76F463DAE3D42A4C7FC /* ContextStripView.swift in Sources */,
+				4AA1B2C3D4E5F60718293A4B /* GhosttyThemeResolver.swift in Sources */,
 				F33474EA4FEC1975F4FB4754 /* KeyboardShortcut.swift in Sources */,
 				801ECD25402540B6F022BC3F /* KeyboardShortcutResolver.swift in Sources */,
 				AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */,
@@ -406,6 +417,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2D8A6B7C5E4F3102A1B9C8D7 /* AppDelegateTests.swift in Sources */,
+				45A1B2C3D4E5F60718293A4B /* GhosttyThemeResolverTests.swift in Sources */,
 				A3BA15B5A0157C439C268E41 /* KeyboardShortcutResolverTests.swift in Sources */,
 				ADDC80F33AD74B2D67F3A005 /* MainWindowControllerTests.swift in Sources */,
 				44F6A7B8C9D0E1F203142536 /* PaneContainerViewTests.swift in Sources */,

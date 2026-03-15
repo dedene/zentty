@@ -3,8 +3,13 @@ import AppKit
 final class RootViewController: NSViewController {
     private let paneStripStore = PaneStripStore()
     private let sidebarView = SidebarView()
-    private let appCanvasView = AppCanvasView()
+    private let runtimeRegistry = PaneRuntimeRegistry()
+    private let themeResolver = GhosttyThemeResolver()
+    private let themeWatcher = GhosttyThemeWatcher()
+    private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
     private var hasInstalledKeyMonitor = false
+    private var hasInstalledWindowObservers = false
+    private var currentTheme = ZenttyTheme.fallback(for: nil)
 
     private enum Layout {
         static let outerInset: CGFloat = 6
@@ -13,9 +18,13 @@ final class RootViewController: NSViewController {
     }
 
     override func loadView() {
-        view = WindowContentView()
+        let contentView = WindowContentView()
+        contentView.onEffectiveAppearanceDidChange = { [weak self] in
+            self?.refreshTheme(animated: true)
+        }
+        view = contentView
         view.wantsLayer = true
-        updateBackgroundColor()
+        apply(theme: currentTheme, animated: false)
     }
 
     override func viewDidLoad() {
@@ -38,8 +47,8 @@ final class RootViewController: NSViewController {
             appCanvasView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -Layout.outerInset),
         ])
 
-        paneStripStore.onChange = { [weak self] state in
-            self?.appCanvasView.render(state)
+        paneStripStore.onChange = { [weak self] _ in
+            self?.renderCurrentWorkspace()
         }
         appCanvasView.onFocusSettled = { [weak self] paneID in
             self?.paneStripStore.focusPane(id: paneID)
@@ -47,14 +56,36 @@ final class RootViewController: NSViewController {
         appCanvasView.onPaneSelected = { [weak self] paneID in
             self?.paneStripStore.focusPane(id: paneID)
         }
-        appCanvasView.onPaneMetadataDidChange = { [weak self] paneID, metadata in
-            self?.paneStripStore.updateMetadata(id: paneID, metadata: metadata)
+        appCanvasView.onPaneCloseRequested = { [weak self] paneID in
+            self?.paneStripStore.closePane(id: paneID)
         }
-        appCanvasView.render(paneStripStore.state)
+        sidebarView.onSelectWorkspace = { [weak self] workspaceID in
+            self?.paneStripStore.selectWorkspace(id: workspaceID)
+        }
+        sidebarView.onCreateWorkspace = { [weak self] in
+            self?.paneStripStore.createWorkspace()
+        }
+        runtimeRegistry.onMetadataDidChange = { [weak self] paneID, metadata in
+            guard let self else {
+                return
+            }
+
+            self.paneStripStore.updateMetadata(id: paneID, metadata: metadata)
+            if self.paneStripStore.activeWorkspace?.paneStripState.panes.contains(where: { $0.id == paneID }) == true {
+                self.appCanvasView.updateMetadata(for: paneID, metadata: metadata)
+            }
+        }
+        themeWatcher.onChange = { [weak self] in
+            self?.refreshTheme(animated: true)
+        }
+        refreshTheme(animated: false)
+        renderCurrentWorkspace()
     }
 
     func activateWindowBindingsIfNeeded() {
         installKeyboardMonitorIfNeeded()
+        installWindowObserversIfNeeded()
+        updateRuntimeSurfaceActivities()
         appCanvasView.focusCurrentPaneIfNeeded()
     }
 
@@ -83,19 +114,95 @@ final class RootViewController: NSViewController {
         hasInstalledKeyMonitor = true
     }
 
-    private func updateBackgroundColor() {
-        let backgroundColor = NSColor(name: nil) { appearance in
-            let isDarkMode = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return isDarkMode
-                ? NSColor(calibratedWhite: 0.13, alpha: 1)
-                : NSColor(calibratedRed: 196 / 255, green: 216 / 255, blue: 232 / 255, alpha: 1)
+    private func installWindowObserversIfNeeded() {
+        guard !hasInstalledWindowObservers, let window = view.window else {
+            return
         }
-        view.layer?.backgroundColor = backgroundColor.cgColor
+
+        let notificationCenter = NotificationCenter.default
+        [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didResignKeyNotification,
+            NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification,
+        ].forEach { name in
+            notificationCenter.addObserver(
+                self,
+                selector: #selector(handleWindowStateDidChange),
+                name: name,
+                object: window
+            )
+        }
+        hasInstalledWindowObservers = true
+    }
+
+    @objc
+    private func handleWindowStateDidChange() {
+        updateRuntimeSurfaceActivities()
+    }
+
+    private func renderCurrentWorkspace() {
+        runtimeRegistry.synchronize(with: paneStripStore.workspaces)
+        sidebarView.render(
+            workspaces: paneStripStore.workspaces,
+            activeWorkspaceID: paneStripStore.activeWorkspaceID,
+            theme: currentTheme
+        )
+
+        guard let workspace = paneStripStore.activeWorkspace else {
+            return
+        }
+
+        appCanvasView.render(
+            workspaceName: workspace.title,
+            state: workspace.paneStripState,
+            metadataByPaneID: workspace.metadataByPaneID,
+            theme: currentTheme
+        )
+        updateRuntimeSurfaceActivities()
+    }
+
+    private func refreshTheme(animated: Bool) {
+        let resolution = themeResolver.resolve(for: view.effectiveAppearance)
+        let theme = resolution.map { ZenttyTheme(resolvedTheme: $0.theme) }
+            ?? ZenttyTheme.fallback(for: view.effectiveAppearance)
+        let didChange = theme != currentTheme
+        currentTheme = theme
+        apply(theme: theme, animated: animated && didChange)
+        sidebarView.apply(theme: theme, animated: animated && didChange)
+        appCanvasView.apply(theme: theme, animated: animated && didChange)
+        themeWatcher.watch(urls: resolution?.watchedURLs ?? [themeResolver.configURL])
+    }
+
+    private func apply(theme: ZenttyTheme, animated: Bool) {
+        performThemeAnimation(animated: animated) {
+            self.view.layer?.backgroundColor = theme.windowBackground.cgColor
+        }
+    }
+
+    private func updateRuntimeSurfaceActivities() {
+        guard !paneStripStore.workspaces.isEmpty else {
+            return
+        }
+
+        runtimeRegistry.updateSurfaceActivities(
+            workspaces: paneStripStore.workspaces,
+            activeWorkspaceID: paneStripStore.activeWorkspaceID,
+            windowIsVisible: view.window?.isVisible ?? false,
+            windowIsKey: view.window?.isKeyWindow ?? false
+        )
     }
 }
 
 private final class WindowContentView: NSView {
+    var onEffectiveAppearanceDidChange: (() -> Void)?
+
     override var fittingSize: NSSize {
         NSSize(width: 1, height: 1)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onEffectiveAppearanceDidChange?()
     }
 }

@@ -14,12 +14,12 @@ struct PaneInsertionTransition: Equatable {
 final class PaneStripView: NSView {
     var onFocusSettled: ((PaneID) -> Void)?
     var onPaneSelected: ((PaneID) -> Void)?
-    var onPaneMetadataDidChange: ((PaneID, TerminalMetadata) -> Void)?
+    var onPaneCloseRequested: ((PaneID) -> Void)?
 
     private let motionController = PaneStripMotionController()
     private let gestureDriver = TrackpadPanGestureDriver()
     private let viewportView = NSView()
-    private let adapterFactory: @MainActor () -> any TerminalAdapter
+    private let runtimeRegistry: PaneRuntimeRegistry
 
     private var currentState: PaneStripState?
     private var currentPresentation: StripPresentation?
@@ -31,6 +31,8 @@ final class PaneStripView: NSView {
     private var isInteracting = false
     private var lastFocusedPaneID: PaneID?
     private var lastInsertionTransition: PaneInsertionTransition?
+    private var lastRenderWasAnimated = false
+    private var currentTheme = ZenttyTheme.fallback(for: nil)
 
     override var fittingSize: NSSize {
         let width = max(bounds.width, 1)
@@ -39,16 +41,16 @@ final class PaneStripView: NSView {
     }
 
     override init(frame frameRect: NSRect) {
-        self.adapterFactory = { TerminalAdapterRegistry.makeAdapter() }
+        self.runtimeRegistry = PaneRuntimeRegistry()
         super.init(frame: frameRect)
         setup()
     }
 
     init(
         frame frameRect: NSRect = .zero,
-        adapterFactory: @escaping @MainActor () -> any TerminalAdapter
+        runtimeRegistry: PaneRuntimeRegistry
     ) {
-        self.adapterFactory = adapterFactory
+        self.runtimeRegistry = runtimeRegistry
         super.init(frame: frameRect)
         setup()
     }
@@ -105,8 +107,22 @@ final class PaneStripView: NSView {
         syncFocusedTerminal(with: currentState?.focusedPaneID, force: true)
     }
 
+    func apply(theme: ZenttyTheme, animated: Bool) {
+        guard theme != currentTheme else {
+            return
+        }
+        currentTheme = theme
+        paneViews.values.forEach { paneView in
+            paneView.apply(theme: theme, animated: animated)
+        }
+    }
+
     var lastInsertionTransitionForTesting: PaneInsertionTransition? {
         lastInsertionTransition
+    }
+
+    var lastRenderWasAnimatedForTesting: Bool {
+        lastRenderWasAnimated
     }
 
     private func renderCurrentState(_ state: PaneStripState, animated: Bool) {
@@ -121,7 +137,11 @@ final class PaneStripView: NSView {
         lastInsertionTransition = insertionTransition
         currentPresentation = presentation
         let targetOffset = isInteracting ? currentOffset : presentation.targetOffset
-        let shouldAnimate = animated && window?.inLiveResize != true && !inLiveResize
+        let shouldAnimate = animated
+            && sharesAnyPane(with: state)
+            && window?.inLiveResize != true
+            && !inLiveResize
+        lastRenderWasAnimated = shouldAnimate
         reconcilePaneViews(
             with: state,
             presentation: presentation,
@@ -151,6 +171,11 @@ final class PaneStripView: NSView {
         }
         lastRenderedSize = bounds.size
         syncFocusedTerminal(with: state.focusedPaneID)
+    }
+
+    private func sharesAnyPane(with state: PaneStripState) -> Bool {
+        let nextPaneIDs = Set(state.panes.map(\.id))
+        return !nextPaneIDs.isDisjoint(with: orderedPaneIDs)
     }
 
     private func applyPresentation(
@@ -191,6 +216,7 @@ final class PaneStripView: NSView {
         let obsoletePaneIDs = Set(paneViews.keys).subtracting(nextPaneIDs)
 
         for paneID in obsoletePaneIDs {
+            paneViews[paneID]?.prepareForRemoval()
             paneViews[paneID]?.removeFromSuperview()
             paneViews.removeValue(forKey: paneID)
         }
@@ -201,19 +227,21 @@ final class PaneStripView: NSView {
             }
 
             let pane = state.panes[index]
+            let runtime = runtimeRegistry.runtime(for: pane)
             let paneView = PaneContainerView(
                 pane: pane,
                 width: panePresentation.frame.width,
                 height: panePresentation.frame.height,
                 emphasis: panePresentation.emphasis,
                 isFocused: panePresentation.isFocused,
-                adapter: adapterFactory()
+                runtime: runtime,
+                theme: currentTheme
             )
             paneView.onSelected = { [weak self] in
                 self?.onPaneSelected?(pane.id)
             }
-            paneView.onMetadataDidChange = { [weak self] metadata in
-                self?.onPaneMetadataDidChange?(pane.id, metadata)
+            paneView.onCloseRequested = { [weak self] in
+                self?.onPaneCloseRequested?(pane.id)
             }
             if let insertionTransition, insertionTransition.paneID == pane.id {
                 paneView.frame = insertionTransition.initialFrame

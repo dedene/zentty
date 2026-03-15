@@ -11,19 +11,25 @@ final class AppCanvasView: NSView {
             paneStripView.onPaneSelected = onPaneSelected
         }
     }
-    var onPaneMetadataDidChange: ((PaneID, TerminalMetadata) -> Void)?
-
+    var onPaneCloseRequested: ((PaneID) -> Void)? {
+        didSet {
+            paneStripView.onPaneCloseRequested = onPaneCloseRequested
+        }
+    }
     private enum Layout {
         static let stripTopInset: CGFloat = 10
         static let stripBottomInset: CGFloat = 12
     }
 
     private let contextStripView = ContextStripView()
-    private let paneStripView = PaneStripView()
+    private let paneStripView: PaneStripView
     private var currentState: PaneStripState?
+    private var currentWorkspaceName = "MAIN"
     private var metadataByPaneID: [PaneID: TerminalMetadata] = [:]
+    private var currentTheme = ZenttyTheme.fallback(for: nil)
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect = .zero, runtimeRegistry: PaneRuntimeRegistry) {
+        self.paneStripView = PaneStripView(runtimeRegistry: runtimeRegistry)
         super.init(frame: frameRect)
         setup()
     }
@@ -38,9 +44,9 @@ final class AppCanvasView: NSView {
         layer?.cornerRadius = 14
         layer?.cornerCurve = .continuous
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.55).cgColor
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.76).cgColor
-        layer?.shadowColor = NSColor.black.withAlphaComponent(0.10).cgColor
+        layer?.borderColor = currentTheme.canvasBorder.cgColor
+        layer?.backgroundColor = currentTheme.canvasBackground.cgColor
+        layer?.shadowColor = currentTheme.canvasShadow.cgColor
         layer?.shadowOpacity = 1
         layer?.shadowRadius = 32
         layer?.shadowOffset = CGSize(width: 0, height: 18)
@@ -51,11 +57,6 @@ final class AppCanvasView: NSView {
 
         contextStripView.translatesAutoresizingMaskIntoConstraints = false
         paneStripView.translatesAutoresizingMaskIntoConstraints = false
-        paneStripView.onPaneMetadataDidChange = { [weak self] paneID, metadata in
-            self?.metadataByPaneID[paneID] = metadata
-            self?.renderFocusedContext()
-            self?.onPaneMetadataDidChange?(paneID, metadata)
-        }
 
         contentView.addSubview(contextStripView)
         contentView.addSubview(paneStripView)
@@ -83,10 +84,21 @@ final class AppCanvasView: NSView {
                 constant: -Layout.stripBottomInset
             ),
         ])
+
+        contextStripView.apply(theme: currentTheme, animated: false)
+        paneStripView.apply(theme: currentTheme, animated: false)
     }
 
-    func render(_ state: PaneStripState) {
+    func render(
+        workspaceName: String,
+        state: PaneStripState,
+        metadataByPaneID: [PaneID: TerminalMetadata] = [:],
+        theme: ZenttyTheme
+    ) {
+        currentWorkspaceName = workspaceName
         currentState = state
+        self.metadataByPaneID = metadataByPaneID
+        apply(theme: theme, animated: true)
         renderFocusedContext()
         paneStripView.render(state)
     }
@@ -95,12 +107,35 @@ final class AppCanvasView: NSView {
         paneStripView.focusCurrentPaneIfNeeded()
     }
 
+    func updateMetadata(for paneID: PaneID, metadata: TerminalMetadata) {
+        metadataByPaneID[paneID] = metadata
+        renderFocusedContext()
+    }
+
+    func apply(theme: ZenttyTheme, animated: Bool) {
+        guard theme != currentTheme else {
+            return
+        }
+        currentTheme = theme
+        contextStripView.apply(theme: theme, animated: animated)
+        paneStripView.apply(theme: theme, animated: animated)
+        performThemeAnimation(animated: animated) {
+            self.layer?.borderColor = theme.canvasBorder.cgColor
+            self.layer?.backgroundColor = theme.canvasBackground.cgColor
+            self.layer?.shadowColor = theme.canvasShadow.cgColor
+        }
+    }
+
     private func renderFocusedContext() {
         guard let currentState else {
             return
         }
 
         let metadata = currentState.focusedPaneID.flatMap { metadataByPaneID[$0] }
-        contextStripView.render(currentState, metadata: metadata)
+        contextStripView.render(
+            workspaceName: currentWorkspaceName,
+            state: currentState,
+            metadata: metadata
+        )
     }
 }

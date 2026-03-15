@@ -3,10 +3,11 @@ import AppKit
 final class ContextStripView: NSView {
     static let preferredHeight: CGFloat = 34
 
-    private let workspaceChip = ContextStripView.makeChip(text: "api.zentty")
+    private let workspaceChip = ContextStripView.makeChip(text: "API")
     private let focusedLabel = ContextStripView.makeLabel(text: "shell", color: .secondaryLabelColor, weight: .medium)
-    private let cwdLabel = ContextStripView.makeLabel(text: "cwd —", color: .tertiaryLabelColor, weight: .regular)
-    private let branchLabel = ContextStripView.makeLabel(text: "branch —", color: .tertiaryLabelColor, weight: .regular)
+    private let cwdLabel = ContextStripView.makeLabel(text: "", color: .tertiaryLabelColor, weight: .regular)
+    private let branchLabel = ContextStripView.makeLabel(text: "branch", color: .tertiaryLabelColor, weight: .regular)
+    private var currentTheme = ZenttyTheme.fallback(for: nil)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -20,7 +21,7 @@ final class ContextStripView: NSView {
 
     private func setup() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.backgroundColor = currentTheme.contextStripBackground.cgColor
 
         let stack = NSStackView(views: [workspaceChip, focusedLabel, cwdLabel, branchLabel])
         stack.orientation = .horizontal
@@ -33,22 +34,48 @@ final class ContextStripView: NSView {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+
+        apply(theme: currentTheme, animated: false)
     }
 
-    func render(_ state: PaneStripState, metadata: TerminalMetadata?) {
+    func render(workspaceName: String, state: PaneStripState, metadata: TerminalMetadata?) {
+        workspaceChip.stringValue = workspaceName
         let focusedTitle = metadata?.title
             ?? metadata?.processName
             ?? state.focusedPane?.title
-            ?? "none"
-        let cwd = metadata?.currentWorkingDirectory.map(Self.compactPath) ?? "—"
-        let branch = metadata?.gitBranch ?? "—"
+            ?? "pane"
 
         focusedLabel.stringValue = focusedTitle
-        cwdLabel.stringValue = "cwd \(cwd)"
-        branchLabel.stringValue = "branch \(branch)"
-        branchLabel.isHidden = metadata?.gitBranch?.isEmpty != false
+        focusedLabel.isHidden = focusedTitle.isEmpty
+        if let cwd = metadata?.currentWorkingDirectory, !cwd.isEmpty {
+            cwdLabel.stringValue = "cwd \(Self.compactPath(cwd))"
+            cwdLabel.isHidden = false
+        } else {
+            cwdLabel.stringValue = ""
+            cwdLabel.isHidden = true
+        }
+        if let branch = metadata?.gitBranch, !branch.isEmpty {
+            branchLabel.stringValue = "branch \(branch)"
+            branchLabel.isHidden = false
+        } else {
+            branchLabel.isHidden = true
+        }
     }
 
+    func apply(theme: ZenttyTheme, animated: Bool) {
+        currentTheme = theme
+        workspaceChip.textColor = theme.workspaceChipText
+        focusedLabel.textColor = theme.secondaryText
+        cwdLabel.textColor = theme.tertiaryText
+        branchLabel.textColor = theme.tertiaryText
+
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = theme.contextStripBackground.cgColor
+            self.workspaceChip.layer?.backgroundColor = theme.workspaceChipBackground.cgColor
+        }
+    }
+
+    var workspaceTextForTesting: String { workspaceChip.stringValue }
     var focusedTextForTesting: String { focusedLabel.stringValue }
     var cwdTextForTesting: String { cwdLabel.stringValue }
     var branchTextForTesting: String { branchLabel.stringValue }
