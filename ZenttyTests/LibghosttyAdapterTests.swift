@@ -102,6 +102,22 @@ final class LibghosttyAdapterTests: XCTestCase {
         XCTAssertEqual(payload, .setTitle("shell"))
     }
 
+    func test_copy_action_payload_copies_command_finished_values() {
+        let action = ghostty_action_s(
+            tag: GHOSTTY_ACTION_COMMAND_FINISHED,
+            action: ghostty_action_u(
+                command_finished: ghostty_action_command_finished_s(
+                    exit_code: 1,
+                    duration: 250_000_000
+                )
+            )
+        )
+
+        let payload = copyLibghosttySurfaceActionPayload(from: action)
+
+        XCTAssertEqual(payload, .commandFinished(exitCode: 1, durationNanoseconds: 250_000_000))
+    }
+
     func test_make_runtime_config_enables_clipboard_callbacks() {
         let config = LibghosttyRuntime.makeRuntimeConfig(
             userdata: UnsafeMutableRawPointer(bitPattern: 0x1)
@@ -121,6 +137,7 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
     private(set) var makeSurfaceCallCount = 0
     private(set) weak var lastHostView: LibghosttyView?
     private(set) var lastMetadataHandler: ((TerminalMetadata) -> Void)?
+    private(set) var lastEventHandler: ((TerminalEvent) -> Void)?
     private(set) var lastRequest: TerminalSessionRequest?
     private(set) var lastSurfaceController: LibghosttySurfaceControllerSpy?
     private(set) var receivedConfigTemplates: [ghostty_surface_config_s?] = []
@@ -129,12 +146,14 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
         for hostView: LibghosttyView,
         request: TerminalSessionRequest,
         configTemplate: ghostty_surface_config_s?,
-        metadataDidChange: @escaping (TerminalMetadata) -> Void
+        metadataDidChange: @escaping (TerminalMetadata) -> Void,
+        eventDidOccur: @escaping (TerminalEvent) -> Void
     ) throws -> any LibghosttySurfaceControlling {
         makeSurfaceCallCount += 1
         lastHostView = hostView
         lastRequest = request
         lastMetadataHandler = metadataDidChange
+        lastEventHandler = eventDidOccur
         receivedConfigTemplates.append(configTemplate)
         let surfaceController = LibghosttySurfaceControllerSpy()
         lastSurfaceController = surfaceController

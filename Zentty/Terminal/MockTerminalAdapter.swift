@@ -12,6 +12,7 @@ final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering {
     private var surfaceActivity = TerminalSurfaceActivity()
 
     var metadataDidChange: ((TerminalMetadata) -> Void)?
+    var eventDidOccur: ((TerminalEvent) -> Void)?
 
     func makeTerminalView() -> NSView {
         surfaceView

@@ -9,6 +9,27 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         static let selectAll = "select_all"
     }
 
+    private static let terminalCommandSelectors: [Selector] = [
+        #selector(NSResponder.cancelOperation(_:)),
+        #selector(NSResponder.deleteBackward(_:)),
+        #selector(NSResponder.deleteForward(_:)),
+        #selector(NSResponder.insertBacktab(_:)),
+        #selector(NSResponder.insertNewline(_:)),
+        #selector(NSResponder.insertTab(_:)),
+        #selector(NSResponder.moveDown(_:)),
+        #selector(NSResponder.moveLeft(_:)),
+        #selector(NSResponder.moveRight(_:)),
+        #selector(NSResponder.moveToBeginningOfDocument(_:)),
+        #selector(NSResponder.moveToBeginningOfLine(_:)),
+        #selector(NSResponder.moveToEndOfDocument(_:)),
+        #selector(NSResponder.moveToEndOfLine(_:)),
+        #selector(NSResponder.moveUp(_:)),
+        #selector(NSResponder.pageDown(_:)),
+        #selector(NSResponder.pageUp(_:)),
+        #selector(NSResponder.scrollPageDown(_:)),
+        #selector(NSResponder.scrollPageUp(_:)),
+    ]
+
     private var surfaceController: (any LibghosttySurfaceControlling)?
     private var keyTextAccumulator = ""
     private var markedTextStorage = ""
@@ -170,7 +191,15 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         insertText(insertString, replacementRange: NSRange(location: NSNotFound, length: 0))
     }
 
-    nonisolated override func doCommand(by selector: Selector) {}
+    nonisolated override func doCommand(by selector: Selector) {
+        MainActor.assumeIsolated {
+            // Terminal navigation/editing commands should be handled by Ghostty via keycode,
+            // not converted into printable fallback text by AppKit.
+            if Self.terminalCommandSelectors.contains(where: { $0 == selector }) {
+                self.keyTextAccumulator = ""
+            }
+        }
+    }
 
     @IBAction func copy(_ sender: Any?) {
         _ = surfaceController?.performBindingAction(BindingAction.copyToClipboard)
@@ -240,16 +269,24 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     }
 
     private func fallbackText(for event: NSEvent) -> String? {
-        guard let characters = event.characters, !characters.isEmpty else {
+        LibghosttySurface.textForKeyEvent(event)
+    }
+
+    private static func sanitizedInputText(_ text: String) -> String? {
+        guard !text.isEmpty else {
             return nil
         }
 
-        let scalarValues = characters.unicodeScalars
-        guard !scalarValues.allSatisfy({ CharacterSet.controlCharacters.contains($0) }) else {
+        let scalars = text.unicodeScalars
+        if scalars.allSatisfy({ CharacterSet.controlCharacters.contains($0) }) {
             return nil
         }
 
-        return characters
+        if scalars.allSatisfy({ $0.value >= 0xF700 && $0.value <= 0xF8FF }) {
+            return nil
+        }
+
+        return text
     }
 
     private static func shouldRouteScrollToPaneSwitch(_ event: NSEvent) -> Bool {
@@ -304,7 +341,7 @@ extension LibghosttyView: NSTextInputClient {
             self.markedTextSelection = NSRange(location: NSNotFound, length: 0)
             self.selectedTextStorageRange = NSRange(location: NSNotFound, length: 0)
 
-            guard !text.isEmpty else {
+            guard let text = Self.sanitizedInputText(text) else {
                 return
             }
 

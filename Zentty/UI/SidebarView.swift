@@ -176,11 +176,15 @@ final class SidebarView: NSView {
     }
 
     var workspacePrimaryTextsForTesting: [String] {
-        workspaceSummaries.map { $0.attentionText ?? $0.summaryText }
+        workspaceSummaries.map(\.primaryText)
     }
 
-    var workspaceDetailTextsForTesting: [String] {
-        workspaceSummaries.map(\.detailText)
+    var workspaceContextTextsForTesting: [String] {
+        workspaceSummaries.map(\.contextText)
+    }
+
+    var workspaceArtifactTextsForTesting: [String] {
+        workspaceButtons.map(\.artifactTextForTesting)
     }
 
     var workspaceButtonsForTesting: [NSButton] {
@@ -188,7 +192,7 @@ final class SidebarView: NSView {
     }
 
     var addWorkspaceTitleForTesting: String {
-        addWorkspaceButton.title
+        addWorkspaceButton.titleTextForTesting
     }
 
     var isHeaderHiddenForTesting: Bool {
@@ -236,6 +240,26 @@ final class SidebarView: NSView {
         workspaceButtons.first.map { convert($0.bounds, from: $0).width } ?? 0
     }
 
+    var firstWorkspacePrimaryMinXForTesting: CGFloat {
+        workspaceButtons.first.map { $0.primaryMinX(in: self) } ?? 0
+    }
+
+    var addWorkspaceContentMinXForTesting: CGFloat {
+        addWorkspaceButton.contentMinX(in: self)
+    }
+
+    var addWorkspaceContentMidXForTesting: CGFloat {
+        addWorkspaceButton.contentMidX(in: self)
+    }
+
+    var addWorkspaceIconAlphaForTesting: CGFloat {
+        addWorkspaceButton.iconAlphaForTesting
+    }
+
+    var addWorkspaceTitleAlphaForTesting: CGFloat {
+        addWorkspaceButton.titleAlphaForTesting
+    }
+
     var resizeHandleMinXForTesting: CGFloat {
         resizeHandleView.frame.minX
     }
@@ -257,14 +281,19 @@ private final class WorkspaceRowButton: NSButton {
     let workspaceID: WorkspaceID?
 
     private let titleLabel = NSTextField(labelWithString: "")
-    private let summaryLabel = NSTextField(labelWithString: "")
-    private let detailLabel = NSTextField(labelWithString: "")
+    private let primaryLabel = NSTextField(labelWithString: "")
+    private let statusLabel = NSTextField(labelWithString: "")
+    private let contextLabel = NSTextField(labelWithString: "")
     private let textStack = NSStackView()
+    private let contentStack = NSStackView()
+    private let artifactButton = NSButton(title: "", target: nil, action: nil)
 
     private var currentSummary: WorkspaceSidebarSummary?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var isHovered = false
     private var trackingArea: NSTrackingArea?
+    private var artifactURL: URL?
+    private var heightConstraint: NSLayoutConstraint?
 
     init(workspaceID: WorkspaceID?) {
         self.workspaceID = workspaceID
@@ -283,7 +312,7 @@ private final class WorkspaceRowButton: NSButton {
         title = ""
         image = nil
         wantsLayer = true
-        layer?.cornerRadius = ShellMetrics.rowRadius
+        layer?.cornerRadius = ChromeGeometry.rowRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = false
         translatesAutoresizingMaskIntoConstraints = false
@@ -293,27 +322,49 @@ private final class WorkspaceRowButton: NSButton {
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        summaryLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        summaryLabel.lineBreakMode = .byTruncatingTail
-        summaryLabel.translatesAutoresizingMaskIntoConstraints = false
+        primaryLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        primaryLabel.lineBreakMode = .byTruncatingTail
+        primaryLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        detailLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        detailLabel.lineBreakMode = .byTruncatingMiddle
-        detailLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        contextLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        contextLabel.lineBreakMode = .byTruncatingMiddle
+        contextLabel.translatesAutoresizingMaskIntoConstraints = false
 
         textStack.orientation = .vertical
-        textStack.spacing = 2
+        textStack.spacing = ShellMetrics.sidebarRowInterlineSpacing
         textStack.alignment = .leading
         textStack.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(textStack)
+        artifactButton.isBordered = false
+        artifactButton.bezelStyle = .inline
+        artifactButton.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        artifactButton.target = self
+        artifactButton.action = #selector(openArtifact)
+        artifactButton.setButtonType(.momentaryChange)
+        artifactButton.contentTintColor = .labelColor
+        artifactButton.isHidden = true
+
+        contentStack.orientation = .horizontal
+        contentStack.spacing = 8
+        contentStack.alignment = .centerY
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(textStack)
+        contentStack.addArrangedSubview(artifactButton)
+
+        addSubview(contentStack)
+
+        let heightConstraint = heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarExpandedRowHeight)
+        self.heightConstraint = heightConstraint
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarRowHeight),
-
-            textStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            textStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            heightConstraint,
+            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: ShellMetrics.sidebarRowHorizontalInset),
+            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -ShellMetrics.sidebarRowHorizontalInset),
+            contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
@@ -351,17 +402,24 @@ private final class WorkspaceRowButton: NSButton {
     ) {
         currentSummary = summary
         currentTheme = theme
+        let layout = SidebarWorkspaceRowLayout(summary: summary)
 
         titleLabel.stringValue = summary.title
-        titleLabel.isHidden = !summary.showsGeneratedTitle
-        summaryLabel.stringValue = summary.attentionText ?? summary.summaryText
-        detailLabel.stringValue = summary.detailText
-        detailLabel.isHidden = summary.detailText.isEmpty
+        titleLabel.isHidden = !layout.visibleTextRows.contains(.title)
+        primaryLabel.stringValue = summary.primaryText
+        statusLabel.stringValue = summary.statusText ?? ""
+        statusLabel.isHidden = !layout.visibleTextRows.contains(.status)
+        contextLabel.stringValue = summary.contextText
+        contextLabel.isHidden = !layout.visibleTextRows.contains(.context)
+        artifactURL = summary.artifactLink?.url
+        artifactButton.title = summary.artifactLink?.label ?? ""
+        artifactButton.isHidden = summary.artifactLink == nil
 
         textStack.setViews(
-            [titleLabel, summaryLabel, detailLabel].filter { !$0.isHidden },
+            layout.visibleTextRows.map(label(for:)),
             in: .top
         )
+        heightConstraint?.constant = layout.rowHeight
 
         applyCurrentAppearance(animated: animated)
     }
@@ -371,18 +429,24 @@ private final class WorkspaceRowButton: NSButton {
             return
         }
 
-        titleLabel.textColor = currentTheme.tertiaryText
-        summaryLabel.textColor = summary.isActive ? currentTheme.primaryText : currentTheme.secondaryText
-        detailLabel.textColor = currentTheme.tertiaryText
+        let activeTextColor = currentTheme.sidebarButtonActiveText
+        let inactiveTextColor = currentTheme.sidebarButtonInactiveText
+
+        titleLabel.textColor = summary.isActive
+            ? activeTextColor.withAlphaComponent(0.66)
+            : currentTheme.tertiaryText
+        primaryLabel.textColor = summary.isActive ? activeTextColor : inactiveTextColor
+        contextLabel.textColor = summary.isActive
+            ? activeTextColor.withAlphaComponent(0.78)
+            : currentTheme.tertiaryText
+        statusLabel.textColor = statusTextColor(for: summary)
+        artifactButton.contentTintColor = summary.isActive ? activeTextColor : inactiveTextColor
 
         let activeBackground = currentTheme.sidebarButtonActiveBackground
-        let inactiveAlpha = currentTheme.sidebarButtonInactiveBackground.srgbClamped.alphaComponent
-        let hoverBackground = currentTheme.sidebarButtonInactiveBackground
-            .mixed(towards: currentTheme.sidebarButtonActiveBackground, amount: 0.18)
-            .withAlphaComponent(min(inactiveAlpha + 0.08, 0.24))
+        let hoverBackground = currentTheme.sidebarButtonHoverBackground
         let inactiveBackground = currentTheme.sidebarButtonInactiveBackground
         let activeBorder = currentTheme.sidebarButtonActiveBorder
-        let inactiveBorder = currentTheme.sidebarBorder.withAlphaComponent(self.isHovered ? 0.14 : 0.08)
+        let inactiveBorder = currentTheme.sidebarButtonInactiveBorder.withAlphaComponent(self.isHovered ? 0.16 : 0.10)
 
         performThemeAnimation(animated: animated) {
             self.layer?.zPosition = summary.isActive ? 10 : 0
@@ -392,16 +456,71 @@ private final class WorkspaceRowButton: NSButton {
                     : (self.isHovered ? hoverBackground : inactiveBackground)
             ).cgColor
             self.layer?.borderColor = (summary.isActive ? activeBorder : inactiveBorder).cgColor
-            self.layer?.borderWidth = 1
+            self.layer?.borderWidth = summary.isActive ? 0.8 : 1
             self.layer?.shadowColor = NSColor.black.withAlphaComponent(summary.isActive ? 0.08 : 0.02).cgColor
             self.layer?.shadowOpacity = 1
             self.layer?.shadowRadius = summary.isActive ? 12 : 4
             self.layer?.shadowOffset = CGSize(width: 0, height: -1)
         }
     }
+
+    private func statusTextColor(for summary: WorkspaceSidebarSummary) -> NSColor {
+        switch summary.attentionState {
+        case .needsInput:
+            return NSColor.systemBlue
+        case .unresolvedStop:
+            return NSColor.systemOrange
+        case .running:
+            return summary.isActive
+                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.74)
+                : currentTheme.secondaryText
+        case .completed:
+            return summary.isActive
+                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.62)
+                : currentTheme.tertiaryText
+        case nil:
+            return summary.isActive
+                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.74)
+                : currentTheme.secondaryText
+        }
+    }
+
+    private func label(for row: WorkspaceRowTextRow) -> NSTextField {
+        switch row {
+        case .title:
+            titleLabel
+        case .primary:
+            primaryLabel
+        case .status:
+            statusLabel
+        case .context:
+            contextLabel
+        }
+    }
+
+    @objc
+    private func openArtifact() {
+        guard let artifactURL else {
+            return
+        }
+
+        NSWorkspace.shared.open(artifactURL)
+    }
+
+    var artifactTextForTesting: String {
+        artifactButton.title
+    }
+
+    func primaryMinX(in view: NSView) -> CGFloat {
+        view.convert(primaryLabel.bounds, from: primaryLabel).minX
+    }
 }
 
 private final class SidebarFooterButton: NSButton {
+    private let iconView = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "New workspace")
+    private let contentStack = NSStackView()
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setup()
@@ -413,49 +532,87 @@ private final class SidebarFooterButton: NSButton {
     }
 
     private func setup() {
-        title = "New workspace"
+        title = ""
+        setAccessibilityLabel("New workspace")
         isBordered = false
         bezelStyle = .regularSquare
-        image = NSImage(
-            systemSymbolName: "plus",
-            accessibilityDescription: "New workspace"
-        )
-        imagePosition = .imageLeading
         contentTintColor = .secondaryLabelColor
         font = NSFont.systemFont(ofSize: 13, weight: .medium)
         wantsLayer = true
-        layer?.cornerRadius = ShellMetrics.pillRadius
+        layer?.cornerRadius = ChromeGeometry.pillRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = false
         setButtonType(.momentaryChange)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: ShellMetrics.footerHeight).isActive = true
 
+        iconView.image = NSImage(
+            systemSymbolName: "plus",
+            accessibilityDescription: "New workspace"
+        )?.withSymbolConfiguration(.init(pointSize: 15, weight: .regular))
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.setContentHuggingPriority(.required, for: .horizontal)
+        iconView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        contentStack.orientation = .horizontal
+        contentStack.alignment = .centerY
+        contentStack.spacing = ShellMetrics.sidebarFooterIconSpacing
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(iconView)
+        contentStack.addArrangedSubview(titleLabel)
+        addSubview(contentStack)
+
+        NSLayoutConstraint.activate([
+            contentStack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: ShellMetrics.sidebarRowHorizontalInset),
+            contentStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -ShellMetrics.sidebarRowHorizontalInset),
+            contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
+        ])
+
         if let cell = cell as? NSButtonCell {
             cell.alignment = .left
-            cell.imageScaling = .scaleProportionallyDown
+            cell.imagePosition = .noImage
         }
     }
 
     func configure(theme: ZenttyTheme, animated: Bool) {
-        contentTintColor = theme.secondaryText
-
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.alignment = .left
-        attributedTitle = NSAttributedString(
-            string: "New workspace",
-            attributes: [
-                .foregroundColor: theme.secondaryText,
-                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-                .paragraphStyle: paragraphStyle,
-            ]
-        )
+        let titleColor = theme.secondaryText.withAlphaComponent(0.90)
+        let iconColor = theme.tertiaryText.withAlphaComponent(0.68)
+        titleLabel.textColor = titleColor
+        titleLabel.stringValue = "New workspace"
+        iconView.contentTintColor = iconColor
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = NSColor.clear.cgColor
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 0
         }
+    }
+
+    var titleTextForTesting: String {
+        titleLabel.stringValue
+    }
+
+    var iconAlphaForTesting: CGFloat {
+        iconView.contentTintColor?.alphaComponent ?? 0
+    }
+
+    var titleAlphaForTesting: CGFloat {
+        titleLabel.textColor?.alphaComponent ?? 0
+    }
+
+    func contentMinX(in view: NSView) -> CGFloat {
+        view.convert(contentStack.bounds, from: contentStack).minX
+    }
+
+    func contentMidX(in view: NSView) -> CGFloat {
+        view.convert(contentStack.bounds, from: contentStack).midX
     }
 }
 

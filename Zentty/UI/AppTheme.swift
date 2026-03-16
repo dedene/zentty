@@ -1,6 +1,20 @@
 import AppKit
 import QuartzCore
 
+enum ThemeChromeAppearance: Equatable {
+    case light
+    case dark
+
+    var nsAppearanceName: NSAppearance.Name {
+        switch self {
+        case .light:
+            .aqua
+        case .dark:
+            .darkAqua
+        }
+    }
+}
+
 struct GhosttyResolvedTheme: Equatable {
     var background: NSColor
     var foreground: NSColor
@@ -50,11 +64,16 @@ struct ZenttyTheme: Equatable {
     let failurePrimaryText: NSColor
     let failureSecondaryText: NSColor
     let sidebarButtonActiveBackground: NSColor
+    let sidebarButtonHoverBackground: NSColor
     let sidebarButtonInactiveBackground: NSColor
     let sidebarButtonActiveBorder: NSColor
+    let sidebarButtonInactiveBorder: NSColor
     let sidebarButtonActiveText: NSColor
     let sidebarButtonInactiveText: NSColor
+    let sidebarGradientStart: NSColor
+    let sidebarGradientEnd: NSColor
     let underlapShadow: NSColor
+    let sidebarGlassAppearance: ThemeChromeAppearance
     let reducedTransparency: Bool
 
     static let animationDuration: CFTimeInterval = 0.20
@@ -67,8 +86,10 @@ struct ZenttyTheme: Equatable {
             lhs.primaryText, lhs.secondaryText, lhs.tertiaryText, lhs.paneBorderFocused,
             lhs.paneBorderUnfocused, lhs.paneFillFocused, lhs.paneFillUnfocused, lhs.paneShadow,
             lhs.startupSurface, lhs.failureOverlayBackground, lhs.failurePrimaryText,
-            lhs.failureSecondaryText, lhs.sidebarButtonActiveBackground, lhs.sidebarButtonInactiveBackground,
-            lhs.sidebarButtonActiveBorder, lhs.sidebarButtonActiveText, lhs.sidebarButtonInactiveText,
+            lhs.failureSecondaryText, lhs.sidebarButtonActiveBackground, lhs.sidebarButtonHoverBackground,
+            lhs.sidebarButtonInactiveBackground, lhs.sidebarButtonActiveBorder, lhs.sidebarButtonInactiveBorder,
+            lhs.sidebarButtonActiveText, lhs.sidebarButtonInactiveText, lhs.sidebarGradientStart,
+            lhs.sidebarGradientEnd,
             lhs.underlapShadow,
         ].map(\.themeToken) == [
             rhs.windowBackground, rhs.sidebarBackground, rhs.sidebarBorder, rhs.sidebarShadow,
@@ -77,10 +98,13 @@ struct ZenttyTheme: Equatable {
             rhs.primaryText, rhs.secondaryText, rhs.tertiaryText, rhs.paneBorderFocused,
             rhs.paneBorderUnfocused, rhs.paneFillFocused, rhs.paneFillUnfocused, rhs.paneShadow,
             rhs.startupSurface, rhs.failureOverlayBackground, rhs.failurePrimaryText,
-            rhs.failureSecondaryText, rhs.sidebarButtonActiveBackground, rhs.sidebarButtonInactiveBackground,
-            rhs.sidebarButtonActiveBorder, rhs.sidebarButtonActiveText, rhs.sidebarButtonInactiveText,
+            rhs.failureSecondaryText, rhs.sidebarButtonActiveBackground, rhs.sidebarButtonHoverBackground,
+            rhs.sidebarButtonInactiveBackground, rhs.sidebarButtonActiveBorder, rhs.sidebarButtonInactiveBorder,
+            rhs.sidebarButtonActiveText, rhs.sidebarButtonInactiveText, rhs.sidebarGradientStart,
+            rhs.sidebarGradientEnd,
             rhs.underlapShadow,
         ].map(\.themeToken)
+            && lhs.sidebarGlassAppearance == rhs.sidebarGlassAppearance
             && lhs.reducedTransparency == rhs.reducedTransparency
     }
 
@@ -92,35 +116,40 @@ struct ZenttyTheme: Equatable {
         let foreground = resolvedTheme.foreground.srgbClamped
         let accent = (resolvedTheme.cursorColor).srgbClamped
 
-        let opacityHint = min(max(resolvedTheme.backgroundOpacity ?? 0.92, 0.78), 0.97)
         let softnessHint = min(max((resolvedTheme.backgroundBlurRadius ?? 0) / 120, 0), 0.10)
-        let baseWindow = background.mixed(
-            towards: foreground,
-            amount: background.isDarkThemeColor ? 0.04 + (softnessHint * 0.25) : 0.08 + (softnessHint * 0.35)
-        )
-        let baseCanvas = background.mixed(
-            towards: foreground,
-            amount: background.isDarkThemeColor ? 0.05 + (softnessHint * 0.35) : 0.10 + (softnessHint * 0.35)
-        )
         let baseSidebar = background.isDarkThemeColor
             ? background
                 .mixed(towards: NSColor.black, amount: 0.24)
                 .mixed(towards: accent, amount: 0.04)
             : background
                 .mixed(towards: foreground, amount: 0.08 + softnessHint)
+        let sidebarRowSelectedBase = background.isDarkThemeColor
+            ? background
+                .mixed(towards: NSColor.black, amount: 0.18)
+                .mixed(towards: foreground, amount: 0.04)
+            : foreground
+                .mixed(towards: background, amount: 0.12)
+        let sidebarRowHoverBase = background.isDarkThemeColor
+            ? baseSidebar.mixed(towards: foreground, amount: 0.12)
+            : foreground.mixed(towards: background, amount: 0.24)
+        let sidebarRowIdleBase = background.isDarkThemeColor
+            ? baseSidebar.mixed(towards: foreground, amount: 0.22)
+            : baseSidebar.mixed(towards: foreground, amount: 0.18)
 
         self.reducedTransparency = reduceTransparency
-        windowBackground = baseWindow.withAlphaComponent(1)
+        sidebarGlassAppearance = background.isDarkThemeColor ? .dark : .light
+        startupSurface = background.withAlphaComponent(1)
+        windowBackground = startupSurface
         sidebarBackground = baseSidebar.withAlphaComponent(reduceTransparency ? 0.92 : (background.isDarkThemeColor ? 0.42 : 0.74))
         sidebarBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.10)
         sidebarShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.05)
-        canvasBackground = baseCanvas.withAlphaComponent(reduceTransparency ? 1 : min(opacityHint + 0.02, 0.96))
+        canvasBackground = startupSurface
         topChromeBackground = canvasBackground
         topChromeBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.06 : 0.08)
         canvasBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.14)
         canvasShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 + softnessHint : 0.06 + (softnessHint * 0.35))
         contextStripBackground = accent
-            .mixed(towards: baseCanvas, amount: background.isDarkThemeColor ? 0.88 : 0.92)
+            .mixed(towards: startupSurface, amount: background.isDarkThemeColor ? 0.88 : 0.92)
             .withAlphaComponent(reduceTransparency ? 0.94 : 0.74)
         contextStripBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.10 : 0.12)
         workspaceChipBackground = accent
@@ -135,19 +164,30 @@ struct ZenttyTheme: Equatable {
         paneFillFocused = background.mixed(towards: accent, amount: 0.08).withAlphaComponent(0.98)
         paneFillUnfocused = background.withAlphaComponent(0.96)
         paneShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.06)
-        startupSurface = background.withAlphaComponent(1)
         failureOverlayBackground = background.mixed(towards: foreground, amount: 0.08).withAlphaComponent(0.92)
         failurePrimaryText = foreground.withAlphaComponent(0.96)
         failureSecondaryText = foreground.withAlphaComponent(0.72)
-        sidebarButtonActiveBackground = accent
-            .mixed(towards: baseSidebar, amount: background.isDarkThemeColor ? 0.78 : 0.86)
-            .withAlphaComponent(background.isDarkThemeColor ? 0.58 : 0.82)
-        sidebarButtonInactiveBackground = baseSidebar
-            .mixed(towards: foreground, amount: background.isDarkThemeColor ? 0.06 : 0.18)
-            .withAlphaComponent(background.isDarkThemeColor ? 0.14 : 0.22)
-        sidebarButtonActiveBorder = accent.withAlphaComponent(background.isDarkThemeColor ? 0.34 : 0.30)
-        sidebarButtonActiveText = foreground.withAlphaComponent(0.98)
-        sidebarButtonInactiveText = foreground.withAlphaComponent(0.62)
+        sidebarButtonActiveBackground = sidebarRowSelectedBase.withAlphaComponent(
+            reduceTransparency ? 0.94 : (background.isDarkThemeColor ? 0.62 : 0.88)
+        )
+        sidebarButtonHoverBackground = sidebarRowHoverBase.withAlphaComponent(
+            reduceTransparency ? 0.28 : (background.isDarkThemeColor ? 0.28 : 0.42)
+        )
+        sidebarButtonInactiveBackground = sidebarRowIdleBase.withAlphaComponent(
+            reduceTransparency ? 0.10 : (background.isDarkThemeColor ? 0.12 : 0.08)
+        )
+        sidebarButtonActiveBorder = accent.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.10)
+        sidebarButtonInactiveBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.10 : 0.12)
+        sidebarButtonActiveText = background.isDarkThemeColor
+            ? foreground.withAlphaComponent(0.98)
+            : NSColor.white.withAlphaComponent(0.96)
+        sidebarButtonInactiveText = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.74 : 0.72)
+        sidebarGradientStart = baseSidebar
+            .mixed(towards: NSColor.black, amount: background.isDarkThemeColor ? 0.12 : 0.04)
+            .withAlphaComponent(reduceTransparency ? 0.05 : (background.isDarkThemeColor ? 0.18 : 0.12))
+        sidebarGradientEnd = baseSidebar
+            .mixed(towards: foreground, amount: background.isDarkThemeColor ? 0.05 : 0.12)
+            .withAlphaComponent(reduceTransparency ? 0.04 : (background.isDarkThemeColor ? 0.10 : 0.08))
         underlapShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.06)
     }
 

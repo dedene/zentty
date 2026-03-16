@@ -6,15 +6,18 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     nonisolated(unsafe) var surface: ghostty_surface_t?
     private var metadata = TerminalMetadata()
     private let metadataDidChange: (TerminalMetadata) -> Void
+    private let eventDidOccur: (TerminalEvent) -> Void
 
     init(
         app: ghostty_app_t,
         hostView: LibghosttyView,
         request: TerminalSessionRequest,
         configTemplate: ghostty_surface_config_s?,
-        metadataDidChange: @escaping (TerminalMetadata) -> Void
+        metadataDidChange: @escaping (TerminalMetadata) -> Void,
+        eventDidOccur: @escaping (TerminalEvent) -> Void
     ) throws {
         self.metadataDidChange = metadataDidChange
+        self.eventDidOccur = eventDidOccur
 
         var config = configTemplate ?? ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
@@ -26,16 +29,35 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         config.userdata = Unmanaged.passUnretained(self).toOpaque()
         config.scale_factor = Double(hostView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1)
         config.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
+        let surfaceEnvironment = makeSurfaceEnvironment(from: request.environmentVariables)
+        defer {
+            surfaceEnvironment.retainedPointers.forEach { free($0) }
+        }
 
         var createdSurface: ghostty_surface_t?
+        let createSurface = {
+            if surfaceEnvironment.envVars.isEmpty {
+                createdSurface = ghostty_surface_new(app, &config)
+                return
+            }
+
+            var buffer = surfaceEnvironment.envVars
+            let envVarCount = buffer.count
+            buffer.withUnsafeMutableBufferPointer { envBuffer in
+                config.env_vars = envBuffer.baseAddress
+                config.env_var_count = envVarCount
+                createdSurface = ghostty_surface_new(app, &config)
+            }
+        }
+
         if let workingDirectory = request.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
            !workingDirectory.isEmpty {
             workingDirectory.withCString { cString in
                 config.working_directory = cString
-                createdSurface = ghostty_surface_new(app, &config)
+                createSurface()
             }
         } else {
-            createdSurface = ghostty_surface_new(app, &config)
+            createSurface()
         }
 
         guard let surface = createdSurface else {
@@ -215,15 +237,43 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         switch payload {
         case .setTitle(let title):
             metadata.title = title
+            publishMetadata()
         case .pwd(let path):
             metadata.currentWorkingDirectory = path
+            publishMetadata()
+        case .commandFinished(let exitCode, let durationNanoseconds):
+            eventDidOccur(.commandFinished(exitCode: exitCode, durationNanoseconds: durationNanoseconds))
         }
-
-        publishMetadata()
     }
 
     private func publishMetadata() {
         metadataDidChange(metadata)
+    }
+
+    private func makeSurfaceEnvironment(from requestEnvironment: [String: String]) -> (
+        envVars: [ghostty_env_var_s],
+        retainedPointers: [UnsafeMutablePointer<CChar>]
+    ) {
+        var environment = requestEnvironment
+        if let helperPath = AgentStatusHelper.binaryPath(), !helperPath.isEmpty {
+            environment["ZENTTY_AGENT_BIN"] = helperPath
+        }
+
+        var retainedPointers: [UnsafeMutablePointer<CChar>] = []
+        let envVars = environment
+            .sorted(by: { $0.key < $1.key })
+            .map { key, value in
+                let retainedKey = strdup(key)!
+                let retainedValue = strdup(value)!
+                retainedPointers.append(retainedKey)
+                retainedPointers.append(retainedValue)
+                return ghostty_env_var_s(
+                    key: UnsafePointer(retainedKey),
+                    value: UnsafePointer(retainedValue)
+                )
+            }
+
+        return (envVars, retainedPointers)
     }
 
     static func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {

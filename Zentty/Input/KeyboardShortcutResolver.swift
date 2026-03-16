@@ -1,20 +1,27 @@
+enum AppAction: Equatable, Sendable {
+    case newWorkspace
+    case pane(PaneCommand)
+}
+
 enum KeyboardShortcutResolver {
-    static func resolve(_ shortcut: KeyboardShortcut) -> PaneCommand? {
+    static func resolve(_ shortcut: KeyboardShortcut) -> AppAction? {
         switch (shortcut.key, shortcut.modifiers) {
+        case (.character("t"), [.command]):
+            return .newWorkspace
         case (.character("d"), [.command]):
-            return .splitAfterFocusedPane
+            return .pane(.splitAfterFocusedPane)
         case (.character("d"), [.command, .shift]):
-            return .splitBeforeFocusedPane
+            return .pane(.splitBeforeFocusedPane)
         case (.character("w"), [.command]):
-            return .closeFocusedPane
+            return .pane(.closeFocusedPane)
         case (.leftArrow, [.command, .option]):
-            return .focusLeft
+            return .pane(.focusLeft)
         case (.rightArrow, [.command, .option]):
-            return .focusRight
+            return .pane(.focusRight)
         case (.leftArrow, [.command, .option, .shift]):
-            return .focusFirst
+            return .pane(.focusFirst)
         case (.rightArrow, [.command, .option, .shift]):
-            return .focusLast
+            return .pane(.focusLast)
         default:
             return nil
         }

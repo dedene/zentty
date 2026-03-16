@@ -23,7 +23,7 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertFalse(appCanvasView.containsDescendant(ofType: SidebarView.self))
         XCTAssertFalse(rootSubviews.contains { $0 is ContentShellView })
         XCTAssertEqual(sidebarView?.workspacePrimaryTextsForTesting, ["shell"])
-        XCTAssertEqual(sidebarView?.workspaceDetailTextsForTesting, [""])
+        XCTAssertEqual(sidebarView?.workspaceContextTextsForTesting, [""])
         XCTAssertEqual(
             appCanvasView.frame.minX,
             ShellMetrics.outerInset,
@@ -45,6 +45,69 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertFalse(rootSubviews.contains { $0 is ContentShellView })
         XCTAssertFalse(appCanvasView.containsDescendant(ofType: WindowChromeView.self))
         XCTAssertEqual(windowChromeView.frame.minY, appCanvasView.frame.maxY, accuracy: 0.5)
+    }
+
+    func test_chrome_geometry_derives_nested_radii_from_edge_to_edge_insets() {
+        XCTAssertEqual(ChromeGeometry.contentShellRadius, ChromeGeometry.innerRadius(
+            outerRadius: ChromeGeometry.outerWindowRadius,
+            inset: ChromeGeometry.shellInset
+        ))
+        XCTAssertEqual(ChromeGeometry.sidebarRadius, ChromeGeometry.contentShellRadius)
+        XCTAssertEqual(ChromeGeometry.paneRadius, ChromeGeometry.innerRadius(
+            outerRadius: ChromeGeometry.contentShellRadius,
+            inset: ChromeGeometry.paneInset
+        ))
+        XCTAssertEqual(ChromeGeometry.rowRadius, ChromeGeometry.innerRadius(
+            outerRadius: ChromeGeometry.sidebarRadius,
+            inset: ChromeGeometry.rowInset
+        ))
+        XCTAssertEqual(ChromeGeometry.pillRadius, ChromeGeometry.innerRadius(
+            outerRadius: ChromeGeometry.rowRadius,
+            inset: ChromeGeometry.pillInset
+        ))
+    }
+
+    func test_chrome_geometry_derives_clip_safe_pane_border_inset_and_rounds_outward_on_retina() {
+        let rawInset = ChromeGeometry.clipSafeInnerBorderInset(
+            parentRadius: ChromeGeometry.contentShellRadius,
+            childRadius: ChromeGeometry.paneRadius
+        )
+        let backingPixelInset = ChromeGeometry.backingPixelInset(backingScaleFactor: 2)
+        let roundedInset = ChromeGeometry.paneBorderInset(backingScaleFactor: 2)
+
+        XCTAssertGreaterThan(rawInset, 0.5)
+        XCTAssertEqual(rawInset, 0.9500712252157548, accuracy: 0.000001)
+        XCTAssertEqual(backingPixelInset, 0.5, accuracy: 0.001)
+        XCTAssertEqual(roundedInset, 1.5, accuracy: 0.001)
+    }
+
+    func test_root_controller_applies_outer_shell_geometry_to_live_root_view() {
+        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+
+        controller.loadViewIfNeeded()
+
+        let cornerRadius = controller.view.layer?.cornerRadius ?? 0
+        let borderWidth = controller.view.layer?.borderWidth ?? 0
+
+        XCTAssertEqual(cornerRadius, ChromeGeometry.outerWindowRadius, accuracy: 0.001)
+        XCTAssertEqual(controller.view.layer?.cornerCurve, .continuous)
+        XCTAssertEqual(borderWidth, 1, accuracy: 0.001)
+        XCTAssertTrue(controller.view.layer?.masksToBounds == true)
+    }
+
+    func test_app_canvas_view_is_a_silent_clip_layer_instead_of_a_visible_inner_card() {
+        let appCanvasView = AppCanvasView(runtimeRegistry: PaneRuntimeRegistry())
+
+        appCanvasView.apply(theme: ZenttyTheme.fallback(for: nil), animated: false)
+
+        let cornerRadius = appCanvasView.layer?.cornerRadius ?? 0
+
+        XCTAssertEqual(cornerRadius, ChromeGeometry.contentShellRadius, accuracy: 0.001)
+        XCTAssertEqual(appCanvasView.layer?.cornerCurve, .continuous)
+        XCTAssertTrue(appCanvasView.layer?.masksToBounds == true)
+        XCTAssertEqual(appCanvasView.layer?.borderWidth ?? 0, 0, accuracy: 0.001)
+        XCTAssertEqual(alphaComponent(of: appCanvasView.layer?.backgroundColor), 0, accuracy: 0.001)
+        XCTAssertEqual(alphaComponent(of: appCanvasView.layer?.borderColor), 0, accuracy: 0.001)
     }
 
     func test_window_chrome_keeps_only_trailing_context_strip_without_title_label() {
@@ -121,29 +184,25 @@ final class RootViewCompositionTests: XCTestCase {
                 workspaceID: WorkspaceID("workspace-api"),
                 title: "API",
                 badgeText: "A",
-                summaryText: "shell",
-                detailText: "1 pane",
-                paneCountText: "1 pane",
+                primaryText: "shell",
+                statusText: nil,
+                contextText: "1 pane",
                 attentionState: nil,
-                attentionText: nil,
-                unreadCount: nil,
+                artifactLink: nil,
                 isActive: true,
-                showsGeneratedTitle: true,
-                showsPaneCount: true
+                showsGeneratedTitle: true
             ),
             WorkspaceSidebarSummary(
                 workspaceID: WorkspaceID("workspace-web"),
                 title: "WEB",
                 badgeText: "W",
-                summaryText: "editor",
-                detailText: "project • main",
-                paneCountText: "2 panes",
+                primaryText: "editor",
+                statusText: nil,
+                contextText: "project • main",
                 attentionState: nil,
-                attentionText: nil,
-                unreadCount: nil,
+                artifactLink: nil,
                 isActive: false,
-                showsGeneratedTitle: true,
-                showsPaneCount: true
+                showsGeneratedTitle: true
             ),
         ]
         var selectedWorkspaceID: WorkspaceID?
@@ -178,6 +237,79 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(controller.sidebarWidthForTesting, 280, accuracy: 0.001)
     }
 
+    func test_root_controller_keeps_single_pane_full_width_through_initial_layout_and_resize() throws {
+        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView })
+        let initialPaneView = try XCTUnwrap(appCanvasView.descendantPaneViews().first)
+        let initialExpectedWidth = PaneLayoutSizing.balanced.readableWidth(
+            for: appCanvasView.bounds.width,
+            leadingVisibleInset: controller.sidebarWidthForTesting + ShellMetrics.shellGap
+        )
+
+        XCTAssertEqual(initialPaneView.frame.width, initialExpectedWidth, accuracy: 0.001)
+
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1440, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let resizedPaneView = try XCTUnwrap(appCanvasView.descendantPaneViews().first)
+        let resizedExpectedWidth = PaneLayoutSizing.balanced.readableWidth(
+            for: appCanvasView.bounds.width,
+            leadingVisibleInset: controller.sidebarWidthForTesting + ShellMetrics.shellGap
+        )
+
+        XCTAssertEqual(resizedPaneView.frame.width, resizedExpectedWidth, accuracy: 0.001)
+    }
+
+    func test_root_controller_single_pane_preserves_readable_trailing_inset_and_bottom_spacing() throws {
+        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView })
+        let paneView = try XCTUnwrap(appCanvasView.descendantPaneViews().first)
+        let borderFrame = paneView.insetBorderFrameForTesting
+
+        XCTAssertEqual(
+            appCanvasView.bounds.maxX - paneView.frame.maxX,
+            PaneLayoutSizing.balanced.horizontalInset * 2,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(paneView.frame.maxY, appCanvasView.bounds.maxY, accuracy: 0.001)
+        XCTAssertLessThan(borderFrame.maxX, paneView.bounds.maxX)
+        XCTAssertLessThan(borderFrame.maxY, paneView.bounds.maxY)
+    }
+
+    func test_root_controller_scales_multi_pane_widths_when_window_resizes() throws {
+        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView })
+        let initialCanvasWidth = appCanvasView.bounds.width
+        let initialPaneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        let initialWidths = initialPaneViews.map { $0.frame.width }
+
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1440, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let resizedPaneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        let resizedWidths = resizedPaneViews.map { $0.frame.width }
+        let expectedScaleFactor = appCanvasView.bounds.width / initialCanvasWidth
+
+        XCTAssertEqual(initialWidths.count, 2)
+        XCTAssertEqual(resizedWidths.count, 2)
+        XCTAssertEqual(resizedWidths[0], initialWidths[0] * expectedScaleFactor, accuracy: 0.5)
+        XCTAssertEqual(resizedWidths[1], initialWidths[1] * expectedScaleFactor, accuracy: 0.5)
+    }
+
     func test_sidebar_width_clamps_to_supported_range() {
         XCTAssertEqual(SidebarWidthPreference.clamped(120), SidebarWidthPreference.minimumWidth, accuracy: 0.001)
         XCTAssertEqual(SidebarWidthPreference.clamped(500), SidebarWidthPreference.maximumWidth, accuracy: 0.001)
@@ -191,15 +323,13 @@ final class RootViewCompositionTests: XCTestCase {
                     workspaceID: WorkspaceID("workspace-main"),
                     title: "MAIN",
                     badgeText: "M",
-                    summaryText: "shell",
-                    detailText: "project • main",
-                    paneCountText: "",
+                    primaryText: "shell",
+                    statusText: nil,
+                    contextText: "project • main",
                     attentionState: nil,
-                    attentionText: nil,
-                    unreadCount: nil,
+                    artifactLink: nil,
                     isActive: true,
-                    showsGeneratedTitle: false,
-                    showsPaneCount: false
+                    showsGeneratedTitle: false
                 )
             ],
             theme: ZenttyTheme.fallback(for: nil)
@@ -210,6 +340,7 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(sidebarView.addWorkspaceTitleForTesting, "New workspace")
         XCTAssertFalse(sidebarView.hasVisibleDividerForTesting)
         XCTAssertGreaterThan(sidebarView.firstWorkspaceMinYForTesting, 40)
+        XCTAssertGreaterThanOrEqual(sidebarView.addWorkspaceMinYForTesting, ShellMetrics.sidebarBottomInset)
         XCTAssertLessThan(sidebarView.addWorkspaceMaxYForTesting, sidebarView.firstWorkspaceMinYForTesting)
     }
 
@@ -221,15 +352,13 @@ final class RootViewCompositionTests: XCTestCase {
                     workspaceID: WorkspaceID("workspace-main"),
                     title: "MAIN",
                     badgeText: "M",
-                    summaryText: "shell",
-                    detailText: "",
-                    paneCountText: "",
+                    primaryText: "shell",
+                    statusText: nil,
+                    contextText: "",
                     attentionState: nil,
-                    attentionText: nil,
-                    unreadCount: nil,
+                    artifactLink: nil,
                     isActive: true,
-                    showsGeneratedTitle: false,
-                    showsPaneCount: false
+                    showsGeneratedTitle: false
                 )
             ],
             theme: ZenttyTheme.fallback(for: nil)
@@ -241,6 +370,65 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertGreaterThan(sidebarView.firstWorkspaceWidthForTesting, 258)
     }
 
+    func test_sidebar_workspace_text_uses_slightly_larger_horizontal_inset() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-main"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    primaryText: "shell",
+                    statusText: nil,
+                    contextText: "",
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: true,
+                    showsGeneratedTitle: false
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            sidebarView.firstWorkspacePrimaryMinXForTesting,
+            ShellMetrics.sidebarContentInset + 10,
+            accuracy: 0.5
+        )
+    }
+
+    func test_sidebar_footer_centers_on_sidebar_and_dims_plus_icon() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-main"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    primaryText: "shell",
+                    statusText: nil,
+                    contextText: "",
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: true,
+                    showsGeneratedTitle: false
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            sidebarView.addWorkspaceContentMidXForTesting,
+            sidebarView.bounds.midX,
+            accuracy: 1
+        )
+        XCTAssertLessThan(sidebarView.addWorkspaceIconAlphaForTesting, sidebarView.addWorkspaceTitleAlphaForTesting)
+    }
+
     func test_sidebar_resize_hit_area_is_centered_on_outer_edge_without_hover_fill() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
 
@@ -250,9 +438,298 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertGreaterThan(sidebarView.resizeHandleMaxXForTesting, sidebarView.bounds.maxX)
         XCTAssertEqual(sidebarView.resizeHandleFillAlphaForTesting, 0, accuracy: 0.001)
     }
+
+    func test_sidebar_glass_forces_dark_appearance_for_dark_themes() {
+        let glassView = GlassSurfaceView(style: .sidebar)
+        glassView.appearance = NSAppearance(named: .aqua)
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: false
+        )
+
+        glassView.apply(theme: theme, animated: false)
+
+        XCTAssertEqual(glassView.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
+    }
+
+    func test_sidebar_glass_forces_light_appearance_for_light_themes() {
+        let glassView = GlassSurfaceView(style: .sidebar)
+        glassView.appearance = NSAppearance(named: .darkAqua)
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#F7FBFF")!,
+                foreground: NSColor(hexString: "#102030")!,
+                cursorColor: NSColor(hexString: "#2F74D0")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.94,
+                backgroundBlurRadius: 18
+            ),
+            reduceTransparency: false
+        )
+
+        glassView.apply(theme: theme, animated: false)
+
+        XCTAssertEqual(glassView.appearance?.bestMatch(from: [.darkAqua, .aqua]), .aqua)
+    }
+
+    func test_sidebar_row_exposes_single_trailing_artifact_pill() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-main"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    primaryText: "Claude Code",
+                    statusText: "Needs input",
+                    contextText: "project • main",
+                    attentionState: .needsInput,
+                    artifactLink: WorkspaceArtifactLink(
+                        kind: .pullRequest,
+                        label: "PR #42",
+                        url: URL(string: "https://example.com/pr/42")!,
+                        isExplicit: true
+                    ),
+                    isActive: true,
+                    showsGeneratedTitle: false
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        XCTAssertEqual(sidebarView.workspaceArtifactTextsForTesting, ["PR #42"])
+    }
+
+    func test_sidebar_compacts_true_single_line_rows_only() throws {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-compact"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    primaryText: "shell",
+                    statusText: nil,
+                    contextText: "",
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: true,
+                    showsGeneratedTitle: false
+                ),
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-expanded"),
+                    title: "Claude Code",
+                    badgeText: "C",
+                    primaryText: "Claude Code",
+                    statusText: "Needs input",
+                    contextText: "",
+                    attentionState: .needsInput,
+                    artifactLink: nil,
+                    isActive: false,
+                    showsGeneratedTitle: true
+                ),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.layoutSubtreeIfNeeded()
+
+        let buttons = sidebarView.workspaceButtonsForTesting
+        let compactFrame = try XCTUnwrap(buttons.first?.frame)
+        let expandedFrame = try XCTUnwrap(buttons.last?.frame)
+
+        XCTAssertEqual(compactFrame.height, ShellMetrics.sidebarCompactRowHeight, accuracy: 0.5)
+        XCTAssertEqual(expandedFrame.height, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.5)
+        XCTAssertLessThan(compactFrame.height, expandedFrame.height)
+    }
+
+    func test_sidebar_keeps_context_rows_expanded() throws {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-context"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    primaryText: "shell",
+                    statusText: nil,
+                    contextText: "main • ~/src/zentty",
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: true,
+                    showsGeneratedTitle: false
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.layoutSubtreeIfNeeded()
+
+        let frame = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.first?.frame)
+        XCTAssertEqual(frame.height, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.5)
+    }
+
+    func test_sidebar_keeps_artifact_rows_expanded() throws {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-artifact"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    primaryText: "Claude Code",
+                    statusText: nil,
+                    contextText: "",
+                    attentionState: nil,
+                    artifactLink: WorkspaceArtifactLink(
+                        kind: .pullRequest,
+                        label: "PR #42",
+                        url: URL(string: "https://example.com/pr/42")!,
+                        isExplicit: true
+                    ),
+                    isActive: true,
+                    showsGeneratedTitle: false
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.layoutSubtreeIfNeeded()
+
+        let frame = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.first?.frame)
+        XCTAssertEqual(frame.height, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.5)
+    }
+
+    func test_sidebar_mixes_compact_and_expanded_rows_without_colliding_with_footer() throws {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-compact"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    primaryText: "shell",
+                    statusText: nil,
+                    contextText: "",
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: true,
+                    showsGeneratedTitle: false
+                ),
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-expanded"),
+                    title: "Claude Code",
+                    badgeText: "C",
+                    primaryText: "Claude Code",
+                    statusText: "Needs input",
+                    contextText: "main • ~/src/zentty",
+                    attentionState: .needsInput,
+                    artifactLink: nil,
+                    isActive: false,
+                    showsGeneratedTitle: true
+                ),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.layoutSubtreeIfNeeded()
+
+        let buttons = sidebarView.workspaceButtonsForTesting
+        let firstButton = try XCTUnwrap(buttons.first)
+        let secondButton = try XCTUnwrap(buttons.last)
+        let firstFrame = sidebarView.convert(firstButton.bounds, from: firstButton)
+        let secondFrame = sidebarView.convert(secondButton.bounds, from: secondButton)
+        let footerFrame = CGRect(
+            x: 0,
+            y: sidebarView.addWorkspaceMinYForTesting,
+            width: sidebarView.bounds.width,
+            height: sidebarView.addWorkspaceMaxYForTesting - sidebarView.addWorkspaceMinYForTesting
+        )
+
+        XCTAssertFalse(firstFrame.intersects(secondFrame))
+        XCTAssertFalse(firstFrame.union(secondFrame).intersects(footerFrame))
+    }
+
+    func test_window_chrome_shows_attention_chip_only_for_attention_states() {
+        let windowChromeView = WindowChromeView()
+        let state = PaneStripState(
+            panes: [PaneState(id: PaneID("shell"), title: "shell")],
+            focusedPaneID: PaneID("shell")
+        )
+        let attention = WorkspaceAttentionSummary(
+            paneID: PaneID("shell"),
+            tool: .claudeCode,
+            state: .needsInput,
+            primaryText: "Claude Code",
+            statusText: "Needs input",
+            contextText: "project • main",
+            artifactLink: WorkspaceArtifactLink(
+                kind: .pullRequest,
+                label: "PR #42",
+                url: URL(string: "https://example.com/pr/42")!,
+                isExplicit: true
+            ),
+            updatedAt: Date(timeIntervalSince1970: 42)
+        )
+
+        windowChromeView.render(
+            workspaceName: "MAIN",
+            state: state,
+            metadata: TerminalMetadata(title: "Claude Code"),
+            attention: attention
+        )
+
+        XCTAssertFalse(windowChromeView.isAttentionHiddenForTesting)
+        XCTAssertEqual(windowChromeView.attentionTextForTesting, "Needs input")
+        XCTAssertEqual(windowChromeView.attentionArtifactTextForTesting, "PR #42")
+
+        windowChromeView.render(
+            workspaceName: "MAIN",
+            state: state,
+            metadata: TerminalMetadata(title: "Claude Code"),
+            attention: WorkspaceAttentionSummary(
+                paneID: PaneID("shell"),
+                tool: .claudeCode,
+                state: .running,
+                primaryText: "Claude Code",
+                statusText: "Running",
+                contextText: "project • main",
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 43)
+            )
+        )
+
+        XCTAssertTrue(windowChromeView.isAttentionHiddenForTesting)
+    }
 }
 
 private extension NSView {
+    func descendantPaneViews() -> [PaneContainerView] {
+        var paneViews: [PaneContainerView] = []
+
+        func walk(_ view: NSView) {
+            if let paneView = view as? PaneContainerView {
+                paneViews.append(paneView)
+            }
+
+            view.subviews.forEach(walk)
+        }
+
+        walk(self)
+        return paneViews
+    }
+
     func containsDescendant<T: NSView>(ofType type: T.Type) -> Bool {
         subviews.contains { subview in
             subview is T || subview.containsDescendant(ofType: type)
@@ -264,4 +741,12 @@ private extension NSView {
             String(describing: type(of: subview)) == className || subview.containsDescendant(named: className)
         }
     }
+}
+
+private func alphaComponent(of cgColor: CGColor?) -> CGFloat {
+    guard let cgColor, let color = NSColor(cgColor: cgColor) else {
+        return 0
+    }
+
+    return color.srgbClamped.alphaComponent
 }

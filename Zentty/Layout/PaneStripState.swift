@@ -8,27 +8,22 @@ struct PaneID: Hashable, Equatable, Sendable {
     }
 }
 
-enum PaneWidthRole: Equatable, Sendable {
-    case leadingReadable
-    case standardColumn
-}
-
 struct PaneState: Equatable, Sendable {
     let id: PaneID
     var title: String
     var sessionRequest: TerminalSessionRequest
-    var widthRole: PaneWidthRole
+    var width: CGFloat
 
     init(
         id: PaneID,
         title: String,
         sessionRequest: TerminalSessionRequest = TerminalSessionRequest(),
-        widthRole: PaneWidthRole = .standardColumn
+        width: CGFloat = PaneLayoutPreset.balanced.defaultPaneWidth(for: .largeDisplay, viewportWidth: 1280)
     ) {
         self.id = id
         self.title = title
         self.sessionRequest = sessionRequest
-        self.widthRole = widthRole
+        self.width = width
     }
 }
 
@@ -42,7 +37,6 @@ struct PaneLayoutItem: Equatable, Sendable {
     let width: CGFloat
     let height: CGFloat
     let isFocused: Bool
-    let widthRole: PaneWidthRole
 }
 
 struct PaneStripState: Equatable, Sendable {
@@ -55,11 +49,10 @@ struct PaneStripState: Equatable, Sendable {
         focusedPaneID: PaneID? = nil,
         layoutSizing: PaneLayoutSizing = .balanced
     ) {
-        let normalizedPanes = PaneStripState.normalizePaneRoles(in: panes)
-        self.panes = normalizedPanes
+        self.panes = panes
         self.layoutSizing = layoutSizing
         self.focusedPaneID = PaneStripState.resolveFocusedPaneID(
-            panes: normalizedPanes,
+            panes: panes,
             preferredID: focusedPaneID
         )
     }
@@ -87,23 +80,11 @@ struct PaneStripState: Equatable, Sendable {
         let paneHeight = layoutSizing.paneHeight(for: containerSize.height)
 
         return panes.map { pane in
-            let isFocused = pane.id == focusedPaneID
-            let paneWidth: CGFloat
-            switch pane.widthRole {
-            case .leadingReadable:
-                paneWidth = layoutSizing.leadingReadableWidth(
-                    for: containerSize.width,
-                    leadingVisibleInset: leadingVisibleInset
-                )
-            case .standardColumn:
-                paneWidth = layoutSizing.standardColumnWidth(for: containerSize.width)
-            }
-            return PaneLayoutItem(
+            PaneLayoutItem(
                 pane: pane,
-                width: paneWidth,
+                width: max(1, pane.width),
                 height: paneHeight,
-                isFocused: isFocused,
-                widthRole: pane.widthRole
+                isFocused: pane.id == focusedPaneID
             )
         }
     }
@@ -150,12 +131,11 @@ struct PaneStripState: Equatable, Sendable {
         }
 
         panes.insert(pane, at: insertionIndex)
-        panes = Self.normalizePaneRoles(in: panes)
         focusedPaneID = pane.id
     }
 
     @discardableResult
-    mutating func closeFocusedPane() -> PaneState? {
+    mutating func closeFocusedPane(singlePaneWidth: CGFloat? = nil) -> PaneState? {
         guard let focusedPaneID else {
             return nil
         }
@@ -171,10 +151,47 @@ struct PaneStripState: Equatable, Sendable {
             return removedPane
         }
 
-        panes = Self.normalizePaneRoles(in: panes)
         let nextIndex = min(removalIndex, panes.count - 1)
         self.focusedPaneID = panes[nextIndex].id
+
+        if panes.count == 1, let singlePaneWidth {
+            panes[0].width = singlePaneWidth
+        }
+
         return removedPane
+    }
+
+    @discardableResult
+    mutating func updateSinglePaneWidth(_ width: CGFloat) -> Bool {
+        guard panes.count == 1 else {
+            return false
+        }
+
+        let resolvedWidth = max(1, width)
+        guard panes[0].width != resolvedWidth else {
+            return false
+        }
+
+        panes[0].width = resolvedWidth
+        return true
+    }
+
+    @discardableResult
+    mutating func scalePaneWidths(by factor: CGFloat) -> Bool {
+        guard panes.count > 1 else {
+            return false
+        }
+
+        let resolvedFactor = max(0, factor)
+        guard abs(resolvedFactor - 1) > 0.001 else {
+            return false
+        }
+
+        for index in panes.indices {
+            panes[index].width = max(1, panes[index].width * resolvedFactor)
+        }
+
+        return true
     }
 
     private mutating func moveFocus(by delta: Int) {
@@ -196,14 +213,6 @@ struct PaneStripState: Equatable, Sendable {
         }
 
         return panes.contains(where: { $0.id == preferredID }) ? preferredID : panes.first?.id
-    }
-
-    private static func normalizePaneRoles(in panes: [PaneState]) -> [PaneState] {
-        panes.enumerated().map { index, pane in
-            var pane = pane
-            pane.widthRole = index == 0 ? .leadingReadable : .standardColumn
-            return pane
-        }
     }
 }
 

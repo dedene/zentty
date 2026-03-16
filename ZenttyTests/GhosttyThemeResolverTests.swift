@@ -72,7 +72,7 @@ final class GhosttyThemeResolverTests: XCTestCase {
         XCTAssertEqual(lightResolution.theme.background.themeHexString, "#FFFFFF")
     }
 
-    func test_derived_theme_keeps_sidebar_and_canvas_distinct_from_terminal_surface() {
+    func test_derived_theme_stitches_main_shell_to_terminal_surface() {
         let theme = ZenttyTheme(
             resolvedTheme: GhosttyResolvedTheme(
                 background: NSColor(hexString: "#0A0C10")!,
@@ -87,12 +87,12 @@ final class GhosttyThemeResolverTests: XCTestCase {
         )
 
         XCTAssertNotEqual(theme.windowBackground.themeToken, theme.sidebarBackground.themeToken)
-        XCTAssertNotEqual(theme.canvasBackground.themeToken, theme.startupSurface.themeToken)
-        XCTAssertNotEqual(theme.windowBackground.themeToken, theme.canvasBackground.themeToken)
+        XCTAssertEqual(theme.canvasBackground.themeToken, theme.startupSurface.themeToken)
+        XCTAssertEqual(theme.windowBackground.themeToken, theme.canvasBackground.themeToken)
         XCTAssertEqual(theme.topChromeBackground.themeToken, theme.canvasBackground.themeToken)
     }
 
-    func test_derived_theme_creates_distinct_shell_material_from_window_background() {
+    func test_derived_theme_keeps_sidebar_distinct_from_main_window_background() {
         let theme = ZenttyTheme(
             resolvedTheme: GhosttyResolvedTheme(
                 background: NSColor(hexString: "#0A0C10")!,
@@ -109,7 +109,7 @@ final class GhosttyThemeResolverTests: XCTestCase {
         XCTAssertNotEqual(theme.windowBackground.themeToken, theme.sidebarBackground.themeToken)
     }
 
-    func test_derived_theme_keeps_sidebar_darker_than_stitched_content_shell_for_dark_themes() {
+    func test_derived_theme_keeps_sidebar_visibly_distinct_from_stitched_content_shell_for_dark_themes() {
         let theme = ZenttyTheme(
             resolvedTheme: GhosttyResolvedTheme(
                 background: NSColor(hexString: "#0A0C10")!,
@@ -123,7 +123,7 @@ final class GhosttyThemeResolverTests: XCTestCase {
             )
         )
 
-        XCTAssertLessThan(theme.sidebarBackground.perceivedLuminance, theme.canvasBackground.perceivedLuminance)
+        XCTAssertGreaterThan(theme.sidebarBackground.perceivedLuminance, theme.canvasBackground.perceivedLuminance)
         XCTAssertNotEqual(theme.sidebarBackground.themeToken, theme.canvasBackground.themeToken)
     }
 
@@ -160,5 +160,101 @@ final class GhosttyThemeResolverTests: XCTestCase {
 
         XCTAssertLessThan(theme.sidebarButtonActiveBackground.srgbClamped.alphaComponent, 0.7)
         XCTAssertLessThan(theme.sidebarButtonInactiveBackground.srgbClamped.alphaComponent, 0.2)
+    }
+
+    func test_dark_theme_sidebar_row_palette_orders_selected_hover_and_idle_luminance() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            )
+        )
+
+        XCTAssertLessThan(
+            theme.sidebarButtonActiveBackground.perceivedLuminance,
+            theme.sidebarButtonHoverBackground.perceivedLuminance
+        )
+        XCTAssertLessThan(
+            theme.sidebarButtonHoverBackground.perceivedLuminance,
+            theme.sidebarButtonInactiveBackground.perceivedLuminance
+        )
+        XCTAssertGreaterThan(
+            theme.sidebarButtonHoverBackground.srgbClamped.alphaComponent,
+            theme.sidebarButtonInactiveBackground.srgbClamped.alphaComponent
+        )
+    }
+
+    func test_dark_theme_sidebar_selected_border_keeps_accent_tint_while_idle_border_stays_neutral() {
+        let accent = NSColor(hexString: "#71B7FF")!
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: accent,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            )
+        )
+
+        let selectedDistance = colorDistance(theme.sidebarButtonActiveBorder, accent)
+        let idleDistance = colorDistance(theme.sidebarButtonInactiveBorder, accent)
+
+        XCTAssertLessThan(selectedDistance, idleDistance)
+        XCTAssertLessThan(theme.sidebarButtonActiveBorder.srgbClamped.alphaComponent, 0.16)
+        XCTAssertNotEqual(theme.sidebarBackground.themeToken, theme.sidebarButtonActiveBackground.themeToken)
+        XCTAssertNotEqual(theme.sidebarGradientStart.themeToken, theme.sidebarButtonActiveBackground.themeToken)
+        XCTAssertNotEqual(theme.sidebarGradientEnd.themeToken, theme.sidebarButtonActiveBackground.themeToken)
+    }
+
+    func test_derived_theme_prefers_dark_sidebar_glass_for_dark_terminal_backgrounds() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            )
+        )
+
+        XCTAssertEqual(theme.sidebarGlassAppearance, .dark)
+    }
+
+    func test_derived_theme_prefers_light_sidebar_glass_for_light_terminal_backgrounds() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#F7FBFF")!,
+                foreground: NSColor(hexString: "#102030")!,
+                cursorColor: NSColor(hexString: "#2F74D0")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.94,
+                backgroundBlurRadius: 18
+            )
+        )
+
+        XCTAssertEqual(theme.sidebarGlassAppearance, .light)
+    }
+
+    private func colorDistance(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {
+        let left = lhs.srgbClamped
+        let right = rhs.srgbClamped
+        let red = left.redComponent - right.redComponent
+        let green = left.greenComponent - right.greenComponent
+        let blue = left.blueComponent - right.blueComponent
+        return sqrt((red * red) + (green * green) + (blue * blue))
     }
 }

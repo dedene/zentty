@@ -6,7 +6,7 @@ final class PaneStripViewTests: XCTestCase {
     private let sidebarInset: CGFloat = 290
 
     @MainActor
-    func test_pane_frames_update_when_container_width_changes() {
+    func test_pane_frames_keep_width_when_container_width_changes() {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1400, height: 720))
         let state = PaneStripState(
             panes: [
@@ -30,7 +30,7 @@ final class PaneStripViewTests: XCTestCase {
         let compactFocusedWidth = paneStripView.descendantPaneViews()[1].frame.width
         let compactPaneHeight = paneStripView.descendantPaneViews()[1].frame.height
 
-        XCTAssertLessThan(compactFocusedWidth, wideFocusedWidth)
+        XCTAssertEqual(compactFocusedWidth, wideFocusedWidth, accuracy: 0.001)
         XCTAssertLessThan(compactPaneHeight, widePaneHeight)
     }
 
@@ -84,6 +84,86 @@ final class PaneStripViewTests: XCTestCase {
 
         XCTAssertLessThan(updatedFrames["editor"]!.minX, initialFrames["editor"]!.minX)
         XCTAssertLessThan(updatedFrames["tests"]!.midX, initialFrames["tests"]!.midX)
+    }
+
+    @MainActor
+    func test_rendered_pane_frames_stay_on_retina_pixel_grid_when_offset_is_fractional() {
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            backingScaleFactorProvider: { 2 }
+        )
+        paneStripView.leadingVisibleInset = 290.25
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 444.4),
+                PaneState(id: PaneID("editor"), title: "editor", width: 355.55),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        for paneView in paneStripView.descendantPaneViews() {
+            assertRetinaAligned(paneView.frame.minX)
+            assertRetinaAligned(paneView.frame.maxX)
+            assertRetinaAligned(paneView.frame.minY)
+            assertRetinaAligned(paneView.frame.maxY)
+        }
+    }
+
+    @MainActor
+    func test_repeated_resize_round_trip_keeps_ratio_scaled_pane_frames_retina_aligned() {
+        let initialContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .laptop,
+            viewportWidth: 1201,
+            leadingVisibleInset: sidebarInset
+        )
+        let expandedContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .largeDisplay,
+            viewportWidth: 1437,
+            leadingVisibleInset: sidebarInset
+        )
+        let store = WorkspaceStore(layoutContext: initialContext)
+        store.send(.splitAfterFocusedPane)
+
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1201, height: 680),
+            backingScaleFactorProvider: { 2 }
+        )
+        paneStripView.leadingVisibleInset = sidebarInset
+
+        paneStripView.render(store.state)
+        paneStripView.layoutSubtreeIfNeeded()
+        let initialFrames = paneStripView.descendantPaneViews().map { $0.frame }
+
+        store.updateLayoutContext(expandedContext)
+        paneStripView.frame.size = NSSize(width: 1437, height: 680)
+        paneStripView.render(store.state)
+        paneStripView.layoutSubtreeIfNeeded()
+        let expandedFrames = paneStripView.descendantPaneViews().map { $0.frame }
+
+        let returnedContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .laptop,
+            viewportWidth: 1201,
+            leadingVisibleInset: sidebarInset
+        )
+        store.updateLayoutContext(returnedContext)
+        paneStripView.frame.size = NSSize(width: 1201, height: 680)
+        paneStripView.render(store.state)
+        paneStripView.layoutSubtreeIfNeeded()
+        let returnedFrames = paneStripView.descendantPaneViews().map { $0.frame }
+
+        XCTAssertEqual(initialFrames.count, 2)
+        XCTAssertEqual(expandedFrames.count, 2)
+        XCTAssertEqual(returnedFrames.count, 2)
+
+        for frame in initialFrames + expandedFrames + returnedFrames {
+            assertRetinaAligned(frame.minX)
+            assertRetinaAligned(frame.maxX)
+            assertRetinaAligned(frame.minY)
+            assertRetinaAligned(frame.maxY)
+        }
     }
 
     @MainActor
@@ -182,7 +262,7 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
-    func test_leading_visible_inset_reduces_first_focused_pane_rendered_width() {
+    func test_leading_visible_inset_does_not_change_first_focused_pane_width() {
         let state = PaneStripState(
             panes: [
                 makePane("shell"),
@@ -200,7 +280,7 @@ final class PaneStripViewTests: XCTestCase {
 
         XCTAssertEqual(
             insetStripView.descendantPaneViews()[0].frame.width,
-            baselineStripView.descendantPaneViews()[0].frame.width - 290,
+            baselineStripView.descendantPaneViews()[0].frame.width,
             accuracy: 0.001
         )
     }
@@ -264,6 +344,60 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.layoutSubtreeIfNeeded()
 
         XCTAssertFalse(paneStripView.lastRenderWasAnimatedForTesting)
+    }
+
+    @MainActor
+    func test_programmatic_resize_skips_inner_pane_animation() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.frame.size = NSSize(width: 1580, height: 820)
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(paneStripView.lastRenderWasAnimatedForTesting)
+    }
+
+    @MainActor
+    func test_animation_resumes_for_same_size_state_changes_after_programmatic_resize() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let editorFocused = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        let shellFocused = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+
+        paneStripView.render(editorFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.frame.size = NSSize(width: 1580, height: 820)
+        paneStripView.render(editorFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(paneStripView.lastRenderWasAnimatedForTesting)
+
+        paneStripView.render(shellFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(paneStripView.lastRenderWasAnimatedForTesting)
     }
 
     @MainActor
@@ -354,7 +488,7 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
-    func test_single_pane_initially_fills_available_width_then_split_uses_column_widths() throws {
+    func test_single_pane_keeps_width_when_split_adds_new_column() throws {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
         paneStripView.leadingVisibleInset = sidebarInset
         let singlePane = PaneStripState(
@@ -374,16 +508,19 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(singlePane)
         paneStripView.layoutSubtreeIfNeeded()
         let originalShellView = try XCTUnwrap(paneStripView.descendantPaneViews().first)
-        let fullWidth = originalShellView.frame.width
+        let originalWidth = originalShellView.frame.width
 
         paneStripView.render(splitState)
         paneStripView.layoutSubtreeIfNeeded()
         let paneViews = paneStripView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
 
-        XCTAssertEqual(fullWidth, 894, accuracy: 0.001)
         XCTAssertTrue(paneViews.contains(where: { $0 === originalShellView }))
-        XCTAssertEqual(paneViews[0].frame.width, fullWidth, accuracy: 0.001)
-        XCTAssertEqual(paneViews[1].frame.width, 587, accuracy: 0.001)
+        XCTAssertEqual(paneViews[0].frame.width, originalWidth, accuracy: 0.001)
+        XCTAssertEqual(
+            paneViews[1].frame.width,
+            splitState.panes[1].width,
+            accuracy: 0.001
+        )
     }
 
     @MainActor
@@ -405,9 +542,9 @@ final class PaneStripViewTests: XCTestCase {
         let firstPane = try XCTUnwrap(paneViews.first)
         let lastPane = try XCTUnwrap(paneViews.last)
 
-        XCTAssertEqual(firstPane.frame.width, 894, accuracy: 0.001)
+        XCTAssertEqual(firstPane.frame.width, splitState.panes[0].width, accuracy: 0.001)
         XCTAssertLessThan(firstPane.frame.minX, 0)
-        XCTAssertLessThanOrEqual(lastPane.frame.maxX, paneStripView.bounds.width - 7.999)
+        XCTAssertLessThanOrEqual(lastPane.frame.maxX, paneStripView.bounds.width + 0.001)
     }
 
     @MainActor
@@ -518,8 +655,12 @@ final class PaneStripViewTests: XCTestCase {
 
         XCTAssertEqual(splitPaneViews[0].frame.width, twoPaneWidths[0], accuracy: 0.001)
         XCTAssertEqual(splitPaneViews[1].frame.width, twoPaneWidths[1], accuracy: 0.001)
-        XCTAssertEqual(splitPaneViews[2].frame.width, 587, accuracy: 0.001)
-        XCTAssertLessThanOrEqual(splitPaneViews[2].frame.maxX, paneStripView.bounds.width - 7.999)
+        XCTAssertEqual(
+            splitPaneViews[2].frame.width,
+            splitState.panes[2].width,
+            accuracy: 0.001
+        )
+        XCTAssertLessThanOrEqual(splitPaneViews[2].frame.maxX, paneStripView.bounds.width + 0.001)
     }
 
     @MainActor
@@ -621,6 +762,10 @@ final class PaneStripViewTests: XCTestCase {
             focusedPaneID: focusedPaneID
         )
     }
+
+    private func assertRetinaAligned(_ value: CGFloat, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(value * 2, (value * 2).rounded(), accuracy: 0.0001, file: file, line: line)
+    }
 }
 
 @MainActor
@@ -639,6 +784,7 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
     let paneID: PaneID
     let terminalView = NSView()
     var metadataDidChange: ((TerminalMetadata) -> Void)?
+    var eventDidOccur: ((TerminalEvent) -> Void)?
     private(set) var startSessionCallCount = 0
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity()
 

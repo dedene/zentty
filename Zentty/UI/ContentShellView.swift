@@ -78,10 +78,16 @@ final class ContentShellView: NSView {
         workspaceName: String,
         state: PaneStripState,
         metadataByPaneID: [PaneID: TerminalMetadata] = [:],
+        attention: WorkspaceAttentionSummary? = nil,
         theme: ZenttyTheme
     ) {
         let metadata = state.focusedPaneID.flatMap { metadataByPaneID[$0] }
-        windowChromeView.render(workspaceName: workspaceName, state: state, metadata: metadata)
+        windowChromeView.render(
+            workspaceName: workspaceName,
+            state: state,
+            metadata: metadata,
+            attention: attention
+        )
         appCanvasView.render(
             workspaceName: workspaceName,
             state: state,

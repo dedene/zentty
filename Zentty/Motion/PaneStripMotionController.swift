@@ -25,8 +25,10 @@ final class PaneStripMotionController {
     func presentation(
         for state: PaneStripState,
         in viewportSize: CGSize,
-        leadingVisibleInset: CGFloat = 0
+        leadingVisibleInset: CGFloat = 0,
+        backingScaleFactor: CGFloat = 1
     ) -> StripPresentation {
+        let scale = resolvedBackingScaleFactor(backingScaleFactor)
         let layoutItems = state.layoutItems(
             in: viewportSize,
             leadingVisibleInset: leadingVisibleInset
@@ -36,8 +38,16 @@ final class PaneStripMotionController {
 
         var cursorX = sizing.horizontalInset
         let presentations = layoutItems.map { item in
-            let frame = CGRect(x: cursorX, y: sizing.verticalInset, width: item.width, height: paneHeight)
-            cursorX += item.width + sizing.interPaneSpacing
+            let minX = cursorX
+            let maxX = cursorX + item.width
+            let frame = snappedFrame(
+                minX: minX,
+                maxX: maxX,
+                minY: sizing.verticalInset,
+                maxY: sizing.verticalInset + paneHeight,
+                backingScaleFactor: scale
+            )
+            cursorX = maxX + sizing.interPaneSpacing
             return PanePresentation(
                 paneID: item.pane.id,
                 frame: frame,
@@ -47,15 +57,21 @@ final class PaneStripMotionController {
         }
 
         let trailingSpacing = layoutItems.isEmpty ? 0 : sizing.interPaneSpacing
-        let contentWidth = max(
+        let rawContentWidth = max(
             viewportSize.width,
             cursorX - trailingSpacing + sizing.horizontalInset
+        )
+        let contentWidth = snapped(
+            rawContentWidth,
+            backingScaleFactor: scale,
+            roundingRule: .up
         )
         let targetOffset = targetOffset(
             forFocusedPaneIn: presentations,
             viewportWidth: viewportSize.width,
             contentWidth: contentWidth,
-            leadingVisibleInset: leadingVisibleInset
+            leadingVisibleInset: leadingVisibleInset,
+            backingScaleFactor: scale
         )
 
         return StripPresentation(
@@ -69,7 +85,8 @@ final class PaneStripMotionController {
         forFocusedPaneIn presentations: [PanePresentation],
         viewportWidth: CGFloat,
         contentWidth: CGFloat,
-        leadingVisibleInset: CGFloat = 0
+        leadingVisibleInset: CGFloat = 0,
+        backingScaleFactor: CGFloat = 1
     ) -> CGFloat {
         guard let focusedPane = presentations.first(where: \.isFocused) else {
             return 0
@@ -84,12 +101,26 @@ final class PaneStripMotionController {
         } else {
             unclampedOffset = centeredOffset
         }
-        return clampedOffset(
+        let clamped = clampedOffset(
             unclampedOffset,
             contentWidth: contentWidth,
             viewportWidth: viewportWidth,
             leadingVisibleInset: leadingVisibleInset
         )
+        let snappedValue = snappedOffset(clamped, backingScaleFactor: backingScaleFactor)
+        let scale = resolvedBackingScaleFactor(backingScaleFactor)
+        let minOffset = snapped(
+            -max(0, leadingVisibleInset),
+            backingScaleFactor: scale,
+            roundingRule: .down
+        )
+        let maxOffset = snapped(
+            max(0, contentWidth - viewportWidth),
+            backingScaleFactor: scale,
+            roundingRule: .down
+        )
+
+        return min(max(minOffset, snappedValue), maxOffset)
     }
 
     func clampedOffset(
@@ -126,6 +157,10 @@ final class PaneStripMotionController {
         }?.paneID
     }
 
+    func snappedOffset(_ offset: CGFloat, backingScaleFactor: CGFloat) -> CGFloat {
+        snapped(offset, backingScaleFactor: backingScaleFactor)
+    }
+
     func animate(in hostView: NSView, updates: () -> Void) {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.22
@@ -134,5 +169,40 @@ final class PaneStripMotionController {
             updates()
             hostView.layoutSubtreeIfNeeded()
         }
+    }
+
+    private func snappedFrame(
+        minX: CGFloat,
+        maxX: CGFloat,
+        minY: CGFloat,
+        maxY: CGFloat,
+        backingScaleFactor: CGFloat
+    ) -> CGRect {
+        let scale = resolvedBackingScaleFactor(backingScaleFactor)
+        let snappedMinX = snapped(minX, backingScaleFactor: scale)
+        let snappedMaxX = snapped(maxX, backingScaleFactor: scale)
+        let snappedMinY = snapped(minY, backingScaleFactor: scale)
+        let snappedMaxY = snapped(maxY, backingScaleFactor: scale)
+        let onePixel = 1 / scale
+
+        return CGRect(
+            x: snappedMinX,
+            y: snappedMinY,
+            width: max(onePixel, snappedMaxX - snappedMinX),
+            height: max(onePixel, snappedMaxY - snappedMinY)
+        )
+    }
+
+    private func snapped(
+        _ value: CGFloat,
+        backingScaleFactor: CGFloat,
+        roundingRule: FloatingPointRoundingRule = .toNearestOrAwayFromZero
+    ) -> CGFloat {
+        let scale = resolvedBackingScaleFactor(backingScaleFactor)
+        return (value * scale).rounded(roundingRule) / scale
+    }
+
+    private func resolvedBackingScaleFactor(_ backingScaleFactor: CGFloat) -> CGFloat {
+        max(1, backingScaleFactor)
     }
 }

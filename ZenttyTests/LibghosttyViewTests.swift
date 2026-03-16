@@ -133,53 +133,57 @@ final class LibghosttyViewTests: XCTestCase {
         XCTAssertTrue(surface.keyEvents[0].modifierFlags.contains(.control))
     }
 
-    func test_arrow_keys_forward_navigation_events_without_text() throws {
+    func test_right_arrow_forwards_navigation_event_without_text() throws {
         let view = LibghosttyView()
         let surface = LibghosttySurfaceViewportSpy()
         view.bind(surfaceController: surface)
 
-        let event = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: String(UnicodeScalar(NSRightArrowFunctionKey)!),
-            charactersIgnoringModifiers: String(UnicodeScalar(NSRightArrowFunctionKey)!),
-            isARepeat: false,
-            keyCode: 124
-        ))
+        let event = try makeArrowKeyEvent(keyCode: 124, functionKey: unichar(NSRightArrowFunctionKey))
 
         view.keyDown(with: event)
 
         XCTAssertEqual(surface.keyEvents.count, 1)
         XCTAssertEqual(surface.keyEvents[0].keyCode, 124)
-        XCTAssertEqual(surface.keyEvents[0].text, String(UnicodeScalar(NSRightArrowFunctionKey)!))
+        XCTAssertNil(surface.keyEvents[0].text)
     }
 
-    func test_option_modified_navigation_preserves_option_modifier() throws {
+    func test_arrow_keys_forward_navigation_events_without_text() throws {
         let view = LibghosttyView()
         let surface = LibghosttySurfaceViewportSpy()
         view.bind(surfaceController: surface)
 
-        let event = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.option],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
-            charactersIgnoringModifiers: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
-            isARepeat: false,
-            keyCode: 123
-        ))
+        let arrows: [(UInt16, unichar)] = [
+            (123, unichar(NSLeftArrowFunctionKey)),
+            (124, unichar(NSRightArrowFunctionKey)),
+            (125, unichar(NSDownArrowFunctionKey)),
+            (126, unichar(NSUpArrowFunctionKey)),
+        ]
+
+        for (keyCode, functionKey) in arrows {
+            let event = try makeArrowKeyEvent(keyCode: keyCode, functionKey: functionKey)
+            view.keyDown(with: event)
+        }
+
+        XCTAssertEqual(surface.keyEvents.map(\.keyCode), [123, 124, 125, 126])
+        XCTAssertTrue(surface.keyEvents.allSatisfy { $0.text == nil })
+    }
+
+    func test_option_modified_navigation_preserves_option_modifier_without_text() throws {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.bind(surfaceController: surface)
+
+            let event = try makeArrowKeyEvent(
+            keyCode: 123,
+            functionKey: unichar(NSLeftArrowFunctionKey),
+            modifierFlags: [.option]
+        )
 
         view.keyDown(with: event)
 
         XCTAssertEqual(surface.keyEvents.count, 1)
         XCTAssertEqual(surface.keyEvents[0].keyCode, 123)
+        XCTAssertNil(surface.keyEvents[0].text)
         XCTAssertTrue(surface.keyEvents[0].modifierFlags.contains(.option))
     }
 
@@ -507,6 +511,26 @@ private func makeScrollEvent(
     cgEvent.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentumPhase.rawValue))
 
     return try XCTUnwrap(NSEvent(cgEvent: cgEvent))
+}
+
+private func makeArrowKeyEvent(
+    keyCode: UInt16,
+    functionKey: unichar,
+    modifierFlags: NSEvent.ModifierFlags = []
+) throws -> NSEvent {
+    let characters = String(UnicodeScalar(functionKey)!)
+    return try XCTUnwrap(NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: modifierFlags,
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        characters: characters,
+        charactersIgnoringModifiers: characters,
+        isARepeat: false,
+        keyCode: keyCode
+    ))
 }
 
 private func makeCGEventFlags(from modifierFlags: NSEvent.ModifierFlags) -> CGEventFlags {

@@ -37,7 +37,10 @@ final class AppCanvasView: NSView {
 
     private func setup() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.cornerRadius = ChromeGeometry.contentShellRadius
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
+        layer?.borderWidth = 0
 
         paneStripView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(paneStripView)
@@ -72,11 +75,21 @@ final class AppCanvasView: NSView {
         _ = metadata
     }
 
+    var lastPaneStripRenderWasAnimatedForTesting: Bool {
+        paneStripView.lastRenderWasAnimatedForTesting
+    }
+
     func apply(theme: ZenttyTheme, animated: Bool) {
-        guard theme != currentTheme else {
-            return
-        }
+        let didChange = theme != currentTheme
         currentTheme = theme
-        paneStripView.apply(theme: theme, animated: animated)
+
+        if didChange {
+            paneStripView.apply(theme: theme, animated: animated)
+        }
+
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = NSColor.clear.cgColor
+            self.layer?.borderColor = NSColor.clear.cgColor
+        }
     }
 }

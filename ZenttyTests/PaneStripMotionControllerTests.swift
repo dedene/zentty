@@ -99,7 +99,11 @@ final class PaneStripMotionControllerTests: XCTestCase {
         )
 
         XCTAssertLessThan(insetPresentation.targetOffset, baselinePresentation.targetOffset)
-        XCTAssertEqual(insetPresentation.targetOffset, -282, accuracy: 0.001)
+        XCTAssertEqual(
+            insetPresentation.targetOffset,
+            state.layoutSizing.horizontalInset - sidebarInset,
+            accuracy: 0.001
+        )
     }
 
     @MainActor
@@ -121,11 +125,10 @@ final class PaneStripMotionControllerTests: XCTestCase {
         let firstPane = try XCTUnwrap(presentation.panes.first)
 
         XCTAssertEqual(firstPane.frame.minX, state.layoutSizing.horizontalInset, accuracy: 0.001)
-        XCTAssertEqual(firstPane.frame.minX, 8, accuracy: 0.001)
     }
 
     @MainActor
-    func test_leading_visible_inset_reduces_first_focused_pane_width_by_sidebar_gutter() throws {
+    func test_leading_visible_inset_does_not_change_first_focused_pane_width() throws {
         let controller = PaneStripMotionController()
         let state = PaneStripState(
             panes: [
@@ -147,7 +150,7 @@ final class PaneStripMotionControllerTests: XCTestCase {
         let baselineFirstPane = try XCTUnwrap(baselinePresentation.panes.first)
         let insetFirstPane = try XCTUnwrap(insetPresentation.panes.first)
 
-        XCTAssertEqual(insetFirstPane.frame.width, baselineFirstPane.frame.width - sidebarInset, accuracy: 0.001)
+        XCTAssertEqual(insetFirstPane.frame.width, baselineFirstPane.frame.width, accuracy: 0.001)
     }
 
     @MainActor
@@ -216,6 +219,58 @@ final class PaneStripMotionControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(try XCTUnwrap(settledPaneID), PaneID("tests"))
+    }
+
+    @MainActor
+    func test_presentation_snaps_frames_to_retina_pixel_grid() {
+        let controller = PaneStripMotionController()
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("logs"), title: "logs", width: 333.3),
+                PaneState(id: PaneID("editor"), title: "editor", width: 287.7),
+                PaneState(id: PaneID("tests"), title: "tests", width: 301.1),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+
+        let presentation = controller.presentation(
+            for: state,
+            in: CGSize(width: 1111, height: 679.3),
+            leadingVisibleInset: 290.25,
+            backingScaleFactor: 2
+        )
+
+        for pane in presentation.panes {
+            assertRetinaAligned(pane.frame.minX)
+            assertRetinaAligned(pane.frame.maxX)
+            assertRetinaAligned(pane.frame.minY)
+            assertRetinaAligned(pane.frame.maxY)
+        }
+    }
+
+    @MainActor
+    func test_presentation_snaps_target_offset_to_retina_pixel_grid() {
+        let controller = PaneStripMotionController()
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 444.4),
+                PaneState(id: PaneID("editor"), title: "editor", width: 355.55),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+
+        let presentation = controller.presentation(
+            for: state,
+            in: CGSize(width: 1200, height: 680),
+            leadingVisibleInset: 290.25,
+            backingScaleFactor: 2
+        )
+
+        assertRetinaAligned(presentation.targetOffset)
+    }
+
+    private func assertRetinaAligned(_ value: CGFloat, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(value * 2, (value * 2).rounded(), accuracy: 0.0001, file: file, line: line)
     }
 
     private func makeState(focusedPaneID: PaneID) -> PaneStripState {

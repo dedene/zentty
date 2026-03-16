@@ -12,6 +12,11 @@ final class TerminalPaneHostView: NSView {
             adapter.metadataDidChange = onMetadataDidChange
         }
     }
+    var onEventDidOccur: ((TerminalEvent) -> Void)? {
+        didSet {
+            adapter.eventDidOccur = onEventDidOccur
+        }
+    }
     var onFocusDidChange: ((Bool) -> Void)? {
         didSet {
             (terminalView as? any TerminalFocusReporting)?.onFocusDidChange = onFocusDidChange
@@ -23,6 +28,7 @@ final class TerminalPaneHostView: NSView {
         self.terminalView = adapter.makeTerminalView()
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        adapter.eventDidOccur = onEventDidOccur
         (terminalView as? any TerminalFocusReporting)?.onFocusDidChange = onFocusDidChange
         setup()
     }
@@ -97,6 +103,7 @@ final class PaneRuntime {
     private let adapterValue: any TerminalAdapter
     private let hostViewValue: TerminalPaneHostView
     private let metadataSink: (PaneID, TerminalMetadata) -> Void
+    private let eventSink: (PaneID, TerminalEvent) -> Void
     private var sessionRequest: TerminalSessionRequest
     private var hasAttemptedStart = false
     private var hasReceivedMetadata = false
@@ -121,15 +128,20 @@ final class PaneRuntime {
     init(
         pane: PaneState,
         adapter: any TerminalAdapter,
-        metadataSink: @escaping (PaneID, TerminalMetadata) -> Void
+        metadataSink: @escaping (PaneID, TerminalMetadata) -> Void,
+        eventSink: @escaping (PaneID, TerminalEvent) -> Void
     ) {
         paneIDValue = pane.id
         sessionRequest = pane.sessionRequest
         adapterValue = adapter
         hostViewValue = TerminalPaneHostView(adapter: adapter)
         self.metadataSink = metadataSink
+        self.eventSink = eventSink
         hostViewValue.onMetadataDidChange = { [weak self] metadata in
             self?.handleMetadataDidChange(metadata)
+        }
+        hostViewValue.onEventDidOccur = { [weak self] event in
+            self?.eventSink(self?.paneIDValue ?? pane.id, event)
         }
     }
 
@@ -224,6 +236,7 @@ final class PaneRuntimeRegistry {
     private var runtimes: [PaneID: PaneRuntime] = [:]
 
     var onMetadataDidChange: ((PaneID, TerminalMetadata) -> Void)?
+    var onEventDidOccur: ((PaneID, TerminalEvent) -> Void)?
 
     init(adapterFactory: @escaping AdapterFactory = { _ in TerminalAdapterRegistry.makeAdapter() }) {
         self.adapterFactory = adapterFactory
@@ -240,6 +253,9 @@ final class PaneRuntimeRegistry {
             adapter: adapterFactory(pane.id),
             metadataSink: { [weak self] paneID, metadata in
                 self?.onMetadataDidChange?(paneID, metadata)
+            },
+            eventSink: { [weak self] paneID, event in
+                self?.onEventDidOccur?(paneID, event)
             }
         )
         runtimes[pane.id] = runtime

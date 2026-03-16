@@ -1,3 +1,5 @@
+import Foundation
+
 struct WorkspaceID: Hashable, Equatable, Sendable {
     let rawValue: String
 
@@ -12,34 +14,43 @@ struct WorkspaceState: Equatable, Sendable {
     var paneStripState: PaneStripState
     var nextPaneNumber: Int
     var metadataByPaneID: [PaneID: TerminalMetadata]
+    var agentStatusByPaneID: [PaneID: PaneAgentStatus]
+    var inferredArtifactByPaneID: [PaneID: WorkspaceArtifactLink]
 
     init(
         id: WorkspaceID,
         title: String,
         paneStripState: PaneStripState,
         nextPaneNumber: Int = 1,
-        metadataByPaneID: [PaneID: TerminalMetadata] = [:]
+        metadataByPaneID: [PaneID: TerminalMetadata] = [:],
+        agentStatusByPaneID: [PaneID: PaneAgentStatus] = [:],
+        inferredArtifactByPaneID: [PaneID: WorkspaceArtifactLink] = [:]
     ) {
         self.id = id
         self.title = title
         self.paneStripState = paneStripState
         self.nextPaneNumber = nextPaneNumber
         self.metadataByPaneID = metadataByPaneID
+        self.agentStatusByPaneID = agentStatusByPaneID
+        self.inferredArtifactByPaneID = inferredArtifactByPaneID
     }
 }
 
 final class WorkspaceStore {
     private(set) var workspaces: [WorkspaceState]
+    private var layoutContext: PaneLayoutContext
 
     private(set) var activeWorkspaceID: WorkspaceID
 
     var onChange: ((PaneStripState) -> Void)?
 
     init(
-        workspaces: [WorkspaceState] = WorkspaceStore.defaultWorkspaces(),
+        workspaces: [WorkspaceState] = [],
+        layoutContext: PaneLayoutContext = .fallback,
         activeWorkspaceID: WorkspaceID? = nil
     ) {
-        let initialWorkspaces = workspaces.isEmpty ? WorkspaceStore.defaultWorkspaces() : workspaces
+        self.layoutContext = layoutContext
+        let initialWorkspaces = workspaces.isEmpty ? WorkspaceStore.defaultWorkspaces(layoutContext: layoutContext) : workspaces
         self.workspaces = initialWorkspaces
         self.activeWorkspaceID = activeWorkspaceID ?? initialWorkspaces.first?.id ?? WorkspaceID("workspace-main")
         self.activeWorkspaceID = initialWorkspaces.contains(where: { $0.id == self.activeWorkspaceID })
@@ -64,6 +75,32 @@ final class WorkspaceStore {
         activeWorkspace?.paneStripState ?? .pocDefault
     }
 
+    func updateLayoutContext(_ layoutContext: PaneLayoutContext) {
+        let previousLayoutContext = self.layoutContext
+        self.layoutContext = layoutContext
+        var didUpdatePaneWidths = false
+        let viewportScaleFactor = Self.viewportScaleFactor(
+            from: previousLayoutContext.viewportWidth,
+            to: layoutContext.viewportWidth
+        )
+
+        for index in workspaces.indices {
+            if workspaces[index].paneStripState.updateSinglePaneWidth(layoutContext.singlePaneWidth) {
+                didUpdatePaneWidths = true
+                continue
+            }
+
+            if let viewportScaleFactor,
+               workspaces[index].paneStripState.scalePaneWidths(by: viewportScaleFactor) {
+                didUpdatePaneWidths = true
+            }
+        }
+
+        if didUpdatePaneWidths {
+            notifyStateChanged()
+        }
+    }
+
     func send(_ command: PaneCommand) {
         guard var workspace = activeWorkspace else {
             return
@@ -84,8 +121,10 @@ final class WorkspaceStore {
                 return
             }
 
-            if let removedPane = workspace.paneStripState.closeFocusedPane() {
+            if let removedPane = workspace.paneStripState.closeFocusedPane(singlePaneWidth: layoutContext.singlePaneWidth) {
                 workspace.metadataByPaneID.removeValue(forKey: removedPane.id)
+                workspace.agentStatusByPaneID.removeValue(forKey: removedPane.id)
+                workspace.inferredArtifactByPaneID.removeValue(forKey: removedPane.id)
             }
         case .focusLeft:
             workspace.paneStripState.moveFocusLeft()
@@ -114,17 +153,9 @@ final class WorkspaceStore {
         let newIndex = workspaces.count + 1
         let title = "WS \(newIndex)"
         let id = WorkspaceID("workspace-\(newIndex)")
-        let shellPaneID = PaneID("\(id.rawValue)-shell")
 
         workspaces.append(
-            WorkspaceState(
-                id: id,
-                title: title,
-                paneStripState: PaneStripState(
-                    panes: [PaneState(id: shellPaneID, title: "shell")],
-                    focusedPaneID: shellPaneID
-                )
-            )
+            Self.makeDefaultWorkspace(id: id, title: title, layoutContext: layoutContext)
         )
         activeWorkspaceID = id
         notifyStateChanged()
@@ -149,6 +180,130 @@ final class WorkspaceStore {
 
         var workspace = workspaces[workspaceIndex]
         workspace.metadataByPaneID[paneID] = metadata
+        if
+            let existingStatus = workspace.agentStatusByPaneID[paneID],
+            existingStatus.source == .inferred,
+            AgentToolRecognizer.recognize(metadata: metadata) == nil
+        {
+            workspace.agentStatusByPaneID.removeValue(forKey: paneID)
+            workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
+        }
+        workspaces[workspaceIndex] = workspace
+        notifyStateChanged()
+    }
+
+    func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
+        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
+            workspace.paneStripState.panes.contains(where: { $0.id == paneID })
+        }) else {
+            return
+        }
+
+        var workspace = workspaces[workspaceIndex]
+        switch event {
+        case .commandFinished:
+            let existingStatus = workspace.agentStatusByPaneID[paneID]
+            guard existingStatus?.state != .completed, existingStatus?.state != .needsInput else {
+                return
+            }
+
+            guard
+                existingStatus?.source == .explicit,
+                let tool = existingStatus?.tool
+            else {
+                return
+            }
+
+            workspace.agentStatusByPaneID[paneID] = PaneAgentStatus(
+                tool: tool,
+                state: .unresolvedStop,
+                text: nil,
+                artifactLink: existingStatus?.artifactLink,
+                updatedAt: Date(),
+                source: .inferred
+            )
+        }
+
+        workspaces[workspaceIndex] = workspace
+        notifyStateChanged()
+    }
+
+    func applyAgentStatusPayload(_ payload: AgentStatusPayload) {
+        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
+            workspace.id == payload.workspaceID
+                && workspace.paneStripState.panes.contains(where: { $0.id == payload.paneID })
+        }) else {
+            return
+        }
+
+        var workspace = workspaces[workspaceIndex]
+
+        if payload.clearsStatus {
+            workspace.agentStatusByPaneID.removeValue(forKey: payload.paneID)
+            workspace.inferredArtifactByPaneID.removeValue(forKey: payload.paneID)
+            workspaces[workspaceIndex] = workspace
+            notifyStateChanged()
+            return
+        }
+
+        guard let state = payload.state else {
+            return
+        }
+
+        let existingStatus = workspace.agentStatusByPaneID[payload.paneID]
+        guard
+            let tool = AgentTool.resolve(named: payload.toolName)
+                ?? existingStatus?.tool
+                ?? AgentToolRecognizer.recognize(metadata: workspace.metadataByPaneID[payload.paneID])
+        else {
+            return
+        }
+
+        let artifactLink: WorkspaceArtifactLink?
+        if
+            let kind = payload.artifactKind,
+            let label = payload.artifactLabel,
+            let url = payload.artifactURL
+        {
+            artifactLink = WorkspaceArtifactLink(
+                kind: kind,
+                label: label,
+                url: url,
+                isExplicit: true
+            )
+        } else {
+            artifactLink = existingStatus?.artifactLink
+        }
+
+        workspace.agentStatusByPaneID[payload.paneID] = PaneAgentStatus(
+            tool: tool,
+            state: state,
+            text: payload.text ?? existingStatus?.text,
+            artifactLink: artifactLink,
+            updatedAt: Date(),
+            source: .explicit
+        )
+        workspaces[workspaceIndex] = workspace
+        notifyStateChanged()
+    }
+
+    func updateInferredArtifact(paneID: PaneID, artifact: WorkspaceArtifactLink?) {
+        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
+            workspace.paneStripState.panes.contains(where: { $0.id == paneID })
+        }) else {
+            return
+        }
+
+        var workspace = workspaces[workspaceIndex]
+        let previousArtifact = workspace.inferredArtifactByPaneID[paneID]
+        guard previousArtifact != artifact else {
+            return
+        }
+        if let artifact {
+            workspace.inferredArtifactByPaneID[paneID] = artifact
+        } else {
+            workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
+        }
         workspaces[workspaceIndex] = workspace
         notifyStateChanged()
     }
@@ -168,8 +323,10 @@ final class WorkspaceStore {
             return
         }
 
-        if let removedPane = workspace.paneStripState.closeFocusedPane() {
+        if let removedPane = workspace.paneStripState.closeFocusedPane(singlePaneWidth: layoutContext.singlePaneWidth) {
             workspace.metadataByPaneID.removeValue(forKey: removedPane.id)
+            workspace.agentStatusByPaneID.removeValue(forKey: removedPane.id)
+            workspace.inferredArtifactByPaneID.removeValue(forKey: removedPane.id)
         }
 
         activeWorkspace = workspace
@@ -186,33 +343,59 @@ final class WorkspaceStore {
         }
 
         let title = "pane \(workspace.nextPaneNumber)"
+        let paneID = PaneID("\(workspace.id.rawValue)-pane-\(workspace.nextPaneNumber)")
         let focusedPaneID = workspace.paneStripState.focusedPaneID
         let workingDirectory = focusedPaneID.flatMap {
             workspace.metadataByPaneID[$0]?.currentWorkingDirectory
         }
         return PaneState(
-            id: PaneID("\(workspace.id.rawValue)-pane-\(workspace.nextPaneNumber)"),
+            id: paneID,
             title: title,
             sessionRequest: TerminalSessionRequest(
                 workingDirectory: workingDirectory,
-                inheritFromPaneID: focusedPaneID
-            )
+                inheritFromPaneID: focusedPaneID,
+                environmentVariables: Self.sessionEnvironment(
+                    workspaceID: workspace.id,
+                    paneID: paneID
+                )
+            ),
+            width: layoutContext.newPaneWidth
         )
     }
 
-    private static func defaultWorkspaces() -> [WorkspaceState] {
+    private static func defaultWorkspaces(layoutContext: PaneLayoutContext) -> [WorkspaceState] {
         [
-            makeDefaultWorkspace(id: WorkspaceID("workspace-main"), title: "MAIN"),
+            makeDefaultWorkspace(
+                id: WorkspaceID("workspace-main"),
+                title: "MAIN",
+                layoutContext: layoutContext
+            ),
         ]
     }
 
-    private static func makeDefaultWorkspace(id: WorkspaceID, title: String) -> WorkspaceState {
+    private static func makeDefaultWorkspace(
+        id: WorkspaceID,
+        title: String,
+        layoutContext: PaneLayoutContext
+    ) -> WorkspaceState {
         let shellPaneID = PaneID("\(id.rawValue)-shell")
         return WorkspaceState(
             id: id,
             title: title,
             paneStripState: PaneStripState(
-                panes: [PaneState(id: shellPaneID, title: "shell")],
+                panes: [
+                    PaneState(
+                        id: shellPaneID,
+                        title: "shell",
+                        sessionRequest: TerminalSessionRequest(
+                            environmentVariables: Self.sessionEnvironment(
+                                workspaceID: id,
+                                paneID: shellPaneID
+                            )
+                        ),
+                        width: layoutContext.singlePaneWidth
+                    ),
+                ],
                 focusedPaneID: shellPaneID
             )
         )
@@ -220,6 +403,34 @@ final class WorkspaceStore {
 
     private func notifyStateChanged() {
         onChange?(state)
+    }
+
+    private static func sessionEnvironment(
+        workspaceID: WorkspaceID,
+        paneID: PaneID
+    ) -> [String: String] {
+        var environment: [String: String] = [
+            "ZENTTY_WORKSPACE_ID": workspaceID.rawValue,
+            "ZENTTY_PANE_ID": paneID.rawValue,
+        ]
+        if let helperPath = AgentStatusHelper.binaryPath() {
+            environment["ZENTTY_AGENT_BIN"] = helperPath
+        }
+        if let claudeHookCommand = AgentStatusHelper.claudeHookCommand() {
+            environment["ZENTTY_CLAUDE_HOOK_COMMAND"] = claudeHookCommand
+        }
+        return environment
+    }
+
+    private static func viewportScaleFactor(
+        from previousViewportWidth: CGFloat,
+        to nextViewportWidth: CGFloat
+    ) -> CGFloat? {
+        guard previousViewportWidth > 0, nextViewportWidth > 0 else {
+            return nil
+        }
+
+        return nextViewportWidth / previousViewportWidth
     }
 
     @discardableResult

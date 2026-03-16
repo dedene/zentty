@@ -88,6 +88,7 @@ final class TerminalPaneHostViewTests: XCTestCase {
 private final class TerminalAdapterSpy: TerminalAdapter {
     let terminalView = FirstResponderTerminalView()
     var metadataDidChange: ((TerminalMetadata) -> Void)?
+    var eventDidOccur: ((TerminalEvent) -> Void)?
     private(set) var startSessionCallCount = 0
     private(set) var lastRequest: TerminalSessionRequest?
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: true, isFocused: false)

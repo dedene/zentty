@@ -17,17 +17,27 @@ enum AppMenuBuilder {
         let mainMenu = NSMenu(title: "Main Menu")
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu(title: appName)
+        let settingsItem = NSMenuItem(
+            title: "Settings…",
+            action: #selector(AppDelegate.showSettingsWindow(_:)),
+            keyEquivalent: ","
+        )
         let quitItem = NSMenuItem(
             title: "Quit \(appName)",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )
 
+        settingsItem.keyEquivalentModifierMask = [.command]
         quitItem.keyEquivalentModifierMask = [.command]
+        appMenu.addItem(settingsItem)
+        appMenu.addItem(.separator())
         appMenu.addItem(quitItem)
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
+        mainMenu.addItem(makeFileMenuItem())
         mainMenu.addItem(makeEditMenuItem())
+        mainMenu.addItem(makeViewMenuItem())
 
         return mainMenu
     }
@@ -65,13 +75,83 @@ enum AppMenuBuilder {
         return editMenuItem
     }
 
+    private static func makeFileMenuItem() -> NSMenuItem {
+        let fileMenuItem = NSMenuItem()
+        let fileMenu = NSMenu(title: "File")
+
+        fileMenu.addItem(makeMenuActionItem(
+            title: "New Workspace",
+            action: #selector(AppDelegate.newWorkspace(_:)),
+            keyEquivalent: "t"
+        ))
+
+        fileMenuItem.submenu = fileMenu
+        return fileMenuItem
+    }
+
+    private static func makeViewMenuItem() -> NSMenuItem {
+        let viewMenuItem = NSMenuItem()
+        let viewMenu = NSMenu(title: "View")
+
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Split Right",
+            action: #selector(AppDelegate.splitRight(_:)),
+            keyEquivalent: "d"
+        ))
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Split Left",
+            action: #selector(AppDelegate.splitLeft(_:)),
+            keyEquivalent: "d",
+            modifiers: [.command, .shift]
+        ))
+        let separatorItem = NSMenuItem.separator()
+        separatorItem.keyEquivalentModifierMask = []
+        viewMenu.addItem(separatorItem)
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Focus Left Pane",
+            action: #selector(AppDelegate.focusLeftPane(_:)),
+            keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [.command, .option]
+        ))
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Focus Right Pane",
+            action: #selector(AppDelegate.focusRightPane(_:)),
+            keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+            modifiers: [.command, .option]
+        ))
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Focus First Pane",
+            action: #selector(AppDelegate.focusFirstPane(_:)),
+            keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [.command, .option, .shift]
+        ))
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Focus Last Pane",
+            action: #selector(AppDelegate.focusLastPane(_:)),
+            keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+            modifiers: [.command, .option, .shift]
+        ))
+
+        viewMenuItem.submenu = viewMenu
+        return viewMenuItem
+    }
+
     private static func makeEditMenuActionItem(
         title: String,
         action: Selector,
         keyEquivalent: String
     ) -> NSMenuItem {
+        makeMenuActionItem(title: title, action: action, keyEquivalent: keyEquivalent)
+    }
+
+    private static func makeMenuActionItem(
+        title: String,
+        action: Selector,
+        keyEquivalent: String,
+        modifiers: NSEvent.ModifierFlags = [.command]
+    ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
-        item.keyEquivalentModifierMask = [.command]
+        item.keyEquivalentModifierMask = modifiers
         return item
     }
 
@@ -85,27 +165,82 @@ enum AppMenuBuilder {
             $0.keyEquivalent == "q" &&
             $0.title == "Quit \(appName)"
         })
-        let editMenu = mainMenu?.items.dropFirst().first?.submenu
-        let requiredEditItems: [(String, Selector, String)] = [
+        let hasSettingsItem = appMenu.items.contains(where: {
+            $0.action == #selector(AppDelegate.showSettingsWindow(_:)) &&
+            $0.keyEquivalent == "," &&
+            $0.title == "Settings…"
+        })
+        let fileMenu = menu(named: "File", in: mainMenu)
+        let editMenu = menu(named: "Edit", in: mainMenu)
+        let viewMenu = menu(named: "View", in: mainMenu)
+        let requiredFileItems: [(String, Selector, String, NSEvent.ModifierFlags)] = [
+            ("New Workspace", #selector(AppDelegate.newWorkspace(_:)), "t", [.command]),
+        ]
+        let requiredEditItems: [(String, Selector, String, NSEvent.ModifierFlags)] = [
             ("Copy", #selector(NSText.copy(_:)), "c"),
             ("Paste", #selector(NSText.paste(_:)), "v"),
             ("Select All", #selector(NSResponder.selectAll(_:)), "a"),
+        ].map { ($0.0, $0.1, $0.2, [.command]) }
+        let requiredViewItems: [(String?, Selector?, String, NSEvent.ModifierFlags)] = [
+            ("Split Right", #selector(AppDelegate.splitRight(_:)), "d", [.command]),
+            ("Split Left", #selector(AppDelegate.splitLeft(_:)), "d", [.command, .shift]),
+            (nil, nil, "", []),
+            ("Focus Left Pane", #selector(AppDelegate.focusLeftPane(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option]),
+            ("Focus Right Pane", #selector(AppDelegate.focusRightPane(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option]),
+            ("Focus First Pane", #selector(AppDelegate.focusFirstPane(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option, .shift]),
+            ("Focus Last Pane", #selector(AppDelegate.focusLastPane(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option, .shift]),
         ]
+        let hasFileItems = hasRequiredItems(requiredFileItems, in: fileMenu)
         let hasEditItems =
             editMenu?.title == "Edit" &&
-            editMenu.map { menu in
-                guard menu.items.count >= requiredEditItems.count else {
-                    return false
-                }
+            hasRequiredItems(requiredEditItems, in: editMenu)
+        let hasViewItems =
+            viewMenu?.title == "View" &&
+            hasRequiredItems(requiredViewItems, in: viewMenu)
 
-                return zip(menu.items.prefix(requiredEditItems.count), requiredEditItems).allSatisfy { item, expected in
-                    item.title == expected.0 &&
-                    item.action == expected.1 &&
-                    item.keyEquivalent == expected.2 &&
-                    item.keyEquivalentModifierMask == [.command]
-                }
-            } == true
+        return hasSettingsItem && hasQuitItem && hasFileItems && hasEditItems && hasViewItems
+    }
 
-        return hasQuitItem && hasEditItems
+    private static func menu(named title: String, in mainMenu: NSMenu?) -> NSMenu? {
+        mainMenu?.items.first(where: { $0.submenu?.title == title })?.submenu
+    }
+
+    private static func hasRequiredItems(
+        _ requiredItems: [(String, Selector, String, NSEvent.ModifierFlags)],
+        in menu: NSMenu?
+    ) -> Bool {
+        guard let menu, menu.items.count >= requiredItems.count else {
+            return false
+        }
+
+        return zip(menu.items.prefix(requiredItems.count), requiredItems).allSatisfy { item, expected in
+            item.title == expected.0 &&
+            item.action == expected.1 &&
+            item.keyEquivalent == expected.2 &&
+            item.keyEquivalentModifierMask == expected.3
+        }
+    }
+
+    private static func hasRequiredItems(
+        _ requiredItems: [(String?, Selector?, String, NSEvent.ModifierFlags)],
+        in menu: NSMenu?
+    ) -> Bool {
+        guard let menu, menu.items.count >= requiredItems.count else {
+            return false
+        }
+
+        return zip(menu.items.prefix(requiredItems.count), requiredItems).allSatisfy { item, expected in
+            if let expectedTitle = expected.0 {
+                return item.title == expectedTitle &&
+                item.action == expected.1 &&
+                item.keyEquivalent == expected.2 &&
+                item.keyEquivalentModifierMask == expected.3
+            }
+
+            return item.isSeparatorItem &&
+            item.action == expected.1 &&
+            item.keyEquivalent == expected.2 &&
+            item.keyEquivalentModifierMask == expected.3
+        }
     }
 }

@@ -1,9 +1,10 @@
 import AppKit
+import QuartzCore
 
 final class PaneContainerView: NSView {
     enum Layout {
         static let borderWidth: CGFloat = 1
-        static let cornerRadius: CGFloat = ShellMetrics.paneRadius
+        static let cornerRadius: CGFloat = ChromeGeometry.paneRadius
         static let overlayInset: CGFloat = 18
         static let overlayButtonTopSpacing: CGFloat = 14
         static let overlayButtonHeight: CGFloat = 30
@@ -15,6 +16,8 @@ final class PaneContainerView: NSView {
     }
 
     private let runtime: PaneRuntime
+    private let backingScaleFactorProvider: () -> CGFloat
+    private let insetBorderLayer = CALayer()
     private let statusOverlayView = NSView()
     private let statusTitleLabel = NSTextField(labelWithString: "")
     private let statusMessageLabel = NSTextField(wrappingLabelWithString: "")
@@ -41,11 +44,13 @@ final class PaneContainerView: NSView {
         emphasis: CGFloat,
         isFocused: Bool,
         runtime: PaneRuntime,
-        theme: ZenttyTheme
+        theme: ZenttyTheme,
+        backingScaleFactorProvider: @escaping () -> CGFloat = { NSScreen.main?.backingScaleFactor ?? 1 }
     ) {
         self.paneID = pane.id
         self.titleTextStorage = pane.title
         self.runtime = runtime
+        self.backingScaleFactorProvider = backingScaleFactorProvider
         self.currentTheme = theme
         self.currentEmphasis = emphasis
         self.currentIsFocused = isFocused
@@ -53,6 +58,27 @@ final class PaneContainerView: NSView {
         translatesAutoresizingMaskIntoConstraints = true
         setup()
         render(pane: pane, width: width, height: height, emphasis: emphasis, isFocused: isFocused)
+    }
+
+    convenience init(
+        pane: PaneState,
+        width: CGFloat,
+        height: CGFloat,
+        emphasis: CGFloat,
+        isFocused: Bool,
+        runtime: PaneRuntime,
+        theme: ZenttyTheme
+    ) {
+        self.init(
+            pane: pane,
+            width: width,
+            height: height,
+            emphasis: emphasis,
+            isFocused: isFocused,
+            runtime: runtime,
+            theme: theme,
+            backingScaleFactorProvider: { NSScreen.main?.backingScaleFactor ?? 1 }
+        )
     }
 
     @available(*, unavailable)
@@ -64,7 +90,7 @@ final class PaneContainerView: NSView {
         wantsLayer = true
         layer?.cornerRadius = Layout.cornerRadius
         layer?.cornerCurve = .continuous
-        layer?.borderWidth = Layout.borderWidth
+        layer?.borderWidth = 0
         layer?.shadowOffset = .zero
         layer?.masksToBounds = true
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -81,6 +107,7 @@ final class PaneContainerView: NSView {
 
             self?.onSelected?()
         }
+        setupInsetBorderLayer()
         setupStatusOverlay()
         runtimeObserverID = runtime.addObserver { [weak self] snapshot in
             self?.handleRuntimeSnapshot(snapshot)
@@ -110,6 +137,7 @@ final class PaneContainerView: NSView {
         runtime.update(pane: pane)
 
         frame.size = NSSize(width: width, height: height)
+        updateInsetBorderLayer()
         applyVisualState(animated: false)
     }
 
@@ -156,6 +184,11 @@ final class PaneContainerView: NSView {
         runtime.ensureStarted()
     }
 
+    override func layout() {
+        super.layout()
+        updateInsetBorderLayer()
+    }
+
     var titleTextForTesting: String {
         titleTextStorage
     }
@@ -186,6 +219,62 @@ final class PaneContainerView: NSView {
 
     var closeButtonForTesting: NSButton {
         closeButton
+    }
+
+    var usesInsetBorderLayerForTesting: Bool {
+        insetBorderLayer.superlayer === layer
+    }
+
+    var insetBorderLineWidthForTesting: CGFloat {
+        insetBorderLayer.borderWidth
+    }
+
+    var insetBorderFrameForTesting: CGRect {
+        insetBorderLayer.frame
+    }
+
+    var insetBorderInsetForTesting: CGFloat {
+        insetBorderLayer.frame.minX
+    }
+
+    var insetBorderCornerRadiusForTesting: CGFloat {
+        insetBorderLayer.cornerRadius
+    }
+
+    var insetBorderCornerCurveForTesting: CALayerCornerCurve {
+        insetBorderLayer.cornerCurve
+    }
+
+    private func setupInsetBorderLayer() {
+        insetBorderLayer.backgroundColor = NSColor.clear.cgColor
+        insetBorderLayer.borderWidth = Layout.borderWidth
+        insetBorderLayer.cornerCurve = .continuous
+        insetBorderLayer.zPosition = 10
+        layer?.addSublayer(insetBorderLayer)
+        updateInsetBorderLayer()
+    }
+
+    private func updateInsetBorderLayer() {
+        guard !bounds.isEmpty else {
+            insetBorderLayer.frame = .zero
+            return
+        }
+
+        let backingScaleFactor = resolvedBackingScaleFactor
+        let inset = ChromeGeometry.paneBorderInset(backingScaleFactor: backingScaleFactor)
+        let insetRect = bounds.insetBy(dx: inset, dy: inset)
+        let cornerRadius = max(0, Layout.cornerRadius - inset)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        insetBorderLayer.contentsScale = backingScaleFactor
+        insetBorderLayer.frame = insetRect
+        insetBorderLayer.cornerRadius = cornerRadius
+        CATransaction.commit()
+    }
+
+    private var resolvedBackingScaleFactor: CGFloat {
+        max(1, window?.backingScaleFactor ?? layer?.contentsScale ?? backingScaleFactorProvider())
     }
 
     private func setupStatusOverlay() {
@@ -293,7 +382,7 @@ final class PaneContainerView: NSView {
         let emphasis = currentEmphasis
         let isFocused = currentIsFocused
         performThemeAnimation(animated: animated) {
-            self.layer?.borderColor =
+            self.insetBorderLayer.borderColor =
                 (isFocused
                 ? theme.paneBorderFocused
                 : theme.paneBorderUnfocused).cgColor

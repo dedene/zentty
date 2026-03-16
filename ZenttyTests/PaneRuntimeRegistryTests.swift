@@ -219,6 +219,7 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
     let paneID: PaneID
     let terminalView = NSView()
     var metadataDidChange: ((TerminalMetadata) -> Void)?
+    var eventDidOccur: ((TerminalEvent) -> Void)?
     private(set) var startSessionCallCount = 0
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: true, isFocused: false)
     private(set) weak var prepareSourceAdapter: PaneRuntimeTerminalAdapterSpy?

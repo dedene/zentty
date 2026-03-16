@@ -50,10 +50,110 @@ final class MainWindowControllerTests: XCTestCase {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 
         let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
+        let miniButton = try XCTUnwrap(controller.window.standardWindowButton(.miniaturizeButton))
         let buttonSuperview = try XCTUnwrap(closeButton.superview)
         let topInset = buttonSuperview.bounds.maxY - closeButton.frame.maxY
 
-        XCTAssertEqual(closeButton.frame.minX, ShellMetrics.trafficLightLeadingInset, accuracy: 1.0)
-        XCTAssertEqual(topInset, ShellMetrics.trafficLightTopInset, accuracy: 1.0)
+        XCTAssertEqual(closeButton.frame.minX, ChromeGeometry.trafficLightLeadingInset, accuracy: 1.0)
+        XCTAssertEqual(topInset, ChromeGeometry.trafficLightTopInset, accuracy: 1.0)
+        XCTAssertEqual(
+            closeButton.frame.minX - ChromeGeometry.shellInset,
+            ChromeGeometry.trafficLightOpticalLeadingOffset,
+            accuracy: 1.0
+        )
+        XCTAssertEqual(
+            topInset - ChromeGeometry.shellInset,
+            ChromeGeometry.trafficLightOpticalTopOffset,
+            accuracy: 1.0
+        )
+        XCTAssertEqual(
+            miniButton.frame.minX - closeButton.frame.maxX,
+            ChromeGeometry.trafficLightSpacing,
+            accuracy: 1.0
+        )
+    }
+
+    func test_programmatic_window_resize_relayouts_panes_without_inner_animation() throws {
+        let controller = MainWindowController()
+        controller.showWindow(nil)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+
+        controller.splitRight(nil)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let initialAppCanvasView = try XCTUnwrap(
+            controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
+        )
+        let initialCanvasWidth = initialAppCanvasView.bounds.width
+        let initialPaneViews = initialAppCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        let initialWidths = initialPaneViews.map(\.frame.width)
+
+        let resizedFrame = NSRect(x: 120, y: 140, width: 1420, height: 880)
+        controller.window.setFrame(resizedFrame, display: false)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+
+        let resizedAppCanvasView = try XCTUnwrap(
+            controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
+        )
+        let resizedPaneViews = resizedAppCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        let resizedWidths = resizedPaneViews.map(\.frame.width)
+        let expectedScaleFactor = resizedAppCanvasView.bounds.width / initialCanvasWidth
+
+        XCTAssertEqual(initialWidths.count, 2)
+        XCTAssertEqual(resizedWidths.count, 2)
+        XCTAssertEqual(resizedWidths[0], initialWidths[0] * expectedScaleFactor, accuracy: 0.5)
+        XCTAssertEqual(resizedWidths[1], initialWidths[1] * expectedScaleFactor, accuracy: 0.5)
+        XCTAssertFalse(resizedAppCanvasView.lastPaneStripRenderWasAnimatedForTesting)
+    }
+
+    func test_new_workspace_action_creates_and_focuses_new_workspace() {
+        let controller = MainWindowController()
+
+        controller.newWorkspace(nil)
+
+        XCTAssertEqual(controller.workspaceTitlesForTesting, ["MAIN", "WS 2"])
+        XCTAssertEqual(controller.activeWorkspaceTitleForTesting, "WS 2")
+        XCTAssertEqual(controller.activePaneTitlesForTesting, ["shell"])
+    }
+
+    func test_split_and_focus_actions_route_through_root_dispatcher() {
+        let controller = MainWindowController()
+
+        controller.splitRight(nil)
+        controller.focusLeftPane(nil)
+
+        XCTAssertEqual(controller.activePaneTitlesForTesting, ["shell", "pane 1"])
+        XCTAssertEqual(controller.focusedPaneTitleForTesting, "shell")
+    }
+}
+
+private extension NSView {
+    func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+        if let view = self as? T {
+            return view
+        }
+
+        for subview in subviews {
+            if let match = subview.firstDescendant(ofType: type) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
+    func descendantPaneViews() -> [PaneContainerView] {
+        var paneViews: [PaneContainerView] = []
+
+        func walk(_ view: NSView) {
+            if let paneView = view as? PaneContainerView {
+                paneViews.append(paneView)
+            }
+
+            view.subviews.forEach(walk)
+        }
+
+        walk(self)
+        return paneViews
     }
 }

@@ -29,6 +29,7 @@ final class PaneStripView: NSView {
     private let motionController = PaneStripMotionController()
     private let viewportView = NSView()
     private let runtimeRegistry: PaneRuntimeRegistry
+    private let backingScaleFactorProvider: () -> CGFloat
 
     private var currentState: PaneStripState?
     private var currentPresentation: StripPresentation?
@@ -39,6 +40,8 @@ final class PaneStripView: NSView {
     private var lastFocusedPaneID: PaneID?
     private var lastInsertionTransition: PaneInsertionTransition?
     private var lastRenderWasAnimated = false
+    private var suppressAnimatedRenderForResize = false
+    private var resizeSuppressionGeneration = 0
     private var activeScrollSwitchAxis: ScrollSwitchAxis?
     private var accumulatedScrollSwitchDelta: CGFloat = 0
     private var hasTriggeredScrollSwitchInGesture = false
@@ -64,15 +67,18 @@ final class PaneStripView: NSView {
 
     override init(frame frameRect: NSRect) {
         self.runtimeRegistry = PaneRuntimeRegistry()
+        self.backingScaleFactorProvider = { NSScreen.main?.backingScaleFactor ?? 1 }
         super.init(frame: frameRect)
         setup()
     }
 
     init(
         frame frameRect: NSRect = .zero,
-        runtimeRegistry: PaneRuntimeRegistry
+        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
+        backingScaleFactorProvider: @escaping () -> CGFloat = { NSScreen.main?.backingScaleFactor ?? 1 }
     ) {
         self.runtimeRegistry = runtimeRegistry
+        self.backingScaleFactorProvider = backingScaleFactorProvider
         super.init(frame: frameRect)
         setup()
     }
@@ -103,6 +109,7 @@ final class PaneStripView: NSView {
             return
         }
 
+        markResizeAnimationSuppressionPending()
         renderCurrentState(currentState, animated: false)
     }
 
@@ -110,6 +117,9 @@ final class PaneStripView: NSView {
         currentState = state
         guard bounds.size != .zero else {
             return
+        }
+        if hasViewportSizeChangeSinceLastRender {
+            markResizeAnimationSuppressionPending()
         }
         renderCurrentState(state, animated: !orderedPaneIDs.isEmpty)
     }
@@ -142,7 +152,8 @@ final class PaneStripView: NSView {
         let presentation = motionController.presentation(
             for: state,
             in: bounds.size,
-            leadingVisibleInset: leadingVisibleInset
+            leadingVisibleInset: leadingVisibleInset,
+            backingScaleFactor: currentBackingScaleFactor
         )
         let insertionTransition = insertionTransition(
             from: previousPresentation,
@@ -151,11 +162,18 @@ final class PaneStripView: NSView {
         )
         lastInsertionTransition = insertionTransition
         currentPresentation = presentation
-        let targetOffset = presentation.targetOffset
+        let targetOffset = motionController.snappedOffset(
+            presentation.targetOffset,
+            backingScaleFactor: currentBackingScaleFactor
+        )
+        let isResizeSuppressedRender = animated
+            && sharesAnyPane(with: state)
+            && (suppressAnimatedRenderForResize || hasViewportSizeChangeSinceLastRender)
         let shouldAnimate = animated
             && sharesAnyPane(with: state)
             && window?.inLiveResize != true
             && !inLiveResize
+            && !isResizeSuppressedRender
         lastRenderWasAnimated = shouldAnimate
         reconcilePaneViews(
             with: state,
@@ -183,6 +201,9 @@ final class PaneStripView: NSView {
 
         currentOffset = targetOffset
         lastRenderedSize = bounds.size
+        if isResizeSuppressedRender {
+            suppressAnimatedRenderForResize = false
+        }
         syncFocusedTerminal(with: state.focusedPaneID)
     }
 
@@ -210,7 +231,10 @@ final class PaneStripView: NSView {
                 emphasis: panePresentation.emphasis,
                 isFocused: panePresentation.isFocused
             )
-            let targetFrame = panePresentation.frame.offsetBy(dx: -offset, dy: 0)
+            let targetFrame = panePresentation.frame.offsetBy(
+                dx: -resolvedOffset(offset),
+                dy: 0
+            )
             if animated {
                 paneView.animator().frame = targetFrame
             } else {
@@ -263,7 +287,10 @@ final class PaneStripView: NSView {
                 paneView.frame = insertionTransition.initialFrame
                 paneView.alphaValue = 0
             } else {
-                paneView.frame = panePresentation.frame.offsetBy(dx: -initialOffset, dy: 0)
+                paneView.frame = panePresentation.frame.offsetBy(
+                    dx: -resolvedOffset(initialOffset),
+                    dy: 0
+                )
             }
             paneViews[panePresentation.paneID] = paneView
             viewportView.addSubview(paneView)
@@ -480,5 +507,32 @@ final class PaneStripView: NSView {
         activeScrollSwitchAxis = nil
         accumulatedScrollSwitchDelta = 0
         hasTriggeredScrollSwitchInGesture = false
+    }
+
+    private var currentBackingScaleFactor: CGFloat {
+        max(1, window?.backingScaleFactor ?? layer?.contentsScale ?? backingScaleFactorProvider())
+    }
+
+    private var hasViewportSizeChangeSinceLastRender: Bool {
+        lastRenderedSize != .zero && bounds.size != lastRenderedSize
+    }
+
+    private func markResizeAnimationSuppressionPending() {
+        suppressAnimatedRenderForResize = true
+        resizeSuppressionGeneration += 1
+        let generation = resizeSuppressionGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.resizeSuppressionGeneration == generation else {
+                return
+            }
+            self.suppressAnimatedRenderForResize = false
+        }
+    }
+
+    private func resolvedOffset(_ offset: CGFloat) -> CGFloat {
+        motionController.snappedOffset(
+            offset,
+            backingScaleFactor: currentBackingScaleFactor
+        )
     }
 }

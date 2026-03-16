@@ -20,7 +20,7 @@ final class ContextStripView: NSView {
 
     private func setup() {
         wantsLayer = true
-        layer?.cornerRadius = ShellMetrics.pillRadius
+        layer?.cornerRadius = ChromeGeometry.pillRadius
         layer?.cornerCurve = .continuous
         layer?.borderWidth = 1
         layer?.backgroundColor = currentTheme.contextStripBackground.cgColor

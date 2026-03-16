@@ -1,21 +1,35 @@
 import AppKit
 
 final class RootViewController: NSViewController {
-    private let paneStripStore = PaneStripStore()
+    private let paneStripStore: PaneStripStore
     private let sidebarWidthDefaults: UserDefaults
+    private let paneLayoutDefaults: UserDefaults
     private let sidebarView = SidebarView()
     private let runtimeRegistry = PaneRuntimeRegistry()
+    private let agentStatusCenter = AgentStatusCenter()
+    private let prArtifactResolver = PRArtifactResolver()
     private let themeResolver = GhosttyThemeResolver()
     private let themeWatcher = GhosttyThemeWatcher()
+    private let attentionNotificationCoordinator = WorkspaceAttentionNotificationCoordinator()
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
     private let windowChromeView = WindowChromeView()
     private var hasInstalledKeyMonitor = false
     private var hasInstalledWindowObservers = false
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var paneLayoutPreferences: PaneLayoutPreferences
+    private var currentPaneLayoutContext: PaneLayoutContext
     private var sidebarWidthConstraint: NSLayoutConstraint?
 
-    init(sidebarWidthDefaults: UserDefaults = .standard) {
+    init(
+        sidebarWidthDefaults: UserDefaults = .standard,
+        paneLayoutDefaults: UserDefaults = .standard,
+        initialLayoutContext: PaneLayoutContext = .fallback
+    ) {
         self.sidebarWidthDefaults = sidebarWidthDefaults
+        self.paneLayoutDefaults = paneLayoutDefaults
+        self.paneLayoutPreferences = PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults)
+        self.currentPaneLayoutContext = initialLayoutContext
+        self.paneStripStore = PaneStripStore(layoutContext: initialLayoutContext)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -31,6 +45,10 @@ final class RootViewController: NSViewController {
         }
         view = contentView
         view.wantsLayer = true
+        view.layer?.cornerRadius = ChromeGeometry.outerWindowRadius
+        view.layer?.cornerCurve = .continuous
+        view.layer?.masksToBounds = true
+        view.layer?.borderWidth = 1
         apply(theme: currentTheme, animated: false)
     }
 
@@ -82,7 +100,7 @@ final class RootViewController: NSViewController {
             self?.paneStripStore.selectWorkspace(id: workspaceID)
         }
         sidebarView.onCreateWorkspace = { [weak self] in
-            self?.paneStripStore.createWorkspace()
+            self?.handle(.newWorkspace)
         }
         sidebarView.onResizeWidth = { [weak self] width in
             self?.setSidebarWidth(width, persist: true)
@@ -94,12 +112,25 @@ final class RootViewController: NSViewController {
 
             self.paneStripStore.updateMetadata(id: paneID, metadata: metadata)
         }
+        runtimeRegistry.onEventDidOccur = { [weak self] paneID, event in
+            self?.paneStripStore.handleTerminalEvent(paneID: paneID, event: event)
+        }
+        agentStatusCenter.onPayload = { [weak self] payload in
+            self?.paneStripStore.applyAgentStatusPayload(payload)
+        }
+        agentStatusCenter.start()
         themeWatcher.onChange = { [weak self] in
             self?.refreshTheme(animated: true)
         }
         updateCanvasLeadingInset()
+        updatePaneLayoutContextIfNeeded(force: true)
         refreshTheme(animated: false)
         renderCurrentWorkspace()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        updatePaneLayoutContextIfNeeded()
     }
 
     func activateWindowBindingsIfNeeded() {
@@ -124,14 +155,23 @@ final class RootViewController: NSViewController {
             }
 
             guard let shortcut = KeyboardShortcut(event: event),
-                  let command = KeyboardShortcutResolver.resolve(shortcut) else {
+                  let action = KeyboardShortcutResolver.resolve(shortcut) else {
                 return event
             }
 
-            self.paneStripStore.send(command)
+            self.handle(action)
             return nil
         }
         hasInstalledKeyMonitor = true
+    }
+
+    func handle(_ action: AppAction) {
+        switch action {
+        case .newWorkspace:
+            paneStripStore.createWorkspace()
+        case .pane(let command):
+            paneStripStore.send(command)
+        }
     }
 
     private func installWindowObserversIfNeeded() {
@@ -145,6 +185,7 @@ final class RootViewController: NSViewController {
             NSWindow.didResignKeyNotification,
             NSWindow.didMiniaturizeNotification,
             NSWindow.didDeminiaturizeNotification,
+            NSWindow.didChangeScreenNotification,
         ].forEach { name in
             notificationCenter.addObserver(
                 self,
@@ -158,11 +199,15 @@ final class RootViewController: NSViewController {
 
     @objc
     private func handleWindowStateDidChange() {
+        updatePaneLayoutContextIfNeeded(force: true)
         updateRuntimeSurfaceActivities()
     }
 
     private func renderCurrentWorkspace() {
         runtimeRegistry.synchronize(with: paneStripStore.workspaces)
+        prArtifactResolver.refresh(for: paneStripStore.workspaces) { [weak self] paneID, artifact in
+            self?.paneStripStore.updateInferredArtifact(paneID: paneID, artifact: artifact)
+        }
         sidebarView.render(
             summaries: WorkspaceSidebarSummaryBuilder.summaries(
                 for: paneStripStore.workspaces,
@@ -176,8 +221,18 @@ final class RootViewController: NSViewController {
         }
 
         let metadata = workspace.paneStripState.focusedPaneID.flatMap { workspace.metadataByPaneID[$0] }
-        windowChromeView.render(workspaceName: workspace.title, state: workspace.paneStripState, metadata: metadata)
+        windowChromeView.render(
+            workspaceName: workspace.title,
+            state: workspace.paneStripState,
+            metadata: metadata,
+            attention: WorkspaceAttentionSummaryBuilder.summary(for: workspace)
+        )
         appCanvasView.render(workspaceName: workspace.title, state: workspace.paneStripState, metadataByPaneID: workspace.metadataByPaneID, theme: currentTheme)
+        attentionNotificationCoordinator.update(
+            workspaces: paneStripStore.workspaces,
+            activeWorkspaceID: paneStripStore.activeWorkspaceID,
+            windowIsKey: view.window?.isKeyWindow ?? false
+        )
         updateRuntimeSurfaceActivities()
     }
 
@@ -203,7 +258,8 @@ final class RootViewController: NSViewController {
 
     private func apply(theme: ZenttyTheme, animated: Bool) {
         performThemeAnimation(animated: animated) {
-            self.view.layer?.backgroundColor = theme.startupSurface.cgColor
+            self.view.layer?.backgroundColor = theme.windowBackground.cgColor
+            self.view.layer?.borderColor = theme.topChromeBorder.cgColor
         }
     }
 
@@ -225,6 +281,7 @@ final class RootViewController: NSViewController {
         sidebarWidthConstraint?.constant = clampedWidth
         updateCanvasLeadingInset()
         view.layoutSubtreeIfNeeded()
+        updatePaneLayoutContextIfNeeded(force: true)
 
         if persist {
             SidebarWidthPreference.persist(clampedWidth, in: sidebarWidthDefaults)
@@ -235,8 +292,63 @@ final class RootViewController: NSViewController {
         sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
     }
 
+    var paneLayoutPreferencesForTesting: PaneLayoutPreferences {
+        paneLayoutPreferences
+    }
+
+    var workspaceTitlesForTesting: [String] {
+        paneStripStore.workspaces.map(\.title)
+    }
+
+    var activeWorkspaceTitleForTesting: String? {
+        paneStripStore.activeWorkspace?.title
+    }
+
+    var activePaneTitlesForTesting: [String] {
+        paneStripStore.activeWorkspace?.paneStripState.panes.map(\.title) ?? []
+    }
+
+    var focusedPaneTitleForTesting: String? {
+        paneStripStore.activeWorkspace?.paneStripState.focusedPane?.title
+    }
+
     private func updateCanvasLeadingInset() {
         appCanvasView.leadingVisibleInset = (sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth) + ShellMetrics.shellGap
+    }
+
+    func updatePaneLayoutPreferences(_ preferences: PaneLayoutPreferences) {
+        paneLayoutPreferences = preferences
+        PaneLayoutPreferenceStore.persist(preferences.laptopPreset, for: .laptop, in: paneLayoutDefaults)
+        PaneLayoutPreferenceStore.persist(preferences.largeDisplayPreset, for: .largeDisplay, in: paneLayoutDefaults)
+        updatePaneLayoutContextIfNeeded(force: true)
+        renderCurrentWorkspace()
+    }
+
+    private func updatePaneLayoutContextIfNeeded(force: Bool = false) {
+        let resolvedContext = resolveCurrentPaneLayoutContext()
+        guard force || resolvedContext != currentPaneLayoutContext else {
+            return
+        }
+
+        currentPaneLayoutContext = resolvedContext
+        paneStripStore.updateLayoutContext(resolvedContext)
+    }
+
+    private func resolveCurrentPaneLayoutContext() -> PaneLayoutContext {
+        let viewportWidth = max(
+            appCanvasView.bounds.width,
+            view.bounds.width - (ShellMetrics.outerInset * 2)
+        )
+        let displayClass = PaneDisplayClassResolver.resolve(
+            screen: view.window?.screen,
+            viewportWidth: viewportWidth
+        )
+
+        return paneLayoutPreferences.makeLayoutContext(
+            displayClass: displayClass,
+            viewportWidth: viewportWidth,
+            leadingVisibleInset: appCanvasView.leadingVisibleInset
+        )
     }
 }
 

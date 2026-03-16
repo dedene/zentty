@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 enum LibghosttySurfaceActionPayload: Equatable {
     case setTitle(String?)
     case pwd(String?)
+    case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
 }
 
 func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> LibghosttySurfaceActionPayload? {
@@ -15,6 +16,13 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
     case GHOSTTY_ACTION_PWD:
         let pwd = action.action.pwd.pwd.map { String(cString: $0) }
         return .pwd(pwd)
+    case GHOSTTY_ACTION_COMMAND_FINISHED:
+        let rawExitCode = Int(action.action.command_finished.exit_code)
+        let exitCode = rawExitCode >= 0 ? rawExitCode : nil
+        return .commandFinished(
+            exitCode: exitCode,
+            durationNanoseconds: action.action.command_finished.duration
+        )
     default:
         return nil
     }
@@ -141,7 +149,8 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         for hostView: LibghosttyView,
         request: TerminalSessionRequest,
         configTemplate: ghostty_surface_config_s?,
-        metadataDidChange: @escaping (TerminalMetadata) -> Void
+        metadataDidChange: @escaping (TerminalMetadata) -> Void,
+        eventDidOccur: @escaping (TerminalEvent) -> Void
     ) throws -> any LibghosttySurfaceControlling {
         guard let app else {
             throw Error.appCreationFailed
@@ -152,7 +161,8 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             hostView: hostView,
             request: request,
             configTemplate: configTemplate,
-            metadataDidChange: metadataDidChange
+            metadataDidChange: metadataDidChange,
+            eventDidOccur: eventDidOccur
         )
     }
 

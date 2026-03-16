@@ -1,24 +1,16 @@
 import AppKit
 
-enum WorkspaceAttentionState: String, Equatable {
-    case needsInput
-    case running
-    case unread
-}
-
 struct WorkspaceSidebarSummary: Equatable {
     let workspaceID: WorkspaceID
     let title: String
     let badgeText: String
-    let summaryText: String
-    let detailText: String
-    let paneCountText: String
+    let primaryText: String
+    let statusText: String?
+    let contextText: String
     let attentionState: WorkspaceAttentionState?
-    let attentionText: String?
-    let unreadCount: Int?
+    let artifactLink: WorkspaceArtifactLink?
     let isActive: Bool
     let showsGeneratedTitle: Bool
-    let showsPaneCount: Bool
 }
 
 enum WorkspaceSidebarSummaryBuilder {
@@ -37,41 +29,25 @@ enum WorkspaceSidebarSummaryBuilder {
     ) -> WorkspaceSidebarSummary {
         let focusedPane = workspace.paneStripState.focusedPane
         let metadata = workspace.paneStripState.focusedPaneID.flatMap { workspace.metadataByPaneID[$0] }
-
-        let summaryText = firstNonEmpty(
-            nil,
-            metadata?.title,
-            metadata?.processName,
-            focusedPane?.title
-        ) ?? "shell"
-
-        let detailText = detailSummary(metadata: metadata)
+        let attention = WorkspaceAttentionSummaryBuilder.summary(for: workspace)
         let isGeneratedTitle = isGeneratedWorkspaceTitle(workspace.title)
 
         return WorkspaceSidebarSummary(
             workspaceID: workspace.id,
             title: workspace.title,
             badgeText: badge(for: workspace.title),
-            summaryText: summaryText,
-            detailText: detailText,
-            paneCountText: "",
-            attentionState: nil,
-            attentionText: nil,
-            unreadCount: nil,
+            primaryText: attention?.primaryText ?? firstNonEmpty(
+                metadata?.title,
+                metadata?.processName,
+                focusedPane?.title
+            ) ?? "shell",
+            statusText: attention?.statusText,
+            contextText: attention?.contextText ?? WorkspaceContextFormatter.contextText(for: metadata),
+            attentionState: attention?.state,
+            artifactLink: attention?.artifactLink,
             isActive: isActive,
-            showsGeneratedTitle: !isGeneratedTitle,
-            showsPaneCount: false
+            showsGeneratedTitle: !isGeneratedTitle
         )
-    }
-
-    private static func detailSummary(
-        metadata: TerminalMetadata?
-    ) -> String {
-        let compactDirectory = metadata?.currentWorkingDirectory.flatMap(compactDirectoryName)
-        let branch = trimmed(metadata?.gitBranch)
-        let components = [compactDirectory, branch].compactMap { $0 }
-
-        return components.joined(separator: " • ")
     }
 
     private static func badge(for title: String) -> String {
@@ -94,35 +70,8 @@ enum WorkspaceSidebarSummaryBuilder {
         return String(firstCharacter).uppercased()
     }
 
-    private static func compactDirectoryName(_ path: String) -> String? {
-        let trimmedPath = trimmed(path)
-        guard let trimmedPath else {
-            return nil
-        }
-
-        let homePath = NSHomeDirectory()
-        let normalizedPath = trimmedPath.hasPrefix(homePath)
-            ? trimmedPath.replacingOccurrences(of: homePath, with: "~")
-            : trimmedPath
-
-        let components = normalizedPath.split(separator: "/").map(String.init)
-        guard let lastComponent = components.last, !lastComponent.isEmpty else {
-            return normalizedPath == "~" ? "~" : nil
-        }
-
-        return lastComponent == "~" ? "~" : lastComponent
-    }
-
     private static func firstNonEmpty(_ values: String?...) -> String? {
-        values.compactMap(trimmed).first
-    }
-
-    private static func trimmed(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
-            return nil
-        }
-
-        return value
+        values.compactMap(WorkspaceContextFormatter.trimmed).first
     }
 
     private static func isGeneratedWorkspaceTitle(_ title: String) -> Bool {

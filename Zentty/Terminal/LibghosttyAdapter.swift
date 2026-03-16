@@ -7,7 +7,8 @@ protocol LibghosttyRuntimeProviding: AnyObject {
         for hostView: LibghosttyView,
         request: TerminalSessionRequest,
         configTemplate: ghostty_surface_config_s?,
-        metadataDidChange: @escaping (TerminalMetadata) -> Void
+        metadataDidChange: @escaping (TerminalMetadata) -> Void,
+        eventDidOccur: @escaping (TerminalEvent) -> Void
     ) throws -> any LibghosttySurfaceControlling
 }
 
@@ -45,6 +46,7 @@ final class LibghosttyAdapter: TerminalAdapter {
     private var inheritedConfigTemplate: ghostty_surface_config_s?
 
     var metadataDidChange: ((TerminalMetadata) -> Void)?
+    var eventDidOccur: ((TerminalEvent) -> Void)?
 
     init(runtime: any LibghosttyRuntimeProviding = LibghosttyRuntime.shared) {
         self.runtime = runtime
@@ -65,6 +67,9 @@ final class LibghosttyAdapter: TerminalAdapter {
             configTemplate: inheritedConfigTemplate,
             metadataDidChange: { [weak self] metadata in
                 self?.metadataDidChange?(metadata)
+            },
+            eventDidOccur: { [weak self] event in
+                self?.eventDidOccur?(event)
             }
         )
 
