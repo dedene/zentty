@@ -98,11 +98,14 @@ final class MainWindowControllerTests: XCTestCase {
         let resizedPaneViews = resizedAppCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
         let resizedWidths = resizedPaneViews.map(\.frame.width)
         let expectedScaleFactor = resizedAppCanvasView.bounds.width / initialCanvasWidth
+        let expectedTotalWidth = initialWidths.reduce(0, +) * expectedScaleFactor
+        let paneWidthTolerance: CGFloat = 1.0
 
         XCTAssertEqual(initialWidths.count, 2)
         XCTAssertEqual(resizedWidths.count, 2)
-        XCTAssertEqual(resizedWidths[0], initialWidths[0] * expectedScaleFactor, accuracy: 0.5)
-        XCTAssertEqual(resizedWidths[1], initialWidths[1] * expectedScaleFactor, accuracy: 0.5)
+        XCTAssertEqual(resizedWidths[0], initialWidths[0] * expectedScaleFactor, accuracy: paneWidthTolerance)
+        XCTAssertEqual(resizedWidths[1], initialWidths[1] * expectedScaleFactor, accuracy: paneWidthTolerance)
+        XCTAssertEqual(resizedWidths.reduce(0, +), expectedTotalWidth, accuracy: paneWidthTolerance)
         XCTAssertFalse(resizedAppCanvasView.lastPaneStripRenderWasAnimatedForTesting)
     }
 

@@ -207,23 +207,44 @@ enum AgentToolRecognizer {
 
 enum WorkspaceContextFormatter {
     static func contextText(for metadata: TerminalMetadata?) -> String {
-        let compactDirectory = metadata?.currentWorkingDirectory.flatMap(compactDirectoryName)
-        let branch = trimmed(metadata?.gitBranch)
+        let compactDirectory = resolvedWorkingDirectory(for: metadata).flatMap(compactDirectoryName)
+        let branch = displayBranch(metadata?.gitBranch)
         return [compactDirectory, branch]
             .compactMap { $0 }
             .joined(separator: " • ")
     }
 
-    static func compactDirectoryName(_ path: String) -> String? {
+    static func displayWorkingDirectory(for metadata: TerminalMetadata?) -> String? {
+        resolvedWorkingDirectory(for: metadata).flatMap(homeRelativePath)
+    }
+
+    static func resolvedWorkingDirectory(for metadata: TerminalMetadata?) -> String? {
+        normalizedWorkingDirectoryCandidate(metadata?.currentWorkingDirectory)
+            ?? inferredWorkingDirectory(fromTitle: metadata?.title)
+    }
+
+    static func homeRelativePath(_ path: String) -> String? {
         let trimmedPath = trimmed(path)
         guard let trimmedPath else {
             return nil
         }
 
         let homePath = NSHomeDirectory()
-        let normalizedPath = trimmedPath.hasPrefix(homePath)
-            ? trimmedPath.replacingOccurrences(of: homePath, with: "~")
-            : trimmedPath
+        if trimmedPath == homePath {
+            return "~"
+        }
+
+        guard trimmedPath.hasPrefix(homePath + "/") else {
+            return trimmedPath
+        }
+
+        return "~/" + trimmedPath.dropFirst(homePath.count + 1)
+    }
+
+    static func compactDirectoryName(_ path: String) -> String? {
+        guard let normalizedPath = homeRelativePath(path) else {
+            return nil
+        }
 
         let components = normalizedPath.split(separator: "/").map(String.init)
         guard let lastComponent = components.last, !lastComponent.isEmpty else {
@@ -239,6 +260,52 @@ enum WorkspaceContextFormatter {
         }
 
         return value
+    }
+
+    static func displayBranch(_ value: String?) -> String? {
+        guard let value = trimmed(value), !looksCompactedForDisplay(value) else {
+            return nil
+        }
+
+        return value
+    }
+
+    static func looksCompactedForDisplay(_ value: String?) -> Bool {
+        guard let value = trimmed(value) else {
+            return false
+        }
+
+        return value.contains("...") || value.contains("…")
+    }
+
+    private static func inferredWorkingDirectory(fromTitle title: String?) -> String? {
+        guard let trimmedTitle = trimmed(title) else {
+            return nil
+        }
+
+        var candidates = [trimmedTitle]
+        candidates.append(contentsOf: trimmedTitle.split(separator: ":").reversed().map(String.init))
+        return candidates.lazy.compactMap(normalizedWorkingDirectoryCandidate).first
+    }
+
+    private static func normalizedWorkingDirectoryCandidate(_ candidate: String?) -> String? {
+        guard let trimmedCandidate = trimmed(candidate) else {
+            return nil
+        }
+
+        if trimmedCandidate == "~" {
+            return NSHomeDirectory()
+        }
+
+        if trimmedCandidate.hasPrefix("~/") {
+            return (NSHomeDirectory() as NSString).appendingPathComponent(String(trimmedCandidate.dropFirst(2)))
+        }
+
+        guard trimmedCandidate.hasPrefix("/") else {
+            return nil
+        }
+
+        return trimmedCandidate
     }
 }
 

@@ -1,6 +1,7 @@
 import AppKit
 
 final class WorkspaceAttentionChipView: NSView {
+    private static let horizontalPadding: CGFloat = 10
     private let stateLabel = NSTextField(labelWithString: "")
     private let toolLabel = NSTextField(labelWithString: "")
     private let artifactButton = NSButton(title: "", target: nil, action: nil)
@@ -41,9 +42,21 @@ final class WorkspaceAttentionChipView: NSView {
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
 
+        let leadingConstraint = stackView.leadingAnchor.constraint(
+            equalTo: leadingAnchor,
+            constant: Self.horizontalPadding
+        )
+        leadingConstraint.priority = .defaultHigh
+
+        let trailingConstraint = stackView.trailingAnchor.constraint(
+            equalTo: trailingAnchor,
+            constant: -Self.horizontalPadding
+        )
+        trailingConstraint.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            leadingConstraint,
+            trailingConstraint,
             stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
@@ -101,4 +114,16 @@ final class WorkspaceAttentionChipView: NSView {
 
     var stateTextForTesting: String { stateLabel.stringValue }
     var artifactTextForTesting: String { artifactButton.title }
+    var preferredWidthForCurrentContent: CGFloat {
+        guard !isHidden else {
+            return 0
+        }
+
+        let visibleWidths = [stateLabel, toolLabel, artifactButton]
+            .filter { !$0.isHidden }
+            .map(\.intrinsicContentSize.width)
+        let contentWidth = visibleWidths.reduce(CGFloat.zero, +)
+        let spacing = CGFloat(max(0, visibleWidths.count - 1)) * stackView.spacing
+        return ceil(contentWidth + spacing + (Self.horizontalPadding * 2))
+    }
 }

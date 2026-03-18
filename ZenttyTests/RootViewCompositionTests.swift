@@ -47,6 +47,46 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(windowChromeView.frame.minY, appCanvasView.frame.maxY, accuracy: 0.5)
     }
 
+    func test_root_controller_keeps_window_chrome_content_to_right_of_sidebar_visible_lane() throws {
+        let controller = makeControllerWithCrowdedHeader(width: 1280)
+        let rootSubviews = controller.view.subviews
+        let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView } as? WindowChromeView)
+        let rowFrame = frameInRoot(windowChromeView.rowFrameForTesting, within: windowChromeView)
+        let visibleLaneFrame = frameInRoot(windowChromeView.visibleLaneFrameForTesting, within: windowChromeView)
+
+        XCTAssertGreaterThanOrEqual(rowFrame.minX, visibleLaneFrame.minX - 0.5)
+    }
+
+    func test_root_controller_expands_window_chrome_content_across_visible_lane_on_wide_windows() throws {
+        let controller = makeControllerWithCrowdedHeader(width: 1440)
+        let rootSubviews = controller.view.subviews
+        let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView } as? WindowChromeView)
+        let rowFrame = frameInRoot(windowChromeView.rowFrameForTesting, within: windowChromeView)
+        let visibleLaneFrame = frameInRoot(windowChromeView.visibleLaneFrameForTesting, within: windowChromeView)
+
+        XCTAssertEqual(rowFrame.minX, visibleLaneFrame.minX, accuracy: 1.0)
+        XCTAssertEqual(rowFrame.width, visibleLaneFrame.width, accuracy: 1.0)
+    }
+
+    func test_root_controller_updates_window_chrome_visible_lane_when_sidebar_width_changes() throws {
+        let controller = makeControllerWithCrowdedHeader(width: 1280)
+        let rootSubviews = controller.view.subviews
+        let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView } as? WindowChromeView)
+
+        controller.setSidebarWidthForTesting(340)
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            windowChromeView.leadingVisibleInsetForTesting,
+            340 + ShellMetrics.shellGap,
+            accuracy: 0.5
+        )
+
+        let rowFrame = frameInRoot(windowChromeView.rowFrameForTesting, within: windowChromeView)
+        let visibleLaneFrame = frameInRoot(windowChromeView.visibleLaneFrameForTesting, within: windowChromeView)
+        XCTAssertGreaterThanOrEqual(rowFrame.minX, visibleLaneFrame.minX - 0.5)
+    }
+
     func test_chrome_geometry_derives_nested_radii_from_edge_to_edge_insets() {
         XCTAssertEqual(ChromeGeometry.contentShellRadius, ChromeGeometry.innerRadius(
             outerRadius: ChromeGeometry.outerWindowRadius,
@@ -108,73 +148,6 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(appCanvasView.layer?.borderWidth ?? 0, 0, accuracy: 0.001)
         XCTAssertEqual(alphaComponent(of: appCanvasView.layer?.backgroundColor), 0, accuracy: 0.001)
         XCTAssertEqual(alphaComponent(of: appCanvasView.layer?.borderColor), 0, accuracy: 0.001)
-    }
-
-    func test_window_chrome_keeps_only_trailing_context_strip_without_title_label() {
-        let windowChromeView = WindowChromeView()
-
-        XCTAssertEqual(windowChromeView.titleTextForTesting, "")
-    }
-
-    func test_context_strip_prefers_terminal_metadata_and_keeps_exact_cwd() {
-        let contextStripView = ContextStripView()
-        let state = PaneStripState(
-            panes: [PaneState(id: PaneID("shell"), title: "shell")],
-            focusedPaneID: PaneID("shell")
-        )
-
-        contextStripView.render(
-            workspaceName: "WEB",
-            state: state,
-            metadata: TerminalMetadata(
-                title: "zsh",
-                currentWorkingDirectory: NSHomeDirectory() + "/src/zentty",
-                processName: "zsh",
-                gitBranch: "main"
-            )
-        )
-
-        XCTAssertEqual(contextStripView.focusedTextForTesting, "")
-        XCTAssertEqual(contextStripView.cwdTextForTesting, "cwd ~/src/zentty")
-        XCTAssertEqual(contextStripView.branchTextForTesting, "branch main")
-        XCTAssertTrue(contextStripView.isFocusedHiddenForTesting)
-        XCTAssertFalse(contextStripView.isHidden)
-        XCTAssertFalse(contextStripView.isBranchHiddenForTesting)
-    }
-
-    func test_context_strip_falls_back_to_process_then_pane_title_and_hides_missing_branch() {
-        let contextStripView = ContextStripView()
-        let state = PaneStripState(
-            panes: [PaneState(id: PaneID("pane-2"), title: "pane 2")],
-            focusedPaneID: PaneID("pane-2")
-        )
-
-        contextStripView.render(
-            workspaceName: "OPS",
-            state: state,
-            metadata: TerminalMetadata(
-                title: nil,
-                currentWorkingDirectory: nil,
-                processName: "fish",
-                gitBranch: nil
-            )
-        )
-
-        XCTAssertEqual(contextStripView.focusedTextForTesting, "fish")
-        XCTAssertEqual(contextStripView.cwdTextForTesting, "")
-        XCTAssertFalse(contextStripView.isFocusedHiddenForTesting)
-        XCTAssertTrue(contextStripView.isBranchHiddenForTesting)
-
-        contextStripView.render(
-            workspaceName: "OPS",
-            state: state,
-            metadata: TerminalMetadata()
-        )
-
-        XCTAssertEqual(contextStripView.focusedTextForTesting, "pane 2")
-        XCTAssertEqual(contextStripView.cwdTextForTesting, "")
-        XCTAssertFalse(contextStripView.isFocusedHiddenForTesting)
-        XCTAssertTrue(contextStripView.isBranchHiddenForTesting)
     }
 
     func test_sidebar_view_emits_selected_workspace_id() throws {
@@ -663,10 +636,6 @@ final class RootViewCompositionTests: XCTestCase {
 
     func test_window_chrome_shows_attention_chip_only_for_attention_states() {
         let windowChromeView = WindowChromeView()
-        let state = PaneStripState(
-            panes: [PaneState(id: PaneID("shell"), title: "shell")],
-            focusedPaneID: PaneID("shell")
-        )
         let attention = WorkspaceAttentionSummary(
             paneID: PaneID("shell"),
             tool: .claudeCode,
@@ -683,21 +652,19 @@ final class RootViewCompositionTests: XCTestCase {
             updatedAt: Date(timeIntervalSince1970: 42)
         )
 
-        windowChromeView.render(
-            workspaceName: "MAIN",
-            state: state,
-            metadata: TerminalMetadata(title: "Claude Code"),
-            attention: attention
-        )
+        windowChromeView.render(summary: WorkspaceHeaderSummary(
+            attention: attention,
+            focusedLabel: "Claude Code",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
 
         XCTAssertFalse(windowChromeView.isAttentionHiddenForTesting)
         XCTAssertEqual(windowChromeView.attentionTextForTesting, "Needs input")
         XCTAssertEqual(windowChromeView.attentionArtifactTextForTesting, "PR #42")
 
-        windowChromeView.render(
-            workspaceName: "MAIN",
-            state: state,
-            metadata: TerminalMetadata(title: "Claude Code"),
+        windowChromeView.render(summary: WorkspaceHeaderSummary(
             attention: WorkspaceAttentionSummary(
                 paneID: PaneID("shell"),
                 tool: .claudeCode,
@@ -707,10 +674,72 @@ final class RootViewCompositionTests: XCTestCase {
                 contextText: "project • main",
                 artifactLink: nil,
                 updatedAt: Date(timeIntervalSince1970: 43)
-            )
-        )
+            ),
+            focusedLabel: "Claude Code",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
 
         XCTAssertTrue(windowChromeView.isAttentionHiddenForTesting)
+    }
+}
+
+private extension RootViewCompositionTests {
+    func makeControllerWithCrowdedHeader(width: CGFloat) -> RootViewController {
+        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: width, height: 840)
+
+        let paneID = PaneID("pane-claude")
+        controller.replaceWorkspacesForTesting([
+            WorkspaceState(
+                id: WorkspaceID("workspace-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "claude")],
+                    focusedPaneID: paneID
+                ),
+                metadataByPaneID: [
+                    paneID: TerminalMetadata(
+                        title: "Claude Code",
+                        currentWorkingDirectory: "/tmp/project",
+                        processName: "claude",
+                        gitBranch: "feature/review-band"
+                    ),
+                ],
+                agentStatusByPaneID: [
+                    paneID: PaneAgentStatus(
+                        tool: .claudeCode,
+                        state: .needsInput,
+                        text: nil,
+                        artifactLink: nil,
+                        updatedAt: Date(timeIntervalSince1970: 10),
+                        source: .explicit
+                    ),
+                ],
+                reviewStateByPaneID: [
+                    paneID: WorkspaceReviewState(
+                        branch: "feature/review-band",
+                        pullRequest: WorkspacePullRequestSummary(
+                            number: 128,
+                            url: URL(string: "https://example.com/pr/128"),
+                            state: .draft
+                        ),
+                        reviewChips: [
+                            WorkspaceReviewChip(text: "Draft", style: .info),
+                            WorkspaceReviewChip(text: "2 failing", style: .danger),
+                        ]
+                    ),
+                ]
+            ),
+        ])
+        controller.view.layoutSubtreeIfNeeded()
+        return controller
+    }
+
+    func frameInRoot(_ localFrame: NSRect, within chromeView: NSView) -> NSRect {
+        localFrame.offsetBy(dx: chromeView.frame.minX, dy: chromeView.frame.minY)
     }
 }
 

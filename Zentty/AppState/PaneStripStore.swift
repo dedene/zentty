@@ -16,6 +16,7 @@ struct WorkspaceState: Equatable, Sendable {
     var metadataByPaneID: [PaneID: TerminalMetadata]
     var agentStatusByPaneID: [PaneID: PaneAgentStatus]
     var inferredArtifactByPaneID: [PaneID: WorkspaceArtifactLink]
+    var reviewStateByPaneID: [PaneID: WorkspaceReviewState]
 
     init(
         id: WorkspaceID,
@@ -24,7 +25,8 @@ struct WorkspaceState: Equatable, Sendable {
         nextPaneNumber: Int = 1,
         metadataByPaneID: [PaneID: TerminalMetadata] = [:],
         agentStatusByPaneID: [PaneID: PaneAgentStatus] = [:],
-        inferredArtifactByPaneID: [PaneID: WorkspaceArtifactLink] = [:]
+        inferredArtifactByPaneID: [PaneID: WorkspaceArtifactLink] = [:],
+        reviewStateByPaneID: [PaneID: WorkspaceReviewState] = [:]
     ) {
         self.id = id
         self.title = title
@@ -33,6 +35,7 @@ struct WorkspaceState: Equatable, Sendable {
         self.metadataByPaneID = metadataByPaneID
         self.agentStatusByPaneID = agentStatusByPaneID
         self.inferredArtifactByPaneID = inferredArtifactByPaneID
+        self.reviewStateByPaneID = reviewStateByPaneID
     }
 }
 
@@ -122,9 +125,7 @@ final class WorkspaceStore {
             }
 
             if let removedPane = workspace.paneStripState.closeFocusedPane(singlePaneWidth: layoutContext.singlePaneWidth) {
-                workspace.metadataByPaneID.removeValue(forKey: removedPane.id)
-                workspace.agentStatusByPaneID.removeValue(forKey: removedPane.id)
-                workspace.inferredArtifactByPaneID.removeValue(forKey: removedPane.id)
+                clearPaneState(for: removedPane.id, in: &workspace)
             }
         case .focusLeft:
             workspace.paneStripState.moveFocusLeft()
@@ -179,14 +180,17 @@ final class WorkspaceStore {
         }
 
         var workspace = workspaces[workspaceIndex]
+        let previousMetadata = workspace.metadataByPaneID[paneID]
         workspace.metadataByPaneID[paneID] = metadata
+        if branchContextDidChange(previous: previousMetadata, next: metadata) {
+            clearBranchDerivedState(for: paneID, in: &workspace)
+        }
         if
             let existingStatus = workspace.agentStatusByPaneID[paneID],
             existingStatus.source == .inferred,
             AgentToolRecognizer.recognize(metadata: metadata) == nil
         {
             workspace.agentStatusByPaneID.removeValue(forKey: paneID)
-            workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
         }
         workspaces[workspaceIndex] = workspace
         notifyStateChanged()
@@ -240,7 +244,6 @@ final class WorkspaceStore {
 
         if payload.clearsStatus {
             workspace.agentStatusByPaneID.removeValue(forKey: payload.paneID)
-            workspace.inferredArtifactByPaneID.removeValue(forKey: payload.paneID)
             workspaces[workspaceIndex] = workspace
             notifyStateChanged()
             return
@@ -308,6 +311,59 @@ final class WorkspaceStore {
         notifyStateChanged()
     }
 
+    func updateReviewResolution(paneID: PaneID, resolution: WorkspaceReviewResolution) {
+        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
+            workspace.paneStripState.panes.contains(where: { $0.id == paneID })
+        }) else {
+            return
+        }
+
+        var workspace = workspaces[workspaceIndex]
+        let previousState = workspace.reviewStateByPaneID[paneID]
+        let previousArtifact = workspace.inferredArtifactByPaneID[paneID]
+        guard previousState != resolution.reviewState || previousArtifact != resolution.inferredArtifact else {
+            return
+        }
+
+        if let reviewState = resolution.reviewState {
+            workspace.reviewStateByPaneID[paneID] = reviewState
+        } else {
+            workspace.reviewStateByPaneID.removeValue(forKey: paneID)
+        }
+
+        if let artifact = resolution.inferredArtifact {
+            workspace.inferredArtifactByPaneID[paneID] = artifact
+        } else {
+            workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
+        }
+
+        workspaces[workspaceIndex] = workspace
+        notifyStateChanged()
+    }
+
+    func updateReviewState(paneID: PaneID, reviewState: WorkspaceReviewState?) {
+        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
+            workspace.paneStripState.panes.contains(where: { $0.id == paneID })
+        }) else {
+            return
+        }
+
+        var workspace = workspaces[workspaceIndex]
+        let previousState = workspace.reviewStateByPaneID[paneID]
+        guard previousState != reviewState else {
+            return
+        }
+
+        if let reviewState {
+            workspace.reviewStateByPaneID[paneID] = reviewState
+        } else {
+            workspace.reviewStateByPaneID.removeValue(forKey: paneID)
+        }
+
+        workspaces[workspaceIndex] = workspace
+        notifyStateChanged()
+    }
+
     func closePane(id: PaneID) {
         guard var workspace = activeWorkspace else {
             return
@@ -324,9 +380,7 @@ final class WorkspaceStore {
         }
 
         if let removedPane = workspace.paneStripState.closeFocusedPane(singlePaneWidth: layoutContext.singlePaneWidth) {
-            workspace.metadataByPaneID.removeValue(forKey: removedPane.id)
-            workspace.agentStatusByPaneID.removeValue(forKey: removedPane.id)
-            workspace.inferredArtifactByPaneID.removeValue(forKey: removedPane.id)
+            clearPaneState(for: removedPane.id, in: &workspace)
         }
 
         activeWorkspace = workspace
@@ -335,6 +389,39 @@ final class WorkspaceStore {
 
     func updateMetadata(id: PaneID, metadata: TerminalMetadata) {
         updateMetadata(paneID: id, metadata: metadata)
+    }
+
+    func replaceWorkspacesForTesting(_ workspaces: [WorkspaceState], activeWorkspaceID: WorkspaceID? = nil) {
+        self.workspaces = workspaces
+        let fallbackID = activeWorkspaceID ?? workspaces.first?.id ?? WorkspaceID("workspace-main")
+        self.activeWorkspaceID = workspaces.contains(where: { $0.id == fallbackID })
+            ? fallbackID
+            : workspaces.first?.id ?? WorkspaceID("workspace-main")
+        notifyStateChanged()
+    }
+
+    private func clearStatusDerivedState(for paneID: PaneID, in workspace: inout WorkspaceState) {
+        workspace.agentStatusByPaneID.removeValue(forKey: paneID)
+    }
+
+    private func clearBranchDerivedState(for paneID: PaneID, in workspace: inout WorkspaceState) {
+        workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
+        workspace.reviewStateByPaneID.removeValue(forKey: paneID)
+        if var status = workspace.agentStatusByPaneID[paneID], status.artifactLink?.kind == .pullRequest {
+            status.artifactLink = nil
+            workspace.agentStatusByPaneID[paneID] = status
+        }
+    }
+
+    private func clearPaneState(for paneID: PaneID, in workspace: inout WorkspaceState) {
+        workspace.metadataByPaneID.removeValue(forKey: paneID)
+        clearStatusDerivedState(for: paneID, in: &workspace)
+        clearBranchDerivedState(for: paneID, in: &workspace)
+    }
+
+    private func branchContextDidChange(previous: TerminalMetadata?, next: TerminalMetadata) -> Bool {
+        WorkspaceContextFormatter.trimmed(previous?.gitBranch) != WorkspaceContextFormatter.trimmed(next.gitBranch)
+            || WorkspaceContextFormatter.resolvedWorkingDirectory(for: previous) != WorkspaceContextFormatter.resolvedWorkingDirectory(for: next)
     }
 
     private func makePane(in workspace: inout WorkspaceState) -> PaneState {
