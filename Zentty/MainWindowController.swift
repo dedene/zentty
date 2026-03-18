@@ -11,19 +11,28 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     let window: NSWindow
     private let rootViewController: RootViewController
+    private let sidebarWidthDefaults: UserDefaults
+    private let sidebarVisibilityDefaults: UserDefaults
     private let paneLayoutDefaults: UserDefaults
     private var settingsWindowController: PaneLayoutSettingsWindowController?
 
-    override init() {
+    init(
+        sidebarWidthDefaults: UserDefaults = .standard,
+        sidebarVisibilityDefaults: UserDefaults = .standard,
+        paneLayoutDefaults: UserDefaults = .standard
+    ) {
         let initialFrame = Self.defaultFrame()
-        let paneLayoutDefaults = UserDefaults.standard
+        let sidebarVisibility = SidebarVisibilityPreference.restoredVisibility(from: sidebarVisibilityDefaults)
         let initialLayoutContext = Self.initialPaneLayoutContext(
             initialFrame: initialFrame,
-            sidebarWidth: SidebarWidthPreference.restoredWidth(from: .standard),
+            sidebarWidth: SidebarWidthPreference.restoredWidth(from: sidebarWidthDefaults),
+            sidebarVisibility: sidebarVisibility,
             paneLayoutDefaults: paneLayoutDefaults
         )
 
         let rootViewController = RootViewController(
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
             paneLayoutDefaults: paneLayoutDefaults,
             initialLayoutContext: initialLayoutContext
         )
@@ -47,6 +56,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.contentView = rootViewController.view
 
         self.rootViewController = rootViewController
+        self.sidebarWidthDefaults = sidebarWidthDefaults
+        self.sidebarVisibilityDefaults = sidebarVisibilityDefaults
         self.paneLayoutDefaults = paneLayoutDefaults
         self.window = window
         super.init()
@@ -154,6 +165,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.focusedPaneTitleForTesting
     }
 
+    var sidebarToggleMinXForTesting: CGFloat {
+        rootViewController.sidebarToggleMinXForTesting
+    }
+
+    var sidebarToggleMidYForTesting: CGFloat {
+        rootViewController.sidebarToggleMidYForTesting
+    }
+
+    var isSidebarToggleActiveForTesting: Bool {
+        rootViewController.isSidebarToggleActiveForTesting
+    }
+
     private func handle(_ action: AppAction) {
         rootViewController.handle(action)
     }
@@ -179,6 +202,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             button.frame = frame.integral
             nextX = frame.maxX + ChromeGeometry.trafficLightSpacing
         }
+
+        let anchorPointInWindow = buttonSuperview.convert(
+            NSPoint(x: zoomButton.frame.maxX, y: zoomButton.frame.midY),
+            to: nil
+        )
+        let anchorPointInContent = rootViewController.view.convert(anchorPointInWindow, from: nil)
+        rootViewController.updateTrafficLightAnchor(anchorPointInContent)
     }
 
     private static func defaultFrame() -> NSRect {
@@ -202,6 +232,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private static func initialPaneLayoutContext(
         initialFrame: NSRect,
         sidebarWidth: CGFloat,
+        sidebarVisibility: SidebarVisibilityMode,
         paneLayoutDefaults: UserDefaults
     ) -> PaneLayoutContext {
         let preferences = PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults)
@@ -214,7 +245,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return preferences.makeLayoutContext(
             displayClass: displayClass,
             viewportWidth: viewportWidth,
-            leadingVisibleInset: sidebarWidth + ShellMetrics.shellGap
+            leadingVisibleInset: SidebarVisibilityController(mode: sidebarVisibility)
+                .effectiveLeadingInset(sidebarWidth: sidebarWidth),
+            sizing: PaneLayoutSizing.forSidebarVisibility(sidebarVisibility)
         )
     }
 }

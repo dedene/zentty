@@ -87,4 +87,10 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertEqual(laptopContext.singlePaneWidth, 894, accuracy: 0.001)
         XCTAssertEqual(largeDisplayContext.singlePaneWidth, 1414, accuracy: 0.001)
     }
+
+    func test_sidebar_visibility_uses_shared_edge_aligned_layout_sizing_in_all_states() {
+        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.pinnedOpen), .edgeAligned)
+        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.hidden), .edgeAligned)
+        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.hoverPeek), .edgeAligned)
+    }
 }

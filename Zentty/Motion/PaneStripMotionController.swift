@@ -22,6 +22,9 @@ final class PaneStripMotionController {
         static let secondaryEmphasis: CGFloat = 0.92
     }
 
+    static let defaultAnimationDuration: TimeInterval = 0.22
+    static let defaultAnimationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+
     func presentation(
         for state: PaneStripState,
         in viewportSize: CGSize,
@@ -161,10 +164,15 @@ final class PaneStripMotionController {
         snapped(offset, backingScaleFactor: backingScaleFactor)
     }
 
-    func animate(in hostView: NSView, updates: () -> Void) {
+    func animate(
+        in hostView: NSView,
+        duration: TimeInterval = defaultAnimationDuration,
+        timingFunction: CAMediaTimingFunction = defaultAnimationTimingFunction,
+        updates: () -> Void
+    ) {
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.22
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.duration = duration
+            context.timingFunction = timingFunction
             context.allowsImplicitAnimation = true
             updates()
             hostView.layoutSubtreeIfNeeded()

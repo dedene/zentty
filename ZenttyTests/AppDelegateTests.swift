@@ -160,7 +160,52 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(settingsWindow.title, "Settings")
     }
 
+    func test_application_launch_places_sidebar_toggle_beside_traffic_lights_without_resize() throws {
+        NSApp.mainMenu = nil
+
+        let delegate = AppDelegate()
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+
+        let launchedWindow = try XCTUnwrap(
+            NSApp.windows.first(where: { window in
+                !originalWindows.contains(where: { $0 === window }) && window.isVisible
+            })
+        )
+        let contentView = try XCTUnwrap(launchedWindow.contentView)
+        let overlayView = try XCTUnwrap(contentView.firstDescendant(ofType: SidebarToggleOverlayView.self))
+        let zoomButton = try XCTUnwrap(launchedWindow.standardWindowButton(.zoomButton))
+        let buttonSuperview = try XCTUnwrap(zoomButton.superview)
+        let zoomAnchorInWindow = buttonSuperview.convert(
+            NSPoint(x: zoomButton.frame.maxX, y: zoomButton.frame.midY),
+            to: nil
+        )
+        let zoomAnchorInContent = contentView.convert(zoomAnchorInWindow, from: nil)
+
+        XCTAssertEqual(
+            overlayView.toggleFrameInSuperviewForTesting.minX - zoomAnchorInContent.x,
+            12,
+            accuracy: 1.0
+        )
+    }
+
     private func menu(named title: String) -> NSMenu? {
         NSApp.mainMenu?.items.first(where: { $0.submenu?.title == title })?.submenu
+    }
+}
+
+private extension NSView {
+    func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+        if let view = self as? T {
+            return view
+        }
+
+        for subview in subviews {
+            if let match = subview.firstDescendant(ofType: type) {
+                return match
+            }
+        }
+
+        return nil
     }
 }

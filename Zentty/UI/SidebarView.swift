@@ -10,6 +10,8 @@ final class SidebarView: NSView {
     var onSelectWorkspace: ((WorkspaceID) -> Void)?
     var onCreateWorkspace: (() -> Void)?
     var onResizeWidth: ((CGFloat) -> Void)?
+    var onPointerEntered: (() -> Void)?
+    var onPointerExited: (() -> Void)?
 
     private let backgroundView = GlassSurfaceView(style: .sidebar)
     private let listScrollView = NSScrollView()
@@ -22,6 +24,8 @@ final class SidebarView: NSView {
     private var workspaceSummaries: [WorkspaceSidebarSummary] = []
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resizeStartWidth: CGFloat = SidebarWidthPreference.defaultWidth
+    private var trackingArea: NSTrackingArea?
+    private var isResizeEnabled = true
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -93,6 +97,31 @@ final class SidebarView: NSView {
         apply(theme: currentTheme, animated: false)
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        self.trackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onPointerEntered?()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onPointerExited?()
+    }
+
     func render(
         summaries: [WorkspaceSidebarSummary],
         theme: ZenttyTheme
@@ -149,6 +178,11 @@ final class SidebarView: NSView {
         }
     }
 
+    func setResizeEnabled(_ isEnabled: Bool) {
+        isResizeEnabled = isEnabled
+        resizeHandleView.setEnabled(isEnabled)
+    }
+
     @objc
     private func handleWorkspaceButton(_ sender: WorkspaceRowButton) {
         guard let workspaceID = sender.workspaceID else {
@@ -164,6 +198,10 @@ final class SidebarView: NSView {
     }
 
     private func handleResizePan(_ recognizer: NSPanGestureRecognizer) {
+        guard isResizeEnabled else {
+            return
+        }
+
         switch recognizer.state {
         case .began:
             resizeStartWidth = bounds.width
@@ -270,6 +308,10 @@ final class SidebarView: NSView {
 
     var resizeHandleFillAlphaForTesting: CGFloat {
         resizeHandleView.fillAlphaForTesting
+    }
+
+    var isResizeHandleHiddenForTesting: Bool {
+        resizeHandleView.isHidden
     }
 }
 
@@ -619,11 +661,15 @@ private final class SidebarFooterButton: NSButton {
 private final class SidebarResizeHandleView: NSView {
     var onPan: ((NSPanGestureRecognizer) -> Void)?
 
+    private var panRecognizer: NSPanGestureRecognizer?
+    private(set) var isEnabled = true
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         let recognizer = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         addGestureRecognizer(recognizer)
+        panRecognizer = recognizer
     }
 
     @available(*, unavailable)
@@ -633,6 +679,9 @@ private final class SidebarResizeHandleView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
+        guard isEnabled else {
+            return
+        }
         addCursorRect(bounds, cursor: .resizeLeftRight)
     }
 
@@ -640,8 +689,18 @@ private final class SidebarResizeHandleView: NSView {
         layer?.backgroundColor = NSColor.clear.cgColor
     }
 
+    func setEnabled(_ isEnabled: Bool) {
+        self.isEnabled = isEnabled
+        panRecognizer?.isEnabled = isEnabled
+        isHidden = !isEnabled
+        discardCursorRects()
+    }
+
     @objc
     private func handlePan(_ recognizer: NSPanGestureRecognizer) {
+        guard isEnabled else {
+            return
+        }
         onPan?(recognizer)
     }
 

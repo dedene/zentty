@@ -114,6 +114,37 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(widths[1], 1000, accuracy: 0.001)
     }
 
+    func test_updating_layout_context_reprojects_multi_pane_layout_sizing_even_when_widths_do_not_change() {
+        let collapsedSizing = PaneLayoutSizing(
+            horizontalInset: 0,
+            verticalInset: PaneLayoutSizing.balanced.verticalInset,
+            interPaneSpacing: PaneLayoutSizing.balanced.interPaneSpacing
+        )
+        let initialContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .largeDisplay,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0
+        )
+        let updatedContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .largeDisplay,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0,
+            sizing: collapsedSizing
+        )
+        let store = WorkspaceStore(layoutContext: initialContext)
+        store.send(.splitAfterFocusedPane)
+
+        var changeNotifications = 0
+        store.onChange = { _ in
+            changeNotifications += 1
+        }
+
+        store.updateLayoutContext(updatedContext)
+
+        XCTAssertEqual(store.activeWorkspace?.paneStripState.layoutSizing, collapsedSizing)
+        XCTAssertEqual(changeNotifications, 1)
+    }
+
     func test_updating_from_fallback_layout_context_reprojects_initial_shell_to_current_full_width() {
         let store = WorkspaceStore(layoutContext: .fallback)
         let actualContext = PaneLayoutPreferences.default.makeLayoutContext(

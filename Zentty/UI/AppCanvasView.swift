@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 final class AppCanvasView: NSView {
     var onFocusSettled: ((PaneID) -> Void)? {
@@ -16,10 +17,10 @@ final class AppCanvasView: NSView {
             paneStripView.onPaneCloseRequested = onPaneCloseRequested
         }
     }
-    var leadingVisibleInset: CGFloat = 0 {
-        didSet {
-            paneStripView.leadingVisibleInset = leadingVisibleInset
-        }
+
+    var leadingVisibleInset: CGFloat {
+        get { paneStripView.leadingVisibleInset }
+        set { paneStripView.setLeadingVisibleInset(newValue, animated: false) }
     }
     private let paneStripView: PaneStripView
     private var currentTheme = ZenttyTheme.fallback(for: nil)
@@ -53,21 +54,49 @@ final class AppCanvasView: NSView {
         ])
 
         paneStripView.apply(theme: currentTheme, animated: false)
-        paneStripView.leadingVisibleInset = leadingVisibleInset
+        paneStripView.setLeadingVisibleInset(0, animated: false)
     }
 
     func render(
         workspaceName: String,
         state: PaneStripState,
         metadataByPaneID: [PaneID: TerminalMetadata] = [:],
-        theme: ZenttyTheme
+        theme: ZenttyTheme,
+        leadingVisibleInset: CGFloat? = nil,
+        animated: Bool = true,
+        duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
+        timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
-        apply(theme: theme, animated: true)
-        paneStripView.render(state)
+        apply(theme: theme, animated: animated)
+        if let leadingVisibleInset {
+            paneStripView.transition(
+                to: state,
+                leadingVisibleInset: leadingVisibleInset,
+                animated: animated,
+                duration: duration,
+                timingFunction: timingFunction
+            )
+        } else {
+            paneStripView.render(state)
+        }
     }
 
     func focusCurrentPaneIfNeeded() {
         paneStripView.focusCurrentPaneIfNeeded()
+    }
+
+    func setLeadingVisibleInset(
+        _ leadingVisibleInset: CGFloat,
+        animated: Bool,
+        duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
+        timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
+    ) {
+        paneStripView.setLeadingVisibleInset(
+            leadingVisibleInset,
+            animated: animated,
+            duration: duration,
+            timingFunction: timingFunction
+        )
     }
 
     func updateMetadata(for paneID: PaneID, metadata: TerminalMetadata) {
@@ -77,6 +106,14 @@ final class AppCanvasView: NSView {
 
     var lastPaneStripRenderWasAnimatedForTesting: Bool {
         paneStripView.lastRenderWasAnimatedForTesting
+    }
+
+    var paneStripRenderCountForTesting: Int {
+        paneStripView.renderInvocationCountForTesting
+    }
+
+    var lastLeadingVisibleInsetForTesting: CGFloat {
+        paneStripView.leadingVisibleInsetForTesting
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {

@@ -42,7 +42,7 @@ struct PaneLayoutItem: Equatable, Sendable {
 struct PaneStripState: Equatable, Sendable {
     private(set) var panes: [PaneState]
     private(set) var focusedPaneID: PaneID?
-    let layoutSizing: PaneLayoutSizing
+    private(set) var layoutSizing: PaneLayoutSizing
 
     init(
         panes: [PaneState],
@@ -191,6 +191,16 @@ struct PaneStripState: Equatable, Sendable {
             panes[index].width = max(1, panes[index].width * resolvedFactor)
         }
 
+        return true
+    }
+
+    @discardableResult
+    mutating func updateLayoutSizing(_ layoutSizing: PaneLayoutSizing) -> Bool {
+        guard self.layoutSizing != layoutSizing else {
+            return false
+        }
+
+        self.layoutSizing = layoutSizing
         return true
     }
 

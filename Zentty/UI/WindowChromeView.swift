@@ -5,6 +5,7 @@ final class WindowChromeView: NSView {
 
     private let attentionChipView = WorkspaceAttentionChipView()
     private let contextStripView = ContextStripView()
+    private var currentTheme = ZenttyTheme.fallback(for: nil)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -52,6 +53,7 @@ final class WindowChromeView: NSView {
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {
+        currentTheme = theme
         attentionChipView.apply(theme: theme, animated: animated)
         contextStripView.apply(theme: theme, animated: animated)
 
