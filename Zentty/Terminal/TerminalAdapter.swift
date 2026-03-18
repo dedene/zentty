@@ -36,6 +36,7 @@ enum TerminalEvent: Equatable, Sendable {
 
 @MainActor
 protocol TerminalAdapter: AnyObject {
+    var hasScrollback: Bool { get }
     func makeTerminalView() -> NSView
     func startSession(using request: TerminalSessionRequest) throws
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity)

@@ -11,6 +11,7 @@ settings:
     GENERATE_INFOPLIST_FILE: NO
     CLANG_ENABLE_MODULES: YES
     CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: 25TVW8MSGJ
 schemes:
   Zentty:
     build:
@@ -34,6 +35,8 @@ targets:
     platform: macOS
     sources:
       - path: Zentty
+    resources:
+      - path: ZenttyResources
     dependencies:
       - framework: FrameworksLocal/GhosttyKit.xcframework
         embed: false
@@ -49,6 +52,18 @@ targets:
             echo "error: GhosttyKit.xcframework not found. Run scripts/build_ghosttykit.sh first."
             exit 1
           fi
+        basedOnDependencyAnalysis: false
+    postBuildScripts:
+      - name: Copy Agent Shell Resources
+        script: |
+          set -euo pipefail
+
+          RESOURCES_SRC="${PROJECT_DIR}/ZenttyResources"
+          RESOURCES_DST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+
+          mkdir -p "${RESOURCES_DST}/bin" "${RESOURCES_DST}/shell-integration"
+          rsync -a --delete "${RESOURCES_SRC}/bin/" "${RESOURCES_DST}/bin/"
+          rsync -a --delete "${RESOURCES_SRC}/shell-integration/" "${RESOURCES_DST}/shell-integration/"
         basedOnDependencyAnalysis: false
     settings:
       base:

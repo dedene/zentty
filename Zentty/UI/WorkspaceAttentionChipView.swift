@@ -57,7 +57,7 @@ final class WorkspaceAttentionChipView: NSView {
             return
         }
 
-        isHidden = !(attention.state == .needsInput || attention.state == .unresolvedStop)
+        isHidden = !attention.requiresHumanAttention
         guard !isHidden else {
             return
         }

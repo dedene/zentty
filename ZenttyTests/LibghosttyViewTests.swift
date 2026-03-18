@@ -19,6 +19,81 @@ final class LibghosttyViewTests: XCTestCase {
         XCTAssertEqual(update.size.width, expectedBackingSize.width, accuracy: 0.001)
         XCTAssertEqual(update.size.height, expectedBackingSize.height, accuracy: 0.001)
         XCTAssertGreaterThan(update.scale, 0)
+        XCTAssertEqual(surface.refreshCallCount, 1)
+    }
+
+    func test_repeated_layout_with_same_viewport_does_not_reissue_refresh() {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
+        view.bind(surfaceController: surface)
+
+        view.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(surface.viewportUpdates.count, 1)
+        XCTAssertEqual(surface.refreshCallCount, 1)
+    }
+
+    func test_resize_reissues_viewport_update_and_refresh() {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
+        view.bind(surfaceController: surface)
+
+        view.layoutSubtreeIfNeeded()
+        view.frame = NSRect(x: 0, y: 0, width: 480, height: 200)
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(surface.viewportUpdates.count, 2)
+        XCTAssertEqual(surface.refreshCallCount, 2)
+    }
+
+    func test_suspended_viewport_sync_skips_intermediate_updates_until_resumed() {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
+        view.bind(surfaceController: surface)
+
+        view.setViewportSyncSuspended(true)
+        view.layoutSubtreeIfNeeded()
+        view.frame = NSRect(x: 0, y: 0, width: 480, height: 200)
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(surface.viewportUpdates.count, 0)
+        XCTAssertEqual(surface.refreshCallCount, 0)
+
+        view.setViewportSyncSuspended(false)
+
+        XCTAssertEqual(surface.viewportUpdates.count, 1)
+        XCTAssertEqual(surface.refreshCallCount, 1)
+        XCTAssertEqual(
+            try XCTUnwrap(surface.viewportUpdates.last).size.height,
+            view.convertToBacking(view.bounds).height,
+            accuracy: 0.001
+        )
+    }
+
+    func test_suspended_viewport_sync_keeps_drawable_size_frozen_until_resumed() throws {
+        let view = LibghosttyView()
+        let surface = LibghosttySurfaceViewportSpy()
+        view.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
+        view.bind(surfaceController: surface)
+        view.layoutSubtreeIfNeeded()
+
+        let metalLayer = try XCTUnwrap(view.layer as? CAMetalLayer)
+        let originalDrawableSize = metalLayer.drawableSize
+
+        view.setViewportSyncSuspended(true)
+        view.frame = NSRect(x: 0, y: 0, width: 480, height: 200)
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(metalLayer.drawableSize, originalDrawableSize)
+
+        view.setViewportSyncSuspended(false)
+
+        XCTAssertEqual(metalLayer.drawableSize.height, floor(view.convertToBacking(view.bounds).height))
+        XCTAssertEqual(metalLayer.drawableSize.width, floor(view.convertToBacking(view.bounds).width))
     }
 
     func test_focus_changes_are_forwarded_to_surface() {
@@ -398,6 +473,7 @@ final class LibghosttyViewTests: XCTestCase {
 }
 
 private final class LibghosttySurfaceViewportSpy: LibghosttySurfaceControlling {
+    var hasScrollback = false
     struct ViewportUpdate: Equatable {
         let size: CGSize
         let scale: CGFloat
@@ -430,6 +506,7 @@ private final class LibghosttySurfaceViewportSpy: LibghosttySurfaceControlling {
     private(set) var mouseRecords: [MouseRecord] = []
     private(set) var scrollRecords: [ScrollRecord] = []
     private(set) var bindingActions: [String] = []
+    private(set) var refreshCallCount = 0
     var selectionPresent = false
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {
@@ -440,7 +517,9 @@ private final class LibghosttySurfaceViewportSpy: LibghosttySurfaceControlling {
         focusUpdates.append(isFocused)
     }
 
-    func refresh() {}
+    func refresh() {
+        refreshCallCount += 1
+    }
 
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool {
         keyEvents.append(.init(

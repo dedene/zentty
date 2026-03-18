@@ -3,14 +3,13 @@ import XCTest
 
 @MainActor
 final class PaneLayoutSettingsWindowControllerTests: XCTestCase {
-    func test_settings_window_shows_both_display_classes_and_selected_presets() throws {
-        let controller = PaneLayoutSettingsWindowController(
-            preferences: PaneLayoutPreferences(
-                laptopPreset: .compact,
-                largeDisplayPreset: .roomy
-            ),
-            onUpdate: { _, _ in }
+    func test_settings_window_shows_behavior_labels_and_summary_copy() throws {
+        let preferences = PaneLayoutPreferences(
+            laptopPreset: .compact,
+            largeDisplayPreset: .balanced,
+            ultrawidePreset: .balanced
         )
+        let controller = PaneLayoutSettingsWindowController(preferences: preferences)
 
         controller.showWindow(nil)
 
@@ -19,7 +18,11 @@ final class PaneLayoutSettingsWindowControllerTests: XCTestCase {
         )
         contentController.loadViewIfNeeded()
 
-        XCTAssertEqual(contentController.sectionTitlesForTesting, ["Laptop", "Large Display"])
-        XCTAssertEqual(contentController.selectedPresetTitlesForTesting, ["Compact", "Roomy"])
+        XCTAssertEqual(contentController.sectionTitlesForTesting, ["Laptop", "Large Display", "Ultrawide Hybrid"])
+        XCTAssertEqual(contentController.presetSummaryForTesting, [
+            "Laptop behavior: preserve the active pane, then scroll horizontally.",
+            "Large Display behavior: preserve the active pane with slightly denser columns.",
+            "Ultrawide Hybrid behavior: first split is 50/50, then keep horizontal scrolling."
+        ])
     }
 }

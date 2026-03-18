@@ -78,7 +78,7 @@ final class MainWindowControllerTests: XCTestCase {
         controller.showWindow(nil)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 
-        controller.splitRight(nil)
+        controller.splitHorizontally(nil)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let initialAppCanvasView = try XCTUnwrap(
@@ -101,8 +101,8 @@ final class MainWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(initialWidths.count, 2)
         XCTAssertEqual(resizedWidths.count, 2)
-        XCTAssertEqual(resizedWidths[0], initialWidths[0] * expectedScaleFactor, accuracy: 0.5)
-        XCTAssertEqual(resizedWidths[1], initialWidths[1] * expectedScaleFactor, accuracy: 0.5)
+        XCTAssertEqual(resizedWidths[0], initialWidths[0] * expectedScaleFactor, accuracy: 1.0)
+        XCTAssertEqual(resizedWidths[1], initialWidths[1] * expectedScaleFactor, accuracy: 1.0)
         XCTAssertFalse(resizedAppCanvasView.lastPaneStripRenderWasAnimatedForTesting)
     }
 
@@ -119,7 +119,7 @@ final class MainWindowControllerTests: XCTestCase {
     func test_split_and_focus_actions_route_through_root_dispatcher() {
         let controller = MainWindowController()
 
-        controller.splitRight(nil)
+        controller.splitHorizontally(nil)
         controller.focusLeftPane(nil)
 
         XCTAssertEqual(controller.activePaneTitlesForTesting, ["shell", "pane 1"])

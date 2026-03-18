@@ -1,11 +1,28 @@
 import XCTest
 @testable import Zentty
 
-final class WorkspaceSidebarSummaryTests: XCTestCase {
-    func test_builder_prefers_terminal_title_and_compacts_context_line_for_normal_shells() {
-        let paneID = PaneID("workspace-main-shell")
+final class WorkspaceSidebarNodeBuilderTests: XCTestCase {
+    func test_node_single_pane_has_empty_panes_array() {
+        let paneID = PaneID("ws-shell")
         let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+            id: WorkspaceID("ws"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            )
+        )
+
+        let node = WorkspaceSidebarNodeBuilder.node(for: workspace, isActive: true)
+
+        XCTAssertTrue(node.panes.isEmpty)
+        XCTAssertEqual(node.header.paneCount, 1)
+    }
+
+    func test_node_header_primary_from_first_pane_cwd() {
+        let paneID = PaneID("ws-shell")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("ws"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -13,53 +30,111 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ),
             metadataByPaneID: [
                 paneID: TerminalMetadata(
-                    title: "Claude Code",
-                    currentWorkingDirectory: "/tmp/project",
-                    processName: "claude",
-                    gitBranch: "main"
+                    currentWorkingDirectory: "/tmp/project"
                 )
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
+        let node = WorkspaceSidebarNodeBuilder.node(for: workspace, isActive: true)
 
-        XCTAssertEqual(summary.primaryText, "Claude Code")
-        XCTAssertNil(summary.statusText)
-        XCTAssertEqual(summary.contextText, "project • main")
-        XCTAssertNil(summary.artifactLink)
-        XCTAssertEqual(summary.badgeText, "M")
-        XCTAssertFalse(summary.showsGeneratedTitle)
-        XCTAssertTrue(summary.isActive)
+        XCTAssertEqual(node.header.primaryText, "project")
     }
 
-    func test_builder_falls_back_to_focused_pane_title_when_metadata_missing() {
+    func test_node_header_primary_falls_back_to_pane_context_path_when_metadata_is_empty() {
+        let paneID = PaneID("ws-shell")
         let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+            id: WorkspaceID("ws"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            paneContextByPaneID: [
+                paneID: PaneShellContext(
+                    scope: .local,
+                    path: "/Users/peter/src/zentty",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: "m1-pro-peter"
+                )
+            ]
+        )
+
+        let node = WorkspaceSidebarNodeBuilder.node(for: workspace, isActive: true)
+
+        XCTAssertEqual(node.header.primaryText, "zentty")
+    }
+
+    func test_node_header_primary_prefers_metadata_cwd_over_pane_context_path() {
+        let paneID = PaneID("ws-shell")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("ws"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(currentWorkingDirectory: "/tmp/metadata-project")
+            ],
+            paneContextByPaneID: [
+                paneID: PaneShellContext(
+                    scope: .local,
+                    path: "/Users/peter/src/context-project",
+                    home: "/Users/peter",
+                    user: nil,
+                    host: nil
+                )
+            ]
+        )
+
+        let node = WorkspaceSidebarNodeBuilder.node(for: workspace, isActive: true)
+
+        XCTAssertEqual(node.header.primaryText, "metadata-project")
+    }
+
+    func test_node_pane_labels_fall_back_to_pane_context_path_when_metadata_is_empty() {
+        let pane1ID = PaneID("ws-pane-1")
+        let pane2ID = PaneID("ws-pane-2")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("ws"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
-                    PaneState(id: PaneID("workspace-main-shell"), title: "shell"),
-                    PaneState(id: PaneID("workspace-main-pane-1"), title: "pane 1"),
+                    PaneState(id: pane1ID, title: "shell"),
+                    PaneState(id: pane2ID, title: "pane 1"),
                 ],
-                focusedPaneID: PaneID("workspace-main-pane-1")
-            )
+                focusedPaneID: pane1ID
+            ),
+            paneContextByPaneID: [
+                pane1ID: PaneShellContext(
+                    scope: .local,
+                    path: "/Users/peter/src/zentty",
+                    home: "/Users/peter",
+                    user: nil,
+                    host: nil
+                ),
+                pane2ID: PaneShellContext(
+                    scope: .local,
+                    path: "/Users/peter/src/docs",
+                    home: "/Users/peter",
+                    user: nil,
+                    host: nil
+                )
+            ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let node = WorkspaceSidebarNodeBuilder.node(for: workspace, isActive: true)
 
-        XCTAssertEqual(summary.primaryText, "pane 1")
-        XCTAssertNil(summary.statusText)
-        XCTAssertEqual(summary.contextText, "")
-        XCTAssertFalse(summary.showsGeneratedTitle)
-        XCTAssertEqual(summary.badgeText, "M")
-        XCTAssertFalse(summary.isActive)
+        XCTAssertEqual(node.header.primaryText, "zentty")
+        XCTAssertEqual(node.panes.map(\.primaryText), ["zentty", "docs"])
     }
 
-    func test_builder_prioritizes_attention_from_non_focused_agent_pane() {
-        let shellPaneID = PaneID("workspace-main-shell")
-        let agentPaneID = PaneID("workspace-main-agent")
+    func test_node_attention_bubbles_up_to_header() {
+        let shellPaneID = PaneID("ws-shell")
+        let agentPaneID = PaneID("ws-agent")
         let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+            id: WorkspaceID("ws"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -68,20 +143,6 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
                 ],
                 focusedPaneID: shellPaneID
             ),
-            metadataByPaneID: [
-                shellPaneID: TerminalMetadata(
-                    title: "zsh",
-                    currentWorkingDirectory: "/tmp/project",
-                    processName: "zsh",
-                    gitBranch: "main"
-                ),
-                agentPaneID: TerminalMetadata(
-                    title: "Claude Code",
-                    currentWorkingDirectory: "/tmp/project",
-                    processName: "claude",
-                    gitBranch: "main"
-                ),
-            ],
             agentStatusByPaneID: [
                 agentPaneID: PaneAgentStatus(
                     tool: .claudeCode,
@@ -93,44 +154,77 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
+        let node = WorkspaceSidebarNodeBuilder.node(for: workspace, isActive: true)
 
-        XCTAssertEqual(summary.primaryText, "Claude Code")
-        XCTAssertEqual(summary.statusText, "Needs input")
-        XCTAssertEqual(summary.contextText, "project • main")
-        XCTAssertEqual(summary.attentionState, .needsInput)
+        XCTAssertEqual(node.header.attentionState, .needsInput)
+        XCTAssertEqual(node.header.statusText, "Needs input")
     }
 
-    func test_builder_prefers_explicit_artifact_over_inferred_pull_request() {
-        let paneID = PaneID("workspace-main-shell")
+    func test_node_shared_branch_on_header_nil_on_panes() {
+        let pane1ID = PaneID("ws-pane-1")
+        let pane2ID = PaneID("ws-pane-2")
         let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+            id: WorkspaceID("ws"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: pane1ID, title: "shell"),
+                    PaneState(id: pane2ID, title: "agent"),
+                ],
+                focusedPaneID: pane1ID
+            ),
+            metadataByPaneID: [
+                pane1ID: TerminalMetadata(gitBranch: "main"),
+                pane2ID: TerminalMetadata(gitBranch: "main"),
+            ]
+        )
+
+        let node = WorkspaceSidebarNodeBuilder.node(for: workspace, isActive: true)
+
+        XCTAssertTrue(node.header.gitContext.contains("main"))
+        for pane in node.panes {
+            XCTAssertEqual(pane.gitContext, "")
+        }
+    }
+
+    func test_node_divergent_branches_per_pane() {
+        let pane1ID = PaneID("ws-pane-1")
+        let pane2ID = PaneID("ws-pane-2")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("ws"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: pane1ID, title: "shell"),
+                    PaneState(id: pane2ID, title: "agent"),
+                ],
+                focusedPaneID: pane1ID
+            ),
+            metadataByPaneID: [
+                pane1ID: TerminalMetadata(gitBranch: "main"),
+                pane2ID: TerminalMetadata(gitBranch: "feature/sidebar"),
+            ]
+        )
+
+        let node = WorkspaceSidebarNodeBuilder.node(for: workspace, isActive: true)
+
+        XCTAssertEqual(node.header.gitContext, "")
+        XCTAssertEqual(node.panes.count, 2)
+        XCTAssertEqual(node.panes[0].gitContext, "main")
+        XCTAssertEqual(node.panes[1].gitContext, "feature/sidebar")
+    }
+
+    func test_node_pr_number_appended_to_git_context() {
+        let paneID = PaneID("ws-shell")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("ws"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
             ),
             metadataByPaneID: [
-                paneID: TerminalMetadata(
-                    title: "Claude Code",
-                    currentWorkingDirectory: "/tmp/project",
-                    processName: "claude",
-                    gitBranch: "main"
-                )
-            ],
-            agentStatusByPaneID: [
-                paneID: PaneAgentStatus(
-                    tool: .claudeCode,
-                    state: .needsInput,
-                    text: nil,
-                    artifactLink: WorkspaceArtifactLink(
-                        kind: .session,
-                        label: "Session",
-                        url: URL(string: "https://example.com/session")!,
-                        isExplicit: true
-                    ),
-                    updatedAt: Date(timeIntervalSince1970: 42)
-                )
+                paneID: TerminalMetadata(gitBranch: "feature/pr-test")
             ],
             inferredArtifactByPaneID: [
                 paneID: WorkspaceArtifactLink(
@@ -142,9 +236,54 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
+        let node = WorkspaceSidebarNodeBuilder.node(for: workspace, isActive: true)
 
-        XCTAssertEqual(summary.artifactLink?.label, "Session")
-        XCTAssertEqual(summary.statusText, "Needs input")
+        XCTAssertTrue(node.header.gitContext.contains("feature/pr-test"))
+        XCTAssertTrue(node.header.gitContext.contains("#42"))
+    }
+
+    func test_node_pane_focused_flag_correct() {
+        let pane1ID = PaneID("ws-pane-1")
+        let pane2ID = PaneID("ws-pane-2")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("ws"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: pane1ID, title: "shell"),
+                    PaneState(id: pane2ID, title: "agent"),
+                ],
+                focusedPaneID: pane2ID
+            )
+        )
+
+        let node = WorkspaceSidebarNodeBuilder.node(for: workspace, isActive: true)
+
+        XCTAssertEqual(node.panes.count, 2)
+        XCTAssertFalse(node.panes[0].isFocused)
+        XCTAssertTrue(node.panes[1].isFocused)
+    }
+
+    func test_node_pane_count_reflects_actual() {
+        let pane1ID = PaneID("ws-pane-1")
+        let pane2ID = PaneID("ws-pane-2")
+        let pane3ID = PaneID("ws-pane-3")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("ws"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: pane1ID, title: "shell"),
+                    PaneState(id: pane2ID, title: "agent"),
+                    PaneState(id: pane3ID, title: "editor"),
+                ],
+                focusedPaneID: pane1ID
+            )
+        )
+
+        let node = WorkspaceSidebarNodeBuilder.node(for: workspace, isActive: true)
+
+        XCTAssertEqual(node.header.paneCount, 3)
+        XCTAssertEqual(node.panes.count, 3)
     }
 }

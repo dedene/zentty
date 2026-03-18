@@ -4,6 +4,8 @@ enum KeyboardShortcutKey: Hashable, Sendable {
     case character(String)
     case leftArrow
     case rightArrow
+    case upArrow
+    case downArrow
 }
 
 enum KeyboardModifier: Hashable, Sendable {
@@ -42,6 +44,10 @@ struct KeyboardShortcut: Hashable, Sendable {
             key = .leftArrow
         case 124:
             key = .rightArrow
+        case 125:
+            key = .downArrow
+        case 126:
+            key = .upArrow
         default:
             guard let characters = event.charactersIgnoringModifiers?.lowercased(), characters.count == 1 else {
                 return nil

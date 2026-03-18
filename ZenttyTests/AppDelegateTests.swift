@@ -98,30 +98,44 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(
             viewMenu?.items.map(\.title),
             [
-                "Split Right",
-                "Split Left",
+                "Split Horizontally",
+                "Split Vertically",
                 "",
                 "Focus Left Pane",
                 "Focus Right Pane",
-                "Focus First Pane",
-                "Focus Last Pane",
+                "Focus Up In Column",
+                "Focus Down In Column",
+                "Focus First Column",
+                "Focus Last Column",
             ]
         )
         XCTAssertEqual(
             viewMenu?.items.map(\.action),
             [
-                #selector(AppDelegate.splitRight(_:)),
-                #selector(AppDelegate.splitLeft(_:)),
+                #selector(AppDelegate.splitHorizontally(_:)),
+                #selector(AppDelegate.splitVertically(_:)),
                 nil,
                 #selector(AppDelegate.focusLeftPane(_:)),
                 #selector(AppDelegate.focusRightPane(_:)),
-                #selector(AppDelegate.focusFirstPane(_:)),
-                #selector(AppDelegate.focusLastPane(_:)),
+                #selector(AppDelegate.focusUpInColumn(_:)),
+                #selector(AppDelegate.focusDownInColumn(_:)),
+                #selector(AppDelegate.focusFirstColumn(_:)),
+                #selector(AppDelegate.focusLastColumn(_:)),
             ]
         )
         XCTAssertEqual(
             viewMenu?.items.map(\.keyEquivalent),
-            ["d", "d", "", String(UnicodeScalar(NSLeftArrowFunctionKey)!), String(UnicodeScalar(NSRightArrowFunctionKey)!), String(UnicodeScalar(NSLeftArrowFunctionKey)!), String(UnicodeScalar(NSRightArrowFunctionKey)!)]
+            [
+                "d",
+                "d",
+                "",
+                String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                String(UnicodeScalar(NSRightArrowFunctionKey)!),
+                String(UnicodeScalar(NSUpArrowFunctionKey)!),
+                String(UnicodeScalar(NSDownArrowFunctionKey)!),
+                String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                String(UnicodeScalar(NSRightArrowFunctionKey)!),
+            ]
         )
         XCTAssertEqual(
             viewMenu?.items.map(\.keyEquivalentModifierMask),
@@ -129,6 +143,8 @@ final class AppDelegateTests: XCTestCase {
                 [.command],
                 [.command, .shift],
                 [],
+                [.command, .option],
+                [.command, .option],
                 [.command, .option],
                 [.command, .option],
                 [.command, .option, .shift],

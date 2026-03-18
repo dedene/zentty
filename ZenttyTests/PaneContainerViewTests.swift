@@ -34,14 +34,15 @@ final class PaneContainerViewTests: XCTestCase {
         XCTAssertFalse(paneView.descendantSubviews().contains { $0 is NSStackView })
         XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
         XCTAssertEqual(paneView.layer?.borderWidth ?? 0, 0, accuracy: 0.001)
+        XCTAssertEqual(paneView.layer?.cornerRadius ?? 0, ChromeGeometry.paneRadius, accuracy: 0.001)
         XCTAssertTrue(paneView.usesInsetBorderLayerForTesting)
         XCTAssertEqual(paneView.insetBorderLineWidthForTesting, 1, accuracy: 0.001)
-        XCTAssertEqual(paneView.insetBorderInsetForTesting, 1.5, accuracy: 0.001)
-        XCTAssertEqual(paneView.insetBorderCornerRadiusForTesting, 12.5, accuracy: 0.001)
+        XCTAssertEqual(paneView.insetBorderInsetForTesting, 1.0, accuracy: 0.001)
+        XCTAssertEqual(paneView.insetBorderCornerRadiusForTesting, 17.0, accuracy: 0.001)
         XCTAssertEqual(paneView.insetBorderCornerCurveForTesting, .continuous)
-        XCTAssertEqual(borderFrame.minX, 1.5, accuracy: 0.001)
+        XCTAssertEqual(borderFrame.minX, 1.0, accuracy: 0.001)
         XCTAssertLessThan(borderFrame.maxX, paneView.bounds.maxX)
-        XCTAssertEqual(borderFrame.minY, 1.5, accuracy: 0.001)
+        XCTAssertEqual(borderFrame.minY, 1.0, accuracy: 0.001)
         XCTAssertLessThan(borderFrame.maxY, paneView.bounds.maxY)
     }
 
@@ -197,6 +198,235 @@ final class PaneContainerViewTests: XCTestCase {
 
         XCTAssertTrue(paneView.isStatusOverlayHiddenForTesting)
     }
+
+    func test_pane_container_keeps_border_context_chrome_outside_pane_ownership() {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil),
+            backingScaleFactorProvider: { 2 }
+        )
+
+        paneView.render(
+            pane: pane,
+            emphasis: 1,
+            isFocused: true
+        )
+        paneView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(paneView.hasPaneContextChromeForTesting)
+    }
+
+    func test_render_updates_content_without_mutating_frame() {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        let originalFrame = paneView.frame
+
+        paneView.render(
+            pane: PaneState(id: PaneID("logs"), title: "logs"),
+            emphasis: 0.92,
+            isFocused: false
+        )
+
+        XCTAssertEqual(paneView.frame, originalFrame)
+        XCTAssertEqual(paneView.paneID, PaneID("logs"))
+        XCTAssertEqual(paneView.titleTextForTesting, "logs")
+    }
+
+    func test_terminal_host_and_overlay_follow_bounds_after_resize() {
+        let pane = PaneState(id: PaneID("editor"), title: "editor")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: PaneContainerTerminalAdapterSpy(),
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        guard let terminalSurfaceView = paneView.descendantSubviews().first(where: {
+            String(describing: type(of: $0)) == "TerminalPaneHostView"
+        }) else {
+            return XCTFail("Expected dedicated terminal host view")
+        }
+
+        paneView.frame.size = NSSize(width: 610, height: 330)
+        paneView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
+        XCTAssertEqual(paneView.statusOverlayFrameForTesting, paneView.bounds)
+    }
+
+    func test_frozen_terminal_preserves_original_frame_until_unfrozen() {
+        let pane = PaneState(id: PaneID("editor"), title: "editor")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: PaneContainerTerminalAdapterSpy(),
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        guard let terminalSurfaceView = paneView.descendantSubviews().first(where: {
+            String(describing: type(of: $0)) == "TerminalPaneHostView"
+        }) else {
+            return XCTFail("Expected dedicated terminal host view")
+        }
+
+        paneView.layoutSubtreeIfNeeded()
+        let originalFrame = terminalSurfaceView.frame
+
+        paneView.setTerminalAnimationFrozen(true)
+        paneView.frame.size = NSSize(width: 420, height: 300)
+        paneView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(terminalSurfaceView.frame, originalFrame,
+                       "Frozen terminal should keep its original frame during layout")
+
+        paneView.setTerminalAnimationFrozen(false)
+        paneView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
+    }
+
+    func test_frozen_terminal_keeps_frame_stable_during_layout() {
+        let pane = PaneState(id: PaneID("editor"), title: "editor")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: PaneContainerTerminalAdapterSpy(),
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        guard let terminalSurfaceView = paneView.descendantSubviews().first(where: {
+            String(describing: type(of: $0)) == "TerminalPaneHostView"
+        }) else {
+            return XCTFail("Expected dedicated terminal host view")
+        }
+
+        paneView.layoutSubtreeIfNeeded()
+        let originalFrame = terminalSurfaceView.frame
+
+        paneView.setTerminalAnimationFrozen(true)
+        paneView.frame.size = NSSize(width: 420, height: 300)
+        paneView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(terminalSurfaceView.frame, originalFrame,
+                       "Frozen terminal frame should not change during layout")
+
+        paneView.setTerminalAnimationFrozen(false)
+        paneView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
+    }
+
+    func test_pane_contents_are_clipped_to_the_pane_bounds() {
+        let pane = PaneState(id: PaneID("editor"), title: "editor")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: PaneContainerTerminalAdapterSpy(),
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        XCTAssertTrue(paneView.clipsContentToBoundsForTesting)
+    }
+
+    func test_unfocused_render_uses_unfocused_fill_without_mutating_alpha() {
+        let theme = ZenttyTheme.fallback(for: nil)
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: theme
+        )
+        let originalAlpha = paneView.alphaValue
+
+        paneView.render(
+            pane: pane,
+            emphasis: 0.92,
+            isFocused: false
+        )
+
+        XCTAssertEqual(backgroundColorToken(of: paneView), theme.paneFillUnfocused.themeToken)
+        XCTAssertEqual(paneView.alphaValue, originalAlpha, accuracy: 0.001)
+    }
+
+    func test_unfocused_presentation_alpha_uses_stronger_inactive_dimming() {
+        XCTAssertEqual(
+            PaneContainerView.presentationAlpha(forEmphasis: 0.92),
+            0.7,
+            accuracy: 0.001
+        )
+    }
 }
 
 private enum TestError: Error {
@@ -205,6 +435,7 @@ private enum TestError: Error {
 
 @MainActor
 private final class PaneContainerTerminalAdapterSpy: TerminalAdapter {
+    var hasScrollback = false
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
     private let terminalView = NSView()
@@ -244,4 +475,13 @@ private extension NSView {
         subviews.forEach(walk)
         return views
     }
+}
+
+@MainActor
+private func backgroundColorToken(of view: NSView) -> String? {
+    guard let cgColor = view.layer?.backgroundColor, let color = NSColor(cgColor: cgColor) else {
+        return nil
+    }
+
+    return color.themeToken
 }

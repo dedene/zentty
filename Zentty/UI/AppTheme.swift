@@ -288,6 +288,10 @@ extension NSColor {
             + (0.0722 * channel(color.blueComponent))
     }
 
+    var brightenedForLabel: NSColor {
+        mixed(towards: .white, amount: 0.35)
+    }
+
     func mixed(towards other: NSColor, amount: CGFloat) -> NSColor {
         let source = srgbClamped
         let target = other.srgbClamped

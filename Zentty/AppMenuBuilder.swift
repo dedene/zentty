@@ -94,13 +94,13 @@ enum AppMenuBuilder {
         let viewMenu = NSMenu(title: "View")
 
         viewMenu.addItem(makeMenuActionItem(
-            title: "Split Right",
-            action: #selector(AppDelegate.splitRight(_:)),
+            title: "Split Horizontally",
+            action: #selector(AppDelegate.splitHorizontally(_:)),
             keyEquivalent: "d"
         ))
         viewMenu.addItem(makeMenuActionItem(
-            title: "Split Left",
-            action: #selector(AppDelegate.splitLeft(_:)),
+            title: "Split Vertically",
+            action: #selector(AppDelegate.splitVertically(_:)),
             keyEquivalent: "d",
             modifiers: [.command, .shift]
         ))
@@ -120,14 +120,26 @@ enum AppMenuBuilder {
             modifiers: [.command, .option]
         ))
         viewMenu.addItem(makeMenuActionItem(
-            title: "Focus First Pane",
-            action: #selector(AppDelegate.focusFirstPane(_:)),
+            title: "Focus Up In Column",
+            action: #selector(AppDelegate.focusUpInColumn(_:)),
+            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+            modifiers: [.command, .option]
+        ))
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Focus Down In Column",
+            action: #selector(AppDelegate.focusDownInColumn(_:)),
+            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [.command, .option]
+        ))
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Focus First Column",
+            action: #selector(AppDelegate.focusFirstColumn(_:)),
             keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
             modifiers: [.command, .option, .shift]
         ))
         viewMenu.addItem(makeMenuActionItem(
-            title: "Focus Last Pane",
-            action: #selector(AppDelegate.focusLastPane(_:)),
+            title: "Focus Last Column",
+            action: #selector(AppDelegate.focusLastColumn(_:)),
             keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!),
             modifiers: [.command, .option, .shift]
         ))
@@ -182,13 +194,15 @@ enum AppMenuBuilder {
             ("Select All", #selector(NSResponder.selectAll(_:)), "a"),
         ].map { ($0.0, $0.1, $0.2, [.command]) }
         let requiredViewItems: [(String?, Selector?, String, NSEvent.ModifierFlags)] = [
-            ("Split Right", #selector(AppDelegate.splitRight(_:)), "d", [.command]),
-            ("Split Left", #selector(AppDelegate.splitLeft(_:)), "d", [.command, .shift]),
+            ("Split Horizontally", #selector(AppDelegate.splitHorizontally(_:)), "d", [.command]),
+            ("Split Vertically", #selector(AppDelegate.splitVertically(_:)), "d", [.command, .shift]),
             (nil, nil, "", []),
             ("Focus Left Pane", #selector(AppDelegate.focusLeftPane(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option]),
             ("Focus Right Pane", #selector(AppDelegate.focusRightPane(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option]),
-            ("Focus First Pane", #selector(AppDelegate.focusFirstPane(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option, .shift]),
-            ("Focus Last Pane", #selector(AppDelegate.focusLastPane(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option, .shift]),
+            ("Focus Up In Column", #selector(AppDelegate.focusUpInColumn(_:)), String(UnicodeScalar(NSUpArrowFunctionKey)!), [.command, .option]),
+            ("Focus Down In Column", #selector(AppDelegate.focusDownInColumn(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), [.command, .option]),
+            ("Focus First Column", #selector(AppDelegate.focusFirstColumn(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option, .shift]),
+            ("Focus Last Column", #selector(AppDelegate.focusLastColumn(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option, .shift]),
         ]
         let hasFileItems = hasRequiredItems(requiredFileItems, in: fileMenu)
         let hasEditItems =

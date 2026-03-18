@@ -50,10 +50,7 @@ enum ChromeGeometry {
         inset: shellInset
     )
     static let sidebarRadius: CGFloat = contentShellRadius
-    static let paneRadius: CGFloat = innerRadius(
-        outerRadius: contentShellRadius,
-        inset: paneInset
-    )
+    static let paneRadius: CGFloat = sidebarRadius
     static let rowRadius: CGFloat = innerRadius(
         outerRadius: sidebarRadius,
         inset: rowInset
@@ -80,6 +77,8 @@ enum ChromeGeometry {
 enum ShellMetrics {
     static let outerInset: CGFloat = ChromeGeometry.shellInset
     static let shellGap: CGFloat = ChromeGeometry.shellInset
+    static let canvasOuterInset: CGFloat = outerInset - 2
+    static let canvasSidebarGap: CGFloat = shellGap - 2
 
     static let outerWindowRadius: CGFloat = ChromeGeometry.outerWindowRadius
     static let contentShellRadius: CGFloat = ChromeGeometry.contentShellRadius
@@ -96,24 +95,16 @@ enum ShellMetrics {
     static let sidebarTopInset: CGFloat = 58
     static let sidebarBottomInset: CGFloat = 18
     static let sidebarRowHorizontalInset: CGFloat = 12
-    // These budgets intentionally preserve the current fixed row rhythm.
-    // They model semantic row bands rather than NSTextField fitting sizes.
     static let sidebarRowVerticalPadding: CGFloat = 14
     static let sidebarRowInterlineSpacing: CGFloat = 2
-    static let sidebarTitleLineHeightBudget: CGFloat = 6
     static let sidebarPrimaryLineHeightBudget: CGFloat = 20
     static let sidebarStatusLineHeightBudget: CGFloat = 6
     static let sidebarContextLineHeightBudget: CGFloat = 6
-    static let sidebarCompactRowHeight: CGFloat = sidebarRowVerticalPadding + sidebarPrimaryLineHeightBudget
-    static let sidebarExpandedRowHeight: CGFloat = sidebarRowVerticalPadding
-        + sidebarTitleLineHeightBudget
-        + sidebarPrimaryLineHeightBudget
-        + sidebarStatusLineHeightBudget
-        + sidebarContextLineHeightBudget
-        + (3 * sidebarRowInterlineSpacing)
     static let sidebarRowCornerRadius: CGFloat = ChromeGeometry.rowRadius
     static let sidebarFooterIconSpacing: CGFloat = 12
     static let footerHeight: CGFloat = 24
+    static let paneSubRowHeight: CGFloat = 24
+    static let paneSubRowIndent: CGFloat = 16
 
     static let trafficLightLeadingInset: CGFloat = ChromeGeometry.trafficLightLeadingInset
     static let trafficLightTopInset: CGFloat = ChromeGeometry.trafficLightTopInset

@@ -73,22 +73,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             controller = settingsWindowController
         } else {
             let settingsWindowController = PaneLayoutSettingsWindowController(
-                preferences: rootViewController.paneLayoutPreferencesForTesting,
-                onUpdate: { [weak self] displayClass, preset in
-                    guard let self else {
-                        return
-                    }
-
-                    var preferences = self.rootViewController.paneLayoutPreferencesForTesting
-                    switch displayClass {
-                    case .laptop:
-                        preferences.laptopPreset = preset
-                    case .largeDisplay:
-                        preferences.largeDisplayPreset = preset
-                    }
-                    self.rootViewController.updatePaneLayoutPreferences(preferences)
-                    self.settingsWindowController?.update(preferences: preferences)
-                }
+                preferences: rootViewController.paneLayoutPreferencesForTesting
             )
             self.settingsWindowController = settingsWindowController
             controller = settingsWindowController
@@ -105,13 +90,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
-    func splitRight(_ sender: Any?) {
-        handle(.pane(.splitAfterFocusedPane))
+    func splitHorizontally(_ sender: Any?) {
+        handle(.pane(.splitHorizontally))
     }
 
     @objc
-    func splitLeft(_ sender: Any?) {
-        handle(.pane(.splitBeforeFocusedPane))
+    func splitVertically(_ sender: Any?) {
+        handle(.pane(.splitVertically))
     }
 
     @objc
@@ -125,13 +110,43 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func focusUpInColumn(_ sender: Any?) {
+        handle(.pane(.focusUp))
+    }
+
+    @objc
+    func focusDownInColumn(_ sender: Any?) {
+        handle(.pane(.focusDown))
+    }
+
+    @objc
+    func focusFirstColumn(_ sender: Any?) {
+        handle(.pane(.focusFirstColumn))
+    }
+
+    @objc
+    func focusLastColumn(_ sender: Any?) {
+        handle(.pane(.focusLastColumn))
+    }
+
+    @objc
+    func splitRight(_ sender: Any?) {
+        splitHorizontally(sender)
+    }
+
+    @objc
+    func splitLeft(_ sender: Any?) {
+        splitVertically(sender)
+    }
+
+    @objc
     func focusFirstPane(_ sender: Any?) {
-        handle(.pane(.focusFirst))
+        focusFirstColumn(sender)
     }
 
     @objc
     func focusLastPane(_ sender: Any?) {
-        handle(.pane(.focusLast))
+        focusLastColumn(sender)
     }
 
     var settingsWindowForTesting: NSWindow? {

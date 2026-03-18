@@ -53,6 +53,134 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_single_pane_keeps_full_width_and_uses_balanced_bottom_gutter() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 1200),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let paneView = try XCTUnwrap(paneStripView.descendantPaneViews().first)
+
+        XCTAssertEqual(paneView.frame.minX, 0, accuracy: 0.001)
+        XCTAssertEqual(paneView.frame.maxX, paneStripView.bounds.width, accuracy: 0.001)
+        XCTAssertEqual(paneView.frame.minY, PaneLayoutSizing.balanced.bottomInset, accuracy: 0.001)
+        XCTAssertEqual(paneView.frame.maxY, paneStripView.bounds.height, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_stacked_column_renders_first_pane_above_later_panes() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let state = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("top"), title: "top"),
+                        PaneState(id: PaneID("middle"), title: "middle"),
+                        PaneState(id: PaneID("bottom"), title: "bottom"),
+                    ],
+                    width: 640,
+                    focusedPaneID: PaneID("middle"),
+                    lastFocusedPaneID: PaneID("middle")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let framesByTitle = Dictionary(uniqueKeysWithValues: try paneStripView.descendantPaneViews().map {
+            let title = try XCTUnwrap($0.titleTextForTesting.isEmpty ? nil : $0.titleTextForTesting)
+            return (title, $0.frame)
+        })
+
+        let topFrame = try XCTUnwrap(framesByTitle["top"])
+        let middleFrame = try XCTUnwrap(framesByTitle["middle"])
+        let bottomFrame = try XCTUnwrap(framesByTitle["bottom"])
+
+        XCTAssertGreaterThan(topFrame.minY, middleFrame.minY)
+        XCTAssertGreaterThan(middleFrame.minY, bottomFrame.minY)
+    }
+
+    @MainActor
+    func test_stacked_column_height_resize_keeps_panes_disjoint_and_ordered() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let state = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("top"), title: "top"),
+                        PaneState(id: PaneID("middle"), title: "middle"),
+                        PaneState(id: PaneID("bottom"), title: "bottom"),
+                    ],
+                    width: 640,
+                    focusedPaneID: PaneID("middle"),
+                    lastFocusedPaneID: PaneID("middle")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.frame.size = NSSize(width: 1200, height: 820)
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let framesByTitle = Dictionary(uniqueKeysWithValues: try paneStripView.descendantPaneViews().map {
+            let title = try XCTUnwrap($0.titleTextForTesting.isEmpty ? nil : $0.titleTextForTesting)
+            return (title, $0.frame)
+        })
+
+        let topFrame = try XCTUnwrap(framesByTitle["top"])
+        let middleFrame = try XCTUnwrap(framesByTitle["middle"])
+        let bottomFrame = try XCTUnwrap(framesByTitle["bottom"])
+
+        XCTAssertGreaterThan(topFrame.minY, middleFrame.maxY)
+        XCTAssertGreaterThan(middleFrame.minY, bottomFrame.maxY)
+    }
+
+    @MainActor
+    func test_render_publishes_border_chrome_snapshots_for_visible_panes() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 420),
+                PaneState(id: PaneID("editor"), title: "editor", width: 420),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        var snapshots: [PaneBorderChromeSnapshot] = []
+        paneStripView.onBorderChromeSnapshotsDidChange = { snapshots = $0 }
+
+        paneStripView.render(
+            state,
+            paneBorderContextByPaneID: [
+                PaneID("editor"): PaneBorderContextDisplayModel(text: "~/src/zentty")
+            ]
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(snapshots.map(\.paneID), [PaneID("shell"), PaneID("editor")])
+        XCTAssertNil(snapshots[0].borderContext)
+        XCTAssertEqual(snapshots[1].borderContext?.text, "~/src/zentty")
+        XCTAssertTrue(snapshots[1].isFocused)
+        XCTAssertEqual(
+            snapshots[1].frame,
+            try XCTUnwrap(paneStripView.descendantPaneViews().first { $0.titleTextForTesting == "editor" }?.frame)
+        )
+    }
+
+    @MainActor
     func test_focus_change_repositions_visible_panes() {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
         let editorFocused = PaneStripState(
@@ -84,6 +212,84 @@ final class PaneStripViewTests: XCTestCase {
 
         XCTAssertLessThan(updatedFrames["editor"]!.minX, initialFrames["editor"]!.minX)
         XCTAssertLessThan(updatedFrames["tests"]!.midX, initialFrames["tests"]!.midX)
+    }
+
+    @MainActor
+    func test_focus_change_keeps_panes_fully_opaque_during_animated_transition() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
+        let editorFocused = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        let testsFocused = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("tests")
+        )
+
+        paneStripView.render(editorFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(testsFocused)
+
+        let paneViewsByTitle = Dictionary(uniqueKeysWithValues: try paneStripView.descendantPaneViews().map {
+            let title = try XCTUnwrap($0.titleTextForTesting.isEmpty ? nil : $0.titleTextForTesting)
+            return (title, $0)
+        })
+
+        XCTAssertEqual(try XCTUnwrap(paneViewsByTitle["editor"]).alphaValue, 1, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(paneViewsByTitle["tests"]).alphaValue, 1, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_focus_change_restores_inactive_dimming_after_animation_settles() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
+        let editorFocused = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        let testsFocused = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("tests")
+        )
+
+        paneStripView.render(editorFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(testsFocused)
+
+        let settled = expectation(description: "focus animation settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 1.0)
+
+        let paneViewsByTitle = Dictionary(uniqueKeysWithValues: try paneStripView.descendantPaneViews().map {
+            let title = try XCTUnwrap($0.titleTextForTesting.isEmpty ? nil : $0.titleTextForTesting)
+            return (title, $0)
+        })
+
+        XCTAssertEqual(
+            try XCTUnwrap(paneViewsByTitle["editor"]).alphaValue,
+            PaneContainerView.presentationAlpha(forEmphasis: 0.92),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(try XCTUnwrap(paneViewsByTitle["tests"]).alphaValue, 1, accuracy: 0.001)
     }
 
     @MainActor
@@ -624,6 +830,263 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_vertical_split_seeds_new_pane_below_focused_pane() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let singlePane = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("shell"), title: "shell"),
+                    ],
+                    width: 910,
+                    focusedPaneID: PaneID("shell"),
+                    lastFocusedPaneID: PaneID("shell")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+        let splitState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("shell"), title: "shell"),
+                        PaneState(id: PaneID("pane-1"), title: "pane 1"),
+                    ],
+                    width: 910,
+                    focusedPaneID: PaneID("pane-1"),
+                    lastFocusedPaneID: PaneID("pane-1")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        paneStripView.render(singlePane)
+        paneStripView.layoutSubtreeIfNeeded()
+        let originalShellFrame = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleTextForTesting == "shell" })?.frame
+        )
+
+        let splitPresentation = PaneStripMotionController().presentation(
+            for: splitState,
+            in: paneStripView.bounds.size
+        )
+
+        paneStripView.render(splitState)
+
+        let transition = try XCTUnwrap(paneStripView.lastInsertionTransitionForTesting)
+        let finalFrame = try XCTUnwrap(
+            splitPresentation.panes.first(where: { $0.paneID == PaneID("pane-1") })?.frame
+        )
+        let sourceFrame = try XCTUnwrap(
+            splitPresentation.panes.first(where: { $0.paneID == PaneID("shell") })?.frame
+        )
+
+        XCTAssertEqual(transition.side, .bottom)
+        XCTAssertEqual(transition.paneID, PaneID("pane-1"))
+        XCTAssertEqual(transition.columnID, PaneColumnID("stack"))
+        XCTAssertEqual(transition.sourcePaneID, PaneID("shell"))
+        XCTAssertEqual(transition.initialAlpha, 0, accuracy: 0.001)
+        XCTAssertEqual(transition.initialFrame.height, 96, accuracy: 0.001)
+        XCTAssertLessThan(transition.initialFrame.minY, finalFrame.minY)
+        XCTAssertEqual(sourceFrame.maxY, originalShellFrame.maxY, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_vertical_split_suspends_terminal_viewport_sync_until_animation_settles() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        let singlePane = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("shell"), title: "shell"),
+                    ],
+                    width: 910,
+                    focusedPaneID: PaneID("shell"),
+                    lastFocusedPaneID: PaneID("shell")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+        let splitState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("shell"), title: "shell"),
+                        PaneState(id: PaneID("pane-1"), title: "pane 1"),
+                    ],
+                    width: 910,
+                    focusedPaneID: PaneID("pane-1"),
+                    lastFocusedPaneID: PaneID("pane-1")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+        let splitPresentation = PaneStripMotionController().presentation(
+            for: splitState,
+            in: paneStripView.bounds.size
+        )
+
+        paneStripView.render(singlePane)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(splitState)
+
+        let shellAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("shell")))
+        let insertedAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("pane-1")))
+        XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
+        XCTAssertEqual(insertedAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
+
+        let settled = expectation(description: "vertical split animation settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 1.0)
+
+        XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.suffix(2), [true, false])
+        XCTAssertEqual(insertedAdapter.terminalView.viewportSyncSuspensionUpdates.suffix(2), [true, false])
+        let shellResumeHeight = try XCTUnwrap(shellAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
+        let insertedResumeHeight = try XCTUnwrap(insertedAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
+        let expectedShellHeight = try XCTUnwrap(
+            splitPresentation.panes.first(where: { $0.paneID == PaneID("shell") })?.frame.height
+        )
+        let expectedInsertedHeight = try XCTUnwrap(
+            splitPresentation.panes.first(where: { $0.paneID == PaneID("pane-1") })?.frame.height
+        )
+        XCTAssertEqual(
+            shellResumeHeight,
+            expectedShellHeight,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            insertedResumeHeight,
+            expectedInsertedHeight,
+            accuracy: 0.001
+        )
+    }
+
+    @MainActor
+    func test_vertical_split_freezes_source_terminal_layout_until_animation_settles() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let singlePane = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("shell"), title: "shell"),
+                    ],
+                    width: 910,
+                    focusedPaneID: PaneID("shell"),
+                    lastFocusedPaneID: PaneID("shell")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+        let splitState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("shell"), title: "shell"),
+                        PaneState(id: PaneID("pane-1"), title: "pane 1"),
+                    ],
+                    width: 910,
+                    focusedPaneID: PaneID("pane-1"),
+                    lastFocusedPaneID: PaneID("pane-1")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        paneStripView.render(singlePane)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(splitState)
+
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleTextForTesting == "shell" })
+        )
+        let insertedPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleTextForTesting == "pane 1" })
+        )
+        XCTAssertTrue(shellPane.isTerminalAnimationFrozenForTesting)
+        XCTAssertFalse(insertedPane.isTerminalAnimationFrozenForTesting)
+
+        let settled = expectation(description: "vertical split animation settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 1.0)
+
+        XCTAssertFalse(shellPane.isTerminalAnimationFrozenForTesting)
+        XCTAssertFalse(insertedPane.isTerminalAnimationFrozenForTesting)
+    }
+
+    @MainActor
+    func test_vertical_pane_removal_freezes_remaining_pane_until_animation_settles() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let splitState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("shell"), title: "shell"),
+                        PaneState(id: PaneID("pane-1"), title: "pane 1"),
+                    ],
+                    width: 910,
+                    focusedPaneID: PaneID("shell"),
+                    lastFocusedPaneID: PaneID("shell")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+        let singlePane = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("shell"), title: "shell"),
+                    ],
+                    width: 910,
+                    focusedPaneID: PaneID("shell"),
+                    lastFocusedPaneID: PaneID("shell")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        paneStripView.render(splitState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(singlePane)
+
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleTextForTesting == "shell" })
+        )
+        XCTAssertTrue(shellPane.isTerminalAnimationFrozenForTesting)
+
+        let removalTransition = try XCTUnwrap(paneStripView.lastRemovalTransitionForTesting)
+        XCTAssertEqual(removalTransition.columnID, PaneColumnID("stack"))
+        XCTAssertEqual(removalTransition.survivingPaneIDs, [PaneID("shell")])
+
+        let settled = expectation(description: "removal animation settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 1.0)
+
+        XCTAssertFalse(shellPane.isTerminalAnimationFrozenForTesting)
+    }
+
+    @MainActor
     func test_split_from_multi_pane_preserves_existing_widths_and_reveals_new_pane() throws {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
         paneStripView.leadingVisibleInset = sidebarInset
@@ -777,12 +1240,17 @@ private final class TerminalAdapterFactorySpy {
         adapters.append(adapter)
         return adapter
     }
+
+    func adapter(for paneID: PaneID) -> PaneStripTerminalAdapterSpy? {
+        adapters.first(where: { $0.paneID == paneID })
+    }
 }
 
 @MainActor
 private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
     let paneID: PaneID
-    let terminalView = NSView()
+    let terminalView = PaneStripTerminalViewSpy()
+    var hasScrollback = false
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
     private(set) var startSessionCallCount = 0
@@ -802,6 +1270,16 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         lastSurfaceActivity = activity
+    }
+}
+
+private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncControlling {
+    private(set) var viewportSyncSuspensionUpdates: [Bool] = []
+    private(set) var viewportSyncSuspensionBounds: [CGSize] = []
+
+    func setViewportSyncSuspended(_ suspended: Bool) {
+        viewportSyncSuspensionUpdates.append(suspended)
+        viewportSyncSuspensionBounds.append(bounds.size)
     }
 }
 

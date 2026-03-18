@@ -7,6 +7,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     private var metadata = TerminalMetadata()
     private let metadataDidChange: (TerminalMetadata) -> Void
     private let eventDidOccur: (TerminalEvent) -> Void
+    private(set) var hasScrollback = false
 
     init(
         app: ghostty_app_t,
@@ -243,6 +244,8 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             publishMetadata()
         case .commandFinished(let exitCode, let durationNanoseconds):
             eventDidOccur(.commandFinished(exitCode: exitCode, durationNanoseconds: durationNanoseconds))
+        case .scrollbar(let total, let len):
+            hasScrollback = total > len
         }
     }
 

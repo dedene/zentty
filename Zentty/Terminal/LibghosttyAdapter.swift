@@ -20,6 +20,7 @@ enum TerminalKeyAction: Equatable {
 
 @MainActor
 protocol LibghosttySurfaceControlling: AnyObject {
+    var hasScrollback: Bool { get }
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?)
     func setFocused(_ isFocused: Bool)
     func refresh()
@@ -45,6 +46,7 @@ final class LibghosttyAdapter: TerminalAdapter {
     private var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: false, isFocused: false)
     private var inheritedConfigTemplate: ghostty_surface_config_s?
 
+    var hasScrollback: Bool { surfaceController?.hasScrollback ?? false }
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
 

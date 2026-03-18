@@ -15,6 +15,18 @@ final class TerminalPaneHostViewTests: XCTestCase {
         XCTAssertEqual(adapter.terminalView.frame, hostView.bounds)
     }
 
+    func test_terminal_view_tracks_host_bounds_after_resize() {
+        let adapter = TerminalAdapterSpy()
+        let hostView = TerminalPaneHostView(adapter: adapter)
+
+        hostView.frame = NSRect(x: 0, y: 0, width: 420, height: 320)
+        hostView.layoutSubtreeIfNeeded()
+        hostView.frame = NSRect(x: 0, y: 0, width: 420, height: 180)
+        hostView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(adapter.terminalView.frame, hostView.bounds)
+    }
+
     func test_start_session_if_needed_starts_adapter_only_once() throws {
         let adapter = TerminalAdapterSpy()
         let hostView = TerminalPaneHostView(adapter: adapter)
@@ -82,11 +94,22 @@ final class TerminalPaneHostViewTests: XCTestCase {
 
         XCTAssertEqual(adapter.lastSurfaceActivity, TerminalSurfaceActivity(isVisible: false, isFocused: false))
     }
+
+    func test_viewport_sync_suspension_is_forwarded_to_terminal_view() {
+        let adapter = TerminalAdapterSpy()
+        let hostView = TerminalPaneHostView(adapter: adapter)
+
+        hostView.setViewportSyncSuspended(true)
+        hostView.setViewportSyncSuspended(false)
+
+        XCTAssertEqual(adapter.terminalView.viewportSyncSuspensionUpdates, [true, false])
+    }
 }
 
 @MainActor
 private final class TerminalAdapterSpy: TerminalAdapter {
     let terminalView = FirstResponderTerminalView()
+    var hasScrollback = false
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
     private(set) var startSessionCallCount = 0
@@ -109,6 +132,7 @@ private final class TerminalAdapterSpy: TerminalAdapter {
 
 private final class FirstResponderTerminalView: NSView, TerminalFocusReporting {
     var onFocusDidChange: ((Bool) -> Void)?
+    private(set) var viewportSyncSuspensionUpdates: [Bool] = []
 
     override var acceptsFirstResponder: Bool {
         true
@@ -122,5 +146,11 @@ private final class FirstResponderTerminalView: NSView, TerminalFocusReporting {
     override func resignFirstResponder() -> Bool {
         onFocusDidChange?(false)
         return true
+    }
+}
+
+extension FirstResponderTerminalView: TerminalViewportSyncControlling {
+    func setViewportSyncSuspended(_ suspended: Bool) {
+        viewportSyncSuspensionUpdates.append(suspended)
     }
 }

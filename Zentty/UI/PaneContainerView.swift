@@ -8,6 +8,7 @@ final class PaneContainerView: NSView {
         static let overlayInset: CGFloat = 18
         static let overlayButtonTopSpacing: CGFloat = 14
         static let overlayButtonHeight: CGFloat = 30
+        static let inactivePaneAlpha: CGFloat = 0.7
     }
 
     private enum StatusState: Equatable {
@@ -16,6 +17,8 @@ final class PaneContainerView: NSView {
     }
 
     private let runtime: PaneRuntime
+    private let contentClipView = NSView()
+    private let terminalHostView: TerminalPaneHostView
     private let backingScaleFactorProvider: () -> CGFloat
     private let insetBorderLayer = CALayer()
     private let statusOverlayView = NSView()
@@ -27,6 +30,8 @@ final class PaneContainerView: NSView {
     private var titleTextStorage: String
     private var statusState: StatusState = .hidden
     private var runtimeObserverID: UUID?
+    private var isTerminalAnimationFrozen = false
+    private var frozenTerminalFrame: CGRect?
     private var currentTheme: ZenttyTheme
     private var currentEmphasis: CGFloat
     private var currentIsFocused: Bool
@@ -50,6 +55,7 @@ final class PaneContainerView: NSView {
         self.paneID = pane.id
         self.titleTextStorage = pane.title
         self.runtime = runtime
+        self.terminalHostView = runtime.hostView
         self.backingScaleFactorProvider = backingScaleFactorProvider
         self.currentTheme = theme
         self.currentEmphasis = emphasis
@@ -57,7 +63,7 @@ final class PaneContainerView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
         translatesAutoresizingMaskIntoConstraints = true
         setup()
-        render(pane: pane, width: width, height: height, emphasis: emphasis, isFocused: isFocused)
+        render(pane: pane, emphasis: emphasis, isFocused: isFocused)
     }
 
     convenience init(
@@ -92,13 +98,30 @@ final class PaneContainerView: NSView {
         layer?.cornerCurve = .continuous
         layer?.borderWidth = 0
         layer?.shadowOffset = .zero
-        layer?.masksToBounds = true
+        layer?.masksToBounds = false
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        let terminalHostView = runtime.hostView
+        contentClipView.translatesAutoresizingMaskIntoConstraints = true
+        contentClipView.autoresizingMask = [.width, .height]
+        contentClipView.wantsLayer = true
+        contentClipView.layer?.cornerRadius = Layout.cornerRadius
+        contentClipView.layer?.cornerCurve = .continuous
+        contentClipView.layer?.masksToBounds = true
+        contentClipView.frame = bounds
         terminalHostView.removeFromSuperview()
-        addSubview(terminalHostView)
-        addSubview(statusOverlayView)
+        terminalHostView.translatesAutoresizingMaskIntoConstraints = true
+        terminalHostView.autoresizingMask = [.width, .height]
+        terminalHostView.wantsLayer = true
+        terminalHostView.layer?.cornerRadius = Layout.cornerRadius
+        terminalHostView.layer?.cornerCurve = .continuous
+        terminalHostView.layer?.masksToBounds = true
+        terminalHostView.frame = bounds
+        statusOverlayView.translatesAutoresizingMaskIntoConstraints = true
+        statusOverlayView.autoresizingMask = [.width, .height]
+        statusOverlayView.frame = bounds
+        addSubview(contentClipView)
+        contentClipView.addSubview(terminalHostView)
+        contentClipView.addSubview(statusOverlayView)
 
         terminalHostView.onFocusDidChange = { [weak self] isFocused in
             guard isFocused else {
@@ -114,29 +137,33 @@ final class PaneContainerView: NSView {
         }
         apply(theme: currentTheme, animated: false)
 
-        NSLayoutConstraint.activate([
-            terminalHostView.topAnchor.constraint(equalTo: topAnchor),
-            terminalHostView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            terminalHostView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            terminalHostView.bottomAnchor.constraint(equalTo: bottomAnchor),
+    }
 
-            statusOverlayView.topAnchor.constraint(equalTo: topAnchor),
-            statusOverlayView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            statusOverlayView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            statusOverlayView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+    static func presentationAlpha(forEmphasis emphasis: CGFloat) -> CGFloat {
+        presentationAlpha(forEmphasis: emphasis, allowInactiveDimming: true)
+    }
+
+    static func presentationAlpha(
+        forEmphasis emphasis: CGFloat,
+        allowInactiveDimming: Bool
+    ) -> CGFloat {
+        guard allowInactiveDimming else {
+            return 1
+        }
+
+        return emphasis >= 0.999 ? 1 : Layout.inactivePaneAlpha
     }
 
     func render(
-        pane: PaneState, width: CGFloat, height: CGFloat, emphasis: CGFloat, isFocused: Bool
+        pane: PaneState,
+        emphasis: CGFloat,
+        isFocused: Bool
     ) {
         paneID = pane.id
         titleTextStorage = pane.title
         currentEmphasis = emphasis
         currentIsFocused = isFocused
         runtime.update(pane: pane)
-
-        frame.size = NSSize(width: width, height: height)
         updateInsetBorderLayer()
         applyVisualState(animated: false)
     }
@@ -184,9 +211,48 @@ final class PaneContainerView: NSView {
         runtime.ensureStarted()
     }
 
+    func setTerminalViewportSyncSuspended(_ suspended: Bool) {
+        terminalHostView.setViewportSyncSuspended(suspended)
+    }
+
+    func setTerminalAnimationFrozen(_ frozen: Bool) {
+        guard isTerminalAnimationFrozen != frozen else {
+            return
+        }
+
+        isTerminalAnimationFrozen = frozen
+        frozenTerminalFrame = frozen ? terminalHostView.frame : nil
+        contentClipView.autoresizingMask = frozen ? [] : [.width, .height]
+        terminalHostView.autoresizingMask = frozen ? [] : [.width, .height]
+        layer?.masksToBounds = frozen
+        if !frozen {
+            contentClipView.frame = bounds
+            updateTerminalHostFrame()
+            updateInsetBorderLayer()
+            layer?.masksToBounds = false
+        }
+    }
+
     override func layout() {
         super.layout()
-        updateInsetBorderLayer()
+        if !isTerminalAnimationFrozen {
+            contentClipView.frame = bounds
+            updateTerminalHostFrame()
+            updateInsetBorderLayer()
+        }
+        statusOverlayView.frame = bounds
+    }
+
+    func animateFrozenTerminalFrame(for targetSize: CGSize) {
+        guard isTerminalAnimationFrozen else {
+            return
+        }
+
+        let backingScaleFactor = resolvedBackingScaleFactor
+        let inset = ChromeGeometry.paneBorderInset(backingScaleFactor: backingScaleFactor)
+        let insetRect = CGRect(origin: .zero, size: targetSize).insetBy(dx: inset, dy: inset)
+        insetBorderLayer.frame = insetRect
+        insetBorderLayer.cornerRadius = max(0, Layout.cornerRadius - inset)
     }
 
     var titleTextForTesting: String {
@@ -245,6 +311,22 @@ final class PaneContainerView: NSView {
         insetBorderLayer.cornerCurve
     }
 
+    var hasPaneContextChromeForTesting: Bool {
+        false
+    }
+
+    var statusOverlayFrameForTesting: CGRect {
+        statusOverlayView.frame
+    }
+
+    var clipsContentToBoundsForTesting: Bool {
+        contentClipView.layer?.masksToBounds == true
+    }
+
+    var isTerminalAnimationFrozenForTesting: Bool {
+        isTerminalAnimationFrozen
+    }
+
     private func setupInsetBorderLayer() {
         insetBorderLayer.backgroundColor = NSColor.clear.cgColor
         insetBorderLayer.borderWidth = Layout.borderWidth
@@ -274,13 +356,23 @@ final class PaneContainerView: NSView {
     }
 
     private var resolvedBackingScaleFactor: CGFloat {
-        max(1, window?.backingScaleFactor ?? layer?.contentsScale ?? backingScaleFactorProvider())
+        if let windowScale = window?.backingScaleFactor {
+            return max(1, windowScale)
+        }
+
+        return max(1, backingScaleFactorProvider())
+    }
+
+    private func updateTerminalHostFrame() {
+        terminalHostView.frame = contentClipView.bounds
     }
 
     private func setupStatusOverlay() {
         statusOverlayView.wantsLayer = true
         statusOverlayView.layer?.backgroundColor = currentTheme.failureOverlayBackground.cgColor
-        statusOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        statusOverlayView.layer?.cornerRadius = Layout.cornerRadius
+        statusOverlayView.layer?.cornerCurve = .continuous
+        statusOverlayView.layer?.masksToBounds = true
         statusOverlayView.isHidden = true
 
         statusTitleLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
@@ -381,20 +473,19 @@ final class PaneContainerView: NSView {
         let theme = currentTheme
         let emphasis = currentEmphasis
         let isFocused = currentIsFocused
+        let paneFillColor = isFocused
+            ? theme.paneFillFocused
+            : theme.paneFillUnfocused
         performThemeAnimation(animated: animated) {
-            self.insetBorderLayer.borderColor =
-                (isFocused
+            let borderColor = (isFocused
                 ? theme.paneBorderFocused
                 : theme.paneBorderUnfocused).cgColor
-            self.layer?.backgroundColor =
-                (isFocused
-                ? theme.paneFillFocused
-                : theme.startupSurface).cgColor
+            self.insetBorderLayer.borderColor = borderColor
+            self.layer?.backgroundColor = paneFillColor.cgColor
             self.layer?.shadowColor = theme.paneShadow.cgColor
         }
         layer?.shadowOpacity = Float(max(0, emphasis - 0.88) * 2.2)
         layer?.shadowRadius = 6 + max(0, emphasis - 0.92) * 24
-        alphaValue = 0.9 + (emphasis - 0.9) * 0.5
     }
 
     @objc

@@ -6,6 +6,7 @@ enum LibghosttySurfaceActionPayload: Equatable {
     case setTitle(String?)
     case pwd(String?)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
+    case scrollbar(total: UInt64, len: UInt64)
 }
 
 func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> LibghosttySurfaceActionPayload? {
@@ -23,6 +24,9 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
             exitCode: exitCode,
             durationNanoseconds: action.action.command_finished.duration
         )
+    case GHOSTTY_ACTION_SCROLLBAR:
+        let s = action.action.scrollbar
+        return .scrollbar(total: s.total, len: s.len)
     default:
         return nil
     }

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+export ZENTTY_AGENT_TOOL="codex"
+exec "$(cd "$(dirname "$0")" && pwd)/zentty-agent-wrapper" "$@"

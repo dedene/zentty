@@ -4,6 +4,7 @@ import CoreGraphics
 enum DisplayClass: String, CaseIterable, Equatable, Sendable {
     case laptop
     case largeDisplay
+    case ultrawide
 
     var title: String {
         switch self {
@@ -11,6 +12,8 @@ enum DisplayClass: String, CaseIterable, Equatable, Sendable {
             "Laptop"
         case .largeDisplay:
             "Large Display"
+        case .ultrawide:
+            "Ultrawide Hybrid"
         }
     }
 }
@@ -62,9 +65,24 @@ enum PaneLayoutPreset: String, CaseIterable, Equatable, Sendable {
             targetRatio = 1 / 2
         case (.largeDisplay, .roomy):
             targetRatio = 3 / 5
+        case (.ultrawide, .compact):
+            targetRatio = 2 / 5
+        case (.ultrawide, .balanced):
+            targetRatio = 1 / 2
+        case (.ultrawide, .roomy):
+            targetRatio = 3 / 5
         }
 
         return clampedViewportWidth * targetRatio
+    }
+
+    func firstSplitWidth(for displayClass: DisplayClass, viewportWidth: CGFloat) -> CGFloat {
+        switch displayClass {
+        case .laptop, .largeDisplay:
+            defaultPaneWidth(for: displayClass, viewportWidth: viewportWidth)
+        case .ultrawide:
+            max(1, viewportWidth * 0.5)
+        }
     }
 
     func singlePaneWidth(
@@ -83,10 +101,12 @@ enum PaneLayoutPreset: String, CaseIterable, Equatable, Sendable {
 struct PaneLayoutPreferences: Equatable, Sendable {
     var laptopPreset: PaneLayoutPreset
     var largeDisplayPreset: PaneLayoutPreset
+    var ultrawidePreset: PaneLayoutPreset
 
     static let `default` = PaneLayoutPreferences(
         laptopPreset: .compact,
-        largeDisplayPreset: .balanced
+        largeDisplayPreset: .balanced,
+        ultrawidePreset: .balanced
     )
 
     func preset(for displayClass: DisplayClass) -> PaneLayoutPreset {
@@ -95,6 +115,8 @@ struct PaneLayoutPreferences: Equatable, Sendable {
             laptopPreset
         case .largeDisplay:
             largeDisplayPreset
+        case .ultrawide:
+            ultrawidePreset
         }
     }
 
@@ -128,6 +150,26 @@ struct PaneLayoutContext: Equatable, Sendable {
         )
     }
 
+    var shouldResizeFirstPaneOnSingleSplit: Bool {
+        displayClass == .ultrawide
+    }
+
+    func newPaneWidth(existingPaneCount: Int) -> CGFloat {
+        guard existingPaneCount == 1, shouldResizeFirstPaneOnSingleSplit else {
+            return newPaneWidth
+        }
+
+        return preset.firstSplitWidth(for: displayClass, viewportWidth: viewportWidth)
+    }
+
+    var firstPaneWidthAfterSingleSplit: CGFloat? {
+        guard shouldResizeFirstPaneOnSingleSplit else {
+            return nil
+        }
+
+        return preset.firstSplitWidth(for: displayClass, viewportWidth: viewportWidth)
+    }
+
     var singlePaneWidth: CGFloat {
         preset.singlePaneWidth(
             for: displayClass,
@@ -147,11 +189,20 @@ struct PaneLayoutContext: Equatable, Sendable {
 }
 
 enum PaneDisplayClassResolver {
-    private static let threshold: CGFloat = 1440
+    private static let largeDisplayThreshold: CGFloat = 1440
+    private static let ultrawideThreshold: CGFloat = 2560
 
     static func resolve(screenWidth: CGFloat?, viewportWidth: CGFloat) -> DisplayClass {
         let candidateWidth = screenWidth ?? viewportWidth
-        return candidateWidth >= threshold ? .largeDisplay : .laptop
+        if candidateWidth >= ultrawideThreshold {
+            return .ultrawide
+        }
+
+        if candidateWidth >= largeDisplayThreshold {
+            return .largeDisplay
+        }
+
+        return .laptop
     }
 
     static func resolve(screen: NSScreen?, viewportWidth: CGFloat) -> DisplayClass {
@@ -162,6 +213,7 @@ enum PaneDisplayClassResolver {
 enum PaneLayoutPreferenceStore {
     static let laptopPresetKey = "RootViewController.paneLayout.laptopPreset"
     static let largeDisplayPresetKey = "RootViewController.paneLayout.largeDisplayPreset"
+    static let ultrawidePresetKey = "RootViewController.paneLayout.ultrawidePreset"
 
     private static let testDefaultsSuiteName = "ZenttyTests.PaneLayoutPreferenceStore"
 
@@ -176,6 +228,11 @@ enum PaneLayoutPreferenceStore {
                 from: defaults,
                 key: largeDisplayPresetKey,
                 fallback: PaneLayoutPreferences.default.largeDisplayPreset
+            ),
+            ultrawidePreset: restoredPreset(
+                from: defaults,
+                key: ultrawidePresetKey,
+                fallback: PaneLayoutPreferences.default.ultrawidePreset
             )
         )
     }
@@ -219,6 +276,8 @@ enum PaneLayoutPreferenceStore {
             laptopPresetKey
         case .largeDisplay:
             largeDisplayPresetKey
+        case .ultrawide:
+            ultrawidePresetKey
         }
     }
 }

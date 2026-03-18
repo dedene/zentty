@@ -1,7 +1,9 @@
 .superpowers/
 .worktrees/
+.codex/
 *.profraw
 *.xcuserstate
 xcuserdata/
 FrameworksLocal/
 tmp/
+.claude

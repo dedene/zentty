@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+set -u
+
+tool_basename="${ZENTTY_AGENT_TOOL:-$(basename "$0")}"
+
+case "$tool_basename" in
+    codex)
+        display_name="Codex"
+        ;;
+    opencode)
+        display_name="OpenCode"
+        ;;
+    *)
+        display_name="$tool_basename"
+        ;;
+esac
+
+find_real_binary() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local path_entry
+    local IFS=:
+    for path_entry in $PATH; do
+        [[ -n "$path_entry" ]] || continue
+        [[ "$path_entry" == "$self_dir" ]] && continue
+        [[ -x "$path_entry/$tool_basename" ]] || continue
+        printf '%s\n' "$path_entry/$tool_basename"
+        return 0
+    done
+    return 1
+}
+
+integration_is_available() {
+    [[ -n "${ZENTTY_AGENT_BIN:-}" ]] || return 1
+    [[ -x "${ZENTTY_AGENT_BIN}" ]] || return 1
+    [[ -n "${ZENTTY_WORKSPACE_ID:-}" ]] || return 1
+    [[ -n "${ZENTTY_PANE_ID:-}" ]] || return 1
+}
+
+send_signal() {
+    integration_is_available || return 0
+    "$ZENTTY_AGENT_BIN" agent-signal "$@" --origin explicit-api --tool "$display_name" >/dev/null 2>&1 || true
+}
+
+real_binary="$(find_real_binary)" || {
+    echo "Error: $tool_basename not found in PATH" >&2
+    exit 127
+}
+
+send_signal lifecycle running
+send_signal pid attach "$$"
+
+exec "$real_binary" "$@"

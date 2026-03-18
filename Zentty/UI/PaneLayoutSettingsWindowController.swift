@@ -6,14 +6,12 @@ final class PaneLayoutSettingsWindowController: NSWindowController {
 
     init(
         preferences: PaneLayoutPreferences,
-        onUpdate: @escaping (DisplayClass, PaneLayoutPreset) -> Void
     ) {
         let settingsViewController = PaneLayoutSettingsViewController(
-            preferences: preferences,
-            onUpdate: onUpdate
+            preferences: preferences
         )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 250),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -39,17 +37,13 @@ final class PaneLayoutSettingsWindowController: NSWindowController {
 
 @MainActor
 final class PaneLayoutSettingsViewController: NSViewController {
-    private let onUpdate: (DisplayClass, PaneLayoutPreset) -> Void
     private var preferences: PaneLayoutPreferences
-    private var popUpButtonsByDisplayClass: [DisplayClass: NSPopUpButton] = [:]
     private var summaryLabelsByDisplayClass: [DisplayClass: NSTextField] = [:]
 
     init(
         preferences: PaneLayoutPreferences,
-        onUpdate: @escaping (DisplayClass, PaneLayoutPreset) -> Void
     ) {
         self.preferences = preferences
-        self.onUpdate = onUpdate
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -75,7 +69,7 @@ final class PaneLayoutSettingsViewController: NSViewController {
         stackView.addArrangedSubview(titleLabel)
 
         let subtitleLabel = makeLabel(
-            text: "Choose how new panes should size themselves on laptops and larger displays.",
+            text: "Zentty uses explicit screen behavior presets so each split stays calm and predictable.",
             font: .systemFont(ofSize: 12, weight: .regular)
         )
         subtitleLabel.textColor = .secondaryLabelColor
@@ -100,9 +94,7 @@ final class PaneLayoutSettingsViewController: NSViewController {
         self.preferences = preferences
 
         for displayClass in DisplayClass.allCases {
-            let preset = preferences.preset(for: displayClass)
-            popUpButtonsByDisplayClass[displayClass]?.selectItem(withTitle: preset.title)
-            summaryLabelsByDisplayClass[displayClass]?.stringValue = preset.summary
+            summaryLabelsByDisplayClass[displayClass]?.stringValue = behaviorSummary(for: displayClass)
         }
     }
 
@@ -110,8 +102,8 @@ final class PaneLayoutSettingsViewController: NSViewController {
         DisplayClass.allCases.map(\.title)
     }
 
-    var selectedPresetTitlesForTesting: [String] {
-        DisplayClass.allCases.compactMap { popUpButtonsByDisplayClass[$0]?.selectedItem?.title }
+    var presetSummaryForTesting: [String] {
+        DisplayClass.allCases.compactMap { summaryLabelsByDisplayClass[$0]?.stringValue }
     }
 
     private func makeSection(for displayClass: DisplayClass) -> NSView {
@@ -126,28 +118,25 @@ final class PaneLayoutSettingsViewController: NSViewController {
         )
         container.addArrangedSubview(titleLabel)
 
+        let descriptionText: String
+        switch displayClass {
+        case .laptop:
+            descriptionText = "Laptop behavior\nPreserve the active pane, then scroll horizontally."
+        case .largeDisplay:
+            descriptionText = "Large Display behavior\nPreserve the active pane with slightly denser columns."
+        case .ultrawide:
+            descriptionText = "Ultrawide Hybrid behavior\nFirst split is 50/50, then keep horizontal scrolling."
+        }
+
         let descriptionLabel = makeLabel(
-            text: displayClass == .laptop
-                ? "Defaults for built-in or compact screens."
-                : "Defaults for wider external monitors and ultrawides.",
+            text: descriptionText,
             font: .systemFont(ofSize: 11, weight: .regular)
         )
         descriptionLabel.textColor = .secondaryLabelColor
         container.addArrangedSubview(descriptionLabel)
 
-        let popUpButton = NSPopUpButton()
-        PaneLayoutPreset.allCases.forEach { preset in
-            popUpButton.addItem(withTitle: preset.title)
-        }
-        popUpButton.target = self
-        popUpButton.action = #selector(handlePresetChange(_:))
-        popUpButton.translatesAutoresizingMaskIntoConstraints = false
-        popUpButton.tag = DisplayClass.allCases.firstIndex(of: displayClass) ?? 0
-        popUpButtonsByDisplayClass[displayClass] = popUpButton
-        container.addArrangedSubview(popUpButton)
-
         let presetSummary = makeLabel(
-            text: preferences.preset(for: displayClass).summary,
+            text: behaviorSummary(for: displayClass),
             font: .systemFont(ofSize: 11, weight: .regular)
         )
         presetSummary.textColor = .secondaryLabelColor
@@ -157,20 +146,15 @@ final class PaneLayoutSettingsViewController: NSViewController {
         return container
     }
 
-    @objc
-    private func handlePresetChange(_ sender: NSPopUpButton) {
-        let displayClass = DisplayClass.allCases[sender.tag]
-        guard let selectedTitle = sender.selectedItem?.title,
-              let preset = PaneLayoutPreset.allCases.first(where: { $0.title == selectedTitle }) else {
-            return
+    private func behaviorSummary(for displayClass: DisplayClass) -> String {
+        switch displayClass {
+        case .laptop:
+            return "Laptop behavior: preserve the active pane, then scroll horizontally."
+        case .largeDisplay:
+            return "Large Display behavior: preserve the active pane with slightly denser columns."
+        case .ultrawide:
+            return "Ultrawide Hybrid behavior: first split is 50/50, then keep horizontal scrolling."
         }
-
-        updateSummary(for: displayClass, preset: preset)
-        onUpdate(displayClass, preset)
-    }
-
-    private func updateSummary(for displayClass: DisplayClass, preset: PaneLayoutPreset) {
-        summaryLabelsByDisplayClass[displayClass]?.stringValue = preset.summary
     }
 
     private func makeLabel(text: String, font: NSFont) -> NSTextField {

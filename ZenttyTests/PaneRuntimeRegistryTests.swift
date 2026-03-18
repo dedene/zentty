@@ -218,6 +218,7 @@ private final class PaneRuntimeAdapterFactorySpy {
 private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSessionInheritanceConfiguring {
     let paneID: PaneID
     let terminalView = NSView()
+    var hasScrollback = false
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
     private(set) var startSessionCallCount = 0

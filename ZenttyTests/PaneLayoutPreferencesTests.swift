@@ -14,6 +14,13 @@ final class PaneLayoutPreferencesTests: XCTestCase {
 
         XCTAssertEqual(preferences.laptopPreset, .compact)
         XCTAssertEqual(preferences.largeDisplayPreset, .balanced)
+        XCTAssertEqual(preferences.ultrawidePreset, .balanced)
+    }
+
+    func test_display_class_titles_use_behavior_labels() {
+        XCTAssertEqual(DisplayClass.laptop.title, "Laptop")
+        XCTAssertEqual(DisplayClass.largeDisplay.title, "Large Display")
+        XCTAssertEqual(DisplayClass.ultrawide.title, "Ultrawide Hybrid")
     }
 
     func test_persisted_presets_restore_per_display_class() {
@@ -21,11 +28,13 @@ final class PaneLayoutPreferencesTests: XCTestCase {
 
         PaneLayoutPreferenceStore.persist(.roomy, for: .laptop, in: defaults)
         PaneLayoutPreferenceStore.persist(.compact, for: .largeDisplay, in: defaults)
+        PaneLayoutPreferenceStore.persist(.compact, for: .ultrawide, in: defaults)
 
         let preferences = PaneLayoutPreferenceStore.restoredPreferences(from: defaults)
 
         XCTAssertEqual(preferences.laptopPreset, .roomy)
         XCTAssertEqual(preferences.largeDisplayPreset, .compact)
+        XCTAssertEqual(preferences.ultrawidePreset, .compact)
     }
 
     func test_display_class_resolution_prefers_screen_width_when_available() {
@@ -35,6 +44,15 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         )
 
         XCTAssertEqual(displayClass, .largeDisplay)
+    }
+
+    func test_display_class_resolution_uses_ultrawide_threshold() {
+        let displayClass = PaneDisplayClassResolver.resolve(
+            screenWidth: 3440,
+            viewportWidth: 1920
+        )
+
+        XCTAssertEqual(displayClass, .ultrawide)
     }
 
     func test_display_class_resolution_falls_back_to_viewport_width() {
@@ -49,7 +67,8 @@ final class PaneLayoutPreferencesTests: XCTestCase {
     func test_layout_context_uses_ratio_based_widths_for_new_panes() {
         let preferences = PaneLayoutPreferences(
             laptopPreset: .compact,
-            largeDisplayPreset: .balanced
+            largeDisplayPreset: .balanced,
+            ultrawidePreset: .compact
         )
 
         let laptopContext = preferences.makeLayoutContext(
@@ -60,17 +79,24 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         let largeDisplayContext = preferences.makeLayoutContext(
             displayClass: .largeDisplay,
             viewportWidth: 1720,
+            leadingVisibleInset: 290
+        )
+        let ultrawideContext = preferences.makeLayoutContext(
+            displayClass: .ultrawide,
+            viewportWidth: 3440,
             leadingVisibleInset: 290
         )
 
         XCTAssertEqual(laptopContext.newPaneWidth, 800, accuracy: 0.001)
         XCTAssertEqual(largeDisplayContext.newPaneWidth, 860, accuracy: 0.001)
+        XCTAssertEqual(ultrawideContext.newPaneWidth, 1376, accuracy: 0.001)
     }
 
-    func test_single_pane_width_always_uses_full_readable_width() {
+    func test_first_split_is_resized_only_for_ultrawide_display_class() {
         let preferences = PaneLayoutPreferences(
-            laptopPreset: .roomy,
-            largeDisplayPreset: .compact
+            laptopPreset: .compact,
+            largeDisplayPreset: .balanced,
+            ultrawidePreset: .roomy
         )
 
         let laptopContext = preferences.makeLayoutContext(
@@ -83,8 +109,46 @@ final class PaneLayoutPreferencesTests: XCTestCase {
             viewportWidth: 1720,
             leadingVisibleInset: 290
         )
+        let ultrawideContext = preferences.makeLayoutContext(
+            displayClass: .ultrawide,
+            viewportWidth: 3440,
+            leadingVisibleInset: 290
+        )
 
-        XCTAssertEqual(laptopContext.singlePaneWidth, 894, accuracy: 0.001)
-        XCTAssertEqual(largeDisplayContext.singlePaneWidth, 1414, accuracy: 0.001)
+        XCTAssertNil(laptopContext.firstPaneWidthAfterSingleSplit)
+        XCTAssertNil(largeDisplayContext.firstPaneWidthAfterSingleSplit)
+        XCTAssertEqual(ultrawideContext.firstPaneWidthAfterSingleSplit ?? 0, 1720, accuracy: 0.001)
+
+        XCTAssertEqual(laptopContext.newPaneWidth(existingPaneCount: 1), 800, accuracy: 0.001)
+        XCTAssertEqual(largeDisplayContext.newPaneWidth(existingPaneCount: 1), 860, accuracy: 0.001)
+        XCTAssertEqual(ultrawideContext.newPaneWidth(existingPaneCount: 1), 1720, accuracy: 0.001)
+    }
+
+    func test_single_pane_width_always_uses_full_readable_width() {
+        let preferences = PaneLayoutPreferences(
+            laptopPreset: .roomy,
+            largeDisplayPreset: .compact,
+            ultrawidePreset: .compact
+        )
+
+        let laptopContext = preferences.makeLayoutContext(
+            displayClass: .laptop,
+            viewportWidth: 1200,
+            leadingVisibleInset: 290
+        )
+        let largeDisplayContext = preferences.makeLayoutContext(
+            displayClass: .largeDisplay,
+            viewportWidth: 1720,
+            leadingVisibleInset: 290
+        )
+        let ultrawideContext = preferences.makeLayoutContext(
+            displayClass: .ultrawide,
+            viewportWidth: 3440,
+            leadingVisibleInset: 290
+        )
+
+        XCTAssertEqual(laptopContext.singlePaneWidth, 910, accuracy: 0.001)
+        XCTAssertEqual(largeDisplayContext.singlePaneWidth, 1430, accuracy: 0.001)
+        XCTAssertEqual(ultrawideContext.singlePaneWidth, 3150, accuracy: 0.001)
     }
 }

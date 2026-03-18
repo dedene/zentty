@@ -162,6 +162,7 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
 }
 
 private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling {
+    var hasScrollback = false
     private(set) var refreshCallCount = 0
     private(set) var focusValues: [Bool] = []
     private(set) var bindingActions: [String] = []

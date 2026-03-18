@@ -269,6 +269,39 @@ final class PaneStripMotionControllerTests: XCTestCase {
         assertRetinaAligned(presentation.targetOffset)
     }
 
+    @MainActor
+    func test_stacked_column_renders_first_pane_above_later_panes() throws {
+        let controller = PaneStripMotionController()
+        let state = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("top"), title: "top"),
+                        PaneState(id: PaneID("middle"), title: "middle"),
+                        PaneState(id: PaneID("bottom"), title: "bottom"),
+                    ],
+                    width: 640,
+                    focusedPaneID: PaneID("middle"),
+                    lastFocusedPaneID: PaneID("middle")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        let presentation = controller.presentation(
+            for: state,
+            in: CGSize(width: 1200, height: 680)
+        )
+
+        let topPane = try XCTUnwrap(presentation.panes.first(where: { $0.paneID == PaneID("top") }))
+        let middlePane = try XCTUnwrap(presentation.panes.first(where: { $0.paneID == PaneID("middle") }))
+        let bottomPane = try XCTUnwrap(presentation.panes.first(where: { $0.paneID == PaneID("bottom") }))
+
+        XCTAssertGreaterThan(topPane.frame.minY, middlePane.frame.minY)
+        XCTAssertGreaterThan(middlePane.frame.minY, bottomPane.frame.minY)
+    }
+
     private func assertRetinaAligned(_ value: CGFloat, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertEqual(value * 2, (value * 2).rounded(), accuracy: 0.0001, file: file, line: line)
     }

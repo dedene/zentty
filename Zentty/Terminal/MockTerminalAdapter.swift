@@ -11,6 +11,7 @@ final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering {
     private var metadata = TerminalMetadata()
     private var surfaceActivity = TerminalSurfaceActivity()
 
+    var hasScrollback = false
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
 

@@ -2,7 +2,18 @@ import AppKit
 import GhosttyKit
 import QuartzCore
 
+@MainActor
+protocol TerminalViewportSyncControlling: AnyObject {
+    func setViewportSyncSuspended(_ suspended: Bool)
+}
+
 final class LibghosttyView: NSView, TerminalFocusReporting {
+    private struct ViewportSignature: Equatable {
+        let size: CGSize
+        let scale: CGFloat
+        let displayID: UInt32?
+    }
+
     private enum BindingAction {
         static let copyToClipboard = "copy_to_clipboard"
         static let pasteFromClipboard = "paste_from_clipboard"
@@ -31,6 +42,8 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     ]
 
     private var surfaceController: (any LibghosttySurfaceControlling)?
+    private var lastViewportSignature: ViewportSignature?
+    private var isViewportSyncSuspended = false
     private var keyTextAccumulator = ""
     private var markedTextStorage = ""
     private var markedTextSelection = NSRange(location: NSNotFound, length: 0)
@@ -217,6 +230,17 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         self.surfaceController = surfaceController
     }
 
+    func setViewportSyncSuspended(_ suspended: Bool) {
+        guard isViewportSyncSuspended != suspended else {
+            return
+        }
+
+        isViewportSyncSuspended = suspended
+        if !suspended {
+            syncViewport()
+        }
+    }
+
     var currentDisplayID: UInt32? {
         guard let screen = window?.screen ?? NSScreen.main else {
             return nil
@@ -238,18 +262,33 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
             return
         }
 
+        if isViewportSyncSuspended {
+            return
+        }
+
         let backingBounds = convertToBacking(bounds)
         syncLayerGeometry(backingBounds: backingBounds)
         let viewportSize = CGSize(
             width: max(1, backingBounds.width),
             height: max(1, backingBounds.height)
         )
-
-        surfaceController?.updateViewport(
+        let viewportSignature = ViewportSignature(
             size: viewportSize,
             scale: currentScaleFactor,
             displayID: currentDisplayID
         )
+
+        guard viewportSignature != lastViewportSignature else {
+            return
+        }
+
+        lastViewportSignature = viewportSignature
+        surfaceController?.updateViewport(
+            size: viewportSignature.size,
+            scale: viewportSignature.scale,
+            displayID: viewportSignature.displayID
+        )
+        surfaceController?.refresh()
     }
 
     private func syncLayerGeometry(backingBounds: CGRect) {
@@ -313,6 +352,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         )
     }
 }
+
+@MainActor
+extension LibghosttyView: TerminalViewportSyncControlling {}
 
 extension LibghosttyView: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {

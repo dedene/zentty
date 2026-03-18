@@ -2,13 +2,15 @@ import CoreGraphics
 
 struct PaneLayoutSizing: Equatable, Sendable {
     let horizontalInset: CGFloat
-    let verticalInset: CGFloat
+    let topInset: CGFloat
+    let bottomInset: CGFloat
     let interPaneSpacing: CGFloat
 
     static let balanced = PaneLayoutSizing(
-        horizontalInset: 8,
-        verticalInset: 0,
-        interPaneSpacing: 10
+        horizontalInset: 0,
+        topInset: 0,
+        bottomInset: 1,
+        interPaneSpacing: 6
     )
 
     func readableWidth(
@@ -20,6 +22,6 @@ struct PaneLayoutSizing: Equatable, Sendable {
     }
 
     func paneHeight(for containerHeight: CGFloat) -> CGFloat {
-        max(0, containerHeight - (verticalInset * 2))
+        max(0, containerHeight - topInset - bottomInset)
     }
 }

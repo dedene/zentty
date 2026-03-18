@@ -56,6 +56,11 @@ final class TerminalPaneHostView: NSView {
             .prepareSessionStart(from: sourceAdapter)
     }
 
+    func setViewportSyncSuspended(_ suspended: Bool) {
+        (terminalView as? any TerminalViewportSyncControlling)?
+            .setViewportSyncSuspended(suspended)
+    }
+
     func focusTerminal() {
         guard window?.firstResponder !== terminalView else {
             return
@@ -74,14 +79,14 @@ final class TerminalPaneHostView: NSView {
 
     private func setup() {
         addSubview(terminalView)
-        terminalView.translatesAutoresizingMaskIntoConstraints = false
+        terminalView.translatesAutoresizingMaskIntoConstraints = true
+        terminalView.autoresizingMask = [.width, .height]
+        terminalView.frame = bounds
+    }
 
-        NSLayoutConstraint.activate([
-            terminalView.topAnchor.constraint(equalTo: topAnchor),
-            terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+    override func layout() {
+        super.layout()
+        terminalView.frame = bounds
     }
 
     var terminalViewForTesting: NSView {
@@ -155,6 +160,10 @@ final class PaneRuntime {
 
     var adapter: any TerminalAdapter {
         adapterValue
+    }
+
+    var hasScrollback: Bool {
+        adapterValue.hasScrollback
     }
 
     var snapshot: PaneRuntimeSnapshot {

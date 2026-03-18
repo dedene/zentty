@@ -67,6 +67,41 @@ enum AgentTool: Equatable, Sendable {
     }
 }
 
+enum AgentSignalOrigin: String, Equatable, Sendable {
+    case compatibility
+    case explicitHook = "explicit-hook"
+    case explicitAPI = "explicit-api"
+    case heuristic
+    case shell
+    case inferred
+
+    var priority: Int {
+        switch self {
+        case .explicitHook, .explicitAPI:
+            return 4
+        case .heuristic:
+            return 3
+        case .compatibility:
+            return 2
+        case .shell:
+            return 1
+        case .inferred:
+            return 0
+        }
+    }
+}
+
+enum PaneShellActivityState: String, Equatable, Sendable {
+    case unknown
+    case promptIdle = "prompt-idle"
+    case commandRunning = "command-running"
+}
+
+enum PaneInteractionState: String, Equatable, Sendable {
+    case none
+    case awaitingHuman = "awaiting-human"
+}
+
 enum PaneAgentState: String, Equatable, Sendable {
     case running = "running"
     case needsInput = "needs-input"
@@ -147,6 +182,10 @@ struct PaneAgentStatus: Equatable, Sendable {
     var artifactLink: WorkspaceArtifactLink?
     var updatedAt: Date
     var source: PaneAgentStatusSource
+    var origin: AgentSignalOrigin
+    var interactionState: PaneInteractionState
+    var shellActivityState: PaneShellActivityState
+    var trackedPID: Int32?
 
     init(
         tool: AgentTool,
@@ -154,7 +193,11 @@ struct PaneAgentStatus: Equatable, Sendable {
         text: String?,
         artifactLink: WorkspaceArtifactLink?,
         updatedAt: Date,
-        source: PaneAgentStatusSource = .explicit
+        source: PaneAgentStatusSource = .explicit,
+        origin: AgentSignalOrigin = .compatibility,
+        interactionState: PaneInteractionState? = nil,
+        shellActivityState: PaneShellActivityState = .unknown,
+        trackedPID: Int32? = nil
     ) {
         self.tool = tool
         self.state = state
@@ -162,6 +205,10 @@ struct PaneAgentStatus: Equatable, Sendable {
         self.artifactLink = artifactLink
         self.updatedAt = updatedAt
         self.source = source
+        self.origin = origin
+        self.interactionState = interactionState ?? (state == .needsInput ? .awaitingHuman : .none)
+        self.shellActivityState = shellActivityState
+        self.trackedPID = trackedPID
     }
 
     init(
@@ -177,13 +224,18 @@ struct PaneAgentStatus: Equatable, Sendable {
             text: text,
             artifactLink: artifactLink,
             updatedAt: updatedAt,
-            source: .explicit
+            source: .explicit,
+            origin: .compatibility
         )
     }
 
     var statusText: String {
         let trimmedText = text?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedText?.isEmpty == false ? trimmedText! : state.defaultStatusText
+    }
+
+    var requiresHumanAttention: Bool {
+        interactionState == .awaitingHuman
     }
 }
 
@@ -214,6 +266,19 @@ enum WorkspaceContextFormatter {
             .joined(separator: " • ")
     }
 
+    static func contextText(for metadata: TerminalMetadata?, showCompactPath: Bool) -> String {
+        let directoryPart: String?
+        if showCompactPath {
+            directoryPart = metadata?.currentWorkingDirectory.flatMap(compactPath)
+        } else {
+            directoryPart = metadata?.currentWorkingDirectory.flatMap(compactDirectoryName)
+        }
+        let branch = trimmed(metadata?.gitBranch)
+        return [directoryPart, branch]
+            .compactMap { $0 }
+            .joined(separator: " • ")
+    }
+
     static func compactDirectoryName(_ path: String) -> String? {
         let trimmedPath = trimmed(path)
         guard let trimmedPath else {
@@ -231,6 +296,18 @@ enum WorkspaceContextFormatter {
         }
 
         return lastComponent == "~" ? "~" : lastComponent
+    }
+
+    static func compactPath(_ path: String) -> String? {
+        let trimmedPath = trimmed(path)
+        guard let trimmedPath else {
+            return nil
+        }
+
+        let homePath = NSHomeDirectory()
+        return trimmedPath.hasPrefix(homePath)
+            ? trimmedPath.replacingOccurrences(of: homePath, with: "~")
+            : trimmedPath
     }
 
     static func trimmed(_ value: String?) -> String? {
@@ -326,5 +403,11 @@ private extension WorkspaceAttentionState {
         case .completed:
             return 1
         }
+    }
+}
+
+extension WorkspaceAttentionSummary {
+    var requiresHumanAttention: Bool {
+        state == .needsInput
     }
 }

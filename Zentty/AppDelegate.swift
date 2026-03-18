@@ -24,13 +24,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
-    func splitRight(_ sender: Any?) {
-        windowController?.splitRight(sender)
+    func splitHorizontally(_ sender: Any?) {
+        windowController?.splitHorizontally(sender)
     }
 
     @objc
-    func splitLeft(_ sender: Any?) {
-        windowController?.splitLeft(sender)
+    func splitVertically(_ sender: Any?) {
+        windowController?.splitVertically(sender)
     }
 
     @objc
@@ -44,13 +44,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
+    func focusUpInColumn(_ sender: Any?) {
+        windowController?.focusUpInColumn(sender)
+    }
+
+    @objc
+    func focusDownInColumn(_ sender: Any?) {
+        windowController?.focusDownInColumn(sender)
+    }
+
+    @objc
+    func focusFirstColumn(_ sender: Any?) {
+        windowController?.focusFirstColumn(sender)
+    }
+
+    @objc
+    func focusLastColumn(_ sender: Any?) {
+        windowController?.focusLastColumn(sender)
+    }
+
+    @objc
+    func splitRight(_ sender: Any?) {
+        splitHorizontally(sender)
+    }
+
+    @objc
+    func splitLeft(_ sender: Any?) {
+        splitVertically(sender)
+    }
+
+    @objc
     func focusFirstPane(_ sender: Any?) {
-        windowController?.focusFirstPane(sender)
+        focusFirstColumn(sender)
     }
 
     @objc
     func focusLastPane(_ sender: Any?) {
-        windowController?.focusLastPane(sender)
+        focusLastColumn(sender)
     }
 
     var settingsWindowForTesting: NSWindow? {

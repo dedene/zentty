@@ -10,20 +10,20 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertEqual(action, .newWorkspace)
     }
 
-    func test_resolves_split_after_shortcut() {
+    func test_resolves_horizontal_split_shortcut() {
         let action = KeyboardShortcutResolver.resolve(
             .init(key: .character("d"), modifiers: [.command])
         )
 
-        XCTAssertEqual(action, .pane(.splitAfterFocusedPane))
+        XCTAssertEqual(action, .pane(.splitHorizontally))
     }
 
-    func test_resolves_split_before_shortcut() {
+    func test_resolves_vertical_split_shortcut() {
         let action = KeyboardShortcutResolver.resolve(
             .init(key: .character("d"), modifiers: [.command, .shift])
         )
 
-        XCTAssertEqual(action, .pane(.splitBeforeFocusedPane))
+        XCTAssertEqual(action, .pane(.splitVertically))
     }
 
     func test_resolves_close_shortcut() {
@@ -34,7 +34,7 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertEqual(action, .pane(.closeFocusedPane))
     }
 
-    func test_resolves_focus_shortcuts() {
+    func test_resolves_horizontal_focus_shortcuts() {
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
                 .init(key: .leftArrow, modifiers: [.command, .option])
@@ -50,19 +50,35 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
     }
 
-    func test_resolves_jump_shortcuts() {
+    func test_resolves_vertical_focus_shortcuts() {
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .upArrow, modifiers: [.command, .option])
+            ),
+            .pane(.focusUp)
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .downArrow, modifiers: [.command, .option])
+            ),
+            .pane(.focusDown)
+        )
+    }
+
+    func test_resolves_jump_to_edge_shortcuts() {
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
                 .init(key: .leftArrow, modifiers: [.command, .option, .shift])
             ),
-            .pane(.focusFirst)
+            .pane(.focusFirstColumn)
         )
 
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
                 .init(key: .rightArrow, modifiers: [.command, .option, .shift])
             ),
-            .pane(.focusLast)
+            .pane(.focusLastColumn)
         )
     }
 
