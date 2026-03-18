@@ -874,6 +874,101 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertNil(store.activeWorkspace?.agentStatusByPaneID[paneID])
     }
 
+    func test_update_review_state_stores_and_clears_review_state_for_a_pane() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let reviewState = WorkspaceReviewState(
+            branch: "feature/review-band",
+            pullRequest: WorkspacePullRequestSummary(
+                number: 128,
+                url: URL(string: "https://example.com/pr/128"),
+                state: .draft
+            ),
+            reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+        )
+
+        store.updateReviewState(paneID: paneID, reviewState: reviewState)
+        XCTAssertEqual(store.activeWorkspace?.reviewStateByPaneID[paneID], reviewState)
+
+        store.updateReviewState(paneID: paneID, reviewState: nil)
+        XCTAssertNil(store.activeWorkspace?.reviewStateByPaneID[paneID])
+    }
+
+    func test_update_review_resolution_updates_review_state_and_inferred_artifact_with_single_notification() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        var notificationCount = 0
+
+        store.onChange = { _ in
+            notificationCount += 1
+        }
+
+        let resolution = WorkspaceReviewResolution(
+            reviewState: WorkspaceReviewState(
+                branch: "feature/review-band",
+                pullRequest: WorkspacePullRequestSummary(
+                    number: 128,
+                    url: URL(string: "https://example.com/pr/128"),
+                    state: .draft
+                ),
+                reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+            ),
+            inferredArtifact: WorkspaceArtifactLink(
+                kind: .pullRequest,
+                label: "PR #128",
+                url: URL(string: "https://example.com/pr/128")!,
+                isExplicit: false
+            )
+        )
+
+        store.updateReviewResolution(paneID: paneID, resolution: resolution)
+
+        XCTAssertEqual(notificationCount, 1)
+        XCTAssertEqual(store.activeWorkspace?.reviewStateByPaneID[paneID], resolution.reviewState)
+        XCTAssertEqual(store.activeWorkspace?.inferredArtifactByPaneID[paneID], resolution.inferredArtifact)
+
+        store.updateReviewResolution(
+            paneID: paneID,
+            resolution: WorkspaceReviewResolution(reviewState: nil, inferredArtifact: nil)
+        )
+
+        XCTAssertEqual(notificationCount, 2)
+        XCTAssertNil(store.activeWorkspace?.reviewStateByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.inferredArtifactByPaneID[paneID])
+    }
+
+    func test_clearing_agent_status_keeps_review_state_for_that_pane() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        store.updateReviewState(
+            paneID: paneID,
+            reviewState: WorkspaceReviewState(
+                branch: "feature/review-band",
+                pullRequest: WorkspacePullRequestSummary(
+                    number: 128,
+                    url: URL(string: "https://example.com/pr/128"),
+                    state: .draft
+                ),
+                reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+            )
+        )
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                state: nil,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertNotNil(store.activeWorkspace?.reviewStateByPaneID[paneID])
+    }
+
     func test_explicit_needs_input_beats_prompt_idle_shell_state() throws {
         let store = WorkspaceStore()
         let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
@@ -909,6 +1004,67 @@ final class PaneStripStoreTests: XCTestCase {
 
         XCTAssertEqual(store.activeWorkspace?.agentStatusByPaneID[paneID]?.state, .needsInput)
         XCTAssertEqual(store.activeWorkspace?.agentStatusByPaneID[paneID]?.interactionState, .awaitingHuman)
+    }
+
+    func test_updating_metadata_clears_branch_derived_review_state_when_branch_changes() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Claude Code",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "feature/review-band"
+            )
+        )
+        store.updateReviewState(
+            paneID: paneID,
+            reviewState: WorkspaceReviewState(
+                branch: "feature/review-band",
+                pullRequest: WorkspacePullRequestSummary(
+                    number: 128,
+                    url: URL(string: "https://example.com/pr/128"),
+                    state: .draft
+                ),
+                reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+            )
+        )
+        store.updateInferredArtifact(
+            paneID: paneID,
+            artifact: WorkspaceArtifactLink(
+                kind: .pullRequest,
+                label: "PR #128",
+                url: URL(string: "https://example.com/pr/128")!,
+                isExplicit: false
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                state: .running,
+                toolName: "Claude Code",
+                text: nil,
+                artifactKind: .pullRequest,
+                artifactLabel: "PR #128",
+                artifactURL: URL(string: "https://example.com/pr/128")
+            )
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Claude Code",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertNil(store.activeWorkspace?.reviewStateByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.inferredArtifactByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.agentStatusByPaneID[paneID]?.artifactLink)
     }
 
     func test_equal_priority_needs_input_update_does_not_downgrade_specific_waiting_copy() throws {
@@ -1314,5 +1470,53 @@ final class PaneStripStoreTests: XCTestCase {
         store.closePane(id: paneID)
 
         XCTAssertFalse(store.activeWorkspace?.paneContextByPaneID.keys.contains(paneID) ?? true)
+    }
+
+    func test_updating_metadata_clears_branch_derived_review_state_when_title_implies_new_working_directory() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "peter@host:~/Development/project-a",
+                currentWorkingDirectory: nil,
+                processName: "zsh",
+                gitBranch: nil
+            )
+        )
+        store.updateReviewState(
+            paneID: paneID,
+            reviewState: WorkspaceReviewState(
+                branch: "feature/project-a",
+                pullRequest: WorkspacePullRequestSummary(
+                    number: 128,
+                    url: URL(string: "https://example.com/pr/128"),
+                    state: .draft
+                ),
+                reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+            )
+        )
+        store.updateInferredArtifact(
+            paneID: paneID,
+            artifact: WorkspaceArtifactLink(
+                kind: .pullRequest,
+                label: "PR #128",
+                url: URL(string: "https://example.com/pr/128")!,
+                isExplicit: false
+            )
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "peter@host:~/Development/project-b",
+                currentWorkingDirectory: nil,
+                processName: "zsh",
+                gitBranch: nil
+            )
+        )
+
+        XCTAssertNil(store.activeWorkspace?.reviewStateByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.inferredArtifactByPaneID[paneID])
     }
 }
