@@ -327,9 +327,44 @@ Build one summary from:
 - focused pane metadata
 - existing workspace attention summary
 - inferred or explicit PR artifact info
-- future PR/check state provider output
+- review state provider output
 
 This builder should own prioritization and fallback rules. The view should not.
+
+#### `WorkspaceReviewStateProvider`
+
+Define one explicit owner for PR and check enrichment.
+
+Suggested boundary:
+
+```swift
+protocol WorkspaceReviewStateProvider: Sendable {
+    func reviewState(
+        for workspace: WorkspaceState,
+        focusedPaneID: PaneID?
+    ) -> WorkspaceReviewState?
+}
+```
+
+Suggested review-state model:
+
+```swift
+struct WorkspaceReviewState: Equatable, Sendable {
+    var branch: String?
+    var pullRequest: WorkspacePullRequestSummary?
+    var reviewChips: [WorkspaceReviewChip]
+}
+```
+
+Rules:
+
+- This provider is the only component allowed to decide PR/check enrichment for the header.
+- `WorkspaceHeaderSummaryBuilder` consumes provider output and merges it with workspace urgency and focused-pane metadata.
+- The first implementation may be thin and partial.
+  - branch-only context can come from terminal metadata
+  - PR URL or PR number can come from inferred artifact state when available
+  - richer check data can arrive later through the same provider boundary
+- The interface must stay stable even if the backing source changes.
 
 #### `WindowChromeView`
 
@@ -343,6 +378,8 @@ Responsibilities:
 
 It should not derive business rules from raw workspace state.
 
+`WindowChromeView` must consume a fully materialized `WorkspaceHeaderSummary`. It should not query review-state submodels or workspace state directly.
+
 ## Integration Points
 
 ### Existing Reusable Pieces
@@ -355,12 +392,28 @@ It should not derive business rules from raw workspace state.
 
 The header needs a compact source of PR and check state for the active branch.
 
-That source should be modeled as optional enrichment:
+That source should be modeled as one explicit provider:
 
-- branch-only context works without it
-- PR/check chips appear when it exists
+- `WorkspaceReviewStateProvider` is the single boundary for review enrichment
+- branch-only context works without full provider coverage
+- PR/check chips appear when provider output exists
 
-This keeps the UI useful before full GitHub integration is present.
+This keeps the UI useful before full GitHub integration is present while preventing multiple competing review-state pipelines from appearing during implementation.
+
+### Data Flow
+
+Recommended flow:
+
+1. `RootViewController` gathers the active workspace and focused pane context
+2. `WorkspaceAttentionSummaryBuilder` produces workspace urgency
+3. `WorkspaceReviewStateProvider` produces branch/PR/check enrichment
+4. `WorkspaceHeaderSummaryBuilder` merges those into one `WorkspaceHeaderSummary`
+5. `WindowChromeView` renders that summary only
+
+This preserves a clean boundary:
+
+- builders and providers decide meaning
+- the view decides layout only
 
 ## Settings Direction
 
