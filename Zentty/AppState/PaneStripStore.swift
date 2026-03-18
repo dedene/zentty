@@ -158,25 +158,29 @@ final class WorkspaceStore {
     func updateLayoutContext(_ layoutContext: PaneLayoutContext) {
         let previousLayoutContext = self.layoutContext
         self.layoutContext = layoutContext
-        var didUpdatePaneWidths = false
+        var didUpdateWorkspaceState = false
         let viewportScaleFactor = Self.viewportScaleFactor(
             from: previousLayoutContext.viewportWidth,
             to: layoutContext.viewportWidth
         )
 
         for index in workspaces.indices {
+            if workspaces[index].paneStripState.updateLayoutSizing(layoutContext.sizing) {
+                didUpdateWorkspaceState = true
+            }
+
             if workspaces[index].paneStripState.updateSinglePaneWidth(layoutContext.singlePaneWidth) {
-                didUpdatePaneWidths = true
+                didUpdateWorkspaceState = true
                 continue
             }
 
             if let viewportScaleFactor,
                workspaces[index].paneStripState.scalePaneWidths(by: viewportScaleFactor) {
-                didUpdatePaneWidths = true
+                didUpdateWorkspaceState = true
             }
         }
 
-        if didUpdatePaneWidths {
+        if didUpdateWorkspaceState {
             notifyStateChanged()
         }
     }
@@ -654,7 +658,8 @@ final class WorkspaceStore {
                         width: layoutContext.singlePaneWidth
                     ),
                 ],
-                focusedPaneID: shellPaneID
+                focusedPaneID: shellPaneID,
+                layoutSizing: layoutContext.sizing
             )
         )
     }

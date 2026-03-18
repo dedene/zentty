@@ -180,7 +180,7 @@ struct PaneStripState: Equatable, Sendable {
 
     private(set) var columns: [PaneColumnState]
     private(set) var focusedColumnID: PaneColumnID?
-    let layoutSizing: PaneLayoutSizing
+    private(set) var layoutSizing: PaneLayoutSizing
 
     init(
         columns: [PaneColumnState],
@@ -507,6 +507,16 @@ struct PaneStripState: Equatable, Sendable {
         }
 
         return columns.firstIndex { $0.id == focusedColumnID }
+    }
+
+    @discardableResult
+    mutating func updateLayoutSizing(_ layoutSizing: PaneLayoutSizing) -> Bool {
+        guard self.layoutSizing != layoutSizing else {
+            return false
+        }
+
+        self.layoutSizing = layoutSizing
+        return true
     }
 
     private mutating func moveColumnFocus(by delta: Int) {

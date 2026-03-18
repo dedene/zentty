@@ -5,11 +5,27 @@ import XCTest
 final class RootViewCompositionTests: XCTestCase {
     override func tearDown() {
         SidebarWidthPreference.resetForTesting()
+        SidebarVisibilityPreference.resetForTesting()
+        PaneLayoutPreferenceStore.resetForTesting()
         super.tearDown()
     }
 
+    private func makeController(
+        sidebarWidthDefaults: UserDefaults = SidebarWidthPreference.userDefaultsForTesting(),
+        sidebarVisibilityDefaults: UserDefaults = SidebarVisibilityPreference.userDefaultsForTesting(),
+        paneLayoutDefaults: UserDefaults = PaneLayoutPreferenceStore.userDefaultsForTesting(),
+        initialLayoutContext: PaneLayoutContext = .fallback
+    ) -> RootViewController {
+        RootViewController(
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults,
+            initialLayoutContext: initialLayoutContext
+        )
+    }
+
     func test_root_controller_layers_full_width_canvas_beneath_sidebar_overlay() throws {
-        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        let controller = makeController()
         controller.loadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
@@ -32,7 +48,7 @@ final class RootViewCompositionTests: XCTestCase {
     }
 
     func test_root_controller_keeps_window_chrome_as_sibling_overlay_above_canvas() throws {
-        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        let controller = makeController()
         controller.loadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
@@ -45,6 +61,23 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertFalse(rootSubviews.contains { $0 is ContentShellView })
         XCTAssertFalse(appCanvasView.containsDescendant(ofType: WindowChromeView.self))
         XCTAssertEqual(windowChromeView.frame.minY, appCanvasView.frame.maxY, accuracy: 0.5)
+    }
+
+    func test_root_controller_layers_sidebar_above_chrome_and_toggle_above_sidebar() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let rootSubviews = controller.view.subviews
+        let appCanvasIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is AppCanvasView })
+        let chromeIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is WindowChromeView })
+        let sidebarIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is SidebarView })
+        let toggleIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is SidebarToggleOverlayView })
+
+        XCTAssertGreaterThan(chromeIndex, appCanvasIndex)
+        XCTAssertGreaterThan(sidebarIndex, chromeIndex)
+        XCTAssertGreaterThan(toggleIndex, sidebarIndex)
     }
 
     func test_chrome_geometry_derives_nested_radii_from_edge_to_edge_insets() {
@@ -82,7 +115,7 @@ final class RootViewCompositionTests: XCTestCase {
     }
 
     func test_root_controller_applies_outer_shell_geometry_to_live_root_view() {
-        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        let controller = makeController()
 
         controller.loadViewIfNeeded()
 
@@ -114,6 +147,49 @@ final class RootViewCompositionTests: XCTestCase {
         let windowChromeView = WindowChromeView()
 
         XCTAssertEqual(windowChromeView.titleTextForTesting, "")
+    }
+
+    func test_sidebar_toggle_overlay_reflects_sidebar_visibility_state_and_anchor() {
+        let overlayView = SidebarToggleOverlayView(frame: NSRect(x: 0, y: 0, width: 320, height: 60))
+
+        overlayView.apply(theme: ZenttyTheme.fallback(for: nil), animated: false)
+        overlayView.setSidebarVisibility(.pinnedOpen, animated: false)
+        overlayView.setTrafficLightAnchor(trailingX: 72)
+        overlayView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(overlayView.isToggleActiveForTesting)
+        XCTAssertEqual(overlayView.toggleMinXForTesting, 84, accuracy: 0.5)
+
+        overlayView.setSidebarVisibility(.hidden, animated: false)
+
+        XCTAssertFalse(overlayView.isToggleActiveForTesting)
+    }
+
+    func test_sidebar_toggle_overlay_aligns_to_live_traffic_light_midpoint() {
+        let hostView = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
+        let overlayView = SidebarToggleOverlayView(frame: NSRect(x: 0, y: 180, width: 360, height: 60))
+        hostView.addSubview(overlayView)
+
+        overlayView.apply(theme: ZenttyTheme.fallback(for: nil), animated: false)
+        overlayView.setTrafficLightAnchor(trailingX: 72, midYInSuperview: 210)
+        hostView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(overlayView.toggleFrameInSuperviewForTesting.midY, 210, accuracy: 0.5)
+    }
+
+    func test_sidebar_toggle_overlay_updates_frame_immediately_when_anchor_changes() {
+        let hostView = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
+        let overlayView = SidebarToggleOverlayView(frame: NSRect(x: 0, y: 180, width: 360, height: 60))
+        hostView.addSubview(overlayView)
+        hostView.layoutSubtreeIfNeeded()
+
+        let initialFrame = overlayView.toggleFrameInSuperviewForTesting
+
+        overlayView.setTrafficLightAnchor(trailingX: 72, midYInSuperview: 210)
+
+        XCTAssertNotEqual(overlayView.toggleFrameInSuperviewForTesting, initialFrame)
+        XCTAssertEqual(overlayView.toggleFrameInSuperviewForTesting.minX, 84, accuracy: 0.5)
+        XCTAssertEqual(overlayView.toggleFrameInSuperviewForTesting.midY, 210, accuracy: 0.5)
     }
 
     func test_context_strip_prefers_terminal_metadata_and_keeps_exact_cwd() {
@@ -222,7 +298,7 @@ final class RootViewCompositionTests: XCTestCase {
     func test_root_controller_restores_persisted_sidebar_width() {
         let defaults = SidebarWidthPreference.userDefaultsForTesting()
         defaults.set(312, forKey: SidebarWidthPreference.persistenceKey)
-        let controller = RootViewController(sidebarWidthDefaults: defaults)
+        let controller = makeController(sidebarWidthDefaults: defaults)
 
         controller.loadViewIfNeeded()
 
@@ -230,7 +306,7 @@ final class RootViewCompositionTests: XCTestCase {
     }
 
     func test_root_controller_uses_new_default_sidebar_width() {
-        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        let controller = makeController()
 
         controller.loadViewIfNeeded()
 
@@ -238,14 +314,14 @@ final class RootViewCompositionTests: XCTestCase {
     }
 
     func test_root_controller_keeps_single_pane_full_width_through_initial_layout_and_resize() throws {
-        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        let controller = makeController()
         controller.loadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
         let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView })
         let initialPaneView = try XCTUnwrap(appCanvasView.descendantPaneViews().first)
-        let initialExpectedWidth = PaneLayoutSizing.balanced.readableWidth(
+        let initialExpectedWidth = PaneLayoutSizing.edgeAligned.readableWidth(
             for: appCanvasView.bounds.width,
             leadingVisibleInset: controller.sidebarWidthForTesting + ShellMetrics.canvasSidebarGap
         )
@@ -256,7 +332,7 @@ final class RootViewCompositionTests: XCTestCase {
         controller.view.layoutSubtreeIfNeeded()
 
         let resizedPaneView = try XCTUnwrap(appCanvasView.descendantPaneViews().first)
-        let resizedExpectedWidth = PaneLayoutSizing.balanced.readableWidth(
+        let resizedExpectedWidth = PaneLayoutSizing.edgeAligned.readableWidth(
             for: appCanvasView.bounds.width,
             leadingVisibleInset: controller.sidebarWidthForTesting + ShellMetrics.canvasSidebarGap
         )
@@ -265,27 +341,44 @@ final class RootViewCompositionTests: XCTestCase {
     }
 
     func test_root_controller_single_pane_preserves_readable_trailing_inset_and_bottom_spacing() throws {
-        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        let controller = makeController()
         controller.loadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
         let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView })
+        let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView })
         let paneView = try XCTUnwrap(appCanvasView.descendantPaneViews().first)
-        let borderFrame = paneView.insetBorderFrameForTesting
+        let borderFrameInRoot = paneView.convert(paneView.insetBorderFrameForTesting, to: controller.view)
+        let leftGapToSidebar = borderFrameInRoot.minX - sidebarView.frame.maxX
+        let rightGap = controller.view.bounds.maxX - borderFrameInRoot.maxX
 
-        XCTAssertEqual(
-            appCanvasView.bounds.maxX - paneView.frame.maxX,
-            PaneLayoutSizing.balanced.horizontalInset * 2,
-            accuracy: 0.001
-        )
         XCTAssertEqual(paneView.frame.maxY, appCanvasView.bounds.maxY, accuracy: 0.001)
-        XCTAssertLessThan(borderFrame.maxX, paneView.bounds.maxX)
-        XCTAssertLessThan(borderFrame.maxY, paneView.bounds.maxY)
+        XCTAssertEqual(leftGapToSidebar, borderFrameInRoot.minY, accuracy: 0.001)
+        XCTAssertEqual(rightGap, leftGapToSidebar, accuracy: 0.001)
+        XCTAssertLessThan(borderFrameInRoot.maxX, controller.view.bounds.maxX)
+        XCTAssertLessThan(borderFrameInRoot.maxY, controller.view.bounds.maxY)
+    }
+
+    func test_root_controller_sidebar_toggle_relays_layout_change_as_single_canvas_transition() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        let initialRenderCount = appCanvasView.paneStripRenderCountForTesting
+
+        controller.handleSidebarVisibilityEventForTesting(.togglePressed)
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(appCanvasView.paneStripRenderCountForTesting - initialRenderCount, 1)
+        XCTAssertEqual(appCanvasView.lastLeadingVisibleInsetForTesting, 0, accuracy: 0.001)
+        XCTAssertTrue(appCanvasView.lastPaneStripRenderWasAnimatedForTesting)
     }
 
     func test_root_controller_scales_multi_pane_widths_when_window_resizes() throws {
-        let controller = RootViewController(sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting())
+        let controller = makeController()
         controller.loadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
@@ -629,6 +722,14 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(sidebarView.resizeHandleFillAlphaForTesting, 0, accuracy: 0.001)
     }
 
+    func test_sidebar_hides_resize_handle_when_resize_is_disabled() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+
+        sidebarView.setResizeEnabled(false)
+
+        XCTAssertTrue(sidebarView.isResizeHandleHiddenForTesting)
+    }
+
     func test_sidebar_glass_forces_dark_appearance_for_dark_themes() {
         let glassView = GlassSurfaceView(style: .sidebar)
         glassView.appearance = NSAppearance(named: .aqua)
@@ -921,6 +1022,62 @@ final class RootViewCompositionTests: XCTestCase {
         )
 
         XCTAssertTrue(windowChromeView.isAttentionHiddenForTesting)
+    }
+
+    func test_root_controller_restores_hidden_sidebar_and_reclaims_leading_inset() throws {
+        let sidebarDefaults = SidebarWidthPreference.userDefaultsForTesting()
+        let visibilityDefaults = SidebarVisibilityPreference.userDefaultsForTesting()
+        SidebarVisibilityPreference.persist(.hidden, in: visibilityDefaults)
+        let controller = makeController(
+            sidebarWidthDefaults: sidebarDefaults,
+            sidebarVisibilityDefaults: visibilityDefaults
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        let paneView = try XCTUnwrap(appCanvasView.descendantPaneViews().first as PaneContainerView?)
+        let expectedWidth = PaneLayoutSizing.edgeAligned.readableWidth(
+            for: appCanvasView.bounds.width,
+            leadingVisibleInset: 0
+        )
+        let borderFrameInRoot = paneView.convert(paneView.insetBorderFrameForTesting, to: controller.view)
+        let rightGap = controller.view.bounds.maxX - borderFrameInRoot.maxX
+
+        XCTAssertEqual(controller.sidebarVisibilityModeForTesting, .hidden)
+        XCTAssertEqual(appCanvasView.leadingVisibleInset, 0, accuracy: 0.001)
+        XCTAssertEqual(paneView.frame.width, expectedWidth, accuracy: 0.001)
+        XCTAssertEqual(borderFrameInRoot.minX, borderFrameInRoot.minY, accuracy: 0.001)
+        XCTAssertEqual(rightGap, borderFrameInRoot.minY, accuracy: 0.001)
+        XCTAssertFalse(controller.isSidebarFloatingForTesting)
+    }
+
+    func test_root_controller_hover_peek_keeps_overlay_sidebar_out_of_layout() throws {
+        let visibilityDefaults = SidebarVisibilityPreference.userDefaultsForTesting()
+        SidebarVisibilityPreference.persist(.hidden, in: visibilityDefaults)
+        let controller = makeController(
+            sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting(),
+            sidebarVisibilityDefaults: visibilityDefaults
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handleSidebarVisibilityEventForTesting(.hoverRailEntered)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        let paneView = try XCTUnwrap(appCanvasView.descendantPaneViews().first as PaneContainerView?)
+        let borderFrameInRoot = paneView.convert(paneView.insetBorderFrameForTesting, to: controller.view)
+        let rightGap = controller.view.bounds.maxX - borderFrameInRoot.maxX
+
+        XCTAssertEqual(controller.sidebarVisibilityModeForTesting, .hoverPeek)
+        XCTAssertEqual(appCanvasView.leadingVisibleInset, 0, accuracy: 0.001)
+        XCTAssertEqual(borderFrameInRoot.minX, borderFrameInRoot.minY, accuracy: 0.001)
+        XCTAssertEqual(rightGap, borderFrameInRoot.minY, accuracy: 0.001)
+        XCTAssertTrue(controller.isSidebarFloatingForTesting)
+        XCTAssertFalse(appCanvasView.lastPaneStripRenderWasAnimatedForTesting)
     }
 }
 

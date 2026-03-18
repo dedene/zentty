@@ -3,8 +3,23 @@ import XCTest
 
 @MainActor
 final class MainWindowControllerTests: XCTestCase {
+    override func tearDown() {
+        SidebarWidthPreference.resetForTesting()
+        SidebarVisibilityPreference.resetForTesting()
+        PaneLayoutPreferenceStore.resetForTesting()
+        super.tearDown()
+    }
+
+    private func makeController() -> MainWindowController {
+        MainWindowController(
+            sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting(),
+            sidebarVisibilityDefaults: SidebarVisibilityPreference.userDefaultsForTesting(),
+            paneLayoutDefaults: PaneLayoutPreferenceStore.userDefaultsForTesting()
+        )
+    }
+
     func test_main_window_starts_with_expected_content_size() {
-        let controller = MainWindowController()
+        let controller = makeController()
         controller.showWindow(nil)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 
@@ -20,13 +35,13 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     func test_main_window_keeps_resizable_style() {
-        let controller = MainWindowController()
+        let controller = makeController()
 
         XCTAssertTrue(controller.window.styleMask.contains(.resizable))
     }
 
     func test_show_window_does_not_reset_manual_frame_changes() {
-        let controller = MainWindowController()
+        let controller = makeController()
         controller.showWindow(nil)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 
@@ -45,7 +60,7 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     func test_show_window_repositions_traffic_lights_with_comfortable_inset() throws {
-        let controller = MainWindowController()
+        let controller = makeController()
         controller.showWindow(nil)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 
@@ -73,8 +88,30 @@ final class MainWindowControllerTests: XCTestCase {
         )
     }
 
+    func test_show_window_places_sidebar_toggle_beside_traffic_lights() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+
+        let zoomButton = try XCTUnwrap(controller.window.standardWindowButton(.zoomButton))
+        let buttonSuperview = try XCTUnwrap(zoomButton.superview)
+        let zoomAnchorInWindow = buttonSuperview.convert(
+            NSPoint(x: zoomButton.frame.maxX, y: zoomButton.frame.midY),
+            to: nil
+        )
+        let zoomAnchorInContent = try XCTUnwrap(controller.window.contentView).convert(zoomAnchorInWindow, from: nil)
+
+        XCTAssertEqual(
+            controller.sidebarToggleMinXForTesting - zoomAnchorInContent.x,
+            12,
+            accuracy: 1.0
+        )
+        XCTAssertEqual(controller.sidebarToggleMidYForTesting, zoomAnchorInContent.y, accuracy: 1.0)
+        XCTAssertTrue(controller.isSidebarToggleActiveForTesting)
+    }
+
     func test_programmatic_window_resize_relayouts_panes_without_inner_animation() throws {
-        let controller = MainWindowController()
+        let controller = makeController()
         controller.showWindow(nil)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 
@@ -107,7 +144,7 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     func test_new_workspace_action_creates_and_focuses_new_workspace() {
-        let controller = MainWindowController()
+        let controller = makeController()
 
         controller.newWorkspace(nil)
 
@@ -117,7 +154,7 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     func test_split_and_focus_actions_route_through_root_dispatcher() {
-        let controller = MainWindowController()
+        let controller = makeController()
 
         controller.splitHorizontally(nil)
         controller.focusLeftPane(nil)

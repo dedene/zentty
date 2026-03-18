@@ -9,9 +9,23 @@ struct PaneLayoutSizing: Equatable, Sendable {
     static let balanced = PaneLayoutSizing(
         horizontalInset: 0,
         topInset: 0,
-        bottomInset: 1,
+        bottomInset: 0,
         interPaneSpacing: 6
     )
+
+    static let edgeAligned = PaneLayoutSizing(
+        horizontalInset: 0,
+        topInset: balanced.topInset,
+        bottomInset: balanced.bottomInset,
+        interPaneSpacing: balanced.interPaneSpacing
+    )
+
+    static let collapsedSidebar = edgeAligned
+
+    static func forSidebarVisibility(_ visibility: SidebarVisibilityMode) -> PaneLayoutSizing {
+        _ = visibility
+        return .edgeAligned
+    }
 
     func readableWidth(
         for containerWidth: CGFloat,

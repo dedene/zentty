@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 struct PaneInsertionTransition: Equatable {
     enum Side: Equatable {
@@ -75,17 +76,12 @@ final class PaneStripView: NSView {
     private var accumulatedScrollSwitchDelta: CGFloat = 0
     private var hasTriggeredScrollSwitchInGesture = false
     private var currentTheme = ZenttyTheme.fallback(for: nil)
-    var leadingVisibleInset: CGFloat = 0 {
-        didSet {
-            guard abs(oldValue - leadingVisibleInset) > 0.001 else {
-                return
-            }
+    private var resolvedLeadingVisibleInset: CGFloat = 0
+    private var renderInvocationCount = 0
 
-            lastRenderedSize = .zero
-            if let currentState, bounds.size != .zero {
-                renderCurrentState(currentState, animated: false)
-            }
-        }
+    var leadingVisibleInset: CGFloat {
+        get { resolvedLeadingVisibleInset }
+        set { setLeadingVisibleInset(newValue, animated: false) }
     }
 
     override var fittingSize: NSSize {
@@ -157,8 +153,59 @@ final class PaneStripView: NSView {
         renderCurrentState(state, animated: !paneViews.isEmpty)
     }
 
+    func transition(
+        to state: PaneStripState,
+        paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
+        leadingVisibleInset: CGFloat,
+        animated: Bool,
+        duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
+        timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
+    ) {
+        currentPaneBorderContextByPaneID = paneBorderContextByPaneID
+        currentState = state
+        resolvedLeadingVisibleInset = leadingVisibleInset
+        suppressAnimatedRenderForResize = false
+        resizeSuppressionGeneration += 1
+        guard bounds.size != .zero else {
+            return
+        }
+        if hasViewportSizeChangeSinceLastRender {
+            markResizeAnimationSuppressionPending()
+        }
+        renderCurrentState(
+            state,
+            animated: animated,
+            animationDuration: duration,
+            animationTimingFunction: timingFunction
+        )
+    }
+
     func focusCurrentPaneIfNeeded() {
         syncFocusedTerminal(with: currentState?.focusedPaneID, force: true)
+    }
+
+    func setLeadingVisibleInset(
+        _ leadingVisibleInset: CGFloat,
+        animated: Bool,
+        duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
+        timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
+    ) {
+        guard abs(resolvedLeadingVisibleInset - leadingVisibleInset) > 0.001 else {
+            return
+        }
+
+        resolvedLeadingVisibleInset = leadingVisibleInset
+        lastRenderedSize = .zero
+        guard let currentState, bounds.size != .zero else {
+            return
+        }
+
+        renderCurrentState(
+            currentState,
+            animated: animated,
+            animationDuration: duration,
+            animationTimingFunction: timingFunction
+        )
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {
@@ -183,15 +230,29 @@ final class PaneStripView: NSView {
         lastRenderWasAnimated
     }
 
-    private func renderCurrentState(_ state: PaneStripState, animated: Bool) {
+    var renderInvocationCountForTesting: Int {
+        renderInvocationCount
+    }
+
+    var leadingVisibleInsetForTesting: CGFloat {
+        resolvedLeadingVisibleInset
+    }
+
+    private func renderCurrentState(
+        _ state: PaneStripState,
+        animated: Bool,
+        animationDuration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
+        animationTimingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
+    ) {
         visualStateSettleGeneration += 1
         let settleGeneration = visualStateSettleGeneration
+        renderInvocationCount += 1
         let previousPresentation = currentPresentation
         let previousOffset = currentOffset
         let presentation = motionController.presentation(
             for: state,
             in: bounds.size,
-            leadingVisibleInset: leadingVisibleInset,
+            leadingVisibleInset: resolvedLeadingVisibleInset,
             backingScaleFactor: currentBackingScaleFactor
         )
         let insertionTransition = insertionTransition(
@@ -253,7 +314,12 @@ final class PaneStripView: NSView {
         }
 
         if shouldAnimate {
-            motionController.animate(in: self, updates: updates) { [weak self] in
+            motionController.animate(
+                in: self,
+                duration: animationDuration,
+                timingFunction: animationTimingFunction,
+                updates: updates
+            ) { [weak self] in
                 guard let self, self.visualStateSettleGeneration == settleGeneration else {
                     return
                 }

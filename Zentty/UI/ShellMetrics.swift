@@ -117,8 +117,8 @@ enum ShellMetrics {
 
     static let outerInset: CGFloat = ChromeGeometry.shellInset
     static let shellGap: CGFloat = ChromeGeometry.shellInset
-    static let canvasOuterInset: CGFloat = outerInset - 2
-    static let canvasSidebarGap: CGFloat = shellGap - 2
+    static let canvasOuterInset: CGFloat = outerInset
+    static let canvasSidebarGap: CGFloat = shellGap
 
     static let outerWindowRadius: CGFloat = ChromeGeometry.outerWindowRadius
     static let contentShellRadius: CGFloat = ChromeGeometry.contentShellRadius
