@@ -113,10 +113,6 @@ final class RootViewController: NSViewController {
         sidebarView.onSelectWorkspace = { [weak self] workspaceID in
             self?.paneStripStore.selectWorkspace(id: workspaceID)
         }
-        sidebarView.onFocusPane = { [weak self] workspaceID, paneID in
-            self?.paneStripStore.selectWorkspace(id: workspaceID)
-            self?.paneStripStore.focusPane(id: paneID)
-        }
         sidebarView.onCreateWorkspace = { [weak self] in
             self?.handle(.newWorkspace)
         }
@@ -262,7 +258,7 @@ final class RootViewController: NSViewController {
             self?.paneStripStore.updateInferredArtifact(paneID: paneID, artifact: artifact)
         }
         sidebarView.render(
-            nodes: WorkspaceSidebarNodeBuilder.nodes(
+            summaries: WorkspaceSidebarSummaryBuilder.summaries(
                 for: paneStripStore.workspaces,
                 activeWorkspaceID: paneStripStore.activeWorkspaceID
             ),

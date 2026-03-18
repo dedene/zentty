@@ -10,7 +10,6 @@ final class SidebarView: NSView {
     var onSelectWorkspace: ((WorkspaceID) -> Void)?
     var onCreateWorkspace: (() -> Void)?
     var onResizeWidth: ((CGFloat) -> Void)?
-    var onFocusPane: ((WorkspaceID, PaneID) -> Void)?
 
     private let backgroundView = GlassSurfaceView(style: .sidebar)
     private let listScrollView = NSScrollView()
@@ -19,11 +18,11 @@ final class SidebarView: NSView {
     private let addWorkspaceButton = SidebarFooterButton()
     private let resizeHandleView = SidebarResizeHandleView()
 
-    private var expandedWorkspaceIDs: Set<WorkspaceID> = []
-    private var workspaceGroupViews: [WorkspaceGroupView] = []
-    private var currentNodes: [WorkspaceSidebarNode] = []
+    private var workspaceButtons: [SidebarWorkspaceRowButton] = []
+    private var workspaceSummaries: [WorkspaceSidebarSummary] = []
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resizeStartWidth: CGFloat = SidebarWidthPreference.defaultWidth
+    private var reservesLeadingAccessoryGutter = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -96,42 +95,41 @@ final class SidebarView: NSView {
     }
 
     func render(
-        nodes: [WorkspaceSidebarNode],
+        summaries: [WorkspaceSidebarSummary],
         theme: ZenttyTheme
     ) {
-        currentNodes = nodes
+        workspaceSummaries = summaries
+        reservesLeadingAccessoryGutter = summaries.contains { $0.leadingAccessory != nil }
         apply(theme: theme, animated: true)
-
-        // Auto-expand active multi-pane workspace
-        for node in nodes where node.header.isActive && node.header.paneCount > 1 {
-            expandedWorkspaceIDs.insert(node.header.workspaceID)
-        }
 
         listStack.arrangedSubviews.forEach { view in
             listStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        workspaceGroupViews.removeAll(keepingCapacity: true)
+        workspaceButtons.removeAll(keepingCapacity: true)
 
-        for node in nodes {
-            let isExpanded = node.header.paneCount > 1 && expandedWorkspaceIDs.contains(node.header.workspaceID)
-            let groupView = WorkspaceGroupView(workspaceID: node.header.workspaceID)
-            groupView.onSelectWorkspace = { [weak self] id in self?.onSelectWorkspace?(id) }
-            groupView.onToggleExpansion = { [weak self] id in self?.toggleExpansion(id) }
-            groupView.onFocusPane = { [weak self] wid, pid in self?.onFocusPane?(wid, pid) }
-            groupView.configure(with: node, isExpanded: isExpanded, theme: currentTheme, animated: false)
-            workspaceGroupViews.append(groupView)
-            listStack.addArrangedSubview(groupView)
+        for summary in summaries {
+            let button = SidebarWorkspaceRowButton(workspaceID: summary.workspaceID)
+            button.target = self
+            button.action = #selector(handleWorkspaceButton(_:))
+            button.configure(
+                with: summary,
+                reservesLeadingAccessoryGutter: reservesLeadingAccessoryGutter,
+                theme: currentTheme,
+                animated: false
+            )
+            workspaceButtons.append(button)
+            listStack.addArrangedSubview(button)
             NSLayoutConstraint.activate([
-                groupView.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
-                groupView.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
+                button.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
+                button.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
             ])
         }
 
-        // Footer button
-        if let lastGroup = workspaceGroupViews.last {
-            listStack.setCustomSpacing(8, after: lastGroup)
+        if let lastWorkspaceButton = workspaceButtons.last {
+            listStack.setCustomSpacing(8, after: lastWorkspaceButton)
         }
+
         addWorkspaceButton.configure(theme: currentTheme, animated: false)
         listStack.addArrangedSubview(addWorkspaceButton)
         NSLayoutConstraint.activate([
@@ -150,24 +148,26 @@ final class SidebarView: NSView {
             self.layer?.backgroundColor = NSColor.clear.cgColor
         }
 
-        workspaceGroupViews.enumerated().forEach { index, groupView in
-            guard currentNodes.indices.contains(index) else { return }
-            let isExpanded = currentNodes[index].header.paneCount > 1 && expandedWorkspaceIDs.contains(currentNodes[index].header.workspaceID)
-            groupView.configure(with: currentNodes[index], isExpanded: isExpanded, theme: theme, animated: animated)
+        workspaceButtons.enumerated().forEach { index, button in
+            guard workspaceSummaries.indices.contains(index) else {
+                return
+            }
+            button.configure(
+                with: workspaceSummaries[index],
+                reservesLeadingAccessoryGutter: reservesLeadingAccessoryGutter,
+                theme: theme,
+                animated: animated
+            )
         }
     }
 
-    private func toggleExpansion(_ workspaceID: WorkspaceID) {
-        if expandedWorkspaceIDs.contains(workspaceID) {
-            expandedWorkspaceIDs.remove(workspaceID)
-        } else {
-            expandedWorkspaceIDs.insert(workspaceID)
+    @objc
+    private func handleWorkspaceButton(_ sender: SidebarWorkspaceRowButton) {
+        guard let workspaceID = sender.workspaceID else {
+            return
         }
-        if let index = currentNodes.firstIndex(where: { $0.header.workspaceID == workspaceID }),
-           index < workspaceGroupViews.count {
-            let isExpanded = expandedWorkspaceIDs.contains(workspaceID)
-            workspaceGroupViews[index].setExpanded(isExpanded, animated: true)
-        }
+
+        onSelectWorkspace?(workspaceID)
     }
 
     @objc
@@ -188,23 +188,19 @@ final class SidebarView: NSView {
     }
 
     var workspacePrimaryTextsForTesting: [String] {
-        currentNodes.map(\.header.primaryText)
+        workspaceSummaries.map(\.primaryText)
     }
 
     var workspaceContextTextsForTesting: [String] {
-        currentNodes.map(\.header.gitContext)
+        workspaceSummaries.map(\.contextText)
     }
 
     var workspaceArtifactTextsForTesting: [String] {
-        workspaceGroupViews.map(\.headerArtifactTextForTesting)
-    }
-
-    var workspaceAttentionSymbolsForTesting: [String?] {
-        workspaceGroupViews.map(\.headerAttentionSymbolNameForTesting)
+        workspaceButtons.map(\.artifactTextForTesting)
     }
 
     var workspaceButtonsForTesting: [NSButton] {
-        workspaceGroupViews.compactMap(\.headerButtonForTesting)
+        workspaceButtons
     }
 
     var addWorkspaceTitleForTesting: String {
@@ -220,28 +216,28 @@ final class SidebarView: NSView {
     }
 
     var firstWorkspaceTopInsetForTesting: CGFloat {
-        guard let firstGroup = workspaceGroupViews.first else {
+        guard let firstButton = workspaceButtons.first else {
             return .greatestFiniteMagnitude
         }
 
-        let groupFrame = convert(firstGroup.bounds, from: firstGroup)
-        return listScrollView.frame.maxY - groupFrame.maxY
+        let buttonFrame = convert(firstButton.bounds, from: firstButton)
+        return listScrollView.frame.maxY - buttonFrame.maxY
     }
 
     var firstWorkspaceMinYForTesting: CGFloat {
-        guard let firstGroup = workspaceGroupViews.first else {
+        guard let firstButton = workspaceButtons.first else {
             return 0
         }
 
-        return convert(firstGroup.bounds, from: firstGroup).minY
+        return convert(firstButton.bounds, from: firstButton).minY
     }
 
     var firstWorkspaceMaxYForTesting: CGFloat {
-        guard let firstGroup = workspaceGroupViews.first else {
+        guard let firstButton = workspaceButtons.first else {
             return 0
         }
 
-        return convert(firstGroup.bounds, from: firstGroup).maxY
+        return convert(firstButton.bounds, from: firstButton).maxY
     }
 
     var addWorkspaceMinYForTesting: CGFloat {
@@ -253,12 +249,31 @@ final class SidebarView: NSView {
     }
 
     var firstWorkspaceWidthForTesting: CGFloat {
-        workspaceGroupViews.first.map { convert($0.bounds, from: $0).width } ?? 0
+        workspaceButtons.first.map { convert($0.bounds, from: $0).width } ?? 0
     }
 
     var firstWorkspacePrimaryMinXForTesting: CGFloat {
-        (workspaceGroupViews.first?.headerButtonForTesting as? WorkspaceHeaderRow)
-            .map { $0.primaryMinX(in: self) } ?? 0
+        workspaceButtons.first.map { $0.primaryMinX(in: self) } ?? 0
+    }
+
+    var secondWorkspacePrimaryMinXForTesting: CGFloat {
+        guard workspaceButtons.count > 1 else {
+            return 0
+        }
+
+        return workspaceButtons[1].primaryMinX(in: self)
+    }
+
+    var workspaceDetailTextsForTesting: [[String]] {
+        workspaceButtons.map(\.detailTextsForTesting)
+    }
+
+    var workspaceOverflowTextsForTesting: [String] {
+        workspaceButtons.map(\.overflowTextForTesting)
+    }
+
+    var workspaceLeadingAccessorySymbolsForTesting: [String] {
+        workspaceButtons.map(\.leadingAccessorySymbolNameForTesting)
     }
 
     var addWorkspaceContentMinXForTesting: CGFloat {

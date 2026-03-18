@@ -266,20 +266,20 @@ final class PaneStripView: NSView {
                     insertionTransition: insertionTransition,
                     allowInactiveDimming: true
                 )
-                self.applyViewportSyncSuspension(to: [])
-                self.viewportView.layoutSubtreeIfNeeded()
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.visualStateSettleGeneration == settleGeneration else {
                         return
                     }
                     self.applyTerminalAnimationFreeze(to: [])
+                    self.viewportView.layoutSubtreeIfNeeded()
+                    self.applyViewportSyncSuspension(to: [])
                 }
             }
         } else {
             updates()
             applyTerminalAnimationFreeze(to: [])
-            applyViewportSyncSuspension(to: [])
             viewportView.layoutSubtreeIfNeeded()
+            applyViewportSyncSuspension(to: [])
         }
 
         currentOffset = targetOffset

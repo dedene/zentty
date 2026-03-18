@@ -37,12 +37,17 @@ final class PaneContainerViewTests: XCTestCase {
         XCTAssertEqual(paneView.layer?.cornerRadius ?? 0, ChromeGeometry.paneRadius, accuracy: 0.001)
         XCTAssertTrue(paneView.usesInsetBorderLayerForTesting)
         XCTAssertEqual(paneView.insetBorderLineWidthForTesting, 1, accuracy: 0.001)
-        XCTAssertEqual(paneView.insetBorderInsetForTesting, 1.0, accuracy: 0.001)
-        XCTAssertEqual(paneView.insetBorderCornerRadiusForTesting, 17.0, accuracy: 0.001)
+        let expectedInset = ChromeGeometry.paneBorderInset(backingScaleFactor: 2)
+        XCTAssertEqual(paneView.insetBorderInsetForTesting, expectedInset, accuracy: 0.001)
+        XCTAssertEqual(
+            paneView.insetBorderCornerRadiusForTesting,
+            max(0, ChromeGeometry.paneRadius - expectedInset),
+            accuracy: 0.001
+        )
         XCTAssertEqual(paneView.insetBorderCornerCurveForTesting, .continuous)
-        XCTAssertEqual(borderFrame.minX, 1.0, accuracy: 0.001)
+        XCTAssertEqual(borderFrame.minX, expectedInset, accuracy: 0.001)
         XCTAssertLessThan(borderFrame.maxX, paneView.bounds.maxX)
-        XCTAssertEqual(borderFrame.minY, 1.0, accuracy: 0.001)
+        XCTAssertEqual(borderFrame.minY, expectedInset, accuracy: 0.001)
         XCTAssertLessThan(borderFrame.maxY, paneView.bounds.maxY)
     }
 

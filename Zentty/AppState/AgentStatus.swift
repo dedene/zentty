@@ -248,6 +248,15 @@ struct WorkspaceAttentionSummary: Equatable, Sendable {
     let contextText: String
     let artifactLink: WorkspaceArtifactLink?
     let updatedAt: Date
+
+    var requiresHumanAttention: Bool {
+        switch state {
+        case .needsInput, .unresolvedStop:
+            return true
+        case .running, .completed:
+            return false
+        }
+    }
 }
 
 enum AgentToolRecognizer {
@@ -259,27 +268,170 @@ enum AgentToolRecognizer {
 
 enum WorkspaceContextFormatter {
     static func contextText(for metadata: TerminalMetadata?) -> String {
-        let compactDirectory = metadata?.currentWorkingDirectory.flatMap(compactDirectoryName)
+        let compactDirectory = metadata?.currentWorkingDirectory.flatMap {
+            compactDirectoryName($0)
+        }
         let branch = trimmed(metadata?.gitBranch)
         return [compactDirectory, branch]
             .compactMap { $0 }
             .joined(separator: " • ")
     }
 
-    static func contextText(for metadata: TerminalMetadata?, showCompactPath: Bool) -> String {
-        let directoryPart: String?
-        if showCompactPath {
-            directoryPart = metadata?.currentWorkingDirectory.flatMap(compactPath)
-        } else {
-            directoryPart = metadata?.currentWorkingDirectory.flatMap(compactDirectoryName)
+    static func compactSidebarPath(
+        _ path: String,
+        minimumSegments: Int = 1
+    ) -> String? {
+        guard let components = sidebarPathComponents(path) else {
+            return nil
         }
-        let branch = trimmed(metadata?.gitBranch)
-        return [directoryPart, branch]
-            .compactMap { $0 }
-            .joined(separator: " • ")
+
+        guard components != ["~"] else {
+            return "~"
+        }
+
+        if let worktreeLabel = worktreeSidebarPathLabel(path) {
+            return worktreeLabel
+        }
+
+        let clampedSegmentCount = min(
+            max(1, minimumSegments),
+            components.count
+        )
+        return components.suffix(clampedSegmentCount).joined(separator: "/")
     }
 
-    static func compactDirectoryName(_ path: String) -> String? {
+    static func maxSidebarPathSegments(_ path: String) -> Int? {
+        guard let components = sidebarPathComponents(path) else {
+            return nil
+        }
+
+        if worktreeSidebarPathLabel(path) != nil {
+            return 2
+        }
+
+        return components == ["~"] ? 1 : components.count
+    }
+
+    static func compactDirectoryName(
+        _ path: String,
+        minimumSegments: Int = 1
+    ) -> String? {
+        compactSidebarPath(path, minimumSegments: minimumSegments).flatMap { compactPath in
+            guard compactPath != "~" else {
+                return "~"
+            }
+
+            guard minimumSegments > 1 else {
+                return compactPath.split(separator: "/").last.map(String.init)
+            }
+
+            return compactPath
+        }
+    }
+
+    static func paneDetailLine(
+        metadata: TerminalMetadata?,
+        fallbackTitle: String?,
+        minimumPathSegments: Int = 1
+    ) -> String? {
+        let branch = trimmed(metadata?.gitBranch)
+        let compactDirectory = metadata?.currentWorkingDirectory.flatMap {
+            compactDirectoryName($0, minimumSegments: minimumPathSegments)
+        }
+        let fallback = meaningfulSidebarDetailRole(
+            metadata: metadata,
+            fallbackTitle: fallbackTitle
+        )
+
+        if let branch, let compactDirectory {
+            return "\(branch) • \(compactDirectory)"
+        }
+
+        if let branch {
+            return branch
+        }
+
+        if let fallback, let compactDirectory {
+            return "\(fallback) • \(compactDirectory)"
+        }
+
+        return compactDirectory ?? fallback
+    }
+
+    static func singlePaneSidebarDetailLine(metadata: TerminalMetadata?) -> String? {
+        let branch = trimmed(metadata?.gitBranch)
+        let compactDirectory = metadata?.currentWorkingDirectory.flatMap {
+            compactDirectoryName($0)
+        }
+
+        if let branch, let compactDirectory {
+            return "\(branch) • \(compactDirectory)"
+        }
+
+        return branch
+    }
+
+    static func normalizeSidebarFallbackTitle(_ title: String?) -> String? {
+        guard let normalized = trimmed(title) else {
+            return nil
+        }
+
+        if normalized.range(of: #"^pane \d+$"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            return nil
+        }
+
+        if normalized.caseInsensitiveCompare("shell") == .orderedSame {
+            return nil
+        }
+
+        if normalized.caseInsensitiveCompare("split") == .orderedSame {
+            return nil
+        }
+
+        if normalized.caseInsensitiveCompare("git") == .orderedSame {
+            return "git"
+        }
+
+        return normalized
+    }
+
+    static func trimmed(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+
+        return value
+    }
+
+    private static func meaningfulSidebarRole(
+        metadata: TerminalMetadata?,
+        fallbackTitle: String?
+    ) -> String? {
+        normalizeSidebarFallbackTitle(metadata?.title)
+            ?? normalizeSidebarFallbackTitle(metadata?.processName)
+            ?? normalizeSidebarFallbackTitle(fallbackTitle)
+    }
+
+    private static func meaningfulSidebarDetailRole(
+        metadata: TerminalMetadata?,
+        fallbackTitle: String?
+    ) -> String? {
+        guard let role = meaningfulSidebarRole(
+            metadata: metadata,
+            fallbackTitle: fallbackTitle
+        ) else {
+            return nil
+        }
+
+        switch role.lowercased() {
+        case "zsh", "bash", "fish", "sh":
+            return nil
+        default:
+            return role
+        }
+    }
+
+    private static func sidebarPathComponents(_ path: String) -> [String]? {
         let trimmedPath = trimmed(path)
         guard let trimmedPath else {
             return nil
@@ -290,32 +442,43 @@ enum WorkspaceContextFormatter {
             ? trimmedPath.replacingOccurrences(of: homePath, with: "~")
             : trimmedPath
 
-        let components = normalizedPath.split(separator: "/").map(String.init)
-        guard let lastComponent = components.last, !lastComponent.isEmpty else {
-            return normalizedPath == "~" ? "~" : nil
+        guard normalizedPath != "~" else {
+            return ["~"]
         }
 
-        return lastComponent == "~" ? "~" : lastComponent
+        let components = normalizedPath
+            .split(separator: "/")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+
+        guard components.isEmpty == false else {
+            return nil
+        }
+
+        return components
     }
 
-    static func compactPath(_ path: String) -> String? {
+    private static func worktreeSidebarPathLabel(_ path: String) -> String? {
         let trimmedPath = trimmed(path)
         guard let trimmedPath else {
             return nil
         }
 
         let homePath = NSHomeDirectory()
-        return trimmedPath.hasPrefix(homePath)
+        let normalizedPath = trimmedPath.hasPrefix(homePath)
             ? trimmedPath.replacingOccurrences(of: homePath, with: "~")
             : trimmedPath
-    }
+        let components = normalizedPath
+            .split(separator: "/")
+            .map(String.init)
+            .filter { !$0.isEmpty }
 
-    static func trimmed(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+        guard let worktreesIndex = components.firstIndex(of: "worktrees"),
+              worktreesIndex + 2 < components.count else {
             return nil
         }
 
-        return value
+        return components[(worktreesIndex + 1)...(worktreesIndex + 2)].joined(separator: "/")
     }
 }
 
@@ -363,7 +526,10 @@ enum WorkspaceAttentionSummaryBuilder {
             state: workspaceState(for: status.state),
             primaryText: primaryText,
             statusText: status.statusText,
-            contextText: WorkspaceContextFormatter.contextText(for: metadata),
+            contextText: WorkspaceContextFormatter.paneDetailLine(
+                metadata: metadata,
+                fallbackTitle: pane.title
+            ) ?? "",
             artifactLink: artifactLink,
             updatedAt: status.updatedAt
         )
@@ -403,11 +569,5 @@ private extension WorkspaceAttentionState {
         case .completed:
             return 1
         }
-    }
-}
-
-extension WorkspaceAttentionSummary {
-    var requiresHumanAttention: Bool {
-        state == .needsInput
     }
 }

@@ -449,11 +449,17 @@ final class WorkspaceHeaderRow: NSButton {
 
     private func view(for row: WorkspaceRowTextRow) -> NSView {
         switch row {
+        case .topLabel:
+            return primaryLabel
         case .primary:
             return primaryLabel
         case .status:
             return statusRowStack
         case .context:
+            return contextLabel
+        case .detail:
+            return contextLabel
+        case .overflow:
             return contextLabel
         }
     }

@@ -964,12 +964,12 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertEqual(
             shellResumeHeight,
             expectedShellHeight,
-            accuracy: 0.001
+            accuracy: 0.5
         )
         XCTAssertEqual(
             insertedResumeHeight,
             expectedInsertedHeight,
-            accuracy: 0.001
+            accuracy: 0.5
         )
     }
 

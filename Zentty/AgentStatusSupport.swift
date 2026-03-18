@@ -1398,7 +1398,7 @@ final class WorkspaceAttentionNotificationCoordinator {
             nextSeenStates[workspace.id] = attention.state
             let didChange = lastSeenStates[workspace.id] != attention.state
             let shouldNotify = (workspace.id != activeWorkspaceID) || !windowIsKey
-            let isNotifyable = attention.requiresHumanAttention
+            let isNotifyable = attention.state == .needsInput
             guard didChange, shouldNotify, isNotifyable else {
                 continue
             }
