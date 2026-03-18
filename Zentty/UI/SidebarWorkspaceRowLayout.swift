@@ -15,7 +15,8 @@ enum WorkspaceRowTextRow: Equatable {
 }
 
 struct WorkspaceRowLayoutMetrics: Equatable {
-    let verticalPadding: CGFloat
+    let topInset: CGFloat
+    let bottomInset: CGFloat
     let interlineSpacing: CGFloat
     let titleLineHeight: CGFloat
     let primaryLineHeight: CGFloat
@@ -24,17 +25,18 @@ struct WorkspaceRowLayoutMetrics: Equatable {
     let overflowLineHeight: CGFloat
 
     static let sidebar = WorkspaceRowLayoutMetrics(
-        verticalPadding: ShellMetrics.sidebarRowVerticalPadding,
+        topInset: ShellMetrics.sidebarRowTopInset,
+        bottomInset: ShellMetrics.sidebarRowBottomInset,
         interlineSpacing: ShellMetrics.sidebarRowInterlineSpacing,
-        titleLineHeight: ShellMetrics.sidebarTitleLineHeightBudget,
-        primaryLineHeight: ShellMetrics.sidebarPrimaryLineHeightBudget,
-        statusLineHeight: ShellMetrics.sidebarStatusLineHeightBudget,
-        detailLineHeight: ShellMetrics.sidebarContextLineHeightBudget,
-        overflowLineHeight: ShellMetrics.sidebarContextLineHeightBudget
+        titleLineHeight: ShellMetrics.sidebarTitleLineHeight,
+        primaryLineHeight: ShellMetrics.sidebarPrimaryLineHeight,
+        statusLineHeight: ShellMetrics.sidebarStatusLineHeight,
+        detailLineHeight: ShellMetrics.sidebarDetailLineHeight,
+        overflowLineHeight: ShellMetrics.sidebarOverflowLineHeight
     )
 
     var compactHeight: CGFloat {
-        verticalPadding + primaryLineHeight
+        topInset + bottomInset + primaryLineHeight
     }
 
     var expandedHeight: CGFloat {
@@ -66,8 +68,7 @@ struct WorkspaceRowLayoutMetrics: Equatable {
 
         let textHeight = visibleLineHeights.reduce(0, +)
         let spacingHeight = CGFloat(max(0, visibleLineHeights.count - 1)) * interlineSpacing
-        let extraDetailBreathingRoom = CGFloat(max(0, clampedDetailLineCount - 1)) * interlineSpacing
-        let computedHeight = verticalPadding + textHeight + spacingHeight + extraDetailBreathingRoom
+        let computedHeight = topInset + bottomInset + textHeight + spacingHeight
 
         guard includesArtifact else {
             return computedHeight

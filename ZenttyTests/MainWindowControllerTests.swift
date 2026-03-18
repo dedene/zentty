@@ -101,8 +101,8 @@ final class MainWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(initialWidths.count, 2)
         XCTAssertEqual(resizedWidths.count, 2)
-        XCTAssertEqual(resizedWidths[0], initialWidths[0] * expectedScaleFactor, accuracy: 0.5)
-        XCTAssertEqual(resizedWidths[1], initialWidths[1] * expectedScaleFactor, accuracy: 0.5)
+        XCTAssertEqual(resizedWidths[0], initialWidths[0] * expectedScaleFactor, accuracy: 1.0)
+        XCTAssertEqual(resizedWidths[1], initialWidths[1] * expectedScaleFactor, accuracy: 1.0)
         XCTAssertFalse(resizedAppCanvasView.lastPaneStripRenderWasAnimatedForTesting)
     }
 

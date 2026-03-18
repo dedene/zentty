@@ -3,7 +3,6 @@ import AppKit
 final class SidebarWorkspaceRowButton: NSButton {
     private enum Layout {
         static let contentInset = ShellMetrics.sidebarRowHorizontalInset
-        static let verticalInset = ShellMetrics.sidebarRowVerticalPadding / 2
     }
 
     let workspaceID: WorkspaceID?
@@ -54,22 +53,22 @@ final class SidebarWorkspaceRowButton: NSButton {
 
         configureLabel(
             topLabel,
-            font: .systemFont(ofSize: 11, weight: .semibold),
+            font: ShellMetrics.sidebarTitleFont(),
             lineBreakMode: .byTruncatingTail
         )
         configureLabel(
             primaryLabel,
-            font: .systemFont(ofSize: 13, weight: .semibold),
+            font: ShellMetrics.sidebarPrimaryFont(),
             lineBreakMode: .byTruncatingTail
         )
         configureLabel(
             statusLabel,
-            font: .systemFont(ofSize: 11, weight: .semibold),
+            font: ShellMetrics.sidebarStatusFont(),
             lineBreakMode: .byTruncatingTail
         )
         configureLabel(
             overflowLabel,
-            font: .systemFont(ofSize: 11, weight: .regular),
+            font: ShellMetrics.sidebarOverflowFont(),
             lineBreakMode: .byTruncatingTail
         )
 
@@ -123,15 +122,15 @@ final class SidebarWorkspaceRowButton: NSButton {
 
         addSubview(contentStack)
 
-        let heightConstraint = heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarExpandedRowHeight)
+        let heightConstraint = heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight)
         self.heightConstraint = heightConstraint
 
         NSLayoutConstraint.activate([
             heightConstraint,
-            contentStack.topAnchor.constraint(equalTo: topAnchor, constant: Layout.verticalInset),
+            contentStack.topAnchor.constraint(equalTo: topAnchor, constant: ShellMetrics.sidebarRowTopInset),
             contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset),
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.contentInset),
-            contentStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.verticalInset),
+            contentStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -ShellMetrics.sidebarRowBottomInset),
         ])
     }
 
@@ -201,7 +200,7 @@ final class SidebarWorkspaceRowButton: NSButton {
             let label = NSTextField(labelWithString: "")
             configureLabel(
                 label,
-                font: .monospacedSystemFont(ofSize: 11, weight: .regular),
+                font: ShellMetrics.sidebarDetailFont(),
                 lineBreakMode: .byTruncatingMiddle
             )
             detailLabels.append(label)

@@ -63,7 +63,44 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
             ),
             accuracy: 0.001
         )
-        XCTAssertGreaterThan(layout.rowHeight, ShellMetrics.sidebarExpandedRowHeight)
+        XCTAssertGreaterThan(
+            layout.rowHeight,
+            ShellMetrics.sidebarRowHeight(
+                includesTopLabel: false,
+                includesStatus: false,
+                detailLineCount: 1,
+                includesOverflow: false,
+                includesArtifact: false
+            )
+        )
+    }
+
+    func test_layout_supports_more_than_three_detail_lines_without_overflow_row() {
+        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+            detailLines: [
+                WorkspaceSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
+                WorkspaceSidebarDetailLine(text: "main • git", emphasis: .secondary),
+                WorkspaceSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
+                WorkspaceSidebarDetailLine(text: "tests • specs", emphasis: .secondary),
+            ]
+        ))
+
+        XCTAssertEqual(layout.mode, .expanded)
+        XCTAssertEqual(
+            layout.visibleTextRows,
+            [.primary, .detail(0), .detail(1), .detail(2), .detail(3)]
+        )
+        XCTAssertEqual(
+            layout.rowHeight,
+            ShellMetrics.sidebarRowHeight(
+                includesTopLabel: false,
+                includesStatus: false,
+                detailLineCount: 4,
+                includesOverflow: false,
+                includesArtifact: false
+            ),
+            accuracy: 0.001
+        )
     }
 
     func test_layout_includes_overflow_line_in_visible_rows_and_height() {
@@ -120,23 +157,64 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
     }
 
     func test_shell_metrics_preserve_current_fixed_row_heights_from_layout_budgets() {
+        let metrics = WorkspaceRowLayoutMetrics.sidebar
+
         XCTAssertEqual(
             ShellMetrics.sidebarCompactRowHeight,
-            ShellMetrics.sidebarRowVerticalPadding + ShellMetrics.sidebarPrimaryLineHeightBudget,
+            ShellMetrics.sidebarRowTopInset
+                + ShellMetrics.sidebarRowBottomInset
+                + ShellMetrics.sidebarPrimaryLineHeight,
             accuracy: 0.001
         )
         XCTAssertEqual(
             ShellMetrics.sidebarExpandedRowHeight,
-            ShellMetrics.sidebarRowVerticalPadding
-                + ShellMetrics.sidebarTitleLineHeightBudget
-                + ShellMetrics.sidebarPrimaryLineHeightBudget
-                + ShellMetrics.sidebarStatusLineHeightBudget
-                + ShellMetrics.sidebarContextLineHeightBudget
-                + (3 * ShellMetrics.sidebarRowInterlineSpacing),
+            ShellMetrics.sidebarRowHeight(
+                includesTopLabel: true,
+                includesStatus: true,
+                detailLineCount: 1,
+                includesOverflow: false,
+                includesArtifact: false
+            ),
             accuracy: 0.001
         )
-        XCTAssertEqual(ShellMetrics.sidebarCompactRowHeight, 34, accuracy: 0.001)
-        XCTAssertEqual(ShellMetrics.sidebarExpandedRowHeight, 58, accuracy: 0.001)
+        XCTAssertEqual(ShellMetrics.sidebarRowTopInset, 8, accuracy: 0.001)
+        XCTAssertEqual(ShellMetrics.sidebarRowBottomInset, 8, accuracy: 0.001)
+        XCTAssertEqual(ShellMetrics.sidebarRowInterlineSpacing, 3, accuracy: 0.001)
+        XCTAssertEqual(
+            metrics.compactHeight,
+            ShellMetrics.sidebarCompactRowHeight,
+            accuracy: 0.001
+        )
+        XCTAssertGreaterThan(metrics.titleLineHeight, 0)
+        XCTAssertGreaterThan(metrics.primaryLineHeight, metrics.titleLineHeight)
+        XCTAssertGreaterThan(metrics.detailLineHeight, 0)
+    }
+
+    func test_shell_metrics_use_actual_appkit_fitting_heights_for_11pt_sidebar_labels() {
+        let statusLabel = NSTextField(labelWithString: "Needs input")
+        statusLabel.font = ShellMetrics.sidebarStatusFont()
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.maximumNumberOfLines = 1
+        statusLabel.sizeToFit()
+
+        let detailLabel = NSTextField(labelWithString: "peter@m1-pro-peter:~/Development/Personal/worktrees/feature/sidebar")
+        detailLabel.font = ShellMetrics.sidebarDetailFont()
+        detailLabel.lineBreakMode = .byTruncatingMiddle
+        detailLabel.maximumNumberOfLines = 1
+        detailLabel.sizeToFit()
+
+        XCTAssertEqual(
+            ShellMetrics.sidebarStatusLineHeight,
+            statusLabel.fittingSize.height,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ShellMetrics.sidebarDetailLineHeight,
+            detailLabel.fittingSize.height,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(ShellMetrics.sidebarStatusLineHeight, 14, accuracy: 0.001)
+        XCTAssertEqual(ShellMetrics.sidebarDetailLineHeight, 14, accuracy: 0.001)
     }
 
     func test_sidebar_row_height_is_stable_across_width_changes_when_labels_truncate() throws {

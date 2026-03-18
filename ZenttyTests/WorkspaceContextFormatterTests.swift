@@ -30,4 +30,18 @@ final class WorkspaceContextFormatterTests: XCTestCase {
 
         XCTAssertEqual(detail, "main • git")
     }
+
+    func test_pane_detail_line_drops_generated_split_fallback_when_only_directory_exists() {
+        let detail = WorkspaceContextFormatter.paneDetailLine(
+            metadata: TerminalMetadata(
+                title: nil,
+                currentWorkingDirectory: "/tmp/copy",
+                processName: nil,
+                gitBranch: nil
+            ),
+            fallbackTitle: "pane 1"
+        )
+
+        XCTAssertEqual(detail, "copy")
+    }
 }

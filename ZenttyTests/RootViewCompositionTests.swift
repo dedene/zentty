@@ -409,9 +409,7 @@ final class RootViewCompositionTests: XCTestCase {
                     topLabel: nil,
                     primaryText: "~",
                     statusText: nil,
-                    detailLines: [
-                        WorkspaceSidebarDetailLine(text: "zsh • ~", emphasis: .primary),
-                    ],
+                    detailLines: [],
                     overflowText: nil,
                     leadingAccessory: .home,
                     attentionState: nil,
@@ -488,7 +486,7 @@ final class RootViewCompositionTests: XCTestCase {
         )
     }
 
-    func test_sidebar_renders_detail_lines_in_order_for_multi_pane_rows() {
+    func test_sidebar_renders_all_detail_lines_in_order_for_multi_pane_rows() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         sidebarView.render(
             summaries: [
@@ -499,11 +497,11 @@ final class RootViewCompositionTests: XCTestCase {
                     primaryText: "feature/sidebar",
                     statusText: nil,
                     detailLines: [
-                        WorkspaceSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
-                        WorkspaceSidebarDetailLine(text: "main • git", emphasis: .secondary),
+                        WorkspaceSidebarDetailLine(text: "main • git", emphasis: .primary),
                         WorkspaceSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
+                        WorkspaceSidebarDetailLine(text: "tests • specs", emphasis: .secondary),
                     ],
-                    overflowText: "+1 more pane",
+                    overflowText: nil,
                     leadingAccessory: nil,
                     attentionState: nil,
                     artifactLink: nil,
@@ -516,12 +514,54 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(
             sidebarView.workspaceDetailTextsForTesting.first,
             [
-                "fix-pane-border • sidebar",
                 "main • git",
                 "notes • copy",
+                "tests • specs",
             ]
         )
-        XCTAssertEqual(sidebarView.workspaceOverflowTextsForTesting, ["+1 more pane"])
+        XCTAssertEqual(sidebarView.workspaceOverflowTextsForTesting, [""])
+    }
+
+    func test_sidebar_keeps_last_detail_line_inside_button_bounds_for_tall_rows() throws {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        let lastDetailText = "peter@m1-pro-peter:~/Rails/nimbu"
+
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-main"),
+                    badgeText: "M",
+                    topLabel: nil,
+                    primaryText: "peter@m1-pro-peter:~/Development/Personal/worktrees/feature/sidebar",
+                    statusText: nil,
+                    detailLines: [
+                        WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .primary),
+                        WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
+                        WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
+                        WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
+                        WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
+                        WorkspaceSidebarDetailLine(text: lastDetailText, emphasis: .secondary),
+                    ],
+                    overflowText: nil,
+                    leadingAccessory: nil,
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: true
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.layoutSubtreeIfNeeded()
+
+        let button = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.first)
+        let lastDetailLabel = try XCTUnwrap(
+            button.descendantLabel(withText: lastDetailText)
+        )
+        let lastDetailFrame = button.convert(lastDetailLabel.bounds, from: lastDetailLabel)
+
+        XCTAssertGreaterThanOrEqual(lastDetailFrame.minY, -0.5)
+        XCTAssertLessThanOrEqual(lastDetailFrame.maxY, button.bounds.maxY + 0.5)
     }
 
     func test_sidebar_renders_home_accessory_with_sf_symbol() {
@@ -534,9 +574,7 @@ final class RootViewCompositionTests: XCTestCase {
                     topLabel: nil,
                     primaryText: "~",
                     statusText: nil,
-                    detailLines: [
-                        WorkspaceSidebarDetailLine(text: "zsh • ~", emphasis: .primary),
-                    ],
+                    detailLines: [],
                     overflowText: nil,
                     leadingAccessory: .home,
                     attentionState: nil,
@@ -548,6 +586,7 @@ final class RootViewCompositionTests: XCTestCase {
         )
 
         XCTAssertEqual(sidebarView.workspaceLeadingAccessorySymbolsForTesting, ["house"])
+        XCTAssertEqual(sidebarView.workspaceDetailTextsForTesting.first, [])
     }
 
     func test_sidebar_footer_centers_on_sidebar_and_dims_plus_icon() {
@@ -882,6 +921,22 @@ final class RootViewCompositionTests: XCTestCase {
         )
 
         XCTAssertTrue(windowChromeView.isAttentionHiddenForTesting)
+    }
+}
+
+private extension NSView {
+    func descendantLabel(withText text: String) -> NSTextField? {
+        if let label = self as? NSTextField, label.stringValue == text {
+            return label
+        }
+
+        for subview in subviews {
+            if let match = subview.descendantLabel(withText: text) {
+                return match
+            }
+        }
+
+        return nil
     }
 }
 

@@ -207,7 +207,9 @@ enum AgentToolRecognizer {
 
 enum WorkspaceContextFormatter {
     static func contextText(for metadata: TerminalMetadata?) -> String {
-        let compactDirectory = metadata?.currentWorkingDirectory.flatMap(compactDirectoryName)
+        let compactDirectory = metadata?.currentWorkingDirectory.flatMap {
+            compactDirectoryName($0)
+        }
         let branch = trimmed(metadata?.gitBranch)
         return [compactDirectory, branch]
             .compactMap { $0 }
@@ -249,50 +251,80 @@ enum WorkspaceContextFormatter {
         return components == ["~"] ? 1 : components.count
     }
 
-    static func compactDirectoryName(_ path: String) -> String? {
-        compactSidebarPath(path).flatMap { compactPath in
+    static func compactDirectoryName(
+        _ path: String,
+        minimumSegments: Int = 1
+    ) -> String? {
+        compactSidebarPath(path, minimumSegments: minimumSegments).flatMap { compactPath in
             guard compactPath != "~" else {
                 return "~"
             }
 
-            return compactPath.split(separator: "/").last.map(String.init)
+            guard minimumSegments > 1 else {
+                return compactPath.split(separator: "/").last.map(String.init)
+            }
+
+            return compactPath
         }
     }
 
     static func paneDetailLine(
         metadata: TerminalMetadata?,
-        fallbackTitle: String?
+        fallbackTitle: String?,
+        minimumPathSegments: Int = 1
     ) -> String? {
         let branch = trimmed(metadata?.gitBranch)
-        let compactDirectory = metadata?.currentWorkingDirectory.flatMap(compactDirectoryName)
-        let fallback = trimmed(metadata?.title)
-            .flatMap(normalizeSidebarFallbackTitle)
-            ?? trimmed(metadata?.processName).flatMap(normalizeSidebarFallbackTitle)
-            ?? trimmed(fallbackTitle).flatMap(normalizeSidebarFallbackTitle)
+        let compactDirectory = metadata?.currentWorkingDirectory.flatMap {
+            compactDirectoryName($0, minimumSegments: minimumPathSegments)
+        }
+        let fallback = meaningfulSidebarDetailRole(
+            metadata: metadata,
+            fallbackTitle: fallbackTitle
+        )
 
         if let branch, let compactDirectory {
             return "\(branch) • \(compactDirectory)"
+        }
+
+        if let branch {
+            return branch
         }
 
         if let fallback, let compactDirectory {
             return "\(fallback) • \(compactDirectory)"
         }
 
-        return branch ?? compactDirectory ?? fallback
+        return compactDirectory ?? fallback
     }
 
-    static func normalizeSidebarFallbackTitle(_ title: String) -> String {
-        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalized.isEmpty == false else {
-            return "Shell"
+    static func singlePaneSidebarDetailLine(metadata: TerminalMetadata?) -> String? {
+        let branch = trimmed(metadata?.gitBranch)
+        let compactDirectory = metadata?.currentWorkingDirectory.flatMap {
+            compactDirectoryName($0)
+        }
+
+        if let branch, let compactDirectory {
+            return "\(branch) • \(compactDirectory)"
+        }
+
+        return branch
+    }
+
+    static func normalizeSidebarFallbackTitle(_ title: String?) -> String? {
+        guard let normalized = trimmed(title) else {
+            return nil
         }
 
         if normalized.range(of: #"^pane \d+$"#, options: [.regularExpression, .caseInsensitive]) != nil {
-            return "Split"
+            return nil
         }
 
         if normalized.caseInsensitiveCompare("shell") == .orderedSame {
-            return "Shell"
+            return nil
+        }
+
+        if normalized.caseInsensitiveCompare("split") == .orderedSame {
+            return nil
         }
 
         if normalized.caseInsensitiveCompare("git") == .orderedSame {
@@ -308,6 +340,34 @@ enum WorkspaceContextFormatter {
         }
 
         return value
+    }
+
+    private static func meaningfulSidebarRole(
+        metadata: TerminalMetadata?,
+        fallbackTitle: String?
+    ) -> String? {
+        normalizeSidebarFallbackTitle(metadata?.title)
+            ?? normalizeSidebarFallbackTitle(metadata?.processName)
+            ?? normalizeSidebarFallbackTitle(fallbackTitle)
+    }
+
+    private static func meaningfulSidebarDetailRole(
+        metadata: TerminalMetadata?,
+        fallbackTitle: String?
+    ) -> String? {
+        guard let role = meaningfulSidebarRole(
+            metadata: metadata,
+            fallbackTitle: fallbackTitle
+        ) else {
+            return nil
+        }
+
+        switch role.lowercased() {
+        case "zsh", "bash", "fish", "sh":
+            return nil
+        default:
+            return role
+        }
     }
 
     private static func sidebarPathComponents(_ path: String) -> [String]? {

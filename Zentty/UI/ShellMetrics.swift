@@ -1,4 +1,4 @@
-import CoreGraphics
+import AppKit
 
 enum ChromeGeometry {
     static let outerWindowRadius: CGFloat = 26
@@ -78,6 +78,43 @@ enum ChromeGeometry {
 }
 
 enum ShellMetrics {
+    enum SidebarRowTypography {
+        static func topLabelFont() -> NSFont {
+            NSFont.systemFont(ofSize: 11, weight: .semibold)
+        }
+
+        static func primaryFont() -> NSFont {
+            NSFont.systemFont(ofSize: 13, weight: .semibold)
+        }
+
+        static func statusFont() -> NSFont {
+            NSFont.systemFont(ofSize: 11, weight: .semibold)
+        }
+
+        static func detailFont() -> NSFont {
+            NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        }
+
+        static func overflowFont() -> NSFont {
+            NSFont.systemFont(ofSize: 11, weight: .regular)
+        }
+
+        static let topLabelLineHeight = lineHeight(for: topLabelFont())
+        static let primaryLineHeight = lineHeight(for: primaryFont())
+        static let statusLineHeight = lineHeight(for: statusFont())
+        static let detailLineHeight = lineHeight(for: detailFont())
+        static let overflowLineHeight = lineHeight(for: overflowFont())
+
+        private static func lineHeight(for font: NSFont) -> CGFloat {
+            let label = NSTextField(labelWithString: "Ag")
+            label.font = font
+            label.maximumNumberOfLines = 1
+            label.lineBreakMode = .byTruncatingTail
+            label.sizeToFit()
+            return ceil(label.fittingSize.height)
+        }
+    }
+
     static let outerInset: CGFloat = ChromeGeometry.shellInset
     static let shellGap: CGFloat = ChromeGeometry.shellInset
 
@@ -99,21 +136,25 @@ enum ShellMetrics {
     static let sidebarLeadingAccessorySize: CGFloat = 14
     static let sidebarLeadingAccessorySpacing: CGFloat = 8
     static let sidebarLeadingAccessoryGutterWidth: CGFloat = sidebarLeadingAccessorySize + sidebarLeadingAccessorySpacing
-    // These budgets intentionally preserve the current fixed row rhythm.
-    // They model semantic row bands rather than NSTextField fitting sizes.
-    static let sidebarRowVerticalPadding: CGFloat = 14
-    static let sidebarRowInterlineSpacing: CGFloat = 2
-    static let sidebarTitleLineHeightBudget: CGFloat = 6
-    static let sidebarPrimaryLineHeightBudget: CGFloat = 20
-    static let sidebarStatusLineHeightBudget: CGFloat = 6
-    static let sidebarContextLineHeightBudget: CGFloat = 6
-    static let sidebarCompactRowHeight: CGFloat = sidebarRowVerticalPadding + sidebarPrimaryLineHeightBudget
-    static let sidebarExpandedRowHeight: CGFloat = sidebarRowVerticalPadding
-        + sidebarTitleLineHeightBudget
-        + sidebarPrimaryLineHeightBudget
-        + sidebarStatusLineHeightBudget
-        + sidebarContextLineHeightBudget
-        + (3 * sidebarRowInterlineSpacing)
+    static let sidebarRowTopInset: CGFloat = 8
+    static let sidebarRowBottomInset: CGFloat = 8
+    static let sidebarRowVerticalPadding: CGFloat = sidebarRowTopInset + sidebarRowBottomInset
+    static let sidebarRowInterlineSpacing: CGFloat = 3
+    static let sidebarTitleLineHeight: CGFloat = SidebarRowTypography.topLabelLineHeight
+    static let sidebarPrimaryLineHeight: CGFloat = SidebarRowTypography.primaryLineHeight
+    static let sidebarStatusLineHeight: CGFloat = SidebarRowTypography.statusLineHeight
+    static let sidebarDetailLineHeight: CGFloat = SidebarRowTypography.detailLineHeight
+    static let sidebarOverflowLineHeight: CGFloat = SidebarRowTypography.overflowLineHeight
+    static let sidebarCompactRowHeight: CGFloat = sidebarRowTopInset
+        + sidebarRowBottomInset
+        + sidebarPrimaryLineHeight
+    static let sidebarExpandedRowHeight: CGFloat = sidebarRowHeight(
+        includesTopLabel: true,
+        includesStatus: true,
+        detailLineCount: 1,
+        includesOverflow: false,
+        includesArtifact: false
+    )
     static let sidebarRowCornerRadius: CGFloat = ChromeGeometry.rowRadius
     static let sidebarFooterIconSpacing: CGFloat = 12
     static let footerHeight: CGFloat = 24
@@ -131,23 +172,45 @@ enum ShellMetrics {
     ) -> CGFloat {
         let clampedDetailLineCount = max(0, detailLineCount)
         let visibleLineHeights: [CGFloat] = [
-            includesTopLabel ? sidebarTitleLineHeightBudget : nil,
-            sidebarPrimaryLineHeightBudget,
-            includesStatus ? sidebarStatusLineHeightBudget : nil,
+            includesTopLabel ? sidebarTitleLineHeight : nil,
+            sidebarPrimaryLineHeight,
+            includesStatus ? sidebarStatusLineHeight : nil,
         ]
             .compactMap { $0 }
-            + Array(repeating: sidebarContextLineHeightBudget, count: clampedDetailLineCount)
-            + (includesOverflow ? [sidebarContextLineHeightBudget] : [])
+            + Array(repeating: sidebarDetailLineHeight, count: clampedDetailLineCount)
+            + (includesOverflow ? [sidebarOverflowLineHeight] : [])
 
         let textHeight = visibleLineHeights.reduce(0, +)
         let spacingHeight = CGFloat(max(0, visibleLineHeights.count - 1)) * sidebarRowInterlineSpacing
-        let extraDetailBreathingRoom = CGFloat(max(0, clampedDetailLineCount - 1)) * sidebarRowInterlineSpacing
-        let computedHeight = sidebarRowVerticalPadding + textHeight + spacingHeight + extraDetailBreathingRoom
+        let computedHeight = sidebarRowTopInset
+            + sidebarRowBottomInset
+            + textHeight
+            + spacingHeight
 
         guard includesArtifact else {
             return computedHeight
         }
 
         return max(computedHeight, sidebarExpandedRowHeight)
+    }
+
+    static func sidebarTitleFont() -> NSFont {
+        SidebarRowTypography.topLabelFont()
+    }
+
+    static func sidebarPrimaryFont() -> NSFont {
+        SidebarRowTypography.primaryFont()
+    }
+
+    static func sidebarStatusFont() -> NSFont {
+        SidebarRowTypography.statusFont()
+    }
+
+    static func sidebarDetailFont() -> NSFont {
+        SidebarRowTypography.detailFont()
+    }
+
+    static func sidebarOverflowFont() -> NSFont {
+        SidebarRowTypography.overflowFont()
     }
 }
