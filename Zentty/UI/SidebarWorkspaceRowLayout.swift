@@ -7,10 +7,11 @@ enum WorkspaceRowMode: Equatable {
 }
 
 enum WorkspaceRowTextRow: Equatable {
-    case title
+    case topLabel
     case primary
     case status
-    case context
+    case detail(Int)
+    case overflow
 }
 
 struct WorkspaceRowLayoutMetrics: Equatable {
@@ -19,7 +20,8 @@ struct WorkspaceRowLayoutMetrics: Equatable {
     let titleLineHeight: CGFloat
     let primaryLineHeight: CGFloat
     let statusLineHeight: CGFloat
-    let contextLineHeight: CGFloat
+    let detailLineHeight: CGFloat
+    let overflowLineHeight: CGFloat
 
     static let sidebar = WorkspaceRowLayoutMetrics(
         verticalPadding: ShellMetrics.sidebarRowVerticalPadding,
@@ -27,7 +29,8 @@ struct WorkspaceRowLayoutMetrics: Equatable {
         titleLineHeight: ShellMetrics.sidebarTitleLineHeightBudget,
         primaryLineHeight: ShellMetrics.sidebarPrimaryLineHeightBudget,
         statusLineHeight: ShellMetrics.sidebarStatusLineHeightBudget,
-        contextLineHeight: ShellMetrics.sidebarContextLineHeightBudget
+        detailLineHeight: ShellMetrics.sidebarContextLineHeightBudget,
+        overflowLineHeight: ShellMetrics.sidebarContextLineHeightBudget
     )
 
     var compactHeight: CGFloat {
@@ -35,21 +38,42 @@ struct WorkspaceRowLayoutMetrics: Equatable {
     }
 
     var expandedHeight: CGFloat {
-        verticalPadding
-            + titleLineHeight
-            + primaryLineHeight
-            + statusLineHeight
-            + contextLineHeight
-            + (3 * interlineSpacing)
+        rowHeight(
+            includesTopLabel: true,
+            includesStatus: true,
+            detailLineCount: 1,
+            includesOverflow: false,
+            includesArtifact: false
+        )
     }
 
-    func height(for mode: WorkspaceRowMode) -> CGFloat {
-        switch mode {
-        case .compact:
-            compactHeight
-        case .expanded:
-            expandedHeight
+    func rowHeight(
+        includesTopLabel: Bool,
+        includesStatus: Bool,
+        detailLineCount: Int,
+        includesOverflow: Bool,
+        includesArtifact: Bool
+    ) -> CGFloat {
+        let clampedDetailLineCount = max(0, detailLineCount)
+        let visibleLineHeights: [CGFloat] = [
+            includesTopLabel ? titleLineHeight : nil,
+            primaryLineHeight,
+            includesStatus ? statusLineHeight : nil,
+        ]
+            .compactMap { $0 }
+            + Array(repeating: detailLineHeight, count: clampedDetailLineCount)
+            + (includesOverflow ? [overflowLineHeight] : [])
+
+        let textHeight = visibleLineHeights.reduce(0, +)
+        let spacingHeight = CGFloat(max(0, visibleLineHeights.count - 1)) * interlineSpacing
+        let extraDetailBreathingRoom = CGFloat(max(0, clampedDetailLineCount - 1)) * interlineSpacing
+        let computedHeight = verticalPadding + textHeight + spacingHeight + extraDetailBreathingRoom
+
+        guard includesArtifact else {
+            return computedHeight
         }
+
+        return max(computedHeight, expandedHeight)
     }
 }
 
@@ -64,19 +88,33 @@ struct SidebarWorkspaceRowLayout: Equatable {
     ) {
         let visibleTextRows = Self.visibleTextRows(for: summary)
         let mode = Self.mode(for: summary)
+        let includesTopLabel = Self.hasVisibleText(summary.topLabel)
+        let includesStatus = Self.hasVisibleText(summary.statusText)
+        let includesOverflow = Self.hasVisibleText(summary.overflowText)
+        let detailLineCount = summary.detailLines.count
+        let includesArtifact = summary.artifactLink != nil
 
         self.mode = mode
         self.visibleTextRows = visibleTextRows
-        self.rowHeight = metrics.height(for: mode)
+        self.rowHeight = mode == .compact
+            ? metrics.compactHeight
+            : metrics.rowHeight(
+                includesTopLabel: includesTopLabel,
+                includesStatus: includesStatus,
+                detailLineCount: detailLineCount,
+                includesOverflow: includesOverflow,
+                includesArtifact: includesArtifact
+            )
     }
 
     static func mode(for summary: WorkspaceSidebarSummary) -> WorkspaceRowMode {
-        let hasVisibleTitle = showsVisibleGeneratedTitle(summary)
+        let hasVisibleTitle = hasVisibleText(summary.topLabel)
         let hasVisibleStatus = hasVisibleText(summary.statusText)
-        let hasVisibleContext = hasVisibleText(summary.contextText)
+        let hasVisibleDetailLines = summary.detailLines.isEmpty == false
+        let hasOverflow = hasVisibleText(summary.overflowText)
         let hasArtifact = summary.artifactLink != nil
 
-        return hasVisibleTitle || hasVisibleStatus || hasVisibleContext || hasArtifact
+        return hasVisibleTitle || hasVisibleStatus || hasVisibleDetailLines || hasOverflow || hasArtifact
             ? .expanded
             : .compact
     }
@@ -84,8 +122,8 @@ struct SidebarWorkspaceRowLayout: Equatable {
     static func visibleTextRows(for summary: WorkspaceSidebarSummary) -> [WorkspaceRowTextRow] {
         var rows: [WorkspaceRowTextRow] = []
 
-        if showsVisibleGeneratedTitle(summary) {
-            rows.append(.title)
+        if hasVisibleText(summary.topLabel) {
+            rows.append(.topLabel)
         }
 
         rows.append(.primary)
@@ -94,15 +132,13 @@ struct SidebarWorkspaceRowLayout: Equatable {
             rows.append(.status)
         }
 
-        if hasVisibleText(summary.contextText) {
-            rows.append(.context)
+        rows.append(contentsOf: summary.detailLines.indices.map(WorkspaceRowTextRow.detail))
+
+        if hasVisibleText(summary.overflowText) {
+            rows.append(.overflow)
         }
 
         return rows
-    }
-
-    private static func showsVisibleGeneratedTitle(_ summary: WorkspaceSidebarSummary) -> Bool {
-        summary.showsGeneratedTitle && hasVisibleText(summary.title)
     }
 
     private static func hasVisibleText(_ text: String?) -> Bool {

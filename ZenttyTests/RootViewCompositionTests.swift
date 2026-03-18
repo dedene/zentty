@@ -22,7 +22,7 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertNotNil(sidebarView)
         XCTAssertFalse(appCanvasView.containsDescendant(ofType: SidebarView.self))
         XCTAssertFalse(rootSubviews.contains { $0 is ContentShellView })
-        XCTAssertEqual(sidebarView?.workspacePrimaryTextsForTesting, ["shell"])
+        XCTAssertEqual(sidebarView?.workspacePrimaryTextsForTesting, ["Shell"])
         XCTAssertEqual(sidebarView?.workspaceContextTextsForTesting, [""])
         XCTAssertEqual(
             appCanvasView.frame.minX,
@@ -399,6 +399,157 @@ final class RootViewCompositionTests: XCTestCase {
         )
     }
 
+    func test_sidebar_uses_conditional_icon_gutter_only_when_any_row_has_accessory() throws {
+        let withAccessorySidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        withAccessorySidebar.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-home"),
+                    badgeText: "H",
+                    topLabel: nil,
+                    primaryText: "~",
+                    statusText: nil,
+                    detailLines: [
+                        WorkspaceSidebarDetailLine(text: "zsh • ~", emphasis: .primary),
+                    ],
+                    overflowText: nil,
+                    leadingAccessory: .home,
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: true
+                ),
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-project"),
+                    badgeText: "P",
+                    topLabel: nil,
+                    primaryText: "feature/sidebar",
+                    statusText: nil,
+                    detailLines: [
+                        WorkspaceSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
+                    ],
+                    overflowText: nil,
+                    leadingAccessory: nil,
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: false
+                ),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        withAccessorySidebar.layoutSubtreeIfNeeded()
+
+        let withoutAccessorySidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        withoutAccessorySidebar.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-project-a"),
+                    badgeText: "A",
+                    topLabel: nil,
+                    primaryText: "feature/sidebar",
+                    statusText: nil,
+                    detailLines: [],
+                    overflowText: nil,
+                    leadingAccessory: nil,
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: true
+                ),
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-project-b"),
+                    badgeText: "B",
+                    topLabel: nil,
+                    primaryText: "marketing-site",
+                    statusText: nil,
+                    detailLines: [],
+                    overflowText: nil,
+                    leadingAccessory: nil,
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: false
+                ),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        withoutAccessorySidebar.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            withAccessorySidebar.firstWorkspacePrimaryMinXForTesting,
+            withAccessorySidebar.secondWorkspacePrimaryMinXForTesting,
+            accuracy: 0.5
+        )
+        XCTAssertLessThan(
+            withoutAccessorySidebar.firstWorkspacePrimaryMinXForTesting,
+            withAccessorySidebar.firstWorkspacePrimaryMinXForTesting
+        )
+        XCTAssertEqual(
+            withoutAccessorySidebar.firstWorkspacePrimaryMinXForTesting,
+            withoutAccessorySidebar.secondWorkspacePrimaryMinXForTesting,
+            accuracy: 0.5
+        )
+    }
+
+    func test_sidebar_renders_detail_lines_in_order_for_multi_pane_rows() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-main"),
+                    badgeText: "M",
+                    topLabel: "Docs",
+                    primaryText: "feature/sidebar",
+                    statusText: nil,
+                    detailLines: [
+                        WorkspaceSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
+                        WorkspaceSidebarDetailLine(text: "main • git", emphasis: .secondary),
+                        WorkspaceSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
+                    ],
+                    overflowText: "+1 more pane",
+                    leadingAccessory: nil,
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: true
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        XCTAssertEqual(
+            sidebarView.workspaceDetailTextsForTesting.first,
+            [
+                "fix-pane-border • sidebar",
+                "main • git",
+                "notes • copy",
+            ]
+        )
+        XCTAssertEqual(sidebarView.workspaceOverflowTextsForTesting, ["+1 more pane"])
+    }
+
+    func test_sidebar_renders_home_accessory_with_sf_symbol() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-home"),
+                    badgeText: "H",
+                    topLabel: nil,
+                    primaryText: "~",
+                    statusText: nil,
+                    detailLines: [
+                        WorkspaceSidebarDetailLine(text: "zsh • ~", emphasis: .primary),
+                    ],
+                    overflowText: nil,
+                    leadingAccessory: .home,
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isActive: true
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        XCTAssertEqual(sidebarView.workspaceLeadingAccessorySymbolsForTesting, ["house"])
+    }
+
     func test_sidebar_footer_centers_on_sidebar_and_dims_plus_icon() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
         sidebarView.render(
@@ -550,7 +701,17 @@ final class RootViewCompositionTests: XCTestCase {
         let expandedFrame = try XCTUnwrap(buttons.last?.frame)
 
         XCTAssertEqual(compactFrame.height, ShellMetrics.sidebarCompactRowHeight, accuracy: 0.5)
-        XCTAssertEqual(expandedFrame.height, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.5)
+        XCTAssertEqual(
+            expandedFrame.height,
+            ShellMetrics.sidebarRowHeight(
+                includesTopLabel: true,
+                includesStatus: true,
+                detailLineCount: 0,
+                includesOverflow: false,
+                includesArtifact: false
+            ),
+            accuracy: 0.5
+        )
         XCTAssertLessThan(compactFrame.height, expandedFrame.height)
     }
 
@@ -577,7 +738,17 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarView.layoutSubtreeIfNeeded()
 
         let frame = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.first?.frame)
-        XCTAssertEqual(frame.height, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.5)
+        XCTAssertEqual(
+            frame.height,
+            ShellMetrics.sidebarRowHeight(
+                includesTopLabel: false,
+                includesStatus: false,
+                detailLineCount: 1,
+                includesOverflow: false,
+                includesArtifact: false
+            ),
+            accuracy: 0.5
+        )
     }
 
     func test_sidebar_keeps_artifact_rows_expanded() throws {

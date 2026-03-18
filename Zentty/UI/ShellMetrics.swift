@@ -96,6 +96,9 @@ enum ShellMetrics {
     static let sidebarTopInset: CGFloat = 58
     static let sidebarBottomInset: CGFloat = 18
     static let sidebarRowHorizontalInset: CGFloat = 12
+    static let sidebarLeadingAccessorySize: CGFloat = 14
+    static let sidebarLeadingAccessorySpacing: CGFloat = 8
+    static let sidebarLeadingAccessoryGutterWidth: CGFloat = sidebarLeadingAccessorySize + sidebarLeadingAccessorySpacing
     // These budgets intentionally preserve the current fixed row rhythm.
     // They model semantic row bands rather than NSTextField fitting sizes.
     static let sidebarRowVerticalPadding: CGFloat = 14
@@ -118,4 +121,33 @@ enum ShellMetrics {
     static let trafficLightLeadingInset: CGFloat = ChromeGeometry.trafficLightLeadingInset
     static let trafficLightTopInset: CGFloat = ChromeGeometry.trafficLightTopInset
     static let trafficLightSpacing: CGFloat = ChromeGeometry.trafficLightSpacing
+
+    static func sidebarRowHeight(
+        includesTopLabel: Bool,
+        includesStatus: Bool,
+        detailLineCount: Int,
+        includesOverflow: Bool,
+        includesArtifact: Bool
+    ) -> CGFloat {
+        let clampedDetailLineCount = max(0, detailLineCount)
+        let visibleLineHeights: [CGFloat] = [
+            includesTopLabel ? sidebarTitleLineHeightBudget : nil,
+            sidebarPrimaryLineHeightBudget,
+            includesStatus ? sidebarStatusLineHeightBudget : nil,
+        ]
+            .compactMap { $0 }
+            + Array(repeating: sidebarContextLineHeightBudget, count: clampedDetailLineCount)
+            + (includesOverflow ? [sidebarContextLineHeightBudget] : [])
+
+        let textHeight = visibleLineHeights.reduce(0, +)
+        let spacingHeight = CGFloat(max(0, visibleLineHeights.count - 1)) * sidebarRowInterlineSpacing
+        let extraDetailBreathingRoom = CGFloat(max(0, clampedDetailLineCount - 1)) * sidebarRowInterlineSpacing
+        let computedHeight = sidebarRowVerticalPadding + textHeight + spacingHeight + extraDetailBreathingRoom
+
+        guard includesArtifact else {
+            return computedHeight
+        }
+
+        return max(computedHeight, sidebarExpandedRowHeight)
+    }
 }

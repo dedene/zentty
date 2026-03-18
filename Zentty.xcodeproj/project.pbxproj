@@ -16,7 +16,9 @@
 		1383C76F463DAE3D42A4C7FC /* ContextStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC63FD2674437F1139255B3E /* ContextStripView.swift */; };
 		17245348FB36801D95C10395 /* ShellMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16FEAF3CA4E96E1EB18692E8 /* ShellMetrics.swift */; };
 		A4C63A8B8D01471A9E6E1102 /* SidebarWorkspaceRowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C63A8B8D01471A9E6E1101 /* SidebarWorkspaceRowLayout.swift */; };
+		A7C9D01234AB45CD89EF0131 /* SidebarWorkspaceRowButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C9D01234AB45CD89EF0130 /* SidebarWorkspaceRowButton.swift */; };
 		A4C63A8B8D01471A9E6E1104 /* SidebarWorkspaceRowLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C63A8B8D01471A9E6E1103 /* SidebarWorkspaceRowLayoutTests.swift */; };
+		A7C9D01234AB45CD89EF0124 /* WorkspaceContextFormatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C9D01234AB45CD89EF0123 /* WorkspaceContextFormatterTests.swift */; };
 		196932893F690C070D526631 /* MockTerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 765B5594B1CFDD53C4A7C00B /* MockTerminalAdapter.swift */; };
 		1E9155B18597D48510ACEDD8 /* PaneStripStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DEEB96E79CCE6DC7CB29BFD /* PaneStripStore.swift */; };
 		1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC138BE273ED92291124633 /* main.swift */; };
@@ -96,7 +98,9 @@
 		12844670AB726CAC597E74EE /* WorkspaceSidebarSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarSummaryTests.swift; sourceTree = "<group>"; };
 		16FEAF3CA4E96E1EB18692E8 /* ShellMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellMetrics.swift; sourceTree = "<group>"; };
 		A4C63A8B8D01471A9E6E1101 /* SidebarWorkspaceRowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceRowLayout.swift; sourceTree = "<group>"; };
+		A7C9D01234AB45CD89EF0130 /* SidebarWorkspaceRowButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceRowButton.swift; sourceTree = "<group>"; };
 		A4C63A8B8D01471A9E6E1103 /* SidebarWorkspaceRowLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceRowLayoutTests.swift; sourceTree = "<group>"; };
+		A7C9D01234AB45CD89EF0123 /* WorkspaceContextFormatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContextFormatterTests.swift; sourceTree = "<group>"; };
 		1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutResolverTests.swift; sourceTree = "<group>"; };
 		240A88D261256B90FC1F6A3B /* PaneStripViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripViewTests.swift; sourceTree = "<group>"; };
 		29B537B7096E6A676CEDAA46 /* GlassSurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassSurfaceView.swift; sourceTree = "<group>"; };
@@ -270,6 +274,7 @@
 				FF4944514D465B85C6D9A3AC /* RootViewCompositionTests.swift */,
 				A4C63A8B8D01471A9E6E1103 /* SidebarWorkspaceRowLayoutTests.swift */,
 				FE8E85EADB93A2FE0E71BEA6 /* TerminalPaneHostViewTests.swift */,
+				A7C9D01234AB45CD89EF0123 /* WorkspaceContextFormatterTests.swift */,
 				12844670AB726CAC597E74EE /* WorkspaceSidebarSummaryTests.swift */,
 				74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */,
 			);
@@ -307,6 +312,7 @@
 				7B93F46C5542A31805301C02 /* RootViewController.swift */,
 				16FEAF3CA4E96E1EB18692E8 /* ShellMetrics.swift */,
 				A4C63A8B8D01471A9E6E1101 /* SidebarWorkspaceRowLayout.swift */,
+				A7C9D01234AB45CD89EF0130 /* SidebarWorkspaceRowButton.swift */,
 				0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */,
 				1005C9DD652724E1953DE682 /* SidebarWidthPreference.swift */,
 				AA85009CAB71FA50F1611E54 /* WindowChromeView.swift */,
@@ -472,6 +478,7 @@
 				A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */,
 				17245348FB36801D95C10395 /* ShellMetrics.swift in Sources */,
 				A4C63A8B8D01471A9E6E1102 /* SidebarWorkspaceRowLayout.swift in Sources */,
+				A7C9D01234AB45CD89EF0131 /* SidebarWorkspaceRowButton.swift in Sources */,
 				581E3A1AB04E391540AC02F1 /* SidebarView.swift in Sources */,
 				C81D9C7C653D365E64058A53 /* SidebarWidthPreference.swift in Sources */,
 				DC139F18052FBD8126678D7F /* TerminalAdapter.swift in Sources */,
@@ -508,6 +515,7 @@
 				EBD8B30A46636BC41AACF9CD /* RootViewCompositionTests.swift in Sources */,
 				A4C63A8B8D01471A9E6E1104 /* SidebarWorkspaceRowLayoutTests.swift in Sources */,
 				D58A19DD4038B6D8E127DA5D /* TerminalPaneHostViewTests.swift in Sources */,
+				A7C9D01234AB45CD89EF0124 /* WorkspaceContextFormatterTests.swift in Sources */,
 				8D1A5585A3CF45EE4DA9C137 /* WorkspaceSidebarSummaryTests.swift in Sources */,
 				87EA948CE9A1C6B7DF2A1FBD /* ZenttyTests.swift in Sources */,
 			);

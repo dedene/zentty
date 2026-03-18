@@ -11,31 +11,87 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
         XCTAssertEqual(layout.rowHeight, ShellMetrics.sidebarCompactRowHeight, accuracy: 0.001)
     }
 
-    func test_layout_expands_when_generated_title_is_visible() {
+    func test_layout_expands_when_top_label_status_and_detail_line_are_visible() {
         let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
-            title: "Claude Code",
-            showsGeneratedTitle: true
+            topLabel: "Docs",
+            statusText: "Needs input",
+            detailLines: [
+                WorkspaceSidebarDetailLine(
+                    text: "feature/sidebar • zentty",
+                    emphasis: .primary
+                )
+            ]
         ))
 
         XCTAssertEqual(layout.mode, .expanded)
-        XCTAssertEqual(layout.visibleTextRows, [.title, .primary])
-        XCTAssertEqual(layout.rowHeight, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.001)
+        XCTAssertEqual(layout.visibleTextRows, [.topLabel, .primary, .status, .detail(0)])
+        XCTAssertEqual(
+            layout.rowHeight,
+            ShellMetrics.sidebarRowHeight(
+                includesTopLabel: true,
+                includesStatus: true,
+                detailLineCount: 1,
+                includesOverflow: false,
+                includesArtifact: false
+            ),
+            accuracy: 0.001
+        )
     }
 
-    func test_layout_expands_when_status_is_visible() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(statusText: "Needs input"))
+    func test_layout_height_grows_with_detail_line_count() {
+        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+            detailLines: [
+                WorkspaceSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
+                WorkspaceSidebarDetailLine(text: "main • git", emphasis: .secondary),
+                WorkspaceSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
+            ]
+        ))
 
         XCTAssertEqual(layout.mode, .expanded)
-        XCTAssertEqual(layout.visibleTextRows, [.primary, .status])
-        XCTAssertEqual(layout.rowHeight, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.001)
+        XCTAssertEqual(
+            layout.visibleTextRows,
+            [.primary, .detail(0), .detail(1), .detail(2)]
+        )
+        XCTAssertEqual(
+            layout.rowHeight,
+            ShellMetrics.sidebarRowHeight(
+                includesTopLabel: false,
+                includesStatus: false,
+                detailLineCount: 3,
+                includesOverflow: false,
+                includesArtifact: false
+            ),
+            accuracy: 0.001
+        )
+        XCTAssertGreaterThan(layout.rowHeight, ShellMetrics.sidebarExpandedRowHeight)
     }
 
-    func test_layout_expands_when_context_is_visible() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(contextText: "main • ~/src/zentty"))
+    func test_layout_includes_overflow_line_in_visible_rows_and_height() {
+        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+            detailLines: [
+                WorkspaceSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
+                WorkspaceSidebarDetailLine(text: "main • git", emphasis: .secondary),
+                WorkspaceSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
+            ],
+            overflowText: "+1 more pane"
+        ))
 
         XCTAssertEqual(layout.mode, .expanded)
-        XCTAssertEqual(layout.visibleTextRows, [.primary, .context])
-        XCTAssertEqual(layout.rowHeight, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.001)
+        XCTAssertEqual(
+            layout.visibleTextRows,
+            [.primary, .detail(0), .detail(1), .detail(2), .overflow]
+        )
+        XCTAssertEqual(
+            layout.rowHeight,
+            ShellMetrics.sidebarRowHeight(
+                includesTopLabel: false,
+                includesStatus: false,
+                detailLineCount: 3,
+                includesOverflow: true,
+                includesArtifact: false
+            ),
+            accuracy: 0.001
+        )
     }
 
     func test_layout_expands_when_artifact_is_visible() {
@@ -50,7 +106,17 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
 
         XCTAssertEqual(layout.mode, .expanded)
         XCTAssertEqual(layout.visibleTextRows, [.primary])
-        XCTAssertEqual(layout.rowHeight, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.001)
+        XCTAssertEqual(
+            layout.rowHeight,
+            ShellMetrics.sidebarRowHeight(
+                includesTopLabel: false,
+                includesStatus: false,
+                detailLineCount: 0,
+                includesOverflow: false,
+                includesArtifact: true
+            ),
+            accuracy: 0.001
+        )
     }
 
     func test_shell_metrics_preserve_current_fixed_row_heights_from_layout_budgets() {
@@ -78,17 +144,26 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
         sidebarView.render(
             summaries: [
                 makeSummary(
-                    title: "Claude Code Session Workspace",
+                    topLabel: "Claude Code Session Workspace",
                     primaryText: "Claude Code working on a very long branch name for layout checks",
                     statusText: "Needs input from the operator immediately",
-                    contextText: "~/Development/Personal/zentty/a/really/long/path/that/should/truncate",
+                    detailLines: [
+                        WorkspaceSidebarDetailLine(
+                            text: "~/Development/Personal/zentty/a/really/long/path/that/should/truncate",
+                            emphasis: .primary
+                        ),
+                        WorkspaceSidebarDetailLine(
+                            text: "refresh-homepage-copy • marketing-site",
+                            emphasis: .secondary
+                        ),
+                    ],
+                    overflowText: "+1 more pane",
                     artifactLink: WorkspaceArtifactLink(
                         kind: .pullRequest,
                         label: "PR #4242 with a long label",
                         url: URL(string: "https://example.com/pr/4242")!,
                         isExplicit: true
-                    ),
-                    showsGeneratedTitle: true
+                    )
                 )
             ],
             theme: ZenttyTheme.fallback(for: nil)
@@ -101,30 +176,40 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
         sidebarView.layoutSubtreeIfNeeded()
         let resizedHeight = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.first?.frame.height)
 
-        XCTAssertEqual(initialHeight, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.5)
-        XCTAssertEqual(resizedHeight, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.5)
+        let expectedHeight = ShellMetrics.sidebarRowHeight(
+            includesTopLabel: true,
+            includesStatus: true,
+            detailLineCount: 2,
+            includesOverflow: true,
+            includesArtifact: true
+        )
+
+        XCTAssertEqual(initialHeight, expectedHeight, accuracy: 0.5)
+        XCTAssertEqual(resizedHeight, expectedHeight, accuracy: 0.5)
         XCTAssertEqual(resizedHeight, initialHeight, accuracy: 0.5)
     }
 
     private func makeSummary(
-        title: String = "MAIN",
+        topLabel: String? = nil,
         primaryText: String = "shell",
         statusText: String? = nil,
-        contextText: String = "",
+        detailLines: [WorkspaceSidebarDetailLine] = [],
+        overflowText: String? = nil,
         artifactLink: WorkspaceArtifactLink? = nil,
-        showsGeneratedTitle: Bool = false
+        leadingAccessory: WorkspaceSidebarLeadingAccessory? = nil
     ) -> WorkspaceSidebarSummary {
         WorkspaceSidebarSummary(
             workspaceID: WorkspaceID("workspace-main"),
-            title: title,
             badgeText: "M",
+            topLabel: topLabel,
             primaryText: primaryText,
             statusText: statusText,
-            contextText: contextText,
+            detailLines: detailLines,
+            overflowText: overflowText,
+            leadingAccessory: leadingAccessory,
             attentionState: nil,
             artifactLink: artifactLink,
-            isActive: true,
-            showsGeneratedTitle: showsGeneratedTitle
+            isActive: true
         )
     }
 }

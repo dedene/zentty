@@ -214,7 +214,103 @@ enum WorkspaceContextFormatter {
             .joined(separator: " • ")
     }
 
+    static func compactSidebarPath(
+        _ path: String,
+        minimumSegments: Int = 1
+    ) -> String? {
+        guard let components = sidebarPathComponents(path) else {
+            return nil
+        }
+
+        guard components != ["~"] else {
+            return "~"
+        }
+
+        if let worktreeLabel = worktreeSidebarPathLabel(path) {
+            return worktreeLabel
+        }
+
+        let clampedSegmentCount = min(
+            max(1, minimumSegments),
+            components.count
+        )
+        return components.suffix(clampedSegmentCount).joined(separator: "/")
+    }
+
+    static func maxSidebarPathSegments(_ path: String) -> Int? {
+        guard let components = sidebarPathComponents(path) else {
+            return nil
+        }
+
+        if worktreeSidebarPathLabel(path) != nil {
+            return 2
+        }
+
+        return components == ["~"] ? 1 : components.count
+    }
+
     static func compactDirectoryName(_ path: String) -> String? {
+        compactSidebarPath(path).flatMap { compactPath in
+            guard compactPath != "~" else {
+                return "~"
+            }
+
+            return compactPath.split(separator: "/").last.map(String.init)
+        }
+    }
+
+    static func paneDetailLine(
+        metadata: TerminalMetadata?,
+        fallbackTitle: String?
+    ) -> String? {
+        let branch = trimmed(metadata?.gitBranch)
+        let compactDirectory = metadata?.currentWorkingDirectory.flatMap(compactDirectoryName)
+        let fallback = trimmed(metadata?.title)
+            .flatMap(normalizeSidebarFallbackTitle)
+            ?? trimmed(metadata?.processName).flatMap(normalizeSidebarFallbackTitle)
+            ?? trimmed(fallbackTitle).flatMap(normalizeSidebarFallbackTitle)
+
+        if let branch, let compactDirectory {
+            return "\(branch) • \(compactDirectory)"
+        }
+
+        if let fallback, let compactDirectory {
+            return "\(fallback) • \(compactDirectory)"
+        }
+
+        return branch ?? compactDirectory ?? fallback
+    }
+
+    static func normalizeSidebarFallbackTitle(_ title: String) -> String {
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.isEmpty == false else {
+            return "Shell"
+        }
+
+        if normalized.range(of: #"^pane \d+$"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            return "Split"
+        }
+
+        if normalized.caseInsensitiveCompare("shell") == .orderedSame {
+            return "Shell"
+        }
+
+        if normalized.caseInsensitiveCompare("git") == .orderedSame {
+            return "git"
+        }
+
+        return normalized
+    }
+
+    static func trimmed(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+
+        return value
+    }
+
+    private static func sidebarPathComponents(_ path: String) -> [String]? {
         let trimmedPath = trimmed(path)
         guard let trimmedPath else {
             return nil
@@ -225,20 +321,43 @@ enum WorkspaceContextFormatter {
             ? trimmedPath.replacingOccurrences(of: homePath, with: "~")
             : trimmedPath
 
-        let components = normalizedPath.split(separator: "/").map(String.init)
-        guard let lastComponent = components.last, !lastComponent.isEmpty else {
-            return normalizedPath == "~" ? "~" : nil
+        guard normalizedPath != "~" else {
+            return ["~"]
         }
 
-        return lastComponent == "~" ? "~" : lastComponent
-    }
+        let components = normalizedPath
+            .split(separator: "/")
+            .map(String.init)
+            .filter { !$0.isEmpty }
 
-    static func trimmed(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+        guard components.isEmpty == false else {
             return nil
         }
 
-        return value
+        return components
+    }
+
+    private static func worktreeSidebarPathLabel(_ path: String) -> String? {
+        let trimmedPath = trimmed(path)
+        guard let trimmedPath else {
+            return nil
+        }
+
+        let homePath = NSHomeDirectory()
+        let normalizedPath = trimmedPath.hasPrefix(homePath)
+            ? trimmedPath.replacingOccurrences(of: homePath, with: "~")
+            : trimmedPath
+        let components = normalizedPath
+            .split(separator: "/")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+
+        guard let worktreesIndex = components.firstIndex(of: "worktrees"),
+              worktreesIndex + 2 < components.count else {
+            return nil
+        }
+
+        return components[(worktreesIndex + 1)...(worktreesIndex + 2)].joined(separator: "/")
     }
 }
 
@@ -286,7 +405,10 @@ enum WorkspaceAttentionSummaryBuilder {
             state: workspaceState(for: status.state),
             primaryText: primaryText,
             statusText: status.statusText,
-            contextText: WorkspaceContextFormatter.contextText(for: metadata),
+            contextText: WorkspaceContextFormatter.paneDetailLine(
+                metadata: metadata,
+                fallbackTitle: pane.title
+            ) ?? "",
             artifactLink: artifactLink,
             updatedAt: status.updatedAt
         )
