@@ -61,12 +61,9 @@ final class PaneStripView: NSView {
     private(set) var lastInsertionTransition: PaneInsertionTransition?
     private(set) var lastRemovalTransition: PaneRemovalTransition?
     private(set) var lastRenderWasAnimated = false
-    private var suppressAnimatedRenderForResize = false
-    private var resizeSuppressionGeneration = 0
-    private var visualStateSettleGeneration = 0
+    private var renderGuard = RenderGuard()
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resolvedLeadingVisibleInset: CGFloat = 0
-    private(set) var renderInvocationCount = 0
 
     var leadingVisibleInset: CGFloat {
         get { resolvedLeadingVisibleInset }
@@ -100,6 +97,34 @@ final class PaneStripView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    private struct RenderGuard {
+        private(set) var generation: Int = 0
+        private(set) var isResizeSuppressed: Bool = false
+        private(set) var renderCount: Int = 0
+
+        mutating func markResizePending() -> Int {
+            isResizeSuppressed = true
+            generation += 1
+            return generation
+        }
+
+        mutating func clearResizeSuppression(forGeneration g: Int) {
+            guard g == generation else { return }
+            isResizeSuppressed = false
+        }
+
+        mutating func advanceGeneration() -> Int {
+            generation += 1
+            renderCount += 1
+            return generation
+        }
+
+        mutating func resetResizeSuppression() {
+            isResizeSuppressed = false
+            generation += 1
+        }
     }
 
     private func setup() {
@@ -165,8 +190,7 @@ final class PaneStripView: NSView {
         currentPaneBorderContextByPaneID = paneBorderContextByPaneID
         currentState = state
         resolvedLeadingVisibleInset = leadingVisibleInset
-        suppressAnimatedRenderForResize = false
-        resizeSuppressionGeneration += 1
+        renderGuard.resetResizeSuppression()
         guard bounds.size != .zero else {
             return
         }
@@ -223,15 +247,17 @@ final class PaneStripView: NSView {
         resolvedLeadingVisibleInset
     }
 
+    var renderInvocationCount: Int {
+        renderGuard.renderCount
+    }
+
     private func renderCurrentState(
         _ state: PaneStripState,
         animated: Bool,
         animationDuration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         animationTimingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
-        visualStateSettleGeneration += 1
-        let settleGeneration = visualStateSettleGeneration
-        renderInvocationCount += 1
+        let settleGeneration = renderGuard.advanceGeneration()
         let previousPresentation = currentPresentation
         let previousOffset = currentOffset
         let presentation = motionController.presentation(
@@ -253,7 +279,7 @@ final class PaneStripView: NSView {
         )
         let isResizeSuppressedRender = animated
             && sharesAnyPane(with: state, previousPresentation: previousPresentation)
-            && (suppressAnimatedRenderForResize || hasViewportSizeChangeSinceLastRender)
+            && (renderGuard.isResizeSuppressed || hasViewportSizeChangeSinceLastRender)
         let shouldAnimate = animated
             && sharesAnyPane(with: state, previousPresentation: previousPresentation)
             && window?.inLiveResize != true
@@ -305,7 +331,7 @@ final class PaneStripView: NSView {
                 timingFunction: animationTimingFunction,
                 updates: updates
             ) { [weak self] in
-                guard let self, self.visualStateSettleGeneration == settleGeneration else {
+                guard let self, self.renderGuard.generation == settleGeneration else {
                     return
                 }
 
@@ -318,7 +344,7 @@ final class PaneStripView: NSView {
                     allowInactiveDimming: true
                 )
                 Task { @MainActor [weak self] in
-                    guard let self, self.visualStateSettleGeneration == settleGeneration else {
+                    guard let self, self.renderGuard.generation == settleGeneration else {
                         return
                     }
                     self.applyTerminalAnimationFreeze(to: [])
@@ -336,7 +362,7 @@ final class PaneStripView: NSView {
         currentOffset = targetOffset
         lastRenderedSize = bounds.size
         if isResizeSuppressedRender {
-            suppressAnimatedRenderForResize = false
+            renderGuard.clearResizeSuppression(forGeneration: settleGeneration)
         }
         onBorderChromeSnapshotsDidChange?(borderChromeSnapshots(for: presentation, offset: targetOffset))
         syncFocusedTerminal(with: state.focusedPaneID)
@@ -600,14 +626,9 @@ final class PaneStripView: NSView {
     }
 
     private func markResizeAnimationSuppressionPending() {
-        suppressAnimatedRenderForResize = true
-        resizeSuppressionGeneration += 1
-        let generation = resizeSuppressionGeneration
+        let generation = renderGuard.markResizePending()
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.resizeSuppressionGeneration == generation else {
-                return
-            }
-            self.suppressAnimatedRenderForResize = false
+            self?.renderGuard.clearResizeSuppression(forGeneration: generation)
         }
     }
 
