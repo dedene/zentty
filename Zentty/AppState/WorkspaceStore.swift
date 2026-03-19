@@ -125,6 +125,7 @@ final class WorkspaceStore {
     private(set) var activeWorkspaceID: WorkspaceID
 
     var onChange: ((WorkspaceChange) -> Void)?
+    private var isBatching = false
 
     init(
         workspaces: [WorkspaceState] = [],
@@ -423,9 +424,16 @@ final class WorkspaceStore {
         )
     }
 
+    func batchUpdate(_ body: () -> Void) {
+        isBatching = true
+        body()
+        isBatching = false
+    }
+
     /// Internal — called by WorkspaceStore extension files to dispatch change notifications.
     /// Not intended for use outside WorkspaceStore and its extensions.
     func notify(_ change: WorkspaceChange) {
+        guard !isBatching else { return }
         onChange?(change)
     }
 

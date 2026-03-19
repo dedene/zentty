@@ -33,7 +33,6 @@ final class RootViewController: NSViewController {
     private var currentPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] = []
     private var sidebarLeadingConstraint: NSLayoutConstraint?
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
-    private var suppressWorkspaceRender = false
 
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
 
@@ -138,10 +137,7 @@ final class RootViewController: NSViewController {
         ])
 
         workspaceStore.onChange = { [weak self] change in
-            guard let self, !self.suppressWorkspaceRender else {
-                return
-            }
-            self.handleWorkspaceChange(change)
+            self?.handleWorkspaceChange(change)
         }
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.workspaceStore.focusPane(id: paneID)
@@ -345,45 +341,44 @@ final class RootViewController: NSViewController {
     }
 
     private func renderCurrentWorkspace(animated: Bool = false) {
-        suppressWorkspaceRender = true
-        defer { suppressWorkspaceRender = false }
+        workspaceStore.batchUpdate { [self] in
+            runtimeRegistry.synchronize(with: workspaceStore.workspaces)
+            reviewStateResolver.refresh(for: workspaceStore.workspaces) { [weak self] paneID, resolution in
+                self?.workspaceStore.updateReviewResolution(paneID: paneID, resolution: resolution)
+            }
+            sidebarView.render(
+                summaries: WorkspaceSidebarSummaryBuilder.summaries(
+                    for: workspaceStore.workspaces,
+                    activeWorkspaceID: workspaceStore.activeWorkspaceID
+                ),
+                theme: currentTheme
+            )
+            syncSidebarVisibilityControls(animated: false)
 
-        runtimeRegistry.synchronize(with: workspaceStore.workspaces)
-        reviewStateResolver.refresh(for: workspaceStore.workspaces) { [weak self] paneID, resolution in
-            self?.workspaceStore.updateReviewResolution(paneID: paneID, resolution: resolution)
+            guard let workspace = workspaceStore.activeWorkspace else {
+                windowChromeView.render(summary: WorkspaceChromeSummary(
+                    attention: nil,
+                    focusedLabel: nil,
+                    branch: nil,
+                    pullRequest: nil,
+                    reviewChips: []
+                ))
+                return
+            }
+
+            let headerSummary = WorkspaceHeaderSummaryBuilder.summary(
+                for: workspace,
+                reviewStateProvider: workspaceReviewStateProvider
+            )
+            windowChromeView.render(summary: headerSummary)
+            renderCanvasForCurrentWorkspace(animated: animated)
+            attentionNotificationCoordinator.update(
+                workspaces: workspaceStore.workspaces,
+                activeWorkspaceID: workspaceStore.activeWorkspaceID,
+                windowIsKey: view.window?.isKeyWindow ?? false
+            )
+            updateRuntimeSurfaceActivities()
         }
-        sidebarView.render(
-            summaries: WorkspaceSidebarSummaryBuilder.summaries(
-                for: workspaceStore.workspaces,
-                activeWorkspaceID: workspaceStore.activeWorkspaceID
-            ),
-            theme: currentTheme
-        )
-        syncSidebarVisibilityControls(animated: false)
-
-        guard let workspace = workspaceStore.activeWorkspace else {
-            windowChromeView.render(summary: WorkspaceChromeSummary(
-                attention: nil,
-                focusedLabel: nil,
-                branch: nil,
-                pullRequest: nil,
-                reviewChips: []
-            ))
-            return
-        }
-
-        let headerSummary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: workspaceReviewStateProvider
-        )
-        windowChromeView.render(summary: headerSummary)
-        renderCanvasForCurrentWorkspace(animated: animated)
-        attentionNotificationCoordinator.update(
-            workspaces: workspaceStore.workspaces,
-            activeWorkspaceID: workspaceStore.activeWorkspaceID,
-            windowIsKey: view.window?.isKeyWindow ?? false
-        )
-        updateRuntimeSurfaceActivities()
     }
 
     private func installStaleAgentSweepTimer() {
@@ -483,9 +478,9 @@ final class RootViewController: NSViewController {
         let previousLeadingInset = appCanvasView.leadingVisibleInset
         let previousWorkspaceState = workspaceStore.state
         let previousLayoutContext = currentPaneLayoutContext
-        suppressWorkspaceRender = true
-        updatePaneLayoutContextIfNeeded(force: true, leadingVisibleInsetOverride: reservedInset)
-        suppressWorkspaceRender = false
+        workspaceStore.batchUpdate { [self] in
+            updatePaneLayoutContextIfNeeded(force: true, leadingVisibleInsetOverride: reservedInset)
+        }
         let needsCanvasTransition = abs(previousLeadingInset - reservedInset) > 0.001
             || previousWorkspaceState != workspaceStore.state
             || previousLayoutContext != currentPaneLayoutContext
