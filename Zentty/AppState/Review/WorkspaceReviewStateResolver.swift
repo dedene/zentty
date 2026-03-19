@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let reviewLogger = Logger(subsystem: "be.zentty", category: "ReviewState")
 
 struct WorkspaceReviewResolution: Equatable, Sendable {
     let reviewState: WorkspaceReviewState?
@@ -38,6 +41,7 @@ struct DefaultWorkspaceReviewCommandRunner: WorkspaceReviewCommandRunning {
                         stderr: stderrPipe.fileHandleForReading.readDataToEndOfFile()
                     ))
                 } catch {
+                    reviewLogger.debug("Review command failed: \(error.localizedDescription)")
                     continuation.resume(returning: WorkspaceReviewCommandResult(
                         terminationStatus: -1,
                         stdout: Data(),
