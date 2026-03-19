@@ -9,17 +9,17 @@ extension WorkspaceStore {
         }
 
         var workspace = workspaces[workspaceIndex]
-        let previousMetadata = workspace.metadataByPaneID[paneID]
-        workspace.metadataByPaneID[paneID] = metadata
+        let previousMetadata = workspace.auxiliaryStateByPaneID[paneID]?.metadata
+        workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
         if branchContextDidChange(previous: previousMetadata, next: metadata) {
             clearBranchDerivedState(for: paneID, in: &workspace)
         }
         if
-            let existingStatus = workspace.agentStatusByPaneID[paneID],
+            let existingStatus = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus,
             existingStatus.source == .inferred,
             AgentToolRecognizer.recognize(metadata: metadata) == nil
         {
-            workspace.agentStatusByPaneID.removeValue(forKey: paneID)
+            workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
         }
         workspaces[workspaceIndex] = workspace
         refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: paneID)
@@ -31,22 +31,19 @@ extension WorkspaceStore {
     }
 
     func clearPaneState(for paneID: PaneID, in workspace: inout WorkspaceState) {
-        workspace.metadataByPaneID.removeValue(forKey: paneID)
-        workspace.paneContextByPaneID.removeValue(forKey: paneID)
-        clearStatusDerivedState(for: paneID, in: &workspace)
-        clearBranchDerivedState(for: paneID, in: &workspace)
+        workspace.auxiliaryStateByPaneID.removeValue(forKey: paneID)
     }
 
     private func clearStatusDerivedState(for paneID: PaneID, in workspace: inout WorkspaceState) {
-        workspace.agentStatusByPaneID.removeValue(forKey: paneID)
+        workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
     }
 
     private func clearBranchDerivedState(for paneID: PaneID, in workspace: inout WorkspaceState) {
-        workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
-        workspace.reviewStateByPaneID.removeValue(forKey: paneID)
-        if var status = workspace.agentStatusByPaneID[paneID], status.artifactLink?.kind == .pullRequest {
+        workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil
+        workspace.auxiliaryStateByPaneID[paneID]?.reviewState = nil
+        if var status = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus, status.artifactLink?.kind == .pullRequest {
             status.artifactLink = nil
-            workspace.agentStatusByPaneID[paneID] = status
+            workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = status
         }
     }
 
