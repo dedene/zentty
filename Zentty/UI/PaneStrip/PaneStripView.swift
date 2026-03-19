@@ -500,7 +500,11 @@ final class PaneStripView: NSView {
 
     private func applyTerminalAnimationFreeze(to frozenPaneIDs: Set<PaneID>) {
         paneViews.forEach { paneID, paneView in
-            paneView.setTerminalAnimationFrozen(frozenPaneIDs.contains(paneID))
+            if frozenPaneIDs.contains(paneID) {
+                paneView.beginSnapshotFreeze()
+            } else {
+                paneView.endSnapshotFreeze()
+            }
         }
     }
 

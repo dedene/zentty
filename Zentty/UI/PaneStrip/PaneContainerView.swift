@@ -32,7 +32,8 @@ final class PaneContainerView: NSView {
     private var statusState: StatusState = .hidden
     private var runtimeObserverID: UUID?
     private var isTerminalAnimationFrozen = false
-    private var frozenTerminalFrame: CGRect?
+    private var savedContentsPlacement: NSView.LayerContentsPlacement = .scaleAxesIndependently
+    private var savedRedrawPolicy: NSView.LayerContentsRedrawPolicy = .duringViewResize
     private var currentTheme: ZenttyTheme
     private var currentEmphasis: CGFloat
     private var currentIsFocused: Bool
@@ -216,22 +217,51 @@ final class PaneContainerView: NSView {
         terminalHostView.setViewportSyncSuspended(suspended)
     }
 
-    func setTerminalAnimationFrozen(_ frozen: Bool) {
-        guard isTerminalAnimationFrozen != frozen else {
+    func beginSnapshotFreeze() {
+        guard !isTerminalAnimationFrozen else {
             return
         }
 
-        isTerminalAnimationFrozen = frozen
-        frozenTerminalFrame = frozen ? terminalHostView.frame : nil
-        contentClipView.autoresizingMask = frozen ? [] : [.width, .height]
-        terminalHostView.autoresizingMask = frozen ? [] : [.width, .height]
-        layer?.masksToBounds = frozen
-        if !frozen {
-            contentClipView.frame = bounds
-            updateTerminalHostFrame()
-            updateInsetBorderLayer()
-            layer?.masksToBounds = false
+        isTerminalAnimationFrozen = true
+
+        guard let bitmapRep = contentClipView.bitmapImageRepForCachingDisplay(
+            in: contentClipView.bounds
+        ) else {
+            return
         }
+        contentClipView.cacheDisplay(in: contentClipView.bounds, to: bitmapRep)
+        let image = NSImage(size: contentClipView.bounds.size)
+        image.addRepresentation(bitmapRep)
+
+        contentClipView.isHidden = true
+
+        savedContentsPlacement = layerContentsPlacement
+        savedRedrawPolicy = layerContentsRedrawPolicy
+        layerContentsRedrawPolicy = .never
+        layerContentsPlacement = .topLeft
+
+        let scale = resolvedBackingScaleFactor
+        layer?.contentsScale = scale
+        layer?.contents = image.layerContents(forContentsScale: scale)
+        layer?.masksToBounds = true
+    }
+
+    func endSnapshotFreeze() {
+        guard isTerminalAnimationFrozen else {
+            return
+        }
+
+        isTerminalAnimationFrozen = false
+
+        layer?.contents = nil
+        layer?.masksToBounds = false
+        contentClipView.isHidden = false
+        layerContentsPlacement = savedContentsPlacement
+        layerContentsRedrawPolicy = savedRedrawPolicy
+
+        contentClipView.frame = bounds
+        updateTerminalHostFrame()
+        updateInsetBorderLayer()
     }
 
     override func layout() {

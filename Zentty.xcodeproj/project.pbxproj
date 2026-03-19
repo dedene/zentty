@@ -252,27 +252,43 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		1C0506CDB868054B09C5CA8D /* AppState */ = {
+		A1B2C3D4E5F6A7B8C9D0E1F8 /* Agent */ = {
 			isa = PBXGroup;
 			children = (
-				385C5EC34EA938E2377D56ED /* AgentInteractionClassifier.swift */,
 				BA08055EB985B2018257F94F /* AgentStatus.swift */,
 				C503221AB6FA317A9C4E98F1 /* AgentStatusCenter.swift */,
 				38E15ECCC052F593297D852D /* AgentStatusCommand.swift */,
 				206F2AD58C01B7B00F5C76A9 /* AgentStatusHelper.swift */,
 				41ACBFBCCDD84B1219F41683 /* AgentStatusPayload.swift */,
+				385C5EC34EA938E2377D56ED /* AgentInteractionClassifier.swift */,
 				3D561A6E71D192EF583C6BAA /* ClaudeHookBridge.swift */,
 				CFB87D36E21DEFF78F96FBD8 /* ClaudeHookSessionStore.swift */,
+			);
+			path = Agent;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6A7B8C9D0E1F9 /* Review */ = {
+			isa = PBXGroup;
+			children = (
+				7544C7B21941BA8753B02033 /* WorkspaceReviewStateResolver.swift */,
+				58D1C573A9C9F58998DEF320 /* WorkspaceReviewStateProvider.swift */,
+				85BB7BA16510777AA0B9BEA8 /* PRArtifactResolver.swift */,
+			);
+			path = Review;
+			sourceTree = "<group>";
+		};
+		1C0506CDB868054B09C5CA8D /* AppState */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D4E5F6A7B8C9D0E1F8 /* Agent */,
 				E101FFDD49FF6625AC16DDED /* PaneAuxiliaryState.swift */,
 				BFE28087CB8A8A0F579745CA /* PaneShellContext.swift */,
-				85BB7BA16510777AA0B9BEA8 /* PRArtifactResolver.swift */,
+				A1B2C3D4E5F6A7B8C9D0E1F9 /* Review */,
 				5F668C5A47A3DF347AA3AEB6 /* WorkspaceAttentionNotificationCoordinator.swift */,
 				11CCB35B6B709D47E3838B95 /* WorkspaceAttentionSummaryBuilder.swift */,
 				EA608346157BAE8D62A040C0 /* WorkspaceContextFormatter.swift */,
 				65B4C03D59ECCAD47807696D /* WorkspaceHeaderSummary.swift */,
 				18065CC38B9A9058E3A43CD0 /* WorkspaceHeaderSummaryBuilder.swift */,
-				58D1C573A9C9F58998DEF320 /* WorkspaceReviewStateProvider.swift */,
-				7544C7B21941BA8753B02033 /* WorkspaceReviewStateResolver.swift */,
 				7404D6BABB68E5A9DF526865 /* WorkspaceStore.swift */,
 				E2CB877AA1685B897411B467 /* WorkspaceStore+AgentStatus.swift */,
 				8C28736E4D07F0610C33AAB2 /* WorkspaceStore+Metadata.swift */,
@@ -393,37 +409,85 @@
 			path = Terminal;
 			sourceTree = "<group>";
 		};
-		DF5F1230FC57111D71EAF9A9 /* UI */ = {
+		A1B2C3D4E5F6A7B8C9D0E1F6 /* Canvas */ = {
 			isa = PBXGroup;
 			children = (
 				8085EEB54A83D5D7F7A68CAB /* AppCanvasView.swift */,
-				33E9B2C75C5EF9392C6C7150 /* AppTheme.swift */,
+			);
+			path = Canvas;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6A7B8C9D0E1F4 /* Chrome */ = {
+			isa = PBXGroup;
+			children = (
+				AA85009CAB71FA50F1611E54 /* WindowChromeView.swift */,
+				E7FBE61EB4EABD3479BF0697 /* WindowChromeRowLayoutPlanner.swift */,
+				ECD488C69FD7A9E781CC054A /* WorkspaceAttentionChipView.swift */,
+			);
+			path = Chrome;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6A7B8C9D0E1F3 /* PaneStrip */ = {
+			isa = PBXGroup;
+			children = (
 				BC63FD2674437F1139255B3E /* ContextStripView.swift */,
-				31EADA470DA34F159A40A96E /* GhosttyThemeResolver.swift */,
-				29B537B7096E6A676CEDAA46 /* GlassSurfaceView.swift */,
 				3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */,
-				79D36E0FCD51FBD2A5F6A373 /* PaneLayoutSettingsWindowController.swift */,
 				51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */,
 				55646C14005C4ECC817D51DF /* PaneStripView+Transitions.swift */,
-				7B93F46C5542A31805301C02 /* RootViewController.swift */,
 				CF53D89084ABC40A4F372B00 /* ScrollSwitchGestureHandler.swift */,
-				16FEAF3CA4E96E1EB18692E8 /* ShellMetrics.swift */,
-				FCFCD83A1573459E3AFDFDDE /* SidebarMotionCoordinator.swift */,
-				B77502183B5C782EB7BA1108 /* SidebarPaneSubRow.swift */,
+			);
+			path = PaneStrip;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6A7B8C9D0E1F7 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				79D36E0FCD51FBD2A5F6A373 /* PaneLayoutSettingsWindowController.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* Sidebar */ = {
+			isa = PBXGroup;
+			children = (
 				0D86A2473F58EC67BBFC4C7A /* SidebarView.swift */,
-				6BA9E0F1D71D401263CF3C4F /* SidebarVisibilityController.swift */,
-				1005C9DD652724E1953DE682 /* SidebarWidthPreference.swift */,
 				79958DDABCB49918E069A403 /* SidebarWorkspaceGroupView.swift */,
+				B77502183B5C782EB7BA1108 /* SidebarPaneSubRow.swift */,
 				88CF6F351CA85281CC1DA7BF /* SidebarWorkspaceHeaderRow.swift */,
 				B8E26DB281CB2520133E0053 /* SidebarWorkspaceRowButton.swift */,
 				ACAC346B100365A5EF2E658C /* SidebarWorkspaceRowLayout.swift */,
-				76CEBA7D33572C398D0C2CF2 /* ThemeCoordinator.swift */,
-				E7FBE61EB4EABD3479BF0697 /* WindowChromeRowLayoutPlanner.swift */,
-				AA85009CAB71FA50F1611E54 /* WindowChromeView.swift */,
-				ECD488C69FD7A9E781CC054A /* WorkspaceAttentionChipView.swift */,
+				FCFCD83A1573459E3AFDFDDE /* SidebarMotionCoordinator.swift */,
+				6BA9E0F1D71D401263CF3C4F /* SidebarVisibilityController.swift */,
+				1005C9DD652724E1953DE682 /* SidebarWidthPreference.swift */,
 				0BEAEE5EAED7779E40871DFD /* WorkspaceSidebarNode.swift */,
 				3C182DB0CDDD3D09D97C1F4A /* WorkspaceSidebarSummary.swift */,
 				F4C73B937B8B00DA9C9B4310 /* WorkspaceSidebarSummaryBuilder.swift */,
+			);
+			path = Sidebar;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6A7B8C9D0E1F5 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				33E9B2C75C5EF9392C6C7150 /* AppTheme.swift */,
+				31EADA470DA34F159A40A96E /* GhosttyThemeResolver.swift */,
+				29B537B7096E6A676CEDAA46 /* GlassSurfaceView.swift */,
+				76CEBA7D33572C398D0C2CF2 /* ThemeCoordinator.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		DF5F1230FC57111D71EAF9A9 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D4E5F6A7B8C9D0E1F6 /* Canvas */,
+				A1B2C3D4E5F6A7B8C9D0E1F4 /* Chrome */,
+				A1B2C3D4E5F6A7B8C9D0E1F3 /* PaneStrip */,
+				7B93F46C5542A31805301C02 /* RootViewController.swift */,
+				A1B2C3D4E5F6A7B8C9D0E1F7 /* Settings */,
+				16FEAF3CA4E96E1EB18692E8 /* ShellMetrics.swift */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* Sidebar */,
+				A1B2C3D4E5F6A7B8C9D0E1F5 /* Theme */,
 			);
 			path = UI;
 			sourceTree = "<group>";

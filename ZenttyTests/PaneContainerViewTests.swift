@@ -295,7 +295,7 @@ final class PaneContainerViewTests: XCTestCase {
         XCTAssertEqual(paneView.statusOverlayFrame, paneView.bounds)
     }
 
-    func test_frozen_terminal_preserves_original_frame_until_unfrozen() {
+    func test_snapshot_freeze_hides_content_and_restores_on_unfreeze() {
         let pane = PaneState(id: PaneID("editor"), title: "editor")
         let runtime = PaneRuntime(
             pane: pane,
@@ -312,29 +312,26 @@ final class PaneContainerViewTests: XCTestCase {
             runtime: runtime,
             theme: ZenttyTheme.fallback(for: nil)
         )
-        guard let terminalSurfaceView = paneView.descendantSubviews().first(where: {
-            String(describing: type(of: $0)) == "TerminalPaneHostView"
-        }) else {
-            return XCTFail("Expected dedicated terminal host view")
-        }
+        let contentClip = paneView.descendantSubviews().first(where: {
+            $0.layer?.masksToBounds == true && $0 !== paneView
+        })
 
         paneView.layoutSubtreeIfNeeded()
-        let originalFrame = terminalSurfaceView.frame
 
-        paneView.setTerminalAnimationFrozen(true)
-        paneView.frame.size = NSSize(width: 420, height: 300)
-        paneView.layoutSubtreeIfNeeded()
+        paneView.beginSnapshotFreeze()
 
-        XCTAssertEqual(terminalSurfaceView.frame, originalFrame,
-                       "Frozen terminal should keep its original frame during layout")
+        XCTAssertTrue(paneView.isTerminalAnimationFrozenForTesting)
+        XCTAssertEqual(contentClip?.isHidden, true)
+        XCTAssertNotNil(paneView.layer?.contents)
 
-        paneView.setTerminalAnimationFrozen(false)
-        paneView.layoutSubtreeIfNeeded()
+        paneView.endSnapshotFreeze()
 
-        XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
+        XCTAssertFalse(paneView.isTerminalAnimationFrozenForTesting)
+        XCTAssertEqual(contentClip?.isHidden, false)
+        XCTAssertNil(paneView.layer?.contents)
     }
 
-    func test_frozen_terminal_keeps_frame_stable_during_layout() {
+    func test_snapshot_freeze_restores_terminal_to_current_bounds() {
         let pane = PaneState(id: PaneID("editor"), title: "editor")
         let runtime = PaneRuntime(
             pane: pane,
@@ -358,16 +355,11 @@ final class PaneContainerViewTests: XCTestCase {
         }
 
         paneView.layoutSubtreeIfNeeded()
-        let originalFrame = terminalSurfaceView.frame
 
-        paneView.setTerminalAnimationFrozen(true)
+        paneView.beginSnapshotFreeze()
         paneView.frame.size = NSSize(width: 420, height: 300)
         paneView.layoutSubtreeIfNeeded()
-
-        XCTAssertEqual(terminalSurfaceView.frame, originalFrame,
-                       "Frozen terminal frame should not change during layout")
-
-        paneView.setTerminalAnimationFrozen(false)
+        paneView.endSnapshotFreeze()
         paneView.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)

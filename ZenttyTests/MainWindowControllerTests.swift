@@ -4,9 +4,7 @@ import XCTest
 @MainActor
 final class MainWindowControllerTests: XCTestCase {
     private func makeController() -> MainWindowController {
-        MainWindowController(
-            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
-        )
+        MainWindowController()
     }
 
     func test_main_window_starts_with_expected_content_size() {
