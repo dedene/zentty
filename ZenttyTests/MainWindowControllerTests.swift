@@ -3,6 +3,11 @@ import XCTest
 
 @MainActor
 final class MainWindowControllerTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        TerminalAdapterRegistry.useMockAdapters()
+    }
+
     func test_main_window_starts_with_expected_content_size() {
         let controller = MainWindowController()
         controller.showWindow(nil)

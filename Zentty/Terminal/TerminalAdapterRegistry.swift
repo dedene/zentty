@@ -3,7 +3,7 @@ import AppKit
 @MainActor
 enum TerminalAdapterRegistry {
     private static var factory: @MainActor () -> any TerminalAdapter = {
-        MockTerminalAdapter()
+        LibghosttyAdapter()
     }
 
     static func makeAdapter() -> any TerminalAdapter {
