@@ -107,6 +107,31 @@ final class PaneStripMotionControllerTests: XCTestCase {
     }
 
     @MainActor
+    func test_leading_visible_inset_pushes_first_focused_pane_clear_of_sidebar_with_three_columns() {
+        let controller = PaneStripMotionController()
+        let size = CGSize(width: 1200, height: 680)
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+                PaneState(id: PaneID("tests"), title: "tests"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let presentation = controller.presentation(
+            for: state,
+            in: size,
+            leadingVisibleInset: sidebarInset
+        )
+
+        XCTAssertEqual(
+            presentation.targetOffset,
+            state.layoutSizing.horizontalInset - sidebarInset,
+            accuracy: 0.001
+        )
+    }
+
+    @MainActor
     func test_leading_visible_inset_does_not_shift_layout_frames_right() throws {
         let controller = PaneStripMotionController()
         let state = PaneStripState(

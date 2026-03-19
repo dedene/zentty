@@ -140,10 +140,14 @@ final class PaneStripView: NSView {
 
     func render(
         _ state: PaneStripState,
-        paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:]
+        paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
+        leadingVisibleInset: CGFloat? = nil
     ) {
         currentPaneBorderContextByPaneID = paneBorderContextByPaneID
         currentState = state
+        if let leadingVisibleInset {
+            resolvedLeadingVisibleInset = leadingVisibleInset
+        }
         guard bounds.size != .zero else {
             return
         }
