@@ -55,7 +55,7 @@ final class AppDelegateTests: XCTestCase {
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
         let fileMenu = menu(named: "File")
-        let newWorkspaceItem = fileMenu?.items.first(where: { $0.action == #selector(AppDelegate.newWorkspace(_:)) })
+        let newWorkspaceItem = fileMenu?.items.first(where: { $0.action == #selector(MainWindowController.newWorkspace(_:)) })
 
         XCTAssertEqual(fileMenu?.title, "File")
         XCTAssertEqual(newWorkspaceItem?.title, "New Workspace")
@@ -112,15 +112,15 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(
             viewMenu?.items.map(\.action),
             [
-                #selector(AppDelegate.splitHorizontally(_:)),
-                #selector(AppDelegate.splitVertically(_:)),
+                #selector(MainWindowController.splitHorizontally(_:)),
+                #selector(MainWindowController.splitVertically(_:)),
                 nil,
-                #selector(AppDelegate.focusLeftPane(_:)),
-                #selector(AppDelegate.focusRightPane(_:)),
-                #selector(AppDelegate.focusUpInColumn(_:)),
-                #selector(AppDelegate.focusDownInColumn(_:)),
-                #selector(AppDelegate.focusFirstColumn(_:)),
-                #selector(AppDelegate.focusLastColumn(_:)),
+                #selector(MainWindowController.focusLeftPane(_:)),
+                #selector(MainWindowController.focusRightPane(_:)),
+                #selector(MainWindowController.focusUpInColumn(_:)),
+                #selector(MainWindowController.focusDownInColumn(_:)),
+                #selector(MainWindowController.focusFirstColumn(_:)),
+                #selector(MainWindowController.focusLastColumn(_:)),
             ]
         )
         XCTAssertEqual(
