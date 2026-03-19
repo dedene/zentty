@@ -252,8 +252,8 @@ final class RootViewCompositionTests: XCTestCase {
                 showsGeneratedTitle: true
             ),
         ]
-        let spy = SidebarViewDelegateSpy()
-        sidebarView.delegate = spy
+        var selectedID: WorkspaceID?
+        sidebarView.onWorkspaceSelected = { selectedID = $0 }
         sidebarView.render(
             summaries: summaries,
             theme: ZenttyTheme.fallback(for: nil)
@@ -262,7 +262,7 @@ final class RootViewCompositionTests: XCTestCase {
         let webButton = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.last)
         webButton.performClick(nil)
 
-        XCTAssertEqual(spy.selectedWorkspaceID, WorkspaceID("workspace-web"))
+        XCTAssertEqual(selectedID, WorkspaceID("workspace-web"))
     }
 
     func test_root_controller_restores_persisted_sidebar_width() {
@@ -1180,26 +1180,6 @@ private extension NSView {
 }
 
 @MainActor
-private final class SidebarViewDelegateSpy: SidebarViewDelegate {
-    var selectedWorkspaceID: WorkspaceID?
-    var didRequestNewWorkspace = false
-    var resizedToWidth: CGFloat?
-
-    func sidebarView(_ sidebarView: SidebarView, didSelectWorkspace id: WorkspaceID) {
-        selectedWorkspaceID = id
-    }
-
-    func sidebarViewDidRequestNewWorkspace(_ sidebarView: SidebarView) {
-        didRequestNewWorkspace = true
-    }
-
-    func sidebarView(_ sidebarView: SidebarView, didResizeToWidth width: CGFloat) {
-        resizedToWidth = width
-    }
-
-    func sidebarViewPointerDidEnter(_ sidebarView: SidebarView) {}
-    func sidebarViewPointerDidExit(_ sidebarView: SidebarView) {}
-}
 
 private func alphaComponent(of cgColor: CGColor?) -> CGFloat {
     guard let cgColor, let color = NSColor(cgColor: cgColor) else {

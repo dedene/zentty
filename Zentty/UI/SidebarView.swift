@@ -1,15 +1,6 @@
 import AppKit
 
 @MainActor
-protocol SidebarViewDelegate: AnyObject {
-    func sidebarView(_ sidebarView: SidebarView, didSelectWorkspace id: WorkspaceID)
-    func sidebarViewDidRequestNewWorkspace(_ sidebarView: SidebarView)
-    func sidebarView(_ sidebarView: SidebarView, didResizeToWidth width: CGFloat)
-    func sidebarViewPointerDidEnter(_ sidebarView: SidebarView)
-    func sidebarViewPointerDidExit(_ sidebarView: SidebarView)
-}
-
-@MainActor
 final class SidebarView: NSView {
     private enum Layout {
         static let contentInset: CGFloat = ShellMetrics.sidebarContentInset
@@ -17,7 +8,11 @@ final class SidebarView: NSView {
         static let bottomInset: CGFloat = ShellMetrics.sidebarBottomInset
     }
 
-    weak var delegate: SidebarViewDelegate?
+    var onWorkspaceSelected: ((WorkspaceID) -> Void)?
+    var onNewWorkspaceRequested: (() -> Void)?
+    var onResized: ((CGFloat) -> Void)?
+    var onPointerEntered: (() -> Void)?
+    var onPointerExited: (() -> Void)?
 
     private let backgroundView = GlassSurfaceView(style: .sidebar)
     private let listScrollView = NSScrollView()
@@ -122,11 +117,11 @@ final class SidebarView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        delegate?.sidebarViewPointerDidEnter(self)
+        onPointerEntered?()
     }
 
     override func mouseExited(with event: NSEvent) {
-        delegate?.sidebarViewPointerDidExit(self)
+        onPointerExited?()
     }
 
     func render(
@@ -207,12 +202,12 @@ final class SidebarView: NSView {
             return
         }
 
-        delegate?.sidebarView(self, didSelectWorkspace: workspaceID)
+        onWorkspaceSelected?(workspaceID)
     }
 
     @objc
     private func handleCreateWorkspace() {
-        delegate?.sidebarViewDidRequestNewWorkspace(self)
+        onNewWorkspaceRequested?()
     }
 
     private func handleResizePan(_ recognizer: NSPanGestureRecognizer) {
@@ -225,7 +220,7 @@ final class SidebarView: NSView {
             resizeStartWidth = bounds.width
         case .changed, .ended:
             let translation = recognizer.translation(in: self).x
-            delegate?.sidebarView(self, didResizeToWidth: SidebarWidthPreference.clamped(resizeStartWidth + translation))
+            onResized?(SidebarWidthPreference.clamped(resizeStartWidth + translation))
         default:
             break
         }

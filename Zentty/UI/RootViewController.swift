@@ -156,7 +156,23 @@ final class RootViewController: NSViewController {
             self?.currentPaneBorderChromeSnapshots = snapshots
             self?.renderPaneBorderContextOverlay()
         }
-        sidebarView.delegate = self
+        sidebarView.onWorkspaceSelected = { [weak self] id in
+            self?.workspaceStore.selectWorkspace(id: id)
+        }
+        sidebarView.onNewWorkspaceRequested = { [weak self] in
+            self?.handle(.newWorkspace)
+        }
+        sidebarView.onResized = { [weak self] width in
+            self?.handleSidebarWidthChange(width)
+        }
+        sidebarView.onPointerEntered = { [weak self] in
+            self?.sidebarMotionCoordinator.handle(.sidebarEntered)
+            self?.syncSidebarVisibilityControls(animated: true)
+        }
+        sidebarView.onPointerExited = { [weak self] in
+            self?.sidebarMotionCoordinator.handle(.sidebarExited)
+            self?.syncSidebarVisibilityControls(animated: true)
+        }
         sidebarHoverRailView.onPointerEntered = { [weak self] in
             self?.sidebarMotionCoordinator.handle(.hoverRailEntered)
             self?.syncSidebarVisibilityControls(animated: true)
@@ -660,29 +676,6 @@ final class RootViewController: NSViewController {
     }
 }
 
-extension RootViewController: SidebarViewDelegate {
-    func sidebarView(_ sidebarView: SidebarView, didSelectWorkspace id: WorkspaceID) {
-        workspaceStore.selectWorkspace(id: id)
-    }
-
-    func sidebarViewDidRequestNewWorkspace(_ sidebarView: SidebarView) {
-        handle(.newWorkspace)
-    }
-
-    func sidebarView(_ sidebarView: SidebarView, didResizeToWidth width: CGFloat) {
-        handleSidebarWidthChange(width)
-    }
-
-    func sidebarViewPointerDidEnter(_ sidebarView: SidebarView) {
-        sidebarMotionCoordinator.handle(.sidebarEntered)
-        syncSidebarVisibilityControls(animated: true)
-    }
-
-    func sidebarViewPointerDidExit(_ sidebarView: SidebarView) {
-        sidebarMotionCoordinator.handle(.sidebarExited)
-        syncSidebarVisibilityControls(animated: true)
-    }
-}
 
 @MainActor
 private final class WindowContentView: NSView {
