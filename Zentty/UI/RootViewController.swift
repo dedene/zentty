@@ -140,11 +140,11 @@ final class RootViewController: NSViewController {
             sidebarToggleOverlayView.heightAnchor.constraint(equalToConstant: SidebarLayout.toggleOverlayHeight),
         ])
 
-        workspaceStore.onChange = { [weak self] _ in
+        workspaceStore.onChange = { [weak self] change in
             guard let self, !self.suppressWorkspaceRender else {
                 return
             }
-            self.renderCurrentWorkspace()
+            self.handleWorkspaceChange(change)
         }
         appCanvasView.onFocusSettled = { [weak self] paneID in
             self?.workspaceStore.focusPane(id: paneID)
@@ -324,6 +324,19 @@ final class RootViewController: NSViewController {
     private func handleWindowStateDidChange() {
         updatePaneLayoutContextIfNeeded(force: true)
         updateRuntimeSurfaceActivities()
+    }
+
+    private func handleWorkspaceChange(_ change: WorkspaceChange) {
+        switch change {
+        case .paneStructure, .workspaceListChanged, .activeWorkspaceChanged:
+            renderCurrentWorkspace()
+        case .focusChanged:
+            renderCurrentWorkspace()
+        case .layoutResized:
+            renderCurrentWorkspace()
+        case .auxiliaryStateUpdated:
+            renderCurrentWorkspace()
+        }
     }
 
     private func renderCurrentWorkspace() {

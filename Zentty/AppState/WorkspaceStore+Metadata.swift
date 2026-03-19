@@ -23,7 +23,7 @@ extension WorkspaceStore {
         }
         workspaces[workspaceIndex] = workspace
         refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: paneID)
-        notifyStateChanged()
+        notify(.auxiliaryStateUpdated(workspace.id, paneID))
     }
 
     func updateMetadata(id: PaneID, metadata: TerminalMetadata) {

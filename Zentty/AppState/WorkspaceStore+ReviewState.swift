@@ -19,7 +19,7 @@ extension WorkspaceStore {
             workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil
         }
         workspaces[workspaceIndex] = workspace
-        notifyStateChanged()
+        notify(.auxiliaryStateUpdated(workspace.id, paneID))
     }
 
     func updateReviewResolution(paneID: PaneID, resolution: WorkspaceReviewResolution) {
@@ -49,7 +49,7 @@ extension WorkspaceStore {
         }
 
         workspaces[workspaceIndex] = workspace
-        notifyStateChanged()
+        notify(.auxiliaryStateUpdated(workspace.id, paneID))
     }
 
     func updateReviewState(paneID: PaneID, reviewState: WorkspaceReviewState?) {
@@ -72,6 +72,6 @@ extension WorkspaceStore {
         }
 
         workspaces[workspaceIndex] = workspace
-        notifyStateChanged()
+        notify(.auxiliaryStateUpdated(workspace.id, paneID))
     }
 }
