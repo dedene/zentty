@@ -117,7 +117,7 @@ final class WorkspaceStore {
         let scope: PaneShellContextScope?
     }
 
-    private(set) var workspaces: [WorkspaceState]
+    var workspaces: [WorkspaceState]
     private var layoutContext: PaneLayoutContext
     private var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
     private var lastFocusedLocalWorkingDirectory: String?
@@ -307,318 +307,6 @@ final class WorkspaceStore {
         notifyStateChanged()
     }
 
-    func updateMetadata(paneID: PaneID, metadata: TerminalMetadata) {
-        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
-            workspace.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
-            return
-        }
-
-        var workspace = workspaces[workspaceIndex]
-        let previousMetadata = workspace.metadataByPaneID[paneID]
-        workspace.metadataByPaneID[paneID] = metadata
-        if branchContextDidChange(previous: previousMetadata, next: metadata) {
-            clearBranchDerivedState(for: paneID, in: &workspace)
-        }
-        if
-            let existingStatus = workspace.agentStatusByPaneID[paneID],
-            existingStatus.source == .inferred,
-            AgentToolRecognizer.recognize(metadata: metadata) == nil
-        {
-            workspace.agentStatusByPaneID.removeValue(forKey: paneID)
-        }
-        workspaces[workspaceIndex] = workspace
-        refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: paneID)
-        notifyStateChanged()
-    }
-
-    func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
-        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
-            workspace.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
-            return
-        }
-
-        var workspace = workspaces[workspaceIndex]
-        switch event {
-        case .commandFinished:
-            let existingStatus = workspace.agentStatusByPaneID[paneID]
-            guard existingStatus?.state != .completed, existingStatus?.state != .needsInput else {
-                return
-            }
-
-            guard
-                existingStatus?.source == .explicit,
-                let tool = existingStatus?.tool
-            else {
-                return
-            }
-
-            workspace.agentStatusByPaneID[paneID] = PaneAgentStatus(
-                tool: tool,
-                state: .unresolvedStop,
-                text: nil,
-                artifactLink: existingStatus?.artifactLink,
-                updatedAt: Date(),
-                source: .inferred,
-                origin: .inferred,
-                interactionState: .none,
-                shellActivityState: existingStatus?.shellActivityState ?? .unknown,
-                trackedPID: nil
-            )
-        }
-
-        workspaces[workspaceIndex] = workspace
-        notifyStateChanged()
-    }
-
-    func applyAgentStatusPayload(_ payload: AgentStatusPayload) {
-        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
-            workspace.id == payload.workspaceID
-                && workspace.paneStripState.panes.contains(where: { $0.id == payload.paneID })
-        }) else {
-            return
-        }
-
-        var workspace = workspaces[workspaceIndex]
-
-        if payload.clearsStatus {
-            workspace.agentStatusByPaneID.removeValue(forKey: payload.paneID)
-            workspaces[workspaceIndex] = workspace
-            notifyStateChanged()
-            return
-        }
-
-        if payload.clearsPaneContext {
-            workspace.paneContextByPaneID.removeValue(forKey: payload.paneID)
-            workspaces[workspaceIndex] = workspace
-            refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: payload.paneID)
-            notifyStateChanged()
-            return
-        }
-
-        let existingStatus = workspace.agentStatusByPaneID[payload.paneID]
-        let tool = AgentTool.resolve(named: payload.toolName)
-            ?? existingStatus?.tool
-            ?? AgentToolRecognizer.recognize(metadata: workspace.metadataByPaneID[payload.paneID])
-
-        switch payload.signalKind {
-        case .lifecycle:
-            guard payload.state != nil, let tool else {
-                return
-            }
-            guard shouldApplyLifecycleSignal(payload, over: existingStatus) else {
-                return
-            }
-
-            workspace.agentStatusByPaneID[payload.paneID] = Self.makeLifecycleStatus(
-                tool: tool,
-                payload: payload,
-                existingStatus: existingStatus
-            )
-        case .shellState:
-            guard let shellActivityState = payload.shellActivityState else {
-                return
-            }
-
-            if var existingStatus {
-                existingStatus.shellActivityState = shellActivityState
-                existingStatus.updatedAt = Date()
-
-                if existingStatus.origin == .shell, existingStatus.trackedPID == nil {
-                    switch shellActivityState {
-                    case .commandRunning:
-                        existingStatus.state = .running
-                    case .promptIdle:
-                        workspace.agentStatusByPaneID.removeValue(forKey: payload.paneID)
-                        workspaces[workspaceIndex] = workspace
-                        notifyStateChanged()
-                        return
-                    case .unknown:
-                        break
-                    }
-                }
-
-                workspace.agentStatusByPaneID[payload.paneID] = existingStatus
-            } else if shellActivityState == .commandRunning, let tool {
-                workspace.agentStatusByPaneID[payload.paneID] = PaneAgentStatus(
-                    tool: tool,
-                    state: .running,
-                    text: nil,
-                    artifactLink: nil,
-                    updatedAt: Date(),
-                    source: .inferred,
-                    origin: .shell,
-                    interactionState: .none,
-                    shellActivityState: shellActivityState
-                )
-            } else {
-                return
-            }
-        case .pid:
-            guard let pidEvent = payload.pidEvent else {
-                return
-            }
-
-            switch pidEvent {
-            case .attach:
-                guard let tool, let pid = payload.pid else {
-                    return
-                }
-
-                var status = existingStatus
-                    .map {
-                        PaneAgentStatus(
-                            tool: tool,
-                            state: ($0.state == .completed || $0.state == .unresolvedStop) ? .running : $0.state,
-                            text: $0.text,
-                            artifactLink: $0.artifactLink,
-                            updatedAt: Date(),
-                            source: $0.source,
-                            origin: $0.origin.priority >= payload.origin.priority ? $0.origin : payload.origin,
-                            interactionState: $0.interactionState,
-                            shellActivityState: $0.shellActivityState,
-                            trackedPID: $0.trackedPID
-                        )
-                    }
-                    ?? PaneAgentStatus(
-                        tool: tool,
-                        state: .running,
-                        text: nil,
-                        artifactLink: nil,
-                        updatedAt: Date(),
-                        source: .explicit,
-                        origin: payload.origin,
-                        interactionState: .none
-                    )
-                status.trackedPID = pid
-                status.updatedAt = Date()
-                workspace.agentStatusByPaneID[payload.paneID] = status
-            case .clear:
-                guard var status = existingStatus else {
-                    return
-                }
-                status.trackedPID = nil
-                status.updatedAt = Date()
-                workspace.agentStatusByPaneID[payload.paneID] = status
-            }
-        case .paneContext:
-            guard let paneContext = payload.paneContext else {
-                return
-            }
-
-            workspace.paneContextByPaneID[payload.paneID] = paneContext
-        }
-
-        workspaces[workspaceIndex] = workspace
-        refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: payload.paneID)
-        notifyStateChanged()
-    }
-
-    func clearStaleAgentSessions() {
-        var didChange = false
-
-        for workspaceIndex in workspaces.indices {
-            var workspace = workspaces[workspaceIndex]
-
-            for (paneID, status) in workspace.agentStatusByPaneID {
-                guard let trackedPID = status.trackedPID, !Self.isProcessAlive(pid: trackedPID) else {
-                    continue
-                }
-
-                didChange = true
-                if status.state == .running || status.requiresHumanAttention {
-                    workspace.agentStatusByPaneID.removeValue(forKey: paneID)
-                    workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
-                } else {
-                    var nextStatus = status
-                    nextStatus.trackedPID = nil
-                    workspace.agentStatusByPaneID[paneID] = nextStatus
-                }
-            }
-
-            workspaces[workspaceIndex] = workspace
-        }
-
-        if didChange {
-            notifyStateChanged()
-        }
-    }
-
-    func updateInferredArtifact(paneID: PaneID, artifact: WorkspaceArtifactLink?) {
-        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
-            workspace.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
-            return
-        }
-
-        var workspace = workspaces[workspaceIndex]
-        let previousArtifact = workspace.inferredArtifactByPaneID[paneID]
-        guard previousArtifact != artifact else {
-            return
-        }
-        if let artifact {
-            workspace.inferredArtifactByPaneID[paneID] = artifact
-        } else {
-            workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
-        }
-        workspaces[workspaceIndex] = workspace
-        notifyStateChanged()
-    }
-
-    func updateReviewResolution(paneID: PaneID, resolution: WorkspaceReviewResolution) {
-        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
-            workspace.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
-            return
-        }
-
-        var workspace = workspaces[workspaceIndex]
-        let previousState = workspace.reviewStateByPaneID[paneID]
-        let previousArtifact = workspace.inferredArtifactByPaneID[paneID]
-        guard previousState != resolution.reviewState || previousArtifact != resolution.inferredArtifact else {
-            return
-        }
-
-        if let reviewState = resolution.reviewState {
-            workspace.reviewStateByPaneID[paneID] = reviewState
-        } else {
-            workspace.reviewStateByPaneID.removeValue(forKey: paneID)
-        }
-
-        if let artifact = resolution.inferredArtifact {
-            workspace.inferredArtifactByPaneID[paneID] = artifact
-        } else {
-            workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
-        }
-
-        workspaces[workspaceIndex] = workspace
-        notifyStateChanged()
-    }
-
-    func updateReviewState(paneID: PaneID, reviewState: WorkspaceReviewState?) {
-        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
-            workspace.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
-            return
-        }
-
-        var workspace = workspaces[workspaceIndex]
-        let previousState = workspace.reviewStateByPaneID[paneID]
-        guard previousState != reviewState else {
-            return
-        }
-
-        if let reviewState {
-            workspace.reviewStateByPaneID[paneID] = reviewState
-        } else {
-            workspace.reviewStateByPaneID.removeValue(forKey: paneID)
-        }
-
-        workspaces[workspaceIndex] = workspace
-        notifyStateChanged()
-    }
-
     func closePane(id: PaneID) {
         guard var workspace = activeWorkspace else {
             return
@@ -646,10 +334,6 @@ final class WorkspaceStore {
         notifyStateChanged()
     }
 
-    func updateMetadata(id: PaneID, metadata: TerminalMetadata) {
-        updateMetadata(paneID: id, metadata: metadata)
-    }
-
     func replaceWorkspacesForTesting(_ workspaces: [WorkspaceState], activeWorkspaceID: WorkspaceID? = nil) {
         self.workspaces = workspaces
         let fallbackID = activeWorkspaceID ?? workspaces.first?.id ?? WorkspaceID("workspace-main")
@@ -657,31 +341,6 @@ final class WorkspaceStore {
             ? fallbackID
             : workspaces.first?.id ?? WorkspaceID("workspace-main")
         notifyStateChanged()
-    }
-
-    private func clearStatusDerivedState(for paneID: PaneID, in workspace: inout WorkspaceState) {
-        workspace.agentStatusByPaneID.removeValue(forKey: paneID)
-    }
-
-    private func clearBranchDerivedState(for paneID: PaneID, in workspace: inout WorkspaceState) {
-        workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
-        workspace.reviewStateByPaneID.removeValue(forKey: paneID)
-        if var status = workspace.agentStatusByPaneID[paneID], status.artifactLink?.kind == .pullRequest {
-            status.artifactLink = nil
-            workspace.agentStatusByPaneID[paneID] = status
-        }
-    }
-
-    private func clearPaneState(for paneID: PaneID, in workspace: inout WorkspaceState) {
-        workspace.metadataByPaneID.removeValue(forKey: paneID)
-        workspace.paneContextByPaneID.removeValue(forKey: paneID)
-        clearStatusDerivedState(for: paneID, in: &workspace)
-        clearBranchDerivedState(for: paneID, in: &workspace)
-    }
-
-    private func branchContextDidChange(previous: TerminalMetadata?, next: TerminalMetadata) -> Bool {
-        WorkspaceContextFormatter.trimmed(previous?.gitBranch) != WorkspaceContextFormatter.trimmed(next.gitBranch)
-            || WorkspaceContextFormatter.resolvedWorkingDirectory(for: previous) != WorkspaceContextFormatter.resolvedWorkingDirectory(for: next)
     }
 
     private func makePane(in workspace: inout WorkspaceState, existingPaneCount: Int) -> PaneState {
@@ -750,7 +409,7 @@ final class WorkspaceStore {
         )
     }
 
-    private func notifyStateChanged() {
+    func notifyStateChanged() {
         onChange?(state)
     }
 
@@ -849,7 +508,7 @@ final class WorkspaceStore {
         updateLastFocusedLocalWorkingDirectory(using: focusedPaneID, in: workspace)
     }
 
-    private func refreshLastFocusedLocalWorkingDirectoryIfNeeded(
+    func refreshLastFocusedLocalWorkingDirectoryIfNeeded(
         workspace: WorkspaceState,
         paneID: PaneID
     ) {
@@ -908,85 +567,6 @@ final class WorkspaceStore {
         }
 
         return workingDirectory
-    }
-
-    private func shouldApplyLifecycleSignal(
-        _ payload: AgentStatusPayload,
-        over existingStatus: PaneAgentStatus?
-    ) -> Bool {
-        guard let existingStatus else {
-            return true
-        }
-
-        if payload.origin.priority >= existingStatus.origin.priority {
-            return true
-        }
-
-        return payload.state == existingStatus.state
-    }
-
-    private static func makeLifecycleStatus(
-        tool: AgentTool,
-        payload: AgentStatusPayload,
-        existingStatus: PaneAgentStatus?
-    ) -> PaneAgentStatus {
-        let artifactLink = explicitArtifactLink(from: payload) ?? existingStatus?.artifactLink
-        let state = payload.state ?? .running
-        let payloadText = AgentInteractionClassifier.trimmed(payload.text)
-        let existingText = AgentInteractionClassifier.trimmed(existingStatus?.text)
-        let text: String?
-        if state == .needsInput, existingStatus?.state == .needsInput {
-            text = AgentInteractionClassifier.preferredWaitingMessage(
-                existing: existingText,
-                candidate: payloadText
-            )
-        } else if state == .needsInput {
-            text = payloadText ?? existingText
-        } else {
-            text = nil
-        }
-
-        return PaneAgentStatus(
-            tool: tool,
-            state: state,
-            text: text,
-            artifactLink: artifactLink,
-            updatedAt: Date(),
-            source: payload.origin == .inferred ? .inferred : .explicit,
-            origin: payload.origin,
-            interactionState: state == .needsInput ? .awaitingHuman : .none,
-            shellActivityState: existingStatus?.shellActivityState ?? .unknown,
-            trackedPID: state == .completed ? nil : existingStatus?.trackedPID
-        )
-    }
-
-    private static func explicitArtifactLink(from payload: AgentStatusPayload) -> WorkspaceArtifactLink? {
-        guard
-            let kind = payload.artifactKind,
-            let label = payload.artifactLabel,
-            let url = payload.artifactURL
-        else {
-            return nil
-        }
-
-        return WorkspaceArtifactLink(
-            kind: kind,
-            label: label,
-            url: url,
-            isExplicit: true
-        )
-    }
-
-    private static func isProcessAlive(pid: Int32) -> Bool {
-        guard pid > 0 else {
-            return false
-        }
-
-        if kill(pid, 0) == 0 {
-            return true
-        }
-
-        return errno == EPERM
     }
 
     private static func viewportScaleFactor(
