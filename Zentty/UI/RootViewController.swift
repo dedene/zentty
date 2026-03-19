@@ -136,7 +136,7 @@ final class RootViewController: NSViewController {
             sidebarToggleOverlayView.heightAnchor.constraint(equalToConstant: SidebarLayout.toggleOverlayHeight),
         ])
 
-        workspaceStore.onChange = { [weak self] change in
+        workspaceStore.subscribe { [weak self] change in
             self?.handleWorkspaceChange(change)
         }
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in

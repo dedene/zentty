@@ -110,6 +110,11 @@ enum WorkspaceChange: Equatable, Sendable {
     case workspaceListChanged
 }
 
+struct WorkspaceChangeSubscription {
+    fileprivate let id: UUID
+    fileprivate static let legacyID = UUID()
+}
+
 @MainActor
 final class WorkspaceStore {
     private struct PaneLaunchContext {
@@ -124,8 +129,30 @@ final class WorkspaceStore {
 
     private(set) var activeWorkspaceID: WorkspaceID
 
-    var onChange: ((WorkspaceChange) -> Void)?
+    private var subscribers: [(id: UUID, handler: (WorkspaceChange) -> Void)] = []
     private var isBatching = false
+
+    @discardableResult
+    func subscribe(_ handler: @escaping (WorkspaceChange) -> Void) -> WorkspaceChangeSubscription {
+        let id = UUID()
+        subscribers.append((id: id, handler: handler))
+        return WorkspaceChangeSubscription(id: id)
+    }
+
+    func unsubscribe(_ subscription: WorkspaceChangeSubscription) {
+        subscribers.removeAll { $0.id == subscription.id }
+    }
+
+    /// Deprecated compatibility shim — use subscribe() for new code.
+    var onChange: ((WorkspaceChange) -> Void)? {
+        get { nil }
+        set {
+            subscribers.removeAll { $0.id == WorkspaceChangeSubscription.legacyID }
+            if let handler = newValue {
+                subscribers.append((id: WorkspaceChangeSubscription.legacyID, handler: handler))
+            }
+        }
+    }
 
     init(
         workspaces: [WorkspaceState] = [],
@@ -434,7 +461,9 @@ final class WorkspaceStore {
     /// Not intended for use outside WorkspaceStore and its extensions.
     func notify(_ change: WorkspaceChange) {
         guard !isBatching else { return }
-        onChange?(change)
+        for subscriber in subscribers {
+            subscriber.handler(change)
+        }
     }
 
     private static func sessionEnvironment(
