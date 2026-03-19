@@ -10,14 +10,15 @@ struct DefaultWorkspaceReviewStateProvider: WorkspaceReviewStateProvider {
             return nil
         }
 
-        let metadata = workspace.metadataByPaneID[focusedPaneID]
+        let aux = workspace.auxiliaryStateByPaneID[focusedPaneID]
+        let metadata = aux?.metadata
         let metadataBranch = displayableMetadataBranch(metadata?.gitBranch)
         let cachedState = sanitizedCachedState(
-            workspace.reviewStateByPaneID[focusedPaneID],
+            aux?.reviewState,
             metadataBranch: metadataBranch
         )
-        let explicitArtifact = pullRequestArtifact(from: workspace.agentStatusByPaneID[focusedPaneID]?.artifactLink)
-        let inferredArtifact = pullRequestArtifact(from: workspace.inferredArtifactByPaneID[focusedPaneID])
+        let explicitArtifact = pullRequestArtifact(from: aux?.agentStatus?.artifactLink)
+        let inferredArtifact = pullRequestArtifact(from: aux?.inferredArtifact)
         let pullRequest = cachedState?.pullRequest ?? (explicitArtifact ?? inferredArtifact).flatMap(pullRequestSummary(from:))
         let branch = cachedState?.branch ?? metadataBranch
         let reviewChips = normalizedReviewChips(

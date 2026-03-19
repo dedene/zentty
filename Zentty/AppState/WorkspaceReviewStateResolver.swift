@@ -85,7 +85,7 @@ final class WorkspaceReviewStateResolver {
     ) {
         for workspace in workspaces {
             for pane in workspace.paneStripState.panes {
-                guard let metadata = workspace.metadataByPaneID[pane.id] else {
+                guard let metadata = workspace.auxiliaryStateByPaneID[pane.id]?.metadata else {
                     continue
                 }
                 guard let path = WorkspaceContextFormatter.resolvedWorkingDirectory(for: metadata) else {

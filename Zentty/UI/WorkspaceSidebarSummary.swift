@@ -192,7 +192,7 @@ enum WorkspaceSidebarSummaryBuilder {
         let orderedPanes = orderedPanesForSidebar(workspace)
 
         for pane in orderedPanes {
-            guard let metadata = workspace.metadataByPaneID[pane.id],
+            guard let metadata = workspace.auxiliaryStateByPaneID[pane.id]?.metadata,
                   let path = metadata.currentWorkingDirectory,
                   let compactPath = WorkspaceContextFormatter.compactSidebarPath(path) else {
                 continue
@@ -215,7 +215,7 @@ enum WorkspaceSidebarSummaryBuilder {
             )
         }
 
-        let identityMetadata = workspace.metadataByPaneID[identityPane.id]
+        let identityMetadata = workspace.auxiliaryStateByPaneID[identityPane.id]?.metadata
 
         if let recognized = AgentToolRecognizer.recognize(metadata: identityMetadata) {
             return WorkspaceSidebarIdentity(
@@ -268,7 +268,7 @@ enum WorkspaceSidebarSummaryBuilder {
                 return []
             }
 
-            let metadata = workspace.metadataByPaneID[pane.id]
+            let metadata = workspace.auxiliaryStateByPaneID[pane.id]?.metadata
             guard let detailText = WorkspaceContextFormatter.singlePaneSidebarDetailLine(
                 metadata: metadata
             ) else {
@@ -316,7 +316,7 @@ enum WorkspaceSidebarSummaryBuilder {
         for pane: PaneState,
         in workspace: WorkspaceState
     ) -> PaneDetailCandidate? {
-        let metadata = workspace.metadataByPaneID[pane.id]
+        let metadata = workspace.auxiliaryStateByPaneID[pane.id]?.metadata
         let cwdPath = metadata?.currentWorkingDirectory
         let maxPathSegments = cwdPath.flatMap {
             WorkspaceContextFormatter.maxSidebarPathSegments($0)
@@ -667,7 +667,7 @@ enum WorkspaceSidebarNodeBuilder {
                 paneID: pane.id,
                 workspaceID: workspace.id,
                 primaryText: panePrimaryText(for: pane, in: workspace),
-                attentionState: workspace.agentStatusByPaneID[pane.id].map { mapAttentionState($0.state) },
+                attentionState: workspace.auxiliaryStateByPaneID[pane.id]?.agentStatus.map { mapAttentionState($0.state) },
                 gitContext: detailTextByPaneID[pane.id] ?? "",
                 isFocused: workspace.paneStripState.focusedPaneID == pane.id
             )
@@ -677,7 +677,7 @@ enum WorkspaceSidebarNodeBuilder {
     }
 
     private static func panePrimaryText(for pane: PaneState, in workspace: WorkspaceState) -> String {
-        let metadata = workspace.metadataByPaneID[pane.id]
+        let metadata = workspace.auxiliaryStateByPaneID[pane.id]?.metadata
         if let tool = AgentToolRecognizer.recognize(metadata: metadata) {
             return tool.displayName
         }

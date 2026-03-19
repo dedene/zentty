@@ -27,15 +27,16 @@ enum WorkspaceAttentionSummaryBuilder {
         for pane: PaneState,
         in workspace: WorkspaceState
     ) -> WorkspaceAttentionSummary? {
-        guard let status = workspace.agentStatusByPaneID[pane.id] else {
+        let aux = workspace.auxiliaryStateByPaneID[pane.id]
+        guard let status = aux?.agentStatus else {
             return nil
         }
 
-        let metadata = workspace.metadataByPaneID[pane.id]
+        let metadata = aux?.metadata
         let primaryText = status.tool.displayName
         let artifactLink = WorkspaceArtifactLinkResolver.bestLink(
             explicit: status.artifactLink,
-            inferred: workspace.inferredArtifactByPaneID[pane.id]
+            inferred: aux?.inferredArtifact
         )
 
         return WorkspaceAttentionSummary(

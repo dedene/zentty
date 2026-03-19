@@ -9,14 +9,14 @@ extension WorkspaceStore {
         }
 
         var workspace = workspaces[workspaceIndex]
-        let previousArtifact = workspace.inferredArtifactByPaneID[paneID]
+        let previousArtifact = workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact
         guard previousArtifact != artifact else {
             return
         }
         if let artifact {
-            workspace.inferredArtifactByPaneID[paneID] = artifact
+            workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].inferredArtifact = artifact
         } else {
-            workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
+            workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil
         }
         workspaces[workspaceIndex] = workspace
         notifyStateChanged()
@@ -30,22 +30,22 @@ extension WorkspaceStore {
         }
 
         var workspace = workspaces[workspaceIndex]
-        let previousState = workspace.reviewStateByPaneID[paneID]
-        let previousArtifact = workspace.inferredArtifactByPaneID[paneID]
+        let previousState = workspace.auxiliaryStateByPaneID[paneID]?.reviewState
+        let previousArtifact = workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact
         guard previousState != resolution.reviewState || previousArtifact != resolution.inferredArtifact else {
             return
         }
 
         if let reviewState = resolution.reviewState {
-            workspace.reviewStateByPaneID[paneID] = reviewState
+            workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].reviewState = reviewState
         } else {
-            workspace.reviewStateByPaneID.removeValue(forKey: paneID)
+            workspace.auxiliaryStateByPaneID[paneID]?.reviewState = nil
         }
 
         if let artifact = resolution.inferredArtifact {
-            workspace.inferredArtifactByPaneID[paneID] = artifact
+            workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].inferredArtifact = artifact
         } else {
-            workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
+            workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil
         }
 
         workspaces[workspaceIndex] = workspace
@@ -60,15 +60,15 @@ extension WorkspaceStore {
         }
 
         var workspace = workspaces[workspaceIndex]
-        let previousState = workspace.reviewStateByPaneID[paneID]
+        let previousState = workspace.auxiliaryStateByPaneID[paneID]?.reviewState
         guard previousState != reviewState else {
             return
         }
 
         if let reviewState {
-            workspace.reviewStateByPaneID[paneID] = reviewState
+            workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].reviewState = reviewState
         } else {
-            workspace.reviewStateByPaneID.removeValue(forKey: paneID)
+            workspace.auxiliaryStateByPaneID[paneID]?.reviewState = nil
         }
 
         workspaces[workspaceIndex] = workspace

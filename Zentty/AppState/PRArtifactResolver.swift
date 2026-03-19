@@ -20,11 +20,11 @@ final class PRArtifactResolver {
         update: @escaping (PaneID, WorkspaceArtifactLink?) -> Void
     ) {
         for workspace in workspaces {
-            for (paneID, status) in workspace.agentStatusByPaneID {
-                guard status.artifactLink == nil else {
+            for (paneID, aux) in workspace.auxiliaryStateByPaneID {
+                guard let status = aux.agentStatus, status.artifactLink == nil else {
                     continue
                 }
-                guard let metadata = workspace.metadataByPaneID[paneID] else {
+                guard let metadata = aux.metadata else {
                     continue
                 }
                 guard

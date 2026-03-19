@@ -12,7 +12,7 @@ extension WorkspaceStore {
         var workspace = workspaces[workspaceIndex]
         switch event {
         case .commandFinished:
-            let existingStatus = workspace.agentStatusByPaneID[paneID]
+            let existingStatus = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus
             guard existingStatus?.state != .completed, existingStatus?.state != .needsInput else {
                 return
             }
@@ -24,7 +24,7 @@ extension WorkspaceStore {
                 return
             }
 
-            workspace.agentStatusByPaneID[paneID] = PaneAgentStatus(
+            workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].agentStatus = PaneAgentStatus(
                 tool: tool,
                 state: .unresolvedStop,
                 text: nil,
@@ -53,24 +53,24 @@ extension WorkspaceStore {
         var workspace = workspaces[workspaceIndex]
 
         if payload.clearsStatus {
-            workspace.agentStatusByPaneID.removeValue(forKey: payload.paneID)
+            workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
             workspaces[workspaceIndex] = workspace
             notifyStateChanged()
             return
         }
 
         if payload.clearsPaneContext {
-            workspace.paneContextByPaneID.removeValue(forKey: payload.paneID)
+            workspace.auxiliaryStateByPaneID[payload.paneID]?.shellContext = nil
             workspaces[workspaceIndex] = workspace
             refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: payload.paneID)
             notifyStateChanged()
             return
         }
 
-        let existingStatus = workspace.agentStatusByPaneID[payload.paneID]
+        let existingStatus = workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus
         let tool = AgentTool.resolve(named: payload.toolName)
             ?? existingStatus?.tool
-            ?? AgentToolRecognizer.recognize(metadata: workspace.metadataByPaneID[payload.paneID])
+            ?? AgentToolRecognizer.recognize(metadata: workspace.auxiliaryStateByPaneID[payload.paneID]?.metadata)
 
         switch payload.signalKind {
         case .lifecycle:
@@ -81,7 +81,7 @@ extension WorkspaceStore {
                 return
             }
 
-            workspace.agentStatusByPaneID[payload.paneID] = Self.makeLifecycleStatus(
+            workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = Self.makeLifecycleStatus(
                 tool: tool,
                 payload: payload,
                 existingStatus: existingStatus
@@ -100,7 +100,7 @@ extension WorkspaceStore {
                     case .commandRunning:
                         existingStatus.state = .running
                     case .promptIdle:
-                        workspace.agentStatusByPaneID.removeValue(forKey: payload.paneID)
+                        workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
                         workspaces[workspaceIndex] = workspace
                         notifyStateChanged()
                         return
@@ -109,9 +109,9 @@ extension WorkspaceStore {
                     }
                 }
 
-                workspace.agentStatusByPaneID[payload.paneID] = existingStatus
+                workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = existingStatus
             } else if shellActivityState == .commandRunning, let tool {
-                workspace.agentStatusByPaneID[payload.paneID] = PaneAgentStatus(
+                workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = PaneAgentStatus(
                     tool: tool,
                     state: .running,
                     text: nil,
@@ -163,21 +163,21 @@ extension WorkspaceStore {
                     )
                 status.trackedPID = pid
                 status.updatedAt = Date()
-                workspace.agentStatusByPaneID[payload.paneID] = status
+                workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = status
             case .clear:
                 guard var status = existingStatus else {
                     return
                 }
                 status.trackedPID = nil
                 status.updatedAt = Date()
-                workspace.agentStatusByPaneID[payload.paneID] = status
+                workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = status
             }
         case .paneContext:
             guard let paneContext = payload.paneContext else {
                 return
             }
 
-            workspace.paneContextByPaneID[payload.paneID] = paneContext
+            workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].shellContext = paneContext
         }
 
         workspaces[workspaceIndex] = workspace
@@ -191,19 +191,22 @@ extension WorkspaceStore {
         for workspaceIndex in workspaces.indices {
             var workspace = workspaces[workspaceIndex]
 
-            for (paneID, status) in workspace.agentStatusByPaneID {
+            for (paneID, aux) in workspace.auxiliaryStateByPaneID {
+                guard let status = aux.agentStatus else {
+                    continue
+                }
                 guard let trackedPID = status.trackedPID, !Self.isProcessAlive(pid: trackedPID) else {
                     continue
                 }
 
                 didChange = true
                 if status.state == .running || status.requiresHumanAttention {
-                    workspace.agentStatusByPaneID.removeValue(forKey: paneID)
-                    workspace.inferredArtifactByPaneID.removeValue(forKey: paneID)
+                    workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
+                    workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil
                 } else {
                     var nextStatus = status
                     nextStatus.trackedPID = nil
-                    workspace.agentStatusByPaneID[paneID] = nextStatus
+                    workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nextStatus
                 }
             }
 

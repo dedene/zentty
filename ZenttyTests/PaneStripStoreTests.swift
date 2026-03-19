@@ -1,6 +1,7 @@
 import XCTest
 @testable import Zentty
 
+@MainActor
 final class PaneStripStoreTests: XCTestCase {
     func test_store_starts_with_single_main_workspace_and_first_active() {
         let store = WorkspaceStore()
@@ -694,8 +695,8 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(notificationCount, 1)
-        XCTAssertEqual(store.activeWorkspace?.metadataByPaneID[paneID]?.currentWorkingDirectory, "/tmp/project")
-        XCTAssertEqual(store.activeWorkspace?.metadataByPaneID[paneID]?.gitBranch, "main")
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.metadata?.currentWorkingDirectory, "/tmp/project")
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.metadata?.gitBranch, "main")
     }
 
     func test_default_workspace_shell_session_contains_agent_identity_environment() throws {
@@ -740,7 +741,7 @@ final class PaneStripStoreTests: XCTestCase {
             event: .commandFinished(exitCode: 1, durationNanoseconds: 500_000_000)
         )
 
-        XCTAssertNil(store.activeWorkspace?.agentStatusByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
     }
 
     func test_command_finished_promotes_explicit_running_agent_to_unresolved_stop() throws {
@@ -773,8 +774,8 @@ final class PaneStripStoreTests: XCTestCase {
             event: .commandFinished(exitCode: 1, durationNanoseconds: 500_000_000)
         )
 
-        XCTAssertEqual(store.activeWorkspace?.agentStatusByPaneID[paneID]?.state, .unresolvedStop)
-        XCTAssertEqual(store.activeWorkspace?.agentStatusByPaneID[paneID]?.tool, .claudeCode)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .unresolvedStop)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool, .claudeCode)
     }
 
     func test_metadata_update_to_non_agent_title_clears_inferred_attention_state() throws {
@@ -816,7 +817,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.agentStatusByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
     }
 
     func test_explicit_running_replaces_prior_attention_state() throws {
@@ -848,7 +849,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.agentStatusByPaneID[paneID]?.state, .running)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
     }
 
     func test_prompt_idle_alone_does_not_create_attention_state() throws {
@@ -871,7 +872,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.agentStatusByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
     }
 
     func test_update_review_state_stores_and_clears_review_state_for_a_pane() throws {
@@ -888,10 +889,10 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         store.updateReviewState(paneID: paneID, reviewState: reviewState)
-        XCTAssertEqual(store.activeWorkspace?.reviewStateByPaneID[paneID], reviewState)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState, reviewState)
 
         store.updateReviewState(paneID: paneID, reviewState: nil)
-        XCTAssertNil(store.activeWorkspace?.reviewStateByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
     }
 
     func test_update_review_resolution_updates_review_state_and_inferred_artifact_with_single_notification() throws {
@@ -924,8 +925,8 @@ final class PaneStripStoreTests: XCTestCase {
         store.updateReviewResolution(paneID: paneID, resolution: resolution)
 
         XCTAssertEqual(notificationCount, 1)
-        XCTAssertEqual(store.activeWorkspace?.reviewStateByPaneID[paneID], resolution.reviewState)
-        XCTAssertEqual(store.activeWorkspace?.inferredArtifactByPaneID[paneID], resolution.inferredArtifact)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState, resolution.reviewState)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.inferredArtifact, resolution.inferredArtifact)
 
         store.updateReviewResolution(
             paneID: paneID,
@@ -933,8 +934,8 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(notificationCount, 2)
-        XCTAssertNil(store.activeWorkspace?.reviewStateByPaneID[paneID])
-        XCTAssertNil(store.activeWorkspace?.inferredArtifactByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.inferredArtifact)
     }
 
     func test_clearing_agent_status_keeps_review_state_for_that_pane() throws {
@@ -966,7 +967,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNotNil(store.activeWorkspace?.reviewStateByPaneID[paneID])
+        XCTAssertNotNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
     }
 
     func test_explicit_needs_input_beats_prompt_idle_shell_state() throws {
@@ -1002,8 +1003,8 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.agentStatusByPaneID[paneID]?.state, .needsInput)
-        XCTAssertEqual(store.activeWorkspace?.agentStatusByPaneID[paneID]?.interactionState, .awaitingHuman)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionState, .awaitingHuman)
     }
 
     func test_updating_metadata_clears_branch_derived_review_state_when_branch_changes() throws {
@@ -1062,9 +1063,9 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.reviewStateByPaneID[paneID])
-        XCTAssertNil(store.activeWorkspace?.inferredArtifactByPaneID[paneID])
-        XCTAssertNil(store.activeWorkspace?.agentStatusByPaneID[paneID]?.artifactLink)
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.inferredArtifact)
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.artifactLink)
     }
 
     func test_equal_priority_needs_input_update_does_not_downgrade_specific_waiting_copy() throws {
@@ -1098,7 +1099,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.agentStatusByPaneID[paneID]?.text, "Claude needs your approval")
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.text, "Claude needs your approval")
     }
 
     func test_equal_priority_needs_input_update_can_upgrade_generic_waiting_copy() throws {
@@ -1132,7 +1133,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.agentStatusByPaneID[paneID]?.text, "Claude needs your approval")
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.text, "Claude needs your approval")
     }
 
     func test_clear_stale_agent_sessions_removes_dead_running_process_status() throws {
@@ -1176,7 +1177,7 @@ final class PaneStripStoreTests: XCTestCase {
         process.waitUntilExit()
         store.clearStaleAgentSessions()
 
-        XCTAssertNil(store.activeWorkspace?.agentStatusByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
     }
 
     func test_pane_context_signal_stores_local_context_and_formats_home_relative_display() throws {
@@ -1206,7 +1207,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            store.activeWorkspace?.paneContextByPaneID[paneID],
+            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.shellContext,
             PaneShellContext(
                 scope: .local,
                 path: "/Users/peter/src/zentty",
@@ -1436,7 +1437,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.paneContextByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.shellContext)
         XCTAssertNil(store.activeWorkspace?.paneBorderContextDisplayByPaneID[paneID])
     }
 
@@ -1469,7 +1470,7 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.closePane(id: paneID)
 
-        XCTAssertFalse(store.activeWorkspace?.paneContextByPaneID.keys.contains(paneID) ?? true)
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.shellContext)
     }
 
     func test_updating_metadata_clears_branch_derived_review_state_when_title_implies_new_working_directory() throws {
@@ -1516,7 +1517,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.reviewStateByPaneID[paneID])
-        XCTAssertNil(store.activeWorkspace?.inferredArtifactByPaneID[paneID])
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.inferredArtifact)
     }
 }

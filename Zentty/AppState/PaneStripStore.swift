@@ -14,12 +14,23 @@ struct WorkspaceState: Equatable, Sendable {
     var title: String
     var paneStripState: PaneStripState
     var nextPaneNumber: Int
-    var metadataByPaneID: [PaneID: TerminalMetadata]
-    var paneContextByPaneID: [PaneID: PaneShellContext]
-    var agentStatusByPaneID: [PaneID: PaneAgentStatus]
-    var inferredArtifactByPaneID: [PaneID: WorkspaceArtifactLink]
-    var reviewStateByPaneID: [PaneID: WorkspaceReviewState]
+    var auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState]
 
+    init(
+        id: WorkspaceID,
+        title: String,
+        paneStripState: PaneStripState,
+        nextPaneNumber: Int = 1,
+        auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:]
+    ) {
+        self.id = id
+        self.title = title
+        self.paneStripState = paneStripState
+        self.nextPaneNumber = nextPaneNumber
+        self.auxiliaryStateByPaneID = auxiliaryStateByPaneID
+    }
+
+    /// Convenience init that accepts the old separate dictionaries to ease migration.
     init(
         id: WorkspaceID,
         title: String,
@@ -35,11 +46,23 @@ struct WorkspaceState: Equatable, Sendable {
         self.title = title
         self.paneStripState = paneStripState
         self.nextPaneNumber = nextPaneNumber
-        self.metadataByPaneID = metadataByPaneID
-        self.paneContextByPaneID = paneContextByPaneID
-        self.agentStatusByPaneID = agentStatusByPaneID
-        self.inferredArtifactByPaneID = inferredArtifactByPaneID
-        self.reviewStateByPaneID = reviewStateByPaneID
+
+        var aux: [PaneID: PaneAuxiliaryState] = [:]
+        let allPaneIDs = Set(metadataByPaneID.keys)
+            .union(paneContextByPaneID.keys)
+            .union(agentStatusByPaneID.keys)
+            .union(inferredArtifactByPaneID.keys)
+            .union(reviewStateByPaneID.keys)
+        for paneID in allPaneIDs {
+            aux[paneID] = PaneAuxiliaryState(
+                metadata: metadataByPaneID[paneID],
+                shellContext: paneContextByPaneID[paneID],
+                agentStatus: agentStatusByPaneID[paneID],
+                inferredArtifact: inferredArtifactByPaneID[paneID],
+                reviewState: reviewStateByPaneID[paneID]
+            )
+        }
+        self.auxiliaryStateByPaneID = aux
     }
 }
 
@@ -49,7 +72,7 @@ struct PaneBorderContextDisplayModel: Equatable, Sendable {
 
 extension WorkspaceState {
     var paneBorderContextDisplayByPaneID: [PaneID: PaneBorderContextDisplayModel] {
-        paneContextByPaneID.compactMapValues { $0.displayModel }
+        auxiliaryStateByPaneID.compactMapValues { $0.shellContext?.displayModel }
     }
 }
 
@@ -111,6 +134,7 @@ private extension PaneShellContext {
     }
 }
 
+@MainActor
 final class WorkspaceStore {
     private struct PaneLaunchContext {
         let path: String
@@ -465,7 +489,7 @@ final class WorkspaceStore {
             return nil
         }
 
-        if let paneContext = workspace.paneContextByPaneID[focusedPaneID] {
+        if let paneContext = workspace.auxiliaryStateByPaneID[focusedPaneID]?.shellContext {
             return paneContext.scope == .remote ? focusedPaneID : nil
         }
 
@@ -481,9 +505,9 @@ final class WorkspaceStore {
         in workspace: WorkspaceState
     ) -> PaneLaunchContext? {
         let metadataWorkingDirectory = Self.trimmedWorkingDirectory(
-            workspace.metadataByPaneID[paneID]?.currentWorkingDirectory
+            workspace.auxiliaryStateByPaneID[paneID]?.metadata?.currentWorkingDirectory
         )
-        let paneContext = workspace.paneContextByPaneID[paneID]
+        let paneContext = workspace.auxiliaryStateByPaneID[paneID]?.shellContext
         let requestWorkingDirectory = pane(for: paneID, in: workspace).flatMap {
             Self.trimmedWorkingDirectory($0.sessionRequest.workingDirectory)
         }
@@ -523,13 +547,13 @@ final class WorkspaceStore {
         using paneID: PaneID,
         in workspace: WorkspaceState
     ) {
-        if let paneContext = workspace.paneContextByPaneID[paneID] {
+        if let paneContext = workspace.auxiliaryStateByPaneID[paneID]?.shellContext {
             guard paneContext.scope == .local else {
                 return
             }
 
             lastFocusedLocalWorkingDirectory = Self.trimmedWorkingDirectory(
-                workspace.metadataByPaneID[paneID]?.currentWorkingDirectory
+                workspace.auxiliaryStateByPaneID[paneID]?.metadata?.currentWorkingDirectory
             ) ?? Self.trimmedWorkingDirectory(paneContext.path)
                 ?? nonInheritedSessionWorkingDirectory(for: paneID, in: workspace)
             return
@@ -592,5 +616,3 @@ final class WorkspaceStore {
         return true
     }
 }
-
-typealias PaneStripStore = WorkspaceStore

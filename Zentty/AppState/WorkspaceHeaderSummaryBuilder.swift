@@ -4,7 +4,7 @@ enum WorkspaceHeaderSummaryBuilder {
         reviewStateProvider: WorkspaceReviewStateProvider
     ) -> WorkspaceChromeSummary {
         let focusedPane = workspace.paneStripState.focusedPane
-        let metadata = workspace.paneStripState.focusedPaneID.flatMap { workspace.metadataByPaneID[$0] }
+        let metadata = workspace.paneStripState.focusedPaneID.flatMap { workspace.auxiliaryStateByPaneID[$0]?.metadata }
         let reviewState = reviewStateProvider.reviewState(
             for: workspace,
             focusedPaneID: workspace.paneStripState.focusedPaneID
