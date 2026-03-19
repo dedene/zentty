@@ -39,7 +39,7 @@ extension WorkspaceStore {
         }
 
         workspaces[workspaceIndex] = workspace
-        notifyStateChanged()
+        notify(.auxiliaryStateUpdated(workspace.id, paneID))
     }
 
     func applyAgentStatusPayload(_ payload: AgentStatusPayload) {
@@ -55,7 +55,7 @@ extension WorkspaceStore {
         if payload.clearsStatus {
             workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
             workspaces[workspaceIndex] = workspace
-            notifyStateChanged()
+            notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
             return
         }
 
@@ -63,7 +63,7 @@ extension WorkspaceStore {
             workspace.auxiliaryStateByPaneID[payload.paneID]?.shellContext = nil
             workspaces[workspaceIndex] = workspace
             refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: payload.paneID)
-            notifyStateChanged()
+            notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
             return
         }
 
@@ -102,7 +102,7 @@ extension WorkspaceStore {
                     case .promptIdle:
                         workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
                         workspaces[workspaceIndex] = workspace
-                        notifyStateChanged()
+                        notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
                         return
                     case .unknown:
                         break
@@ -182,7 +182,7 @@ extension WorkspaceStore {
 
         workspaces[workspaceIndex] = workspace
         refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: payload.paneID)
-        notifyStateChanged()
+        notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
     }
 
     func clearStaleAgentSessions() {
@@ -214,7 +214,7 @@ extension WorkspaceStore {
         }
 
         if didChange {
-            notifyStateChanged()
+            notify(.workspaceListChanged)
         }
     }
 

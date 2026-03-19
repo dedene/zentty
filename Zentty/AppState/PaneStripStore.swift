@@ -134,6 +134,15 @@ private extension PaneShellContext {
     }
 }
 
+enum WorkspaceChange: Equatable, Sendable {
+    case paneStructure(WorkspaceID)
+    case focusChanged(WorkspaceID)
+    case layoutResized(WorkspaceID)
+    case auxiliaryStateUpdated(WorkspaceID, PaneID)
+    case activeWorkspaceChanged
+    case workspaceListChanged
+}
+
 @MainActor
 final class WorkspaceStore {
     private struct PaneLaunchContext {
@@ -148,7 +157,7 @@ final class WorkspaceStore {
 
     private(set) var activeWorkspaceID: WorkspaceID
 
-    var onChange: ((PaneStripState) -> Void)?
+    var onChange: ((WorkspaceChange) -> Void)?
 
     init(
         workspaces: [WorkspaceState] = [],
@@ -208,7 +217,7 @@ final class WorkspaceStore {
         }
 
         if didUpdateWorkspaceState {
-            notifyStateChanged()
+            notify(.layoutResized(activeWorkspaceID))
         }
     }
 
@@ -221,46 +230,58 @@ final class WorkspaceStore {
             return
         }
 
+        let changeType: WorkspaceChange
+
         switch command {
         case .split, .splitHorizontally, .splitAfterFocusedPane:
             insertNewPaneHorizontally(into: &workspace, placement: .afterFocused)
+            changeType = .paneStructure(activeWorkspaceID)
         case .splitVertically:
             insertNewPaneVertically(into: &workspace)
+            changeType = .paneStructure(activeWorkspaceID)
         case .splitBeforeFocusedPane:
             insertNewPaneHorizontally(into: &workspace, placement: .beforeFocused)
+            changeType = .paneStructure(activeWorkspaceID)
         case .closeFocusedPane:
             if workspace.paneStripState.columns.count == 1,
                workspace.paneStripState.panes.count == 1 {
                 guard removeActiveWorkspaceIfPossible() else {
                     refreshLastFocusedLocalWorkingDirectory()
-                    notifyStateChanged()
+                    notify(.paneStructure(activeWorkspaceID))
                     return
                 }
                 refreshLastFocusedLocalWorkingDirectory()
-                notifyStateChanged()
+                notify(.workspaceListChanged)
                 return
             }
 
             if let removedPane = workspace.paneStripState.closeFocusedPane(singleColumnWidth: layoutContext.singlePaneWidth) {
                 clearPaneState(for: removedPane.id, in: &workspace)
             }
+            changeType = .paneStructure(activeWorkspaceID)
         case .focusLeft:
             workspace.paneStripState.moveFocusLeft()
+            changeType = .focusChanged(activeWorkspaceID)
         case .focusRight:
             workspace.paneStripState.moveFocusRight()
+            changeType = .focusChanged(activeWorkspaceID)
         case .focusUp:
             workspace.paneStripState.moveFocusUp()
+            changeType = .focusChanged(activeWorkspaceID)
         case .focusDown:
             workspace.paneStripState.moveFocusDown()
+            changeType = .focusChanged(activeWorkspaceID)
         case .focusFirst, .focusFirstColumn:
             workspace.paneStripState.moveFocusToFirstColumn()
+            changeType = .focusChanged(activeWorkspaceID)
         case .focusLast, .focusLastColumn:
             workspace.paneStripState.moveFocusToLastColumn()
+            changeType = .focusChanged(activeWorkspaceID)
         }
 
         activeWorkspace = workspace
         refreshLastFocusedLocalWorkingDirectory()
-        notifyStateChanged()
+        notify(changeType)
     }
 
     private func insertNewPaneHorizontally(into workspace: inout WorkspaceState, placement: PanePlacement) {
@@ -298,7 +319,7 @@ final class WorkspaceStore {
 
         activeWorkspaceID = id
         refreshLastFocusedLocalWorkingDirectory()
-        notifyStateChanged()
+        notify(.activeWorkspaceChanged)
     }
 
     func createWorkspace() {
@@ -317,7 +338,7 @@ final class WorkspaceStore {
         )
         activeWorkspaceID = id
         refreshLastFocusedLocalWorkingDirectory()
-        notifyStateChanged()
+        notify(.workspaceListChanged)
     }
 
     func focusPane(id: PaneID) {
@@ -328,7 +349,7 @@ final class WorkspaceStore {
         workspace.paneStripState.focusPane(id: id)
         activeWorkspace = workspace
         refreshLastFocusedLocalWorkingDirectory()
-        notifyStateChanged()
+        notify(.focusChanged(activeWorkspaceID))
     }
 
     func closePane(id: PaneID) {
@@ -341,11 +362,11 @@ final class WorkspaceStore {
            workspace.paneStripState.panes.count == 1 {
             guard removeActiveWorkspaceIfPossible() else {
                 refreshLastFocusedLocalWorkingDirectory()
-                notifyStateChanged()
+                notify(.paneStructure(activeWorkspaceID))
                 return
             }
             refreshLastFocusedLocalWorkingDirectory()
-            notifyStateChanged()
+            notify(.workspaceListChanged)
             return
         }
 
@@ -355,7 +376,7 @@ final class WorkspaceStore {
 
         activeWorkspace = workspace
         refreshLastFocusedLocalWorkingDirectory()
-        notifyStateChanged()
+        notify(.paneStructure(activeWorkspaceID))
     }
 
     func replaceWorkspacesForTesting(_ workspaces: [WorkspaceState], activeWorkspaceID: WorkspaceID? = nil) {
@@ -364,7 +385,7 @@ final class WorkspaceStore {
         self.activeWorkspaceID = workspaces.contains(where: { $0.id == fallbackID })
             ? fallbackID
             : workspaces.first?.id ?? WorkspaceID("workspace-main")
-        notifyStateChanged()
+        notify(.workspaceListChanged)
     }
 
     private func makePane(in workspace: inout WorkspaceState, existingPaneCount: Int) -> PaneState {
@@ -433,8 +454,8 @@ final class WorkspaceStore {
         )
     }
 
-    func notifyStateChanged() {
-        onChange?(state)
+    func notify(_ change: WorkspaceChange) {
+        onChange?(change)
     }
 
     private static func sessionEnvironment(
