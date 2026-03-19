@@ -17,6 +17,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var settingsWindowController: PaneLayoutSettingsWindowController?
 
     init(
+        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard
@@ -31,6 +32,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         )
 
         let rootViewController = RootViewController(
+            runtimeRegistry: runtimeRegistry,
             sidebarWidthDefaults: sidebarWidthDefaults,
             sidebarVisibilityDefaults: sidebarVisibilityDefaults,
             paneLayoutDefaults: paneLayoutDefaults,

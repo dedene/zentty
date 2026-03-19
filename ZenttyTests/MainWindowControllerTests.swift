@@ -3,13 +3,14 @@ import XCTest
 
 @MainActor
 final class MainWindowControllerTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        TerminalAdapterRegistry.useMockAdapters()
+    private func makeController() -> MainWindowController {
+        MainWindowController(
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
+        )
     }
 
     func test_main_window_starts_with_expected_content_size() {
-        let controller = MainWindowController()
+        let controller = makeController()
         controller.showWindow(nil)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 
@@ -25,13 +26,13 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     func test_main_window_keeps_resizable_style() {
-        let controller = MainWindowController()
+        let controller = makeController()
 
         XCTAssertTrue(controller.window.styleMask.contains(.resizable))
     }
 
     func test_show_window_does_not_reset_manual_frame_changes() {
-        let controller = MainWindowController()
+        let controller = makeController()
         controller.showWindow(nil)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 
@@ -50,7 +51,7 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     func test_show_window_repositions_traffic_lights_with_comfortable_inset() throws {
-        let controller = MainWindowController()
+        let controller = makeController()
         controller.showWindow(nil)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 
@@ -79,7 +80,7 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     func test_programmatic_window_resize_relayouts_panes_without_inner_animation() throws {
-        let controller = MainWindowController()
+        let controller = makeController()
         controller.showWindow(nil)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 
@@ -115,7 +116,7 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     func test_new_workspace_action_creates_and_focuses_new_workspace() {
-        let controller = MainWindowController()
+        let controller = makeController()
 
         controller.newWorkspace(nil)
 
@@ -125,7 +126,7 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     func test_split_and_focus_actions_route_through_root_dispatcher() {
-        let controller = MainWindowController()
+        let controller = makeController()
 
         controller.splitRight(nil)
         controller.focusLeftPane(nil)
