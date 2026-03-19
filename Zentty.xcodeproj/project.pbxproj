@@ -15,6 +15,9 @@
 		17245348FB36801D95C10395 /* ShellMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16FEAF3CA4E96E1EB18692E8 /* ShellMetrics.swift */; };
 		196932893F690C070D526631 /* MockTerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 765B5594B1CFDD53C4A7C00B /* MockTerminalAdapter.swift */; };
 		1E9155B18597D48510ACEDD8 /* PaneStripStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DEEB96E79CCE6DC7CB29BFD /* PaneStripStore.swift */; };
+		1F3A72B4C9D8E1A50B6F4D21 /* WorkspaceStore+AgentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C7E84A1F5B3D09E74A16C38 /* WorkspaceStore+AgentStatus.swift */; };
+		1F3A72B4C9D8E1A50B6F4D22 /* WorkspaceStore+Metadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C7E84A1F5B3D09E74A16C39 /* WorkspaceStore+Metadata.swift */; };
+		1F3A72B4C9D8E1A50B6F4D23 /* WorkspaceStore+ReviewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C7E84A1F5B3D09E74A16C40 /* WorkspaceStore+ReviewState.swift */; };
 		1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC138BE273ED92291124633 /* main.swift */; };
 		20FCC81AB1963BDACF462CC9 /* WorkspaceHeaderSummaryBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9821F072C81511C059DB5551 /* WorkspaceHeaderSummaryBuilderTests.swift */; };
 		260155FD237874A9F873EFC4 /* LibghosttyViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6DBDFE63A76B3FA8FE9ABF9 /* LibghosttyViewTests.swift */; };
@@ -107,6 +110,9 @@
 		12844670AB726CAC597E74EE /* WorkspaceSidebarSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarSummaryTests.swift; sourceTree = "<group>"; };
 		16FEAF3CA4E96E1EB18692E8 /* ShellMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellMetrics.swift; sourceTree = "<group>"; };
 		18065CC38B9A9058E3A43CD0 /* WorkspaceHeaderSummaryBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceHeaderSummaryBuilder.swift; sourceTree = "<group>"; };
+		2C7E84A1F5B3D09E74A16C38 /* WorkspaceStore+AgentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceStore+AgentStatus.swift"; sourceTree = "<group>"; };
+		2C7E84A1F5B3D09E74A16C39 /* WorkspaceStore+Metadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceStore+Metadata.swift"; sourceTree = "<group>"; };
+		2C7E84A1F5B3D09E74A16C40 /* WorkspaceStore+ReviewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceStore+ReviewState.swift"; sourceTree = "<group>"; };
 		1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutResolverTests.swift; sourceTree = "<group>"; };
 		1F7E3B3E33665CF18095DD1F /* AgentWrapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWrapperTests.swift; sourceTree = "<group>"; };
 		240A88D261256B90FC1F6A3B /* PaneStripViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripViewTests.swift; sourceTree = "<group>"; };
@@ -216,6 +222,9 @@
 				18065CC38B9A9058E3A43CD0 /* WorkspaceHeaderSummaryBuilder.swift */,
 				58D1C573A9C9F58998DEF320 /* WorkspaceReviewStateProvider.swift */,
 				7544C7B21941BA8753B02033 /* WorkspaceReviewStateResolver.swift */,
+				2C7E84A1F5B3D09E74A16C38 /* WorkspaceStore+AgentStatus.swift */,
+				2C7E84A1F5B3D09E74A16C39 /* WorkspaceStore+Metadata.swift */,
+				2C7E84A1F5B3D09E74A16C40 /* WorkspaceStore+ReviewState.swift */,
 			);
 			path = AppState;
 			sourceTree = "<group>";
@@ -554,6 +563,9 @@
 				84D6E5E335E3E3688E462E50 /* WorkspaceHeaderSummaryBuilder.swift in Sources */,
 				C32FB25FA2CDD536F75132F3 /* WorkspaceReviewStateProvider.swift in Sources */,
 				630788B02D31FB0E0FD83843 /* WorkspaceReviewStateResolver.swift in Sources */,
+				1F3A72B4C9D8E1A50B6F4D21 /* WorkspaceStore+AgentStatus.swift in Sources */,
+				1F3A72B4C9D8E1A50B6F4D22 /* WorkspaceStore+Metadata.swift in Sources */,
+				1F3A72B4C9D8E1A50B6F4D23 /* WorkspaceStore+ReviewState.swift in Sources */,
 				31D1238F2694FD7391C5647F /* WorkspaceSidebarSummary.swift in Sources */,
 				1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */,
 			);
