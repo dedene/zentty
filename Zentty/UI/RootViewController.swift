@@ -9,7 +9,7 @@ final class RootViewController: NSViewController {
         static let defaultTrafficLightAnchor = NSPoint(x: ChromeGeometry.trafficLightLeadingInset + 48, y: 0)
     }
 
-    private let paneStripStore: PaneStripStore
+    private let workspaceStore: WorkspaceStore
     private let sidebarWidthDefaults: UserDefaults
     private let sidebarVisibilityDefaults: UserDefaults
     private let paneLayoutDefaults: UserDefaults
@@ -59,7 +59,7 @@ final class RootViewController: NSViewController {
         self.currentPaneLayoutContext = initialLayoutContext
         self.sidebarVisibilityController = SidebarVisibilityController(mode: restoredSidebarVisibility)
         self.currentSidebarMotionState = SidebarMotionState(mode: restoredSidebarVisibility)
-        self.paneStripStore = PaneStripStore(layoutContext: initialLayoutContext)
+        self.workspaceStore = WorkspaceStore(layoutContext: initialLayoutContext)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -140,27 +140,27 @@ final class RootViewController: NSViewController {
             sidebarToggleOverlayView.heightAnchor.constraint(equalToConstant: SidebarLayout.toggleOverlayHeight),
         ])
 
-        paneStripStore.onChange = { [weak self] _ in
+        workspaceStore.onChange = { [weak self] _ in
             guard let self, !self.suppressWorkspaceRender else {
                 return
             }
             self.renderCurrentWorkspace()
         }
         appCanvasView.onFocusSettled = { [weak self] paneID in
-            self?.paneStripStore.focusPane(id: paneID)
+            self?.workspaceStore.focusPane(id: paneID)
         }
         appCanvasView.onPaneSelected = { [weak self] paneID in
-            self?.paneStripStore.focusPane(id: paneID)
+            self?.workspaceStore.focusPane(id: paneID)
         }
         appCanvasView.onPaneCloseRequested = { [weak self] paneID in
-            self?.paneStripStore.closePane(id: paneID)
+            self?.workspaceStore.closePane(id: paneID)
         }
         appCanvasView.onBorderChromeSnapshotsDidChange = { [weak self] snapshots in
             self?.currentPaneBorderChromeSnapshots = snapshots
             self?.renderPaneBorderContextOverlay()
         }
         sidebarView.onSelectWorkspace = { [weak self] workspaceID in
-            self?.paneStripStore.selectWorkspace(id: workspaceID)
+            self?.workspaceStore.selectWorkspace(id: workspaceID)
         }
         sidebarView.onCreateWorkspace = { [weak self] in
             self?.handle(.newWorkspace)
@@ -188,13 +188,13 @@ final class RootViewController: NSViewController {
                 return
             }
 
-            self.paneStripStore.updateMetadata(id: paneID, metadata: metadata)
+            self.workspaceStore.updateMetadata(id: paneID, metadata: metadata)
         }
         runtimeRegistry.onEventDidOccur = { [weak self] paneID, event in
-            self?.paneStripStore.handleTerminalEvent(paneID: paneID, event: event)
+            self?.workspaceStore.handleTerminalEvent(paneID: paneID, event: event)
         }
         agentStatusCenter.onPayload = { [weak self] payload in
-            self?.paneStripStore.applyAgentStatusPayload(payload)
+            self?.workspaceStore.applyAgentStatusPayload(payload)
         }
         agentStatusCenter.start()
         themeWatcher.onChange = { [weak self] in
@@ -266,19 +266,19 @@ final class RootViewController: NSViewController {
 
         switch action {
         case .newWorkspace:
-            paneStripStore.createWorkspace()
+            workspaceStore.createWorkspace()
         case .pane(let command):
-            paneStripStore.send(command)
+            workspaceStore.send(command)
         }
     }
 
     private func syncFocusedPaneWithResponderIfNeeded(_ responder: NSResponder?) {
         guard let paneID = paneID(containing: responder),
-              paneStripStore.activeWorkspace?.paneStripState.focusedPaneID != paneID else {
+              workspaceStore.activeWorkspace?.paneStripState.focusedPaneID != paneID else {
             return
         }
 
-        paneStripStore.focusPane(id: paneID)
+        workspaceStore.focusPane(id: paneID)
     }
 
     private func paneID(containing responder: NSResponder?) -> PaneID? {
@@ -327,20 +327,20 @@ final class RootViewController: NSViewController {
     }
 
     private func renderCurrentWorkspace() {
-        runtimeRegistry.synchronize(with: paneStripStore.workspaces)
-        reviewStateResolver.refresh(for: paneStripStore.workspaces) { [weak self] paneID, resolution in
-            self?.paneStripStore.updateReviewResolution(paneID: paneID, resolution: resolution)
+        runtimeRegistry.synchronize(with: workspaceStore.workspaces)
+        reviewStateResolver.refresh(for: workspaceStore.workspaces) { [weak self] paneID, resolution in
+            self?.workspaceStore.updateReviewResolution(paneID: paneID, resolution: resolution)
         }
         sidebarView.render(
             summaries: WorkspaceSidebarSummaryBuilder.summaries(
-                for: paneStripStore.workspaces,
-                activeWorkspaceID: paneStripStore.activeWorkspaceID
+                for: workspaceStore.workspaces,
+                activeWorkspaceID: workspaceStore.activeWorkspaceID
             ),
             theme: currentTheme
         )
         syncSidebarVisibilityControls(animated: false)
 
-        guard let workspace = paneStripStore.activeWorkspace else {
+        guard let workspace = workspaceStore.activeWorkspace else {
             windowChromeView.render(summary: WorkspaceChromeSummary(
                 attention: nil,
                 focusedLabel: nil,
@@ -358,8 +358,8 @@ final class RootViewController: NSViewController {
         windowChromeView.render(summary: headerSummary)
         renderCanvasForCurrentWorkspace()
         attentionNotificationCoordinator.update(
-            workspaces: paneStripStore.workspaces,
-            activeWorkspaceID: paneStripStore.activeWorkspaceID,
+            workspaces: workspaceStore.workspaces,
+            activeWorkspaceID: workspaceStore.activeWorkspaceID,
             windowIsKey: view.window?.isKeyWindow ?? false
         )
         updateRuntimeSurfaceActivities()
@@ -369,7 +369,7 @@ final class RootViewController: NSViewController {
         staleAgentSweepTimer?.invalidate()
         staleAgentSweepTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.paneStripStore.clearStaleAgentSessions()
+                self?.workspaceStore.clearStaleAgentSessions()
             }
         }
     }
@@ -380,7 +380,7 @@ final class RootViewController: NSViewController {
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
-        guard let workspace = paneStripStore.activeWorkspace else {
+        guard let workspace = workspaceStore.activeWorkspace else {
             return
         }
 
@@ -392,7 +392,7 @@ final class RootViewController: NSViewController {
         appCanvasView.render(
             workspaceName: workspace.title,
             state: workspace.paneStripState,
-            metadataByPaneID: workspace.metadataByPaneID,
+            metadataByPaneID: workspace.auxiliaryStateByPaneID.compactMapValues(\.metadata),
             paneBorderContextByPaneID: workspace.paneBorderContextDisplayByPaneID,
             theme: currentTheme,
             leadingVisibleInset: effectiveInset,
@@ -433,13 +433,13 @@ final class RootViewController: NSViewController {
     }
 
     private func updateRuntimeSurfaceActivities() {
-        guard !paneStripStore.workspaces.isEmpty else {
+        guard !workspaceStore.workspaces.isEmpty else {
             return
         }
 
         runtimeRegistry.updateSurfaceActivities(
-            workspaces: paneStripStore.workspaces,
-            activeWorkspaceID: paneStripStore.activeWorkspaceID,
+            workspaces: workspaceStore.workspaces,
+            activeWorkspaceID: workspaceStore.activeWorkspaceID,
             windowIsVisible: view.window?.isVisible ?? false,
             windowIsKey: view.window?.isKeyWindow ?? false
         )
@@ -522,13 +522,13 @@ final class RootViewController: NSViewController {
         let timingFunction = SidebarTransitionProfile.resolvedTimingFunction(reducedMotion: reducedMotion)
 
         let previousLeadingInset = appCanvasView.leadingVisibleInset
-        let previousWorkspaceState = paneStripStore.state
+        let previousWorkspaceState = workspaceStore.state
         let previousLayoutContext = currentPaneLayoutContext
         suppressWorkspaceRender = true
         updatePaneLayoutContextIfNeeded(force: true, leadingVisibleInsetOverride: reservedInset)
         suppressWorkspaceRender = false
         let needsCanvasTransition = abs(previousLeadingInset - reservedInset) > 0.001
-            || previousWorkspaceState != paneStripStore.state
+            || previousWorkspaceState != workspaceStore.state
             || previousLayoutContext != currentPaneLayoutContext
         windowChromeView.leadingVisibleInset = reservedInset
         if needsCanvasTransition {
@@ -605,23 +605,23 @@ final class RootViewController: NSViewController {
     }
 
     var workspaceTitlesForTesting: [String] {
-        paneStripStore.workspaces.map(\.title)
+        workspaceStore.workspaces.map(\.title)
     }
 
     var activeWorkspaceTitleForTesting: String? {
-        paneStripStore.activeWorkspace?.title
+        workspaceStore.activeWorkspace?.title
     }
 
     var activePaneTitlesForTesting: [String] {
-        paneStripStore.activeWorkspace?.paneStripState.panes.map(\.title) ?? []
+        workspaceStore.activeWorkspace?.paneStripState.panes.map(\.title) ?? []
     }
 
     var focusedPaneTitleForTesting: String? {
-        paneStripStore.activeWorkspace?.paneStripState.focusedPane?.title
+        workspaceStore.activeWorkspace?.paneStripState.focusedPane?.title
     }
 
     private func updatePaneViewportHeight() {
-        paneStripStore.updatePaneViewportHeight(appCanvasView.bounds.height)
+        workspaceStore.updatePaneViewportHeight(appCanvasView.bounds.height)
     }
 
     var windowChromeViewForTesting: WindowChromeView {
@@ -629,12 +629,12 @@ final class RootViewController: NSViewController {
     }
 
     func replaceWorkspacesForTesting(_ workspaces: [WorkspaceState], activeWorkspaceID: WorkspaceID? = nil) {
-        paneStripStore.replaceWorkspacesForTesting(workspaces, activeWorkspaceID: activeWorkspaceID)
+        workspaceStore.replaceWorkspacesForTesting(workspaces, activeWorkspaceID: activeWorkspaceID)
         renderCurrentWorkspace()
     }
 
     func focusPaneForTesting(_ paneID: PaneID) {
-        paneStripStore.focusPane(id: paneID)
+        workspaceStore.focusPane(id: paneID)
         renderCurrentWorkspace()
     }
 
@@ -688,7 +688,7 @@ final class RootViewController: NSViewController {
         }
 
         currentPaneLayoutContext = resolvedContext
-        paneStripStore.updateLayoutContext(resolvedContext)
+        workspaceStore.updateLayoutContext(resolvedContext)
     }
 
     private func resolveCurrentPaneLayoutContext(

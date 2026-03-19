@@ -17,6 +17,7 @@
 		191891B0A092E2570B1D4487 /* AgentStatusPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41ACBFBCCDD84B1219F41683 /* AgentStatusPayload.swift */; };
 		196932893F690C070D526631 /* MockTerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 765B5594B1CFDD53C4A7C00B /* MockTerminalAdapter.swift */; };
 		1E9155B18597D48510ACEDD8 /* PaneStripStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DEEB96E79CCE6DC7CB29BFD /* PaneStripStore.swift */; };
+		F0E630C210E70FDC0A674B9C /* PaneAuxiliaryState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE05D2CD3A8860166740661 /* PaneAuxiliaryState.swift */; };
 		1EE30352348562700A62F099 /* AgentStatusCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E15ECCC052F593297D852D /* AgentStatusCommand.swift */; };
 		1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC138BE273ED92291124633 /* main.swift */; };
 		20FCC81AB1963BDACF462CC9 /* WorkspaceHeaderSummaryBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9821F072C81511C059DB5551 /* WorkspaceHeaderSummaryBuilderTests.swift */; };
@@ -171,6 +172,7 @@
 		85BB7BA16510777AA0B9BEA8 /* PRArtifactResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PRArtifactResolver.swift; sourceTree = "<group>"; };
 		8C28736E4D07F0610C33AAB2 /* WorkspaceStore+Metadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceStore+Metadata.swift"; sourceTree = "<group>"; };
 		8DEEB96E79CCE6DC7CB29BFD /* PaneStripStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripStore.swift; sourceTree = "<group>"; };
+		DDE05D2CD3A8860166740661 /* PaneAuxiliaryState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneAuxiliaryState.swift; sourceTree = "<group>"; };
 		8F82AEDB8F3C8B3C5F014D8D /* TerminalPaneHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostView.swift; sourceTree = "<group>"; };
 		9821F072C81511C059DB5551 /* WorkspaceHeaderSummaryBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceHeaderSummaryBuilderTests.swift; sourceTree = "<group>"; };
 		9A2E9021EEA05031BCE3A59E /* WorkspaceContextFormatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContextFormatterTests.swift; sourceTree = "<group>"; };
@@ -241,6 +243,7 @@
 				41ACBFBCCDD84B1219F41683 /* AgentStatusPayload.swift */,
 				3D561A6E71D192EF583C6BAA /* ClaudeHookBridge.swift */,
 				BFE28087CB8A8A0F579745CA /* PaneShellContext.swift */,
+				DDE05D2CD3A8860166740661 /* PaneAuxiliaryState.swift */,
 				8DEEB96E79CCE6DC7CB29BFD /* PaneStripStore.swift */,
 				85BB7BA16510777AA0B9BEA8 /* PRArtifactResolver.swift */,
 				5F668C5A47A3DF347AA3AEB6 /* WorkspaceAttentionNotificationCoordinator.swift */,
@@ -574,6 +577,7 @@
 				13A456B3644AB1AA586D10E9 /* PaneShellContext.swift in Sources */,
 				C01A739643B858C0F3A69C88 /* PaneStripMotionController.swift in Sources */,
 				ED97F9FB42E05ECE3179E60D /* PaneStripState.swift in Sources */,
+				F0E630C210E70FDC0A674B9C /* PaneAuxiliaryState.swift in Sources */,
 				1E9155B18597D48510ACEDD8 /* PaneStripStore.swift in Sources */,
 				9D7601CFA6D9A38A2C6B4E58 /* PaneStripView.swift in Sources */,
 				A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */,
