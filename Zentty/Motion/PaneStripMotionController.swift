@@ -104,7 +104,7 @@ final class PaneStripMotionController {
                 )
             )
 
-            cursorX = columnMaxX + sizing.interPaneSpacing
+            cursorX = columnFrame.maxX + sizing.interPaneSpacing
         }
 
         let trailingSpacing = columnPresentations.isEmpty ? 0 : sizing.interPaneSpacing

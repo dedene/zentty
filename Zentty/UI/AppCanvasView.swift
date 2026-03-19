@@ -501,7 +501,10 @@ final class AppCanvasView: NSView {
             paneStripView.render(
                 state,
                 paneBorderContextByPaneID: paneBorderContextByPaneID,
-                leadingVisibleInset: leadingVisibleInset
+                leadingVisibleInset: leadingVisibleInset,
+                animated: animated,
+                duration: duration,
+                timingFunction: timingFunction
             )
         }
     }

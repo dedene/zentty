@@ -337,18 +337,14 @@ final class RootViewController: NSViewController {
 
     private func handleWorkspaceChange(_ change: WorkspaceChange) {
         switch change {
-        case .paneStructure, .workspaceListChanged, .activeWorkspaceChanged:
-            renderCurrentWorkspace()
-        case .focusChanged:
-            renderCurrentWorkspace()
-        case .layoutResized:
-            renderCurrentWorkspace()
-        case .auxiliaryStateUpdated:
-            renderCurrentWorkspace()
+        case .paneStructure, .focusChanged:
+            renderCurrentWorkspace(animated: true)
+        case .layoutResized, .auxiliaryStateUpdated, .workspaceListChanged, .activeWorkspaceChanged:
+            renderCurrentWorkspace(animated: false)
         }
     }
 
-    private func renderCurrentWorkspace() {
+    private func renderCurrentWorkspace(animated: Bool = false) {
         runtimeRegistry.synchronize(with: workspaceStore.workspaces)
         reviewStateResolver.refresh(for: workspaceStore.workspaces) { [weak self] paneID, resolution in
             self?.workspaceStore.updateReviewResolution(paneID: paneID, resolution: resolution)
@@ -378,7 +374,7 @@ final class RootViewController: NSViewController {
             reviewStateProvider: workspaceReviewStateProvider
         )
         windowChromeView.render(summary: headerSummary)
-        renderCanvasForCurrentWorkspace()
+        renderCanvasForCurrentWorkspace(animated: animated)
         attentionNotificationCoordinator.update(
             workspaces: workspaceStore.workspaces,
             activeWorkspaceID: workspaceStore.activeWorkspaceID,

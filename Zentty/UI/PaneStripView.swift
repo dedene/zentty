@@ -130,7 +130,10 @@ final class PaneStripView: NSView {
     func render(
         _ state: PaneStripState,
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
-        leadingVisibleInset: CGFloat? = nil
+        leadingVisibleInset: CGFloat? = nil,
+        animated: Bool = true,
+        duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
+        timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
         currentPaneBorderContextByPaneID = paneBorderContextByPaneID
         currentState = state
@@ -143,7 +146,12 @@ final class PaneStripView: NSView {
         if hasViewportSizeChangeSinceLastRender {
             markResizeAnimationSuppressionPending()
         }
-        renderCurrentState(state, animated: !paneViews.isEmpty)
+        renderCurrentState(
+            state,
+            animated: animated && !paneViews.isEmpty,
+            animationDuration: duration,
+            animationTimingFunction: timingFunction
+        )
     }
 
     func transition(
