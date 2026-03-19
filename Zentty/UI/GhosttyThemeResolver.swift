@@ -1,10 +1,13 @@
 import AppKit
 import Foundation
+import os
 
 struct GhosttyThemeResolution {
     let theme: GhosttyResolvedTheme
     let watchedURLs: [URL]
 }
+
+private let themeLogger = Logger(subsystem: "be.zentty", category: "Theme")
 
 final class GhosttyThemeResolver {
     private struct ParsedConfig {
@@ -176,7 +179,11 @@ final class GhosttyThemeResolver {
     }
 
     private func parseConfig(at url: URL) -> ParsedConfig {
-        guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
+        let contents: String
+        do {
+            contents = try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            themeLogger.error("Failed to read theme config at \(url.path): \(error.localizedDescription)")
             return ParsedConfig()
         }
 

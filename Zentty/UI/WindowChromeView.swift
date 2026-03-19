@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class WindowChromeView: NSView {
     static let preferredHeight: CGFloat = ChromeGeometry.headerHeight
     private static let minimumBootstrapLaneWidth: CGFloat = 160

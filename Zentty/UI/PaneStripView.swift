@@ -38,23 +38,15 @@ struct PaneRemovalTransition: Equatable {
     let survivingPaneIDs: Set<PaneID>
 }
 
+@MainActor
 final class PaneStripView: NSView {
-    private enum ScrollSwitchAxis {
-        case horizontal
-        case shiftedVertical
-    }
-
-    private enum ScrollSwitchThreshold {
-        static let precise: CGFloat = 40
-        static let wheel: CGFloat = 1
-    }
-
     var onFocusSettled: ((PaneID) -> Void)?
     var onPaneSelected: ((PaneID) -> Void)?
     var onPaneCloseRequested: ((PaneID) -> Void)?
     var onBorderChromeSnapshotsDidChange: (([PaneBorderChromeSnapshot]) -> Void)?
 
     private let motionController = PaneStripMotionController()
+    private let scrollSwitchHandler = ScrollSwitchGestureHandler()
     private let viewportView = NSView()
     private let runtimeRegistry: PaneRuntimeRegistry
     private let backingScaleFactorProvider: () -> CGFloat
@@ -72,9 +64,6 @@ final class PaneStripView: NSView {
     private var suppressAnimatedRenderForResize = false
     private var resizeSuppressionGeneration = 0
     private var visualStateSettleGeneration = 0
-    private var activeScrollSwitchAxis: ScrollSwitchAxis?
-    private var accumulatedScrollSwitchDelta: CGFloat = 0
-    private var hasTriggeredScrollSwitchInGesture = false
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resolvedLeadingVisibleInset: CGFloat = 0
     private var renderInvocationCount = 0
@@ -336,7 +325,7 @@ final class PaneStripView: NSView {
                     insertionTransition: insertionTransition,
                     allowInactiveDimming: true
                 )
-                DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
                     guard let self, self.visualStateSettleGeneration == settleGeneration else {
                         return
                     }
@@ -700,7 +689,7 @@ final class PaneStripView: NSView {
         }
 
         lastFocusedPaneID = paneID
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.paneViews[paneID]?.focusTerminal()
         }
     }
@@ -733,52 +722,17 @@ final class PaneStripView: NSView {
     }
 
     private func handlePaneSwitchScroll(_ event: NSEvent) -> Bool {
-        if shouldResetScrollSwitchGesture(for: event) {
-            resetScrollSwitchGesture()
-        }
-
-        guard let axis = scrollSwitchAxis(for: event) else {
-            if shouldResetScrollSwitchGesture(for: event) {
-                resetScrollSwitchGesture()
-            }
+        let result = scrollSwitchHandler.handle(scrollEvent: event)
+        switch result {
+        case .switchLeft, .switchRight:
+            settleAdjacentPane(switchRight: result == .switchRight)
+            return true
+        case .none:
             return false
         }
-
-        if activeScrollSwitchAxis == nil || !eventHasGesturePhases(event) {
-            activeScrollSwitchAxis = axis
-            accumulatedScrollSwitchDelta = 0
-            hasTriggeredScrollSwitchInGesture = false
-        }
-
-        guard activeScrollSwitchAxis == axis else {
-            return true
-        }
-
-        if hasTriggeredScrollSwitchInGesture {
-            if shouldEndScrollSwitchGesture(for: event) {
-                resetScrollSwitchGesture()
-            }
-            return true
-        }
-
-        accumulatedScrollSwitchDelta += scrollSwitchDelta(for: event, axis: axis)
-        let threshold = event.hasPreciseScrollingDeltas
-            ? ScrollSwitchThreshold.precise
-            : ScrollSwitchThreshold.wheel
-
-        if abs(accumulatedScrollSwitchDelta) >= threshold {
-            hasTriggeredScrollSwitchInGesture = true
-            settleAdjacentPane(for: accumulatedScrollSwitchDelta)
-        }
-
-        if shouldEndScrollSwitchGesture(for: event) || !eventHasGesturePhases(event) {
-            resetScrollSwitchGesture()
-        }
-
-        return true
     }
 
-    private func settleAdjacentPane(for accumulatedDelta: CGFloat) {
+    private func settleAdjacentPane(switchRight: Bool) {
         guard
             let currentState,
             let focusedPaneID = currentState.focusedPaneID,
@@ -789,7 +743,7 @@ final class PaneStripView: NSView {
             return
         }
 
-        let step = accumulatedDelta > 0 ? -1 : 1
+        let step = switchRight ? 1 : -1
         let targetIndex = focusedIndex + step
         guard currentState.columns.indices.contains(targetIndex) else {
             return
@@ -797,56 +751,6 @@ final class PaneStripView: NSView {
 
         let targetColumn = currentState.columns[targetIndex]
         onFocusSettled?(targetColumn.focusedPaneID ?? targetColumn.panes.first?.id ?? focusedPaneID)
-    }
-
-    private func scrollSwitchAxis(for event: NSEvent) -> ScrollSwitchAxis? {
-        let horizontalDelta = abs(event.scrollingDeltaX)
-        let verticalDelta = abs(event.scrollingDeltaY)
-
-        if horizontalDelta > verticalDelta, horizontalDelta > 0 {
-            return .horizontal
-        }
-
-        let deviceIndependentFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if !event.hasPreciseScrollingDeltas,
-           deviceIndependentFlags.contains(.shift),
-           verticalDelta > 0,
-           verticalDelta >= horizontalDelta {
-            return .shiftedVertical
-        }
-
-        return nil
-    }
-
-    private func scrollSwitchDelta(for event: NSEvent, axis: ScrollSwitchAxis) -> CGFloat {
-        let inversionMultiplier: CGFloat = event.isDirectionInvertedFromDevice ? -1 : 1
-        switch axis {
-        case .horizontal:
-            return event.scrollingDeltaX * inversionMultiplier
-        case .shiftedVertical:
-            return event.scrollingDeltaY * inversionMultiplier
-        }
-    }
-
-    private func eventHasGesturePhases(_ event: NSEvent) -> Bool {
-        event.phase != [] || event.momentumPhase != []
-    }
-
-    private func shouldResetScrollSwitchGesture(for event: NSEvent) -> Bool {
-        event.phase.contains(.began) || event.phase.contains(.mayBegin)
-    }
-
-    private func shouldEndScrollSwitchGesture(for event: NSEvent) -> Bool {
-        event.phase.contains(.ended)
-            || event.phase.contains(.cancelled)
-            || event.momentumPhase.contains(.ended)
-            || event.momentumPhase.contains(.cancelled)
-    }
-
-    private func resetScrollSwitchGesture() {
-        activeScrollSwitchAxis = nil
-        accumulatedScrollSwitchDelta = 0
-        hasTriggeredScrollSwitchInGesture = false
     }
 
     private var currentBackingScaleFactor: CGFloat {

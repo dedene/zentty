@@ -1,17 +1,15 @@
 import AppKit
 import QuartzCore
 
+@MainActor
 final class RootViewController: NSViewController {
     private enum SidebarLayout {
         static let hoverRailWidth: CGFloat = 8
-        static let dismissDelay: TimeInterval = 0.15
         static let toggleOverlayHeight: CGFloat = ChromeGeometry.headerHeight + (ShellMetrics.outerInset * 2)
         static let defaultTrafficLightAnchor = NSPoint(x: ChromeGeometry.trafficLightLeadingInset + 48, y: 0)
     }
 
     private let workspaceStore: WorkspaceStore
-    private let sidebarWidthDefaults: UserDefaults
-    private let sidebarVisibilityDefaults: UserDefaults
     private let paneLayoutDefaults: UserDefaults
     private let sidebarView = SidebarView()
     private let sidebarHoverRailView = SidebarHoverRailView()
@@ -20,8 +18,8 @@ final class RootViewController: NSViewController {
     private let agentStatusCenter = AgentStatusCenter()
     private let reviewStateResolver: WorkspaceReviewStateResolver
     private let workspaceReviewStateProvider = DefaultWorkspaceReviewStateProvider()
-    private let themeResolver = GhosttyThemeResolver()
-    private let themeWatcher = GhosttyThemeWatcher()
+    private let sidebarMotionCoordinator: SidebarMotionCoordinator
+    private let themeCoordinator: ThemeCoordinator
     private let attentionNotificationCoordinator = WorkspaceAttentionNotificationCoordinator()
     private var staleAgentSweepTimer: Timer?
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
@@ -29,17 +27,15 @@ final class RootViewController: NSViewController {
     private let windowChromeView = WindowChromeView()
     private var hasInstalledKeyMonitor = false
     private var hasInstalledWindowObservers = false
-    private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var paneLayoutPreferences: PaneLayoutPreferences
     private var currentPaneLayoutContext: PaneLayoutContext
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var currentPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] = []
     private var sidebarLeadingConstraint: NSLayoutConstraint?
-    private var sidebarVisibilityController: SidebarVisibilityController
-    private var currentSidebarMotionState: SidebarMotionState
-    private var sidebarDismissWorkItem: DispatchWorkItem?
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
     private var suppressWorkspaceRender = false
+
+    private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
 
     init(
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
@@ -49,16 +45,16 @@ final class RootViewController: NSViewController {
         paneLayoutDefaults: UserDefaults = .standard,
         initialLayoutContext: PaneLayoutContext = .fallback
     ) {
-        let restoredSidebarVisibility = SidebarVisibilityPreference.restoredVisibility(from: sidebarVisibilityDefaults)
         self.runtimeRegistry = runtimeRegistry
         self.reviewStateResolver = reviewStateResolver
-        self.sidebarWidthDefaults = sidebarWidthDefaults
-        self.sidebarVisibilityDefaults = sidebarVisibilityDefaults
         self.paneLayoutDefaults = paneLayoutDefaults
         self.paneLayoutPreferences = PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults)
         self.currentPaneLayoutContext = initialLayoutContext
-        self.sidebarVisibilityController = SidebarVisibilityController(mode: restoredSidebarVisibility)
-        self.currentSidebarMotionState = SidebarMotionState(mode: restoredSidebarVisibility)
+        self.sidebarMotionCoordinator = SidebarMotionCoordinator(
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            sidebarWidthDefaults: sidebarWidthDefaults
+        )
+        self.themeCoordinator = ThemeCoordinator()
         self.workspaceStore = WorkspaceStore(layoutContext: initialLayoutContext)
         super.init(nibName: nil, bundle: nil)
     }
@@ -71,7 +67,8 @@ final class RootViewController: NSViewController {
     override func loadView() {
         let contentView = WindowContentView()
         contentView.onEffectiveAppearanceDidChange = { [weak self] in
-            self?.refreshTheme(animated: true)
+            guard let self else { return }
+            self.themeCoordinator.refreshTheme(for: self.view.effectiveAppearance, animated: true)
         }
         view = contentView
         view.wantsLayer = true
@@ -99,7 +96,7 @@ final class RootViewController: NSViewController {
         view.addSubview(sidebarToggleOverlayView)
 
         let sidebarWidthConstraint = sidebarView.widthAnchor.constraint(
-            equalToConstant: SidebarWidthPreference.restoredWidth(from: sidebarWidthDefaults)
+            equalToConstant: sidebarMotionCoordinator.currentSidebarWidth
         )
         let sidebarLeadingConstraint = sidebarView.leadingAnchor.constraint(
             equalTo: view.leadingAnchor,
@@ -166,22 +163,37 @@ final class RootViewController: NSViewController {
             self?.handle(.newWorkspace)
         }
         sidebarView.onResizeWidth = { [weak self] width in
-            self?.setSidebarWidth(width, persist: true)
+            self?.handleSidebarWidthChange(width)
         }
         sidebarView.onPointerEntered = { [weak self] in
-            self?.handleSidebarVisibilityEvent(.sidebarEntered)
+            self?.sidebarMotionCoordinator.handle(.sidebarEntered)
+            self?.syncSidebarVisibilityControls(animated: true)
         }
         sidebarView.onPointerExited = { [weak self] in
-            self?.handleSidebarVisibilityEvent(.sidebarExited)
+            self?.sidebarMotionCoordinator.handle(.sidebarExited)
+            self?.syncSidebarVisibilityControls(animated: true)
         }
         sidebarHoverRailView.onPointerEntered = { [weak self] in
-            self?.handleSidebarVisibilityEvent(.hoverRailEntered)
+            self?.sidebarMotionCoordinator.handle(.hoverRailEntered)
+            self?.syncSidebarVisibilityControls(animated: true)
         }
         sidebarHoverRailView.onPointerExited = { [weak self] in
-            self?.handleSidebarVisibilityEvent(.hoverRailExited)
+            self?.sidebarMotionCoordinator.handle(.hoverRailExited)
+            self?.syncSidebarVisibilityControls(animated: true)
         }
         sidebarToggleOverlayView.onToggleSidebar = { [weak self] in
-            self?.handleSidebarVisibilityEvent(.togglePressed)
+            self?.sidebarMotionCoordinator.handle(.togglePressed)
+            self?.syncSidebarVisibilityControls(animated: true)
+        }
+        sidebarMotionCoordinator.onMotionStateDidChange = { [weak self] motionState, animated in
+            self?.applySidebarMotionState(
+                motionState,
+                animated: animated,
+                reducedMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            )
+        }
+        themeCoordinator.onThemeDidChange = { [weak self] theme, animated in
+            self?.applyThemeToViews(theme, animated: animated)
         }
         runtimeRegistry.onMetadataDidChange = { [weak self] paneID, metadata in
             guard let self else {
@@ -197,19 +209,16 @@ final class RootViewController: NSViewController {
             self?.workspaceStore.applyAgentStatusPayload(payload)
         }
         agentStatusCenter.start()
-        themeWatcher.onChange = { [weak self] in
-            self?.refreshTheme(animated: true)
-        }
         sidebarToggleOverlayView.setTrafficLightAnchor(
             trailingX: trafficLightAnchor.x,
             midYInSuperview: trafficLightAnchor.y > 0 ? trafficLightAnchor.y : nil
         )
         syncSidebarVisibilityControls(animated: false)
-        applySidebarMotionState(currentSidebarMotionState, animated: false)
+        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
         updatePaneLayoutContextIfNeeded(force: true)
         updatePaneViewportHeight()
         installStaleAgentSweepTimer()
-        refreshTheme(animated: false)
+        themeCoordinator.refreshTheme(for: NSApp.effectiveAppearance, animated: false)
         renderCurrentWorkspace()
     }
 
@@ -398,7 +407,7 @@ final class RootViewController: NSViewController {
         }
 
         let effectiveInset = leadingVisibleInsetOverride
-            ?? sidebarVisibilityController.effectiveLeadingInset(
+            ?? sidebarMotionCoordinator.effectiveLeadingInset(
                 sidebarWidth: sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
             )
 
@@ -415,27 +424,14 @@ final class RootViewController: NSViewController {
         )
     }
 
-    private func refreshTheme(animated: Bool) {
-        let resolution = themeResolver.resolve(for: view.effectiveAppearance)
-        let theme = resolution.map {
-            ZenttyTheme(
-                resolvedTheme: $0.theme,
-                reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-            )
-        } ?? ZenttyTheme.fallback(
-            for: view.effectiveAppearance,
-            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-        )
-        let didChange = theme != currentTheme
-        currentTheme = theme
-        apply(theme: theme, animated: animated && didChange)
-        sidebarView.apply(theme: theme, animated: animated && didChange)
-        sidebarToggleOverlayView.apply(theme: theme, animated: animated && didChange)
-        windowChromeView.apply(theme: theme, animated: animated && didChange)
-        appCanvasView.apply(theme: theme, animated: animated && didChange)
-        applySidebarMotionState(currentSidebarMotionState, animated: false)
+    private func applyThemeToViews(_ theme: ZenttyTheme, animated: Bool) {
+        apply(theme: theme, animated: animated)
+        sidebarView.apply(theme: theme, animated: animated)
+        sidebarToggleOverlayView.apply(theme: theme, animated: animated)
+        windowChromeView.apply(theme: theme, animated: animated)
+        appCanvasView.apply(theme: theme, animated: animated)
+        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
         renderPaneBorderContextOverlay()
-        themeWatcher.watch(urls: resolution?.watchedURLs ?? [themeResolver.configURL])
     }
 
     private func apply(theme: ZenttyTheme, animated: Bool) {
@@ -458,62 +454,15 @@ final class RootViewController: NSViewController {
         )
     }
 
-    private func setSidebarWidth(_ width: CGFloat, persist: Bool) {
-        let clampedWidth = SidebarWidthPreference.clamped(width)
-        sidebarWidthConstraint?.constant = clampedWidth
-        applySidebarMotionState(currentSidebarMotionState, animated: false)
-
-        if persist {
-            SidebarWidthPreference.persist(clampedWidth, in: sidebarWidthDefaults)
-        }
-    }
-
-    private func handleSidebarVisibilityEvent(_ event: SidebarVisibilityEvent) {
-        if event == .togglePressed || event == .hoverRailEntered || event == .sidebarEntered {
-            cancelSidebarDismissalTimer()
-        }
-
-        let previousMode = sidebarVisibilityController.mode
-        sidebarVisibilityController.handle(event)
-        let nextMode = sidebarVisibilityController.mode
-
-        if sidebarVisibilityController.shouldScheduleDismissal {
-            scheduleSidebarDismissalTimer()
-        } else {
-            cancelSidebarDismissalTimer()
-        }
-
-        guard previousMode != nextMode else {
-            syncSidebarVisibilityControls(animated: true)
-            return
-        }
-
-        SidebarVisibilityPreference.persist(sidebarVisibilityController.persistedMode, in: sidebarVisibilityDefaults)
-        syncSidebarVisibilityControls(animated: true)
-        applySidebarMotionState(
-            SidebarMotionState(mode: nextMode),
-            animated: true,
-            reducedMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        )
+    private func handleSidebarWidthChange(_ width: CGFloat) {
+        sidebarMotionCoordinator.setSidebarWidth(width, persist: true)
+        sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
+        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
     }
 
     private func syncSidebarVisibilityControls(animated: Bool) {
-        sidebarView.setResizeEnabled(sidebarVisibilityController.showsResizeHandle)
-        sidebarToggleOverlayView.setSidebarVisibility(sidebarVisibilityController.mode, animated: animated)
-    }
-
-    private func scheduleSidebarDismissalTimer() {
-        cancelSidebarDismissalTimer()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.handleSidebarVisibilityEvent(.dismissTimerElapsed)
-        }
-        sidebarDismissWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarLayout.dismissDelay, execute: workItem)
-    }
-
-    private func cancelSidebarDismissalTimer() {
-        sidebarDismissWorkItem?.cancel()
-        sidebarDismissWorkItem = nil
+        sidebarView.setResizeEnabled(sidebarMotionCoordinator.showsResizeHandle)
+        sidebarToggleOverlayView.setSidebarVisibility(sidebarMotionCoordinator.mode, animated: animated)
     }
 
     private func applySidebarMotionState(
@@ -521,8 +470,6 @@ final class RootViewController: NSViewController {
         animated: Bool,
         reducedMotion: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     ) {
-        currentSidebarMotionState = motionState
-
         let sidebarWidth = SidebarWidthPreference.clamped(
             sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
         )
@@ -590,11 +537,11 @@ final class RootViewController: NSViewController {
     }
 
     var sidebarVisibilityModeForTesting: SidebarVisibilityMode {
-        sidebarVisibilityController.mode
+        sidebarMotionCoordinator.mode
     }
 
     var isSidebarFloatingForTesting: Bool {
-        sidebarVisibilityController.isFloating
+        sidebarMotionCoordinator.isFloating
     }
 
     var sidebarToggleMinXForTesting: CGFloat {
@@ -610,7 +557,8 @@ final class RootViewController: NSViewController {
     }
 
     func handleSidebarVisibilityEventForTesting(_ event: SidebarVisibilityEvent) {
-        handleSidebarVisibilityEvent(event)
+        sidebarMotionCoordinator.handle(event)
+        syncSidebarVisibilityControls(animated: false)
     }
 
     var paneLayoutPreferencesForTesting: PaneLayoutPreferences {
@@ -652,7 +600,9 @@ final class RootViewController: NSViewController {
     }
 
     func setSidebarWidthForTesting(_ width: CGFloat) {
-        setSidebarWidth(width, persist: false)
+        sidebarMotionCoordinator.setSidebarWidth(width, persist: false)
+        sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
+        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
     }
 
     private func updateCanvasLeadingInset(_ leadingVisibleInset: CGFloat? = nil) {
@@ -720,11 +670,12 @@ final class RootViewController: NSViewController {
             displayClass: displayClass,
             viewportWidth: viewportWidth,
             leadingVisibleInset: leadingVisibleInsetOverride ?? appCanvasView.leadingVisibleInset,
-            sizing: PaneLayoutSizing.forSidebarVisibility(sidebarVisibilityController.mode)
+            sizing: PaneLayoutSizing.forSidebarVisibility(sidebarMotionCoordinator.mode)
         )
     }
 }
 
+@MainActor
 private final class WindowContentView: NSView {
     var onEffectiveAppearanceDidChange: (() -> Void)?
 

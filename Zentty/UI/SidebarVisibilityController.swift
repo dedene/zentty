@@ -225,6 +225,7 @@ enum SidebarToggleIconFactory {
     }
 }
 
+@MainActor
 final class SidebarToggleOverlayView: NSView {
     private enum Layout {
         static let buttonSize: CGFloat = 28
@@ -402,6 +403,7 @@ private final class SidebarToggleButton: NSButton {
     }
 }
 
+@MainActor
 final class SidebarHoverRailView: NSView {
     var onPointerEntered: (() -> Void)?
     var onPointerExited: (() -> Void)?

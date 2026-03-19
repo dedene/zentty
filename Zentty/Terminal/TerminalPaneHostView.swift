@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 @MainActor
 final class TerminalPaneHostView: NSView {
@@ -99,6 +100,8 @@ struct PaneRuntimeSnapshot: Equatable {
     var startupFailureMessage: String?
     var hasReceivedMetadata: Bool
 }
+
+private let terminalLogger = Logger(subsystem: "be.zentty", category: "Terminal")
 
 @MainActor
 final class PaneRuntime {
@@ -219,7 +222,8 @@ final class PaneRuntime {
             try hostViewValue.startSessionIfNeeded(using: sessionRequest)
             startupFailureMessageValue = nil
         } catch {
-            startupFailureMessageValue = Self.startupFailureMessage
+            terminalLogger.error("Terminal session failed for pane \(self.paneIDValue.rawValue): \(error.localizedDescription)")
+            startupFailureMessageValue = "Terminal session failed: \(error.localizedDescription)"
         }
     }
 

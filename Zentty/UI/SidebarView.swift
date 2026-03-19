@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class SidebarView: NSView {
     private enum Layout {
         static let contentInset: CGFloat = ShellMetrics.sidebarContentInset

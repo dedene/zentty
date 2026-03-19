@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class WorkspaceAttentionChipView: NSView {
     private static let horizontalPadding: CGFloat = 10
     private let stateLabel = NSTextField(labelWithString: "")

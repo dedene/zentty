@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class ContentShellView: NSView {
     var onFocusSettled: ((PaneID) -> Void)? {
         didSet {

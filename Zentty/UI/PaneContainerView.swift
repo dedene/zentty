@@ -1,6 +1,7 @@
 import AppKit
 import QuartzCore
 
+@MainActor
 final class PaneContainerView: NSView {
     enum Layout {
         static let borderWidth: CGFloat = 1

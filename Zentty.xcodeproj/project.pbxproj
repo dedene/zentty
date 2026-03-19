@@ -100,6 +100,12 @@
 		FB58D1E4E944C608740FCA48 /* WindowChromeRowLayoutPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7FBE61EB4EABD3479BF0697 /* WindowChromeRowLayoutPlanner.swift */; };
 		FE927A90AB3D0A3AE1AF2004 /* AppCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8085EEB54A83D5D7F7A68CAB /* AppCanvasView.swift */; };
 		FFF5C4CF9EC103A80EAE3115 /* WindowChromeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA85009CAB71FA50F1611E54 /* WindowChromeView.swift */; };
+		D17EBD17D8EFE120670B58E0 /* ScrollSwitchGestureHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFF6D15AC6BB493AA896753B /* ScrollSwitchGestureHandlerTests.swift */; };
+		AC90DDC2A230FEA828FE1B42 /* ScrollSwitchGestureHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009B60D3DA02BB67F2434472 /* ScrollSwitchGestureHandler.swift */; };
+		80410EF8CABF610EC04055B0 /* SidebarMotionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 005AAB2D68825BFFE651E2F6 /* SidebarMotionCoordinator.swift */; };
+		3A03B7E1FD1E1F6E50A90077 /* SidebarMotionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24E818BE2F031CEA39FA0065 /* SidebarMotionCoordinatorTests.swift */; };
+		9983DC7EA8B9D367E7487ADC /* ThemeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BA95CEC1561160ED73F7A2 /* ThemeCoordinator.swift */; };
+		BA504B7AD8D98C8A183A58D8 /* ZenttyError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE5C4C46DE7A919F32402AE /* ZenttyError.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -210,6 +216,12 @@
 		FD6261C82AADF1EDAAA09BC9 /* PaneStripMotionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripMotionController.swift; sourceTree = "<group>"; };
 		FE8E85EADB93A2FE0E71BEA6 /* TerminalPaneHostViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostViewTests.swift; sourceTree = "<group>"; };
 		FF4944514D465B85C6D9A3AC /* RootViewCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewCompositionTests.swift; sourceTree = "<group>"; };
+		005AAB2D68825BFFE651E2F6 /* SidebarMotionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMotionCoordinator.swift; sourceTree = "<group>"; };
+		F6BA95CEC1561160ED73F7A2 /* ThemeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCoordinator.swift; sourceTree = "<group>"; };
+		009B60D3DA02BB67F2434472 /* ScrollSwitchGestureHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollSwitchGestureHandler.swift; sourceTree = "<group>"; };
+		9CE5C4C46DE7A919F32402AE /* ZenttyError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyError.swift; sourceTree = "<group>"; };
+		24E818BE2F031CEA39FA0065 /* SidebarMotionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMotionCoordinatorTests.swift; sourceTree = "<group>"; };
+		AFF6D15AC6BB493AA896753B /* ScrollSwitchGestureHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollSwitchGestureHandlerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -269,6 +281,7 @@
 				B530C90C0E34C9180D7FA019 /* Info.plist */,
 				6BC138BE273ED92291124633 /* main.swift */,
 				DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */,
+				9CE5C4C46DE7A919F32402AE /* ZenttyError.swift */,
 				1C0506CDB868054B09C5CA8D /* AppState */,
 				86D8A35364B8935BD9D2D219 /* Input */,
 				7F1FD0AFD7DC8203464D5523 /* Layout */,
@@ -327,6 +340,8 @@
 				7B8463FF053AAF1280AF76B4 /* GhosttyThemeResolverTests.swift */,
 				CBF4079FD49C87B216061EB3 /* Info.plist */,
 				1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */,
+				AFF6D15AC6BB493AA896753B /* ScrollSwitchGestureHandlerTests.swift */,
+				24E818BE2F031CEA39FA0065 /* SidebarMotionCoordinatorTests.swift */,
 				EE2FF6BBFBD6D9C48DFD9100 /* LibghosttyAdapterTests.swift */,
 				C6DBDFE63A76B3FA8FE9ABF9 /* LibghosttyViewTests.swift */,
 				7120EEE7A0C06BD8315283B9 /* MainWindowControllerTests.swift */,
@@ -394,6 +409,9 @@
 				AA85009CAB71FA50F1611E54 /* WindowChromeView.swift */,
 				ECD488C69FD7A9E781CC054A /* WorkspaceAttentionChipView.swift */,
 				3C182DB0CDDD3D09D97C1F4A /* WorkspaceSidebarSummary.swift */,
+				009B60D3DA02BB67F2434472 /* ScrollSwitchGestureHandler.swift */,
+				005AAB2D68825BFFE651E2F6 /* SidebarMotionCoordinator.swift */,
+				F6BA95CEC1561160ED73F7A2 /* ThemeCoordinator.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -581,7 +599,11 @@
 				1E9155B18597D48510ACEDD8 /* PaneStripStore.swift in Sources */,
 				9D7601CFA6D9A38A2C6B4E58 /* PaneStripView.swift in Sources */,
 				A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */,
+				AC90DDC2A230FEA828FE1B42 /* ScrollSwitchGestureHandler.swift in Sources */,
 				17245348FB36801D95C10395 /* ShellMetrics.swift in Sources */,
+				80410EF8CABF610EC04055B0 /* SidebarMotionCoordinator.swift in Sources */,
+				9983DC7EA8B9D367E7487ADC /* ThemeCoordinator.swift in Sources */,
+				BA504B7AD8D98C8A183A58D8 /* ZenttyError.swift in Sources */,
 				581E3A1AB04E391540AC02F1 /* SidebarView.swift in Sources */,
 				3F139F0A465F4262095ECEC2 /* SidebarVisibilityController.swift in Sources */,
 				C81D9C7C653D365E64058A53 /* SidebarWidthPreference.swift in Sources */,
@@ -633,6 +655,8 @@
 				40C4AE98F3A0F59860FE314D /* PaneStripViewTests.swift in Sources */,
 				EBD8B30A46636BC41AACF9CD /* RootViewCompositionTests.swift in Sources */,
 				4DC526EEE3231530CCA579D8 /* RootViewControllerHeaderIntegrationTests.swift in Sources */,
+				D17EBD17D8EFE120670B58E0 /* ScrollSwitchGestureHandlerTests.swift in Sources */,
+				3A03B7E1FD1E1F6E50A90077 /* SidebarMotionCoordinatorTests.swift in Sources */,
 				2B111AC82DB0E37446856317 /* SidebarVisibilityControllerTests.swift in Sources */,
 				4BFE69BEB6185BC3D19D88EC /* SidebarWorkspaceRowLayoutTests.swift in Sources */,
 				D58A19DD4038B6D8E127DA5D /* TerminalPaneHostViewTests.swift in Sources */,

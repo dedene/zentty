@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class ContextStripView: NSView {
     static let preferredHeight: CGFloat = 26
 

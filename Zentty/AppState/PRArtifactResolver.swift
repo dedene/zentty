@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let reviewStateLogger = Logger(subsystem: "be.zentty", category: "ReviewState")
 
 @MainActor
 final class PRArtifactResolver {
@@ -57,41 +60,42 @@ final class PRArtifactResolver {
         key: RepositoryKey,
         update: @escaping (PaneID, WorkspaceArtifactLink?) -> Void
     ) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["gh", "pr", "view", "--json", "number,url,title"]
-        process.currentDirectoryURL = URL(fileURLWithPath: key.path, isDirectory: true)
-
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-
-        DispatchQueue.global(qos: .utility).async {
-            let artifactLink: WorkspaceArtifactLink?
-            do {
-                try process.run()
-                process.waitUntilExit()
-                if process.terminationStatus == 0 {
-                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    artifactLink = Self.parseArtifact(from: outputData)
-                } else {
-                    artifactLink = nil
-                }
-            } catch {
-                artifactLink = nil
-            }
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self else {
-                    return
-                }
-
+        Task { [weak self] in
+            let artifactLink = await Self.runSubprocess(key: key)
+            await MainActor.run { [weak self] in
+                guard let self else { return }
                 self.pendingKeys.remove(key)
                 self.cache[key] = .resolved(artifactLink)
                 let paneIDs = self.waitingPaneIDs.removeValue(forKey: key) ?? []
                 paneIDs.forEach { paneID in
                     update(paneID, artifactLink)
                 }
+            }
+        }
+    }
+
+    private static func runSubprocess(key: RepositoryKey) async -> WorkspaceArtifactLink? {
+        await withCheckedContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["gh", "pr", "view", "--json", "number,url,title"]
+            process.currentDirectoryURL = URL(fileURLWithPath: key.path, isDirectory: true)
+            let outputPipe = Pipe()
+            process.standardOutput = outputPipe
+            process.standardError = Pipe()
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+                if process.terminationStatus == 0 {
+                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    continuation.resume(returning: parseArtifact(from: outputData))
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            } catch {
+                reviewStateLogger.error("PR artifact resolution failed for \(key.path): \(error.localizedDescription)")
+                continuation.resume(returning: nil)
             }
         }
     }

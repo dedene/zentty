@@ -2,6 +2,7 @@ import AppKit
 
 // MARK: - WorkspaceGroupView
 
+@MainActor
 final class WorkspaceGroupView: NSView {
     let workspaceID: WorkspaceID
     var onSelectWorkspace: ((WorkspaceID) -> Void)?
@@ -222,6 +223,7 @@ final class WorkspaceGroupView: NSView {
 
 private let needsInputSymbolName = "bell.badge.fill"
 
+@MainActor
 final class WorkspaceHeaderRow: NSButton {
     let workspaceID: WorkspaceID?
     var onDisclosureToggle: (() -> Void)?
@@ -510,6 +512,7 @@ final class WorkspaceHeaderRow: NSButton {
 
 // MARK: - PaneSubRow
 
+@MainActor
 final class PaneSubRow: NSButton {
     let paneID: PaneID
     var onSelect: (() -> Void)?

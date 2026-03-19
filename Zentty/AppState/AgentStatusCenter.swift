@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let agentStatusLogger = Logger(subsystem: "be.zentty", category: "AgentStatus")
 
 @MainActor
 final class AgentStatusCenter: NSObject {
@@ -47,7 +50,11 @@ final class AgentStatusCenter: NSObject {
             return
         }
 
-        guard let payload = try? AgentStatusPayload(userInfo: userInfo) else {
+        let payload: AgentStatusPayload
+        do {
+            payload = try AgentStatusPayload(userInfo: userInfo)
+        } catch {
+            agentStatusLogger.error("Malformed agent status payload: \(error.localizedDescription)")
             return
         }
 

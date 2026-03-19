@@ -4,6 +4,7 @@ enum GlassSurfaceStyle {
     case sidebar
 }
 
+@MainActor
 final class GlassSurfaceView: NSVisualEffectView {
     private let style: GlassSurfaceStyle
     private let gradientLayer = CAGradientLayer()

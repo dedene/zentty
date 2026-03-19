@@ -9,6 +9,7 @@ struct PaneBorderChromeSnapshot: Equatable {
     let borderContext: PaneBorderContextDisplayModel?
 }
 
+@MainActor
 final class PaneBorderContextOverlayView: NSView {
     private enum Layout {
         static let paneContextLeadingInset: CGFloat = 24
@@ -405,6 +406,7 @@ final class PaneBorderContextOverlayView: NSView {
     }
 }
 
+@MainActor
 final class AppCanvasView: NSView {
     var onBorderChromeSnapshotsDidChange: (([PaneBorderChromeSnapshot]) -> Void)? {
         didSet {

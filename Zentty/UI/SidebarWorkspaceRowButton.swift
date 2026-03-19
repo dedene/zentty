@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class SidebarWorkspaceRowButton: NSButton {
     private enum Layout {
         static let contentInset = ShellMetrics.sidebarRowHorizontalInset
