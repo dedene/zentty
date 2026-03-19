@@ -199,7 +199,7 @@ private func cancelSidebarDismissalTimer() {
 
 **4a. Extract `SidebarMotionCoordinator`.**
 
-Extracted from `RootViewController`. Owns sidebar visibility state machine, dismiss timer, motion state computation, constraint animation, and width persistence.
+Extracted from `RootViewController`. Owns dismiss timer, motion state computation, constraint animation, and width persistence. Wraps the existing `SidebarVisibilityController` struct (which remains a separate value-type state machine) — the coordinator subsumes `RootViewController`'s usage of that controller, not the struct itself.
 
 ```swift
 @MainActor
@@ -385,6 +385,7 @@ Keep only `applicationDidFinishLaunching` and any truly app-level methods.
 - `Zentty/AppDelegate.swift` — remove forwarding methods
 - `Zentty/AppMenuBuilder.swift` — verify/update menu targets
 - 18 files with `ForTesting` properties — delete or wrap in `#if DEBUG`
+- Corresponding test files — update to use direct state inspection where accessors are deleted
 
 ### Success criteria
 
