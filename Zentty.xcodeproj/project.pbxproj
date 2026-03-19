@@ -62,6 +62,7 @@
 		84D6E5E335E3E3688E462E50 /* WorkspaceHeaderSummaryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18065CC38B9A9058E3A43CD0 /* WorkspaceHeaderSummaryBuilder.swift */; };
 		851B43DAEB5F3ECAEAC65F72 /* SidebarWorkspaceGroupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79958DDABCB49918E069A403 /* SidebarWorkspaceGroupView.swift */; };
 		87EA948CE9A1C6B7DF2A1FBD /* ZenttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */; };
+		88AA11110000000000000001 /* WorkspaceState+Testing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88AA11110000000000000002 /* WorkspaceState+Testing.swift */; };
 		89FFAA8557A723C021000523 /* ScrollSwitchGestureHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF53D89084ABC40A4F372B00 /* ScrollSwitchGestureHandler.swift */; };
 		8C2BF7BE47535FD7A67CB268 /* WorkspaceAttentionNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F668C5A47A3DF347AA3AEB6 /* WorkspaceAttentionNotificationCoordinator.swift */; };
 		8D16DCB2D9A5CBFD25CBC5D1 /* LibghosttySurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EEF748059F59CD2590E1C2C /* LibghosttySurface.swift */; };
@@ -172,6 +173,7 @@
 		7120EEE7A0C06BD8315283B9 /* MainWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowControllerTests.swift; sourceTree = "<group>"; };
 		7404D6BABB68E5A9DF526865 /* WorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStore.swift; sourceTree = "<group>"; };
 		74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyTests.swift; sourceTree = "<group>"; };
+		88AA11110000000000000002 /* WorkspaceState+Testing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceState+Testing.swift"; sourceTree = "<group>"; };
 		7544C7B21941BA8753B02033 /* WorkspaceReviewStateResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceReviewStateResolver.swift; sourceTree = "<group>"; };
 		765B5594B1CFDD53C4A7C00B /* MockTerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockTerminalAdapter.swift; sourceTree = "<group>"; };
 		76CEBA7D33572C398D0C2CF2 /* ThemeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCoordinator.swift; sourceTree = "<group>"; };
@@ -370,6 +372,7 @@
 				9821F072C81511C059DB5551 /* WorkspaceHeaderSummaryBuilderTests.swift */,
 				3F11AE4FC51E69C2249CC656 /* WorkspaceReviewStateResolverTests.swift */,
 				12844670AB726CAC597E74EE /* WorkspaceSidebarSummaryTests.swift */,
+				88AA11110000000000000002 /* WorkspaceState+Testing.swift */,
 				74CEBFAB725FA2FFBC3E014B /* ZenttyTests.swift */,
 			);
 			path = ZenttyTests;
@@ -678,6 +681,7 @@
 				20FCC81AB1963BDACF462CC9 /* WorkspaceHeaderSummaryBuilderTests.swift in Sources */,
 				461A96CD2D21A685C13ADC2C /* WorkspaceReviewStateResolverTests.swift in Sources */,
 				8D1A5585A3CF45EE4DA9C137 /* WorkspaceSidebarSummaryTests.swift in Sources */,
+				88AA11110000000000000001 /* WorkspaceState+Testing.swift in Sources */,
 				87EA948CE9A1C6B7DF2A1FBD /* ZenttyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
