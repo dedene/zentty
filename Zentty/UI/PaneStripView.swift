@@ -727,6 +727,8 @@ final class PaneStripView: NSView {
         case .switchLeft, .switchRight:
             settleAdjacentPane(switchRight: result == .switchRight)
             return true
+        case .consumed:
+            return true
         case .none:
             return false
         }
