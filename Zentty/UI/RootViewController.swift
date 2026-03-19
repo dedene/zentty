@@ -345,6 +345,9 @@ final class RootViewController: NSViewController {
     }
 
     private func renderCurrentWorkspace(animated: Bool = false) {
+        suppressWorkspaceRender = true
+        defer { suppressWorkspaceRender = false }
+
         runtimeRegistry.synchronize(with: workspaceStore.workspaces)
         reviewStateResolver.refresh(for: workspaceStore.workspaces) { [weak self] paneID, resolution in
             self?.workspaceStore.updateReviewResolution(paneID: paneID, resolution: resolution)
