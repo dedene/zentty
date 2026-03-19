@@ -561,7 +561,7 @@ final class RootViewController: NSViewController {
         syncSidebarVisibilityControls(animated: false)
     }
 
-    var paneLayoutPreferencesForTesting: PaneLayoutPreferences {
+    var currentPaneLayoutPreferences: PaneLayoutPreferences {
         paneLayoutPreferences
     }
 

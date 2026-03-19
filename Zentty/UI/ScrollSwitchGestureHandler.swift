@@ -11,6 +11,7 @@ final class ScrollSwitchGestureHandler {
     enum SwitchResult {
         case switchLeft
         case switchRight
+        case consumed
         case none
     }
 
@@ -56,14 +57,14 @@ final class ScrollSwitchGestureHandler {
         }
 
         guard activeScrollSwitchAxis == axis else {
-            return .none
+            return .consumed
         }
 
         if hasTriggeredScrollSwitchInGesture {
             if shouldEndGesture(for: event) {
                 resetState()
             }
-            return .none
+            return .consumed
         }
 
         accumulatedScrollSwitchDelta += scrollDelta(for: event, axis: axis)

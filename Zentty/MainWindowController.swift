@@ -84,13 +84,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             controller = settingsWindowController
         } else {
             let settingsWindowController = PaneLayoutSettingsWindowController(
-                preferences: rootViewController.paneLayoutPreferencesForTesting
+                preferences: rootViewController.currentPaneLayoutPreferences
             )
             self.settingsWindowController = settingsWindowController
             controller = settingsWindowController
         }
 
-        controller.update(preferences: rootViewController.paneLayoutPreferencesForTesting)
+        controller.update(preferences: rootViewController.currentPaneLayoutPreferences)
         controller.showWindow(sender)
         controller.window?.makeKeyAndOrderFront(sender)
     }
