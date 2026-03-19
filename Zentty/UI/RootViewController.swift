@@ -16,11 +16,9 @@ final class RootViewController: NSViewController {
     private let sidebarToggleOverlayView = SidebarToggleOverlayView()
     private let runtimeRegistry: PaneRuntimeRegistry
     private let agentStatusCenter = AgentStatusCenter()
-    private let reviewStateResolver: WorkspaceReviewStateResolver
-    private let workspaceReviewStateProvider = DefaultWorkspaceReviewStateProvider()
     private let sidebarMotionCoordinator: SidebarMotionCoordinator
     private let themeCoordinator: ThemeCoordinator
-    private let attentionNotificationCoordinator = WorkspaceAttentionNotificationCoordinator()
+    private let renderCoordinator: WorkspaceRenderCoordinator
     private var staleAgentSweepTimer: Timer?
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
     private let paneBorderContextOverlayView = PaneBorderContextOverlayView()
@@ -30,7 +28,6 @@ final class RootViewController: NSViewController {
     private var paneLayoutPreferences: PaneLayoutPreferences
     private var currentPaneLayoutContext: PaneLayoutContext
     private var sidebarWidthConstraint: NSLayoutConstraint?
-    private var currentPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] = []
     private var sidebarLeadingConstraint: NSLayoutConstraint?
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
 
@@ -45,7 +42,6 @@ final class RootViewController: NSViewController {
         initialLayoutContext: PaneLayoutContext = .fallback
     ) {
         self.runtimeRegistry = runtimeRegistry
-        self.reviewStateResolver = reviewStateResolver
         self.paneLayoutDefaults = paneLayoutDefaults
         self.paneLayoutPreferences = PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults)
         self.currentPaneLayoutContext = initialLayoutContext
@@ -55,6 +51,11 @@ final class RootViewController: NSViewController {
         )
         self.themeCoordinator = ThemeCoordinator()
         self.workspaceStore = WorkspaceStore(layoutContext: initialLayoutContext)
+        self.renderCoordinator = WorkspaceRenderCoordinator(
+            workspaceStore: workspaceStore,
+            runtimeRegistry: runtimeRegistry,
+            reviewStateResolver: reviewStateResolver
+        )
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -136,9 +137,35 @@ final class RootViewController: NSViewController {
             sidebarToggleOverlayView.heightAnchor.constraint(equalToConstant: SidebarLayout.toggleOverlayHeight),
         ])
 
-        workspaceStore.subscribe { [weak self] change in
-            self?.handleWorkspaceChange(change)
+        renderCoordinator.bind(to: WorkspaceRenderCoordinator.ViewBindings(
+            sidebarView: sidebarView,
+            windowChromeView: windowChromeView,
+            appCanvasView: appCanvasView,
+            paneBorderContextOverlayView: paneBorderContextOverlayView
+        ))
+        renderCoordinator.themeProvider = { [weak self] in
+            self?.currentTheme ?? ZenttyTheme.fallback(for: nil)
         }
+        renderCoordinator.leadingInsetProvider = { [weak self] sidebarWidth in
+            self?.sidebarMotionCoordinator.effectiveLeadingInset(sidebarWidth: sidebarWidth) ?? 0
+        }
+        renderCoordinator.sidebarWidthProvider = { [weak self] in
+            self?.sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
+        }
+        renderCoordinator.windowStateProvider = { [weak self] in
+            guard let self else {
+                return (isVisible: false, isKeyWindow: false)
+            }
+            return (
+                isVisible: self.view.window?.isVisible ?? false,
+                isKeyWindow: self.view.window?.isKeyWindow ?? false
+            )
+        }
+        renderCoordinator.onNeedsSidebarSync = { [weak self] in
+            self?.syncSidebarVisibilityControls(animated: false)
+        }
+        renderCoordinator.startObserving()
+
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.workspaceStore.focusPane(id: paneID)
         }
@@ -147,10 +174,6 @@ final class RootViewController: NSViewController {
         }
         appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
             self?.workspaceStore.closePane(id: paneID)
-        }
-        appCanvasView.paneStripView.onBorderChromeSnapshotsDidChange = { [weak self] snapshots in
-            self?.currentPaneBorderChromeSnapshots = snapshots
-            self?.renderPaneBorderContextOverlay()
         }
         sidebarView.onWorkspaceSelected = { [weak self] id in
             self?.workspaceStore.selectWorkspace(id: id)
@@ -215,20 +238,20 @@ final class RootViewController: NSViewController {
         updatePaneViewportHeight()
         installStaleAgentSweepTimer()
         themeCoordinator.refreshTheme(for: NSApp.effectiveAppearance, animated: false)
-        renderCurrentWorkspace()
+        renderCoordinator.render()
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
         updatePaneLayoutContextIfNeeded()
         updatePaneViewportHeight()
-        renderPaneBorderContextOverlay()
+        renderCoordinator.renderBorderOverlay()
     }
 
     func activateWindowBindingsIfNeeded() {
         installKeyboardMonitorIfNeeded()
         installWindowObserversIfNeeded()
-        updateRuntimeSurfaceActivities()
+        renderCoordinator.updateSurfaceActivities()
         appCanvasView.focusCurrentPaneIfNeeded()
     }
 
@@ -328,57 +351,7 @@ final class RootViewController: NSViewController {
     @objc
     private func handleWindowStateDidChange() {
         updatePaneLayoutContextIfNeeded(force: true)
-        updateRuntimeSurfaceActivities()
-    }
-
-    private func handleWorkspaceChange(_ change: WorkspaceChange) {
-        switch change {
-        case .paneStructure, .focusChanged:
-            renderCurrentWorkspace(animated: true)
-        case .layoutResized, .auxiliaryStateUpdated, .workspaceListChanged, .activeWorkspaceChanged:
-            renderCurrentWorkspace(animated: false)
-        }
-    }
-
-    private func renderCurrentWorkspace(animated: Bool = false) {
-        workspaceStore.batchUpdate { [self] in
-            runtimeRegistry.synchronize(with: workspaceStore.workspaces)
-            reviewStateResolver.refresh(for: workspaceStore.workspaces) { [weak self] paneID, resolution in
-                self?.workspaceStore.updateReviewResolution(paneID: paneID, resolution: resolution)
-            }
-            sidebarView.render(
-                summaries: WorkspaceSidebarSummaryBuilder.summaries(
-                    for: workspaceStore.workspaces,
-                    activeWorkspaceID: workspaceStore.activeWorkspaceID
-                ),
-                theme: currentTheme
-            )
-            syncSidebarVisibilityControls(animated: false)
-
-            guard let workspace = workspaceStore.activeWorkspace else {
-                windowChromeView.render(summary: WorkspaceChromeSummary(
-                    attention: nil,
-                    focusedLabel: nil,
-                    branch: nil,
-                    pullRequest: nil,
-                    reviewChips: []
-                ))
-                return
-            }
-
-            let headerSummary = WorkspaceHeaderSummaryBuilder.summary(
-                for: workspace,
-                reviewStateProvider: workspaceReviewStateProvider
-            )
-            windowChromeView.render(summary: headerSummary)
-            renderCanvasForCurrentWorkspace(animated: animated)
-            attentionNotificationCoordinator.update(
-                workspaces: workspaceStore.workspaces,
-                activeWorkspaceID: workspaceStore.activeWorkspaceID,
-                windowIsKey: view.window?.isKeyWindow ?? false
-            )
-            updateRuntimeSurfaceActivities()
-        }
+        renderCoordinator.updateSurfaceActivities()
     }
 
     private func installStaleAgentSweepTimer() {
@@ -390,34 +363,6 @@ final class RootViewController: NSViewController {
         }
     }
 
-    private func renderCanvasForCurrentWorkspace(
-        leadingVisibleInsetOverride: CGFloat? = nil,
-        animated: Bool = false,
-        duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
-        timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
-    ) {
-        guard let workspace = workspaceStore.activeWorkspace else {
-            return
-        }
-
-        let effectiveInset = leadingVisibleInsetOverride
-            ?? sidebarMotionCoordinator.effectiveLeadingInset(
-                sidebarWidth: sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
-            )
-
-        appCanvasView.render(
-            workspaceName: workspace.title,
-            state: workspace.paneStripState,
-            metadataByPaneID: workspace.auxiliaryStateByPaneID.compactMapValues(\.metadata),
-            paneBorderContextByPaneID: workspace.paneBorderContextDisplayByPaneID,
-            theme: currentTheme,
-            leadingVisibleInset: effectiveInset,
-            animated: animated,
-            duration: duration,
-            timingFunction: timingFunction
-        )
-    }
-
     private func applyThemeToViews(_ theme: ZenttyTheme, animated: Bool) {
         apply(theme: theme, animated: animated)
         sidebarView.apply(theme: theme, animated: animated)
@@ -425,7 +370,7 @@ final class RootViewController: NSViewController {
         windowChromeView.apply(theme: theme, animated: animated)
         appCanvasView.apply(theme: theme, animated: animated)
         applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
-        renderPaneBorderContextOverlay()
+        renderCoordinator.renderBorderOverlay()
     }
 
     private func apply(theme: ZenttyTheme, animated: Bool) {
@@ -433,19 +378,6 @@ final class RootViewController: NSViewController {
             self.view.layer?.backgroundColor = theme.windowBackground.cgColor
             self.view.layer?.borderColor = theme.topChromeBorder.cgColor
         }
-    }
-
-    private func updateRuntimeSurfaceActivities() {
-        guard !workspaceStore.workspaces.isEmpty else {
-            return
-        }
-
-        runtimeRegistry.updateSurfaceActivities(
-            workspaces: workspaceStore.workspaces,
-            activeWorkspaceID: workspaceStore.activeWorkspaceID,
-            windowIsVisible: view.window?.isVisible ?? false,
-            windowIsKey: view.window?.isKeyWindow ?? false
-        )
     }
 
     private func handleSidebarWidthChange(_ width: CGFloat) {
@@ -486,7 +418,7 @@ final class RootViewController: NSViewController {
             || previousLayoutContext != currentPaneLayoutContext
         windowChromeView.leadingVisibleInset = reservedInset
         if needsCanvasTransition {
-            renderCanvasForCurrentWorkspace(
+            renderCoordinator.renderCanvas(
                 leadingVisibleInsetOverride: reservedInset,
                 animated: animated,
                 duration: duration,
@@ -586,12 +518,12 @@ final class RootViewController: NSViewController {
 
     func replaceWorkspaces(_ workspaces: [WorkspaceState], activeWorkspaceID: WorkspaceID? = nil) {
         workspaceStore.replaceWorkspaces(workspaces, activeWorkspaceID: activeWorkspaceID)
-        renderCurrentWorkspace()
+        renderCoordinator.render()
     }
 
     func focusPaneDirectly(_ paneID: PaneID) {
         workspaceStore.focusPane(id: paneID)
-        renderCurrentWorkspace()
+        renderCoordinator.render()
     }
 
     func setSidebarWidth(_ width: CGFloat) {
@@ -608,31 +540,13 @@ final class RootViewController: NSViewController {
         windowChromeView.leadingVisibleInset = leadingVisibleInset
     }
 
-    private var translatedPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] {
-        currentPaneBorderChromeSnapshots.map { snapshot in
-            PaneBorderChromeSnapshot(
-                paneID: snapshot.paneID,
-                frame: snapshot.frame.offsetBy(dx: appCanvasView.frame.minX, dy: appCanvasView.frame.minY),
-                isFocused: snapshot.isFocused,
-                emphasis: snapshot.emphasis,
-                borderContext: snapshot.borderContext
-            )
-        }
-    }
-
-    private func renderPaneBorderContextOverlay() {
-        paneBorderContextOverlayView.render(
-            snapshots: translatedPaneBorderChromeSnapshots,
-            theme: currentTheme
-        )
-    }
     func updatePaneLayoutPreferences(_ preferences: PaneLayoutPreferences) {
         paneLayoutPreferences = preferences
         PaneLayoutPreferenceStore.persist(preferences.laptopPreset, for: .laptop, in: paneLayoutDefaults)
         PaneLayoutPreferenceStore.persist(preferences.largeDisplayPreset, for: .largeDisplay, in: paneLayoutDefaults)
         PaneLayoutPreferenceStore.persist(preferences.ultrawidePreset, for: .ultrawide, in: paneLayoutDefaults)
         updatePaneLayoutContextIfNeeded(force: true)
-        renderCurrentWorkspace()
+        renderCoordinator.render()
     }
 
     private func updatePaneLayoutContextIfNeeded(

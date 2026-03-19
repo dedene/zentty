@@ -75,6 +75,7 @@
 		A03ECCAE74447138FF0E792C /* GhosttyThemeResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B8463FF053AAF1280AF76B4 /* GhosttyThemeResolverTests.swift */; };
 		A3BA15B5A0157C439C268E41 /* KeyboardShortcutResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE42248703776A7F3829B77 /* KeyboardShortcutResolverTests.swift */; };
 		A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B93F46C5542A31805301C02 /* RootViewController.swift */; };
+		BB00000000000000000001 /* WorkspaceRenderCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000002 /* WorkspaceRenderCoordinator.swift */; };
 		ADDC80F33AD74B2D67F3A005 /* MainWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7120EEE7A0C06BD8315283B9 /* MainWindowControllerTests.swift */; };
 		AE15A3294DF80781A48DF69F /* TerminalMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D46D74C2BFDAC52C678BDB1 /* TerminalMetadata.swift */; };
 		AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */; };
@@ -181,6 +182,7 @@
 		79D36E0FCD51FBD2A5F6A373 /* PaneLayoutSettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutSettingsWindowController.swift; sourceTree = "<group>"; };
 		7B8463FF053AAF1280AF76B4 /* GhosttyThemeResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyThemeResolverTests.swift; sourceTree = "<group>"; };
 		7B93F46C5542A31805301C02 /* RootViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewController.swift; sourceTree = "<group>"; };
+		BB00000000000000000002 /* WorkspaceRenderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRenderCoordinator.swift; sourceTree = "<group>"; };
 		7DDF1EF89E46D6EEECB8A320 /* LibghosttyAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapter.swift; sourceTree = "<group>"; };
 		7E51B4C12EE2E6A30DF1654E /* ScrollSwitchGestureHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollSwitchGestureHandlerTests.swift; sourceTree = "<group>"; };
 		8085EEB54A83D5D7F7A68CAB /* AppCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCanvasView.swift; sourceTree = "<group>"; };
@@ -485,6 +487,7 @@
 				A1B2C3D4E5F6A7B8C9D0E1F3 /* PaneStrip */,
 				7B93F46C5542A31805301C02 /* RootViewController.swift */,
 				A1B2C3D4E5F6A7B8C9D0E1F7 /* Settings */,
+				BB00000000000000000002 /* WorkspaceRenderCoordinator.swift */,
 				16FEAF3CA4E96E1EB18692E8 /* ShellMetrics.swift */,
 				A1B2C3D4E5F6A7B8C9D0E1F2 /* Sidebar */,
 				A1B2C3D4E5F6A7B8C9D0E1F5 /* Theme */,
@@ -675,6 +678,7 @@
 				6C4E99E98714D2044C35E41F /* PaneStripView+Transitions.swift in Sources */,
 				9D7601CFA6D9A38A2C6B4E58 /* PaneStripView.swift in Sources */,
 				A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */,
+				BB00000000000000000001 /* WorkspaceRenderCoordinator.swift in Sources */,
 				89FFAA8557A723C021000523 /* ScrollSwitchGestureHandler.swift in Sources */,
 				17245348FB36801D95C10395 /* ShellMetrics.swift in Sources */,
 				2386C8EDD4E62A73FA09057D /* SidebarMotionCoordinator.swift in Sources */,
