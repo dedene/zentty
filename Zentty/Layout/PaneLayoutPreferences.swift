@@ -244,7 +244,7 @@ enum PaneLayoutPreferenceStore {
         )
     }
 
-    static func userDefaultsForTesting() -> UserDefaults {
+    static func userDefaults() -> UserDefaults {
         guard let defaults = UserDefaults(suiteName: testDefaultsSuiteName) else {
             return .standard
         }
@@ -252,7 +252,7 @@ enum PaneLayoutPreferenceStore {
         return defaults
     }
 
-    static func resetForTesting() {
+    static func reset() {
         UserDefaults(suiteName: testDefaultsSuiteName)?
             .removePersistentDomain(forName: testDefaultsSuiteName)
     }

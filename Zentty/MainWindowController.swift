@@ -160,36 +160,36 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         focusLastColumn(sender)
     }
 
-    var settingsWindowForTesting: NSWindow? {
+    var settingsWindow: NSWindow? {
         settingsWindowController?.window
     }
 
-    var workspaceTitlesForTesting: [String] {
-        rootViewController.workspaceTitlesForTesting
+    var workspaceTitles: [String] {
+        rootViewController.workspaceTitles
     }
 
-    var activeWorkspaceTitleForTesting: String? {
-        rootViewController.activeWorkspaceTitleForTesting
+    var activeWorkspaceTitle: String? {
+        rootViewController.activeWorkspaceTitle
     }
 
-    var activePaneTitlesForTesting: [String] {
-        rootViewController.activePaneTitlesForTesting
+    var activePaneTitles: [String] {
+        rootViewController.activePaneTitles
     }
 
-    var focusedPaneTitleForTesting: String? {
-        rootViewController.focusedPaneTitleForTesting
+    var focusedPaneTitle: String? {
+        rootViewController.focusedPaneTitle
     }
 
-    var sidebarToggleMinXForTesting: CGFloat {
-        rootViewController.sidebarToggleMinXForTesting
+    var sidebarToggleMinX: CGFloat {
+        rootViewController.sidebarToggleMinX
     }
 
-    var sidebarToggleMidYForTesting: CGFloat {
-        rootViewController.sidebarToggleMidYForTesting
+    var sidebarToggleMidY: CGFloat {
+        rootViewController.sidebarToggleMidY
     }
 
-    var isSidebarToggleActiveForTesting: Bool {
-        rootViewController.isSidebarToggleActiveForTesting
+    var isSidebarToggleActive: Bool {
+        rootViewController.isSidebarToggleActive
     }
 
     private func handle(_ action: AppAction) {

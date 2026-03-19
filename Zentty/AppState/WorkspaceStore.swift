@@ -30,7 +30,8 @@ struct WorkspaceState: Equatable, Sendable {
         self.auxiliaryStateByPaneID = auxiliaryStateByPaneID
     }
 
-    /// Convenience init that accepts the old separate dictionaries to ease migration.
+    /// Test convenience — constructs WorkspaceState from separate per-pane dictionaries.
+    /// Production code uses `auxiliaryStateByPaneID` directly.
     init(
         id: WorkspaceID,
         title: String,
@@ -379,7 +380,8 @@ final class WorkspaceStore {
         notify(.paneStructure(activeWorkspaceID))
     }
 
-    func replaceWorkspacesForTesting(_ workspaces: [WorkspaceState], activeWorkspaceID: WorkspaceID? = nil) {
+    #if DEBUG
+    func replaceWorkspaces(_ workspaces: [WorkspaceState], activeWorkspaceID: WorkspaceID? = nil) {
         self.workspaces = workspaces
         let fallbackID = activeWorkspaceID ?? workspaces.first?.id ?? WorkspaceID("workspace-main")
         self.activeWorkspaceID = workspaces.contains(where: { $0.id == fallbackID })
@@ -387,6 +389,7 @@ final class WorkspaceStore {
             : workspaces.first?.id ?? WorkspaceID("workspace-main")
         notify(.workspaceListChanged)
     }
+    #endif
 
     private func makePane(in workspace: inout WorkspaceState, existingPaneCount: Int) -> PaneState {
         defer {
@@ -454,6 +457,8 @@ final class WorkspaceStore {
         )
     }
 
+    /// Internal — called by WorkspaceStore extension files to dispatch change notifications.
+    /// Not intended for use outside WorkspaceStore and its extensions.
     func notify(_ change: WorkspaceChange) {
         onChange?(change)
     }

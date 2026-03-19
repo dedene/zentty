@@ -19,8 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     #if DEBUG
-    var settingsWindowForTesting: NSWindow? {
-        windowController?.settingsWindowForTesting
+    var settingsWindow: NSWindow? {
+        windowController?.settingsWindow
     }
     #endif
 }

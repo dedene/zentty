@@ -408,32 +408,11 @@ final class PaneBorderContextOverlayView: NSView {
 
 @MainActor
 final class AppCanvasView: NSView {
-    var onBorderChromeSnapshotsDidChange: (([PaneBorderChromeSnapshot]) -> Void)? {
-        didSet {
-            paneStripView.onBorderChromeSnapshotsDidChange = onBorderChromeSnapshotsDidChange
-        }
-    }
-    var onFocusSettled: ((PaneID) -> Void)? {
-        didSet {
-            paneStripView.onFocusSettled = onFocusSettled
-        }
-    }
-    var onPaneSelected: ((PaneID) -> Void)? {
-        didSet {
-            paneStripView.onPaneSelected = onPaneSelected
-        }
-    }
-    var onPaneCloseRequested: ((PaneID) -> Void)? {
-        didSet {
-            paneStripView.onPaneCloseRequested = onPaneCloseRequested
-        }
-    }
-
     var leadingVisibleInset: CGFloat {
         get { paneStripView.leadingVisibleInset }
         set { paneStripView.setLeadingVisibleInset(newValue, animated: false) }
     }
-    private let paneStripView: PaneStripView
+    let paneStripView: PaneStripView
     private var currentTheme = ZenttyTheme.fallback(for: nil)
 
     init(
@@ -533,11 +512,11 @@ final class AppCanvasView: NSView {
     }
 
     var lastPaneStripRenderWasAnimatedForTesting: Bool {
-        paneStripView.lastRenderWasAnimatedForTesting
+        paneStripView.lastRenderWasAnimated
     }
 
     var paneStripRenderCountForTesting: Int {
-        paneStripView.renderInvocationCountForTesting
+        paneStripView.renderInvocationCount
     }
 
     var lastLeadingVisibleInsetForTesting: CGFloat {

@@ -98,11 +98,11 @@ final class PaneLayoutSettingsViewController: NSViewController {
         }
     }
 
-    var sectionTitlesForTesting: [String] {
+    var sectionTitles: [String] {
         DisplayClass.allCases.map(\.title)
     }
 
-    var presetSummaryForTesting: [String] {
+    var presetSummary: [String] {
         DisplayClass.allCases.compactMap { summaryLabelsByDisplayClass[$0]?.stringValue }
     }
 

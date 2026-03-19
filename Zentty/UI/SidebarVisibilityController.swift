@@ -101,14 +101,14 @@ enum SidebarVisibilityPreference {
         defaults.set(normalized(visibility).rawValue, forKey: persistenceKey)
     }
 
-    static func userDefaultsForTesting() -> UserDefaults {
+    static func userDefaults() -> UserDefaults {
         guard let defaults = UserDefaults(suiteName: testDefaultsSuiteName) else {
             return .standard
         }
         return defaults
     }
 
-    static func resetForTesting() {
+    static func reset() {
         UserDefaults(suiteName: testDefaultsSuiteName)?
             .removePersistentDomain(forName: testDefaultsSuiteName)
     }
@@ -323,11 +323,11 @@ final class SidebarToggleOverlayView: NSView {
         onToggleSidebar?()
     }
 
-    var toggleMinXForTesting: CGFloat {
+    var toggleMinX: CGFloat {
         toggleButton.frame.minX
     }
 
-    var toggleFrameInSuperviewForTesting: NSRect {
+    var toggleFrameInSuperview: NSRect {
         guard let superview else {
             return toggleButton.frame
         }
@@ -335,7 +335,7 @@ final class SidebarToggleOverlayView: NSView {
         return convert(toggleButton.frame, to: superview)
     }
 
-    var isToggleActiveForTesting: Bool {
+    var isToggleActive: Bool {
         toggleButton.isActive
     }
 

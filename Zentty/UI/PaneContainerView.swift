@@ -256,27 +256,27 @@ final class PaneContainerView: NSView {
         insetBorderLayer.cornerRadius = max(0, Layout.cornerRadius - inset)
     }
 
-    var titleTextForTesting: String {
+    var titleText: String {
         titleTextStorage
     }
 
-    var statusTitleForTesting: String {
+    var statusTitle: String {
         statusTitleLabel.stringValue
     }
 
-    var statusMessageForTesting: String {
+    var statusMessage: String {
         statusMessageLabel.stringValue
     }
 
-    var isStatusOverlayHiddenForTesting: Bool {
+    var isStatusOverlayHidden: Bool {
         statusOverlayView.isHidden
     }
 
-    var isRetryButtonHiddenForTesting: Bool {
+    var isRetryButtonHidden: Bool {
         retryButton.isHidden
     }
 
-    var isCloseButtonHiddenForTesting: Bool {
+    var isCloseButtonHidden: Bool {
         closeButton.isHidden
     }
 
@@ -288,39 +288,39 @@ final class PaneContainerView: NSView {
         closeButton
     }
 
-    var usesInsetBorderLayerForTesting: Bool {
+    var usesInsetBorderLayer: Bool {
         insetBorderLayer.superlayer === layer
     }
 
-    var insetBorderLineWidthForTesting: CGFloat {
+    var insetBorderLineWidth: CGFloat {
         insetBorderLayer.borderWidth
     }
 
-    var insetBorderFrameForTesting: CGRect {
+    var insetBorderFrame: CGRect {
         insetBorderLayer.frame
     }
 
-    var insetBorderInsetForTesting: CGFloat {
+    var insetBorderInset: CGFloat {
         insetBorderLayer.frame.minX
     }
 
-    var insetBorderCornerRadiusForTesting: CGFloat {
+    var insetBorderCornerRadius: CGFloat {
         insetBorderLayer.cornerRadius
     }
 
-    var insetBorderCornerCurveForTesting: CALayerCornerCurve {
+    var insetBorderCornerCurve: CALayerCornerCurve {
         insetBorderLayer.cornerCurve
     }
 
-    var hasPaneContextChromeForTesting: Bool {
+    var hasPaneContextChrome: Bool {
         false
     }
 
-    var statusOverlayFrameForTesting: CGRect {
+    var statusOverlayFrame: CGRect {
         statusOverlayView.frame
     }
 
-    var clipsContentToBoundsForTesting: Bool {
+    var clipsContentToBounds: Bool {
         contentClipView.layer?.masksToBounds == true
     }
 

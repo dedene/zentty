@@ -424,7 +424,7 @@ final class WindowChromeView: NSView {
         return min(max(leadingVisibleInset, minimumInset), maximumInset)
     }
 
-    private var visibleLaneFrame: NSRect {
+    var visibleLaneFrame: NSRect {
         let minX = effectiveLeadingVisibleInset
         let maxX = max(minX, bounds.width - ChromeGeometry.headerHorizontalInset)
         return NSRect(x: minX, y: 0, width: maxX - minX, height: bounds.height)
@@ -496,44 +496,42 @@ final class WindowChromeView: NSView {
         ceil(max(button.fittingSize.width, button.intrinsicContentSize.width))
     }
 
-    var titleTextForTesting: String { "" }
-    var isAttentionHiddenForTesting: Bool { attentionChipView.isHidden }
-    var attentionTextForTesting: String { attentionChipView.stateTextForTesting }
-    var attentionArtifactTextForTesting: String { attentionChipView.artifactTextForTesting }
-    var focusedLabelTextForTesting: String { focusedLabel.stringValue }
-    var branchTextForTesting: String { branchLabel.stringValue }
-    var pullRequestTextForTesting: String { pullRequestButton.title }
-    var isPullRequestCompressedForTesting: Bool {
+    var titleText: String { "" }
+    var isAttentionHidden: Bool { attentionChipView.isHidden }
+    var attentionText: String { attentionChipView.stateTextForTesting }
+    var attentionArtifactText: String { attentionChipView.artifactTextForTesting }
+    var focusedLabelText: String { focusedLabel.stringValue }
+    var branchText: String { branchLabel.stringValue }
+    var pullRequestText: String { pullRequestButton.title }
+    var isPullRequestCompressed: Bool {
         pullRequestButton.frame.width > 0 && pullRequestButton.frame.width < Self.requiredSingleLineWidth(for: pullRequestButton)
     }
-    var pullRequestFrameWidthForTesting: CGFloat { pullRequestButton.frame.width }
-    var pullRequestIntrinsicWidthForTesting: CGFloat { Self.requiredSingleLineWidth(for: pullRequestButton) }
-    var reviewChipTextsForTesting: [String] { displayedReviewChips.map(\.text) }
-    var isBranchMonospacedForTesting: Bool {
+    var pullRequestFrameWidth: CGFloat { pullRequestButton.frame.width }
+    var pullRequestIntrinsicWidth: CGFloat { Self.requiredSingleLineWidth(for: pullRequestButton) }
+    var reviewChipTexts: [String] { displayedReviewChips.map(\.text) }
+    var isBranchMonospaced: Bool {
         branchLabel.font?.fontDescriptor.symbolicTraits.contains(.monoSpace) ?? false
     }
-    var rowLineCountForTesting: Int {
+    var rowLineCount: Int {
         let labelsStaySingleLine = [focusedLabel, branchLabel]
             .filter { !$0.isHidden }
             .allSatisfy { $0.usesSingleLineMode && $0.lineBreakMode != .byWordWrapping }
         let pullRequestStaysSingleLine = pullRequestButton.isHidden || (pullRequestButton.cell?.wraps == false)
         return labelsStaySingleLine && pullRequestStaysSingleLine ? 1 : 2
     }
-    var isFocusedLabelCompressedForTesting: Bool {
+    var isFocusedLabelCompressed: Bool {
         focusedLabel.frame.width > 0 && focusedLabel.frame.width < Self.requiredSingleLineWidth(for: focusedLabel)
     }
-    var didCompressItemsForTesting: Bool { lastRowLayoutPlan.didCompressItems }
-    var preferredTotalWidthForTesting: CGFloat { lastRowLayoutPlan.preferredTotalWidth }
-    var finalTotalWidthForTesting: CGFloat { lastRowLayoutPlan.finalTotalWidth }
-    var overflowBeforeCompressionForTesting: CGFloat { lastRowLayoutPlan.overflowBeforeCompression }
-    var overflowAfterChipEvictionForTesting: CGFloat { lastRowLayoutPlan.overflowAfterChipEviction }
-    var focusedLabelFrameWidthForTesting: CGFloat { focusedLabel.frame.width }
-    var focusedLabelIntrinsicWidthForTesting: CGFloat { Self.requiredSingleLineWidth(for: focusedLabel) }
-    var branchFrameWidthForTesting: CGFloat { branchLabel.frame.width }
-    var branchIntrinsicWidthForTesting: CGFloat { Self.requiredSingleLineWidth(for: branchLabel) }
-    var leadingVisibleInsetForTesting: CGFloat { leadingVisibleInset }
-    var visibleLaneFrameForTesting: NSRect { visibleLaneFrame }
-    var rowFrameForTesting: NSRect { rowContainerView.frame }
+    var didCompressItems: Bool { lastRowLayoutPlan.didCompressItems }
+    var preferredTotalWidth: CGFloat { lastRowLayoutPlan.preferredTotalWidth }
+    var finalTotalWidth: CGFloat { lastRowLayoutPlan.finalTotalWidth }
+    var overflowBeforeCompression: CGFloat { lastRowLayoutPlan.overflowBeforeCompression }
+    var overflowAfterChipEviction: CGFloat { lastRowLayoutPlan.overflowAfterChipEviction }
+    var focusedLabelFrameWidth: CGFloat { focusedLabel.frame.width }
+    var focusedLabelIntrinsicWidth: CGFloat { Self.requiredSingleLineWidth(for: focusedLabel) }
+    var branchFrameWidth: CGFloat { branchLabel.frame.width }
+    var branchIntrinsicWidth: CGFloat { Self.requiredSingleLineWidth(for: branchLabel) }
+    var rowFrame: NSRect { rowContainerView.frame }
 }
 
 private struct RowLayoutPlan {
@@ -655,7 +653,7 @@ private final class WindowChromeReviewChipView: NSView {
         }
     }
 
-    var textForTesting: String { label.stringValue }
+    var text: String { label.stringValue }
 
     static func preferredWidth(for chip: WorkspaceReviewChip) -> CGFloat {
         let label = NSTextField(labelWithString: chip.text)

@@ -119,9 +119,9 @@ final class MainWindowControllerTests: XCTestCase {
 
         controller.newWorkspace(nil)
 
-        XCTAssertEqual(controller.workspaceTitlesForTesting, ["MAIN", "WS 2"])
-        XCTAssertEqual(controller.activeWorkspaceTitleForTesting, "WS 2")
-        XCTAssertEqual(controller.activePaneTitlesForTesting, ["shell"])
+        XCTAssertEqual(controller.workspaceTitles, ["MAIN", "WS 2"])
+        XCTAssertEqual(controller.activeWorkspaceTitle, "WS 2")
+        XCTAssertEqual(controller.activePaneTitles, ["shell"])
     }
 
     func test_split_and_focus_actions_route_through_root_dispatcher() {
@@ -130,8 +130,8 @@ final class MainWindowControllerTests: XCTestCase {
         controller.splitRight(nil)
         controller.focusLeftPane(nil)
 
-        XCTAssertEqual(controller.activePaneTitlesForTesting, ["shell", "pane 1"])
-        XCTAssertEqual(controller.focusedPaneTitleForTesting, "shell")
+        XCTAssertEqual(controller.activePaneTitles, ["shell", "pane 1"])
+        XCTAssertEqual(controller.focusedPaneTitle, "shell")
     }
 }
 

@@ -8,7 +8,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let controller = makeController()
         let paneID = PaneID("pane-claude")
 
-        controller.replaceWorkspacesForTesting([
+        controller.replaceWorkspaces([
             WorkspaceState(
                 id: WorkspaceID("workspace-main"),
                 title: "MAIN",
@@ -50,12 +50,12 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             ),
         ])
 
-        let chrome = controller.windowChromeViewForTesting
-        XCTAssertEqual(chrome.attentionTextForTesting, "Needs input")
-        XCTAssertEqual(chrome.focusedLabelTextForTesting, "Claude Code")
-        XCTAssertEqual(chrome.branchTextForTesting, "feature/review-band")
-        XCTAssertEqual(chrome.pullRequestTextForTesting, "PR #128")
-        XCTAssertEqual(chrome.reviewChipTextsForTesting, ["Draft", "2 failing"])
+        let chrome = controller.chromeView
+        XCTAssertEqual(chrome.attentionText, "Needs input")
+        XCTAssertEqual(chrome.focusedLabelText, "Claude Code")
+        XCTAssertEqual(chrome.branchText, "feature/review-band")
+        XCTAssertEqual(chrome.pullRequestText, "PR #128")
+        XCTAssertEqual(chrome.reviewChipTexts, ["Draft", "2 failing"])
     }
 
     func test_root_controller_updates_header_when_focus_changes_between_non_git_and_git_panes() {
@@ -63,7 +63,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let shellPaneID = PaneID("pane-shell")
         let claudePaneID = PaneID("pane-claude")
 
-        controller.replaceWorkspacesForTesting([
+        controller.replaceWorkspaces([
             WorkspaceState(
                 id: WorkspaceID("workspace-main"),
                 title: "MAIN",
@@ -112,28 +112,28 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             ),
         ])
 
-        let chrome = controller.windowChromeViewForTesting
-        XCTAssertEqual(chrome.attentionTextForTesting, "Needs input")
-        XCTAssertEqual(chrome.focusedLabelTextForTesting, "zsh")
-        XCTAssertEqual(chrome.branchTextForTesting, "")
-        XCTAssertEqual(chrome.pullRequestTextForTesting, "")
-        XCTAssertEqual(chrome.reviewChipTextsForTesting, [])
+        let chrome = controller.chromeView
+        XCTAssertEqual(chrome.attentionText, "Needs input")
+        XCTAssertEqual(chrome.focusedLabelText, "zsh")
+        XCTAssertEqual(chrome.branchText, "")
+        XCTAssertEqual(chrome.pullRequestText, "")
+        XCTAssertEqual(chrome.reviewChipTexts, [])
 
-        controller.focusPaneForTesting(claudePaneID)
+        controller.focusPaneDirectly(claudePaneID)
 
-        XCTAssertEqual(chrome.attentionTextForTesting, "Needs input")
-        XCTAssertEqual(chrome.focusedLabelTextForTesting, "Claude Code")
-        XCTAssertEqual(chrome.branchTextForTesting, "feature/review-band")
-        XCTAssertEqual(chrome.pullRequestTextForTesting, "PR #128")
-        XCTAssertEqual(chrome.reviewChipTextsForTesting, ["Draft", "2 failing"])
+        XCTAssertEqual(chrome.attentionText, "Needs input")
+        XCTAssertEqual(chrome.focusedLabelText, "Claude Code")
+        XCTAssertEqual(chrome.branchText, "feature/review-band")
+        XCTAssertEqual(chrome.pullRequestText, "PR #128")
+        XCTAssertEqual(chrome.reviewChipTexts, ["Draft", "2 failing"])
 
-        controller.focusPaneForTesting(shellPaneID)
+        controller.focusPaneDirectly(shellPaneID)
 
-        XCTAssertEqual(chrome.attentionTextForTesting, "Needs input")
-        XCTAssertEqual(chrome.focusedLabelTextForTesting, "zsh")
-        XCTAssertEqual(chrome.branchTextForTesting, "")
-        XCTAssertEqual(chrome.pullRequestTextForTesting, "")
-        XCTAssertEqual(chrome.reviewChipTextsForTesting, [])
+        XCTAssertEqual(chrome.attentionText, "Needs input")
+        XCTAssertEqual(chrome.focusedLabelText, "zsh")
+        XCTAssertEqual(chrome.branchText, "")
+        XCTAssertEqual(chrome.pullRequestText, "")
+        XCTAssertEqual(chrome.reviewChipTexts, [])
     }
 
     func test_root_controller_populates_header_from_live_review_state_resolver() async {
@@ -147,7 +147,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         )
         let paneID = PaneID("pane-claude")
 
-        controller.replaceWorkspacesForTesting([
+        controller.replaceWorkspaces([
             WorkspaceState(
                 id: WorkspaceID("workspace-main"),
                 title: "MAIN",
@@ -167,11 +167,11 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
 
         try? await Task.sleep(nanoseconds: 100_000_000)
 
-        let chrome = controller.windowChromeViewForTesting
-        XCTAssertEqual(chrome.focusedLabelTextForTesting, "Claude Code")
-        XCTAssertEqual(chrome.branchTextForTesting, "feature/review-band")
-        XCTAssertEqual(chrome.pullRequestTextForTesting, "PR #128")
-        XCTAssertEqual(chrome.reviewChipTextsForTesting, ["Draft", "2 failing"])
+        let chrome = controller.chromeView
+        XCTAssertEqual(chrome.focusedLabelText, "Claude Code")
+        XCTAssertEqual(chrome.branchText, "feature/review-band")
+        XCTAssertEqual(chrome.pullRequestText, "PR #128")
+        XCTAssertEqual(chrome.reviewChipTexts, ["Draft", "2 failing"])
 
         let calls = await runner.calls
         XCTAssertEqual(calls.count, 4)
@@ -193,7 +193,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         )
         let paneID = PaneID("pane-shell")
 
-        controller.replaceWorkspacesForTesting([
+        controller.replaceWorkspaces([
             WorkspaceState(
                 id: WorkspaceID("workspace-main"),
                 title: "MAIN",
@@ -213,14 +213,14 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
 
         try? await Task.sleep(nanoseconds: 100_000_000)
 
-        let chrome = controller.windowChromeViewForTesting
+        let chrome = controller.chromeView
         XCTAssertEqual(
-            chrome.focusedLabelTextForTesting,
+            chrome.focusedLabelText,
             "~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails"
         )
-        XCTAssertEqual(chrome.branchTextForTesting, "feature/scaleway-transactional-mails")
-        XCTAssertEqual(chrome.pullRequestTextForTesting, "PR #1413")
-        XCTAssertEqual(chrome.reviewChipTextsForTesting, ["1 failing"])
+        XCTAssertEqual(chrome.branchText, "feature/scaleway-transactional-mails")
+        XCTAssertEqual(chrome.pullRequestText, "PR #1413")
+        XCTAssertEqual(chrome.reviewChipTexts, ["1 failing"])
 
         let calls = await runner.calls
         XCTAssertEqual(calls.count, 4)
@@ -238,7 +238,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
 
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
-        controller.replaceWorkspacesForTesting([
+        controller.replaceWorkspaces([
             WorkspaceState(
                 id: WorkspaceID("workspace-main"),
                 title: "MAIN",
@@ -269,21 +269,21 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
 
         controller.view.layoutSubtreeIfNeeded()
 
-        let chrome = controller.windowChromeViewForTesting
+        let chrome = controller.chromeView
         let focusedLabelView = try XCTUnwrap(findLabel(in: chrome, withText: focusedLabel))
         let branchLabelView = try XCTUnwrap(findLabel(in: chrome, withText: branch))
         let pullRequestButton = try XCTUnwrap(findButton(in: chrome, withTitle: "PR #1413"))
 
         XCTAssertEqual(
-            chrome.leadingVisibleInsetForTesting,
-            controller.sidebarWidthForTesting + ShellMetrics.shellGap,
+            chrome.leadingVisibleInset,
+            controller.currentSidebarWidth + ShellMetrics.shellGap,
             accuracy: 0.5
         )
-        XCTAssertFalse(chrome.didCompressItemsForTesting)
-        XCTAssertEqual(chrome.preferredTotalWidthForTesting, chrome.finalTotalWidthForTesting, accuracy: 0.5)
-        XCTAssertEqual(chrome.focusedLabelFrameWidthForTesting, chrome.focusedLabelIntrinsicWidthForTesting, accuracy: 0.5)
-        XCTAssertEqual(chrome.branchFrameWidthForTesting, chrome.branchIntrinsicWidthForTesting, accuracy: 0.5)
-        XCTAssertEqual(chrome.pullRequestFrameWidthForTesting, chrome.pullRequestIntrinsicWidthForTesting, accuracy: 0.5)
+        XCTAssertFalse(chrome.didCompressItems)
+        XCTAssertEqual(chrome.preferredTotalWidth, chrome.finalTotalWidth, accuracy: 0.5)
+        XCTAssertEqual(chrome.focusedLabelFrameWidth, chrome.focusedLabelIntrinsicWidth, accuracy: 0.5)
+        XCTAssertEqual(chrome.branchFrameWidth, chrome.branchIntrinsicWidth, accuracy: 0.5)
+        XCTAssertEqual(chrome.pullRequestFrameWidth, chrome.pullRequestIntrinsicWidth, accuracy: 0.5)
         XCTAssertGreaterThanOrEqual(focusedLabelView.frame.width, requiredSingleLineWidth(of: focusedLabelView) - 0.5)
         XCTAssertGreaterThanOrEqual(branchLabelView.frame.width, requiredSingleLineWidth(of: branchLabelView) - 0.5)
         XCTAssertGreaterThanOrEqual(pullRequestButton.frame.width, requiredSingleLineWidth(of: pullRequestButton) - 0.5)
@@ -291,7 +291,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let contentMinX = min(focusedLabelView.frame.minX, branchLabelView.frame.minX, pullRequestButton.frame.minX)
         let contentMaxX = max(focusedLabelView.frame.maxX, branchLabelView.frame.maxX, pullRequestButton.frame.maxX)
         let leftSlack = contentMinX
-        let rightSlack = chrome.rowFrameForTesting.width - contentMaxX
+        let rightSlack = chrome.rowFrame.width - contentMaxX
         XCTAssertGreaterThan(leftSlack, 20)
         XCTAssertEqual(leftSlack, rightSlack, accuracy: 24)
     }
@@ -301,7 +301,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let paneID = PaneID("pane-shell")
         let homePath = NSHomeDirectory()
 
-        controller.replaceWorkspacesForTesting([
+        controller.replaceWorkspaces([
             WorkspaceState(
                 id: WorkspaceID("workspace-main"),
                 title: "MAIN",
@@ -319,15 +319,15 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             ),
         ])
 
-        let chrome = controller.windowChromeViewForTesting
-        XCTAssertEqual(chrome.focusedLabelTextForTesting, "~/Development/Zenjoy/Nimbu/Rails/nimbu")
+        let chrome = controller.chromeView
+        XCTAssertEqual(chrome.focusedLabelText, "~/Development/Zenjoy/Nimbu/Rails/nimbu")
     }
 
     func test_root_controller_keeps_cached_review_branch_when_metadata_branch_is_compacted() {
         let controller = makeController()
         let paneID = PaneID("pane-shell")
 
-        controller.replaceWorkspacesForTesting([
+        controller.replaceWorkspaces([
             WorkspaceState(
                 id: WorkspaceID("workspace-main"),
                 title: "MAIN",
@@ -353,8 +353,8 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             ),
         ])
 
-        let chrome = controller.windowChromeViewForTesting
-        XCTAssertEqual(chrome.branchTextForTesting, "main")
+        let chrome = controller.chromeView
+        XCTAssertEqual(chrome.branchText, "main")
     }
 
     private func makeController(
@@ -363,7 +363,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let controller = RootViewController(
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() }),
             reviewStateResolver: reviewStateResolver,
-            sidebarWidthDefaults: SidebarWidthPreference.userDefaultsForTesting()
+            sidebarWidthDefaults: SidebarWidthPreference.userDefaults()
         )
         controller.loadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)

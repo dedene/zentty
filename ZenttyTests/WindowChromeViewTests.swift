@@ -24,11 +24,11 @@ final class WindowChromeViewTests: XCTestCase {
             ]
         ))
 
-        XCTAssertEqual(view.attentionTextForTesting, "Needs input")
-        XCTAssertEqual(view.focusedLabelTextForTesting, "Claude Code")
-        XCTAssertEqual(view.branchTextForTesting, "feature/review-band")
-        XCTAssertEqual(view.pullRequestTextForTesting, "PR #128")
-        XCTAssertEqual(view.reviewChipTextsForTesting, ["Draft", "2 failing"])
+        XCTAssertEqual(view.attentionText, "Needs input")
+        XCTAssertEqual(view.focusedLabelText, "Claude Code")
+        XCTAssertEqual(view.branchText, "feature/review-band")
+        XCTAssertEqual(view.pullRequestText, "PR #128")
+        XCTAssertEqual(view.reviewChipTexts, ["Draft", "2 failing"])
     }
 
     func test_window_chrome_renders_branch_without_pr_and_shows_no_pr_chip() {
@@ -44,9 +44,9 @@ final class WindowChromeViewTests: XCTestCase {
             reviewChips: [WorkspaceReviewChip(text: "No PR", style: .neutral)]
         ))
 
-        XCTAssertEqual(view.branchTextForTesting, "main")
-        XCTAssertEqual(view.pullRequestTextForTesting, "")
-        XCTAssertEqual(view.reviewChipTextsForTesting, ["No PR"])
+        XCTAssertEqual(view.branchText, "main")
+        XCTAssertEqual(view.pullRequestText, "")
+        XCTAssertEqual(view.reviewChipTexts, ["No PR"])
     }
 
     func test_window_chrome_renders_non_git_summary_with_only_focused_label() {
@@ -62,10 +62,10 @@ final class WindowChromeViewTests: XCTestCase {
             reviewChips: []
         ))
 
-        XCTAssertEqual(view.focusedLabelTextForTesting, "zsh")
-        XCTAssertEqual(view.branchTextForTesting, "")
-        XCTAssertEqual(view.pullRequestTextForTesting, "")
-        XCTAssertEqual(view.reviewChipTextsForTesting, [])
+        XCTAssertEqual(view.focusedLabelText, "zsh")
+        XCTAssertEqual(view.branchText, "")
+        XCTAssertEqual(view.pullRequestText, "")
+        XCTAssertEqual(view.reviewChipTexts, [])
     }
 
     func test_window_chrome_hides_attention_chip_when_summary_has_no_attention() {
@@ -81,7 +81,7 @@ final class WindowChromeViewTests: XCTestCase {
             reviewChips: []
         ))
 
-        XCTAssertTrue(view.isAttentionHiddenForTesting)
+        XCTAssertTrue(view.isAttentionHidden)
     }
 
     func test_window_chrome_never_surfaces_cwd_text_and_keeps_branch_monospace() {
@@ -91,10 +91,10 @@ final class WindowChromeViewTests: XCTestCase {
 
         view.render(summary: makeCrowdedSummary())
 
-        let renderedText = ([view.focusedLabelTextForTesting, view.branchTextForTesting, view.pullRequestTextForTesting] + view.reviewChipTextsForTesting)
+        let renderedText = ([view.focusedLabelText, view.branchText, view.pullRequestText] + view.reviewChipTexts)
             .joined(separator: " ")
         XCTAssertFalse(renderedText.contains("cwd"))
-        XCTAssertTrue(view.isBranchMonospacedForTesting)
+        XCTAssertTrue(view.isBranchMonospaced)
     }
 
     func test_window_chrome_keeps_attention_branch_pr_and_review_chips_visible_on_narrow_width_while_truncating_focused_label() {
@@ -105,15 +105,15 @@ final class WindowChromeViewTests: XCTestCase {
         view.render(summary: makeCrowdedSummary())
         view.layoutSubtreeIfNeeded()
 
-        XCTAssertFalse(view.isAttentionHiddenForTesting)
-        XCTAssertEqual(view.branchTextForTesting, "feature/review-band")
-        XCTAssertEqual(view.pullRequestTextForTesting, "PR #128")
-        XCTAssertEqual(view.rowLineCountForTesting, 1)
+        XCTAssertFalse(view.isAttentionHidden)
+        XCTAssertEqual(view.branchText, "feature/review-band")
+        XCTAssertEqual(view.pullRequestText, "PR #128")
+        XCTAssertEqual(view.rowLineCount, 1)
         XCTAssertTrue(
-            view.isFocusedLabelCompressedForTesting,
-            "focused label width \(view.focusedLabelFrameWidthForTesting) vs intrinsic \(view.focusedLabelIntrinsicWidthForTesting)"
+            view.isFocusedLabelCompressed,
+            "focused label width \(view.focusedLabelFrameWidth) vs intrinsic \(view.focusedLabelIntrinsicWidth)"
         )
-        XCTAssertEqual(view.reviewChipTextsForTesting, ["Draft", "2 failing"])
+        XCTAssertEqual(view.reviewChipTexts, ["Draft", "2 failing"])
     }
 
     func test_window_chrome_keeps_row_visible_inside_cramped_visible_lane() {
@@ -126,9 +126,9 @@ final class WindowChromeViewTests: XCTestCase {
         view.leadingVisibleInset = 300
         view.layoutSubtreeIfNeeded()
 
-        XCTAssertGreaterThan(view.rowFrameForTesting.width, 0.5)
-        XCTAssertGreaterThanOrEqual(view.rowFrameForTesting.minX, view.visibleLaneFrameForTesting.minX - 0.5)
-        XCTAssertEqual(view.rowLineCountForTesting, 1)
+        XCTAssertGreaterThan(view.rowFrame.width, 0.5)
+        XCTAssertGreaterThanOrEqual(view.rowFrame.minX, view.visibleLaneFrame.minX - 0.5)
+        XCTAssertEqual(view.rowLineCount, 1)
     }
 
     func test_window_chrome_uses_full_visible_lane_width_on_wide_windows() {
@@ -146,8 +146,8 @@ final class WindowChromeViewTests: XCTestCase {
         view.leadingVisibleInset = 280
         view.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(view.rowFrameForTesting.minX, view.visibleLaneFrameForTesting.minX, accuracy: 0.5)
-        XCTAssertEqual(view.rowFrameForTesting.width, view.visibleLaneFrameForTesting.width, accuracy: 0.5)
+        XCTAssertEqual(view.rowFrame.minX, view.visibleLaneFrame.minX, accuracy: 0.5)
+        XCTAssertEqual(view.rowFrame.width, view.visibleLaneFrame.width, accuracy: 0.5)
     }
 
     func test_window_chrome_centers_content_within_full_visible_lane_when_width_is_available() throws {
@@ -178,15 +178,15 @@ final class WindowChromeViewTests: XCTestCase {
         let contentMinX = min(focusedLabel.frame.minX, branchLabel.frame.minX, pullRequestButton.frame.minX)
         let contentMaxX = max(focusedLabel.frame.maxX, branchLabel.frame.maxX, pullRequestButton.frame.maxX)
         let leftSlack = contentMinX
-        let rightSlack = view.rowFrameForTesting.width - contentMaxX
+        let rightSlack = view.rowFrame.width - contentMaxX
 
         XCTAssertGreaterThan(leftSlack, 40)
         XCTAssertEqual(leftSlack, rightSlack, accuracy: 24)
-        XCTAssertFalse(view.didCompressItemsForTesting)
-        XCTAssertEqual(view.preferredTotalWidthForTesting, view.finalTotalWidthForTesting, accuracy: 0.5)
-        XCTAssertEqual(view.focusedLabelFrameWidthForTesting, view.focusedLabelIntrinsicWidthForTesting, accuracy: 0.5)
-        XCTAssertEqual(view.branchFrameWidthForTesting, view.branchIntrinsicWidthForTesting, accuracy: 0.5)
-        XCTAssertEqual(view.pullRequestFrameWidthForTesting, view.pullRequestIntrinsicWidthForTesting, accuracy: 0.5)
+        XCTAssertFalse(view.didCompressItems)
+        XCTAssertEqual(view.preferredTotalWidth, view.finalTotalWidth, accuracy: 0.5)
+        XCTAssertEqual(view.focusedLabelFrameWidth, view.focusedLabelIntrinsicWidth, accuracy: 0.5)
+        XCTAssertEqual(view.branchFrameWidth, view.branchIntrinsicWidth, accuracy: 0.5)
+        XCTAssertEqual(view.pullRequestFrameWidth, view.pullRequestIntrinsicWidth, accuracy: 0.5)
     }
 
     func test_window_chrome_keeps_long_worktree_branch_and_pr_uncompressed_when_visible_lane_is_wide() {
@@ -208,12 +208,12 @@ final class WindowChromeViewTests: XCTestCase {
         view.leadingVisibleInset = 280
         view.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(view.overflowBeforeCompressionForTesting, 0, accuracy: 0.5)
-        XCTAssertFalse(view.didCompressItemsForTesting)
-        XCTAssertEqual(view.preferredTotalWidthForTesting, view.finalTotalWidthForTesting, accuracy: 0.5)
-        XCTAssertEqual(view.focusedLabelFrameWidthForTesting, view.focusedLabelIntrinsicWidthForTesting, accuracy: 0.5)
-        XCTAssertEqual(view.branchFrameWidthForTesting, view.branchIntrinsicWidthForTesting, accuracy: 0.5)
-        XCTAssertEqual(view.pullRequestFrameWidthForTesting, view.pullRequestIntrinsicWidthForTesting, accuracy: 0.5)
+        XCTAssertEqual(view.overflowBeforeCompression, 0, accuracy: 0.5)
+        XCTAssertFalse(view.didCompressItems)
+        XCTAssertEqual(view.preferredTotalWidth, view.finalTotalWidth, accuracy: 0.5)
+        XCTAssertEqual(view.focusedLabelFrameWidth, view.focusedLabelIntrinsicWidth, accuracy: 0.5)
+        XCTAssertEqual(view.branchFrameWidth, view.branchIntrinsicWidth, accuracy: 0.5)
+        XCTAssertEqual(view.pullRequestFrameWidth, view.pullRequestIntrinsicWidth, accuracy: 0.5)
     }
 
     func test_window_chrome_uses_fitting_widths_for_labels_to_avoid_appkit_ellipsis() throws {
@@ -399,11 +399,11 @@ final class WindowChromeViewTests: XCTestCase {
 
         let branchLabel = try XCTUnwrap(findLabel(in: view, withText: "main"))
         XCTAssertGreaterThanOrEqual(branchLabel.frame.width, requiredSingleLineWidth(of: branchLabel) - 0.5)
-        XCTAssertEqual(view.pullRequestTextForTesting, "PR #1413")
+        XCTAssertEqual(view.pullRequestText, "PR #1413")
         XCTAssertGreaterThanOrEqual(
-            view.pullRequestFrameWidthForTesting,
-            view.pullRequestIntrinsicWidthForTesting - 0.5,
-            "pull request width \(view.pullRequestFrameWidthForTesting) vs intrinsic \(view.pullRequestIntrinsicWidthForTesting)"
+            view.pullRequestFrameWidth,
+            view.pullRequestIntrinsicWidth - 0.5,
+            "pull request width \(view.pullRequestFrameWidth) vs intrinsic \(view.pullRequestIntrinsicWidth)"
         )
     }
 
@@ -429,11 +429,11 @@ final class WindowChromeViewTests: XCTestCase {
 
         let branchLabel = try XCTUnwrap(findLabel(in: view, withText: "main"))
         XCTAssertGreaterThanOrEqual(branchLabel.frame.width, requiredSingleLineWidth(of: branchLabel) - 0.5)
-        XCTAssertEqual(view.reviewChipTextsForTesting, ["1 failing"])
+        XCTAssertEqual(view.reviewChipTexts, ["1 failing"])
         XCTAssertGreaterThanOrEqual(
-            view.pullRequestFrameWidthForTesting,
-            view.pullRequestIntrinsicWidthForTesting - 0.5,
-            "pull request width \(view.pullRequestFrameWidthForTesting) vs intrinsic \(view.pullRequestIntrinsicWidthForTesting)"
+            view.pullRequestFrameWidth,
+            view.pullRequestIntrinsicWidth - 0.5,
+            "pull request width \(view.pullRequestFrameWidth) vs intrinsic \(view.pullRequestIntrinsicWidth)"
         )
     }
 

@@ -3,13 +3,13 @@ import XCTest
 
 final class PaneLayoutPreferencesTests: XCTestCase {
     override func tearDown() {
-        PaneLayoutPreferenceStore.resetForTesting()
+        PaneLayoutPreferenceStore.reset()
         super.tearDown()
     }
 
     func test_restored_preferences_use_default_presets() {
         let preferences = PaneLayoutPreferenceStore.restoredPreferences(
-            from: PaneLayoutPreferenceStore.userDefaultsForTesting()
+            from: PaneLayoutPreferenceStore.userDefaults()
         )
 
         XCTAssertEqual(preferences.laptopPreset, .compact)
@@ -24,7 +24,7 @@ final class PaneLayoutPreferencesTests: XCTestCase {
     }
 
     func test_persisted_presets_restore_per_display_class() {
-        let defaults = PaneLayoutPreferenceStore.userDefaultsForTesting()
+        let defaults = PaneLayoutPreferenceStore.userDefaults()
 
         PaneLayoutPreferenceStore.persist(.roomy, for: .laptop, in: defaults)
         PaneLayoutPreferenceStore.persist(.compact, for: .largeDisplay, in: defaults)

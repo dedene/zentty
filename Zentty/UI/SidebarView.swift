@@ -1,6 +1,15 @@
 import AppKit
 
 @MainActor
+protocol SidebarViewDelegate: AnyObject {
+    func sidebarView(_ sidebarView: SidebarView, didSelectWorkspace id: WorkspaceID)
+    func sidebarViewDidRequestNewWorkspace(_ sidebarView: SidebarView)
+    func sidebarView(_ sidebarView: SidebarView, didResizeToWidth width: CGFloat)
+    func sidebarViewPointerDidEnter(_ sidebarView: SidebarView)
+    func sidebarViewPointerDidExit(_ sidebarView: SidebarView)
+}
+
+@MainActor
 final class SidebarView: NSView {
     private enum Layout {
         static let contentInset: CGFloat = ShellMetrics.sidebarContentInset
@@ -8,11 +17,7 @@ final class SidebarView: NSView {
         static let bottomInset: CGFloat = ShellMetrics.sidebarBottomInset
     }
 
-    var onSelectWorkspace: ((WorkspaceID) -> Void)?
-    var onCreateWorkspace: (() -> Void)?
-    var onResizeWidth: ((CGFloat) -> Void)?
-    var onPointerEntered: (() -> Void)?
-    var onPointerExited: (() -> Void)?
+    weak var delegate: SidebarViewDelegate?
 
     private let backgroundView = GlassSurfaceView(style: .sidebar)
     private let listScrollView = NSScrollView()
@@ -117,11 +122,11 @@ final class SidebarView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        onPointerEntered?()
+        delegate?.sidebarViewPointerDidEnter(self)
     }
 
     override func mouseExited(with event: NSEvent) {
-        onPointerExited?()
+        delegate?.sidebarViewPointerDidExit(self)
     }
 
     func render(
@@ -202,12 +207,12 @@ final class SidebarView: NSView {
             return
         }
 
-        onSelectWorkspace?(workspaceID)
+        delegate?.sidebarView(self, didSelectWorkspace: workspaceID)
     }
 
     @objc
     private func handleCreateWorkspace() {
-        onCreateWorkspace?()
+        delegate?.sidebarViewDidRequestNewWorkspace(self)
     }
 
     private func handleResizePan(_ recognizer: NSPanGestureRecognizer) {
@@ -220,21 +225,21 @@ final class SidebarView: NSView {
             resizeStartWidth = bounds.width
         case .changed, .ended:
             let translation = recognizer.translation(in: self).x
-            onResizeWidth?(SidebarWidthPreference.clamped(resizeStartWidth + translation))
+            delegate?.sidebarView(self, didResizeToWidth: SidebarWidthPreference.clamped(resizeStartWidth + translation))
         default:
             break
         }
     }
 
-    var workspacePrimaryTextsForTesting: [String] {
+    var workspacePrimaryTexts: [String] {
         workspaceSummaries.map(\.primaryText)
     }
 
-    var workspaceContextTextsForTesting: [String] {
+    var workspaceContextTexts: [String] {
         workspaceSummaries.map(\.contextText)
     }
 
-    var workspaceArtifactTextsForTesting: [String] {
+    var workspaceArtifactTexts: [String] {
         workspaceButtons.map(\.artifactTextForTesting)
     }
 
@@ -242,19 +247,19 @@ final class SidebarView: NSView {
         workspaceButtons
     }
 
-    var addWorkspaceTitleForTesting: String {
-        addWorkspaceButton.titleTextForTesting
+    var addWorkspaceTitle: String {
+        addWorkspaceButton.titleText
     }
 
-    var isHeaderHiddenForTesting: Bool {
+    var isHeaderHidden: Bool {
         true
     }
 
-    var hasVisibleDividerForTesting: Bool {
+    var hasVisibleDivider: Bool {
         false
     }
 
-    var firstWorkspaceTopInsetForTesting: CGFloat {
+    var firstWorkspaceTopInset: CGFloat {
         guard let firstButton = workspaceButtons.first else {
             return .greatestFiniteMagnitude
         }
@@ -263,7 +268,7 @@ final class SidebarView: NSView {
         return listScrollView.frame.maxY - buttonFrame.maxY
     }
 
-    var firstWorkspaceMinYForTesting: CGFloat {
+    var firstWorkspaceMinY: CGFloat {
         guard let firstButton = workspaceButtons.first else {
             return 0
         }
@@ -271,7 +276,7 @@ final class SidebarView: NSView {
         return convert(firstButton.bounds, from: firstButton).minY
     }
 
-    var firstWorkspaceMaxYForTesting: CGFloat {
+    var firstWorkspaceMaxY: CGFloat {
         guard let firstButton = workspaceButtons.first else {
             return 0
         }
@@ -279,23 +284,23 @@ final class SidebarView: NSView {
         return convert(firstButton.bounds, from: firstButton).maxY
     }
 
-    var addWorkspaceMinYForTesting: CGFloat {
+    var addWorkspaceMinY: CGFloat {
         convert(addWorkspaceButton.bounds, from: addWorkspaceButton).minY
     }
 
-    var addWorkspaceMaxYForTesting: CGFloat {
+    var addWorkspaceMaxY: CGFloat {
         convert(addWorkspaceButton.bounds, from: addWorkspaceButton).maxY
     }
 
-    var firstWorkspaceWidthForTesting: CGFloat {
+    var firstWorkspaceWidth: CGFloat {
         workspaceButtons.first.map { convert($0.bounds, from: $0).width } ?? 0
     }
 
-    var firstWorkspacePrimaryMinXForTesting: CGFloat {
+    var firstWorkspacePrimaryMinX: CGFloat {
         workspaceButtons.first.map { $0.primaryMinX(in: self) } ?? 0
     }
 
-    var secondWorkspacePrimaryMinXForTesting: CGFloat {
+    var secondWorkspacePrimaryMinX: CGFloat {
         guard workspaceButtons.count > 1 else {
             return 0
         }
@@ -303,47 +308,47 @@ final class SidebarView: NSView {
         return workspaceButtons[1].primaryMinX(in: self)
     }
 
-    var workspaceDetailTextsForTesting: [[String]] {
+    var workspaceDetailTexts: [[String]] {
         workspaceButtons.map(\.detailTextsForTesting)
     }
 
-    var workspaceOverflowTextsForTesting: [String] {
+    var workspaceOverflowTexts: [String] {
         workspaceButtons.map(\.overflowTextForTesting)
     }
 
-    var workspaceLeadingAccessorySymbolsForTesting: [String] {
+    var workspaceLeadingAccessorySymbols: [String] {
         workspaceButtons.map(\.leadingAccessorySymbolNameForTesting)
     }
 
-    var addWorkspaceContentMinXForTesting: CGFloat {
+    var addWorkspaceContentMinX: CGFloat {
         addWorkspaceButton.contentMinX(in: self)
     }
 
-    var addWorkspaceContentMidXForTesting: CGFloat {
+    var addWorkspaceContentMidX: CGFloat {
         addWorkspaceButton.contentMidX(in: self)
     }
 
-    var addWorkspaceIconAlphaForTesting: CGFloat {
-        addWorkspaceButton.iconAlphaForTesting
+    var addWorkspaceIconAlpha: CGFloat {
+        addWorkspaceButton.iconAlpha
     }
 
-    var addWorkspaceTitleAlphaForTesting: CGFloat {
-        addWorkspaceButton.titleAlphaForTesting
+    var addWorkspaceTitleAlpha: CGFloat {
+        addWorkspaceButton.titleAlpha
     }
 
-    var resizeHandleMinXForTesting: CGFloat {
+    var resizeHandleMinX: CGFloat {
         resizeHandleView.frame.minX
     }
 
-    var resizeHandleMaxXForTesting: CGFloat {
+    var resizeHandleMaxX: CGFloat {
         resizeHandleView.frame.maxX
     }
 
-    var resizeHandleFillAlphaForTesting: CGFloat {
-        resizeHandleView.fillAlphaForTesting
+    var resizeHandleFillAlpha: CGFloat {
+        resizeHandleView.fillAlpha
     }
 
-    var isResizeHandleHiddenForTesting: Bool {
+    var isResizeHandleHidden: Bool {
         resizeHandleView.isHidden
     }
 }
@@ -431,15 +436,15 @@ private final class SidebarFooterButton: NSButton {
         }
     }
 
-    var titleTextForTesting: String {
+    var titleText: String {
         titleLabel.stringValue
     }
 
-    var iconAlphaForTesting: CGFloat {
+    var iconAlpha: CGFloat {
         iconView.contentTintColor?.alphaComponent ?? 0
     }
 
-    var titleAlphaForTesting: CGFloat {
+    var titleAlpha: CGFloat {
         titleLabel.textColor?.alphaComponent ?? 0
     }
 
@@ -498,7 +503,7 @@ private final class SidebarResizeHandleView: NSView {
         onPan?(recognizer)
     }
 
-    var fillAlphaForTesting: CGFloat {
+    var fillAlpha: CGFloat {
         (layer?.backgroundColor)
             .flatMap { NSColor(cgColor: $0) }?
             .alphaComponent ?? 0

@@ -171,7 +171,7 @@ final class AppDelegateTests: XCTestCase {
 
         delegate.showSettingsWindow(nil)
 
-        let settingsWindow = try XCTUnwrap(delegate.settingsWindowForTesting)
+        let settingsWindow = try XCTUnwrap(delegate.settingsWindow)
         XCTAssertTrue(settingsWindow.isVisible)
         XCTAssertEqual(settingsWindow.title, "Settings")
     }
@@ -199,7 +199,7 @@ final class AppDelegateTests: XCTestCase {
         let zoomAnchorInContent = contentView.convert(zoomAnchorInWindow, from: nil)
 
         XCTAssertEqual(
-            overlayView.toggleFrameInSuperviewForTesting.minX - zoomAnchorInContent.x,
+            overlayView.toggleFrameInSuperview.minX - zoomAnchorInContent.x,
             12,
             accuracy: 1.0
         )

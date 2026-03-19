@@ -1,5 +1,6 @@
 import AppKit
 
+#if DEBUG
 @MainActor
 enum TerminalAdapterRegistry {
     private static var factory: @MainActor () -> any TerminalAdapter = {
@@ -10,15 +11,10 @@ enum TerminalAdapterRegistry {
         factory()
     }
 
-    static func useLibghosttyAdapters() {
-        factory = {
-            LibghosttyAdapter()
-        }
-    }
-
     static func useMockAdapters() {
         factory = {
             MockTerminalAdapter()
         }
     }
 }
+#endif

@@ -18,8 +18,8 @@ final class PaneLayoutSettingsWindowControllerTests: XCTestCase {
         )
         contentController.loadViewIfNeeded()
 
-        XCTAssertEqual(contentController.sectionTitlesForTesting, ["Laptop", "Large Display", "Ultrawide Hybrid"])
-        XCTAssertEqual(contentController.presetSummaryForTesting, [
+        XCTAssertEqual(contentController.sectionTitles, ["Laptop", "Large Display", "Ultrawide Hybrid"])
+        XCTAssertEqual(contentController.presetSummary, [
             "Laptop behavior: preserve the active pane, then scroll horizontally.",
             "Large Display behavior: preserve the active pane with slightly denser columns.",
             "Ultrawide Hybrid behavior: first split is 50/50, then keep horizontal scrolling."

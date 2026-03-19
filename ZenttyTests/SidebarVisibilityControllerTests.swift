@@ -3,20 +3,20 @@ import XCTest
 
 final class SidebarVisibilityControllerTests: XCTestCase {
     override func tearDown() {
-        SidebarVisibilityPreference.resetForTesting()
+        SidebarVisibilityPreference.reset()
         super.tearDown()
     }
 
     func test_restored_visibility_defaults_to_pinned_open() {
         let visibility = SidebarVisibilityPreference.restoredVisibility(
-            from: SidebarVisibilityPreference.userDefaultsForTesting()
+            from: SidebarVisibilityPreference.userDefaults()
         )
 
         XCTAssertEqual(visibility, .pinnedOpen)
     }
 
     func test_persisted_hidden_visibility_restores_hidden() {
-        let defaults = SidebarVisibilityPreference.userDefaultsForTesting()
+        let defaults = SidebarVisibilityPreference.userDefaults()
 
         SidebarVisibilityPreference.persist(.hidden, in: defaults)
 

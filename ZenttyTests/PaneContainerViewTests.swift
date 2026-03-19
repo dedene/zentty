@@ -29,22 +29,22 @@ final class PaneContainerViewTests: XCTestCase {
         }) else {
             return XCTFail("Expected dedicated terminal host view")
         }
-        let borderFrame = paneView.insetBorderFrameForTesting
+        let borderFrame = paneView.insetBorderFrame
 
         XCTAssertFalse(paneView.descendantSubviews().contains { $0 is NSStackView })
         XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
         XCTAssertEqual(paneView.layer?.borderWidth ?? 0, 0, accuracy: 0.001)
         XCTAssertEqual(paneView.layer?.cornerRadius ?? 0, ChromeGeometry.paneRadius, accuracy: 0.001)
-        XCTAssertTrue(paneView.usesInsetBorderLayerForTesting)
-        XCTAssertEqual(paneView.insetBorderLineWidthForTesting, 1, accuracy: 0.001)
+        XCTAssertTrue(paneView.usesInsetBorderLayer)
+        XCTAssertEqual(paneView.insetBorderLineWidth, 1, accuracy: 0.001)
         let expectedInset = ChromeGeometry.paneBorderInset(backingScaleFactor: 2)
-        XCTAssertEqual(paneView.insetBorderInsetForTesting, expectedInset, accuracy: 0.001)
+        XCTAssertEqual(paneView.insetBorderInset, expectedInset, accuracy: 0.001)
         XCTAssertEqual(
-            paneView.insetBorderCornerRadiusForTesting,
+            paneView.insetBorderCornerRadius,
             max(0, ChromeGeometry.paneRadius - expectedInset),
             accuracy: 0.001
         )
-        XCTAssertEqual(paneView.insetBorderCornerCurveForTesting, .continuous)
+        XCTAssertEqual(paneView.insetBorderCornerCurve, .continuous)
         XCTAssertEqual(borderFrame.minX, expectedInset, accuracy: 0.001)
         XCTAssertLessThan(borderFrame.maxX, paneView.bounds.maxX)
         XCTAssertEqual(borderFrame.minY, expectedInset, accuracy: 0.001)
@@ -72,9 +72,9 @@ final class PaneContainerViewTests: XCTestCase {
         runtime.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
 
         XCTAssertEqual(adapter.startSessionCallCount, 1)
-        XCTAssertEqual(paneView.statusTitleForTesting, "Pane failed to start")
-        XCTAssertFalse(paneView.isRetryButtonHiddenForTesting)
-        XCTAssertFalse(paneView.isCloseButtonHiddenForTesting)
+        XCTAssertEqual(paneView.statusTitle, "Pane failed to start")
+        XCTAssertFalse(paneView.isRetryButtonHidden)
+        XCTAssertFalse(paneView.isCloseButtonHidden)
     }
 
     func test_retry_button_retries_session_start_and_hides_error_on_success() {
@@ -101,7 +101,7 @@ final class PaneContainerViewTests: XCTestCase {
         adapter.metadataDidChange?(TerminalMetadata(currentWorkingDirectory: "/tmp/project"))
 
         XCTAssertEqual(adapter.startSessionCallCount, 2)
-        XCTAssertTrue(paneView.isStatusOverlayHiddenForTesting)
+        XCTAssertTrue(paneView.isStatusOverlayHidden)
     }
 
     func test_close_button_notifies_observer_when_startup_failed() {
@@ -155,7 +155,7 @@ final class PaneContainerViewTests: XCTestCase {
 
         adapter.metadataDidChange?(TerminalMetadata())
 
-        XCTAssertTrue(paneView.isStatusOverlayHiddenForTesting)
+        XCTAssertTrue(paneView.isStatusOverlayHidden)
     }
 
     func test_initial_empty_runtime_snapshot_stays_hidden_until_metadata_is_reported() {
@@ -177,7 +177,7 @@ final class PaneContainerViewTests: XCTestCase {
             theme: ZenttyTheme.fallback(for: nil)
         )
 
-        XCTAssertTrue(paneView.isStatusOverlayHiddenForTesting)
+        XCTAssertTrue(paneView.isStatusOverlayHidden)
     }
 
     func test_present_metadata_hides_metadata_unavailable_state() {
@@ -201,7 +201,7 @@ final class PaneContainerViewTests: XCTestCase {
 
         adapter.metadataDidChange?(TerminalMetadata(currentWorkingDirectory: "/tmp/project"))
 
-        XCTAssertTrue(paneView.isStatusOverlayHiddenForTesting)
+        XCTAssertTrue(paneView.isStatusOverlayHidden)
     }
 
     func test_pane_container_keeps_border_context_chrome_outside_pane_ownership() {
@@ -231,7 +231,7 @@ final class PaneContainerViewTests: XCTestCase {
         )
         paneView.layoutSubtreeIfNeeded()
 
-        XCTAssertFalse(paneView.hasPaneContextChromeForTesting)
+        XCTAssertFalse(paneView.hasPaneContextChrome)
     }
 
     func test_render_updates_content_without_mutating_frame() {
@@ -262,7 +262,7 @@ final class PaneContainerViewTests: XCTestCase {
 
         XCTAssertEqual(paneView.frame, originalFrame)
         XCTAssertEqual(paneView.paneID, PaneID("logs"))
-        XCTAssertEqual(paneView.titleTextForTesting, "logs")
+        XCTAssertEqual(paneView.titleText, "logs")
     }
 
     func test_terminal_host_and_overlay_follow_bounds_after_resize() {
@@ -292,7 +292,7 @@ final class PaneContainerViewTests: XCTestCase {
         paneView.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
-        XCTAssertEqual(paneView.statusOverlayFrameForTesting, paneView.bounds)
+        XCTAssertEqual(paneView.statusOverlayFrame, paneView.bounds)
     }
 
     func test_frozen_terminal_preserves_original_frame_until_unfrozen() {
@@ -391,7 +391,7 @@ final class PaneContainerViewTests: XCTestCase {
             theme: ZenttyTheme.fallback(for: nil)
         )
 
-        XCTAssertTrue(paneView.clipsContentToBoundsForTesting)
+        XCTAssertTrue(paneView.clipsContentToBounds)
     }
 
     func test_unfocused_render_uses_unfocused_fill_without_mutating_alpha() {

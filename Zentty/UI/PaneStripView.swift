@@ -58,15 +58,15 @@ final class PaneStripView: NSView {
     private var lastRenderedSize: CGSize = .zero
     private var currentOffset: CGFloat = 0
     private var lastFocusedPaneID: PaneID?
-    private var lastInsertionTransition: PaneInsertionTransition?
-    private var lastRemovalTransition: PaneRemovalTransition?
-    private var lastRenderWasAnimated = false
+    private(set) var lastInsertionTransition: PaneInsertionTransition?
+    private(set) var lastRemovalTransition: PaneRemovalTransition?
+    private(set) var lastRenderWasAnimated = false
     private var suppressAnimatedRenderForResize = false
     private var resizeSuppressionGeneration = 0
     private var visualStateSettleGeneration = 0
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resolvedLeadingVisibleInset: CGFloat = 0
-    private var renderInvocationCount = 0
+    private(set) var renderInvocationCount = 0
 
     var leadingVisibleInset: CGFloat {
         get { resolvedLeadingVisibleInset }
@@ -217,22 +217,6 @@ final class PaneStripView: NSView {
         paneViews.values.forEach { paneView in
             paneView.apply(theme: theme, animated: animated)
         }
-    }
-
-    var lastInsertionTransitionForTesting: PaneInsertionTransition? {
-        lastInsertionTransition
-    }
-
-    var lastRemovalTransitionForTesting: PaneRemovalTransition? {
-        lastRemovalTransition
-    }
-
-    var lastRenderWasAnimatedForTesting: Bool {
-        lastRenderWasAnimated
-    }
-
-    var renderInvocationCountForTesting: Int {
-        renderInvocationCount
     }
 
     var leadingVisibleInsetForTesting: CGFloat {
@@ -526,166 +510,6 @@ final class PaneStripView: NSView {
         }
     }
 
-    private func insertionTransition(
-        from previousPresentation: StripPresentation?,
-        previousOffset: CGFloat,
-        to nextPresentation: StripPresentation
-    ) -> PaneInsertionTransition? {
-        guard let previousPresentation else {
-            return nil
-        }
-
-        let previousPaneIDs = Set(previousPresentation.panes.map(\.paneID))
-        let nextPaneIDs = Set(nextPresentation.panes.map(\.paneID))
-        let insertedPaneIDs = nextPaneIDs.subtracting(previousPaneIDs)
-        let removedPaneIDs = previousPaneIDs.subtracting(nextPaneIDs)
-
-        guard insertedPaneIDs.count == 1, removedPaneIDs.isEmpty else {
-            return nil
-        }
-
-        guard
-            let insertedPaneID = insertedPaneIDs.first,
-            let insertedPane = nextPresentation.panes.first(where: { $0.paneID == insertedPaneID }),
-            let insertedColumnIndex = nextPresentation.columns.firstIndex(where: {
-                $0.panes.contains(where: { $0.paneID == insertedPaneID })
-            })
-        else {
-            return nil
-        }
-
-        let nextColumn = nextPresentation.columns[insertedColumnIndex]
-        let previousColumnsByID = Dictionary(uniqueKeysWithValues: previousPresentation.columns.map { ($0.columnID, $0) })
-
-        if let previousColumn = previousColumnsByID[nextColumn.columnID] {
-            let spacing = nextColumn.panes.count > 1
-                ? nextColumn.panes[0].frame.minY - nextColumn.panes[1].frame.maxY
-                : 16
-            guard let insertedIndex = nextColumn.panes.firstIndex(where: { $0.paneID == insertedPaneID }) else {
-                return nil
-            }
-
-            if insertedIndex > 0 {
-                let anchorPane = nextColumn.panes[insertedIndex - 1]
-                let previousAnchorPane = previousColumn.panes.first(where: { $0.paneID == anchorPane.paneID })
-                let initialHeight = min(insertedPane.frame.height, 96)
-                let initialFrame = CGRect(
-                    x: insertedPane.frame.minX,
-                    y: (previousAnchorPane?.frame.minY ?? anchorPane.frame.minY) - initialHeight,
-                    width: insertedPane.frame.width,
-                    height: initialHeight
-                )
-                return PaneInsertionTransition(
-                    paneID: insertedPaneID,
-                    side: .bottom,
-                    initialFrame: initialFrame.offsetBy(dx: -previousOffset, dy: 0),
-                    columnID: nextColumn.columnID,
-                    sourcePaneID: anchorPane.paneID
-                )
-            }
-
-            if insertedIndex < nextColumn.panes.count - 1 {
-                let anchorPane = nextColumn.panes[insertedIndex + 1]
-                let previousAnchorPane = previousColumn.panes.first(where: { $0.paneID == anchorPane.paneID })
-                return PaneInsertionTransition(
-                    paneID: insertedPaneID,
-                    side: .top,
-                    initialFrame: CGRect(
-                        x: insertedPane.frame.minX,
-                        y: (previousAnchorPane?.frame.maxY ?? anchorPane.frame.maxY) + spacing,
-                        width: insertedPane.frame.width,
-                        height: insertedPane.frame.height
-                    ).offsetBy(dx: -previousOffset, dy: 0),
-                    columnID: nextColumn.columnID,
-                    sourcePaneID: anchorPane.paneID
-                )
-            }
-
-            return nil
-        }
-
-        let spacing = nextPresentation.columns.count > 1
-            ? nextPresentation.columns[1].frame.minX - nextPresentation.columns[0].frame.maxX
-            : 16
-
-        if insertedColumnIndex > 0 {
-            let anchorColumn = nextPresentation.columns[insertedColumnIndex - 1]
-            return PaneInsertionTransition(
-                paneID: insertedPaneID,
-                side: .right,
-                initialFrame: CGRect(
-                    x: anchorColumn.frame.maxX + spacing,
-                    y: insertedPane.frame.minY,
-                    width: insertedPane.frame.width,
-                    height: insertedPane.frame.height
-                ).offsetBy(dx: -previousOffset, dy: 0)
-            )
-        }
-
-        if insertedColumnIndex < nextPresentation.columns.count - 1 {
-            let anchorColumn = nextPresentation.columns[insertedColumnIndex + 1]
-            return PaneInsertionTransition(
-                paneID: insertedPaneID,
-                side: .left,
-                initialFrame: CGRect(
-                    x: anchorColumn.frame.minX - spacing - insertedPane.frame.width,
-                    y: insertedPane.frame.minY,
-                    width: insertedPane.frame.width,
-                    height: insertedPane.frame.height
-                ).offsetBy(dx: -previousOffset, dy: 0)
-            )
-        }
-
-        return nil
-    }
-
-    private func removalTransition(
-        from previousPresentation: StripPresentation?,
-        to nextPresentation: StripPresentation
-    ) -> PaneRemovalTransition? {
-        guard let previousPresentation else {
-            return nil
-        }
-
-        let previousPaneIDs = Set(previousPresentation.panes.map(\.paneID))
-        let nextPaneIDs = Set(nextPresentation.panes.map(\.paneID))
-        let removedPaneIDs = previousPaneIDs.subtracting(nextPaneIDs)
-        let insertedPaneIDs = nextPaneIDs.subtracting(previousPaneIDs)
-
-        guard !removedPaneIDs.isEmpty, insertedPaneIDs.isEmpty else {
-            return nil
-        }
-
-        for previousColumn in previousPresentation.columns {
-            guard previousColumn.panes.count > 1 else {
-                continue
-            }
-            guard let nextColumn = nextPresentation.columns.first(where: {
-                $0.columnID == previousColumn.columnID
-            }) else {
-                continue
-            }
-            let columnRemovedIDs = removedPaneIDs.intersection(
-                Set(previousColumn.panes.map(\.paneID))
-            )
-            guard columnRemovedIDs.count == 1 else {
-                continue
-            }
-
-            let survivingPaneIDs = Set(nextColumn.panes.map(\.paneID))
-            guard !survivingPaneIDs.isEmpty else {
-                continue
-            }
-
-            return PaneRemovalTransition(
-                columnID: previousColumn.columnID,
-                survivingPaneIDs: survivingPaneIDs
-            )
-        }
-
-        return nil
-    }
-
     private func syncFocusedTerminal(with paneID: PaneID?, force: Bool = false) {
         guard let paneID else {
             lastFocusedPaneID = nil
@@ -702,7 +526,7 @@ final class PaneStripView: NSView {
         }
     }
 
-    var leadingMaskMinXForTesting: CGFloat {
+    var leadingMaskMinX: CGFloat {
         0
     }
 

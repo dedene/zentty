@@ -97,7 +97,7 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.layoutSubtreeIfNeeded()
 
         let framesByTitle = Dictionary(uniqueKeysWithValues: try paneStripView.descendantPaneViews().map {
-            let title = try XCTUnwrap($0.titleTextForTesting.isEmpty ? nil : $0.titleTextForTesting)
+            let title = try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText)
             return (title, $0.frame)
         })
 
@@ -137,7 +137,7 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.layoutSubtreeIfNeeded()
 
         let framesByTitle = Dictionary(uniqueKeysWithValues: try paneStripView.descendantPaneViews().map {
-            let title = try XCTUnwrap($0.titleTextForTesting.isEmpty ? nil : $0.titleTextForTesting)
+            let title = try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText)
             return (title, $0.frame)
         })
 
@@ -176,7 +176,7 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertTrue(snapshots[1].isFocused)
         XCTAssertEqual(
             snapshots[1].frame,
-            try XCTUnwrap(paneStripView.descendantPaneViews().first { $0.titleTextForTesting == "editor" }?.frame)
+            try XCTUnwrap(paneStripView.descendantPaneViews().first { $0.titleText == "editor" }?.frame)
         )
     }
 
@@ -204,11 +204,11 @@ final class PaneStripViewTests: XCTestCase {
 
         paneStripView.render(editorFocused)
         paneStripView.layoutSubtreeIfNeeded()
-        let initialFrames = Dictionary(uniqueKeysWithValues: paneStripView.descendantPaneViews().map { ($0.titleTextForTesting, $0.frame) })
+        let initialFrames = Dictionary(uniqueKeysWithValues: paneStripView.descendantPaneViews().map { ($0.titleText, $0.frame) })
 
         paneStripView.render(testsFocused)
         paneStripView.layoutSubtreeIfNeeded()
-        let updatedFrames = Dictionary(uniqueKeysWithValues: paneStripView.descendantPaneViews().map { ($0.titleTextForTesting, $0.frame) })
+        let updatedFrames = Dictionary(uniqueKeysWithValues: paneStripView.descendantPaneViews().map { ($0.titleText, $0.frame) })
 
         XCTAssertLessThan(updatedFrames["editor"]!.minX, initialFrames["editor"]!.minX)
         XCTAssertLessThan(updatedFrames["tests"]!.midX, initialFrames["tests"]!.midX)
@@ -240,7 +240,7 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(testsFocused)
 
         let paneViewsByTitle = Dictionary(uniqueKeysWithValues: try paneStripView.descendantPaneViews().map {
-            let title = try XCTUnwrap($0.titleTextForTesting.isEmpty ? nil : $0.titleTextForTesting)
+            let title = try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText)
             return (title, $0)
         })
 
@@ -280,7 +280,7 @@ final class PaneStripViewTests: XCTestCase {
         wait(for: [settled], timeout: 1.0)
 
         let paneViewsByTitle = Dictionary(uniqueKeysWithValues: try paneStripView.descendantPaneViews().map {
-            let title = try XCTUnwrap($0.titleTextForTesting.isEmpty ? nil : $0.titleTextForTesting)
+            let title = try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText)
             return (title, $0)
         })
 
@@ -387,7 +387,7 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(state)
         paneStripView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(paneStripView.leadingMaskMinXForTesting, 0, accuracy: 0.001)
+        XCTAssertEqual(paneStripView.leadingMaskMinX, 0, accuracy: 0.001)
     }
 
     @MainActor
@@ -416,7 +416,7 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(leftFocused)
         paneStripView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(paneStripView.leadingMaskMinXForTesting, 0, accuracy: 0.001)
+        XCTAssertEqual(paneStripView.leadingMaskMinX, 0, accuracy: 0.001)
     }
 
     @MainActor
@@ -445,7 +445,7 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(rightFocused)
         paneStripView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(paneStripView.leadingMaskMinXForTesting, 0, accuracy: 0.001)
+        XCTAssertEqual(paneStripView.leadingMaskMinX, 0, accuracy: 0.001)
     }
 
     @MainActor
@@ -574,7 +574,7 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(workspace2State)
         paneStripView.layoutSubtreeIfNeeded()
 
-        XCTAssertFalse(paneStripView.lastRenderWasAnimatedForTesting)
+        XCTAssertFalse(paneStripView.lastRenderWasAnimated)
     }
 
     @MainActor
@@ -595,7 +595,7 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(state)
         paneStripView.layoutSubtreeIfNeeded()
 
-        XCTAssertFalse(paneStripView.lastRenderWasAnimatedForTesting)
+        XCTAssertFalse(paneStripView.lastRenderWasAnimated)
     }
 
     @MainActor
@@ -623,12 +623,12 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(editorFocused)
         paneStripView.layoutSubtreeIfNeeded()
 
-        XCTAssertFalse(paneStripView.lastRenderWasAnimatedForTesting)
+        XCTAssertFalse(paneStripView.lastRenderWasAnimated)
 
         paneStripView.render(shellFocused)
         paneStripView.layoutSubtreeIfNeeded()
 
-        XCTAssertTrue(paneStripView.lastRenderWasAnimatedForTesting)
+        XCTAssertTrue(paneStripView.lastRenderWasAnimated)
     }
 
     @MainActor
@@ -807,7 +807,7 @@ final class PaneStripViewTests: XCTestCase {
 
         paneStripView.render(splitState)
 
-        let transition = try XCTUnwrap(paneStripView.lastInsertionTransitionForTesting)
+        let transition = try XCTUnwrap(paneStripView.lastInsertionTransition)
         let finalFrame = try XCTUnwrap(
             splitPresentation.panes.first(where: { $0.paneID == PaneID("pane-1") })?.frame
                 .offsetBy(dx: -splitPresentation.targetOffset, dy: 0)
@@ -842,12 +842,12 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(twoPaneState)
         paneStripView.layoutSubtreeIfNeeded()
         let editorFrame = try XCTUnwrap(
-            paneStripView.descendantPaneViews().first(where: { $0.titleTextForTesting == "editor" })?.frame
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "editor" })?.frame
         )
 
         paneStripView.render(splitState)
 
-        let transition = try XCTUnwrap(paneStripView.lastInsertionTransitionForTesting)
+        let transition = try XCTUnwrap(paneStripView.lastInsertionTransition)
 
         XCTAssertEqual(transition.side, .right)
         XCTAssertEqual(transition.paneID, PaneID("pane-1"))
@@ -890,7 +890,7 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(singlePane)
         paneStripView.layoutSubtreeIfNeeded()
         let originalShellFrame = try XCTUnwrap(
-            paneStripView.descendantPaneViews().first(where: { $0.titleTextForTesting == "shell" })?.frame
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })?.frame
         )
 
         let splitPresentation = PaneStripMotionController().presentation(
@@ -900,7 +900,7 @@ final class PaneStripViewTests: XCTestCase {
 
         paneStripView.render(splitState)
 
-        let transition = try XCTUnwrap(paneStripView.lastInsertionTransitionForTesting)
+        let transition = try XCTUnwrap(paneStripView.lastInsertionTransition)
         let finalFrame = try XCTUnwrap(
             splitPresentation.panes.first(where: { $0.paneID == PaneID("pane-1") })?.frame
         )
@@ -1037,10 +1037,10 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(splitState)
 
         let shellPane = try XCTUnwrap(
-            paneStripView.descendantPaneViews().first(where: { $0.titleTextForTesting == "shell" })
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
         )
         let insertedPane = try XCTUnwrap(
-            paneStripView.descendantPaneViews().first(where: { $0.titleTextForTesting == "pane 1" })
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "pane 1" })
         )
         XCTAssertTrue(shellPane.isTerminalAnimationFrozenForTesting)
         XCTAssertFalse(insertedPane.isTerminalAnimationFrozenForTesting)
@@ -1094,11 +1094,11 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(singlePane)
 
         let shellPane = try XCTUnwrap(
-            paneStripView.descendantPaneViews().first(where: { $0.titleTextForTesting == "shell" })
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
         )
         XCTAssertTrue(shellPane.isTerminalAnimationFrozenForTesting)
 
-        let removalTransition = try XCTUnwrap(paneStripView.lastRemovalTransitionForTesting)
+        let removalTransition = try XCTUnwrap(paneStripView.lastRemovalTransition)
         XCTAssertEqual(removalTransition.columnID, PaneColumnID("stack"))
         XCTAssertEqual(removalTransition.survivingPaneIDs, [PaneID("shell")])
 

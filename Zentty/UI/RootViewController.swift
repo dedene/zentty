@@ -143,36 +143,20 @@ final class RootViewController: NSViewController {
             }
             self.handleWorkspaceChange(change)
         }
-        appCanvasView.onFocusSettled = { [weak self] paneID in
+        appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.workspaceStore.focusPane(id: paneID)
         }
-        appCanvasView.onPaneSelected = { [weak self] paneID in
+        appCanvasView.paneStripView.onPaneSelected = { [weak self] paneID in
             self?.workspaceStore.focusPane(id: paneID)
         }
-        appCanvasView.onPaneCloseRequested = { [weak self] paneID in
+        appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
             self?.workspaceStore.closePane(id: paneID)
         }
-        appCanvasView.onBorderChromeSnapshotsDidChange = { [weak self] snapshots in
+        appCanvasView.paneStripView.onBorderChromeSnapshotsDidChange = { [weak self] snapshots in
             self?.currentPaneBorderChromeSnapshots = snapshots
             self?.renderPaneBorderContextOverlay()
         }
-        sidebarView.onSelectWorkspace = { [weak self] workspaceID in
-            self?.workspaceStore.selectWorkspace(id: workspaceID)
-        }
-        sidebarView.onCreateWorkspace = { [weak self] in
-            self?.handle(.newWorkspace)
-        }
-        sidebarView.onResizeWidth = { [weak self] width in
-            self?.handleSidebarWidthChange(width)
-        }
-        sidebarView.onPointerEntered = { [weak self] in
-            self?.sidebarMotionCoordinator.handle(.sidebarEntered)
-            self?.syncSidebarVisibilityControls(animated: true)
-        }
-        sidebarView.onPointerExited = { [weak self] in
-            self?.sidebarMotionCoordinator.handle(.sidebarExited)
-            self?.syncSidebarVisibilityControls(animated: true)
-        }
+        sidebarView.delegate = self
         sidebarHoverRailView.onPointerEntered = { [weak self] in
             self?.sidebarMotionCoordinator.handle(.hoverRailEntered)
             self?.syncSidebarVisibilityControls(animated: true)
@@ -531,52 +515,47 @@ final class RootViewController: NSViewController {
         CATransaction.commit()
     }
 
-    var sidebarWidthForTesting: CGFloat {
+    var currentSidebarWidth: CGFloat {
         sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
     }
 
-    var sidebarVisibilityModeForTesting: SidebarVisibilityMode {
+    var sidebarVisibilityMode: SidebarVisibilityMode {
         sidebarMotionCoordinator.mode
     }
 
-    var isSidebarFloatingForTesting: Bool {
+    var isSidebarFloating: Bool {
         sidebarMotionCoordinator.isFloating
     }
 
-    var sidebarToggleMinXForTesting: CGFloat {
-        sidebarToggleOverlayView.toggleFrameInSuperviewForTesting.minX
+    var sidebarToggleMinX: CGFloat {
+        sidebarToggleOverlayView.toggleFrameInSuperview.minX
     }
 
-    var sidebarToggleMidYForTesting: CGFloat {
-        sidebarToggleOverlayView.toggleFrameInSuperviewForTesting.midY
+    var sidebarToggleMidY: CGFloat {
+        sidebarToggleOverlayView.toggleFrameInSuperview.midY
     }
 
-    var isSidebarToggleActiveForTesting: Bool {
-        sidebarToggleOverlayView.isToggleActiveForTesting
-    }
-
-    func handleSidebarVisibilityEventForTesting(_ event: SidebarVisibilityEvent) {
-        sidebarMotionCoordinator.handle(event)
-        syncSidebarVisibilityControls(animated: false)
+    var isSidebarToggleActive: Bool {
+        sidebarToggleOverlayView.isToggleActive
     }
 
     var currentPaneLayoutPreferences: PaneLayoutPreferences {
         paneLayoutPreferences
     }
 
-    var workspaceTitlesForTesting: [String] {
+    var workspaceTitles: [String] {
         workspaceStore.workspaces.map(\.title)
     }
 
-    var activeWorkspaceTitleForTesting: String? {
+    var activeWorkspaceTitle: String? {
         workspaceStore.activeWorkspace?.title
     }
 
-    var activePaneTitlesForTesting: [String] {
+    var activePaneTitles: [String] {
         workspaceStore.activeWorkspace?.paneStripState.panes.map(\.title) ?? []
     }
 
-    var focusedPaneTitleForTesting: String? {
+    var focusedPaneTitle: String? {
         workspaceStore.activeWorkspace?.paneStripState.focusedPane?.title
     }
 
@@ -584,25 +563,32 @@ final class RootViewController: NSViewController {
         workspaceStore.updatePaneViewportHeight(appCanvasView.bounds.height)
     }
 
-    var windowChromeViewForTesting: WindowChromeView {
+    var chromeView: WindowChromeView {
         windowChromeView
     }
 
-    func replaceWorkspacesForTesting(_ workspaces: [WorkspaceState], activeWorkspaceID: WorkspaceID? = nil) {
-        workspaceStore.replaceWorkspacesForTesting(workspaces, activeWorkspaceID: activeWorkspaceID)
+    #if DEBUG
+    func handleSidebarVisibilityEvent(_ event: SidebarVisibilityEvent) {
+        sidebarMotionCoordinator.handle(event)
+        syncSidebarVisibilityControls(animated: false)
+    }
+
+    func replaceWorkspaces(_ workspaces: [WorkspaceState], activeWorkspaceID: WorkspaceID? = nil) {
+        workspaceStore.replaceWorkspaces(workspaces, activeWorkspaceID: activeWorkspaceID)
         renderCurrentWorkspace()
     }
 
-    func focusPaneForTesting(_ paneID: PaneID) {
+    func focusPaneDirectly(_ paneID: PaneID) {
         workspaceStore.focusPane(id: paneID)
         renderCurrentWorkspace()
     }
 
-    func setSidebarWidthForTesting(_ width: CGFloat) {
+    func setSidebarWidth(_ width: CGFloat) {
         sidebarMotionCoordinator.setSidebarWidth(width, persist: false)
         sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
         applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
     }
+    #endif
 
     private func updateCanvasLeadingInset(_ leadingVisibleInset: CGFloat? = nil) {
         let leadingVisibleInset = leadingVisibleInset
@@ -671,6 +657,30 @@ final class RootViewController: NSViewController {
             leadingVisibleInset: leadingVisibleInsetOverride ?? appCanvasView.leadingVisibleInset,
             sizing: PaneLayoutSizing.forSidebarVisibility(sidebarMotionCoordinator.mode)
         )
+    }
+}
+
+extension RootViewController: SidebarViewDelegate {
+    func sidebarView(_ sidebarView: SidebarView, didSelectWorkspace id: WorkspaceID) {
+        workspaceStore.selectWorkspace(id: id)
+    }
+
+    func sidebarViewDidRequestNewWorkspace(_ sidebarView: SidebarView) {
+        handle(.newWorkspace)
+    }
+
+    func sidebarView(_ sidebarView: SidebarView, didResizeToWidth width: CGFloat) {
+        handleSidebarWidthChange(width)
+    }
+
+    func sidebarViewPointerDidEnter(_ sidebarView: SidebarView) {
+        sidebarMotionCoordinator.handle(.sidebarEntered)
+        syncSidebarVisibilityControls(animated: true)
+    }
+
+    func sidebarViewPointerDidExit(_ sidebarView: SidebarView) {
+        sidebarMotionCoordinator.handle(.sidebarExited)
+        syncSidebarVisibilityControls(animated: true)
     }
 }
 

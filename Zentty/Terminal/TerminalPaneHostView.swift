@@ -251,7 +251,7 @@ final class PaneRuntimeRegistry {
     var onMetadataDidChange: ((PaneID, TerminalMetadata) -> Void)?
     var onEventDidOccur: ((PaneID, TerminalEvent) -> Void)?
 
-    init(adapterFactory: @escaping AdapterFactory = { _ in TerminalAdapterRegistry.makeAdapter() }) {
+    init(adapterFactory: @escaping AdapterFactory = { _ in LibghosttyAdapter() }) {
         self.adapterFactory = adapterFactory
     }
 
