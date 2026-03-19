@@ -384,13 +384,18 @@ final class RootViewController: NSViewController {
             return
         }
 
+        let effectiveInset = leadingVisibleInsetOverride
+            ?? sidebarVisibilityController.effectiveLeadingInset(
+                sidebarWidth: sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
+            )
+
         appCanvasView.render(
             workspaceName: workspace.title,
             state: workspace.paneStripState,
             metadataByPaneID: workspace.metadataByPaneID,
             paneBorderContextByPaneID: workspace.paneBorderContextDisplayByPaneID,
             theme: currentTheme,
-            leadingVisibleInset: leadingVisibleInsetOverride,
+            leadingVisibleInset: effectiveInset,
             animated: animated,
             duration: duration,
             timingFunction: timingFunction

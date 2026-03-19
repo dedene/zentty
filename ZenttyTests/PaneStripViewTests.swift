@@ -468,6 +468,31 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_navigate_back_to_first_pane_respects_leading_visible_inset_with_three_panes() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        paneStripView.leadingVisibleInset = sidebarInset
+
+        let lastFocused = PaneStripState(
+            panes: [makePane("shell"), makePane("editor"), makePane("tests")],
+            focusedPaneID: PaneID("tests")
+        )
+        paneStripView.render(lastFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let firstFocused = PaneStripState(
+            panes: [makePane("shell"), makePane("editor"), makePane("tests")],
+            focusedPaneID: PaneID("shell")
+        )
+        paneStripView.render(firstFocused)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThanOrEqual(
+            paneStripView.descendantPaneViews()[0].frame.minX,
+            sidebarInset - 0.001
+        )
+    }
+
+    @MainActor
     func test_leading_visible_inset_does_not_change_first_focused_pane_width() {
         let state = PaneStripState(
             panes: [

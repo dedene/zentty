@@ -146,7 +146,7 @@ final class PaneStripMotionController {
             return 0
         }
 
-        let viewportMidX = viewportWidth / 2
+        let viewportMidX = (viewportWidth + leadingVisibleInset) / 2
         let centeredOffset = focusedPane.frame.midX - viewportMidX
         let unclampedOffset: CGFloat
         if isFirstColumn, leadingVisibleInset > 0, focusedPane.frame.minX <= max(0, leadingVisibleInset) {

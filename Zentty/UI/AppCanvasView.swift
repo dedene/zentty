@@ -485,7 +485,8 @@ final class AppCanvasView: NSView {
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
         apply(theme: theme, animated: animated)
-        if let leadingVisibleInset {
+        if let leadingVisibleInset,
+           abs(paneStripView.leadingVisibleInset - leadingVisibleInset) > 0.001 {
             paneStripView.transition(
                 to: state,
                 paneBorderContextByPaneID: paneBorderContextByPaneID,
@@ -495,7 +496,11 @@ final class AppCanvasView: NSView {
                 timingFunction: timingFunction
             )
         } else {
-            paneStripView.render(state, paneBorderContextByPaneID: paneBorderContextByPaneID)
+            paneStripView.render(
+                state,
+                paneBorderContextByPaneID: paneBorderContextByPaneID,
+                leadingVisibleInset: leadingVisibleInset
+            )
         }
     }
 

@@ -1049,6 +1049,30 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertTrue(controller.isSidebarFloatingForTesting)
         XCTAssertFalse(appCanvasView.lastPaneStripRenderWasAnimatedForTesting)
     }
+
+    func test_navigate_back_to_first_pane_clears_sidebar_with_three_panes() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.focusLastColumn))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusFirstColumn))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView })
+        let paneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        let sidebarInset = controller.sidebarWidthForTesting + ShellMetrics.canvasSidebarGap
+
+        XCTAssertEqual(paneViews.count, 3)
+        XCTAssertGreaterThanOrEqual(paneViews[0].frame.minX, sidebarInset - 0.001)
+    }
 }
 
 private extension NSView {
