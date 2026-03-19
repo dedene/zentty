@@ -18,72 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController?.showSettingsWindow(sender)
     }
 
-    @objc
-    func newWorkspace(_ sender: Any?) {
-        windowController?.newWorkspace(sender)
-    }
-
-    @objc
-    func splitHorizontally(_ sender: Any?) {
-        windowController?.splitHorizontally(sender)
-    }
-
-    @objc
-    func splitVertically(_ sender: Any?) {
-        windowController?.splitVertically(sender)
-    }
-
-    @objc
-    func focusLeftPane(_ sender: Any?) {
-        windowController?.focusLeftPane(sender)
-    }
-
-    @objc
-    func focusRightPane(_ sender: Any?) {
-        windowController?.focusRightPane(sender)
-    }
-
-    @objc
-    func focusUpInColumn(_ sender: Any?) {
-        windowController?.focusUpInColumn(sender)
-    }
-
-    @objc
-    func focusDownInColumn(_ sender: Any?) {
-        windowController?.focusDownInColumn(sender)
-    }
-
-    @objc
-    func focusFirstColumn(_ sender: Any?) {
-        windowController?.focusFirstColumn(sender)
-    }
-
-    @objc
-    func focusLastColumn(_ sender: Any?) {
-        windowController?.focusLastColumn(sender)
-    }
-
-    @objc
-    func splitRight(_ sender: Any?) {
-        splitHorizontally(sender)
-    }
-
-    @objc
-    func splitLeft(_ sender: Any?) {
-        splitVertically(sender)
-    }
-
-    @objc
-    func focusFirstPane(_ sender: Any?) {
-        focusFirstColumn(sender)
-    }
-
-    @objc
-    func focusLastPane(_ sender: Any?) {
-        focusLastColumn(sender)
-    }
-
+    #if DEBUG
     var settingsWindowForTesting: NSWindow? {
         windowController?.settingsWindowForTesting
     }
+    #endif
 }

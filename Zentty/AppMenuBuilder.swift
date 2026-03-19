@@ -81,7 +81,7 @@ enum AppMenuBuilder {
 
         fileMenu.addItem(makeMenuActionItem(
             title: "New Workspace",
-            action: #selector(AppDelegate.newWorkspace(_:)),
+            action: #selector(MainWindowController.newWorkspace(_:)),
             keyEquivalent: "t"
         ))
 
@@ -95,12 +95,12 @@ enum AppMenuBuilder {
 
         viewMenu.addItem(makeMenuActionItem(
             title: "Split Horizontally",
-            action: #selector(AppDelegate.splitHorizontally(_:)),
+            action: #selector(MainWindowController.splitHorizontally(_:)),
             keyEquivalent: "d"
         ))
         viewMenu.addItem(makeMenuActionItem(
             title: "Split Vertically",
-            action: #selector(AppDelegate.splitVertically(_:)),
+            action: #selector(MainWindowController.splitVertically(_:)),
             keyEquivalent: "d",
             modifiers: [.command, .shift]
         ))
@@ -109,37 +109,37 @@ enum AppMenuBuilder {
         viewMenu.addItem(separatorItem)
         viewMenu.addItem(makeMenuActionItem(
             title: "Focus Left Pane",
-            action: #selector(AppDelegate.focusLeftPane(_:)),
+            action: #selector(MainWindowController.focusLeftPane(_:)),
             keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
             modifiers: [.command, .option]
         ))
         viewMenu.addItem(makeMenuActionItem(
             title: "Focus Right Pane",
-            action: #selector(AppDelegate.focusRightPane(_:)),
+            action: #selector(MainWindowController.focusRightPane(_:)),
             keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!),
             modifiers: [.command, .option]
         ))
         viewMenu.addItem(makeMenuActionItem(
             title: "Focus Up In Column",
-            action: #selector(AppDelegate.focusUpInColumn(_:)),
+            action: #selector(MainWindowController.focusUpInColumn(_:)),
             keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!),
             modifiers: [.command, .option]
         ))
         viewMenu.addItem(makeMenuActionItem(
             title: "Focus Down In Column",
-            action: #selector(AppDelegate.focusDownInColumn(_:)),
+            action: #selector(MainWindowController.focusDownInColumn(_:)),
             keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!),
             modifiers: [.command, .option]
         ))
         viewMenu.addItem(makeMenuActionItem(
             title: "Focus First Column",
-            action: #selector(AppDelegate.focusFirstColumn(_:)),
+            action: #selector(MainWindowController.focusFirstColumn(_:)),
             keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
             modifiers: [.command, .option, .shift]
         ))
         viewMenu.addItem(makeMenuActionItem(
             title: "Focus Last Column",
-            action: #selector(AppDelegate.focusLastColumn(_:)),
+            action: #selector(MainWindowController.focusLastColumn(_:)),
             keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!),
             modifiers: [.command, .option, .shift]
         ))
@@ -186,7 +186,7 @@ enum AppMenuBuilder {
         let editMenu = menu(named: "Edit", in: mainMenu)
         let viewMenu = menu(named: "View", in: mainMenu)
         let requiredFileItems: [(String, Selector, String, NSEvent.ModifierFlags)] = [
-            ("New Workspace", #selector(AppDelegate.newWorkspace(_:)), "t", [.command]),
+            ("New Workspace", #selector(MainWindowController.newWorkspace(_:)), "t", [.command]),
         ]
         let requiredEditItems: [(String, Selector, String, NSEvent.ModifierFlags)] = [
             ("Copy", #selector(NSText.copy(_:)), "c"),
@@ -194,15 +194,15 @@ enum AppMenuBuilder {
             ("Select All", #selector(NSResponder.selectAll(_:)), "a"),
         ].map { ($0.0, $0.1, $0.2, [.command]) }
         let requiredViewItems: [(String?, Selector?, String, NSEvent.ModifierFlags)] = [
-            ("Split Horizontally", #selector(AppDelegate.splitHorizontally(_:)), "d", [.command]),
-            ("Split Vertically", #selector(AppDelegate.splitVertically(_:)), "d", [.command, .shift]),
+            ("Split Horizontally", #selector(MainWindowController.splitHorizontally(_:)), "d", [.command]),
+            ("Split Vertically", #selector(MainWindowController.splitVertically(_:)), "d", [.command, .shift]),
             (nil, nil, "", []),
-            ("Focus Left Pane", #selector(AppDelegate.focusLeftPane(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option]),
-            ("Focus Right Pane", #selector(AppDelegate.focusRightPane(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option]),
-            ("Focus Up In Column", #selector(AppDelegate.focusUpInColumn(_:)), String(UnicodeScalar(NSUpArrowFunctionKey)!), [.command, .option]),
-            ("Focus Down In Column", #selector(AppDelegate.focusDownInColumn(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), [.command, .option]),
-            ("Focus First Column", #selector(AppDelegate.focusFirstColumn(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option, .shift]),
-            ("Focus Last Column", #selector(AppDelegate.focusLastColumn(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option, .shift]),
+            ("Focus Left Pane", #selector(MainWindowController.focusLeftPane(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option]),
+            ("Focus Right Pane", #selector(MainWindowController.focusRightPane(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option]),
+            ("Focus Up In Column", #selector(MainWindowController.focusUpInColumn(_:)), String(UnicodeScalar(NSUpArrowFunctionKey)!), [.command, .option]),
+            ("Focus Down In Column", #selector(MainWindowController.focusDownInColumn(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), [.command, .option]),
+            ("Focus First Column", #selector(MainWindowController.focusFirstColumn(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option, .shift]),
+            ("Focus Last Column", #selector(MainWindowController.focusLastColumn(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option, .shift]),
         ]
         let hasFileItems = hasRequiredItems(requiredFileItems, in: fileMenu)
         let hasEditItems =
