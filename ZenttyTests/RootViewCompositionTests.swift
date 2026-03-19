@@ -3,6 +3,11 @@ import XCTest
 
 @MainActor
 final class RootViewCompositionTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        TerminalAdapterRegistry.useMockAdapters()
+    }
+
     override func tearDown() {
         SidebarWidthPreference.resetForTesting()
         SidebarVisibilityPreference.resetForTesting()
