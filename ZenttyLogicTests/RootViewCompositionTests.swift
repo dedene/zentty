@@ -1093,7 +1093,8 @@ private extension RootViewCompositionTests {
     func makeControllerWithCrowdedHeader(width: CGFloat) -> RootViewController {
         let controller = RootViewController(
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
-            sidebarWidthDefaults: SidebarWidthPreference.userDefaults()
+            sidebarWidthDefaults: SidebarWidthPreference.userDefaults(),
+            sidebarVisibilityDefaults: SidebarVisibilityPreference.userDefaults()
         )
         controller.loadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: width, height: 840)
