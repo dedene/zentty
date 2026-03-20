@@ -10,6 +10,7 @@ final class PaneLayoutSettingsWindowControllerTests: XCTestCase {
             ultrawidePreset: .balanced
         )
         let controller = PaneLayoutSettingsWindowController(preferences: preferences)
+        addTeardownBlock { controller.window?.close() }
 
         controller.showWindow(nil)
 

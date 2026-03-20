@@ -64,6 +64,7 @@ final class TerminalPaneHostViewTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        addTeardownBlock { window.close() }
 
         window.contentView = hostView
         window.makeKeyAndOrderFront(nil)

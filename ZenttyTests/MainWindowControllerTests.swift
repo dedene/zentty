@@ -3,8 +3,18 @@ import XCTest
 
 @MainActor
 final class MainWindowControllerTests: XCTestCase {
+    private var controller: MainWindowController?
+
+    override func tearDown() {
+        controller?.window.close()
+        controller = nil
+        super.tearDown()
+    }
+
     private func makeController() -> MainWindowController {
-        MainWindowController()
+        let c = MainWindowController()
+        controller = c
+        return c
     }
 
     func test_main_window_starts_with_expected_content_size() {

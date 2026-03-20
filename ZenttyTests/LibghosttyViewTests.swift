@@ -320,6 +320,7 @@ final class LibghosttyViewTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        addTeardownBlock { window.close() }
         let view = LibghosttyView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let surface = LibghosttySurfaceViewportSpy()
         view.bind(surfaceController: surface)
