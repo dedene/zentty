@@ -12,7 +12,9 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     private func makeController() -> MainWindowController {
-        let c = MainWindowController()
+        let c = MainWindowController(
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
+        )
         controller = c
         return c
     }
