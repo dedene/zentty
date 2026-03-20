@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-let isHostedTestMode = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+let isHostedTestMode = CommandLine.arguments.contains("-ApplePersistenceIgnoreState")
 
 if !isHostedTestMode {
     if let exitCode = AgentStatusHelper.runIfNeeded(
@@ -20,7 +20,7 @@ if !isHostedTestMode {
 }
 
 let app = NSApplication.shared
-app.setActivationPolicy(isHostedTestMode ? .prohibited : .regular)
+app.setActivationPolicy(.regular)
 
 let delegate = AppDelegate(shouldOpenMainWindow: !isHostedTestMode)
 app.delegate = delegate

@@ -25,7 +25,7 @@ final class AppDelegateTests: XCTestCase {
     func test_application_launch_installs_main_menu_when_missing() {
         NSApp.mainMenu = nil
 
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(shouldOpenMainWindow: false)
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
         XCTAssertNotNil(NSApp.mainMenu)
@@ -34,7 +34,7 @@ final class AppDelegateTests: XCTestCase {
     func test_application_launch_installs_quit_menu_item() {
         NSApp.mainMenu = nil
 
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(shouldOpenMainWindow: false)
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
         let appMenuItem = NSApp.mainMenu?.items.first
@@ -51,7 +51,7 @@ final class AppDelegateTests: XCTestCase {
     func test_application_launch_installs_file_menu_with_new_workspace_action() {
         NSApp.mainMenu = nil
 
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(shouldOpenMainWindow: false)
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
         let fileMenu = menu(named: "File")
@@ -66,7 +66,7 @@ final class AppDelegateTests: XCTestCase {
     @objc func test_application_launch_installs_edit_menu_with_standard_actions() {
         NSApp.mainMenu = nil
 
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(shouldOpenMainWindow: false)
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
         let editMenu = menu(named: "Edit")
@@ -90,7 +90,7 @@ final class AppDelegateTests: XCTestCase {
     func test_application_launch_installs_view_menu_with_pane_actions() {
         NSApp.mainMenu = nil
 
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(shouldOpenMainWindow: false)
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
         let viewMenu = menu(named: "View")
@@ -157,7 +157,7 @@ final class AppDelegateTests: XCTestCase {
         let existingMenu = AppMenuBuilder.makeMainMenu(appName: "Zentty")
         NSApp.mainMenu = existingMenu
 
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(shouldOpenMainWindow: false)
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
         XCTAssertTrue(NSApp.mainMenu === existingMenu)
@@ -166,7 +166,9 @@ final class AppDelegateTests: XCTestCase {
     func test_show_settings_window_creates_visible_settings_window() throws {
         NSApp.mainMenu = nil
 
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
+        )
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
         delegate.showSettingsWindow(nil)
@@ -179,7 +181,9 @@ final class AppDelegateTests: XCTestCase {
     func test_application_launch_places_sidebar_toggle_beside_traffic_lights_without_resize() throws {
         NSApp.mainMenu = nil
 
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
+        )
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
         let settled = expectation(description: "layout settled")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled.fulfill() }

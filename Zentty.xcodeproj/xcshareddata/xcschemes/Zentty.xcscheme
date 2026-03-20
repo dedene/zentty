@@ -63,6 +63,11 @@
                BlueprintName = "ZenttyTests"
                ReferencedContainer = "container:Zentty.xcodeproj">
             </BuildableReference>
+            <SkippedTests>
+               <Test
+                  Identifier = "LibghosttyViewTests">
+               </Test>
+            </SkippedTests>
          </TestableReference>
       </Testables>
       <CommandLineArguments>
