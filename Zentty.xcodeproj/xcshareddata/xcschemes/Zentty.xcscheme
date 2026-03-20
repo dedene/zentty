@@ -41,6 +41,17 @@
       <Testables>
          <TestableReference
             skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "CC00000000000000000020"
+               BuildableName = "ZenttyLogicTests.xctest"
+               BlueprintName = "ZenttyLogicTests"
+               ReferencedContainer = "container:Zentty.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
