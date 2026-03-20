@@ -22,7 +22,6 @@
 		1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC138BE273ED92291124633 /* main.swift */; };
 
 		2386C8EDD4E62A73FA09057D /* SidebarMotionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCFCD83A1573459E3AFDFDDE /* SidebarMotionCoordinator.swift */; };
-		260155FD237874A9F873EFC4 /* LibghosttyViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6DBDFE63A76B3FA8FE9ABF9 /* LibghosttyViewTests.swift */; };
 
 		31D1238F2694FD7391C5647F /* WorkspaceSidebarSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C182DB0CDDD3D09D97C1F4A /* WorkspaceSidebarSummary.swift */; };
 		329CFE325B0730BE010AF0BE /* WorkspaceHeaderSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65B4C03D59ECCAD47807696D /* WorkspaceHeaderSummary.swift */; };
@@ -245,7 +244,6 @@
 		BFE28087CB8A8A0F579745CA /* PaneShellContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneShellContext.swift; sourceTree = "<group>"; };
 		C1080102AFB3D6C967CEFCF2 /* SidebarVisibilityControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarVisibilityControllerTests.swift; sourceTree = "<group>"; };
 		C503221AB6FA317A9C4E98F1 /* AgentStatusCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusCenter.swift; sourceTree = "<group>"; };
-		C6DBDFE63A76B3FA8FE9ABF9 /* LibghosttyViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyViewTests.swift; sourceTree = "<group>"; };
 		CBF4079FD49C87B216061EB3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		CC71C4EF3052C39DDD2F1F57 /* PaneLayoutPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutPreferences.swift; sourceTree = "<group>"; };
 		CF53D89084ABC40A4F372B00 /* ScrollSwitchGestureHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollSwitchGestureHandler.swift; sourceTree = "<group>"; };
@@ -408,7 +406,6 @@
 			children = (
 				63590216920018B71F1ACB7A /* AppDelegateTests.swift */,
 				CBF4079FD49C87B216061EB3 /* Info.plist */,
-				C6DBDFE63A76B3FA8FE9ABF9 /* LibghosttyViewTests.swift */,
 				7120EEE7A0C06BD8315283B9 /* MainWindowControllerTests.swift */,
 				48F435FA119C97C5F497FBD9 /* PaneLayoutSettingsWindowControllerTests.swift */,
 				FE8E85EADB93A2FE0E71BEA6 /* TerminalPaneHostViewTests.swift */,
@@ -802,7 +799,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				EDF799E6005B1597EEA1314D /* AppDelegateTests.swift in Sources */,
-				260155FD237874A9F873EFC4 /* LibghosttyViewTests.swift in Sources */,
 				ADDC80F33AD74B2D67F3A005 /* MainWindowControllerTests.swift in Sources */,
 				68542C40B0F24B31DDB1E9A2 /* PaneLayoutSettingsWindowControllerTests.swift in Sources */,
 				D58A19DD4038B6D8E127DA5D /* TerminalPaneHostViewTests.swift in Sources */,
