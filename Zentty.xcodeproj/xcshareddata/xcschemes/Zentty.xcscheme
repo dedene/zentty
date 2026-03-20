@@ -28,7 +28,10 @@
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
-      onlyGenerateCoverageForSpecifiedTargets = "NO">
+      onlyGenerateCoverageForSpecifiedTargets = "NO"
+      enableThreadSanitizer = "NO"
+      debugServiceExtension = "internal"
+      allowLocationSimulation = "NO">
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
