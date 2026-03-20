@@ -295,7 +295,7 @@ final class PaneContainerViewTests: XCTestCase {
         XCTAssertEqual(paneView.statusOverlayFrame, paneView.bounds)
     }
 
-    func test_snapshot_freeze_hides_content_and_restores_on_unfreeze() {
+    func test_transition_hidden_hides_content_and_restores() {
         let pane = PaneState(id: PaneID("editor"), title: "editor")
         let runtime = PaneRuntime(
             pane: pane,
@@ -318,20 +318,18 @@ final class PaneContainerViewTests: XCTestCase {
 
         paneView.layoutSubtreeIfNeeded()
 
-        paneView.beginSnapshotFreeze()
+        paneView.setTransitionHidden(true)
 
         XCTAssertTrue(paneView.isTerminalAnimationFrozenForTesting)
         XCTAssertEqual(contentClip?.isHidden, true)
-        XCTAssertNotNil(paneView.layer?.contents)
 
-        paneView.endSnapshotFreeze()
+        paneView.setTransitionHidden(false)
 
         XCTAssertFalse(paneView.isTerminalAnimationFrozenForTesting)
         XCTAssertEqual(contentClip?.isHidden, false)
-        XCTAssertNil(paneView.layer?.contents)
     }
 
-    func test_snapshot_freeze_restores_terminal_to_current_bounds() {
+    func test_transition_hidden_restores_terminal_to_current_bounds() {
         let pane = PaneState(id: PaneID("editor"), title: "editor")
         let runtime = PaneRuntime(
             pane: pane,
@@ -356,10 +354,10 @@ final class PaneContainerViewTests: XCTestCase {
 
         paneView.layoutSubtreeIfNeeded()
 
-        paneView.beginSnapshotFreeze()
+        paneView.setTransitionHidden(true)
         paneView.frame.size = NSSize(width: 420, height: 300)
         paneView.layoutSubtreeIfNeeded()
-        paneView.endSnapshotFreeze()
+        paneView.setTransitionHidden(false)
         paneView.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
