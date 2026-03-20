@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		E819FADBDD764655A9651F5D /* PaneTransitionReplicaLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8805A59DCCF94757B7F9C74D /* PaneTransitionReplicaLayer.swift */; };
 		039A651343EA7A91CA374AB3 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 70234FD008E68026E8248FF5 /* AppIcon.icon */; };
 		064942C21BFD943CB5C8D46F /* LibghosttyAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDF1EF89E46D6EEECB8A320 /* LibghosttyAdapter.swift */; };
 
@@ -177,7 +176,6 @@
 		33E9B2C75C5EF9392C6C7150 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		385C5EC34EA938E2377D56ED /* AgentInteractionClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentInteractionClassifier.swift; sourceTree = "<group>"; };
 		3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerView.swift; sourceTree = "<group>"; };
-		8805A59DCCF94757B7F9C74D /* PaneTransitionReplicaLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneTransitionReplicaLayer.swift; sourceTree = "<group>"; };
 		38E15ECCC052F593297D852D /* AgentStatusCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusCommand.swift; sourceTree = "<group>"; };
 		3C182DB0CDDD3D09D97C1F4A /* WorkspaceSidebarSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarSummary.swift; sourceTree = "<group>"; };
 		3D36706DB3DF677FA13DC722 /* PaneStripState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripState.swift; sourceTree = "<group>"; };
@@ -453,7 +451,6 @@
 			children = (
 				BC63FD2674437F1139255B3E /* ContextStripView.swift */,
 				3870D523D8F0FCB79FE51ADF /* PaneContainerView.swift */,
-				8805A59DCCF94757B7F9C74D /* PaneTransitionReplicaLayer.swift */,
 				51A592CFA32B2CA6FC7D24FB /* PaneStripView.swift */,
 				55646C14005C4ECC817D51DF /* PaneStripView+Transitions.swift */,
 				CF53D89084ABC40A4F372B00 /* ScrollSwitchGestureHandler.swift */,
@@ -746,7 +743,6 @@
 				840FDF34FA89D7BA5649AF0C /* PaneAuxiliaryState.swift in Sources */,
 				4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */,
 				48F07B2E3A80B9D431002E57 /* PaneContainerView.swift in Sources */,
-				E819FADBDD764655A9651F5D /* PaneTransitionReplicaLayer.swift in Sources */,
 				6407E321D23E068FFB2B995B /* PaneLayoutPreferences.swift in Sources */,
 				80FA09F85DA44FE09E2F34F0 /* PaneLayoutSettingsWindowController.swift in Sources */,
 				8000FFBB2A9BB2606A89CD92 /* PaneLayoutSizing.swift in Sources */,

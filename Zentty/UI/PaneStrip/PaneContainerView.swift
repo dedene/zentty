@@ -8,7 +8,7 @@ private final class TerminalAnchorView: NSView {
         case bottom
     }
 
-    var gravity: Gravity = .bottom {
+    var gravity: Gravity = .top {
         didSet {
             guard oldValue != gravity else { return }
             needsLayout = true
