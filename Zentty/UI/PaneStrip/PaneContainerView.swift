@@ -52,6 +52,7 @@ final class PaneContainerView: NSView {
     private var statusState: StatusState = .hidden
     private var runtimeObserverID: UUID?
     private(set) var isTerminalAnimationFrozen = false
+    private var isInsetBorderAnimationManaged = false
     private var currentTheme: ZenttyTheme
     private var currentEmphasis: CGFloat
     private var currentIsFocused: Bool
@@ -263,6 +264,22 @@ final class PaneContainerView: NSView {
         layoutSubtreeIfNeeded()
     }
 
+    func animateInsetBorder(to targetSize: CGSize) {
+        isInsetBorderAnimationManaged = true
+        let backingScaleFactor = resolvedBackingScaleFactor
+        let inset = ChromeGeometry.paneBorderInset(backingScaleFactor: backingScaleFactor)
+        let insetRect = CGRect(origin: .zero, size: targetSize).insetBy(dx: inset, dy: inset)
+        let cornerRadius = max(0, Layout.cornerRadius - inset)
+        insetBorderLayer.contentsScale = backingScaleFactor
+        insetBorderLayer.frame = insetRect
+        insetBorderLayer.cornerRadius = cornerRadius
+    }
+
+    func syncInsetBorderNow() {
+        isInsetBorderAnimationManaged = false
+        updateInsetBorderLayer()
+    }
+
     override func layout() {
         super.layout()
         contentClipView.frame = bounds
@@ -270,7 +287,9 @@ final class PaneContainerView: NSView {
         if !isTerminalAnimationFrozen {
             terminalHostView.frame = terminalAnchorView.bounds
         }
-        updateInsetBorderLayer()
+        if !isInsetBorderAnimationManaged {
+            updateInsetBorderLayer()
+        }
         statusOverlayView.frame = bounds
     }
 

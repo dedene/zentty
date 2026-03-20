@@ -343,6 +343,7 @@ final class PaneStripView: NSView {
                     insertionTransition: insertionTransition,
                     allowInactiveDimming: true
                 )
+                self.paneViews.values.forEach { $0.syncInsetBorderNow() }
                 Task { @MainActor [weak self] in
                     guard let self, self.renderGuard.generation == settleGeneration else {
                         return
@@ -409,6 +410,7 @@ final class PaneStripView: NSView {
                     for: panePresentation,
                     insertionTransition: insertionTransition
                 ) {
+                    paneView.animateInsetBorder(to: targetFrame.size)
                     paneView.animator().frame = targetFrame
                 } else {
                     paneView.frame = targetFrame

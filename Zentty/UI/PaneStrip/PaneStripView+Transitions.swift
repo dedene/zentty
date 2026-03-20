@@ -45,9 +45,10 @@ extension PaneStripView {
                 let anchorPane = nextColumn.panes[insertedIndex - 1]
                 let previousAnchorPane = previousColumn.panes.first(where: { $0.paneID == anchorPane.paneID })
                 let initialHeight = min(insertedPane.frame.height, 96)
+                let sourceBottom = previousAnchorPane?.frame.minY ?? anchorPane.frame.minY
                 let initialFrame = CGRect(
                     x: insertedPane.frame.minX,
-                    y: (previousAnchorPane?.frame.minY ?? anchorPane.frame.minY) - initialHeight,
+                    y: sourceBottom - spacing - initialHeight,
                     width: insertedPane.frame.width,
                     height: initialHeight
                 )
