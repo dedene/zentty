@@ -181,7 +181,9 @@ final class AppDelegateTests: XCTestCase {
 
         let delegate = AppDelegate()
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        let settled = expectation(description: "layout settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled.fulfill() }
+        wait(for: [settled], timeout: 2.0)
 
         let launchedWindow = try XCTUnwrap(
             NSApp.windows.first(where: { window in

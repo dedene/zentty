@@ -20,7 +20,9 @@ final class MainWindowControllerTests: XCTestCase {
     func test_main_window_starts_with_expected_content_size() {
         let controller = makeController()
         controller.showWindow(nil)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        let settled = expectation(description: "layout settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled.fulfill() }
+        wait(for: [settled], timeout: 2.0)
 
         let windowFrame = controller.window.frame
         let visibleFrame = controller.window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
@@ -42,18 +44,24 @@ final class MainWindowControllerTests: XCTestCase {
     func test_show_window_does_not_reset_manual_frame_changes() {
         let controller = makeController()
         controller.showWindow(nil)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        let showSettled = expectation(description: "layout settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { showSettled.fulfill() }
+        wait(for: [showSettled], timeout: 2.0)
 
         let window = controller.window
 
         let manualFrame = NSRect(x: 120, y: 140, width: 1180, height: 760)
         window.setFrame(manualFrame, display: false)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        let frameSettled = expectation(description: "layout settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { frameSettled.fulfill() }
+        wait(for: [frameSettled], timeout: 2.0)
 
         XCTAssertEqual(window.frame.integral, manualFrame.integral)
 
         controller.showWindow(nil)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        let reshowSettled = expectation(description: "layout settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { reshowSettled.fulfill() }
+        wait(for: [reshowSettled], timeout: 2.0)
 
         XCTAssertEqual(window.frame.integral, manualFrame.integral)
     }
@@ -61,7 +69,9 @@ final class MainWindowControllerTests: XCTestCase {
     func test_show_window_repositions_traffic_lights_with_comfortable_inset() throws {
         let controller = makeController()
         controller.showWindow(nil)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        let settled = expectation(description: "layout settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled.fulfill() }
+        wait(for: [settled], timeout: 2.0)
 
         let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
         let miniButton = try XCTUnwrap(controller.window.standardWindowButton(.miniaturizeButton))
@@ -90,10 +100,14 @@ final class MainWindowControllerTests: XCTestCase {
     func test_programmatic_window_resize_relayouts_panes_without_inner_animation() throws {
         let controller = makeController()
         controller.showWindow(nil)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        let showSettled = expectation(description: "layout settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { showSettled.fulfill() }
+        wait(for: [showSettled], timeout: 2.0)
 
         controller.splitRight(nil)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        let splitSettled = expectation(description: "layout settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { splitSettled.fulfill() }
+        wait(for: [splitSettled], timeout: 2.0)
 
         let initialAppCanvasView = try XCTUnwrap(
             controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
@@ -104,7 +118,9 @@ final class MainWindowControllerTests: XCTestCase {
 
         let resizedFrame = NSRect(x: 120, y: 140, width: 1420, height: 880)
         controller.window.setFrame(resizedFrame, display: false)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        let resizeSettled = expectation(description: "layout settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { resizeSettled.fulfill() }
+        wait(for: [resizeSettled], timeout: 2.0)
 
         let resizedAppCanvasView = try XCTUnwrap(
             controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
