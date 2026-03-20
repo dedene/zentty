@@ -295,41 +295,7 @@ final class PaneContainerViewTests: XCTestCase {
         XCTAssertEqual(paneView.statusOverlayFrame, paneView.bounds)
     }
 
-    func test_transition_hidden_hides_content_and_restores() {
-        let pane = PaneState(id: PaneID("editor"), title: "editor")
-        let runtime = PaneRuntime(
-            pane: pane,
-            adapter: PaneContainerTerminalAdapterSpy(),
-            metadataSink: { _, _ in },
-            eventSink: { _, _ in }
-        )
-        let paneView = PaneContainerView(
-            pane: pane,
-            width: 420,
-            height: 520,
-            emphasis: 1,
-            isFocused: true,
-            runtime: runtime,
-            theme: ZenttyTheme.fallback(for: nil)
-        )
-        let contentClip = paneView.descendantSubviews().first(where: {
-            $0.layer?.masksToBounds == true && $0 !== paneView
-        })
-
-        paneView.layoutSubtreeIfNeeded()
-
-        paneView.setTransitionHidden(true)
-
-        XCTAssertTrue(paneView.isTerminalAnimationFrozenForTesting)
-        XCTAssertEqual(contentClip?.isHidden, true)
-
-        paneView.setTransitionHidden(false)
-
-        XCTAssertFalse(paneView.isTerminalAnimationFrozenForTesting)
-        XCTAssertEqual(contentClip?.isHidden, false)
-    }
-
-    func test_transition_hidden_restores_terminal_to_current_bounds() {
+    func test_vertical_freeze_keeps_terminal_height_stable() {
         let pane = PaneState(id: PaneID("editor"), title: "editor")
         let runtime = PaneRuntime(
             pane: pane,
@@ -354,13 +320,20 @@ final class PaneContainerViewTests: XCTestCase {
 
         paneView.layoutSubtreeIfNeeded()
 
-        paneView.setTransitionHidden(true)
+        paneView.beginVerticalFreeze(hasScrollback: false)
+        XCTAssertTrue(paneView.isTerminalAnimationFrozenForTesting)
+
         paneView.frame.size = NSSize(width: 420, height: 300)
         paneView.layoutSubtreeIfNeeded()
-        paneView.setTransitionHidden(false)
+
+        XCTAssertEqual(terminalSurfaceView.frame.height, 520, accuracy: 0.001,
+                       "Terminal height should stay at original size during freeze")
+
+        paneView.endVerticalFreeze()
         paneView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
+        XCTAssertFalse(paneView.isTerminalAnimationFrozenForTesting)
+        XCTAssertEqual(terminalSurfaceView.frame.height, paneView.bounds.height, accuracy: 0.001)
     }
 
     func test_pane_contents_are_clipped_to_the_pane_bounds() {

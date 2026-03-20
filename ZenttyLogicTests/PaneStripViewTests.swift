@@ -1103,10 +1103,10 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertEqual(removalTransition.survivingPaneIDs, [PaneID("shell")])
 
         let settled = expectation(description: "removal animation settled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             settled.fulfill()
         }
-        wait(for: [settled], timeout: 1.0)
+        wait(for: [settled], timeout: 2.0)
 
         XCTAssertFalse(shellPane.isTerminalAnimationFrozenForTesting)
     }

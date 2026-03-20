@@ -2,6 +2,25 @@ import AppKit
 import QuartzCore
 
 @MainActor
+private final class TerminalAnchorView: NSView {
+    enum Gravity {
+        case top
+        case bottom
+    }
+
+    var gravity: Gravity = .bottom {
+        didSet {
+            guard oldValue != gravity else { return }
+            needsLayout = true
+        }
+    }
+
+    override var isFlipped: Bool {
+        gravity == .top
+    }
+}
+
+@MainActor
 final class PaneContainerView: NSView {
     enum Layout {
         static let borderWidth: CGFloat = 1
@@ -19,6 +38,7 @@ final class PaneContainerView: NSView {
 
     private let runtime: PaneRuntime
     private let contentClipView = NSView()
+    private let terminalAnchorView = TerminalAnchorView()
     private let terminalHostView: TerminalPaneHostView
     private let backingScaleFactorProvider: () -> CGFloat
     private let insetBorderLayer = CALayer()
@@ -31,9 +51,7 @@ final class PaneContainerView: NSView {
     private var titleTextStorage: String
     private var statusState: StatusState = .hidden
     private var runtimeObserverID: UUID?
-    private var isTerminalAnimationFrozen = false
-    private var savedContentsPlacement: NSView.LayerContentsPlacement = .scaleAxesIndependently
-    private var savedRedrawPolicy: NSView.LayerContentsRedrawPolicy = .duringViewResize
+    private(set) var isTerminalAnimationFrozen = false
     private var currentTheme: ZenttyTheme
     private var currentEmphasis: CGFloat
     private var currentIsFocused: Bool
@@ -110,6 +128,9 @@ final class PaneContainerView: NSView {
         contentClipView.layer?.cornerCurve = .continuous
         contentClipView.layer?.masksToBounds = true
         contentClipView.frame = bounds
+        terminalAnchorView.translatesAutoresizingMaskIntoConstraints = true
+        terminalAnchorView.autoresizingMask = [.width, .height]
+        terminalAnchorView.frame = contentClipView.bounds
         terminalHostView.removeFromSuperview()
         terminalHostView.translatesAutoresizingMaskIntoConstraints = true
         terminalHostView.autoresizingMask = [.width, .height]
@@ -117,12 +138,13 @@ final class PaneContainerView: NSView {
         terminalHostView.layer?.cornerRadius = Layout.cornerRadius
         terminalHostView.layer?.cornerCurve = .continuous
         terminalHostView.layer?.masksToBounds = true
-        terminalHostView.frame = bounds
+        terminalHostView.frame = terminalAnchorView.bounds
         statusOverlayView.translatesAutoresizingMaskIntoConstraints = true
         statusOverlayView.autoresizingMask = [.width, .height]
         statusOverlayView.frame = bounds
         addSubview(contentClipView)
-        contentClipView.addSubview(terminalHostView)
+        contentClipView.addSubview(terminalAnchorView)
+        terminalAnchorView.addSubview(terminalHostView)
         contentClipView.addSubview(statusOverlayView)
 
         terminalHostView.onFocusDidChange = { [weak self] isFocused in
@@ -217,73 +239,43 @@ final class PaneContainerView: NSView {
         terminalHostView.setViewportSyncSuspended(suspended)
     }
 
-    func beginSnapshotFreeze() {
+    func beginVerticalFreeze(hasScrollback: Bool) {
         guard !isTerminalAnimationFrozen else {
             return
         }
 
         isTerminalAnimationFrozen = true
-
-        guard let bitmapRep = contentClipView.bitmapImageRepForCachingDisplay(
-            in: contentClipView.bounds
-        ) else {
-            return
-        }
-        contentClipView.cacheDisplay(in: contentClipView.bounds, to: bitmapRep)
-        let image = NSImage(size: contentClipView.bounds.size)
-        image.addRepresentation(bitmapRep)
-
-        contentClipView.isHidden = true
-
-        savedContentsPlacement = layerContentsPlacement
-        savedRedrawPolicy = layerContentsRedrawPolicy
-        layerContentsRedrawPolicy = .never
-        layerContentsPlacement = .topLeft
-
-        let scale = resolvedBackingScaleFactor
-        layer?.contentsScale = scale
-        layer?.contents = image.layerContents(forContentsScale: scale)
-        layer?.masksToBounds = true
+        terminalAnchorView.gravity = hasScrollback ? .bottom : .top
+        terminalHostView.autoresizingMask = [.width]
+        needsLayout = true
+        layoutSubtreeIfNeeded()
     }
 
-    func endSnapshotFreeze() {
+    func endVerticalFreeze() {
         guard isTerminalAnimationFrozen else {
             return
         }
 
         isTerminalAnimationFrozen = false
-
-        layer?.contents = nil
-        layer?.masksToBounds = false
-        contentClipView.isHidden = false
-        layerContentsPlacement = savedContentsPlacement
-        layerContentsRedrawPolicy = savedRedrawPolicy
-
-        contentClipView.frame = bounds
-        updateTerminalHostFrame()
-        updateInsetBorderLayer()
+        terminalAnchorView.gravity = .bottom
+        terminalHostView.autoresizingMask = [.width, .height]
+        needsLayout = true
+        layoutSubtreeIfNeeded()
     }
 
     override func layout() {
         super.layout()
+        contentClipView.frame = bounds
+        terminalAnchorView.frame = contentClipView.bounds
         if !isTerminalAnimationFrozen {
-            contentClipView.frame = bounds
-            updateTerminalHostFrame()
-            updateInsetBorderLayer()
+            terminalHostView.frame = terminalAnchorView.bounds
         }
+        updateInsetBorderLayer()
         statusOverlayView.frame = bounds
     }
 
-    func animateFrozenTerminalFrame(for targetSize: CGSize) {
-        guard isTerminalAnimationFrozen else {
-            return
-        }
-
-        let backingScaleFactor = resolvedBackingScaleFactor
-        let inset = ChromeGeometry.paneBorderInset(backingScaleFactor: backingScaleFactor)
-        let insetRect = CGRect(origin: .zero, size: targetSize).insetBy(dx: inset, dy: inset)
-        insetBorderLayer.frame = insetRect
-        insetBorderLayer.cornerRadius = max(0, Layout.cornerRadius - inset)
+    var hasScrollback: Bool {
+        runtime.hasScrollback
     }
 
     var titleText: String {
@@ -395,7 +387,7 @@ final class PaneContainerView: NSView {
     }
 
     private func updateTerminalHostFrame() {
-        terminalHostView.frame = contentClipView.bounds
+        terminalHostView.frame = terminalAnchorView.bounds
     }
 
     private func setupStatusOverlay() {

@@ -410,7 +410,6 @@ final class PaneStripView: NSView {
                     insertionTransition: insertionTransition
                 ) {
                     paneView.animator().frame = targetFrame
-                    paneView.animateFrozenTerminalFrame(for: targetFrame.size)
                 } else {
                     paneView.frame = targetFrame
                 }
@@ -527,9 +526,9 @@ final class PaneStripView: NSView {
     private func applyTerminalAnimationFreeze(to frozenPaneIDs: Set<PaneID>) {
         paneViews.forEach { paneID, paneView in
             if frozenPaneIDs.contains(paneID) {
-                paneView.beginSnapshotFreeze()
+                paneView.beginVerticalFreeze(hasScrollback: paneView.hasScrollback)
             } else {
-                paneView.endSnapshotFreeze()
+                paneView.endVerticalFreeze()
             }
         }
     }
