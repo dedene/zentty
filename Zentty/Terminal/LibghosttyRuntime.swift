@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 enum LibghosttySurfaceActionPayload: Equatable {
     case setTitle(String?)
     case pwd(String?)
+    case progressReport(TerminalProgressReport)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
     case scrollbar(total: UInt64, len: UInt64)
 }
@@ -17,6 +18,30 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
     case GHOSTTY_ACTION_PWD:
         let pwd = action.action.pwd.pwd.map { String(cString: $0) }
         return .pwd(pwd)
+    case GHOSTTY_ACTION_PROGRESS_REPORT:
+        let report = action.action.progress_report
+        let progress = report.progress >= 0 ? UInt8(clamping: Int(report.progress)) : nil
+        let state: TerminalProgressReport.State
+        switch report.state {
+        case GHOSTTY_PROGRESS_STATE_REMOVE:
+            state = .remove
+        case GHOSTTY_PROGRESS_STATE_SET:
+            state = .set
+        case GHOSTTY_PROGRESS_STATE_ERROR:
+            state = .error
+        case GHOSTTY_PROGRESS_STATE_INDETERMINATE:
+            state = .indeterminate
+        case GHOSTTY_PROGRESS_STATE_PAUSE:
+            state = .pause
+        default:
+            return nil
+        }
+        return .progressReport(
+            TerminalProgressReport(
+                state: state,
+                progress: progress
+            )
+        )
     case GHOSTTY_ACTION_COMMAND_FINISHED:
         let rawExitCode = Int(action.action.command_finished.exit_code)
         let exitCode = rawExitCode >= 0 ? rawExitCode : nil

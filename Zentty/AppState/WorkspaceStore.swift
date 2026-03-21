@@ -33,11 +33,52 @@ struct WorkspaceState: Equatable, Sendable {
 
 }
 
+struct WorkspacePaneContext: Equatable, Sendable {
+    let pane: PaneState
+    let auxiliaryState: PaneAuxiliaryState?
+
+    var paneID: PaneID { pane.id }
+    var metadata: TerminalMetadata? { auxiliaryState?.metadata }
+}
+
 struct PaneBorderContextDisplayModel: Equatable, Sendable {
     let text: String
 }
 
 extension WorkspaceState {
+    var focusedPaneContext: WorkspacePaneContext? {
+        paneContext(for: paneStripState.focusedPaneID)
+    }
+
+    var paneContextsPrioritizingFocus: [WorkspacePaneContext] {
+        let panes = paneStripState.panes
+        guard
+            let focusedPaneID = paneStripState.focusedPaneID,
+            let focusedPaneIndex = panes.firstIndex(where: { $0.id == focusedPaneID })
+        else {
+            return panes.map { WorkspacePaneContext(pane: $0, auxiliaryState: auxiliaryStateByPaneID[$0.id]) }
+        }
+
+        var orderedPanes = panes
+        if focusedPaneIndex != 0 {
+            let focusedPane = orderedPanes.remove(at: focusedPaneIndex)
+            orderedPanes.insert(focusedPane, at: 0)
+        }
+
+        return orderedPanes.map { WorkspacePaneContext(pane: $0, auxiliaryState: auxiliaryStateByPaneID[$0.id]) }
+    }
+
+    func paneContext(for paneID: PaneID?) -> WorkspacePaneContext? {
+        guard
+            let paneID,
+            let pane = paneStripState.panes.first(where: { $0.id == paneID })
+        else {
+            return nil
+        }
+
+        return WorkspacePaneContext(pane: pane, auxiliaryState: auxiliaryStateByPaneID[paneID])
+    }
+
     var paneBorderContextDisplayByPaneID: [PaneID: PaneBorderContextDisplayModel] {
         auxiliaryStateByPaneID.compactMapValues { $0.shellContext?.displayModel }
     }

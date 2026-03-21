@@ -70,6 +70,10 @@ final class PaneBorderContextOverlayView: NSView {
         itemViewsByPaneID.mapValues(\.backdropColorTokenForTesting)
     }
 
+    var paneContextBackdropFramesForTesting: [PaneID: CGRect] {
+        itemViewsByPaneID.mapValues(\.backdropFrameForTesting)
+    }
+
     var paneContextTextFramesForTesting: [PaneID: CGRect] {
         itemViewsByPaneID.mapValues(\.textFrameForTesting)
     }
@@ -159,6 +163,7 @@ final class PaneBorderContextOverlayView: NSView {
     }
 
     private final class PaneBorderContextInsetView: NSView {
+        private let backdropLayer = CALayer()
         private let textContentLayer = CALayer()
         private let leftBorderLineLayer = CALayer()
         private let rightBorderLineLayer = CALayer()
@@ -174,6 +179,7 @@ final class PaneBorderContextOverlayView: NSView {
             static let topInset: CGFloat = 5
             static let bottomInset: CGFloat = 4
             static let verticalSafety: CGFloat = 2
+            static let borderCoverTopBleed: CGFloat = 1
         }
 
         override init(frame frameRect: NSRect) {
@@ -240,8 +246,16 @@ final class PaneBorderContextOverlayView: NSView {
 
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            layer?.backgroundColor = paneFillColor
+            layer?.backgroundColor = NSColor.clear.cgColor
             let lineY = (bounds.height - lineHeight) / 2
+            let backdropY = max(0, lineY - TextLayout.borderCoverTopBleed)
+            backdropLayer.frame = CGRect(
+                x: 0,
+                y: backdropY,
+                width: bounds.width,
+                height: max(0, bounds.height - backdropY)
+            )
+            backdropLayer.backgroundColor = paneFillColor
             leftBorderLineLayer.frame = CGRect(
                 x: 0,
                 y: lineY,
@@ -291,6 +305,10 @@ final class PaneBorderContextOverlayView: NSView {
             backdropColorToken
         }
 
+        var backdropFrameForTesting: CGRect {
+            backdropLayer.frame
+        }
+
         var textFrameForTesting: CGRect {
             currentTextRect
         }
@@ -319,9 +337,11 @@ final class PaneBorderContextOverlayView: NSView {
             wantsLayer = true
             layer?.masksToBounds = false
 
+            backdropLayer.zPosition = 0
             textContentLayer.zPosition = 1
             leftBorderLineLayer.zPosition = 1
             rightBorderLineLayer.zPosition = 1
+            layer?.addSublayer(backdropLayer)
             layer?.addSublayer(textContentLayer)
             layer?.addSublayer(leftBorderLineLayer)
             layer?.addSublayer(rightBorderLineLayer)

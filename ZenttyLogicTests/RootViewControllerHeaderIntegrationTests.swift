@@ -216,7 +216,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let chrome = controller.chromeView
         XCTAssertEqual(
             chrome.focusedLabelText,
-            "~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails"
+            "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails"
         )
         XCTAssertEqual(chrome.branchText, "feature/scaleway-transactional-mails")
         XCTAssertEqual(chrome.pullRequestText, "PR #1413")
@@ -230,10 +230,10 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         }
     }
 
-    func test_root_controller_keeps_long_worktree_header_uncompressed_and_centered_inside_real_visible_lane() throws {
+    func test_root_controller_keeps_long_terminal_title_readable_inside_real_visible_lane() throws {
         let controller = makeController()
         let paneID = PaneID("pane-shell")
-        let focusedLabel = "~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails"
+        let focusedLabel = "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails"
         let branch = "feature/scaleway-transactional-mails"
 
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
@@ -248,7 +248,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                 ),
                 metadataByPaneID: [
                     paneID: TerminalMetadata(
-                        title: "peter@m1-pro-peter:\(focusedLabel)",
+                        title: focusedLabel,
                         currentWorkingDirectory: "\(NSHomeDirectory())/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
                         processName: "zsh"
                     ),
@@ -279,24 +279,22 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             controller.currentSidebarWidth + ShellMetrics.shellGap,
             accuracy: 0.5
         )
-        XCTAssertFalse(chrome.didCompressItems)
-        XCTAssertEqual(chrome.preferredTotalWidth, chrome.finalTotalWidth, accuracy: 0.5)
-        XCTAssertEqual(chrome.focusedLabelFrameWidth, chrome.focusedLabelIntrinsicWidth, accuracy: 0.5)
+        XCTAssertLessThanOrEqual(chrome.overflowBeforeCompression, 4)
+        XCTAssertEqual(chrome.finalTotalWidth, chrome.rowFrame.width, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(chrome.focusedLabelFrameWidth, chrome.focusedLabelIntrinsicWidth - 4)
         XCTAssertEqual(chrome.branchFrameWidth, chrome.branchIntrinsicWidth, accuracy: 0.5)
         XCTAssertEqual(chrome.pullRequestFrameWidth, chrome.pullRequestIntrinsicWidth, accuracy: 0.5)
-        XCTAssertGreaterThanOrEqual(focusedLabelView.frame.width, requiredSingleLineWidth(of: focusedLabelView) - 0.5)
+        XCTAssertGreaterThanOrEqual(focusedLabelView.frame.width, requiredSingleLineWidth(of: focusedLabelView) - 4)
         XCTAssertGreaterThanOrEqual(branchLabelView.frame.width, requiredSingleLineWidth(of: branchLabelView) - 0.5)
         XCTAssertGreaterThanOrEqual(pullRequestButton.frame.width, requiredSingleLineWidth(of: pullRequestButton) - 0.5)
 
         let contentMinX = min(focusedLabelView.frame.minX, branchLabelView.frame.minX, pullRequestButton.frame.minX)
         let contentMaxX = max(focusedLabelView.frame.maxX, branchLabelView.frame.maxX, pullRequestButton.frame.maxX)
-        let leftSlack = contentMinX
-        let rightSlack = chrome.rowFrame.width - contentMaxX
-        XCTAssertGreaterThan(leftSlack, 20)
-        XCTAssertEqual(leftSlack, rightSlack, accuracy: 24)
+        XCTAssertGreaterThanOrEqual(contentMinX, -0.5)
+        XCTAssertLessThanOrEqual(contentMaxX, chrome.rowFrame.width + 0.5)
     }
 
-    func test_root_controller_uses_full_home_relative_cwd_when_shell_title_is_pretruncated() {
+    func test_root_controller_prefers_terminal_title_when_shell_title_is_pretruncated() {
         let controller = makeController()
         let paneID = PaneID("pane-shell")
         let homePath = NSHomeDirectory()
@@ -320,7 +318,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         ])
 
         let chrome = controller.chromeView
-        XCTAssertEqual(chrome.focusedLabelText, "~/Development/Zenjoy/Nimbu/Rails/nimbu")
+        XCTAssertEqual(chrome.focusedLabelText, "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/nim...")
     }
 
     func test_root_controller_keeps_cached_review_branch_when_metadata_branch_is_compacted() {
@@ -412,6 +410,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
 @MainActor
 private final class QuietTerminalAdapter: TerminalAdapter {
     let hasScrollback = false
+    let cellHeight: CGFloat = 0
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
 

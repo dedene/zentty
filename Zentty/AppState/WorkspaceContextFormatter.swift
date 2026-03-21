@@ -9,13 +9,44 @@ enum WorkspaceContextFormatter {
             .joined(separator: " • ")
     }
 
+    static func displayTerminalIdentity(
+        for metadata: TerminalMetadata?,
+        fallbackTitle: String? = nil
+    ) -> String? {
+        normalizeDisplayIdentity(metadata?.title)
+            ?? normalizeDisplayIdentity(metadata?.processName)
+            ?? normalizeDisplayIdentity(fallbackTitle)
+    }
+
+    static func displayMeaningfulTerminalIdentity(
+        for metadata: TerminalMetadata?,
+        fallbackTitle: String? = nil
+    ) -> String? {
+        [
+            normalizeDisplayIdentity(metadata?.title),
+            normalizeDisplayIdentity(metadata?.processName),
+            normalizeDisplayIdentity(fallbackTitle),
+        ].first {
+            guard let candidate = $0 else {
+                return false
+            }
+
+            return !isGenericShellIdentity(candidate)
+        } ?? nil
+    }
+
     static func displayWorkingDirectory(for metadata: TerminalMetadata?) -> String? {
         resolvedWorkingDirectory(for: metadata).flatMap(homeRelativePath)
     }
 
     static func resolvedWorkingDirectory(for metadata: TerminalMetadata?) -> String? {
-        normalizedWorkingDirectoryCandidate(metadata?.currentWorkingDirectory)
-            ?? inferredWorkingDirectory(fromTitle: metadata?.title)
+        let reportedWorkingDirectory = normalizedWorkingDirectoryCandidate(metadata?.currentWorkingDirectory)
+        let titleDerivedWorkingDirectory = inferredWorkingDirectory(fromTitle: metadata?.title)
+
+        return preferredWorkingDirectory(
+            reportedWorkingDirectory: reportedWorkingDirectory,
+            titleDerivedWorkingDirectory: titleDerivedWorkingDirectory
+        )
     }
 
     static func homeRelativePath(_ path: String) -> String? {
@@ -127,10 +158,14 @@ enum WorkspaceContextFormatter {
             return "\(branch) • \(compactDirectory)"
         }
 
-        return branch
+        return branch ?? compactDirectory
     }
 
     static func normalizeSidebarFallbackTitle(_ title: String?) -> String? {
+        normalizeDisplayIdentity(title)
+    }
+
+    static func normalizeDisplayIdentity(_ title: String?) -> String? {
         guard let normalized = trimmed(title) else {
             return nil
         }
@@ -182,9 +217,8 @@ enum WorkspaceContextFormatter {
         metadata: TerminalMetadata?,
         fallbackTitle: String?
     ) -> String? {
-        normalizeSidebarFallbackTitle(metadata?.title)
-            ?? normalizeSidebarFallbackTitle(metadata?.processName)
-            ?? normalizeSidebarFallbackTitle(fallbackTitle)
+        displayMeaningfulTerminalIdentity(for: metadata, fallbackTitle: fallbackTitle)
+            ?? displayTerminalIdentity(for: metadata, fallbackTitle: fallbackTitle)
     }
 
     private static func meaningfulSidebarDetailRole(
@@ -284,5 +318,57 @@ enum WorkspaceContextFormatter {
         }
 
         return trimmedCandidate
+    }
+
+    private static func preferredWorkingDirectory(
+        reportedWorkingDirectory: String?,
+        titleDerivedWorkingDirectory: String?
+    ) -> String? {
+        switch (reportedWorkingDirectory, titleDerivedWorkingDirectory) {
+        case let (reported?, titleDerived?):
+            return titleDerivedPathLooksFresher(
+                titleDerivedWorkingDirectory: titleDerived,
+                thanReportedWorkingDirectory: reported
+            )
+                ? titleDerived
+                : reported
+        case let (reported?, nil):
+            return reported
+        case let (nil, titleDerived?):
+            return titleDerived
+        case (nil, nil):
+            return nil
+        }
+    }
+
+    private static func titleDerivedPathLooksFresher(
+        titleDerivedWorkingDirectory: String,
+        thanReportedWorkingDirectory reportedWorkingDirectory: String
+    ) -> Bool {
+        let normalizedReported = standardPath(reportedWorkingDirectory)
+        let normalizedTitleDerived = standardPath(titleDerivedWorkingDirectory)
+
+        guard
+            normalizedReported != normalizedTitleDerived,
+            normalizedTitleDerived.hasPrefix(normalizedReported)
+        else {
+            return false
+        }
+
+        let prefix = normalizedReported == "/" ? normalizedReported : normalizedReported + "/"
+        return normalizedTitleDerived.hasPrefix(prefix)
+    }
+
+    private static func standardPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private static func isGenericShellIdentity(_ value: String) -> Bool {
+        switch value.lowercased() {
+        case "zsh", "bash", "fish", "sh":
+            return true
+        default:
+            return false
+        }
     }
 }

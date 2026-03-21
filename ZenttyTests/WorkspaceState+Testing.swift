@@ -11,6 +11,7 @@ extension WorkspaceState {
         metadataByPaneID: [PaneID: TerminalMetadata] = [:],
         paneContextByPaneID: [PaneID: PaneShellContext] = [:],
         agentStatusByPaneID: [PaneID: PaneAgentStatus] = [:],
+        terminalProgressByPaneID: [PaneID: TerminalProgressReport] = [:],
         inferredArtifactByPaneID: [PaneID: WorkspaceArtifactLink] = [:],
         reviewStateByPaneID: [PaneID: WorkspaceReviewState] = [:]
     ) {
@@ -18,6 +19,7 @@ extension WorkspaceState {
         let allPaneIDs = Set(metadataByPaneID.keys)
             .union(paneContextByPaneID.keys)
             .union(agentStatusByPaneID.keys)
+            .union(terminalProgressByPaneID.keys)
             .union(inferredArtifactByPaneID.keys)
             .union(reviewStateByPaneID.keys)
         for paneID in allPaneIDs {
@@ -25,6 +27,7 @@ extension WorkspaceState {
                 metadata: metadataByPaneID[paneID],
                 shellContext: paneContextByPaneID[paneID],
                 agentStatus: agentStatusByPaneID[paneID],
+                terminalProgress: terminalProgressByPaneID[paneID],
                 inferredArtifact: inferredArtifactByPaneID[paneID],
                 reviewState: reviewStateByPaneID[paneID]
             )

@@ -44,4 +44,31 @@ final class WorkspaceContextFormatterTests: XCTestCase {
 
         XCTAssertEqual(detail, "copy")
     }
+
+    func test_resolved_working_directory_prefers_more_specific_title_path_when_reported_cwd_is_stale() {
+        let homePath = NSHomeDirectory()
+        let resolved = WorkspaceContextFormatter.resolvedWorkingDirectory(
+            for: TerminalMetadata(
+                title: "peter@m1-pro-peter:~/Development/Personal/automatic-api-docs",
+                currentWorkingDirectory: homePath,
+                processName: "zsh",
+                gitBranch: nil
+            )
+        )
+
+        XCTAssertEqual(resolved, "\(homePath)/Development/Personal/automatic-api-docs")
+    }
+
+    func test_resolved_working_directory_keeps_reported_cwd_when_title_path_is_not_descendant() {
+        let resolved = WorkspaceContextFormatter.resolvedWorkingDirectory(
+            for: TerminalMetadata(
+                title: "peter@m1-pro-peter:/tmp/other-project",
+                currentWorkingDirectory: "/tmp/current-project",
+                processName: "zsh",
+                gitBranch: nil
+            )
+        )
+
+        XCTAssertEqual(resolved, "/tmp/current-project")
+    }
 }

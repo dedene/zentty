@@ -189,7 +189,7 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary.reviewChips, [])
     }
 
-    func test_summary_uses_home_relative_cwd_for_normal_shell_instead_of_shell_title() {
+    func test_summary_prefers_terminal_title_over_cwd_when_title_is_meaningful() {
         let paneID = PaneID("pane-shell")
         let homePath = NSHomeDirectory()
         let workspace = makeWorkspace(
@@ -207,7 +207,7 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             reviewStateProvider: DefaultWorkspaceReviewStateProvider()
         )
 
-        XCTAssertEqual(summary.focusedLabel, "~/Development/Zenjoy/Nimbu/Rails/nimbu")
+        XCTAssertEqual(summary.focusedLabel, "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/nim...")
     }
 
     func test_summary_omits_git_fields_for_non_git_focus() {
@@ -231,6 +231,56 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
         XCTAssertNil(summary.branch)
         XCTAssertNil(summary.pullRequest)
         XCTAssertEqual(summary.reviewChips, [])
+    }
+
+    func test_summary_uses_focused_pane_context_in_multi_pane_workspace() {
+        let shellPaneID = PaneID("pane-shell")
+        let gitPaneID = PaneID("pane-git")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: shellPaneID, title: "shell"),
+                    PaneState(id: gitPaneID, title: "git"),
+                ],
+                focusedPaneID: gitPaneID
+            ),
+            metadataByPaneID: [
+                shellPaneID: TerminalMetadata(
+                    title: "zsh",
+                    currentWorkingDirectory: "/tmp/app",
+                    processName: "zsh",
+                    gitBranch: "main"
+                ),
+                gitPaneID: TerminalMetadata(
+                    title: "Claude Code",
+                    currentWorkingDirectory: "/tmp/docs",
+                    processName: "claude",
+                    gitBranch: "feature/sidebar-feedback"
+                ),
+            ],
+            reviewStateByPaneID: [
+                gitPaneID: WorkspaceReviewState(
+                    branch: "feature/sidebar-feedback",
+                    pullRequest: WorkspacePullRequestSummary(
+                        number: 42,
+                        url: URL(string: "https://example.com/pr/42"),
+                        state: .open
+                    ),
+                    reviewChips: [WorkspaceReviewChip(text: "Ready", style: .success)]
+                )
+            ]
+        )
+
+        let summary = WorkspaceHeaderSummaryBuilder.summary(
+            for: workspace,
+            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
+        )
+
+        XCTAssertEqual(summary.focusedLabel, "Claude Code")
+        XCTAssertEqual(summary.branch, "feature/sidebar-feedback")
+        XCTAssertEqual(summary.pullRequest?.number, 42)
     }
 
     func test_summary_prefers_recognized_tool_name_before_process_name_and_pane_title() {

@@ -11,31 +11,31 @@ extension WorkspaceStore {
 
         var workspace = workspaces[workspaceIndex]
         switch event {
+        case .progressReport(let report):
+            if report.state == .remove {
+                workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
+            } else {
+                workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].terminalProgress = report
+            }
         case .commandFinished:
+            workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
             let existingStatus = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus
-            guard existingStatus?.state != .completed, existingStatus?.state != .needsInput else {
-                return
+            if existingStatus?.state != .completed, existingStatus?.state != .needsInput,
+               existingStatus?.source == .explicit,
+               let tool = existingStatus?.tool {
+                workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].agentStatus = PaneAgentStatus(
+                    tool: tool,
+                    state: .unresolvedStop,
+                    text: nil,
+                    artifactLink: existingStatus?.artifactLink,
+                    updatedAt: Date(),
+                    source: .inferred,
+                    origin: .inferred,
+                    interactionState: PaneInteractionState.none,
+                    shellActivityState: existingStatus?.shellActivityState ?? .unknown,
+                    trackedPID: nil
+                )
             }
-
-            guard
-                existingStatus?.source == .explicit,
-                let tool = existingStatus?.tool
-            else {
-                return
-            }
-
-            workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].agentStatus = PaneAgentStatus(
-                tool: tool,
-                state: .unresolvedStop,
-                text: nil,
-                artifactLink: existingStatus?.artifactLink,
-                updatedAt: Date(),
-                source: .inferred,
-                origin: .inferred,
-                interactionState: .none,
-                shellActivityState: existingStatus?.shellActivityState ?? .unknown,
-                trackedPID: nil
-            )
         }
 
         workspaces[workspaceIndex] = workspace
@@ -54,6 +54,7 @@ extension WorkspaceStore {
 
         if payload.clearsStatus {
             workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
+            workspace.auxiliaryStateByPaneID[payload.paneID]?.terminalProgress = nil
             workspaces[workspaceIndex] = workspace
             notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
             return
@@ -100,6 +101,7 @@ extension WorkspaceStore {
                     case .commandRunning:
                         existingStatus.state = .running
                     case .promptIdle:
+                        workspace.auxiliaryStateByPaneID[payload.paneID]?.terminalProgress = nil
                         workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
                         workspaces[workspaceIndex] = workspace
                         notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
@@ -117,11 +119,11 @@ extension WorkspaceStore {
                     text: nil,
                     artifactLink: nil,
                     updatedAt: Date(),
-                    source: .inferred,
-                    origin: .shell,
-                    interactionState: .none,
-                    shellActivityState: shellActivityState
-                )
+                        source: .inferred,
+                        origin: .shell,
+                        interactionState: PaneInteractionState.none,
+                        shellActivityState: shellActivityState
+                    )
             } else {
                 return
             }
@@ -156,11 +158,11 @@ extension WorkspaceStore {
                         state: .running,
                         text: nil,
                         artifactLink: nil,
-                        updatedAt: Date(),
-                        source: .explicit,
-                        origin: payload.origin,
-                        interactionState: .none
-                    )
+                            updatedAt: Date(),
+                            source: .explicit,
+                            origin: payload.origin,
+                            interactionState: PaneInteractionState.none
+                        )
                 status.trackedPID = pid
                 status.updatedAt = Date()
                 workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = status
@@ -202,6 +204,7 @@ extension WorkspaceStore {
                 didChange = true
                 if status.state == .running || status.requiresHumanAttention {
                     workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
+                    workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
                     workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil
                 } else {
                     var nextStatus = status

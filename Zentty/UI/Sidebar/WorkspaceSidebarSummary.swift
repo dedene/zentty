@@ -26,6 +26,7 @@ struct WorkspaceSidebarSummary: Equatable {
     let leadingAccessory: WorkspaceSidebarLeadingAccessory?
     let attentionState: WorkspaceAttentionState?
     let artifactLink: WorkspaceArtifactLink?
+    let isWorking: Bool
     let isActive: Bool
 
     var title: String { topLabel ?? "" }
@@ -43,6 +44,7 @@ struct WorkspaceSidebarSummary: Equatable {
         leadingAccessory: WorkspaceSidebarLeadingAccessory? = nil,
         attentionState: WorkspaceAttentionState? = nil,
         artifactLink: WorkspaceArtifactLink? = nil,
+        isWorking: Bool = false,
         isActive: Bool
     ) {
         self.workspaceID = workspaceID
@@ -55,6 +57,7 @@ struct WorkspaceSidebarSummary: Equatable {
         self.leadingAccessory = leadingAccessory
         self.attentionState = attentionState
         self.artifactLink = artifactLink
+        self.isWorking = isWorking
         self.isActive = isActive
     }
 
@@ -83,6 +86,7 @@ struct WorkspaceSidebarSummary: Equatable {
             leadingAccessory: nil,
             attentionState: attentionState,
             artifactLink: artifactLink,
+            isWorking: attentionState == .running,
             isActive: isActive
         )
     }

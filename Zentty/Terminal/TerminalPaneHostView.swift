@@ -169,6 +169,10 @@ final class PaneRuntime {
         adapterValue.hasScrollback
     }
 
+    var cellHeight: CGFloat {
+        adapterValue.cellHeight
+    }
+
     var snapshot: PaneRuntimeSnapshot {
         PaneRuntimeSnapshot(
             metadata: metadata,
@@ -196,7 +200,7 @@ final class PaneRuntime {
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
-        if activity.isVisible {
+        if activity.keepsRuntimeLive {
             ensureStarted()
         }
         hostViewValue.setSurfaceActivity(activity)
@@ -310,7 +314,11 @@ final class PaneRuntimeRegistry {
                 let isFocused = isVisible && windowIsKey && pane.id == workspace.paneStripState.focusedPaneID
                 let runtime = runtime(for: pane)
                 runtime.setSurfaceActivity(
-                    TerminalSurfaceActivity(isVisible: isVisible, isFocused: isFocused)
+                    TerminalSurfaceActivity(
+                        keepsRuntimeLive: true,
+                        isVisible: isVisible,
+                        isFocused: isFocused
+                    )
                 )
             }
         }

@@ -1,9 +1,14 @@
 import AppKit
+import QuartzCore
 
 // MARK: - PaneSubRow
 
 @MainActor
 final class PaneSubRow: NSButton {
+    private enum WorkingIndicator {
+        static let shimmerAnimationKey = "pane-row-shimmer"
+    }
+
     let paneID: PaneID
     var onSelect: (() -> Void)?
 
@@ -11,13 +16,20 @@ final class PaneSubRow: NSButton {
     private let label = NSTextField(labelWithString: "")
     private let gitContextLabel = NSTextField(labelWithString: "")
     private let rowStack = NSStackView()
+    private let shimmerLayer = CAGradientLayer()
 
     private var isHovered = false
     private var trackingArea: NSTrackingArea?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var isWorking = false
+    private let reducedMotionProvider: () -> Bool
 
-    init(paneID: PaneID) {
+    init(
+        paneID: PaneID,
+        reducedMotionProvider: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    ) {
         self.paneID = paneID
+        self.reducedMotionProvider = reducedMotionProvider
         super.init(frame: .zero)
         setup()
     }
@@ -35,10 +47,16 @@ final class PaneSubRow: NSButton {
         wantsLayer = true
         layer?.cornerRadius = ChromeGeometry.pillRadius
         layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
         translatesAutoresizingMaskIntoConstraints = false
         setButtonType(.momentaryChange)
         target = self
         action = #selector(handleClick)
+
+        shimmerLayer.isHidden = true
+        shimmerLayer.startPoint = CGPoint(x: 0, y: 0.5)
+        shimmerLayer.endPoint = CGPoint(x: 1, y: 0.5)
+        layer?.addSublayer(shimmerLayer)
 
         statusIndicator.translatesAutoresizingMaskIntoConstraints = false
         statusIndicator.setContentHuggingPriority(.required, for: .horizontal)
@@ -76,6 +94,11 @@ final class PaneSubRow: NSButton {
         ])
     }
 
+    override func layout() {
+        super.layout()
+        shimmerLayer.frame = bounds
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea {
@@ -93,16 +116,17 @@ final class PaneSubRow: NSButton {
 
     override func mouseEntered(with event: NSEvent) {
         isHovered = true
-        applyHoverState()
+        applyVisualState()
     }
 
     override func mouseExited(with event: NSEvent) {
         isHovered = false
-        applyHoverState()
+        applyVisualState()
     }
 
     func configure(with pane: PaneSidebarSummary, theme: ZenttyTheme) {
         currentTheme = theme
+        isWorking = pane.isWorking
         label.stringValue = pane.primaryText
 
         let hasGitContext = !pane.gitContext.isEmpty
@@ -112,6 +136,7 @@ final class PaneSubRow: NSButton {
         // Status indicator
         let (symbolName, symbolSize, tintColor) = statusIndicatorConfig(
             for: pane.attentionState,
+            isWorking: pane.isWorking,
             theme: theme
         )
         statusIndicator.image = NSImage(
@@ -129,11 +154,12 @@ final class PaneSubRow: NSButton {
             ? textColor.withAlphaComponent(0.60)
             : theme.tertiaryText
 
-        applyHoverState()
+        applyVisualState()
     }
 
     private func statusIndicatorConfig(
         for attention: WorkspaceAttentionState?,
+        isWorking: Bool,
         theme: ZenttyTheme
     ) -> (symbolName: String, pointSize: CGFloat, color: NSColor) {
         switch attention {
@@ -144,16 +170,71 @@ final class PaneSubRow: NSButton {
         case .running:
             return ("circle.fill", 8, NSColor.systemGreen)
         case .completed, nil:
+            if isWorking {
+                return ("circle.fill", 8, NSColor.systemGreen)
+            }
             return ("circle.fill", 8, theme.tertiaryText)
         }
     }
 
-    private func applyHoverState() {
+    private func applyVisualState() {
+        updateShimmerState()
+
         performThemeAnimation(animated: true) {
-            self.layer?.backgroundColor = self.isHovered
-                ? self.currentTheme.sidebarButtonHoverBackground.cgColor
-                : NSColor.clear.cgColor
+            self.layer?.backgroundColor = self.backgroundColorForCurrentState().cgColor
         }
+    }
+
+    private func backgroundColorForCurrentState() -> NSColor {
+        if isHovered {
+            return currentTheme.sidebarButtonHoverBackground
+        }
+
+        guard isWorking else {
+            return .clear
+        }
+
+        let base = currentTheme.sidebarButtonInactiveBackground
+            .mixed(towards: currentTheme.sidebarGradientStart, amount: 0.18)
+        return base.withAlphaComponent(currentTheme.reducedTransparency ? 0.30 : 0.18)
+    }
+
+    private func updateShimmerState() {
+        shimmerLayer.removeAnimation(forKey: WorkingIndicator.shimmerAnimationKey)
+
+        guard isWorking else {
+            shimmerLayer.isHidden = true
+            shimmerLayer.opacity = 0
+            return
+        }
+
+        let highlight = currentTheme.sidebarGradientStart
+            .brightenedForLabel
+            .withAlphaComponent(currentTheme.reducedTransparency ? 0.18 : 0.30)
+        shimmerLayer.colors = [
+            NSColor.clear.cgColor,
+            highlight.cgColor,
+            NSColor.clear.cgColor,
+        ]
+
+        if reducedMotionProvider() {
+            shimmerLayer.isHidden = false
+            shimmerLayer.opacity = 0.55
+            shimmerLayer.locations = [0.28, 0.50, 0.72]
+            return
+        }
+
+        shimmerLayer.isHidden = false
+        shimmerLayer.opacity = 1
+        shimmerLayer.locations = [0, 0.18, 0.36]
+
+        let animation = CABasicAnimation(keyPath: "locations")
+        animation.fromValue = [-0.55, -0.20, 0.15]
+        animation.toValue = [0.85, 1.20, 1.55]
+        animation.duration = 1.15
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        shimmerLayer.add(animation, forKey: WorkingIndicator.shimmerAnimationKey)
     }
 
     @objc
@@ -165,5 +246,13 @@ final class PaneSubRow: NSButton {
 
     var labelTextForTesting: String {
         label.stringValue
+    }
+
+    var isWorkingForTesting: Bool {
+        isWorking
+    }
+
+    var shimmerIsAnimatingForTesting: Bool {
+        shimmerLayer.animation(forKey: WorkingIndicator.shimmerAnimationKey) != nil
     }
 }

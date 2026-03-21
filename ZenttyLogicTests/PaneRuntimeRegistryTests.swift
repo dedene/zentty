@@ -63,7 +63,7 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         XCTAssertEqual(adapterFactory.adapters.map(\.startSessionCallCount), [1, 1])
     }
 
-    func test_registry_updates_surface_activity_for_visible_focused_and_hidden_workspaces() {
+    func test_registry_keeps_inactive_workspace_panes_live_while_only_active_workspace_is_visible() {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
             adapterFactory.makeAdapter(for: paneID)
@@ -108,8 +108,67 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         )
         XCTAssertEqual(
             adapterFactory.activity(for: hiddenShell.id),
-            TerminalSurfaceActivity(isVisible: false, isFocused: false)
+            TerminalSurfaceActivity(
+                keepsRuntimeLive: true,
+                isVisible: false,
+                isFocused: false
+            )
         )
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[hiddenShell.id]?.startSessionCallCount, 1)
+    }
+
+    func test_registry_keeps_panes_live_even_when_window_is_not_visible() {
+        let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        let mainShell = PaneState(id: PaneID("workspace-main-shell"), title: "shell")
+        let backgroundShell = PaneState(id: PaneID("workspace-2-shell"), title: "shell")
+        let workspaces = [
+            WorkspaceState(
+                id: WorkspaceID("workspace-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [mainShell],
+                    focusedPaneID: mainShell.id
+                )
+            ),
+            WorkspaceState(
+                id: WorkspaceID("workspace-2"),
+                title: "WS 2",
+                paneStripState: PaneStripState(
+                    panes: [backgroundShell],
+                    focusedPaneID: backgroundShell.id
+                )
+            ),
+        ]
+
+        registry.synchronize(with: workspaces)
+        registry.updateSurfaceActivities(
+            workspaces: workspaces,
+            activeWorkspaceID: WorkspaceID("workspace-main"),
+            windowIsVisible: false,
+            windowIsKey: false
+        )
+
+        XCTAssertEqual(
+            adapterFactory.activity(for: mainShell.id),
+            TerminalSurfaceActivity(
+                keepsRuntimeLive: true,
+                isVisible: false,
+                isFocused: false
+            )
+        )
+        XCTAssertEqual(
+            adapterFactory.activity(for: backgroundShell.id),
+            TerminalSurfaceActivity(
+                keepsRuntimeLive: true,
+                isVisible: false,
+                isFocused: false
+            )
+        )
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[mainShell.id]?.startSessionCallCount, 1)
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[backgroundShell.id]?.startSessionCallCount, 1)
     }
 
     func test_registry_removes_runtime_for_closed_pane() {
@@ -219,6 +278,7 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
     let paneID: PaneID
     let terminalView = NSView()
     var hasScrollback = false
+    var cellHeight: CGFloat = 0
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
     private(set) var startSessionCallCount = 0
