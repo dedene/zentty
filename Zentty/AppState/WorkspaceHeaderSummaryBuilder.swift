@@ -3,16 +3,18 @@ enum WorkspaceHeaderSummaryBuilder {
         for workspace: WorkspaceState,
         reviewStateProvider: WorkspaceReviewStateProvider
     ) -> WorkspaceChromeSummary {
-        let focusedPane = workspace.paneStripState.focusedPane
-        let metadata = workspace.paneStripState.focusedPaneID.flatMap { workspace.auxiliaryStateByPaneID[$0]?.metadata }
+        let focusedPaneContext = workspace.focusedPaneContext
         let reviewState = reviewStateProvider.reviewState(
             for: workspace,
-            focusedPaneID: workspace.paneStripState.focusedPaneID
+            focusedPaneID: focusedPaneContext?.paneID
         )
 
         return WorkspaceChromeSummary(
             attention: WorkspaceAttentionSummaryBuilder.summary(for: workspace),
-            focusedLabel: focusedLabel(metadata: metadata, paneTitle: focusedPane?.title),
+            focusedLabel: focusedLabel(
+                metadata: focusedPaneContext?.metadata,
+                paneTitle: focusedPaneContext?.pane.title
+            ),
             branch: reviewState?.branch,
             pullRequest: reviewState?.pullRequest,
             reviewChips: reviewState?.reviewChips ?? []
@@ -21,9 +23,9 @@ enum WorkspaceHeaderSummaryBuilder {
 
     private static func focusedLabel(metadata: TerminalMetadata?, paneTitle: String?) -> String? {
         AgentToolRecognizer.recognize(metadata: metadata)?.displayName
+            ?? WorkspaceContextFormatter.displayMeaningfulTerminalIdentity(for: metadata, fallbackTitle: paneTitle)
             ?? WorkspaceContextFormatter.displayWorkingDirectory(for: metadata)
-            ?? WorkspaceContextFormatter.trimmed(metadata?.title)
-            ?? WorkspaceContextFormatter.trimmed(metadata?.processName)
+            ?? WorkspaceContextFormatter.displayTerminalIdentity(for: metadata, fallbackTitle: paneTitle)
             ?? WorkspaceContextFormatter.trimmed(paneTitle)
     }
 }

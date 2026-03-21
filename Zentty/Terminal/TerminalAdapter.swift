@@ -21,22 +21,52 @@ struct TerminalSessionRequest: Equatable, Sendable {
 }
 
 struct TerminalSurfaceActivity: Equatable, Sendable {
+    var keepsRuntimeLive: Bool
     var isVisible: Bool
     var isFocused: Bool
 
-    init(isVisible: Bool = true, isFocused: Bool = false) {
+    init(
+        keepsRuntimeLive: Bool = true,
+        isVisible: Bool = true,
+        isFocused: Bool = false
+    ) {
+        self.keepsRuntimeLive = keepsRuntimeLive
         self.isVisible = isVisible
         self.isFocused = isFocused
     }
 }
 
+struct TerminalProgressReport: Equatable, Sendable {
+    enum State: Equatable, Sendable {
+        case remove
+        case set
+        case error
+        case indeterminate
+        case pause
+
+        var indicatesActivity: Bool {
+            switch self {
+            case .remove:
+                return false
+            case .set, .error, .indeterminate, .pause:
+                return true
+            }
+        }
+    }
+
+    var state: State
+    var progress: UInt8?
+}
+
 enum TerminalEvent: Equatable, Sendable {
+    case progressReport(TerminalProgressReport)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
 }
 
 @MainActor
 protocol TerminalAdapter: AnyObject {
     var hasScrollback: Bool { get }
+    var cellHeight: CGFloat { get }
     func makeTerminalView() -> NSView
     func startSession(using request: TerminalSessionRequest) throws
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity)

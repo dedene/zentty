@@ -56,6 +56,57 @@ final class LibghosttyAdapterTests: XCTestCase {
         XCTAssertEqual(surfaceController.focusValues.last, true)
     }
 
+    func test_hidden_live_surface_does_not_refresh_until_it_becomes_visible() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        adapter.setSurfaceActivity(
+            TerminalSurfaceActivity(
+                keepsRuntimeLive: true,
+                isVisible: false,
+                isFocused: false
+            )
+        )
+        XCTAssertEqual(surfaceController.refreshCallCount, 0)
+        XCTAssertEqual(surfaceController.focusValues.last, false)
+
+        adapter.setSurfaceActivity(
+            TerminalSurfaceActivity(
+                keepsRuntimeLive: true,
+                isVisible: true,
+                isFocused: false
+            )
+        )
+
+        XCTAssertEqual(surfaceController.refreshCallCount, 1)
+        XCTAssertEqual(surfaceController.focusValues.last, false)
+    }
+
+    func test_hidden_live_surface_still_forwards_progress_events() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var receivedEvent: TerminalEvent?
+
+        adapter.eventDidOccur = { receivedEvent = $0 }
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        adapter.setSurfaceActivity(
+            TerminalSurfaceActivity(
+                keepsRuntimeLive: true,
+                isVisible: false,
+                isFocused: false
+            )
+        )
+
+        let report = TerminalProgressReport(state: .indeterminate, progress: nil)
+        runtime.lastEventHandler?(.progressReport(report))
+
+        XCTAssertEqual(receivedEvent, .progressReport(report))
+    }
+
     func test_prepare_session_start_uses_inherited_config_from_source_surface() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let sourceAdapter = LibghosttyAdapter(runtime: runtime)
@@ -118,6 +169,25 @@ final class LibghosttyAdapterTests: XCTestCase {
         XCTAssertEqual(payload, .commandFinished(exitCode: 1, durationNanoseconds: 250_000_000))
     }
 
+    func test_copy_action_payload_copies_progress_report_values() {
+        let action = ghostty_action_s(
+            tag: GHOSTTY_ACTION_PROGRESS_REPORT,
+            action: ghostty_action_u(
+                progress_report: ghostty_action_progress_report_s(
+                    state: GHOSTTY_PROGRESS_STATE_INDETERMINATE,
+                    progress: -1
+                )
+            )
+        )
+
+        let payload = copyLibghosttySurfaceActionPayload(from: action)
+
+        XCTAssertEqual(
+            payload,
+            .progressReport(TerminalProgressReport(state: .indeterminate, progress: nil))
+        )
+    }
+
     func test_make_runtime_config_enables_clipboard_callbacks() {
         let config = LibghosttyRuntime.makeRuntimeConfig(
             userdata: UnsafeMutableRawPointer(bitPattern: 0x1)
@@ -163,6 +233,7 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
 
 private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling {
     var hasScrollback = false
+    var cellHeight: CGFloat = 0
     private(set) var refreshCallCount = 0
     private(set) var focusValues: [Bool] = []
     private(set) var bindingActions: [String] = []

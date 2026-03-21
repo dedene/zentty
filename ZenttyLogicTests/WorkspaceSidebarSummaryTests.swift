@@ -57,7 +57,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.detailLines, [])
     }
 
-    func test_builder_prefers_workspace_cwd_over_focused_generated_title() {
+    func test_builder_prefers_meaningful_terminal_identity_when_focused_pane_has_no_metadata() {
         let focusedPaneID = PaneID("workspace-main-pane-1")
         let notesPaneID = PaneID("workspace-main-notes")
         let workspace = WorkspaceState(
@@ -82,7 +82,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
 
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
 
-        XCTAssertEqual(summary.primaryText, "project")
+        XCTAssertEqual(summary.primaryText, "notes")
         XCTAssertEqual(summary.detailLines.map(\.text), ["notes • project"])
         XCTAssertNil(summary.leadingAccessory)
     }
@@ -112,7 +112,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.detailLines, [])
     }
 
-    func test_builder_uses_first_visible_pane_for_fallback_identity_when_cwd_is_missing() {
+    func test_builder_uses_focused_pane_for_fallback_identity_when_cwd_is_missing() {
         let firstPaneID = PaneID("workspace-main-pane-1")
         let secondPaneID = PaneID("workspace-main-pane-2")
         let workspace = WorkspaceState(
@@ -143,7 +143,42 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
 
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
 
-        XCTAssertEqual(summary.primaryText, "rails")
+        XCTAssertEqual(summary.primaryText, "git")
+    }
+
+    func test_builder_prefers_focused_meaningful_terminal_identity_over_earlier_pane_cwd() {
+        let firstPaneID = PaneID("workspace-main-pane-1")
+        let focusedPaneID = PaneID("workspace-main-pane-2")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: firstPaneID, title: "server"),
+                    PaneState(id: focusedPaneID, title: "git"),
+                ],
+                focusedPaneID: focusedPaneID
+            ),
+            metadataByPaneID: [
+                firstPaneID: TerminalMetadata(
+                    title: "server",
+                    currentWorkingDirectory: "/tmp/app",
+                    processName: "zsh",
+                    gitBranch: "main"
+                ),
+                focusedPaneID: TerminalMetadata(
+                    title: "git",
+                    currentWorkingDirectory: "/tmp/docs",
+                    processName: "zsh",
+                    gitBranch: "feature/sidebar-feedback"
+                ),
+            ]
+        )
+
+        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+
+        XCTAssertEqual(summary.primaryText, "git")
+        XCTAssertEqual(summary.detailLines.map(\.text), ["main • app"])
     }
 
     func test_builder_falls_back_to_generic_shell_when_workspace_is_anonymous() {
@@ -388,7 +423,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertNil(summary.overflowText)
     }
 
-    func test_builder_keeps_detail_lines_in_visible_pane_order_instead_of_focused_first() {
+    func test_builder_excludes_focused_pane_from_detail_lines_while_preserving_other_pane_order() {
         let shellPaneID = PaneID("workspace-main-shell")
         let gitPaneID = PaneID("workspace-main-pane-1")
         let notesPaneID = PaneID("workspace-main-pane-2")
@@ -430,13 +465,13 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(
             summary.detailLines.map(\.text),
             [
+                "fix-pane-border-text-visibility • sidebar",
                 "main • git",
-                "notes • copy",
             ]
         )
     }
 
-    func test_builder_shows_all_pane_detail_lines_without_overflow_for_four_pane_workspaces() {
+    func test_builder_shows_all_non_focused_pane_detail_lines_without_overflow_for_four_pane_workspaces() {
         let firstPaneID = PaneID("workspace-main-shell")
         let secondPaneID = PaneID("workspace-main-pane-1")
         let thirdPaneID = PaneID("workspace-main-pane-2")
@@ -486,9 +521,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(
             summary.detailLines.map(\.text),
             [
+                "fix-pane-border-text-visibility • sidebar",
                 "main • git",
                 "notes • copy",
-                "tests • specs",
             ]
         )
         XCTAssertNil(summary.overflowText)
@@ -578,5 +613,44 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         )
 
         XCTAssertEqual(summaries.map(\.primaryText), ["tmp/api", "src/api"])
+    }
+
+    func test_builder_marks_workspace_as_working_when_background_terminal_progress_exists() {
+        let shellPaneID = PaneID("workspace-main-shell")
+        let agentPaneID = PaneID("workspace-main-agent")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: shellPaneID, title: "shell"),
+                    PaneState(id: agentPaneID, title: "agent"),
+                ],
+                focusedPaneID: shellPaneID
+            ),
+            metadataByPaneID: [
+                shellPaneID: TerminalMetadata(
+                    title: "zsh",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "zsh",
+                    gitBranch: "main"
+                ),
+                agentPaneID: TerminalMetadata(
+                    title: "Claude Code",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "claude",
+                    gitBranch: nil
+                ),
+            ],
+            terminalProgressByPaneID: [
+                agentPaneID: TerminalProgressReport(state: .indeterminate, progress: nil)
+            ]
+        )
+
+        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+
+        XCTAssertTrue(summary.isWorking)
+        XCTAssertEqual(summary.statusText, "Running")
+        XCTAssertEqual(summary.attentionState, .running)
     }
 }

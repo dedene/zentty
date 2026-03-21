@@ -26,6 +26,7 @@ struct PaneSidebarSummary: Equatable {
     let attentionState: WorkspaceAttentionState?
     let gitContext: String
     let isFocused: Bool
+    let isWorking: Bool
 }
 
 enum WorkspaceSidebarNodeBuilder {
@@ -62,13 +63,15 @@ enum WorkspaceSidebarNodeBuilder {
         )
 
         let panes = orderedPanes.dropFirst().map { pane in
-            PaneSidebarSummary(
+            let aux = workspace.auxiliaryStateByPaneID[pane.id]
+            return PaneSidebarSummary(
                 paneID: pane.id,
                 workspaceID: workspace.id,
                 primaryText: panePrimaryText(for: pane, in: workspace),
-                attentionState: workspace.auxiliaryStateByPaneID[pane.id]?.agentStatus.map { mapAttentionState($0.state) },
+                attentionState: aux?.agentStatus.map { mapAttentionState($0.state) },
                 gitContext: detailTextByPaneID[pane.id] ?? "",
-                isFocused: workspace.paneStripState.focusedPaneID == pane.id
+                isFocused: workspace.paneStripState.focusedPaneID == pane.id,
+                isWorking: aux?.isWorking ?? false
             )
         }
 
@@ -80,16 +83,21 @@ enum WorkspaceSidebarNodeBuilder {
         if let tool = AgentToolRecognizer.recognize(metadata: metadata) {
             return tool.displayName
         }
-        if let path = metadata?.currentWorkingDirectory,
+        if let terminalIdentity = WorkspaceContextFormatter.displayMeaningfulTerminalIdentity(
+            for: metadata,
+            fallbackTitle: pane.title
+        ) {
+            return terminalIdentity
+        }
+        if let path = WorkspaceContextFormatter.resolvedWorkingDirectory(for: metadata),
            let compact = WorkspaceContextFormatter.compactSidebarPath(path) {
             return compact
         }
-        if let processName = WorkspaceContextFormatter.normalizeSidebarFallbackTitle(metadata?.processName) {
-            return processName
-        }
-        if let title = WorkspaceContextFormatter.normalizeSidebarFallbackTitle(metadata?.title)
-            ?? WorkspaceContextFormatter.normalizeSidebarFallbackTitle(pane.title) {
-            return title
+        if let terminalIdentity = WorkspaceContextFormatter.displayTerminalIdentity(
+            for: metadata,
+            fallbackTitle: pane.title
+        ) {
+            return terminalIdentity
         }
         return "Shell"
     }

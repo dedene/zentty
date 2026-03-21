@@ -778,6 +778,45 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool, .claudeCode)
     }
 
+    func test_progress_report_event_stores_and_removes_terminal_progress() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let report = TerminalProgressReport(state: .indeterminate, progress: nil)
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .progressReport(report)
+        )
+
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.terminalProgress, report)
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .progressReport(TerminalProgressReport(state: .remove, progress: nil))
+        )
+
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.terminalProgress)
+    }
+
+    func test_command_finished_clears_active_terminal_progress() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .progressReport(TerminalProgressReport(state: .set, progress: 40))
+        )
+
+        XCTAssertNotNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.terminalProgress)
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .commandFinished(exitCode: 0, durationNanoseconds: 250_000_000)
+        )
+
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.terminalProgress)
+    }
+
     func test_metadata_update_to_non_agent_title_clears_inferred_attention_state() throws {
         let store = WorkspaceStore()
         let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)

@@ -1083,25 +1083,29 @@
 		CC00000000000000000022 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
+				BUNDLE_LOADER = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = ZenttyLogicTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
+					"@loader_path/../../../Zentty.app/Contents/MacOS",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty.debug.dylib",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = be.zentty.ZenttyLogicTests;
 				PRODUCT_NAME = ZenttyLogicTests;
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
 			};
 			name = Debug;
 		};
 		CC00000000000000000023 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
+				BUNDLE_LOADER = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = ZenttyLogicTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1112,7 +1116,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = be.zentty.ZenttyLogicTests;
 				PRODUCT_NAME = ZenttyLogicTests;
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
 			};
 			name = Release;
 		};

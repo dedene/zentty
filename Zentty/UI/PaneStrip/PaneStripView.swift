@@ -310,15 +310,17 @@ final class PaneStripView: NSView {
             insertionTransition: insertionTransition,
             suspendedPaneIDs: suspendedPaneIDs
         )
-        applyTerminalAnimationFreeze(to: frozenPaneIDs)
+        applyTerminalAnimationFreeze(to: frozenPaneIDs, insertionTransition: insertionTransition)
         applyViewportSyncSuspension(to: suspendedPaneIDs)
 
         let updates = {
+            let useNeutralPaneBackground = shouldAnimate && !frozenPaneIDs.isEmpty
             self.applyPresentation(
                 presentation,
                 state: state,
                 offset: targetOffset,
                 animated: shouldAnimate,
+                useNeutralBackground: useNeutralPaneBackground,
                 insertionTransition: insertionTransition,
                 allowInactiveDimming: !shouldAnimate
             )
@@ -340,6 +342,7 @@ final class PaneStripView: NSView {
                     state: state,
                     offset: targetOffset,
                     animated: false,
+                    useNeutralBackground: false,
                     insertionTransition: insertionTransition,
                     allowInactiveDimming: true
                 )
@@ -383,6 +386,7 @@ final class PaneStripView: NSView {
         state: PaneStripState,
         offset: CGFloat,
         animated: Bool,
+        useNeutralBackground: Bool,
         insertionTransition: PaneInsertionTransition?,
         allowInactiveDimming: Bool
     ) {
@@ -395,7 +399,9 @@ final class PaneStripView: NSView {
             paneView.render(
                 pane: pane,
                 emphasis: panePresentation.emphasis,
-                isFocused: panePresentation.isFocused
+                isFocused: panePresentation.isFocused,
+                animated: animated,
+                useNeutralBackground: useNeutralBackground
             )
             let targetFrame = panePresentation.frame.offsetBy(
                 dx: -resolvedOffset(offset),
@@ -525,10 +531,19 @@ final class PaneStripView: NSView {
         return [sourcePaneID]
     }
 
-    private func applyTerminalAnimationFreeze(to frozenPaneIDs: Set<PaneID>) {
+    private func applyTerminalAnimationFreeze(
+        to frozenPaneIDs: Set<PaneID>,
+        insertionTransition: PaneInsertionTransition? = nil
+    ) {
         paneViews.forEach { paneID, paneView in
             if frozenPaneIDs.contains(paneID) {
-                paneView.beginVerticalFreeze(hasScrollback: paneView.hasScrollback)
+                let gravity: TerminalAnchorView.Gravity
+                if let side = insertionTransition?.side {
+                    gravity = (side == .bottom) ? .top : .bottom
+                } else {
+                    gravity = .top
+                }
+                paneView.beginVerticalFreeze(gravity: gravity)
             } else {
                 paneView.endVerticalFreeze()
             }

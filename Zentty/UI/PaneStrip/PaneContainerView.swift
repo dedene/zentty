@@ -2,7 +2,7 @@ import AppKit
 import QuartzCore
 
 @MainActor
-private final class TerminalAnchorView: NSView {
+final class TerminalAnchorView: NSView {
     enum Gravity {
         case top
         case bottom
@@ -160,7 +160,8 @@ final class PaneContainerView: NSView {
         runtimeObserverID = runtime.addObserver { [weak self] snapshot in
             self?.handleRuntimeSnapshot(snapshot)
         }
-        apply(theme: currentTheme, animated: false)
+        applyThemeColors(currentTheme)
+        applyVisualState(animated: false)
 
     }
 
@@ -182,7 +183,54 @@ final class PaneContainerView: NSView {
     func render(
         pane: PaneState,
         emphasis: CGFloat,
+        isFocused: Bool,
+        animated: Bool
+    ) {
+        render(
+            pane: pane,
+            emphasis: emphasis,
+            isFocused: isFocused,
+            animated: animated,
+            useNeutralBackground: false
+        )
+    }
+
+    func render(
+        pane: PaneState,
+        emphasis: CGFloat,
+        isFocused: Bool,
+        animated: Bool,
+        useNeutralBackground: Bool = false
+    ) {
+        render(
+            pane: pane,
+            emphasis: emphasis,
+            isFocused: isFocused,
+            animatedVisualState: animated,
+            useNeutralBackground: useNeutralBackground
+        )
+    }
+
+    func render(
+        pane: PaneState,
+        emphasis: CGFloat,
         isFocused: Bool
+    ) {
+        render(
+            pane: pane,
+            emphasis: emphasis,
+            isFocused: isFocused,
+            animatedVisualState: false,
+            useNeutralBackground: false
+        )
+    }
+
+    private func render(
+        pane: PaneState,
+        emphasis: CGFloat,
+        isFocused: Bool,
+        animatedVisualState: Bool,
+        useNeutralBackground: Bool
     ) {
         paneID = pane.id
         titleTextStorage = pane.title
@@ -190,7 +238,7 @@ final class PaneContainerView: NSView {
         currentIsFocused = isFocused
         runtime.update(pane: pane)
         updateInsetBorderLayer()
-        applyVisualState(animated: false)
+        applyVisualState(animated: animatedVisualState, useNeutralBackground: useNeutralBackground)
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {
@@ -198,11 +246,7 @@ final class PaneContainerView: NSView {
             return
         }
         currentTheme = theme
-        statusTitleLabel.textColor = theme.failurePrimaryText
-        statusMessageLabel.textColor = theme.failureSecondaryText
-        performThemeAnimation(animated: animated) {
-            self.statusOverlayView.layer?.backgroundColor = theme.failureOverlayBackground.cgColor
-        }
+        applyThemeColors(theme, animated: animated)
         applyVisualState(animated: animated)
     }
 
@@ -240,13 +284,13 @@ final class PaneContainerView: NSView {
         terminalHostView.setViewportSyncSuspended(suspended)
     }
 
-    func beginVerticalFreeze(hasScrollback: Bool) {
+    func beginVerticalFreeze(gravity: TerminalAnchorView.Gravity) {
         guard !isTerminalAnimationFrozen else {
             return
         }
 
         isTerminalAnimationFrozen = true
-        terminalAnchorView.gravity = hasScrollback ? .bottom : .top
+        terminalAnchorView.gravity = gravity
         terminalHostView.autoresizingMask = [.width]
         needsLayout = true
         layoutSubtreeIfNeeded()
@@ -258,7 +302,6 @@ final class PaneContainerView: NSView {
         }
 
         isTerminalAnimationFrozen = false
-        terminalAnchorView.gravity = .bottom
         terminalHostView.autoresizingMask = [.width, .height]
         needsLayout = true
         layoutSubtreeIfNeeded()
@@ -285,7 +328,12 @@ final class PaneContainerView: NSView {
         contentClipView.frame = bounds
         terminalAnchorView.frame = contentClipView.bounds
         if !isTerminalAnimationFrozen {
-            terminalHostView.frame = terminalAnchorView.bounds
+            let anchorBounds = terminalAnchorView.bounds
+            terminalHostView.frame = CGRect(
+                x: 0, y: 0,
+                width: anchorBounds.width,
+                height: anchorBounds.height
+            )
         }
         if !isInsetBorderAnimationManaged {
             updateInsetBorderLayer()
@@ -353,12 +401,52 @@ final class PaneContainerView: NSView {
         insetBorderLayer.cornerCurve
     }
 
+    var backgroundColorTokenForTesting: String? {
+        guard let cgColor = layer?.backgroundColor, let color = NSColor(cgColor: cgColor) else {
+            return nil
+        }
+
+        return color.themeToken
+    }
+
+    var insetBorderColorToken: String? {
+        guard let cgColor = insetBorderLayer.borderColor, let color = NSColor(cgColor: cgColor) else {
+            return nil
+        }
+
+        return color.themeToken
+    }
+
+    var shadowOpacityForTesting: Float {
+        layer?.shadowOpacity ?? 0
+    }
+
+    var shadowRadiusForTesting: CGFloat {
+        layer?.shadowRadius ?? 0
+    }
+
     var hasPaneContextChrome: Bool {
         false
     }
 
     var statusOverlayFrame: CGRect {
         statusOverlayView.frame
+    }
+
+    var contentClipFrameForTesting: CGRect {
+        contentClipView.frame
+    }
+
+    var contentClipBackgroundColorTokenForTesting: String? {
+        guard let cgColor = contentClipView.layer?.backgroundColor, let color = NSColor(cgColor: cgColor) else {
+            return nil
+        }
+
+        return color.themeToken
+    }
+
+    var terminalAnchorFrameForTesting: CGRect {
+        terminalAnchorView.frame
     }
 
     var clipsContentToBounds: Bool {
@@ -511,23 +599,37 @@ final class PaneContainerView: NSView {
         }
     }
 
-    private func applyVisualState(animated: Bool) {
+    private func applyVisualState(animated: Bool, useNeutralBackground: Bool = false) {
         let theme = currentTheme
         let emphasis = currentEmphasis
         let isFocused = currentIsFocused
-        let paneFillColor = isFocused
-            ? theme.paneFillFocused
-            : theme.paneFillUnfocused
+        let paneFillColor = useNeutralBackground
+            ? theme.startupSurface
+            : (isFocused ? theme.paneFillFocused : theme.paneFillUnfocused)
+        let shadowOpacity = Float(max(0, emphasis - 0.88) * 2.2)
+        let shadowRadius = 6 + max(0, emphasis - 0.92) * 24
         performThemeAnimation(animated: animated) {
             let borderColor = (isFocused
                 ? theme.paneBorderFocused
                 : theme.paneBorderUnfocused).cgColor
             self.insetBorderLayer.borderColor = borderColor
-            self.layer?.backgroundColor = paneFillColor.cgColor
             self.layer?.shadowColor = theme.paneShadow.cgColor
+            self.layer?.shadowOpacity = shadowOpacity
+            self.layer?.shadowRadius = shadowRadius
         }
-        layer?.shadowOpacity = Float(max(0, emphasis - 0.88) * 2.2)
-        layer?.shadowRadius = 6 + max(0, emphasis - 0.92) * 24
+        performThemeAnimation(animated: animated && !useNeutralBackground) {
+            self.layer?.backgroundColor = paneFillColor.cgColor
+        }
+    }
+
+    private func applyThemeColors(_ theme: ZenttyTheme, animated: Bool = false) {
+        statusTitleLabel.textColor = theme.failurePrimaryText
+        statusMessageLabel.textColor = theme.failureSecondaryText
+        performThemeAnimation(animated: animated) {
+            self.contentClipView.layer?.backgroundColor = theme.startupSurface.cgColor
+            self.terminalHostView.layer?.backgroundColor = theme.startupSurface.cgColor
+            self.statusOverlayView.layer?.backgroundColor = theme.failureOverlayBackground.cgColor
+        }
     }
 
     @objc

@@ -181,6 +181,31 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_pane_context_backdrop_stays_below_the_top_of_its_badge() throws {
+        let overlayView = PaneBorderContextOverlayView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let paneID = PaneID("bottom")
+        overlayView.render(
+            snapshots: [
+                PaneBorderChromeSnapshot(
+                    paneID: paneID,
+                    frame: CGRect(x: 0, y: 0, width: 640, height: 220),
+                    isFocused: true,
+                    emphasis: 1,
+                    borderContext: PaneBorderContextDisplayModel(text: "peter@m1-pro-peter:~")
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        overlayView.layoutSubtreeIfNeeded()
+
+        let badgeFrame = try XCTUnwrap(overlayView.paneContextFramesForTesting[paneID])
+        let backdropFrame = try XCTUnwrap(overlayView.paneContextBackdropFramesForTesting[paneID])
+
+        XCTAssertGreaterThan(backdropFrame.minY, 4)
+        XCTAssertLessThan(backdropFrame.height, badgeFrame.height)
+    }
+
+    @MainActor
     func test_focus_change_repositions_visible_panes() {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
         let editorFocused = PaneStripState(
@@ -1056,6 +1081,67 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_vertical_split_uses_neutral_background_until_animation_settles() throws {
+        let theme = ZenttyTheme.fallback(for: nil)
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let singlePane = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("shell"), title: "shell"),
+                    ],
+                    width: 910,
+                    focusedPaneID: PaneID("shell"),
+                    lastFocusedPaneID: PaneID("shell")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+        let splitState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("shell"), title: "shell"),
+                        PaneState(id: PaneID("pane-1"), title: "pane 1"),
+                    ],
+                    width: 910,
+                    focusedPaneID: PaneID("pane-1"),
+                    lastFocusedPaneID: PaneID("pane-1")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        paneStripView.render(singlePane)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(splitState)
+
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
+        )
+        let insertedPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "pane 1" })
+        )
+
+        XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.startupSurface.themeToken)
+        XCTAssertEqual(insertedPane.backgroundColorTokenForTesting, theme.startupSurface.themeToken)
+        XCTAssertEqual(shellPane.insetBorderColorToken, theme.paneBorderUnfocused.themeToken)
+        XCTAssertEqual(insertedPane.insetBorderColorToken, theme.paneBorderFocused.themeToken)
+
+        let settled = expectation(description: "vertical split neutral background settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 1.0)
+
+        XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.paneFillUnfocused.themeToken)
+        XCTAssertEqual(insertedPane.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
+    }
+
+    @MainActor
     func test_vertical_pane_removal_freezes_remaining_pane_until_animation_settles() throws {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
         let splitState = PaneStripState(
@@ -1276,6 +1362,7 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
     let paneID: PaneID
     let terminalView = PaneStripTerminalViewSpy()
     var hasScrollback = false
+    var cellHeight: CGFloat = 0
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
     private(set) var startSessionCallCount = 0

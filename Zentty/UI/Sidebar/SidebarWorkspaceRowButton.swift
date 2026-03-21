@@ -1,9 +1,14 @@
 import AppKit
+import QuartzCore
 
 @MainActor
 final class SidebarWorkspaceRowButton: NSButton {
     private enum Layout {
         static let contentInset = ShellMetrics.sidebarRowHorizontalInset
+    }
+
+    private enum WorkingIndicator {
+        static let shimmerAnimationKey = "workspace-row-shimmer"
     }
 
     let workspaceID: WorkspaceID?
@@ -18,6 +23,7 @@ final class SidebarWorkspaceRowButton: NSButton {
     private let bodyStack = NSStackView()
     private let contentStack = NSStackView()
     private let artifactButton = NSButton(title: "", target: nil, action: nil)
+    private let shimmerLayer = CAGradientLayer()
 
     private var detailLabels: [NSTextField] = []
     private var currentSummary: WorkspaceSidebarSummary?
@@ -28,9 +34,15 @@ final class SidebarWorkspaceRowButton: NSButton {
     private var heightConstraint: NSLayoutConstraint?
     private var leadingAccessoryWidthConstraint: NSLayoutConstraint?
     private var currentLeadingAccessorySymbolName: String?
+    private var isWorking = false
+    private let reducedMotionProvider: () -> Bool
 
-    init(workspaceID: WorkspaceID?) {
+    init(
+        workspaceID: WorkspaceID?,
+        reducedMotionProvider: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    ) {
         self.workspaceID = workspaceID
+        self.reducedMotionProvider = reducedMotionProvider
         super.init(frame: .zero)
         setup()
     }
@@ -51,6 +63,11 @@ final class SidebarWorkspaceRowButton: NSButton {
         layer?.masksToBounds = false
         translatesAutoresizingMaskIntoConstraints = false
         setButtonType(.momentaryChange)
+
+        shimmerLayer.isHidden = true
+        shimmerLayer.startPoint = CGPoint(x: 0, y: 0.5)
+        shimmerLayer.endPoint = CGPoint(x: 1, y: 0.5)
+        layer?.addSublayer(shimmerLayer)
 
         configureLabel(
             topLabel,
@@ -135,6 +152,11 @@ final class SidebarWorkspaceRowButton: NSButton {
         ])
     }
 
+    override func layout() {
+        super.layout()
+        shimmerLayer.frame = bounds
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
 
@@ -170,6 +192,7 @@ final class SidebarWorkspaceRowButton: NSButton {
     ) {
         currentSummary = summary
         currentTheme = theme
+        isWorking = summary.isWorking
 
         let layout = SidebarWorkspaceRowLayout(summary: summary)
 
@@ -246,6 +269,8 @@ final class SidebarWorkspaceRowButton: NSButton {
             return
         }
 
+        updateShimmerState()
+
         let activeTextColor = currentTheme.sidebarButtonActiveText
         let inactiveTextColor = currentTheme.sidebarButtonInactiveText
 
@@ -281,10 +306,11 @@ final class SidebarWorkspaceRowButton: NSButton {
 
         performThemeAnimation(animated: animated) {
             self.layer?.zPosition = summary.isActive ? 10 : 0
-            self.layer?.backgroundColor = (
-                summary.isActive
-                    ? activeBackground
-                    : (self.isHovered ? hoverBackground : inactiveBackground)
+            self.layer?.backgroundColor = self.backgroundColor(
+                isActive: summary.isActive,
+                activeBackground: activeBackground,
+                hoverBackground: hoverBackground,
+                inactiveBackground: inactiveBackground
             ).cgColor
             self.layer?.borderColor = (summary.isActive ? activeBorder : inactiveBorder).cgColor
             self.layer?.borderWidth = summary.isActive ? 0.8 : 1
@@ -293,6 +319,67 @@ final class SidebarWorkspaceRowButton: NSButton {
             self.layer?.shadowRadius = summary.isActive ? 12 : 4
             self.layer?.shadowOffset = CGSize(width: 0, height: -1)
         }
+    }
+
+    private func backgroundColor(
+        isActive: Bool,
+        activeBackground: NSColor,
+        hoverBackground: NSColor,
+        inactiveBackground: NSColor
+    ) -> NSColor {
+        if isActive {
+            return activeBackground
+        }
+
+        if isHovered {
+            return hoverBackground
+        }
+
+        guard isWorking else {
+            return inactiveBackground
+        }
+
+        let base = inactiveBackground
+            .mixed(towards: currentTheme.sidebarGradientStart, amount: 0.18)
+        return base.withAlphaComponent(currentTheme.reducedTransparency ? 0.92 : 1)
+    }
+
+    private func updateShimmerState() {
+        shimmerLayer.removeAnimation(forKey: WorkingIndicator.shimmerAnimationKey)
+
+        guard isWorking else {
+            shimmerLayer.isHidden = true
+            shimmerLayer.opacity = 0
+            return
+        }
+
+        let highlight = currentTheme.sidebarGradientStart
+            .brightenedForLabel
+            .withAlphaComponent(currentTheme.reducedTransparency ? 0.14 : 0.22)
+        shimmerLayer.colors = [
+            NSColor.clear.cgColor,
+            highlight.cgColor,
+            NSColor.clear.cgColor,
+        ]
+
+        if reducedMotionProvider() {
+            shimmerLayer.isHidden = false
+            shimmerLayer.opacity = 0.55
+            shimmerLayer.locations = [0.30, 0.50, 0.70]
+            return
+        }
+
+        shimmerLayer.isHidden = false
+        shimmerLayer.opacity = 1
+        shimmerLayer.locations = [0, 0.18, 0.36]
+
+        let animation = CABasicAnimation(keyPath: "locations")
+        animation.fromValue = [-0.55, -0.20, 0.15]
+        animation.toValue = [0.85, 1.20, 1.55]
+        animation.duration = 1.15
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        shimmerLayer.add(animation, forKey: WorkingIndicator.shimmerAnimationKey)
     }
 
     private func statusTextColor(for summary: WorkspaceSidebarSummary) -> NSColor {
@@ -372,6 +459,14 @@ final class SidebarWorkspaceRowButton: NSButton {
 
     var leadingAccessorySymbolNameForTesting: String {
         currentLeadingAccessorySymbolName ?? ""
+    }
+
+    var isWorkingForTesting: Bool {
+        isWorking
+    }
+
+    var shimmerIsAnimatingForTesting: Bool {
+        shimmerLayer.animation(forKey: WorkingIndicator.shimmerAnimationKey) != nil
     }
 
     func primaryMinX(in view: NSView) -> CGFloat {

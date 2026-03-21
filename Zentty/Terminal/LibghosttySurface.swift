@@ -9,6 +9,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     private let eventDidOccur: (TerminalEvent) -> Void
     private(set) var hasScrollback = false
 
+    var cellHeight: CGFloat {
+        guard let surface else { return 0 }
+        let size = ghostty_surface_size(surface)
+        return CGFloat(size.cell_height_px)
+    }
+
     init(
         app: ghostty_app_t,
         hostView: LibghosttyView,
@@ -242,6 +248,8 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         case .pwd(let path):
             metadata.currentWorkingDirectory = path
             publishMetadata()
+        case .progressReport(let report):
+            eventDidOccur(.progressReport(report))
         case .commandFinished(let exitCode, let durationNanoseconds):
             eventDidOccur(.commandFinished(exitCode: exitCode, durationNanoseconds: durationNanoseconds))
         case .scrollbar(let total, let len):

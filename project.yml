@@ -22,6 +22,7 @@ schemes:
     test:
       config: Debug
       targets:
+        - ZenttyLogicTests
         - ZenttyTests
     profile:
       config: Release
@@ -98,5 +99,30 @@ targets:
         INFOPLIST_FILE: ZenttyTests/Info.plist
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty"
         BUNDLE_LOADER: "$(TEST_HOST)"
+    dependencies:
+      - target: Zentty
+  ZenttyLogicTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: ZenttyLogicTests
+    info:
+      path: ZenttyLogicTests/Info.plist
+    settings:
+      base:
+        PRODUCT_NAME: ZenttyLogicTests
+        PRODUCT_BUNDLE_IDENTIFIER: be.zentty.ZenttyLogicTests
+        INFOPLIST_FILE: ZenttyLogicTests/Info.plist
+        BUNDLE_LOADER: "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty"
+      configs:
+        Debug:
+          LD_RUNPATH_SEARCH_PATHS:
+            - "$(inherited)"
+            - "@executable_path/../Frameworks"
+            - "@loader_path/../Frameworks"
+            - "@loader_path/../../../Zentty.app/Contents/MacOS"
+          OTHER_LDFLAGS:
+            - "$(inherited)"
+            - "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty.debug.dylib"
     dependencies:
       - target: Zentty
