@@ -10,6 +10,17 @@ struct WorkspaceSidebarDetailLine: Equatable {
     let emphasis: WorkspaceSidebarDetailEmphasis
 }
 
+struct WorkspaceSidebarPaneRow: Equatable {
+    let paneID: PaneID
+    let primaryText: String
+    let trailingText: String?
+    let detailText: String?
+    let statusText: String?
+    let attentionState: WorkspaceAttentionState?
+    let isFocused: Bool
+    let isWorking: Bool
+}
+
 enum WorkspaceSidebarLeadingAccessory: Equatable {
     case home
     case agent(AgentTool)
@@ -24,6 +35,7 @@ struct WorkspaceSidebarSummary: Equatable {
     let statusText: String?
     let stateBadgeText: String?
     let detailLines: [WorkspaceSidebarDetailLine]
+    let paneRows: [WorkspaceSidebarPaneRow]
     let overflowText: String?
     let leadingAccessory: WorkspaceSidebarLeadingAccessory?
     let attentionState: WorkspaceAttentionState?
@@ -32,7 +44,7 @@ struct WorkspaceSidebarSummary: Equatable {
     let isActive: Bool
 
     var title: String { topLabel ?? "" }
-    var contextText: String { detailLines.first?.text ?? "" }
+    var contextText: String { paneRows.first?.detailText ?? detailLines.first?.text ?? "" }
     var showsGeneratedTitle: Bool { topLabel != nil }
 
     init(
@@ -44,6 +56,7 @@ struct WorkspaceSidebarSummary: Equatable {
         statusText: String? = nil,
         stateBadgeText: String? = nil,
         detailLines: [WorkspaceSidebarDetailLine] = [],
+        paneRows: [WorkspaceSidebarPaneRow] = [],
         overflowText: String? = nil,
         leadingAccessory: WorkspaceSidebarLeadingAccessory? = nil,
         attentionState: WorkspaceAttentionState? = nil,
@@ -59,6 +72,7 @@ struct WorkspaceSidebarSummary: Equatable {
         self.statusText = statusText
         self.stateBadgeText = stateBadgeText
         self.detailLines = detailLines
+        self.paneRows = paneRows
         self.overflowText = overflowText
         self.leadingAccessory = leadingAccessory
         self.attentionState = attentionState
@@ -75,6 +89,7 @@ struct WorkspaceSidebarSummary: Equatable {
         focusedPaneLineIndex: Int = 0,
         statusText: String? = nil,
         detailLines: [WorkspaceSidebarDetailLine] = [],
+        paneRows: [WorkspaceSidebarPaneRow] = [],
         overflowText: String? = nil,
         leadingAccessory: WorkspaceSidebarLeadingAccessory? = nil,
         attentionState: WorkspaceAttentionState? = nil,
@@ -91,6 +106,7 @@ struct WorkspaceSidebarSummary: Equatable {
             statusText: statusText,
             stateBadgeText: attentionState.map(\.defaultSidebarStateBadgeText),
             detailLines: detailLines,
+            paneRows: paneRows,
             overflowText: overflowText,
             leadingAccessory: leadingAccessory,
             attentionState: attentionState,
@@ -123,6 +139,7 @@ struct WorkspaceSidebarSummary: Equatable {
             detailLines: WorkspaceContextFormatter.trimmed(contextText).map {
                 [WorkspaceSidebarDetailLine(text: $0, emphasis: .secondary)]
             } ?? [],
+            paneRows: [],
             overflowText: nil,
             leadingAccessory: nil,
             attentionState: attentionState,

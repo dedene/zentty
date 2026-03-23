@@ -68,7 +68,7 @@ enum WorkspaceSidebarNodeBuilder {
                 paneID: pane.id,
                 workspaceID: workspace.id,
                 primaryText: panePrimaryText(for: pane, in: workspace),
-                attentionState: aux?.agentStatus.map { mapAttentionState($0.state) },
+                attentionState: aux?.agentStatus.flatMap { mapAttentionState($0.state) },
                 gitContext: detailTextByPaneID[pane.id] ?? "",
                 isFocused: workspace.paneStripState.focusedPaneID == pane.id,
                 isWorking: aux?.isWorking ?? false
@@ -102,16 +102,7 @@ enum WorkspaceSidebarNodeBuilder {
         return "Shell"
     }
 
-    private static func mapAttentionState(_ state: PaneAgentState) -> WorkspaceAttentionState {
-        switch state {
-        case .needsInput:
-            return .needsInput
-        case .unresolvedStop:
-            return .unresolvedStop
-        case .running:
-            return .running
-        case .completed:
-            return .completed
-        }
+    private static func mapAttentionState(_ state: PaneAgentState) -> WorkspaceAttentionState? {
+        state.workspaceAttentionState
     }
 }

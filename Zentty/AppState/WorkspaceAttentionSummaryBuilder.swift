@@ -1,18 +1,5 @@
 import Foundation
 
-enum WorkspaceArtifactLinkResolver {
-    static func bestLink(
-        explicit: WorkspaceArtifactLink?,
-        inferred: WorkspaceArtifactLink?
-    ) -> WorkspaceArtifactLink? {
-        [explicit, inferred]
-            .compactMap { $0 }
-            .max { left, right in
-                left.priority < right.priority
-            }
-    }
-}
-
 enum WorkspaceAttentionSummaryBuilder {
     static func summary(for workspace: WorkspaceState) -> WorkspaceAttentionSummary? {
         workspace.paneStripState.panes
@@ -28,43 +15,27 @@ enum WorkspaceAttentionSummaryBuilder {
         in workspace: WorkspaceState
     ) -> WorkspaceAttentionSummary? {
         let aux = workspace.auxiliaryStateByPaneID[pane.id]
-        guard let status = aux?.agentStatus else {
+        guard let status = aux?.agentStatus,
+              let workspaceState = status.state.workspaceAttentionState else {
             return nil
         }
 
         let metadata = aux?.metadata
         let primaryText = status.tool.displayName
-        let artifactLink = WorkspaceArtifactLinkResolver.bestLink(
-            explicit: status.artifactLink,
-            inferred: aux?.inferredArtifact
-        )
 
         return WorkspaceAttentionSummary(
             paneID: pane.id,
             tool: status.tool,
-            state: workspaceState(for: status.state),
+            state: workspaceState,
             primaryText: primaryText,
             statusText: status.statusText,
             contextText: WorkspaceContextFormatter.paneDetailLine(
                 metadata: metadata,
                 fallbackTitle: pane.title
             ) ?? "",
-            artifactLink: artifactLink,
+            artifactLink: status.artifactLink,
             updatedAt: status.updatedAt
         )
-    }
-
-    private static func workspaceState(for state: PaneAgentState) -> WorkspaceAttentionState {
-        switch state {
-        case .needsInput:
-            return .needsInput
-        case .unresolvedStop:
-            return .unresolvedStop
-        case .running:
-            return .running
-        case .completed:
-            return .completed
-        }
     }
 
     private static func preferred(lhs: WorkspaceAttentionSummary, rhs: WorkspaceAttentionSummary) -> Bool {

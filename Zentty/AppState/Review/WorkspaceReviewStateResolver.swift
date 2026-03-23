@@ -162,6 +162,18 @@ final class WorkspaceReviewStateResolver {
         let branch: String
     }
 
+    private enum GitHubRepositoryResolution: Equatable {
+        case repository(String)
+        case noGitHubRepository
+        case unresolved
+    }
+
+    private enum RemoteLookupOutcome: Equatable {
+        case repository(String)
+        case notGitHub
+        case failed
+    }
+
     private enum RepositoryStatus: Equatable {
         case repository(gitDirectory: String)
         case notRepository
@@ -184,7 +196,7 @@ final class WorkspaceReviewStateResolver {
     private let runner: any WorkspaceReviewCommandRunning
     private var cache: [RepositoryKey: WorkspaceReviewResolution] = [:]
     private var repositoryStatusByPath: [String: RepositoryStatus] = [:]
-    private var githubOriginByPath: [String: Bool] = [:]
+    private var githubRepositoryByKey: [RepositoryKey: GitHubRepositoryResolution] = [:]
     private var pendingPaths: Set<String> = []
     private var waitingPaneIDsByPath: [String: Set<PaneID>] = [:]
 
@@ -339,20 +351,10 @@ final class WorkspaceReviewStateResolver {
         branch: String,
         fallback: WorkspaceReviewResolution?
     ) async -> WorkspaceReviewResolution {
-        guard await hasGitHubOrigin(path: path) else {
+        switch await resolveGitHubRepository(path: path, branch: branch) {
+        case .noGitHubRepository:
             return branchOnlyResolution(branch: branch)
-        }
-
-        let pullRequestResult = await runCommand(
-            arguments: ["gh", "pr", "view", branch, "--json", "number,url,isDraft,state"],
-            currentDirectoryPath: path
-        )
-
-        if pullRequestResult.terminationStatus != 0 {
-            if isNoPullRequestResult(pullRequestResult) {
-                return branchOnlyResolution(branch: branch)
-            }
-
+        case .unresolved:
             if let fallback {
                 return fallback
             }
@@ -362,47 +364,68 @@ final class WorkspaceReviewStateResolver {
                 inferredArtifact: nil,
                 updatePolicy: .preserveExistingOnEmpty
             )
-        }
+        case .repository(let repository):
+            let pullRequestResult = await runCommand(
+                arguments: ["gh", "pr", "view", branch, "--repo", repository, "--json", "number,url,isDraft,state"],
+                currentDirectoryPath: path
+            )
 
-        guard let pullRequestPayload = decodePullRequest(from: pullRequestResult.stdout) else {
-            if let fallback {
-                return fallback
+            if pullRequestResult.terminationStatus != 0 {
+                if isNoPullRequestResult(pullRequestResult) {
+                    return branchOnlyResolution(branch: branch)
+                }
+
+                if let fallback {
+                    return fallback
+                }
+
+                return WorkspaceReviewResolution(
+                    reviewState: nil,
+                    inferredArtifact: nil,
+                    updatePolicy: .preserveExistingOnEmpty
+                )
+            }
+
+            guard let pullRequestPayload = decodePullRequest(from: pullRequestResult.stdout) else {
+                if let fallback {
+                    return fallback
+                }
+
+                return WorkspaceReviewResolution(
+                    reviewState: nil,
+                    inferredArtifact: nil,
+                    updatePolicy: .preserveExistingOnEmpty
+                )
+            }
+
+            let pullRequest = WorkspacePullRequestSummary(
+                number: pullRequestPayload.number,
+                url: pullRequestPayload.url,
+                state: pullRequestState(from: pullRequestPayload)
+            )
+            let checksResult = await runCommand(
+                arguments: ["gh", "pr", "checks", branch, "--repo", repository, "--json", "bucket,state,name,link"],
+                currentDirectoryPath: path
+            )
+            let reviewChips = reviewChips(for: pullRequest, checksResult: checksResult)
+            let inferredArtifact = pullRequest.url.map { url in
+                WorkspaceArtifactLink(
+                    kind: .pullRequest,
+                    label: "PR #\(pullRequest.number)",
+                    url: url,
+                    isExplicit: false
+                )
             }
 
             return WorkspaceReviewResolution(
-                reviewState: nil,
-                inferredArtifact: nil,
-                updatePolicy: .preserveExistingOnEmpty
+                reviewState: WorkspaceReviewState(
+                    branch: branch,
+                    pullRequest: pullRequest,
+                    reviewChips: reviewChips
+                ),
+                inferredArtifact: inferredArtifact
             )
         }
-
-        let pullRequest = WorkspacePullRequestSummary(
-            number: pullRequestPayload.number,
-            url: pullRequestPayload.url,
-            state: pullRequestState(from: pullRequestPayload)
-        )
-        let checksResult = await runCommand(
-            arguments: ["gh", "pr", "checks", branch, "--json", "bucket,state,name,link"],
-            currentDirectoryPath: path
-        )
-        let reviewChips = reviewChips(for: pullRequest, checksResult: checksResult)
-        let inferredArtifact = pullRequest.url.map { url in
-            WorkspaceArtifactLink(
-                kind: .pullRequest,
-                label: "PR #\(pullRequest.number)",
-                url: url,
-                isExplicit: false
-            )
-        }
-
-        return WorkspaceReviewResolution(
-            reviewState: WorkspaceReviewState(
-                branch: branch,
-                pullRequest: pullRequest,
-                reviewChips: reviewChips
-            ),
-            inferredArtifact: inferredArtifact
-        )
     }
 
     private func resolveCurrentBranch(path: String) async -> String? {
@@ -463,44 +486,150 @@ final class WorkspaceReviewStateResolver {
         return true
     }
 
-    private func hasGitHubOrigin(path: String) async -> Bool {
-        if let cached = githubOriginByPath[path] {
+    private func resolveGitHubRepository(path: String, branch: String) async -> GitHubRepositoryResolution {
+        let key = RepositoryKey(path: path, branch: branch)
+        if let cached = githubRepositoryByKey[key] {
             return cached
         }
 
+        let resolution = await discoverGitHubRepository(path: path, branch: branch)
+        if resolution != .unresolved {
+            githubRepositoryByKey[key] = resolution
+        }
+        return resolution
+    }
+
+    private func discoverGitHubRepository(path: String, branch: String) async -> GitHubRepositoryResolution {
+        var hadLookupFailure = false
+
+        if let upstreamRemote = await resolveUpstreamRemoteName(path: path, branch: branch),
+           case .repository(let repository) = await resolveGitHubRepositorySpecifier(
+            forRemoteNamed: upstreamRemote,
+            path: path
+           ) {
+            return .repository(repository)
+        }
+
+        switch await resolveGitHubRepositorySpecifier(forRemoteNamed: "origin", path: path) {
+        case .repository(let repository):
+            return .repository(repository)
+        case .failed:
+            hadLookupFailure = true
+        case .notGitHub:
+            break
+        }
+
+        let remoteListResult = await runCommand(
+            arguments: ["git", "remote"],
+            currentDirectoryPath: path
+        )
+        guard remoteListResult.terminationStatus == 0 else {
+            return hadLookupFailure ? .unresolved : .noGitHubRepository
+        }
+
+        let remoteNames = String(decoding: remoteListResult.stdout, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != "origin" }
+
+        for remoteName in remoteNames {
+            switch await resolveGitHubRepositorySpecifier(forRemoteNamed: remoteName, path: path) {
+            case .repository(let repository):
+                return .repository(repository)
+            case .failed:
+                hadLookupFailure = true
+            case .notGitHub:
+                break
+            }
+        }
+
+        return hadLookupFailure ? .unresolved : .noGitHubRepository
+    }
+
+    private func resolveUpstreamRemoteName(path: String, branch: String) async -> String? {
         let result = await runCommand(
-            arguments: ["git", "remote", "get-url", "origin"],
+            arguments: ["git", "config", "--get", "branch.\(branch).remote"],
+            currentDirectoryPath: path
+        )
+
+        guard result.terminationStatus == 0 else {
+            return nil
+        }
+
+        return WorkspaceContextFormatter.trimmed(String(decoding: result.stdout, as: UTF8.self))
+    }
+
+    private func resolveGitHubRepositorySpecifier(
+        forRemoteNamed remoteName: String,
+        path: String
+    ) async -> RemoteLookupOutcome {
+        let result = await runCommand(
+            arguments: ["git", "remote", "get-url", remoteName],
             currentDirectoryPath: path
         )
         guard result.terminationStatus == 0 else {
-            githubOriginByPath[path] = false
-            return false
+            return .failed
         }
 
         guard let remoteURL = WorkspaceContextFormatter.trimmed(String(decoding: result.stdout, as: UTF8.self)) else {
-            githubOriginByPath[path] = false
-            return false
+            return .notGitHub
         }
-        let isGitHubOrigin = isGitHubRemoteURL(remoteURL)
-        githubOriginByPath[path] = isGitHubOrigin
-        return isGitHubOrigin
+
+        if let repository = githubRepositorySpecifier(from: remoteURL) {
+            return .repository(repository)
+        }
+
+        return .notGitHub
     }
 
     private func isGitHubRemoteURL(_ value: String) -> Bool {
-        let remote = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        githubRepositorySpecifier(from: value) != nil
+    }
+
+    private func githubRepositorySpecifier(from value: String) -> String? {
+        let remote = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !remote.isEmpty else {
-            return false
+            return nil
         }
 
-        if remote.hasPrefix("git@github.com:") || remote.hasPrefix("ssh://git@github.com/") {
-            return true
+        if remote.hasPrefix("git@github.com:") {
+            return normalizeGitHubRepositoryPath(String(remote.dropFirst("git@github.com:".count)))
+        }
+
+        if remote.hasPrefix("ssh://git@github.com/") {
+            return normalizeGitHubRepositoryPath(String(remote.dropFirst("ssh://git@github.com/".count)))
         }
 
         if let url = URL(string: remote), let host = url.host?.lowercased() {
-            return host == "github.com" || host == "www.github.com"
+            guard host == "github.com" || host == "www.github.com" else {
+                return nil
+            }
+
+            return normalizeGitHubRepositoryPath(url.path)
         }
 
-        return false
+        return nil
+    }
+
+    private func normalizeGitHubRepositoryPath(_ path: String) -> String? {
+        let trimmedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmedPath.isEmpty else {
+            return nil
+        }
+
+        let normalizedPath: String
+        if trimmedPath.hasSuffix(".git") {
+            normalizedPath = String(trimmedPath.dropLast(4))
+        } else {
+            normalizedPath = trimmedPath
+        }
+
+        let components = normalizedPath.split(separator: "/").map(String.init)
+        guard components.count >= 2 else {
+            return nil
+        }
+
+        return "\(components[0])/\(components[1])"
     }
 
     private func runCommand(

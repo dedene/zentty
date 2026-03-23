@@ -1359,6 +1359,85 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
     }
 
+    func test_shell_command_running_alone_does_not_create_running_agent_status() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .commandRunning,
+                origin: .shell,
+                toolName: "Claude Code",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+    }
+
+    func test_pid_attach_alone_creates_non_visible_starting_agent_status() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        let status = try XCTUnwrap(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertEqual(status.state, .starting)
+        XCTAssertEqual(status.tool, .codex)
+        XCTAssertEqual(status.trackedPID, 4242)
+        XCTAssertFalse(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.isWorking ?? true)
+    }
+
+    func test_command_finished_does_not_promote_starting_agent_to_unresolved_stop() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .commandFinished(exitCode: 1, durationNanoseconds: 250_000_000)
+        )
+
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .starting)
+    }
+
     func test_update_review_state_stores_and_clears_review_state_for_a_pane() throws {
         let store = WorkspaceStore()
         let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)

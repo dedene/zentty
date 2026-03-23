@@ -5,7 +5,6 @@ import QuartzCore
 final class RootViewController: NSViewController {
     private enum SidebarLayout {
         static let hoverRailWidth: CGFloat = 8
-        static let toggleOverlayHeight: CGFloat = ChromeGeometry.headerHeight + (ShellMetrics.outerInset * 2)
         static let defaultTrafficLightAnchor = NSPoint(x: ChromeGeometry.trafficLightLeadingInset + 48, y: 0)
     }
 
@@ -18,7 +17,7 @@ final class RootViewController: NSViewController {
     private let paneLayoutDefaults: UserDefaults
     private let sidebarView = SidebarView()
     private let sidebarHoverRailView = SidebarHoverRailView()
-    private let sidebarToggleOverlayView = SidebarToggleOverlayView()
+    private let sidebarToggleButton = SidebarToggleButton()
     private let runtimeRegistry: PaneRuntimeRegistry
     private let agentStatusCenter = AgentStatusCenter()
     private let sidebarMotionCoordinator: SidebarMotionCoordinator
@@ -34,6 +33,8 @@ final class RootViewController: NSViewController {
     private var currentPaneLayoutContext: PaneLayoutContext
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
+    private var toggleLeadingConstraint: NSLayoutConstraint?
+    private var toggleTopConstraint: NSLayoutConstraint?
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
 
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
@@ -92,13 +93,13 @@ final class RootViewController: NSViewController {
         windowChromeView.translatesAutoresizingMaskIntoConstraints = false
         sidebarView.translatesAutoresizingMaskIntoConstraints = false
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
-        sidebarToggleOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        sidebarToggleButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appCanvasView)
         view.addSubview(paneBorderContextOverlayView)
         view.addSubview(windowChromeView)
         view.addSubview(sidebarHoverRailView)
         view.addSubview(sidebarView)
-        view.addSubview(sidebarToggleOverlayView)
+        view.addSubview(sidebarToggleButton)
 
         let sidebarWidthConstraint = sidebarView.widthAnchor.constraint(
             equalToConstant: sidebarMotionCoordinator.currentSidebarWidth
@@ -109,6 +110,26 @@ final class RootViewController: NSViewController {
         )
         self.sidebarWidthConstraint = sidebarWidthConstraint
         self.sidebarLeadingConstraint = sidebarLeadingConstraint
+
+        let initialSidebarTrailing = ShellMetrics.outerInset + sidebarMotionCoordinator.currentSidebarWidth
+        let toggleLeadingConstraint = sidebarToggleButton.leadingAnchor.constraint(
+            equalTo: view.leadingAnchor,
+            constant: initialSidebarTrailing + ShellMetrics.shellGap
+        )
+        self.toggleLeadingConstraint = toggleLeadingConstraint
+
+        let toggleVerticalConstraint: NSLayoutConstraint
+        if trafficLightAnchor.y > 0 {
+            toggleVerticalConstraint = sidebarToggleButton.centerYAnchor.constraint(
+                equalTo: view.bottomAnchor,
+                constant: -trafficLightAnchor.y
+            )
+        } else {
+            toggleVerticalConstraint = sidebarToggleButton.centerYAnchor.constraint(
+                equalTo: windowChromeView.centerYAnchor
+            )
+        }
+        self.toggleTopConstraint = toggleVerticalConstraint
 
         NSLayoutConstraint.activate([
             sidebarView.topAnchor.constraint(equalTo: view.topAnchor, constant: ShellMetrics.outerInset),
@@ -136,10 +157,10 @@ final class RootViewController: NSViewController {
             sidebarHoverRailView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             sidebarHoverRailView.widthAnchor.constraint(equalToConstant: SidebarLayout.hoverRailWidth),
 
-            sidebarToggleOverlayView.topAnchor.constraint(equalTo: view.topAnchor),
-            sidebarToggleOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            sidebarToggleOverlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            sidebarToggleOverlayView.heightAnchor.constraint(equalToConstant: SidebarLayout.toggleOverlayHeight),
+            toggleLeadingConstraint,
+            toggleVerticalConstraint,
+            sidebarToggleButton.widthAnchor.constraint(equalToConstant: SidebarToggleButton.buttonSize),
+            sidebarToggleButton.heightAnchor.constraint(equalToConstant: SidebarToggleButton.buttonSize),
         ])
 
         renderCoordinator.bind(to: WorkspaceRenderCoordinator.ViewBindings(
@@ -228,10 +249,8 @@ final class RootViewController: NSViewController {
             self?.sidebarMotionCoordinator.handle(.hoverRailExited)
             self?.syncSidebarVisibilityControls(animated: true)
         }
-        sidebarToggleOverlayView.onToggleSidebar = { [weak self] in
-            self?.sidebarMotionCoordinator.handle(.togglePressed)
-            self?.syncSidebarVisibilityControls(animated: true)
-        }
+        sidebarToggleButton.target = self
+        sidebarToggleButton.action = #selector(handleToggleSidebar)
         sidebarMotionCoordinator.onMotionStateDidChange = { [weak self] motionState, animated in
             self?.applySidebarMotionState(
                 motionState,
@@ -256,10 +275,7 @@ final class RootViewController: NSViewController {
             self?.workspaceStore.applyAgentStatusPayload(payload)
         }
         agentStatusCenter.start()
-        sidebarToggleOverlayView.setTrafficLightAnchor(
-            trailingX: trafficLightAnchor.x,
-            midYInSuperview: trafficLightAnchor.y > 0 ? trafficLightAnchor.y : nil
-        )
+        updateToggleButtonConstraints()
         syncSidebarVisibilityControls(animated: false)
         applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
         updatePaneLayoutContextIfNeeded(force: true)
@@ -287,7 +303,25 @@ final class RootViewController: NSViewController {
 
     func updateTrafficLightAnchor(_ anchor: NSPoint) {
         trafficLightAnchor = anchor
-        sidebarToggleOverlayView.setTrafficLightAnchor(trailingX: anchor.x, midYInSuperview: anchor.y)
+        updateToggleButtonConstraints()
+    }
+
+    private func updateToggleButtonConstraints() {
+        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        if trafficLightAnchor.y > 0 {
+            toggleTopConstraint?.isActive = false
+            toggleTopConstraint = sidebarToggleButton.centerYAnchor.constraint(
+                equalTo: view.bottomAnchor,
+                constant: -trafficLightAnchor.y
+            )
+            toggleTopConstraint?.isActive = true
+        }
+    }
+
+    @objc
+    private func handleToggleSidebar() {
+        sidebarMotionCoordinator.handle(.togglePressed)
+        syncSidebarVisibilityControls(animated: true)
     }
 
     private func installKeyboardMonitorIfNeeded() {
@@ -472,7 +506,11 @@ final class RootViewController: NSViewController {
     private func applyThemeToViews(_ theme: ZenttyTheme, animated: Bool) {
         apply(theme: theme, animated: animated)
         sidebarView.apply(theme: theme, animated: animated)
-        sidebarToggleOverlayView.apply(theme: theme, animated: animated)
+        sidebarToggleButton.configure(
+            theme: theme,
+            isActive: sidebarMotionCoordinator.mode == .pinnedOpen,
+            animated: animated
+        )
         windowChromeView.apply(theme: theme, animated: animated)
         appCanvasView.apply(theme: theme, animated: animated)
         applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
@@ -494,7 +532,11 @@ final class RootViewController: NSViewController {
 
     private func syncSidebarVisibilityControls(animated: Bool) {
         sidebarView.setResizeEnabled(sidebarMotionCoordinator.showsResizeHandle)
-        sidebarToggleOverlayView.setSidebarVisibility(sidebarMotionCoordinator.mode, animated: animated)
+        sidebarToggleButton.configure(
+            theme: currentTheme,
+            isActive: sidebarMotionCoordinator.mode == .pinnedOpen,
+            animated: animated
+        )
     }
 
     private func applySidebarMotionState(
@@ -535,11 +577,11 @@ final class RootViewController: NSViewController {
             appCanvasView.leadingVisibleInset = reservedInset
         }
 
-        let applyState = {
-            self.sidebarLeadingConstraint?.constant = leadingConstant
-            self.sidebarView.alphaValue = motionState.revealFraction
-            self.view.layoutSubtreeIfNeeded()
-        }
+        let sidebarTrailingEdge = leadingConstant + sidebarWidth
+        let toggleTarget = max(
+            trafficLightAnchor.x + SidebarToggleButton.spacingFromTrafficLights,
+            sidebarTrailingEdge + ShellMetrics.shellGap
+        )
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
@@ -547,11 +589,15 @@ final class RootViewController: NSViewController {
                 context.timingFunction = timingFunction
                 context.allowsImplicitAnimation = true
                 self.sidebarLeadingConstraint?.animator().constant = leadingConstant
+                self.toggleLeadingConstraint?.animator().constant = toggleTarget
                 self.sidebarView.animator().alphaValue = motionState.revealFraction
                 self.view.layoutSubtreeIfNeeded()
             }
         } else {
-            applyState()
+            sidebarLeadingConstraint?.constant = leadingConstant
+            toggleLeadingConstraint?.constant = toggleTarget
+            sidebarView.alphaValue = motionState.revealFraction
+            view.layoutSubtreeIfNeeded()
         }
 
         CATransaction.begin()
@@ -578,15 +624,15 @@ final class RootViewController: NSViewController {
     }
 
     var sidebarToggleMinX: CGFloat {
-        sidebarToggleOverlayView.toggleFrameInSuperview.minX
+        sidebarToggleButton.frame.minX
     }
 
     var sidebarToggleMidY: CGFloat {
-        sidebarToggleOverlayView.toggleFrameInSuperview.midY
+        sidebarToggleButton.frame.midY
     }
 
     var isSidebarToggleActive: Bool {
-        sidebarToggleOverlayView.isToggleActive
+        sidebarToggleButton.isActive
     }
 
     var currentPaneLayoutPreferences: PaneLayoutPreferences {

@@ -72,7 +72,7 @@ final class RootViewCompositionTests: XCTestCase {
         let appCanvasIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is AppCanvasView })
         let chromeIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is WindowChromeView })
         let sidebarIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is SidebarView })
-        let toggleIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is SidebarToggleOverlayView })
+        let toggleIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is SidebarToggleButton })
 
         XCTAssertGreaterThan(chromeIndex, appCanvasIndex)
         XCTAssertGreaterThan(sidebarIndex, chromeIndex)
@@ -182,47 +182,15 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(alphaComponent(of: appCanvasView.layer?.borderColor), 0, accuracy: 0.001)
     }
 
-    func test_sidebar_toggle_overlay_reflects_sidebar_visibility_state_and_anchor() {
-        let overlayView = SidebarToggleOverlayView(frame: NSRect(x: 0, y: 0, width: 320, height: 60))
+    func test_sidebar_toggle_button_reflects_active_state() {
+        let button = SidebarToggleButton()
+        let theme = ZenttyTheme.fallback(for: nil)
 
-        overlayView.apply(theme: ZenttyTheme.fallback(for: nil), animated: false)
-        overlayView.setSidebarVisibility(.pinnedOpen, animated: false)
-        overlayView.setTrafficLightAnchor(trailingX: 72)
-        overlayView.layoutSubtreeIfNeeded()
+        button.configure(theme: theme, isActive: true, animated: false)
+        XCTAssertTrue(button.isActive)
 
-        XCTAssertTrue(overlayView.isToggleActive)
-        XCTAssertEqual(overlayView.toggleMinX, 84, accuracy: 0.5)
-
-        overlayView.setSidebarVisibility(.hidden, animated: false)
-
-        XCTAssertFalse(overlayView.isToggleActive)
-    }
-
-    func test_sidebar_toggle_overlay_aligns_to_live_traffic_light_midpoint() {
-        let hostView = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
-        let overlayView = SidebarToggleOverlayView(frame: NSRect(x: 0, y: 180, width: 360, height: 60))
-        hostView.addSubview(overlayView)
-
-        overlayView.apply(theme: ZenttyTheme.fallback(for: nil), animated: false)
-        overlayView.setTrafficLightAnchor(trailingX: 72, midYInSuperview: 210)
-        hostView.layoutSubtreeIfNeeded()
-
-        XCTAssertEqual(overlayView.toggleFrameInSuperview.midY, 210, accuracy: 0.5)
-    }
-
-    func test_sidebar_toggle_overlay_updates_frame_immediately_when_anchor_changes() {
-        let hostView = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
-        let overlayView = SidebarToggleOverlayView(frame: NSRect(x: 0, y: 180, width: 360, height: 60))
-        hostView.addSubview(overlayView)
-        hostView.layoutSubtreeIfNeeded()
-
-        let initialFrame = overlayView.toggleFrameInSuperview
-
-        overlayView.setTrafficLightAnchor(trailingX: 72, midYInSuperview: 210)
-
-        XCTAssertNotEqual(overlayView.toggleFrameInSuperview, initialFrame)
-        XCTAssertEqual(overlayView.toggleFrameInSuperview.minX, 84, accuracy: 0.5)
-        XCTAssertEqual(overlayView.toggleFrameInSuperview.midY, 210, accuracy: 0.5)
+        button.configure(theme: theme, isActive: false, animated: false)
+        XCTAssertFalse(button.isActive)
     }
     func test_sidebar_view_emits_selected_workspace_id() throws {
         let sidebarView = SidebarView()
@@ -467,7 +435,7 @@ final class RootViewCompositionTests: XCTestCase {
         )
     }
 
-    func test_sidebar_uses_conditional_icon_gutter_only_when_any_row_has_accessory() throws {
+    func test_sidebar_keeps_primary_text_alignment_without_icon_gutter() throws {
         let withAccessorySidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         withAccessorySidebar.render(
             summaries: [
@@ -543,9 +511,10 @@ final class RootViewCompositionTests: XCTestCase {
             withAccessorySidebar.secondWorkspacePrimaryMinX,
             accuracy: 0.5
         )
-        XCTAssertLessThan(
+        XCTAssertEqual(
             withoutAccessorySidebar.firstWorkspacePrimaryMinX,
-            withAccessorySidebar.firstWorkspacePrimaryMinX
+            withAccessorySidebar.firstWorkspacePrimaryMinX,
+            accuracy: 0.5
         )
         XCTAssertEqual(
             withoutAccessorySidebar.firstWorkspacePrimaryMinX,
@@ -644,7 +613,7 @@ final class RootViewCompositionTests: XCTestCase {
                     statusText: nil,
                     detailLines: [],
                     overflowText: nil,
-                    leadingAccessory: .home,
+                    leadingAccessory: nil,
                     attentionState: nil,
                     artifactLink: nil,
                     isActive: true
@@ -653,7 +622,7 @@ final class RootViewCompositionTests: XCTestCase {
             theme: ZenttyTheme.fallback(for: nil)
         )
 
-        XCTAssertEqual(sidebarView.workspaceLeadingAccessorySymbols, ["house"])
+        XCTAssertEqual(sidebarView.workspaceLeadingAccessorySymbols, [""])
         XCTAssertEqual(sidebarView.workspaceDetailTexts.first, [])
     }
 
@@ -778,7 +747,7 @@ final class RootViewCompositionTests: XCTestCase {
                     statusText: nil,
                     detailLines: [],
                     overflowText: nil,
-                    leadingAccessory: .agent(.claudeCode),
+                    leadingAccessory: nil,
                     attentionState: nil,
                     artifactLink: nil,
                     isWorking: false,
@@ -793,7 +762,7 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(firstRow.appearanceMatchForTesting, .darkAqua)
     }
 
-    func test_sidebar_row_exposes_single_trailing_artifact_pill() {
+    func test_sidebar_row_hides_trailing_artifact_pill_in_text_only_mode() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         sidebarView.render(
             summaries: [
@@ -818,7 +787,7 @@ final class RootViewCompositionTests: XCTestCase {
             theme: ZenttyTheme.fallback(for: nil)
         )
 
-        XCTAssertEqual(sidebarView.workspaceArtifactTexts, ["PR #42"])
+        XCTAssertEqual(sidebarView.workspaceArtifactTexts, [""])
     }
 
     func test_sidebar_compacts_true_single_line_rows_only() throws {
@@ -865,7 +834,7 @@ final class RootViewCompositionTests: XCTestCase {
             ShellMetrics.sidebarRowHeight(
                 includesTopLabel: true,
                 includesStatus: true,
-                detailLineCount: 1,
+                detailLineCount: 0,
                 includesOverflow: false,
                 includesArtifact: false
             ),
@@ -910,7 +879,7 @@ final class RootViewCompositionTests: XCTestCase {
         )
     }
 
-    func test_sidebar_keeps_artifact_rows_expanded() throws {
+    func test_sidebar_keeps_artifact_only_rows_compact() throws {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         sidebarView.render(
             summaries: [
@@ -938,7 +907,7 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarView.layoutSubtreeIfNeeded()
 
         let frame = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.first?.frame)
-        XCTAssertEqual(frame.height, ShellMetrics.sidebarExpandedRowHeight, accuracy: 0.5)
+        XCTAssertEqual(frame.height, ShellMetrics.sidebarCompactRowHeight, accuracy: 0.5)
     }
 
     func test_sidebar_mixes_compact_and_expanded_rows_without_colliding_with_footer() throws {

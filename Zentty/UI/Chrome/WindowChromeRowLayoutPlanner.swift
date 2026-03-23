@@ -36,8 +36,8 @@ enum WindowChromeRowLayoutPlanner {
         .reviewChip,
         .attention,
         .focusedLabel,
-        .pullRequest,
         .branch,
+        .pullRequest,
     ]
 
     static func plan(availableWidth: CGFloat, items: [Item]) -> Plan {

@@ -167,6 +167,33 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary.reviewChips, [])
     }
 
+    func test_summary_hides_attention_for_starting_agent_session() {
+        let paneID = PaneID("pane-shell")
+        let workspace = makeWorkspace(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Claude Code",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .starting,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 10)
+            )
+        )
+
+        let summary = WorkspaceHeaderSummaryBuilder.summary(
+            for: workspace,
+            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
+        )
+
+        XCTAssertNil(summary.attention)
+    }
+
     func test_summary_omits_compacted_metadata_branch_when_review_state_is_unavailable() {
         let paneID = PaneID("pane-shell")
         let workspace = makeWorkspace(

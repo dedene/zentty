@@ -38,7 +38,8 @@ final class WindowChromeView: NSView {
         font: .monospacedSystemFont(ofSize: 12, weight: .medium),
         lineBreakMode: .byTruncatingMiddle
     )
-    private let pullRequestButton = NSButton(title: "", target: nil, action: nil)
+    private let pullRequestButton = WindowChromePullRequestButton(title: "", target: nil, action: nil)
+    private let urlOpener: (URL) -> Void
 
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var currentSummary = WorkspaceChromeSummary(
@@ -58,9 +59,17 @@ final class WindowChromeView: NSView {
     private var hasEstablishedRenderableLayout = false
     private var lastRowLayoutPlan = RowLayoutPlan.empty
 
-    override init(frame frameRect: NSRect) {
+    init(
+        frame frameRect: NSRect,
+        urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }
+    ) {
+        self.urlOpener = urlOpener
         super.init(frame: frameRect)
         setup()
+    }
+
+    convenience init(urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }) {
+        self.init(frame: .zero, urlOpener: urlOpener)
     }
 
     @available(*, unavailable)
@@ -91,6 +100,10 @@ final class WindowChromeView: NSView {
         pullRequestButton.action = #selector(openPullRequest)
         pullRequestButton.lineBreakMode = .byClipping
         pullRequestButton.cell?.wraps = false
+        pullRequestButton.focusRingType = .none
+        pullRequestButton.onHoverChanged = { [weak self] in
+            self?.updatePullRequestAppearance(animated: false)
+        }
 
         rowContainerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(rowContainerView)
@@ -133,6 +146,8 @@ final class WindowChromeView: NSView {
 
         pullRequestButton.title = summary.pullRequest.map { "PR #\($0.number)" } ?? ""
         pullRequestButton.isHidden = summary.pullRequest == nil
+        updatePullRequestInteraction()
+        updatePullRequestAppearance(animated: false)
 
         syncVisibleRowContent(forceChipRefresh: true)
         needsLayout = true
@@ -160,7 +175,7 @@ final class WindowChromeView: NSView {
 
         focusedLabel.textColor = theme.secondaryText
         branchLabel.textColor = theme.tertiaryText
-        pullRequestButton.contentTintColor = theme.secondaryText
+        updatePullRequestAppearance(animated: animated)
         reviewChipViews.forEach { $0.apply(theme: theme, animated: animated) }
 
         performThemeAnimation(animated: animated) {
@@ -170,11 +185,83 @@ final class WindowChromeView: NSView {
 
     @objc
     private func openPullRequest() {
-        guard let pullRequestURL else {
+        guard pullRequestButton.isEnabled, let pullRequestURL else {
             return
         }
 
-        NSWorkspace.shared.open(pullRequestURL)
+        urlOpener(pullRequestURL)
+    }
+
+    private func updatePullRequestInteraction() {
+        guard let pullRequest = currentSummary.pullRequest else {
+            pullRequestButton.isEnabled = false
+            pullRequestButton.isInteractive = false
+            pullRequestButton.toolTip = nil
+            return
+        }
+
+        let isClickable = pullRequest.url != nil
+        pullRequestButton.isEnabled = isClickable
+        pullRequestButton.isInteractive = isClickable
+        pullRequestButton.toolTip = isClickable ? "Open pull request #\(pullRequest.number) in browser" : nil
+        pullRequestButton.setAccessibilityLabel("Pull request #\(pullRequest.number)")
+        pullRequestButton.setAccessibilityHelp(
+            isClickable
+                ? "Opens pull request #\(pullRequest.number) in browser"
+                : "Pull request link unavailable"
+        )
+    }
+
+    private func updatePullRequestAppearance(animated: Bool) {
+        let palette = pullRequestPalette(
+            for: currentSummary.pullRequest,
+            isHovered: pullRequestButton.isHovered,
+            isInteractive: pullRequestButton.isInteractive
+        )
+        pullRequestButton.applyAppearance(
+            background: palette.background,
+            border: palette.border,
+            text: palette.text,
+            font: .systemFont(ofSize: 12, weight: .semibold),
+            animated: animated
+        )
+    }
+
+    private func pullRequestPalette(
+        for pullRequest: WorkspacePullRequestSummary?,
+        isHovered: Bool,
+        isInteractive: Bool
+    ) -> (background: NSColor, border: NSColor, text: NSColor) {
+        let background = currentTheme.contextStripBackground
+        let neutralBorder = currentTheme.contextStripBorder
+        let neutralText = currentTheme.secondaryText
+        guard let pullRequest else {
+            return (background, neutralBorder, neutralText)
+        }
+
+        let accent = githubStateColor(for: pullRequest.state)
+        let textMix = isHovered && isInteractive ? 0.12 : 0.20
+        let borderMix = isHovered && isInteractive ? 0.28 : 0.40
+        let text = accent
+            .mixed(towards: currentTheme.primaryText, amount: textMix)
+            .withAlphaComponent(isInteractive ? 0.96 : 0.84)
+        let border = accent
+            .mixed(towards: neutralBorder, amount: borderMix)
+            .withAlphaComponent(isInteractive ? 0.72 : 0.58)
+        return (background, border, text)
+    }
+
+    private func githubStateColor(for state: WorkspacePullRequestState) -> NSColor {
+        switch state {
+        case .draft:
+            return NSColor(hexString: "#59636E") ?? .systemGray
+        case .open:
+            return NSColor(hexString: "#1A7F37") ?? .systemGreen
+        case .merged:
+            return NSColor(hexString: "#8250DF") ?? .systemPurple
+        case .closed:
+            return NSColor(hexString: "#D1242F") ?? .systemRed
+        }
     }
 
     private func syncVisibleRowContent(forceChipRefresh: Bool) {
@@ -493,7 +580,16 @@ final class WindowChromeView: NSView {
     }
 
     private static func requiredSingleLineWidth(for button: NSButton) -> CGFloat {
-        ceil(max(button.fittingSize.width, button.intrinsicContentSize.width))
+        if let pullRequestButton = button as? WindowChromePullRequestButton {
+            return pullRequestButton.requiredWidthForSingleLineLayout
+        }
+
+        let fittingWidth = button.fittingSize.width
+        let intrinsicWidth = button.intrinsicContentSize.width
+        let cellWidth = button.cell?.cellSize(
+            forBounds: NSRect(x: 0, y: 0, width: 10_000, height: Self.minimumRowHeight)
+        ).width ?? 0
+        return ceil(max(fittingWidth, intrinsicWidth, cellWidth))
     }
 
     var titleText: String { "" }
@@ -503,11 +599,32 @@ final class WindowChromeView: NSView {
     var focusedLabelText: String { focusedLabel.stringValue }
     var branchText: String { branchLabel.stringValue }
     var pullRequestText: String { pullRequestButton.title }
+    var isPullRequestEnabled: Bool { pullRequestButton.isEnabled }
+    var pullRequestToolTip: String { pullRequestButton.toolTip ?? "" }
     var isPullRequestCompressed: Bool {
         pullRequestButton.frame.width > 0 && pullRequestButton.frame.width < Self.requiredSingleLineWidth(for: pullRequestButton)
     }
     var pullRequestFrameWidth: CGFloat { pullRequestButton.frame.width }
     var pullRequestIntrinsicWidth: CGFloat { Self.requiredSingleLineWidth(for: pullRequestButton) }
+    var pullRequestCellRequiredWidthForTesting: CGFloat {
+        pullRequestButton.requiredWidthForSingleLineLayout
+    }
+    var pullRequestTitleWidthForTesting: CGFloat { pullRequestButton.titleWidthForTesting }
+    var pullRequestBackgroundTokenForTesting: String {
+        pullRequestButton.backgroundColorForTesting.themeToken
+    }
+    var pullRequestTextColorTokenForTesting: String {
+        pullRequestButton.titleColorForTesting.themeToken
+    }
+    var pullRequestBorderColorTokenForTesting: String {
+        pullRequestButton.borderColorForTesting.themeToken
+    }
+    var pullRequestTextAlphaForTesting: CGFloat {
+        pullRequestButton.titleColorForTesting.srgbClamped.alphaComponent
+    }
+    var pullRequestBorderAlphaForTesting: CGFloat {
+        pullRequestButton.borderColorForTesting.srgbClamped.alphaComponent
+    }
     var reviewChipTexts: [String] { displayedReviewChips.map(\.text) }
     var isBranchMonospaced: Bool {
         branchLabel.font?.fontDescriptor.symbolicTraits.contains(.monoSpace) ?? false
@@ -565,6 +682,206 @@ private struct RowItem {
 private struct RowWidthDescriptor {
     let width: CGFloat
     let kind: WindowChromeRowLayoutPlanner.Kind
+}
+
+private final class WindowChromePullRequestButtonCell: NSButtonCell {
+    override func cellSize(forBounds rect: NSRect) -> NSSize {
+        var size = super.cellSize(forBounds: rect)
+        let attributed = attributedTitle.length > 0 ? attributedTitle : NSAttributedString(
+            string: title,
+            attributes: [.font: font ?? .systemFont(ofSize: 12, weight: .semibold)]
+        )
+        let titleWidth = attributed.boundingRect(
+            with: NSSize(width: 10_000, height: 100),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        ).width
+        size.width = ceil(titleWidth + WindowChromePullRequestButton.horizontalPadding * 2)
+        return size
+    }
+
+    override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
+        let insetFrame = frame.insetBy(dx: WindowChromePullRequestButton.horizontalPadding, dy: 0)
+        return super.drawTitle(title, withFrame: insetFrame, in: controlView)
+    }
+}
+
+private final class WindowChromePullRequestButton: NSButton {
+    private static let minimumHeight: CGFloat = 20
+    static let horizontalPadding: CGFloat = 10
+
+    var onHoverChanged: (() -> Void)?
+    var isInteractive = false {
+        didSet {
+            guard oldValue != isInteractive else {
+                return
+            }
+
+            if !isInteractive {
+                isHovered = false
+            }
+            updateTrackingAreas()
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    private var trackingAreaValue: NSTrackingArea?
+    private(set) var isHovered = false
+    private(set) var titleColorForTesting = NSColor.clear
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        commonInit()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override var title: String {
+        didSet {
+            invalidateIntrinsicContentSize()
+            needsDisplay = true
+        }
+    }
+
+    override var attributedTitle: NSAttributedString {
+        didSet {
+            invalidateIntrinsicContentSize()
+            needsDisplay = true
+        }
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let base = super.intrinsicContentSize
+        return NSSize(
+            width: requiredWidthForSingleLineLayout,
+            height: max(Self.minimumHeight, ceil(base.height + 4))
+        )
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    private func commonInit() {
+        if !(cell is WindowChromePullRequestButtonCell) {
+            cell = WindowChromePullRequestButtonCell(textCell: title)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingAreaValue {
+            removeTrackingArea(trackingAreaValue)
+            self.trackingAreaValue = nil
+        }
+
+        guard isInteractive else {
+            return
+        }
+
+        let trackingAreaValue = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingAreaValue)
+        self.trackingAreaValue = trackingAreaValue
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard isInteractive else {
+            return
+        }
+
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        guard isInteractive else {
+            super.cursorUpdate(with: event)
+            return
+        }
+
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard isInteractive, !isHovered else {
+            return
+        }
+
+        isHovered = true
+        onHoverChanged?()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard isHovered else {
+            return
+        }
+
+        isHovered = false
+        onHoverChanged?()
+    }
+
+    func applyAppearance(
+        background: NSColor,
+        border: NSColor,
+        text: NSColor,
+        font: NSFont,
+        animated: Bool
+    ) {
+        wantsLayer = true
+        layer?.cornerRadius = ChromeGeometry.pillRadius
+        layer?.cornerCurve = .continuous
+        layer?.borderWidth = 1
+        titleColorForTesting = text
+        attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .font: font,
+                .foregroundColor: text,
+            ]
+        )
+
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = background.cgColor
+            self.layer?.borderColor = border.cgColor
+        }
+    }
+
+    var requiredWidthForSingleLineLayout: CGFloat {
+        ceil(titleWidthForTesting + Self.horizontalPadding * 2)
+    }
+
+    var titleWidthForTesting: CGFloat {
+        let currentTitle = attributedTitle.length > 0 ? attributedTitle : NSAttributedString(
+            string: title,
+            attributes: [.font: font ?? .systemFont(ofSize: 12, weight: .semibold)]
+        )
+        return ceil(
+            currentTitle.boundingRect(
+                with: NSSize(width: 10_000, height: 100),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            ).width
+        )
+    }
+
+    var backgroundColorForTesting: NSColor {
+        layer?.backgroundColor.flatMap(NSColor.init(cgColor:)) ?? .clear
+    }
+
+    var borderColorForTesting: NSColor {
+        layer?.borderColor.flatMap(NSColor.init(cgColor:)) ?? .clear
+    }
 }
 
 private final class WindowChromeReviewChipView: NSView {

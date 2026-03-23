@@ -20,7 +20,9 @@ extension WorkspaceStore {
         case .commandFinished:
             workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
             let existingStatus = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus
-            if existingStatus?.state != .completed, existingStatus?.state != .needsInput,
+            if existingStatus?.state != .completed,
+               existingStatus?.state != .needsInput,
+               existingStatus?.state != .starting,
                existingStatus?.source == .explicit,
                let tool = existingStatus?.tool {
                 workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].agentStatus = PaneAgentStatus(
@@ -100,7 +102,7 @@ extension WorkspaceStore {
                 if existingStatus.origin == .shell, existingStatus.trackedPID == nil {
                     switch shellActivityState {
                     case .commandRunning:
-                        existingStatus.state = .running
+                        break
                     case .promptIdle:
                         workspace.auxiliaryStateByPaneID[payload.paneID]?.terminalProgress = nil
                         workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
@@ -113,18 +115,6 @@ extension WorkspaceStore {
                 }
 
                 workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = existingStatus
-            } else if shellActivityState == .commandRunning, let tool {
-                workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = PaneAgentStatus(
-                    tool: tool,
-                    state: .running,
-                    text: nil,
-                    artifactLink: nil,
-                    updatedAt: Date(),
-                        source: .inferred,
-                        origin: .shell,
-                        interactionState: PaneInteractionState.none,
-                        shellActivityState: shellActivityState
-                    )
             } else {
                 return
             }
@@ -143,7 +133,7 @@ extension WorkspaceStore {
                     .map {
                         PaneAgentStatus(
                             tool: tool,
-                            state: ($0.state == .completed || $0.state == .unresolvedStop) ? .running : $0.state,
+                            state: ($0.state == .completed || $0.state == .unresolvedStop) ? .starting : $0.state,
                             text: $0.text,
                             artifactLink: $0.artifactLink,
                             updatedAt: Date(),
@@ -156,14 +146,14 @@ extension WorkspaceStore {
                     }
                     ?? PaneAgentStatus(
                         tool: tool,
-                        state: .running,
+                        state: .starting,
                         text: nil,
                         artifactLink: nil,
-                            updatedAt: Date(),
-                            source: .explicit,
-                            origin: payload.origin,
-                            interactionState: PaneInteractionState.none
-                        )
+                        updatedAt: Date(),
+                        source: .explicit,
+                        origin: payload.origin,
+                        interactionState: PaneInteractionState.none
+                    )
                 status.trackedPID = pid
                 status.updatedAt = Date()
                 workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = status
@@ -204,7 +194,7 @@ extension WorkspaceStore {
                 }
 
                 didChange = true
-                if status.state == .running || status.requiresHumanAttention {
+                if status.state == .starting || status.state == .running || status.requiresHumanAttention {
                     workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
                     workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
                     workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil

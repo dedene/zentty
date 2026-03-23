@@ -15,26 +15,25 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
             with: WorkspaceSidebarSummary(
                 workspaceID: WorkspaceID("workspace-main"),
                 badgeText: "1",
-                primaryText: "project",
-                statusText: "Claude Code is working",
-                stateBadgeText: "Running",
+                primaryText: "Claude Code",
+                statusText: "Running",
                 detailLines: [
                     WorkspaceSidebarDetailLine(text: "feature/sidebar • project", emphasis: .primary)
                 ],
                 overflowText: nil,
-                leadingAccessory: .agent(.claudeCode),
                 attentionState: .running,
                 artifactLink: nil,
                 isWorking: true,
                 isActive: false
             ),
-            reservesLeadingAccessoryGutter: true,
+            reservesLeadingAccessoryGutter: false,
             theme: ZenttyTheme.fallback(for: nil),
             animated: false
         )
 
         XCTAssertTrue(row.isWorkingForTesting)
         XCTAssertTrue(row.shimmerIsAnimatingForTesting)
+        XCTAssertTrue(row.statusShimmerIsAnimatingForTesting)
     }
 
     func test_idle_workspace_row_stops_existing_shimmer_animation() {
@@ -48,22 +47,21 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
             with: WorkspaceSidebarSummary(
                 workspaceID: WorkspaceID("workspace-main"),
                 badgeText: "1",
-                primaryText: "project",
-                statusText: "Claude Code is working",
-                stateBadgeText: "Running",
+                primaryText: "Claude Code",
+                statusText: "Running",
                 detailLines: [],
                 overflowText: nil,
-                leadingAccessory: .agent(.claudeCode),
                 attentionState: .running,
                 artifactLink: nil,
                 isWorking: true,
                 isActive: false
             ),
-            reservesLeadingAccessoryGutter: true,
+            reservesLeadingAccessoryGutter: false,
             theme: ZenttyTheme.fallback(for: nil),
             animated: false
         )
         XCTAssertTrue(row.shimmerIsAnimatingForTesting)
+        XCTAssertTrue(row.statusShimmerIsAnimatingForTesting)
 
         row.configure(
             with: WorkspaceSidebarSummary(
@@ -73,19 +71,19 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
                 statusText: nil,
                 detailLines: [],
                 overflowText: nil,
-                leadingAccessory: .agent(.claudeCode),
                 attentionState: nil,
                 artifactLink: nil,
                 isWorking: false,
                 isActive: false
             ),
-            reservesLeadingAccessoryGutter: true,
+            reservesLeadingAccessoryGutter: false,
             theme: ZenttyTheme.fallback(for: nil),
             animated: false
         )
 
         XCTAssertFalse(row.isWorkingForTesting)
         XCTAssertFalse(row.shimmerIsAnimatingForTesting)
+        XCTAssertFalse(row.statusShimmerIsAnimatingForTesting)
     }
 
     func test_working_active_workspace_row_uses_distinct_background_tint() {
@@ -100,17 +98,16 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
             with: WorkspaceSidebarSummary(
                 workspaceID: WorkspaceID("workspace-main"),
                 badgeText: "1",
-                primaryText: "project",
+                primaryText: "Claude Code",
                 statusText: nil,
                 detailLines: [],
                 overflowText: nil,
-                leadingAccessory: .agent(.claudeCode),
                 attentionState: nil,
                 artifactLink: nil,
                 isWorking: false,
                 isActive: true
             ),
-            reservesLeadingAccessoryGutter: true,
+            reservesLeadingAccessoryGutter: false,
             theme: theme,
             animated: false
         )
@@ -120,18 +117,16 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
             with: WorkspaceSidebarSummary(
                 workspaceID: WorkspaceID("workspace-main"),
                 badgeText: "1",
-                primaryText: "project",
-                statusText: "Claude Code is working",
-                stateBadgeText: "Running",
+                primaryText: "Claude Code",
+                statusText: "Running",
                 detailLines: [],
                 overflowText: nil,
-                leadingAccessory: .agent(.claudeCode),
                 attentionState: .running,
                 artifactLink: nil,
                 isWorking: true,
                 isActive: true
             ),
-            reservesLeadingAccessoryGutter: true,
+            reservesLeadingAccessoryGutter: false,
             theme: theme,
             animated: false
         )
@@ -142,7 +137,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertTrue(row.shimmerIsAnimatingForTesting)
     }
 
-    func test_workspace_row_exposes_explicit_status_copy_and_state_badge() {
+    func test_workspace_row_exposes_plain_status_copy_without_state_badge() {
         let row = SidebarWorkspaceRowButton(
             workspaceID: WorkspaceID("workspace-main"),
             reducedMotionProvider: { false }
@@ -153,26 +148,66 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
             with: WorkspaceSidebarSummary(
                 workspaceID: WorkspaceID("workspace-main"),
                 badgeText: "1",
-                primaryText: "project",
-                statusText: "Claude Code is waiting for your input",
-                stateBadgeText: "Needs input",
+                primaryText: "Claude Code",
+                statusText: "Needs input",
                 detailLines: [
                     WorkspaceSidebarDetailLine(text: "feature/sidebar • project", emphasis: .primary)
                 ],
                 overflowText: nil,
-                leadingAccessory: .agent(.claudeCode),
                 attentionState: .needsInput,
                 artifactLink: nil,
                 isWorking: false,
                 isActive: false
             ),
-            reservesLeadingAccessoryGutter: true,
+            reservesLeadingAccessoryGutter: false,
             theme: ZenttyTheme.fallback(for: nil),
             animated: false
         )
 
-        XCTAssertEqual(row.statusTextForTesting, "Claude Code is waiting for your input")
-        XCTAssertEqual(row.stateBadgeTextForTesting, "Needs input")
+        XCTAssertEqual(row.statusTextForTesting, "Needs input")
+        XCTAssertEqual(row.stateBadgeTextForTesting, "")
+    }
+
+    func test_workspace_row_renders_pane_local_branch_detail_and_status_lines() {
+        let row = SidebarWorkspaceRowButton(
+            workspaceID: WorkspaceID("workspace-main"),
+            reducedMotionProvider: { false }
+        )
+        row.frame = NSRect(x: 0, y: 0, width: 320, height: 110)
+
+        row.configure(
+            with: WorkspaceSidebarSummary(
+                workspaceID: WorkspaceID("workspace-main"),
+                badgeText: "1",
+                primaryText: "General coding assistance session",
+                detailLines: [],
+                paneRows: [
+                    WorkspaceSidebarPaneRow(
+                        paneID: PaneID("workspace-main-agent"),
+                        primaryText: "General coding assistance session",
+                        trailingText: "main",
+                        detailText: "…/nimbu",
+                        statusText: "╰ Completed",
+                        attentionState: .completed,
+                        isFocused: true,
+                        isWorking: false
+                    )
+                ],
+                overflowText: nil,
+                attentionState: nil,
+                artifactLink: nil,
+                isWorking: false,
+                isActive: false
+            ),
+            reservesLeadingAccessoryGutter: false,
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.primaryTextsForTesting, ["General coding assistance session"])
+        XCTAssertEqual(row.primaryTrailingTextsForTesting, ["main"])
+        XCTAssertEqual(row.detailTextsForTesting, ["…/nimbu"])
+        XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Completed"])
     }
 
     func test_workspace_row_moves_primary_view_to_focused_pane_position() {
@@ -231,18 +266,16 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
             with: WorkspaceSidebarSummary(
                 workspaceID: WorkspaceID("workspace-main"),
                 badgeText: "1",
-                primaryText: "project",
-                statusText: "Claude Code is working",
-                stateBadgeText: "Running",
+                primaryText: "Claude Code",
+                statusText: "Running",
                 detailLines: [],
                 overflowText: nil,
-                leadingAccessory: .agent(.claudeCode),
                 attentionState: .running,
                 artifactLink: nil,
                 isWorking: true,
                 isActive: false
             ),
-            reservesLeadingAccessoryGutter: true,
+            reservesLeadingAccessoryGutter: false,
             theme: theme,
             animated: false
         )
@@ -281,18 +314,16 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
                 workspaceID: WorkspaceID("workspace-main"),
                 badgeText: "1",
                 topLabel: "peter@m1-pro-peter:~",
-                primaryText: "peter@m1-pro-peter:~/Development/...",
-                statusText: "Claude Code is working",
-                stateBadgeText: "Running",
+                primaryText: "Claude Code",
+                statusText: "Running",
                 detailLines: [],
                 overflowText: nil,
-                leadingAccessory: .agent(.claudeCode),
                 attentionState: .running,
                 artifactLink: nil,
                 isWorking: true,
                 isActive: false
             ),
-            reservesLeadingAccessoryGutter: true,
+            reservesLeadingAccessoryGutter: false,
             theme: theme,
             animated: false
         )
@@ -335,13 +366,12 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
                 statusText: nil,
                 detailLines: [],
                 overflowText: nil,
-                leadingAccessory: .agent(.claudeCode),
                 attentionState: nil,
                 artifactLink: nil,
                 isWorking: false,
                 isActive: false
             ),
-            reservesLeadingAccessoryGutter: true,
+            reservesLeadingAccessoryGutter: false,
             theme: theme,
             animated: false
         )
@@ -380,13 +410,12 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
                 statusText: nil,
                 detailLines: [],
                 overflowText: nil,
-                leadingAccessory: .agent(.claudeCode),
                 attentionState: nil,
                 artifactLink: nil,
                 isWorking: false,
                 isActive: false
             ),
-            reservesLeadingAccessoryGutter: true,
+            reservesLeadingAccessoryGutter: false,
             theme: theme,
             animated: false
         )
@@ -401,6 +430,43 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         )
 
         XCTAssertFalse(row.allowsVibrancy)
+    }
+
+    func test_workspace_row_hides_accessory_and_artifact_content_in_text_only_mode() {
+        let row = SidebarWorkspaceRowButton(
+            workspaceID: WorkspaceID("workspace-main"),
+            reducedMotionProvider: { false }
+        )
+        row.frame = NSRect(x: 0, y: 0, width: 280, height: 88)
+
+        row.configure(
+            with: WorkspaceSidebarSummary(
+                workspaceID: WorkspaceID("workspace-main"),
+                badgeText: "1",
+                primaryText: "Claude Code",
+                statusText: "Needs input",
+                detailLines: [
+                    WorkspaceSidebarDetailLine(text: "main • …/project", emphasis: .primary)
+                ],
+                overflowText: nil,
+                leadingAccessory: .agent(.claudeCode),
+                attentionState: .needsInput,
+                artifactLink: WorkspaceArtifactLink(
+                    kind: .session,
+                    label: "Session",
+                    url: URL(string: "https://example.com/session")!,
+                    isExplicit: true
+                ),
+                isWorking: false,
+                isActive: false
+            ),
+            reservesLeadingAccessoryGutter: false,
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.leadingAccessorySymbolNameForTesting, "")
+        XCTAssertEqual(row.artifactTextForTesting, "")
     }
 
     private func colorDistance(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {

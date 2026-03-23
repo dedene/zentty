@@ -138,7 +138,7 @@ final class SidebarView: NSView {
         theme: ZenttyTheme
     ) {
         workspaceSummaries = summaries
-        reservesLeadingAccessoryGutter = summaries.contains { $0.leadingAccessory != nil }
+        reservesLeadingAccessoryGutter = false
         apply(theme: theme, animated: true)
 
         listStack.arrangedSubviews.forEach { view in

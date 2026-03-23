@@ -103,6 +103,7 @@ enum PaneInteractionState: String, Equatable, Sendable {
 }
 
 enum PaneAgentState: String, Equatable, Sendable {
+    case starting = "starting"
     case running = "running"
     case needsInput = "needs-input"
     case unresolvedStop = "unresolved-stop"
@@ -110,6 +111,8 @@ enum PaneAgentState: String, Equatable, Sendable {
 
     var defaultStatusText: String {
         switch self {
+        case .starting:
+            return "Starting"
         case .running:
             return "Running"
         case .needsInput:
@@ -123,6 +126,8 @@ enum PaneAgentState: String, Equatable, Sendable {
 
     var attentionPriority: Int {
         switch self {
+        case .starting:
+            return 0
         case .needsInput:
             return 4
         case .unresolvedStop:
@@ -239,6 +244,23 @@ struct PaneAgentStatus: Equatable, Sendable {
     }
 }
 
+extension PaneAgentState {
+    var workspaceAttentionState: WorkspaceAttentionState? {
+        switch self {
+        case .starting:
+            return nil
+        case .needsInput:
+            return .needsInput
+        case .unresolvedStop:
+            return .unresolvedStop
+        case .running:
+            return .running
+        case .completed:
+            return .completed
+        }
+    }
+}
+
 struct WorkspaceAttentionSummary: Equatable, Sendable {
     let paneID: PaneID
     let tool: AgentTool
@@ -265,4 +287,3 @@ enum AgentToolRecognizer {
             ?? AgentTool.resolveKnown(named: metadata?.processName)
     }
 }
-
