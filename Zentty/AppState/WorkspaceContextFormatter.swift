@@ -35,6 +35,7 @@ enum WorkspaceContextFormatter {
             }
 
             return !isGenericShellIdentity(candidate)
+                && !looksLikeResolvedPathIdentity(candidate)
         } ?? nil
     }
 
@@ -134,6 +135,17 @@ enum WorkspaceContextFormatter {
             reportedWorkingDirectory: reportedWorkingDirectory,
             titleDerivedWorkingDirectory: titleDerivedWorkingDirectory
         )
+
+        if shellContext?.scope == .local,
+           let shellContextWorkingDirectory {
+            guard let metadataPreferredWorkingDirectory else {
+                return shellContextWorkingDirectory
+            }
+
+            return standardPath(metadataPreferredWorkingDirectory) == standardPath(shellContextWorkingDirectory)
+                ? metadataPreferredWorkingDirectory
+                : shellContextWorkingDirectory
+        }
 
         return preferredWorkingDirectory(
             reportedWorkingDirectory: metadataPreferredWorkingDirectory,
@@ -544,6 +556,10 @@ enum WorkspaceContextFormatter {
         }
 
         return trimmedCandidate
+    }
+
+    private static func looksLikeResolvedPathIdentity(_ candidate: String) -> Bool {
+        inferredWorkingDirectory(fromTitle: candidate) != nil
     }
 
     private static func preferredWorkingDirectory(

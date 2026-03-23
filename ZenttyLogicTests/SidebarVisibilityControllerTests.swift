@@ -155,4 +155,16 @@ final class SidebarVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(image.size.width, 15, accuracy: 0.001)
         XCTAssertEqual(image.size.height, 15, accuracy: 0.001)
     }
+
+    @MainActor
+    func test_sidebar_toggle_button_configures_active_state() {
+        let button = SidebarToggleButton()
+        let theme = ZenttyTheme.fallback(for: nil)
+
+        button.configure(theme: theme, isActive: true, animated: false)
+        XCTAssertTrue(button.isActive)
+
+        button.configure(theme: theme, isActive: false, animated: false)
+        XCTAssertFalse(button.isActive)
+    }
 }

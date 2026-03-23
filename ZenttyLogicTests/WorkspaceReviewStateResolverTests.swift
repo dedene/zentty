@@ -173,15 +173,18 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         await fulfillment(of: [secondRefresh], timeout: 1.0)
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 6)
+        XCTAssertEqual(calls.count, 7)
         XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
         XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
-        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertEqual(calls[3].arguments[2], "view")
-        XCTAssertTrue(calls[3].arguments.contains("feature/review-band"))
-        XCTAssertEqual(calls[4].arguments[2], "checks")
+        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
+        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[4].arguments[2], "view")
         XCTAssertTrue(calls[4].arguments.contains("feature/review-band"))
-        XCTAssertEqual(calls[5].arguments, ["git", "branch", "--show-current"])
+        XCTAssertTrue(calls[4].arguments.contains("--repo"))
+        XCTAssertEqual(calls[5].arguments[2], "checks")
+        XCTAssertTrue(calls[5].arguments.contains("feature/review-band"))
+        XCTAssertTrue(calls[5].arguments.contains("--repo"))
+        XCTAssertEqual(calls[6].arguments, ["git", "branch", "--show-current"])
     }
 
     func test_resolver_derives_branch_from_git_before_loading_pr_and_checks() async throws {
@@ -221,19 +224,23 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["Draft", "2 failing"])
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 5)
+        XCTAssertEqual(calls.count, 6)
         XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
         XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
         XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
         XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
         XCTAssertEqual(calls[2].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[3].arguments[0...2], ["gh", "pr", "view"])
-        XCTAssertTrue(calls[3].arguments.contains("feature/review-band"))
+        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
         XCTAssertEqual(calls[3].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "checks"])
+        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "view"])
         XCTAssertTrue(calls[4].arguments.contains("feature/review-band"))
+        XCTAssertTrue(calls[4].arguments.contains("--repo"))
         XCTAssertEqual(calls[4].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls[5].arguments[0...2], ["gh", "pr", "checks"])
+        XCTAssertTrue(calls[5].arguments.contains("feature/review-band"))
+        XCTAssertTrue(calls[5].arguments.contains("--repo"))
+        XCTAssertEqual(calls[5].currentDirectoryPath, "/tmp/project")
     }
 
     func test_resolver_uses_local_pane_context_path_when_metadata_cwd_is_missing() async {
@@ -282,17 +289,21 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(updates.last?.reviewState?.reviewChips.map(\.text), ["1 failing"])
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 5)
+        XCTAssertEqual(calls.count, 6)
         XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
         XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
         XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
         XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.main.remote"])
         XCTAssertEqual(calls[2].currentDirectoryPath, "/tmp/project")
-        XCTAssertTrue(calls[3].arguments.contains("main"))
+        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
         XCTAssertEqual(calls[3].currentDirectoryPath, "/tmp/project")
         XCTAssertTrue(calls[4].arguments.contains("main"))
+        XCTAssertTrue(calls[4].arguments.contains("--repo"))
         XCTAssertEqual(calls[4].currentDirectoryPath, "/tmp/project")
+        XCTAssertTrue(calls[5].arguments.contains("main"))
+        XCTAssertTrue(calls[5].arguments.contains("--repo"))
+        XCTAssertEqual(calls[5].currentDirectoryPath, "/tmp/project")
     }
 
     func test_resolver_returns_nil_when_git_branch_lookup_fails() async {
@@ -378,8 +389,92 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         let calls = await runner.calls
         XCTAssertEqual(calls, [
             .init(arguments: ["git", "rev-parse", "--git-dir"], currentDirectoryPath: "/tmp/project"),
+            .init(arguments: ["git", "config", "--get", "branch.main.remote"], currentDirectoryPath: "/tmp/project"),
             .init(arguments: ["git", "remote", "get-url", "origin"], currentDirectoryPath: "/tmp/project"),
+            .init(arguments: ["git", "remote"], currentDirectoryPath: "/tmp/project"),
         ])
+    }
+
+    func test_resolver_uses_non_origin_github_remote_when_origin_is_not_github() async {
+        let runner = StubGHRunner(
+            gitRepositoryProbeResult: .stdout(".git\n"),
+            gitBranchResult: .stdout("main\n"),
+            gitUpstreamRemoteResult: .failure(stderr: "no upstream remote"),
+            gitRemoteListResult: .stdout("origin\nfork\n"),
+            gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+            additionalGitRemoteResults: [
+                "fork": [.stdout("git@github.com:dedene/zentty.git\n")],
+            ],
+            prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
+            prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
+        )
+        let resolver = WorkspaceReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(resolution.reviewState?.branch, "main")
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.number, 1413)
+        XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["Checks passed"])
+        XCTAssertEqual(resolution.inferredArtifact?.label, "PR #1413")
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(calls[1].arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[3].arguments, ["git", "remote"])
+        XCTAssertEqual(calls[4].arguments, ["git", "remote", "get-url", "fork"])
+        XCTAssertTrue(calls[5].arguments.contains("--repo"))
+        XCTAssertTrue(calls[5].arguments.contains("dedene/zentty"))
+        XCTAssertTrue(calls[6].arguments.contains("--repo"))
+        XCTAssertTrue(calls[6].arguments.contains("dedene/zentty"))
+    }
+
+    func test_resolver_prefers_upstream_github_remote_before_origin() async {
+        let runner = StubGHRunner(
+            gitRepositoryProbeResult: .stdout(".git\n"),
+            gitBranchResult: .stdout("main\n"),
+            gitUpstreamRemoteResult: .stdout("upstream\n"),
+            gitRemoteResult: .stdout("git@github.com:zenjoy/zentty.git\n"),
+            additionalGitRemoteResults: [
+                "upstream": [.stdout("git@github.com:dedene/zentty.git\n")],
+            ],
+            prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
+            prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
+        )
+        let resolver = WorkspaceReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.number, 1413)
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(calls[1].arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "upstream"])
+        XCTAssertFalse(calls.contains { $0.arguments == ["git", "remote", "get-url", "origin"] })
+        XCTAssertTrue(calls[3].arguments.contains("--repo"))
+        XCTAssertTrue(calls[3].arguments.contains("dedene/zentty"))
+        XCTAssertTrue(calls[4].arguments.contains("--repo"))
+        XCTAssertTrue(calls[4].arguments.contains("dedene/zentty"))
+    }
+
+    func test_resolver_preserves_existing_state_when_remote_detection_fails_transiently() async {
+        let runner = StubGHRunner(
+            gitRepositoryProbeResult: .stdout(".git\n"),
+            gitBranchResult: .stdout("main\n"),
+            gitUpstreamRemoteResult: .failure(stderr: "no upstream remote"),
+            gitRemoteListResult: .failure(stderr: "fatal: unable to read remotes"),
+            gitRemoteResult: .failure(stderr: "fatal: unable to read config"),
+            prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
+            prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
+        )
+        let resolver = WorkspaceReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertNil(resolution.reviewState)
+        XCTAssertNil(resolution.inferredArtifact)
+        XCTAssertEqual(resolution.updatePolicy, .preserveExistingOnEmpty)
     }
 
     func test_resolver_ignores_compacted_metadata_branch_and_derives_full_branch_from_git() async {
@@ -419,13 +514,16 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(updates.last?.reviewState?.pullRequest?.number, 1413)
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 5)
+        XCTAssertEqual(calls.count, 6)
         XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
         XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
-        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertTrue(calls[3].arguments.contains("main"))
-        XCTAssertFalse(calls[3].arguments.contains("m...n"))
+        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
         XCTAssertTrue(calls[4].arguments.contains("main"))
+        XCTAssertTrue(calls[4].arguments.contains("--repo"))
+        XCTAssertFalse(calls[4].arguments.contains("m...n"))
+        XCTAssertTrue(calls[5].arguments.contains("main"))
+        XCTAssertTrue(calls[5].arguments.contains("--repo"))
     }
 
     func test_resolver_reloads_pr_when_branch_changes_in_same_cwd() async {
@@ -481,15 +579,22 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(updates.map { $0.reviewState?.reviewChips.map(\.text) ?? [] }, [["Draft", "1 failing"], ["Checks passed"]])
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 8)
+        XCTAssertEqual(calls.count, 11)
         XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
         XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
-        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertTrue(calls[3].arguments.contains("feature/review-band"))
+        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
+        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
         XCTAssertTrue(calls[4].arguments.contains("feature/review-band"))
-        XCTAssertEqual(calls[5].arguments, ["git", "branch", "--show-current"])
-        XCTAssertTrue(calls[6].arguments.contains("main"))
-        XCTAssertTrue(calls[7].arguments.contains("main"))
+        XCTAssertTrue(calls[4].arguments.contains("--repo"))
+        XCTAssertTrue(calls[5].arguments.contains("feature/review-band"))
+        XCTAssertTrue(calls[5].arguments.contains("--repo"))
+        XCTAssertEqual(calls[6].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls[7].arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(calls[8].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertTrue(calls[9].arguments.contains("main"))
+        XCTAssertTrue(calls[9].arguments.contains("--repo"))
+        XCTAssertTrue(calls[10].arguments.contains("main"))
+        XCTAssertTrue(calls[10].arguments.contains("--repo"))
     }
 
     func test_refresh_focused_pane_force_reload_bypasses_cache_for_same_branch() async {
@@ -527,17 +632,22 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(refreshedResolution?.reviewState?.reviewChips.map(\.text), ["Checks passed"])
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 6)
+        XCTAssertEqual(calls.count, 7)
         XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[1].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertEqual(calls[2].arguments[0...2], ["gh", "pr", "view"])
-        XCTAssertTrue(calls[2].arguments.contains("main"))
-        XCTAssertEqual(calls[3].arguments[0...2], ["gh", "pr", "checks"])
+        XCTAssertEqual(calls[1].arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[3].arguments[0...2], ["gh", "pr", "view"])
         XCTAssertTrue(calls[3].arguments.contains("main"))
-        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "view"])
+        XCTAssertTrue(calls[3].arguments.contains("--repo"))
+        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "checks"])
         XCTAssertTrue(calls[4].arguments.contains("main"))
-        XCTAssertEqual(calls[5].arguments[0...2], ["gh", "pr", "checks"])
+        XCTAssertTrue(calls[4].arguments.contains("--repo"))
+        XCTAssertEqual(calls[5].arguments[0...2], ["gh", "pr", "view"])
         XCTAssertTrue(calls[5].arguments.contains("main"))
+        XCTAssertTrue(calls[5].arguments.contains("--repo"))
+        XCTAssertEqual(calls[6].arguments[0...2], ["gh", "pr", "checks"])
+        XCTAssertTrue(calls[6].arguments.contains("main"))
+        XCTAssertTrue(calls[6].arguments.contains("--repo"))
     }
 
     func test_refresh_focused_pane_force_reload_preserves_cached_resolution_when_gh_view_fails() async {
@@ -576,12 +686,16 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(refreshedResolution?.updatePolicy, .replace)
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 5)
+        XCTAssertEqual(calls.count, 6)
         XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[1].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertEqual(calls[2].arguments[0...2], ["gh", "pr", "view"])
-        XCTAssertEqual(calls[3].arguments[0...2], ["gh", "pr", "checks"])
-        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "view"])
+        XCTAssertEqual(calls[1].arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[3].arguments[0...2], ["gh", "pr", "view"])
+        XCTAssertTrue(calls[3].arguments.contains("--repo"))
+        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "checks"])
+        XCTAssertTrue(calls[4].arguments.contains("--repo"))
+        XCTAssertEqual(calls[5].arguments[0...2], ["gh", "pr", "view"])
+        XCTAssertTrue(calls[5].arguments.contains("--repo"))
     }
 }
 
@@ -599,7 +713,10 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
 
     private var gitRepositoryProbeResults: [ResultFixture]
     private var gitBranchResults: [ResultFixture]
+    private var gitUpstreamRemoteResults: [ResultFixture]
+    private var gitRemoteListResults: [ResultFixture]
     private var gitRemoteResults: [ResultFixture]
+    private var additionalGitRemoteResults: [String: [ResultFixture]]
     private var prViewResults: [ResultFixture]
     private var prChecksResults: [ResultFixture]
     private(set) var calls: [Invocation] = []
@@ -607,13 +724,19 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
     init(
         gitRepositoryProbeResult: ResultFixture = .stdout(".git\n"),
         gitBranchResult: ResultFixture = .stdout("main\n"),
+        gitUpstreamRemoteResult: ResultFixture = .failure(stderr: "no upstream remote"),
+        gitRemoteListResult: ResultFixture = .stdout("origin\n"),
         gitRemoteResult: ResultFixture = .stdout("git@github.com:zenjoy/zentty.git\n"),
+        additionalGitRemoteResults: [String: [ResultFixture]] = [:],
         prViewResult: ResultFixture = .failure(stderr: "missing prViewResult fixture"),
         prChecksResult: ResultFixture = .failure(stderr: "missing prChecksResult fixture")
     ) {
         self.gitRepositoryProbeResults = [gitRepositoryProbeResult]
         self.gitBranchResults = [gitBranchResult]
+        self.gitUpstreamRemoteResults = [gitUpstreamRemoteResult]
+        self.gitRemoteListResults = [gitRemoteListResult]
         self.gitRemoteResults = [gitRemoteResult]
+        self.additionalGitRemoteResults = additionalGitRemoteResults
         self.prViewResults = [prViewResult]
         self.prChecksResults = [prChecksResult]
     }
@@ -621,13 +744,19 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
     init(
         gitRepositoryProbeResults: [ResultFixture] = [.stdout(".git\n")],
         gitBranchResults: [ResultFixture],
+        gitUpstreamRemoteResults: [ResultFixture] = [.failure(stderr: "no upstream remote")],
+        gitRemoteListResults: [ResultFixture] = [.stdout("origin\n")],
         gitRemoteResults: [ResultFixture] = [.stdout("git@github.com:zenjoy/zentty.git\n")],
+        additionalGitRemoteResults: [String: [ResultFixture]] = [:],
         prViewResults: [ResultFixture],
         prChecksResults: [ResultFixture]
     ) {
         self.gitRepositoryProbeResults = gitRepositoryProbeResults
         self.gitBranchResults = gitBranchResults
+        self.gitUpstreamRemoteResults = gitUpstreamRemoteResults
+        self.gitRemoteListResults = gitRemoteListResults
         self.gitRemoteResults = gitRemoteResults
+        self.additionalGitRemoteResults = additionalGitRemoteResults
         self.prViewResults = prViewResults
         self.prChecksResults = prChecksResults
     }
@@ -643,8 +772,31 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
             return makeCommandResult(from: nextFixture(in: &gitBranchResults))
         }
 
+        if arguments.count == 4,
+           arguments[0] == "git",
+           arguments[1] == "config",
+           arguments[2] == "--get",
+           arguments[3].hasPrefix("branch."),
+           arguments[3].hasSuffix(".remote") {
+            return makeCommandResult(from: nextFixture(in: &gitUpstreamRemoteResults))
+        }
+
+        if arguments == ["git", "remote"] {
+            return makeCommandResult(from: nextFixture(in: &gitRemoteListResults))
+        }
+
         if arguments == ["git", "remote", "get-url", "origin"] {
             return makeCommandResult(from: nextFixture(in: &gitRemoteResults))
+        }
+
+        if arguments.count == 4,
+           arguments[0] == "git",
+           arguments[1] == "remote",
+           arguments[2] == "get-url" {
+            var fixtures = additionalGitRemoteResults[arguments[3], default: []]
+            let fixture = nextFixture(in: &fixtures)
+            additionalGitRemoteResults[arguments[3]] = fixtures
+            return makeCommandResult(from: fixture)
         }
 
         if arguments.contains("view") {

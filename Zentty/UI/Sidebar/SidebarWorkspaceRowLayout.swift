@@ -10,6 +10,9 @@ enum WorkspaceRowTextRow: Equatable {
     case topLabel
     case primary
     case status
+    case panePrimary(Int)
+    case paneDetail(Int)
+    case paneStatus(Int)
     case stateBadge
     case context
     case detail(Int)
@@ -106,6 +109,12 @@ struct WorkspaceRowLayoutMetrics: Equatable {
             return primaryLineHeight
         case .status:
             return statusLineHeight
+        case .panePrimary:
+            return primaryLineHeight
+        case .paneDetail:
+            return detailLineHeight
+        case .paneStatus:
+            return statusLineHeight
         case .stateBadge:
             return detailLineHeight
         case .context:
@@ -140,19 +149,51 @@ struct SidebarWorkspaceRowLayout: Equatable {
     }
 
     static func mode(for summary: WorkspaceSidebarSummary) -> WorkspaceRowMode {
+        if summary.paneRows.isEmpty == false {
+            return hasVisibleText(summary.topLabel)
+                || summary.paneRows.contains(where: { hasVisibleText($0.detailText) || hasVisibleText($0.statusText) })
+                || hasVisibleText(summary.overflowText)
+                ? .expanded
+                : .compact
+        }
+
         let hasVisibleTitle = hasVisibleText(summary.topLabel)
         let hasVisibleStatus = hasVisibleText(summary.statusText)
-        let hasVisibleStateBadge = hasVisibleText(summary.stateBadgeText)
         let hasVisibleDetailLines = summary.detailLines.isEmpty == false
         let hasOverflow = hasVisibleText(summary.overflowText)
-        let hasArtifact = summary.artifactLink != nil
 
-        return hasVisibleTitle || hasVisibleStatus || hasVisibleStateBadge || hasVisibleDetailLines || hasOverflow || hasArtifact
+        return hasVisibleTitle || hasVisibleStatus || hasVisibleDetailLines || hasOverflow
             ? .expanded
             : .compact
     }
 
     static func visibleTextRows(for summary: WorkspaceSidebarSummary) -> [WorkspaceRowTextRow] {
+        if summary.paneRows.isEmpty == false {
+            var rows: [WorkspaceRowTextRow] = []
+
+            if hasVisibleText(summary.topLabel) {
+                rows.append(.topLabel)
+            }
+
+            for index in summary.paneRows.indices {
+                rows.append(.panePrimary(index))
+
+                if hasVisibleText(summary.paneRows[index].detailText) {
+                    rows.append(.paneDetail(index))
+                }
+
+                if hasVisibleText(summary.paneRows[index].statusText) {
+                    rows.append(.paneStatus(index))
+                }
+            }
+
+            if hasVisibleText(summary.overflowText) {
+                rows.append(.overflow)
+            }
+
+            return rows
+        }
+
         var rows: [WorkspaceRowTextRow] = []
 
         if hasVisibleText(summary.topLabel) {
@@ -176,10 +217,6 @@ struct SidebarWorkspaceRowLayout: Equatable {
 
         if hasVisibleText(summary.statusText) {
             rows.append(.status)
-        }
-
-        if hasVisibleText(summary.stateBadgeText) {
-            rows.append(.stateBadge)
         }
 
         if hasVisibleText(summary.overflowText) {

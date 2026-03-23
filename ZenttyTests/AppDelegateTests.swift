@@ -223,7 +223,7 @@ final class AppDelegateTests: XCTestCase {
             })
         )
         let contentView = try XCTUnwrap(launchedWindow.contentView)
-        let overlayView = try XCTUnwrap(contentView.firstDescendant(ofType: SidebarToggleOverlayView.self))
+        let toggleButton = try XCTUnwrap(contentView.firstDescendant(ofType: SidebarToggleButton.self))
         let zoomButton = try XCTUnwrap(launchedWindow.standardWindowButton(.zoomButton))
         let buttonSuperview = try XCTUnwrap(zoomButton.superview)
         let zoomAnchorInWindow = buttonSuperview.convert(
@@ -233,7 +233,7 @@ final class AppDelegateTests: XCTestCase {
         let zoomAnchorInContent = contentView.convert(zoomAnchorInWindow, from: nil)
 
         XCTAssertEqual(
-            overlayView.toggleFrameInSuperview.minX - zoomAnchorInContent.x,
+            toggleButton.frame.minX - zoomAnchorInContent.x,
             12,
             accuracy: 1.0
         )

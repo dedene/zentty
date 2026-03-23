@@ -48,7 +48,6 @@ real_binary="$(find_real_binary)" || {
     exit 127
 }
 
-send_signal lifecycle running
 send_signal pid attach "$$"
 
 exec "$real_binary" "$@"

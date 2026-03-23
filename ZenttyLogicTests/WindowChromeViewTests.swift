@@ -377,7 +377,7 @@ final class WindowChromeViewTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(branchLabel.frame.width, requiredSingleLineWidth(of: branchLabel) - 0.5)
     }
 
-    func test_window_chrome_keeps_short_branch_and_four_digit_pull_request_readable_in_tight_lane() throws {
+    func test_window_chrome_keeps_four_digit_pull_request_padded_in_tight_lane_before_branch() throws {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 360, height: WindowChromeView.preferredHeight)
         )
@@ -398,7 +398,7 @@ final class WindowChromeViewTests: XCTestCase {
         view.layoutSubtreeIfNeeded()
 
         let branchLabel = try XCTUnwrap(findLabel(in: view, withText: "main"))
-        XCTAssertGreaterThanOrEqual(branchLabel.frame.width, requiredSingleLineWidth(of: branchLabel) - 0.5)
+        XCTAssertGreaterThan(branchLabel.frame.width, 0.5)
         XCTAssertEqual(view.pullRequestText, "PR #1413")
         XCTAssertGreaterThanOrEqual(
             view.pullRequestFrameWidth,
@@ -407,7 +407,7 @@ final class WindowChromeViewTests: XCTestCase {
         )
     }
 
-    func test_window_chrome_keeps_last_review_chip_visible_before_compressing_short_branch() throws {
+    func test_window_chrome_drops_tight_lane_review_chip_before_shrinking_four_digit_pull_request() throws {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 360, height: WindowChromeView.preferredHeight)
         )
@@ -428,12 +428,153 @@ final class WindowChromeViewTests: XCTestCase {
         view.layoutSubtreeIfNeeded()
 
         let branchLabel = try XCTUnwrap(findLabel(in: view, withText: "main"))
-        XCTAssertGreaterThanOrEqual(branchLabel.frame.width, requiredSingleLineWidth(of: branchLabel) - 0.5)
+        XCTAssertGreaterThan(branchLabel.frame.width, 0.5)
         XCTAssertEqual(view.reviewChipTexts, ["1 failing"])
         XCTAssertGreaterThanOrEqual(
             view.pullRequestFrameWidth,
             view.pullRequestIntrinsicWidth - 0.5,
             "pull request width \(view.pullRequestFrameWidth) vs intrinsic \(view.pullRequestIntrinsicWidth)"
+        )
+        XCTAssertLessThan(view.finalTotalWidth, view.preferredTotalWidth)
+    }
+
+    func test_window_chrome_opens_pull_request_url_when_button_is_clicked() throws {
+        var openedURL: URL?
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight),
+            urlOpener: { openedURL = $0 }
+        )
+
+        let pullRequestURL = try XCTUnwrap(URL(string: "https://example.com/pr/1413"))
+        view.render(summary: WorkspaceChromeSummary(
+            attention: nil,
+            focusedLabel: "Claude Code",
+            branch: "main",
+            pullRequest: WorkspacePullRequestSummary(
+                number: 1413,
+                url: pullRequestURL,
+                state: .open
+            ),
+            reviewChips: []
+        ))
+
+        let pullRequestButton = try XCTUnwrap(findButton(in: view, withTitle: "PR #1413"))
+        pullRequestButton.performClick(pullRequestButton)
+
+        XCTAssertEqual(openedURL, pullRequestURL)
+        XCTAssertTrue(view.isPullRequestEnabled)
+        XCTAssertEqual(view.pullRequestToolTip, "Open pull request #1413 in browser")
+    }
+
+    func test_window_chrome_treats_pull_request_pill_as_a_control_not_window_drag_background() throws {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorkspaceChromeSummary(
+            attention: nil,
+            focusedLabel: "Claude Code",
+            branch: "main",
+            pullRequest: WorkspacePullRequestSummary(
+                number: 1413,
+                url: URL(string: "https://example.com/pr/1413"),
+                state: .open
+            ),
+            reviewChips: []
+        ))
+
+        let pullRequestButton = try XCTUnwrap(findButton(in: view, withTitle: "PR #1413"))
+        XCTAssertFalse(pullRequestButton.mouseDownCanMoveWindow)
+        XCTAssertTrue(pullRequestButton.acceptsFirstMouse(for: nil))
+    }
+
+    func test_window_chrome_disables_pull_request_click_affordance_when_url_is_missing() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorkspaceChromeSummary(
+            attention: nil,
+            focusedLabel: "Claude Code",
+            branch: "main",
+            pullRequest: WorkspacePullRequestSummary(
+                number: 1413,
+                url: nil,
+                state: .open
+            ),
+            reviewChips: []
+        ))
+
+        XCTAssertFalse(view.isPullRequestEnabled)
+        XCTAssertEqual(view.pullRequestToolTip, "")
+    }
+
+    func test_window_chrome_keeps_pull_request_background_constant_while_tinting_text_and_border_by_state() {
+        let theme = ZenttyTheme.fallback(for: nil)
+        let states: [WorkspacePullRequestState] = [.draft, .open, .merged, .closed]
+        let views = states.map { state -> WindowChromeView in
+            let view = WindowChromeView(
+                frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
+            )
+            view.apply(theme: theme, animated: false)
+            view.render(summary: WorkspaceChromeSummary(
+                attention: nil,
+                focusedLabel: "Claude Code",
+                branch: "main",
+                pullRequest: WorkspacePullRequestSummary(
+                    number: 1413,
+                    url: URL(string: "https://example.com/pr/1413"),
+                    state: state
+                ),
+                reviewChips: []
+            ))
+            return view
+        }
+
+        let backgrounds = Set(views.map(\.pullRequestBackgroundTokenForTesting))
+        XCTAssertEqual(backgrounds.count, 1)
+        XCTAssertEqual(backgrounds.first, theme.contextStripBackground.themeToken)
+
+        let textTokens = views.map(\.pullRequestTextColorTokenForTesting)
+        XCTAssertEqual(Set(textTokens).count, states.count)
+
+        let borderTokens = views.map(\.pullRequestBorderColorTokenForTesting)
+        XCTAssertEqual(Set(borderTokens).count, states.count)
+
+        for view in views {
+            XCTAssertNotEqual(view.pullRequestTextColorTokenForTesting, theme.secondaryText.themeToken)
+            XCTAssertNotEqual(view.pullRequestBorderColorTokenForTesting, theme.contextStripBorder.themeToken)
+            XCTAssertLessThan(view.pullRequestBorderAlphaForTesting, view.pullRequestTextAlphaForTesting)
+        }
+    }
+
+    func test_window_chrome_sizes_pull_request_pill_to_required_button_draw_width() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorkspaceChromeSummary(
+            attention: nil,
+            focusedLabel: "Claude Code",
+            branch: "main",
+            pullRequest: WorkspacePullRequestSummary(
+                number: 1413,
+                url: URL(string: "https://example.com/pr/1413"),
+                state: .open
+            ),
+            reviewChips: []
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThanOrEqual(
+            view.pullRequestFrameWidth,
+            view.pullRequestCellRequiredWidthForTesting - 0.5,
+            "pull request width \(view.pullRequestFrameWidth) vs draw width \(view.pullRequestCellRequiredWidthForTesting)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            view.pullRequestFrameWidth,
+            view.pullRequestTitleWidthForTesting + 20 - 0.5,
+            "pull request width \(view.pullRequestFrameWidth) vs title width \(view.pullRequestTitleWidthForTesting)"
         )
     }
 
@@ -472,7 +613,10 @@ final class WindowChromeViewTests: XCTestCase {
     }
 
     private func requiredSingleLineWidth(of button: NSButton) -> CGFloat {
-        ceil(max(button.fittingSize.width, button.intrinsicContentSize.width))
+        let fittingWidth = button.fittingSize.width
+        let intrinsicWidth = button.intrinsicContentSize.width
+        let cellWidth = button.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: 10_000, height: 22)).width ?? 0
+        return ceil(max(fittingWidth, intrinsicWidth, cellWidth))
     }
 
     private func findLabel(in rootView: NSView, withText text: String) -> NSTextField? {

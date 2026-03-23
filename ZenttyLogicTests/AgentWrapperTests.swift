@@ -100,12 +100,11 @@ final class AgentWrapperTests: XCTestCase {
 
         XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
         let signalLines = try harness.readLines(named: "helper-args.log")
-        XCTAssertEqual(signalLines.count, 2)
-        XCTAssertEqual(try XCTUnwrap(signalLines[safe: 0]), "agent-signal lifecycle running --origin explicit-api --tool Codex")
+        XCTAssertEqual(signalLines.count, 1)
 
         let realPID = try XCTUnwrap(try harness.readLines(named: "real-pid.log").first)
         XCTAssertEqual(
-            try XCTUnwrap(signalLines[safe: 1]),
+            try XCTUnwrap(signalLines[safe: 0]),
             "agent-signal pid attach \(realPID) --origin explicit-api --tool Codex"
         )
     }

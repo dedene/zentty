@@ -165,7 +165,17 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             ),
         ])
 
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        let reviewLoaded = expectation(description: "review state loaded")
+        Task { @MainActor in
+            for _ in 0..<50 {
+                if controller.chromeView.pullRequestText == "PR #128" {
+                    reviewLoaded.fulfill()
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 20_000_000)
+            }
+        }
+        await fulfillment(of: [reviewLoaded], timeout: 1.2)
 
         let chrome = controller.chromeView
         XCTAssertEqual(chrome.focusedLabelText, "Claude Code")
@@ -174,10 +184,17 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         XCTAssertEqual(chrome.reviewChipTexts, ["Draft", "2 failing"])
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 4)
-        XCTAssertEqual(calls[0].arguments, ["git", "branch", "--show-current"])
+        XCTAssertGreaterThanOrEqual(calls.count, 6)
+        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
         XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
+        XCTAssertEqual(calls[2].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[3].currentDirectoryPath, "/tmp/project")
+        XCTAssertTrue(calls[4].arguments.contains("--repo"))
+        XCTAssertTrue(calls[5].arguments.contains("--repo"))
     }
 
     func test_root_controller_populates_header_when_title_contains_cwd_and_metadata_cwd_is_missing() async {
@@ -223,11 +240,16 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         XCTAssertEqual(chrome.reviewChipTexts, ["1 failing"])
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 4)
+        XCTAssertGreaterThanOrEqual(calls.count, 6)
         if let firstCall = calls.first {
-            XCTAssertEqual(firstCall.arguments, ["git", "branch", "--show-current"])
+            XCTAssertEqual(firstCall.arguments, ["git", "rev-parse", "--git-dir"])
             XCTAssertEqual(firstCall.currentDirectoryPath, repoPath)
         }
+        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.feature/scaleway-transactional-mails.remote"])
+        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertTrue(calls[4].arguments.contains("--repo"))
+        XCTAssertTrue(calls[5].arguments.contains("--repo"))
     }
 
     func test_root_controller_populates_header_when_local_pane_context_supplies_cwd() async {
@@ -277,9 +299,17 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         XCTAssertEqual(chrome.reviewChipTexts, ["1 failing"])
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 4)
-        XCTAssertEqual(calls[0].arguments, ["git", "branch", "--show-current"])
+        XCTAssertGreaterThanOrEqual(calls.count, 6)
+        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
         XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(calls[2].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[3].currentDirectoryPath, "/tmp/project")
+        XCTAssertTrue(calls[4].arguments.contains("--repo"))
+        XCTAssertTrue(calls[5].arguments.contains("--repo"))
     }
 
     func test_root_controller_keeps_long_terminal_title_readable_inside_real_visible_lane() throws {
@@ -342,6 +372,51 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let contentMaxX = max(focusedLabelView.frame.maxX, pullRequestButton.frame.maxX)
         XCTAssertGreaterThanOrEqual(contentMinX, -0.5)
         XCTAssertLessThanOrEqual(contentMaxX, chrome.rowFrame.width + 0.5)
+    }
+
+    func test_root_controller_hit_testing_reaches_pull_request_button_through_overlay_stack() throws {
+        let controller = makeController()
+        let paneID = PaneID("pane-shell")
+
+        controller.replaceWorkspaces([
+            WorkspaceState(
+                id: WorkspaceID("workspace-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "shell")],
+                    focusedPaneID: paneID
+                ),
+                metadataByPaneID: [
+                    paneID: TerminalMetadata(
+                        title: "Claude Code",
+                        currentWorkingDirectory: "/tmp/project",
+                        processName: "zsh"
+                    ),
+                ],
+                reviewStateByPaneID: [
+                    paneID: WorkspaceReviewState(
+                        branch: "main",
+                        pullRequest: WorkspacePullRequestSummary(
+                            number: 1413,
+                            url: URL(string: "https://example.com/pr/1413"),
+                            state: .open
+                        ),
+                        reviewChips: []
+                    ),
+                ]
+            ),
+        ])
+
+        controller.view.layoutSubtreeIfNeeded()
+
+        let chrome = controller.chromeView
+        let pullRequestButton = try XCTUnwrap(findButton(in: chrome, withTitle: "PR #1413"))
+        let hitPoint = pullRequestButton.convert(
+            NSPoint(x: pullRequestButton.bounds.midX, y: pullRequestButton.bounds.midY),
+            to: controller.view
+        )
+
+        XCTAssertTrue(controller.view.hitTest(hitPoint) === pullRequestButton)
     }
 
     func test_root_controller_prefers_terminal_title_when_shell_title_is_pretruncated() {
@@ -489,13 +564,26 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
         case failure(stderr: String)
     }
 
+    private let gitRepositoryProbeResult: ResultFixture
     private let gitBranchResult: ResultFixture
+    private let gitUpstreamRemoteResult: ResultFixture
+    private let gitRemoteResult: ResultFixture
     private let prViewResult: ResultFixture
     private let prChecksResult: ResultFixture
     private(set) var calls: [Invocation] = []
 
-    init(gitBranchResult: ResultFixture, prViewResult: ResultFixture, prChecksResult: ResultFixture) {
+    init(
+        gitRepositoryProbeResult: ResultFixture = .stdout(".git\n"),
+        gitBranchResult: ResultFixture,
+        gitUpstreamRemoteResult: ResultFixture = .failure(stderr: "no upstream remote"),
+        gitRemoteResult: ResultFixture = .stdout("git@github.com:zenjoy/zentty.git\n"),
+        prViewResult: ResultFixture,
+        prChecksResult: ResultFixture
+    ) {
+        self.gitRepositoryProbeResult = gitRepositoryProbeResult
         self.gitBranchResult = gitBranchResult
+        self.gitUpstreamRemoteResult = gitUpstreamRemoteResult
+        self.gitRemoteResult = gitRemoteResult
         self.prViewResult = prViewResult
         self.prChecksResult = prChecksResult
     }
@@ -503,8 +591,25 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
     func run(arguments: [String], currentDirectoryPath: String) async -> WorkspaceReviewCommandResult {
         calls.append(Invocation(arguments: arguments, currentDirectoryPath: currentDirectoryPath))
 
+        if arguments == ["git", "rev-parse", "--git-dir"] {
+            return makeCommandResult(from: gitRepositoryProbeResult)
+        }
+
         if arguments == ["git", "branch", "--show-current"] {
             return makeCommandResult(from: gitBranchResult)
+        }
+
+        if arguments.count == 4,
+           arguments[0] == "git",
+           arguments[1] == "config",
+           arguments[2] == "--get",
+           arguments[3].hasPrefix("branch."),
+           arguments[3].hasSuffix(".remote") {
+            return makeCommandResult(from: gitUpstreamRemoteResult)
+        }
+
+        if arguments == ["git", "remote", "get-url", "origin"] {
+            return makeCommandResult(from: gitRemoteResult)
         }
 
         if arguments.contains("view") {

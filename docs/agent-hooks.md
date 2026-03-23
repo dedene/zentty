@@ -84,8 +84,9 @@ Example config snippet:
 
 ## Current Mapping
 
-- `Notification` -> `needs-input`
-- `UserPromptSubmit`, `SessionStart` -> `running`
+- `SessionStart` -> session/PID attach only
+- `Notification`, `PermissionRequest` -> `needs-input`
+- `UserPromptSubmit`, `PreToolUse`, `SubagentStart` -> `running`
 - `Stop`, `SubagentStop` -> `completed`
 
 This keeps Zentty’s sidebar and alerts aligned with Claude’s own lifecycle instead of terminal heuristics.

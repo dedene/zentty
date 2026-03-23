@@ -24,5 +24,5 @@ app.setActivationPolicy(.regular)
 
 let delegate = AppDelegate(shouldOpenMainWindow: !isHostedTestMode)
 app.delegate = delegate
-
+ 
 app.run()

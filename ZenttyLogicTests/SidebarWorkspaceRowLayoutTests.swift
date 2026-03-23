@@ -38,28 +38,61 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
         )
     }
 
-    func test_layout_includes_state_badge_as_separate_line_below_status() {
+    func test_layout_does_not_include_state_badge_as_separate_line() {
         let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
-            statusText: "Claude Code is waiting for your input",
-            stateBadgeText: "Needs input",
+            statusText: "Needs input",
             detailLines: [
                 WorkspaceSidebarDetailLine(text: "feature/sidebar • zentty", emphasis: .primary),
             ]
         ))
 
         XCTAssertEqual(layout.mode, .expanded)
-        XCTAssertEqual(layout.visibleTextRows, [.primary, .detail(0), .status, .stateBadge])
+        XCTAssertEqual(layout.visibleTextRows, [.primary, .detail(0), .status])
         XCTAssertEqual(
             layout.rowHeight,
             ShellMetrics.sidebarRowHeight(
                 includesTopLabel: false,
                 includesStatus: true,
-                detailLineCount: 2,
+                detailLineCount: 1,
                 includesOverflow: false,
                 includesArtifact: false
             ),
             accuracy: 0.001
         )
+    }
+
+    func test_layout_flattens_pane_rows_in_order_with_local_status_lines() {
+        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+            paneRows: [
+                WorkspaceSidebarPaneRow(
+                    paneID: PaneID("workspace-main-agent"),
+                    primaryText: "General coding assistance session",
+                    trailingText: "main",
+                    detailText: "…/nimbu",
+                    statusText: "╰ Completed",
+                    attentionState: .completed,
+                    isFocused: true,
+                    isWorking: false
+                ),
+                WorkspaceSidebarPaneRow(
+                    paneID: PaneID("workspace-main-build"),
+                    primaryText: "npm test",
+                    trailingText: nil,
+                    detailText: "/tmp/project",
+                    statusText: "╰ Running",
+                    attentionState: .running,
+                    isFocused: false,
+                    isWorking: true
+                ),
+            ]
+        ))
+
+        XCTAssertEqual(layout.mode, .expanded)
+        XCTAssertEqual(
+            layout.visibleTextRows,
+            [.panePrimary(0), .paneDetail(0), .paneStatus(0), .panePrimary(1), .paneDetail(1), .paneStatus(1)]
+        )
+        XCTAssertGreaterThan(layout.rowHeight, ShellMetrics.sidebarExpandedRowHeight)
     }
 
     func test_layout_places_primary_row_at_focused_pane_line_index() {
@@ -172,7 +205,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
         )
     }
 
-    func test_layout_expands_when_artifact_is_visible() {
+    func test_layout_does_not_expand_for_sidebar_artifact_visibility() {
         let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
             artifactLink: WorkspaceArtifactLink(
                 kind: .pullRequest,
@@ -182,19 +215,9 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
             )
         ))
 
-        XCTAssertEqual(layout.mode, .expanded)
+        XCTAssertEqual(layout.mode, .compact)
         XCTAssertEqual(layout.visibleTextRows, [.primary])
-        XCTAssertEqual(
-            layout.rowHeight,
-            ShellMetrics.sidebarRowHeight(
-                includesTopLabel: false,
-                includesStatus: false,
-                detailLineCount: 0,
-                includesOverflow: false,
-                includesArtifact: true
-            ),
-            accuracy: 0.001
-        )
+        XCTAssertEqual(layout.rowHeight, ShellMetrics.sidebarCompactRowHeight, accuracy: 0.001)
     }
 
     func test_shell_metrics_preserve_current_fixed_row_heights_from_layout_budgets() {
@@ -300,7 +323,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
             includesStatus: true,
             detailLineCount: 2,
             includesOverflow: true,
-            includesArtifact: true
+            includesArtifact: false
         )
 
         XCTAssertEqual(initialHeight, expectedHeight, accuracy: 0.5)
@@ -315,6 +338,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
         statusText: String? = nil,
         stateBadgeText: String? = nil,
         detailLines: [WorkspaceSidebarDetailLine] = [],
+        paneRows: [WorkspaceSidebarPaneRow] = [],
         overflowText: String? = nil,
         artifactLink: WorkspaceArtifactLink? = nil,
         leadingAccessory: WorkspaceSidebarLeadingAccessory? = nil
@@ -328,6 +352,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
             statusText: statusText,
             stateBadgeText: stateBadgeText,
             detailLines: detailLines,
+            paneRows: paneRows,
             overflowText: overflowText,
             leadingAccessory: leadingAccessory,
             attentionState: nil,
