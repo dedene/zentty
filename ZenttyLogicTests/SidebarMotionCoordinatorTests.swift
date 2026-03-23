@@ -135,9 +135,12 @@ final class SidebarMotionCoordinatorTests: XCTestCase {
             sidebarWidthDefaults: widthDefaults
         )
 
-        coordinator.setSidebarWidth(9999, persist: true)
+        coordinator.setSidebarWidth(9999, availableWidth: 900, persist: true)
 
-        XCTAssertEqual(coordinator.currentSidebarWidth, SidebarWidthPreference.maximumWidth)
+        XCTAssertEqual(
+            coordinator.currentSidebarWidth,
+            SidebarWidthPreference.maximumWidth(for: 900)
+        )
     }
 
     func test_setSidebarWidth_persists_when_requested() {
@@ -151,6 +154,20 @@ final class SidebarMotionCoordinatorTests: XCTestCase {
         XCTAssertEqual(
             SidebarWidthPreference.restoredWidth(from: widthDefaults),
             250
+        )
+    }
+
+    func test_setSidebarWidth_persists_screen_aware_clamp_when_requested() {
+        let coordinator = SidebarMotionCoordinator(
+            sidebarVisibilityDefaults: defaults,
+            sidebarWidthDefaults: widthDefaults
+        )
+
+        coordinator.setSidebarWidth(9999, availableWidth: 900, persist: true)
+
+        XCTAssertEqual(
+            SidebarWidthPreference.restoredWidth(from: widthDefaults, availableWidth: 900),
+            SidebarWidthPreference.maximumWidth(for: 900)
         )
     }
 

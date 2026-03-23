@@ -20,7 +20,9 @@ struct WorkspaceSidebarSummary: Equatable {
     let badgeText: String
     let topLabel: String?
     let primaryText: String
+    let focusedPaneLineIndex: Int
     let statusText: String?
+    let stateBadgeText: String?
     let detailLines: [WorkspaceSidebarDetailLine]
     let overflowText: String?
     let leadingAccessory: WorkspaceSidebarLeadingAccessory?
@@ -38,7 +40,9 @@ struct WorkspaceSidebarSummary: Equatable {
         badgeText: String,
         topLabel: String? = nil,
         primaryText: String,
+        focusedPaneLineIndex: Int = 0,
         statusText: String? = nil,
+        stateBadgeText: String? = nil,
         detailLines: [WorkspaceSidebarDetailLine] = [],
         overflowText: String? = nil,
         leadingAccessory: WorkspaceSidebarLeadingAccessory? = nil,
@@ -51,7 +55,9 @@ struct WorkspaceSidebarSummary: Equatable {
         self.badgeText = badgeText
         self.topLabel = topLabel
         self.primaryText = primaryText
+        self.focusedPaneLineIndex = focusedPaneLineIndex
         self.statusText = statusText
+        self.stateBadgeText = stateBadgeText
         self.detailLines = detailLines
         self.overflowText = overflowText
         self.leadingAccessory = leadingAccessory
@@ -59,6 +65,39 @@ struct WorkspaceSidebarSummary: Equatable {
         self.artifactLink = artifactLink
         self.isWorking = isWorking
         self.isActive = isActive
+    }
+
+    init(
+        workspaceID: WorkspaceID,
+        badgeText: String,
+        topLabel: String? = nil,
+        primaryText: String,
+        focusedPaneLineIndex: Int = 0,
+        statusText: String? = nil,
+        detailLines: [WorkspaceSidebarDetailLine] = [],
+        overflowText: String? = nil,
+        leadingAccessory: WorkspaceSidebarLeadingAccessory? = nil,
+        attentionState: WorkspaceAttentionState? = nil,
+        artifactLink: WorkspaceArtifactLink? = nil,
+        isWorking: Bool = false,
+        isActive: Bool
+    ) {
+        self.init(
+            workspaceID: workspaceID,
+            badgeText: badgeText,
+            topLabel: topLabel,
+            primaryText: primaryText,
+            focusedPaneLineIndex: focusedPaneLineIndex,
+            statusText: statusText,
+            stateBadgeText: attentionState.map(\.defaultSidebarStateBadgeText),
+            detailLines: detailLines,
+            overflowText: overflowText,
+            leadingAccessory: leadingAccessory,
+            attentionState: attentionState,
+            artifactLink: artifactLink,
+            isWorking: isWorking,
+            isActive: isActive
+        )
     }
 
     init(
@@ -78,7 +117,9 @@ struct WorkspaceSidebarSummary: Equatable {
             badgeText: badgeText,
             topLabel: showsGeneratedTitle ? title : nil,
             primaryText: primaryText,
+            focusedPaneLineIndex: 0,
             statusText: statusText,
+            stateBadgeText: attentionState.map(\.defaultSidebarStateBadgeText),
             detailLines: WorkspaceContextFormatter.trimmed(contextText).map {
                 [WorkspaceSidebarDetailLine(text: $0, emphasis: .secondary)]
             } ?? [],
@@ -89,5 +130,20 @@ struct WorkspaceSidebarSummary: Equatable {
             isWorking: attentionState == .running,
             isActive: isActive
         )
+    }
+}
+
+extension WorkspaceAttentionState {
+    var defaultSidebarStateBadgeText: String {
+        switch self {
+        case .needsInput:
+            return "Needs input"
+        case .unresolvedStop:
+            return "Stopped early"
+        case .running:
+            return "Running"
+        case .completed:
+            return "Completed"
+        }
     }
 }

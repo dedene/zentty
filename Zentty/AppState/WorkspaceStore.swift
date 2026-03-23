@@ -158,6 +158,11 @@ struct WorkspaceChangeSubscription {
 
 @MainActor
 final class WorkspaceStore {
+    private struct PaneReference {
+        let workspaceID: WorkspaceID
+        let paneID: PaneID
+    }
+
     private struct PaneLaunchContext {
         let path: String
         let scope: PaneShellContextScope?
@@ -166,6 +171,8 @@ final class WorkspaceStore {
     var workspaces: [WorkspaceState]
     private var layoutContext: PaneLayoutContext
     private var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
+    private var lastFocusedPaneReference: PaneReference?
+    private var lastFocusedLocalPaneReference: PaneReference?
     private var lastFocusedLocalWorkingDirectory: String?
 
     private(set) var activeWorkspaceID: WorkspaceID
@@ -313,11 +320,146 @@ final class WorkspaceStore {
         case .focusLast, .focusLastColumn:
             workspace.paneStripState.moveFocusToLastColumn()
             changeType = .focusChanged(activeWorkspaceID)
+        case .resizeLeft, .resizeRight, .resizeUp, .resizeDown, .resetLayout:
+            activeWorkspace = workspace
+            return
         }
 
         activeWorkspace = workspace
         refreshLastFocusedLocalWorkingDirectory()
         notify(changeType)
+    }
+
+    func markDividerInteraction(_ divider: PaneDivider) {
+        guard var workspace = activeWorkspace else {
+            return
+        }
+
+        workspace.paneStripState.markDividerInteraction(divider)
+        activeWorkspace = workspace
+    }
+
+    func resizeDivider(
+        _ divider: PaneDivider,
+        delta: CGFloat,
+        availableSize: CGSize,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+    ) {
+        guard var workspace = activeWorkspace else {
+            return
+        }
+
+        guard workspace.paneStripState.resizeDivider(
+            divider,
+            delta: delta,
+            availableSize: availableSize,
+            minimumSizeByPaneID: minimumSizeByPaneID
+        ) else {
+            return
+        }
+
+        activeWorkspace = workspace
+        notify(.layoutResized(activeWorkspaceID))
+    }
+
+    func resize(
+        _ target: PaneResizeTarget,
+        delta: CGFloat,
+        availableSize: CGSize,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+    ) {
+        guard var workspace = activeWorkspace else {
+            return
+        }
+
+        guard workspace.paneStripState.resize(
+            target,
+            delta: delta,
+            availableSize: availableSize,
+            minimumSizeByPaneID: minimumSizeByPaneID
+        ) else {
+            return
+        }
+
+        activeWorkspace = workspace
+        notify(.layoutResized(activeWorkspaceID))
+    }
+
+    func equalizeDivider(
+        _ divider: PaneDivider,
+        availableSize: CGSize
+    ) {
+        guard var workspace = activeWorkspace else {
+            return
+        }
+
+        guard workspace.paneStripState.equalizeDivider(divider, availableSize: availableSize) else {
+            return
+        }
+
+        activeWorkspace = workspace
+        notify(.layoutResized(activeWorkspaceID))
+    }
+
+    func resizeFocusedPane(
+        in axis: PaneResizeAxis,
+        delta: CGFloat,
+        availableSize: CGSize,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+    ) {
+        guard var workspace = activeWorkspace else {
+            return
+        }
+
+        guard workspace.paneStripState.resizeFocusedPane(
+            in: axis,
+            delta: delta,
+            availableSize: availableSize,
+            minimumSizeByPaneID: minimumSizeByPaneID
+        ) else {
+            return
+        }
+
+        activeWorkspace = workspace
+        notify(.layoutResized(activeWorkspaceID))
+    }
+
+    func restorePaneLayout(_ paneStripState: PaneStripState) {
+        guard var workspace = activeWorkspace else {
+            return
+        }
+
+        workspace.paneStripState = paneStripState
+        activeWorkspace = workspace
+        notify(.layoutResized(activeWorkspaceID))
+    }
+
+    func resetActiveWorkspaceLayout() {
+        guard var workspace = activeWorkspace else {
+            return
+        }
+
+        var columns = workspace.paneStripState.columns
+        guard !columns.isEmpty else {
+            return
+        }
+
+        let defaultColumnWidth = layoutContext.newPaneWidth
+        let firstColumnWidth = columns.count == 1
+            ? layoutContext.singlePaneWidth
+            : (layoutContext.firstPaneWidthAfterSingleSplit ?? defaultColumnWidth)
+        for index in columns.indices {
+            columns[index].width = index == 0 ? firstColumnWidth : defaultColumnWidth
+            columns[index].resetPaneHeights()
+        }
+
+        workspace.paneStripState = PaneStripState(
+            columns: columns,
+            focusedColumnID: workspace.paneStripState.focusedColumnID,
+            layoutSizing: layoutContext.sizing
+        )
+        activeWorkspace = workspace
+        notify(.layoutResized(activeWorkspaceID))
     }
 
     private func insertNewPaneHorizontally(into workspace: inout WorkspaceState, placement: PanePlacement) {
@@ -362,14 +504,17 @@ final class WorkspaceStore {
         let newIndex = workspaces.count + 1
         let title = "WS \(newIndex)"
         let id = WorkspaceID("workspace-\(newIndex)")
-        let workingDirectory = lastFocusedLocalWorkingDirectory ?? Self.defaultWorkingDirectory()
+        let workingDirectory = resolveWorkingDirectoryForNewWorkspace()
+        let configInheritanceSourcePaneID = resolveConfigInheritanceSourcePaneIDForNewWorkspace()
 
         workspaces.append(
             Self.makeDefaultWorkspace(
                 id: id,
                 title: title,
                 layoutContext: layoutContext,
-                workingDirectory: workingDirectory
+                workingDirectory: workingDirectory,
+                surfaceContext: .tab,
+                configInheritanceSourcePaneID: configInheritanceSourcePaneID
             )
         )
         activeWorkspaceID = id
@@ -435,15 +580,19 @@ final class WorkspaceStore {
         let paneID = PaneID("\(workspace.id.rawValue)-pane-\(workspace.nextPaneNumber)")
         let workingDirectory = resolveWorkingDirectoryForNewPane(in: workspace)
         let inheritFromPaneID = sourcePaneIDForSessionInheritance(in: workspace)
+        let configInheritanceSourcePaneID = sourcePaneIDForConfigInheritance(in: workspace)
         return PaneState(
             id: paneID,
             title: title,
             sessionRequest: TerminalSessionRequest(
                 workingDirectory: workingDirectory,
                 inheritFromPaneID: inheritFromPaneID,
+                configInheritanceSourcePaneID: configInheritanceSourcePaneID,
+                surfaceContext: .split,
                 environmentVariables: Self.sessionEnvironment(
                     workspaceID: workspace.id,
-                    paneID: paneID
+                    paneID: paneID,
+                    initialWorkingDirectory: inheritFromPaneID == nil ? workingDirectory : nil
                 )
             ),
             width: layoutContext.newPaneWidth(existingPaneCount: existingPaneCount)
@@ -456,7 +605,8 @@ final class WorkspaceStore {
                 id: WorkspaceID("workspace-main"),
                 title: "MAIN",
                 layoutContext: layoutContext,
-                workingDirectory: Self.defaultWorkingDirectory()
+                workingDirectory: Self.defaultWorkingDirectory(),
+                surfaceContext: .window
             ),
         ]
     }
@@ -465,7 +615,9 @@ final class WorkspaceStore {
         id: WorkspaceID,
         title: String,
         layoutContext: PaneLayoutContext,
-        workingDirectory: String
+        workingDirectory: String,
+        surfaceContext: TerminalSurfaceContext,
+        configInheritanceSourcePaneID: PaneID? = nil
     ) -> WorkspaceState {
         let shellPaneID = PaneID("\(id.rawValue)-shell")
         return WorkspaceState(
@@ -478,9 +630,12 @@ final class WorkspaceStore {
                         title: "shell",
                         sessionRequest: TerminalSessionRequest(
                             workingDirectory: workingDirectory,
+                            configInheritanceSourcePaneID: configInheritanceSourcePaneID,
+                            surfaceContext: surfaceContext,
                             environmentVariables: Self.sessionEnvironment(
                                 workspaceID: id,
-                                paneID: shellPaneID
+                                paneID: shellPaneID,
+                                initialWorkingDirectory: workingDirectory
                             )
                         ),
                         width: layoutContext.singlePaneWidth
@@ -509,12 +664,16 @@ final class WorkspaceStore {
 
     private static func sessionEnvironment(
         workspaceID: WorkspaceID,
-        paneID: PaneID
+        paneID: PaneID,
+        initialWorkingDirectory: String? = nil
     ) -> [String: String] {
         var environment: [String: String] = [
             "ZENTTY_WORKSPACE_ID": workspaceID.rawValue,
             "ZENTTY_PANE_ID": paneID.rawValue,
         ]
+        if let initialWorkingDirectory = trimmedWorkingDirectory(initialWorkingDirectory) {
+            environment["ZENTTY_INITIAL_WORKING_DIRECTORY"] = initialWorkingDirectory
+        }
         if let helperPath = AgentStatusHelper.binaryPath() {
             environment["ZENTTY_AGENT_BIN"] = helperPath
         }
@@ -570,20 +729,31 @@ final class WorkspaceStore {
         return pane.sessionRequest.inheritFromPaneID == nil ? nil : focusedPaneID
     }
 
+    private func sourcePaneIDForConfigInheritance(in workspace: WorkspaceState) -> PaneID? {
+        guard let focusedPaneID = workspace.paneStripState.focusedPaneID,
+              pane(for: focusedPaneID, in: workspace) != nil else {
+            return nil
+        }
+
+        return focusedPaneID
+    }
+
     private func resolveLaunchContext(
         for paneID: PaneID,
         in workspace: WorkspaceState
     ) -> PaneLaunchContext? {
+        let paneContext = workspace.auxiliaryStateByPaneID[paneID]?.shellContext
         let metadataWorkingDirectory = Self.trimmedWorkingDirectory(
             workspace.auxiliaryStateByPaneID[paneID]?.metadata?.currentWorkingDirectory
         )
-        let paneContext = workspace.auxiliaryStateByPaneID[paneID]?.shellContext
-        let requestWorkingDirectory = pane(for: paneID, in: workspace).flatMap {
-            Self.trimmedWorkingDirectory($0.sessionRequest.workingDirectory)
-        }
+        let requestWorkingDirectory = nonInheritedSessionWorkingDirectory(for: paneID, in: workspace)
 
         if let paneContext {
-            return (metadataWorkingDirectory ?? Self.trimmedWorkingDirectory(paneContext.path) ?? requestWorkingDirectory)
+            return resolvedWorkingDirectory(
+                metadataWorkingDirectory: metadataWorkingDirectory,
+                paneContext: paneContext,
+                requestWorkingDirectory: requestWorkingDirectory
+            )
                 .map { PaneLaunchContext(path: $0, scope: paneContext.scope) }
         }
 
@@ -596,9 +766,11 @@ final class WorkspaceStore {
             let workspace = activeWorkspace,
             let focusedPaneID = workspace.paneStripState.focusedPaneID
         else {
+            lastFocusedPaneReference = nil
             return
         }
 
+        lastFocusedPaneReference = PaneReference(workspaceID: workspace.id, paneID: focusedPaneID)
         updateLastFocusedLocalWorkingDirectory(using: focusedPaneID, in: workspace)
     }
 
@@ -622,16 +794,44 @@ final class WorkspaceStore {
                 return
             }
 
-            lastFocusedLocalWorkingDirectory = Self.trimmedWorkingDirectory(
+            let metadataWorkingDirectory = Self.trimmedWorkingDirectory(
                 workspace.auxiliaryStateByPaneID[paneID]?.metadata?.currentWorkingDirectory
-            ) ?? Self.trimmedWorkingDirectory(paneContext.path)
-                ?? nonInheritedSessionWorkingDirectory(for: paneID, in: workspace)
+            )
+            let requestWorkingDirectory = nonInheritedSessionWorkingDirectory(for: paneID, in: workspace)
+            lastFocusedLocalPaneReference = PaneReference(workspaceID: workspace.id, paneID: paneID)
+            lastFocusedLocalWorkingDirectory = resolvedWorkingDirectory(
+                metadataWorkingDirectory: metadataWorkingDirectory,
+                paneContext: paneContext,
+                requestWorkingDirectory: requestWorkingDirectory
+            )
             return
         }
 
         if let nonInheritedSessionWorkingDirectory = nonInheritedSessionWorkingDirectory(for: paneID, in: workspace) {
+            lastFocusedLocalPaneReference = PaneReference(workspaceID: workspace.id, paneID: paneID)
             lastFocusedLocalWorkingDirectory = nonInheritedSessionWorkingDirectory
         }
+    }
+
+    private func resolveWorkingDirectoryForNewWorkspace() -> String {
+        if let lastFocusedPaneReference,
+           let workspace = workspaces.first(where: { $0.id == lastFocusedPaneReference.workspaceID }),
+           let launchContext = resolveLaunchContext(for: lastFocusedPaneReference.paneID, in: workspace),
+           launchContext.scope != .remote {
+            return launchContext.path
+        }
+
+        return lastFocusedLocalWorkingDirectory ?? Self.defaultWorkingDirectory()
+    }
+
+    private func resolveConfigInheritanceSourcePaneIDForNewWorkspace() -> PaneID? {
+        guard let lastFocusedLocalPaneReference,
+              let workspace = workspaces.first(where: { $0.id == lastFocusedLocalPaneReference.workspaceID }),
+              pane(for: lastFocusedLocalPaneReference.paneID, in: workspace) != nil else {
+            return nil
+        }
+
+        return lastFocusedLocalPaneReference.paneID
     }
 
     private func nonInheritedSessionWorkingDirectory(
@@ -644,6 +844,22 @@ final class WorkspaceStore {
         }
 
         return Self.trimmedWorkingDirectory(pane.sessionRequest.workingDirectory)
+    }
+
+    private func resolvedWorkingDirectory(
+        metadataWorkingDirectory: String?,
+        paneContext: PaneShellContext,
+        requestWorkingDirectory: String?
+    ) -> String? {
+        let contextWorkingDirectory = Self.trimmedWorkingDirectory(paneContext.path)
+
+        if paneContext.scope == .local,
+           metadataWorkingDirectory == requestWorkingDirectory,
+           let contextWorkingDirectory {
+            return contextWorkingDirectory
+        }
+
+        return metadataWorkingDirectory ?? contextWorkingDirectory ?? requestWorkingDirectory
     }
 
     private func pane(for paneID: PaneID, in workspace: WorkspaceState) -> PaneState? {

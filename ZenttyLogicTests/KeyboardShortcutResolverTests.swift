@@ -82,6 +82,33 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
     }
 
+    func test_resolves_resize_shortcuts() {
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .leftArrow, modifiers: [.command, .control, .option])
+            ),
+            .pane(.resizeLeft)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .rightArrow, modifiers: [.command, .control, .option])
+            ),
+            .pane(.resizeRight)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .upArrow, modifiers: [.command, .control, .option])
+            ),
+            .pane(.resizeUp)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .downArrow, modifiers: [.command, .control, .option])
+            ),
+            .pane(.resizeDown)
+        )
+    }
+
     func test_returns_nil_for_unhandled_shortcuts() {
         let action = KeyboardShortcutResolver.resolve(
             .init(key: .character("k"), modifiers: [.command])

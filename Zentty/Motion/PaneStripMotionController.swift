@@ -20,8 +20,16 @@ struct ColumnPresentation: Equatable, Sendable {
     }
 }
 
+struct DividerPresentation: Equatable, Sendable {
+    let divider: PaneDivider
+    let axis: PaneResizeAxis
+    let frame: CGRect
+    let hitFrame: CGRect
+}
+
 struct StripPresentation: Equatable, Sendable {
     let columns: [ColumnPresentation]
+    let dividers: [DividerPresentation]
     let contentWidth: CGFloat
     let targetOffset: CGFloat
 
@@ -54,6 +62,8 @@ final class PaneStripMotionController {
         let scale = resolvedBackingScaleFactor(backingScaleFactor)
         let sizing = state.layoutSizing
         let availableHeight = max(0, viewportSize.height - sizing.topInset - sizing.bottomInset)
+        let dividerThickness = max(1 / scale, 2)
+        let dividerHitThickness = max(sizing.interPaneSpacing, 12)
 
         var cursorX = sizing.horizontalInset
         var columnPresentations: [ColumnPresentation] = []
@@ -69,13 +79,12 @@ final class PaneStripMotionController {
                 maxY: sizing.bottomInset + availableHeight,
                 backingScaleFactor: scale
             )
-            let paneHeight = stackedPaneHeight(
-                availableHeight: availableHeight,
-                paneCount: column.panes.count,
+            let paneHeights = column.resolvedPaneHeights(
+                totalHeight: availableHeight,
                 spacing: sizing.interPaneSpacing
             )
             var paneTopY = sizing.bottomInset + availableHeight
-            let panePresentations = column.panes.map { pane in
+            let panePresentations = zip(column.panes, paneHeights).map { pane, paneHeight in
                 let maxY = paneTopY
                 let minY = maxY - paneHeight
                 paneTopY = minY - sizing.interPaneSpacing
@@ -107,6 +116,13 @@ final class PaneStripMotionController {
             cursorX = columnFrame.maxX + sizing.interPaneSpacing
         }
 
+        let dividerPresentations = dividerPresentations(
+            for: columnPresentations,
+            dividerThickness: dividerThickness,
+            dividerHitThickness: dividerHitThickness,
+            backingScaleFactor: scale
+        )
+
         let trailingSpacing = columnPresentations.isEmpty ? 0 : sizing.interPaneSpacing
         let rawContentWidth = max(
             viewportSize.width,
@@ -129,6 +145,7 @@ final class PaneStripMotionController {
 
         return StripPresentation(
             columns: columnPresentations,
+            dividers: dividerPresentations,
             contentWidth: contentWidth,
             targetOffset: targetOffset
         )
@@ -235,19 +252,6 @@ final class PaneStripMotionController {
         } completionHandler: {
             completion?()
         }
-    }
-
-    private func stackedPaneHeight(
-        availableHeight: CGFloat,
-        paneCount: Int,
-        spacing: CGFloat
-    ) -> CGFloat {
-        guard paneCount > 0 else {
-            return 0
-        }
-
-        let totalSpacing = spacing * CGFloat(max(0, paneCount - 1))
-        return max(0, availableHeight - totalSpacing) / CGFloat(paneCount)
     }
 
     private func insertionTransition(
@@ -379,6 +383,76 @@ final class PaneStripMotionController {
             Layout.fallbackSpacing,
             column.panes[0].frame.minY - column.panes[1].frame.maxY
         )
+    }
+
+    private func dividerPresentations(
+        for columns: [ColumnPresentation],
+        dividerThickness: CGFloat,
+        dividerHitThickness: CGFloat,
+        backingScaleFactor: CGFloat
+    ) -> [DividerPresentation] {
+        var dividerPresentations: [DividerPresentation] = []
+
+        for (columnIndex, column) in columns.enumerated() {
+            if columnIndex + 1 < columns.count {
+                let trailingColumn = columns[columnIndex + 1]
+                let dividerCenterX = (column.frame.maxX + trailingColumn.frame.minX) / 2
+                let frame = snappedFrame(
+                    minX: dividerCenterX - (dividerThickness / 2),
+                    maxX: dividerCenterX + (dividerThickness / 2),
+                    minY: column.frame.minY,
+                    maxY: column.frame.maxY,
+                    backingScaleFactor: backingScaleFactor
+                )
+                let hitFrame = CGRect(
+                    x: dividerCenterX - (dividerHitThickness / 2),
+                    y: column.frame.minY,
+                    width: dividerHitThickness,
+                    height: column.frame.height
+                )
+                dividerPresentations.append(
+                    DividerPresentation(
+                        divider: .column(afterColumnID: column.columnID),
+                        axis: .horizontal,
+                        frame: frame,
+                        hitFrame: hitFrame
+                    )
+                )
+            }
+
+            guard column.panes.count > 1 else {
+                continue
+            }
+
+            for paneIndex in 0..<(column.panes.count - 1) {
+                let upperPane = column.panes[paneIndex]
+                let lowerPane = column.panes[paneIndex + 1]
+                let dividerCenterY = (upperPane.frame.minY + lowerPane.frame.maxY) / 2
+                let frame = snappedFrame(
+                    minX: column.frame.minX,
+                    maxX: column.frame.maxX,
+                    minY: dividerCenterY - (dividerThickness / 2),
+                    maxY: dividerCenterY + (dividerThickness / 2),
+                    backingScaleFactor: backingScaleFactor
+                )
+                let hitFrame = CGRect(
+                    x: column.frame.minX,
+                    y: dividerCenterY - (dividerHitThickness / 2),
+                    width: column.frame.width,
+                    height: dividerHitThickness
+                )
+                dividerPresentations.append(
+                    DividerPresentation(
+                        divider: .pane(columnID: column.columnID, afterPaneID: upperPane.paneID),
+                        axis: .vertical,
+                        frame: frame,
+                        hitFrame: hitFrame
+                    )
+                )
+            }
+        }
+
+        return dividerPresentations
     }
 
     private func snappedFrame(

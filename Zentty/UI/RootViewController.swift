@@ -9,6 +9,11 @@ final class RootViewController: NSViewController {
         static let defaultTrafficLightAnchor = NSPoint(x: ChromeGeometry.trafficLightLeadingInset + 48, y: 0)
     }
 
+    private enum PaneResize {
+        static let minimumColumns: CGFloat = 40
+        static let minimumRows: CGFloat = 8
+    }
+
     private let workspaceStore: WorkspaceStore
     private let paneLayoutDefaults: UserDefaults
     private let sidebarView = SidebarView()
@@ -175,6 +180,29 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
             self?.workspaceStore.closePane(id: paneID)
         }
+        appCanvasView.paneStripView.onDividerInteraction = { [weak self] divider in
+            self?.workspaceStore.markDividerInteraction(divider)
+        }
+        appCanvasView.paneStripView.onDividerResizeRequested = { [weak self] target, delta in
+            guard let self else {
+                return
+            }
+            self.workspaceStore.resize(
+                target,
+                delta: delta,
+                availableSize: self.appCanvasView.bounds.size,
+                minimumSizeByPaneID: self.paneMinimumSizesByPaneID()
+            )
+        }
+        appCanvasView.paneStripView.onDividerEqualizeRequested = { [weak self] divider in
+            guard let self else {
+                return
+            }
+            self.workspaceStore.equalizeDivider(divider, availableSize: self.appCanvasView.bounds.size)
+        }
+        appCanvasView.paneStripView.onPaneStripStateRestoreRequested = { [weak self] state in
+            self?.workspaceStore.restorePaneLayout(state)
+        }
         sidebarView.onWorkspaceSelected = { [weak self] id in
             self?.workspaceStore.selectWorkspace(id: id)
         }
@@ -243,6 +271,7 @@ final class RootViewController: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        syncSidebarWidthToAvailableWidth(persist: false)
         updatePaneLayoutContextIfNeeded()
         updatePaneViewportHeight()
         renderCoordinator.renderBorderOverlay()
@@ -251,6 +280,7 @@ final class RootViewController: NSViewController {
     func activateWindowBindingsIfNeeded() {
         installKeyboardMonitorIfNeeded()
         installWindowObserversIfNeeded()
+        syncSidebarWidthToAvailableWidth(persist: false)
         renderCoordinator.updateSurfaceActivities()
         appCanvasView.focusCurrentPaneIfNeeded()
     }
@@ -296,8 +326,83 @@ final class RootViewController: NSViewController {
         case .newWorkspace:
             workspaceStore.createWorkspace()
         case .pane(let command):
+            handlePaneCommand(command)
+        }
+    }
+
+    private func handlePaneCommand(_ command: PaneCommand) {
+        switch command {
+        case .resizeLeft:
+            workspaceStore.resizeFocusedPane(
+                in: .horizontal,
+                delta: -keyboardResizeStep(for: .horizontal),
+                availableSize: appCanvasView.bounds.size,
+                minimumSizeByPaneID: paneMinimumSizesByPaneID()
+            )
+        case .resizeRight:
+            workspaceStore.resizeFocusedPane(
+                in: .horizontal,
+                delta: keyboardResizeStep(for: .horizontal),
+                availableSize: appCanvasView.bounds.size,
+                minimumSizeByPaneID: paneMinimumSizesByPaneID()
+            )
+        case .resizeUp:
+            workspaceStore.resizeFocusedPane(
+                in: .vertical,
+                delta: keyboardResizeStep(for: .vertical),
+                availableSize: appCanvasView.bounds.size,
+                minimumSizeByPaneID: paneMinimumSizesByPaneID()
+            )
+        case .resizeDown:
+            workspaceStore.resizeFocusedPane(
+                in: .vertical,
+                delta: -keyboardResizeStep(for: .vertical),
+                availableSize: appCanvasView.bounds.size,
+                minimumSizeByPaneID: paneMinimumSizesByPaneID()
+            )
+        case .resetLayout:
+            workspaceStore.resetActiveWorkspaceLayout()
+        default:
             workspaceStore.send(command)
         }
+    }
+
+    private func keyboardResizeStep(for axis: PaneResizeAxis) -> CGFloat {
+        let minimumSizesByPaneID = paneMinimumSizesByPaneID()
+        guard let focusedPaneID = workspaceStore.activeWorkspace?.paneStripState.focusedPaneID,
+              let minimumSize = minimumSizesByPaneID[focusedPaneID]
+        else {
+            switch axis {
+            case .horizontal:
+                return max(1, PaneMinimumSize.fallback.width / PaneResize.minimumColumns)
+            case .vertical:
+                return max(1, PaneMinimumSize.fallback.height / PaneResize.minimumRows)
+            }
+        }
+
+        switch axis {
+        case .horizontal:
+            return max(1, minimumSize.width / PaneResize.minimumColumns)
+        case .vertical:
+            return max(1, minimumSize.height / PaneResize.minimumRows)
+        }
+    }
+
+    private func paneMinimumSizesByPaneID() -> [PaneID: PaneMinimumSize] {
+        guard let workspace = workspaceStore.activeWorkspace else {
+            return [:]
+        }
+
+        return Dictionary(uniqueKeysWithValues: workspace.paneStripState.panes.map { pane in
+            let runtime = runtimeRegistry.runtime(for: pane)
+            let minimumWidth = runtime.cellWidth > 0
+                ? max(PaneMinimumSize.fallback.width, runtime.cellWidth * PaneResize.minimumColumns)
+                : PaneMinimumSize.fallback.width
+            let minimumHeight = runtime.cellHeight > 0
+                ? max(PaneMinimumSize.fallback.height, runtime.cellHeight * PaneResize.minimumRows)
+                : PaneMinimumSize.fallback.height
+            return (pane.id, PaneMinimumSize(width: minimumWidth, height: minimumHeight))
+        })
     }
 
     private func syncFocusedPaneWithResponderIfNeeded(_ responder: NSResponder?) {
@@ -350,6 +455,7 @@ final class RootViewController: NSViewController {
 
     @objc
     private func handleWindowStateDidChange() {
+        syncSidebarWidthToAvailableWidth(persist: false)
         updatePaneLayoutContextIfNeeded(force: true)
         renderCoordinator.updateSurfaceActivities()
     }
@@ -381,7 +487,7 @@ final class RootViewController: NSViewController {
     }
 
     private func handleSidebarWidthChange(_ width: CGFloat) {
-        sidebarMotionCoordinator.setSidebarWidth(width, persist: true)
+        sidebarMotionCoordinator.setSidebarWidth(width, availableWidth: resolvedSidebarAvailableWidth(), persist: true)
         sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
         applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
     }
@@ -397,7 +503,8 @@ final class RootViewController: NSViewController {
         reducedMotion: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     ) {
         let sidebarWidth = SidebarWidthPreference.clamped(
-            sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
+            sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth,
+            availableWidth: resolvedSidebarAvailableWidth()
         )
         let hiddenTravel = sidebarWidth + ShellMetrics.shellGap
         let reservedInset = hiddenTravel * motionState.reservedFraction
@@ -527,11 +634,30 @@ final class RootViewController: NSViewController {
     }
 
     func setSidebarWidth(_ width: CGFloat) {
-        sidebarMotionCoordinator.setSidebarWidth(width, persist: false)
+        sidebarMotionCoordinator.setSidebarWidth(width, availableWidth: resolvedSidebarAvailableWidth(), persist: false)
         sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
         applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
     }
     #endif
+
+    private func resolvedSidebarAvailableWidth() -> CGFloat? {
+        view.window?.screen?.visibleFrame.width
+    }
+
+    private func syncSidebarWidthToAvailableWidth(persist: Bool) {
+        let previousWidth = sidebarMotionCoordinator.currentSidebarWidth
+        sidebarMotionCoordinator.setSidebarWidth(
+            previousWidth,
+            availableWidth: resolvedSidebarAvailableWidth(),
+            persist: persist
+        )
+        guard abs(sidebarMotionCoordinator.currentSidebarWidth - previousWidth) > 0.001 else {
+            return
+        }
+
+        sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
+        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+    }
 
     private func updateCanvasLeadingInset(_ leadingVisibleInset: CGFloat? = nil) {
         let leadingVisibleInset = leadingVisibleInset

@@ -11,6 +11,7 @@ struct PaneShellContext: Equatable, Sendable {
     let home: String?
     let user: String?
     let host: String?
+    let gitBranch: String?
 
     init(
         scope: PaneShellContextScope,
@@ -19,11 +20,30 @@ struct PaneShellContext: Equatable, Sendable {
         user: String?,
         host: String?
     ) {
+        self.init(
+            scope: scope,
+            path: path,
+            home: home,
+            user: user,
+            host: host,
+            gitBranch: nil
+        )
+    }
+
+    init(
+        scope: PaneShellContextScope,
+        path: String?,
+        home: String?,
+        user: String?,
+        host: String?,
+        gitBranch: String? = nil
+    ) {
         self.scope = scope
         self.path = Self.trimmed(path)
         self.home = Self.trimmed(home)
         self.user = Self.trimmed(user)
         self.host = Self.trimmed(host)
+        self.gitBranch = Self.trimmed(gitBranch)
     }
 
     private static func trimmed(_ value: String?) -> String? {

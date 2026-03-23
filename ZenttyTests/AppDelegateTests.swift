@@ -107,6 +107,13 @@ final class AppDelegateTests: XCTestCase {
                 "Focus Down In Column",
                 "Focus First Column",
                 "Focus Last Column",
+                "",
+                "Resize Pane Left",
+                "Resize Pane Right",
+                "Resize Pane Up",
+                "Resize Pane Down",
+                "",
+                "Reset Pane Layout",
             ]
         )
         XCTAssertEqual(
@@ -121,6 +128,13 @@ final class AppDelegateTests: XCTestCase {
                 #selector(MainWindowController.focusDownInColumn(_:)),
                 #selector(MainWindowController.focusFirstColumn(_:)),
                 #selector(MainWindowController.focusLastColumn(_:)),
+                nil,
+                #selector(MainWindowController.resizePaneLeft(_:)),
+                #selector(MainWindowController.resizePaneRight(_:)),
+                #selector(MainWindowController.resizePaneUp(_:)),
+                #selector(MainWindowController.resizePaneDown(_:)),
+                nil,
+                #selector(MainWindowController.resetPaneLayout(_:)),
             ]
         )
         XCTAssertEqual(
@@ -135,6 +149,13 @@ final class AppDelegateTests: XCTestCase {
                 String(UnicodeScalar(NSDownArrowFunctionKey)!),
                 String(UnicodeScalar(NSLeftArrowFunctionKey)!),
                 String(UnicodeScalar(NSRightArrowFunctionKey)!),
+                "",
+                String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                String(UnicodeScalar(NSRightArrowFunctionKey)!),
+                String(UnicodeScalar(NSUpArrowFunctionKey)!),
+                String(UnicodeScalar(NSDownArrowFunctionKey)!),
+                "",
+                "0",
             ]
         )
         XCTAssertEqual(
@@ -149,6 +170,13 @@ final class AppDelegateTests: XCTestCase {
                 [.command, .option],
                 [.command, .option, .shift],
                 [.command, .option, .shift],
+                [],
+                [.command, .control, .option],
+                [.command, .control, .option],
+                [.command, .control, .option],
+                [.command, .control, .option],
+                [],
+                [.command, .control, .option],
             ]
         )
     }

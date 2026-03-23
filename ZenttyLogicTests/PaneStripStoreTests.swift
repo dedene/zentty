@@ -41,6 +41,18 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.workspaces.map(\.title), ["MAIN", "WS 2"])
         XCTAssertEqual(store.activeWorkspace?.title, "WS 2")
         XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.map(\.title), ["shell"])
+        XCTAssertEqual(
+            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.surfaceContext,
+            .tab
+        )
+    }
+
+    func test_default_workspace_uses_window_surface_context() throws {
+        let store = WorkspaceStore()
+
+        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+
+        XCTAssertEqual(request.surfaceContext, .window)
     }
 
     func test_split_after_inserts_adjacent_pane_and_inherits_focused_working_directory() throws {
@@ -60,6 +72,11 @@ final class PaneStripStoreTests: XCTestCase {
             "/tmp/project"
         )
         XCTAssertNil(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID)
+        XCTAssertEqual(
+            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            PaneID("workspace-main-shell")
+        )
+        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.surfaceContext, .split)
     }
 
     func test_split_after_falls_back_to_home_when_focused_working_directory_is_missing() throws {
@@ -109,6 +126,52 @@ final class PaneStripStoreTests: XCTestCase {
             "/tmp/local-project"
         )
         XCTAssertNil(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID)
+        XCTAssertEqual(
+            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            shellPaneID
+        )
+    }
+
+    func test_split_after_prefers_focused_local_pane_context_over_seed_metadata() throws {
+        let store = WorkspaceStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let seededWorkingDirectory = try XCTUnwrap(
+            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory
+        )
+
+        store.updateMetadata(
+            paneID: shellPaneID,
+            metadata: TerminalMetadata(currentWorkingDirectory: seededWorkingDirectory)
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: shellPaneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/local-project",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: "mbp"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.send(.splitAfterFocusedPane)
+
+        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        XCTAssertEqual(request.workingDirectory, "/tmp/local-project")
+        XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], "/tmp/local-project")
+        XCTAssertNil(request.inheritFromPaneID)
+        XCTAssertEqual(request.configInheritanceSourcePaneID, shellPaneID)
     }
 
     func test_split_after_uses_focused_remote_pane_context_when_metadata_is_missing() throws {
@@ -147,6 +210,10 @@ final class PaneStripStoreTests: XCTestCase {
             store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID,
             shellPaneID
         )
+        XCTAssertEqual(
+            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            shellPaneID
+        )
     }
 
     func test_create_workspace_uses_last_focused_local_pane_context() throws {
@@ -182,6 +249,51 @@ final class PaneStripStoreTests: XCTestCase {
             store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
             "/tmp/local-project"
         )
+        XCTAssertEqual(
+            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            shellPaneID
+        )
+    }
+
+    func test_create_workspace_prefers_last_focused_local_pane_context_over_seed_metadata() throws {
+        let store = WorkspaceStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let seededWorkingDirectory = try XCTUnwrap(
+            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory
+        )
+
+        store.updateMetadata(
+            paneID: shellPaneID,
+            metadata: TerminalMetadata(currentWorkingDirectory: seededWorkingDirectory)
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: shellPaneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/local-project",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: "mbp"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.createWorkspace()
+
+        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        XCTAssertEqual(request.workingDirectory, "/tmp/local-project")
+        XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], "/tmp/local-project")
+        XCTAssertEqual(request.configInheritanceSourcePaneID, shellPaneID)
     }
 
     func test_create_workspace_keeps_last_focused_local_directory_when_current_focus_is_remote() throws {
@@ -240,6 +352,10 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(
             store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
             "/tmp/local-project"
+        )
+        XCTAssertEqual(
+            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            remotePaneID
         )
     }
 
@@ -492,6 +608,163 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "bottom")
     }
 
+    func test_resize_focused_pane_uses_last_interacted_vertical_divider() {
+        let store = WorkspaceStore(
+            workspaces: [
+                WorkspaceState(
+                    id: WorkspaceID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("stack"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("middle"), title: "middle"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 900,
+                                paneHeights: [200, 300, 400],
+                                focusedPaneID: PaneID("middle"),
+                                lastFocusedPaneID: PaneID("middle")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("stack")
+                    )
+                )
+            ],
+            activeWorkspaceID: WorkspaceID("main")
+        )
+
+        store.markDividerInteraction(.pane(columnID: PaneColumnID("stack"), afterPaneID: PaneID("middle")))
+        store.resizeFocusedPane(
+            in: .vertical,
+            delta: -50,
+            availableSize: CGSize(width: 1200, height: 920),
+            minimumSizeByPaneID: [
+                PaneID("top"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("bottom"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        let heights = store.activeWorkspace?.paneStripState.columns[0].resolvedPaneHeights(
+            totalHeight: 920,
+            spacing: store.activeWorkspace?.paneStripState.layoutSizing.interPaneSpacing ?? 6
+        )
+        XCTAssertEqual(heights?[1] ?? 0, 250, accuracy: 0.001)
+        XCTAssertEqual(heights?[2] ?? 0, 450, accuracy: 0.001)
+    }
+
+    func test_resize_focused_pane_left_grows_only_the_focused_column() {
+        let store = WorkspaceStore(
+            workspaces: [
+                WorkspaceState(
+                    id: WorkspaceID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("left"), title: "left")],
+                                width: 300,
+                                focusedPaneID: PaneID("left"),
+                                lastFocusedPaneID: PaneID("left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("middle"),
+                                panes: [PaneState(id: PaneID("middle"), title: "middle")],
+                                width: 400,
+                                focusedPaneID: PaneID("middle"),
+                                lastFocusedPaneID: PaneID("middle")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [PaneState(id: PaneID("right"), title: "right")],
+                                width: 500,
+                                focusedPaneID: PaneID("right"),
+                                lastFocusedPaneID: PaneID("right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("middle")
+                    )
+                )
+            ],
+            activeWorkspaceID: WorkspaceID("main")
+        )
+
+        store.resizeFocusedPane(
+            in: .horizontal,
+            delta: -40,
+            availableSize: CGSize(width: 1000, height: 920),
+            minimumSizeByPaneID: [
+                PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        let columns = store.activeWorkspace?.paneStripState.columns
+        XCTAssertEqual(columns?[0].width ?? 0, 300, accuracy: 0.001)
+        XCTAssertEqual(columns?[1].width ?? 0, 440, accuracy: 0.001)
+        XCTAssertEqual(columns?[2].width ?? 0, 500, accuracy: 0.001)
+        XCTAssertEqual(
+            store.activeWorkspace?.paneStripState.lastInteractedDivider,
+            .column(afterColumnID: PaneColumnID("left"))
+        )
+    }
+
+    func test_reset_active_workspace_layout_restores_default_widths_and_equal_heights() {
+        let layoutContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .largeDisplay,
+            viewportWidth: 1400,
+            leadingVisibleInset: 0
+        )
+        let store = WorkspaceStore(
+            workspaces: [
+                WorkspaceState(
+                    id: WorkspaceID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 720,
+                                paneHeights: [240, 480],
+                                focusedPaneID: PaneID("top"),
+                                lastFocusedPaneID: PaneID("top")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [PaneState(id: PaneID("editor"), title: "editor")],
+                                width: 520,
+                                focusedPaneID: PaneID("editor"),
+                                lastFocusedPaneID: PaneID("editor")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorkspaceID: WorkspaceID("main")
+        )
+
+        store.resetActiveWorkspaceLayout()
+
+        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns[0].width ?? 0, layoutContext.newPaneWidth, accuracy: 0.001)
+        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns[1].width ?? 0, layoutContext.newPaneWidth, accuracy: 0.001)
+        let heights = store.activeWorkspace?.paneStripState.columns[0].resolvedPaneHeights(
+            totalHeight: 920,
+            spacing: store.activeWorkspace?.paneStripState.layoutSizing.interPaneSpacing ?? 6
+        )
+        XCTAssertEqual(heights?[0] ?? 0, heights?[1] ?? 0, accuracy: 0.001)
+    }
+
     func test_focus_up_and_down_move_within_vertical_stack() {
         let store = WorkspaceStore(
             workspaces: [
@@ -699,6 +972,105 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.metadata?.gitBranch, "main")
     }
 
+    func test_apply_local_pane_context_updates_metadata_git_branch() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(currentWorkingDirectory: "/tmp/project", gitBranch: "main")
+        )
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/project",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: "mbp",
+                    gitBranch: "feature/review-band"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.metadata?.gitBranch,
+            "feature/review-band"
+        )
+    }
+
+    func test_apply_local_pane_context_branch_change_clears_branch_derived_state() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(currentWorkingDirectory: "/tmp/project", gitBranch: "main")
+        )
+        store.updateReviewState(
+            paneID: paneID,
+            reviewState: WorkspaceReviewState(
+                branch: "main",
+                pullRequest: WorkspacePullRequestSummary(
+                    number: 42,
+                    url: URL(string: "https://example.com/pr/42"),
+                    state: .open
+                ),
+                reviewChips: [WorkspaceReviewChip(text: "Ready", style: .success)]
+            )
+        )
+        store.updateInferredArtifact(
+            paneID: paneID,
+            artifact: WorkspaceArtifactLink(
+                kind: .pullRequest,
+                label: "PR #42",
+                url: URL(string: "https://example.com/pr/42")!,
+                isExplicit: false
+            )
+        )
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/project",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: "mbp",
+                    gitBranch: "feature/review-band"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.inferredArtifact)
+        XCTAssertEqual(
+            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.metadata?.gitBranch,
+            "feature/review-band"
+        )
+    }
+
     func test_default_workspace_shell_session_contains_agent_identity_environment() throws {
         let store = WorkspaceStore()
 
@@ -721,6 +1093,79 @@ final class PaneStripStoreTests: XCTestCase {
 
         XCTAssertTrue((request.environmentVariables["ZDOTDIR"] ?? "").contains("/Contents/Resources/shell-integration"))
         XCTAssertNotNil(request.environmentVariables["ZENTTY_SHELL_INTEGRATION"])
+    }
+
+    func test_default_workspace_shell_session_sets_initial_working_directory_environment() throws {
+        let store = WorkspaceStore()
+
+        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+
+        XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], NSHomeDirectory())
+    }
+
+    func test_split_after_local_pane_sets_initial_working_directory_environment() throws {
+        let store = WorkspaceStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: shellPaneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/local-project",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: "mbp"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.send(.splitAfterFocusedPane)
+
+        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], "/tmp/local-project")
+    }
+
+    func test_split_after_remote_pane_does_not_set_initial_working_directory_environment() throws {
+        let store = WorkspaceStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: shellPaneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .remote,
+                    path: "/srv/remote-project",
+                    home: "/home/peter",
+                    user: "peter",
+                    host: "prod-box"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.send(.splitAfterFocusedPane)
+
+        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        XCTAssertNil(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"])
+        XCTAssertEqual(request.inheritFromPaneID, shellPaneID)
     }
 
     func test_command_finished_does_not_promote_title_only_agent_to_unresolved_stop() throws {
@@ -975,6 +1420,47 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(notificationCount, 2)
         XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
         XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.inferredArtifact)
+    }
+
+    func test_update_review_resolution_preserves_existing_state_on_transient_empty_refresh() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let existingResolution = WorkspaceReviewResolution(
+            reviewState: WorkspaceReviewState(
+                branch: "feature/review-band",
+                pullRequest: WorkspacePullRequestSummary(
+                    number: 128,
+                    url: URL(string: "https://example.com/pr/128"),
+                    state: .draft
+                ),
+                reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+            ),
+            inferredArtifact: WorkspaceArtifactLink(
+                kind: .pullRequest,
+                label: "PR #128",
+                url: URL(string: "https://example.com/pr/128")!,
+                isExplicit: false
+            )
+        )
+        store.updateReviewResolution(paneID: paneID, resolution: existingResolution)
+
+        var notificationCount = 0
+        store.onChange = { _ in
+            notificationCount += 1
+        }
+
+        store.updateReviewResolution(
+            paneID: paneID,
+            resolution: WorkspaceReviewResolution(
+                reviewState: nil,
+                inferredArtifact: nil,
+                updatePolicy: .preserveExistingOnEmpty
+            )
+        )
+
+        XCTAssertEqual(notificationCount, 0)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState, existingResolution.reviewState)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.inferredArtifact, existingResolution.inferredArtifact)
     }
 
     func test_clearing_agent_status_keeps_review_state_for_that_pane() throws {

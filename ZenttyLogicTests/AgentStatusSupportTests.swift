@@ -62,6 +62,41 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(AgentStatusHelper.shellIntegrationDirectoryPath(in: bundle), shellURL.path)
     }
 
+    func test_repository_shell_integrations_emit_guarded_git_branch_signal() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let shellIntegrationDirectory = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("shell-integration", isDirectory: true)
+
+        for filename in ["zentty-zsh-integration.zsh", "zentty-bash-integration.bash"] {
+            let scriptURL = shellIntegrationDirectory.appendingPathComponent(filename, isDirectory: false)
+            let script = try String(contentsOf: scriptURL, encoding: .utf8)
+
+            XCTAssertTrue(script.contains("git rev-parse --git-dir >/dev/null 2>&1"), filename)
+            XCTAssertTrue(script.contains("git branch --show-current"), filename)
+            XCTAssertTrue(script.contains("--git-branch"), filename)
+        }
+    }
+
+    func test_zsh_shell_integration_emits_git_branch_for_local_repository() throws {
+        let repositoryURL = try makeTemporaryGitRepository(branch: "feature/test-branch")
+        let signals = try recordedShellSignals(
+            shellExecutable: "/bin/zsh",
+            arguments: ["-lc", "source '\(repositoryShellIntegrationURL(filename: "zentty-zsh-integration.zsh").path)'"],
+            currentDirectoryURL: repositoryURL
+        )
+
+        XCTAssertTrue(
+            signals.contains { signal in
+                signal.contains("agent-signal pane-context local")
+                    && signal.contains("--git-branch feature/test-branch")
+            },
+            signals.joined(separator: "\n")
+        )
+    }
+
     func test_agent_status_command_uses_env_defaults_and_round_trips_notification_payload() throws {
         let command = try AgentStatusCommand.parse(
             arguments: [
@@ -119,6 +154,65 @@ final class AgentStatusSupportTests: XCTestCase {
                 host: nil
             )
         )
+    }
+
+    func test_agent_signal_command_parses_local_pane_context_git_branch() throws {
+        let command = try AgentSignalCommand.parse(
+            arguments: [
+                "zentty-agent",
+                "agent-signal",
+                "pane-context",
+                "local",
+                "--path", "/Users/peter/src/zentty",
+                "--home", "/Users/peter",
+                "--git-branch", "feature/review-band",
+            ],
+            environment: [
+                "ZENTTY_WORKSPACE_ID": "workspace-main",
+                "ZENTTY_PANE_ID": "workspace-main-shell",
+            ]
+        )
+
+        XCTAssertEqual(command.payload.signalKind, .paneContext)
+        XCTAssertEqual(
+            command.payload.paneContext,
+            PaneShellContext(
+                scope: .local,
+                path: "/Users/peter/src/zentty",
+                home: "/Users/peter",
+                user: nil,
+                host: nil,
+                gitBranch: "feature/review-band"
+            )
+        )
+    }
+
+    func test_agent_status_payload_round_trips_pane_context_git_branch() throws {
+        let payload = AgentStatusPayload(
+            workspaceID: WorkspaceID("workspace-main"),
+            paneID: PaneID("workspace-main-shell"),
+            signalKind: .paneContext,
+            state: nil,
+            paneContext: PaneShellContext(
+                scope: .local,
+                path: "/Users/peter/src/zentty",
+                home: "/Users/peter",
+                user: "peter",
+                host: "mbp",
+                gitBranch: "feature/review-band"
+            ),
+            origin: .shell,
+            toolName: nil,
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+
+        let userInfo = try XCTUnwrap(payload.notificationUserInfo)
+        let decodedPayload = try AgentStatusPayload(userInfo: userInfo)
+
+        XCTAssertEqual(decodedPayload, payload)
     }
 
     func test_agent_signal_command_parses_remote_pane_context_payload() throws {
@@ -758,6 +852,115 @@ final class AgentStatusSupportTests: XCTestCase {
     private func makeTemporaryBundle(named name: String) throws -> Bundle {
         let bundleRoot = try makeTemporaryBundleRoot(named: name)
         return try XCTUnwrap(Bundle(url: bundleRoot))
+    }
+
+    private func repositoryShellIntegrationURL(filename: String) -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("shell-integration", isDirectory: true)
+            .appendingPathComponent(filename, isDirectory: false)
+    }
+
+    private func makeTemporaryGitRepository(branch: String) throws -> URL {
+        let repositoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+
+        _ = try runProcess("/usr/bin/git", arguments: ["init"], currentDirectoryURL: repositoryURL)
+        _ = try runProcess("/usr/bin/git", arguments: ["config", "user.name", "Zentty Tests"], currentDirectoryURL: repositoryURL)
+        _ = try runProcess("/usr/bin/git", arguments: ["config", "user.email", "tests@example.com"], currentDirectoryURL: repositoryURL)
+
+        let trackedFileURL = repositoryURL.appendingPathComponent("README.md", isDirectory: false)
+        try "test\n".write(to: trackedFileURL, atomically: true, encoding: .utf8)
+        _ = try runProcess("/usr/bin/git", arguments: ["add", "README.md"], currentDirectoryURL: repositoryURL)
+        _ = try runProcess(
+            "/usr/bin/git",
+            arguments: ["commit", "-m", "Initial commit"],
+            currentDirectoryURL: repositoryURL
+        )
+        _ = try runProcess(
+            "/usr/bin/git",
+            arguments: ["checkout", "-b", branch],
+            currentDirectoryURL: repositoryURL
+        )
+
+        return repositoryURL
+    }
+
+    private func recordedShellSignals(
+        shellExecutable: String,
+        arguments: [String],
+        currentDirectoryURL: URL
+    ) throws -> [String] {
+        let tempDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectoryURL, withIntermediateDirectories: true)
+
+        let logURL = tempDirectoryURL.appendingPathComponent("signals.log", isDirectory: false)
+        let agentURL = tempDirectoryURL.appendingPathComponent("agent", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf '%s\n' "$*" >> "$ZENTTY_TEST_LOG"
+        """.write(to: agentURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: agentURL.path)
+
+        _ = try runProcess(
+            shellExecutable,
+            arguments: arguments,
+            environment: [
+                "ZENTTY_TEST_LOG": logURL.path,
+                "ZENTTY_AGENT_BIN": agentURL.path,
+                "ZENTTY_SHELL_INTEGRATION": "1",
+                "ZENTTY_WRAPPER_BIN_DIR": "",
+            ],
+            currentDirectoryURL: currentDirectoryURL
+        )
+
+        guard FileManager.default.fileExists(atPath: logURL.path) else {
+            return []
+        }
+
+        return try String(contentsOf: logURL, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+    }
+
+    @discardableResult
+    private func runProcess(
+        _ executable: String,
+        arguments: [String],
+        environment: [String: String] = [:],
+        currentDirectoryURL: URL? = nil
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        if let currentDirectoryURL {
+            process.currentDirectoryURL = currentDirectoryURL
+        }
+        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "AgentStatusSupportTests",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: stderr.isEmpty ? stdout : stderr]
+            )
+        }
+
+        return (process.terminationStatus, stdout, stderr)
     }
 
     private func makeTemporaryBundleRoot(named name: String) throws -> URL {

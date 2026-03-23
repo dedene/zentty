@@ -62,6 +62,7 @@ extension WorkspaceStore {
 
         if payload.clearsPaneContext {
             workspace.auxiliaryStateByPaneID[payload.paneID]?.shellContext = nil
+            clearPaneContextBranch(for: payload.paneID, in: &workspace)
             workspaces[workspaceIndex] = workspace
             refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: payload.paneID)
             notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
@@ -180,6 +181,7 @@ extension WorkspaceStore {
             }
 
             workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].shellContext = paneContext
+            updatePaneContextBranch(paneContext.gitBranch, for: payload.paneID, in: &workspace)
         }
 
         workspaces[workspaceIndex] = workspace
@@ -286,6 +288,36 @@ extension WorkspaceStore {
             url: url,
             isExplicit: true
         )
+    }
+
+    private func updatePaneContextBranch(
+        _ gitBranch: String?,
+        for paneID: PaneID,
+        in workspace: inout WorkspaceState
+    ) {
+        var metadata = workspace.auxiliaryStateByPaneID[paneID]?.metadata ?? TerminalMetadata()
+        let previousBranch = WorkspaceContextFormatter.trimmed(metadata.gitBranch)
+        let nextBranch = WorkspaceContextFormatter.trimmed(gitBranch)
+        guard previousBranch != nextBranch else {
+            return
+        }
+
+        metadata.gitBranch = nextBranch
+        workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
+        clearBranchDerivedReviewArtifacts(for: paneID, in: &workspace)
+    }
+
+    private func clearPaneContextBranch(for paneID: PaneID, in workspace: inout WorkspaceState) {
+        updatePaneContextBranch(nil, for: paneID, in: &workspace)
+    }
+
+    private func clearBranchDerivedReviewArtifacts(for paneID: PaneID, in workspace: inout WorkspaceState) {
+        workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil
+        workspace.auxiliaryStateByPaneID[paneID]?.reviewState = nil
+        if var status = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus, status.artifactLink?.kind == .pullRequest {
+            status.artifactLink = nil
+            workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = status
+        }
     }
 
     private static func isProcessAlive(pid: Int32) -> Bool {

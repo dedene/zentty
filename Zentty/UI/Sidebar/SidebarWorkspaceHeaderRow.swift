@@ -238,6 +238,8 @@ final class WorkspaceHeaderRow: NSButton {
             return primaryLabel
         case .status:
             return statusRowStack
+        case .stateBadge:
+            return statusRowStack
         case .context:
             return contextLabel
         case .detail:

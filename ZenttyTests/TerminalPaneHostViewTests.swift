@@ -111,6 +111,7 @@ final class TerminalPaneHostViewTests: XCTestCase {
 private final class TerminalAdapterSpy: TerminalAdapter {
     let terminalView = FirstResponderTerminalView()
     var hasScrollback = false
+    var cellWidth: CGFloat = 0
     var cellHeight: CGFloat = 0
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?

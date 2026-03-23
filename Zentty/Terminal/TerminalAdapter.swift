@@ -1,8 +1,16 @@
 import AppKit
 
+enum TerminalSurfaceContext: Equatable, Sendable {
+    case window
+    case tab
+    case split
+}
+
 struct TerminalSessionRequest: Equatable, Sendable {
     var workingDirectory: String?
     var inheritFromPaneID: PaneID?
+    var configInheritanceSourcePaneID: PaneID?
+    var surfaceContext: TerminalSurfaceContext
     var environmentVariables: [String: String]
 
     init(workingDirectory: String?) {
@@ -12,10 +20,14 @@ struct TerminalSessionRequest: Equatable, Sendable {
     init(
         workingDirectory: String? = nil,
         inheritFromPaneID: PaneID? = nil,
+        configInheritanceSourcePaneID: PaneID? = nil,
+        surfaceContext: TerminalSurfaceContext = .split,
         environmentVariables: [String: String] = [:]
     ) {
         self.workingDirectory = workingDirectory
         self.inheritFromPaneID = inheritFromPaneID
+        self.configInheritanceSourcePaneID = configInheritanceSourcePaneID
+        self.surfaceContext = surfaceContext
         self.environmentVariables = environmentVariables
     }
 }
@@ -66,6 +78,7 @@ enum TerminalEvent: Equatable, Sendable {
 @MainActor
 protocol TerminalAdapter: AnyObject {
     var hasScrollback: Bool { get }
+    var cellWidth: CGFloat { get }
     var cellHeight: CGFloat { get }
     func makeTerminalView() -> NSView
     func startSession(using request: TerminalSessionRequest) throws
@@ -81,5 +94,8 @@ protocol TerminalFocusReporting: AnyObject {
 
 @MainActor
 protocol TerminalSessionInheritanceConfiguring: AnyObject {
-    func prepareSessionStart(from sourceAdapter: (any TerminalAdapter)?)
+    func prepareSessionStart(
+        from sourceAdapter: (any TerminalAdapter)?,
+        context: TerminalSurfaceContext
+    )
 }

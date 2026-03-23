@@ -54,14 +54,18 @@ final class SidebarMotionCoordinator {
 
     init(
         sidebarVisibilityDefaults: UserDefaults = .standard,
-        sidebarWidthDefaults: UserDefaults = .standard
+        sidebarWidthDefaults: UserDefaults = .standard,
+        sidebarAvailableWidth: CGFloat? = nil
     ) {
         let restoredMode = SidebarVisibilityPreference.restoredVisibility(from: sidebarVisibilityDefaults)
         self.sidebarVisibilityDefaults = sidebarVisibilityDefaults
         self.sidebarWidthDefaults = sidebarWidthDefaults
         self.sidebarVisibilityController = SidebarVisibilityController(mode: restoredMode)
         self.currentMotionState = SidebarMotionState(mode: restoredMode)
-        self.currentSidebarWidth = SidebarWidthPreference.restoredWidth(from: sidebarWidthDefaults)
+        self.currentSidebarWidth = SidebarWidthPreference.restoredWidth(
+            from: sidebarWidthDefaults,
+            availableWidth: sidebarAvailableWidth
+        )
     }
 
     // MARK: - Event handling
@@ -96,13 +100,17 @@ final class SidebarMotionCoordinator {
 
     // MARK: - Sidebar width
 
-    func setSidebarWidth(_ width: CGFloat, persist: Bool) {
-        let clampedWidth = SidebarWidthPreference.clamped(width)
+    func setSidebarWidth(_ width: CGFloat, availableWidth: CGFloat? = nil, persist: Bool) {
+        let clampedWidth = SidebarWidthPreference.clamped(width, availableWidth: availableWidth)
         currentSidebarWidth = clampedWidth
 
         if persist {
-            SidebarWidthPreference.persist(clampedWidth, in: sidebarWidthDefaults)
+            SidebarWidthPreference.persist(clampedWidth, in: sidebarWidthDefaults, availableWidth: availableWidth)
         }
+    }
+
+    func syncSidebarWidthToAvailableWidth(_ availableWidth: CGFloat?) {
+        currentSidebarWidth = SidebarWidthPreference.clamped(currentSidebarWidth, availableWidth: availableWidth)
     }
 
     // MARK: - Inset calculation

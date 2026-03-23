@@ -513,6 +513,7 @@ private enum TestError: Error {
 @MainActor
 private final class PaneContainerTerminalAdapterSpy: TerminalAdapter {
     var hasScrollback = false
+    var cellWidth: CGFloat = 0
     var cellHeight: CGFloat = 0
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?

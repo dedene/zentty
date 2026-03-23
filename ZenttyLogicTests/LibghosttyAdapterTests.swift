@@ -116,13 +116,26 @@ final class LibghosttyAdapterTests: XCTestCase {
         try sourceAdapter.startSession(using: TerminalSessionRequest())
         runtime.lastSurfaceController?.inheritedConfigContext = inheritedConfig.context
 
-        splitAdapter.prepareSessionStart(from: sourceAdapter)
-        try splitAdapter.startSession(using: TerminalSessionRequest(inheritFromPaneID: PaneID("source")))
+        splitAdapter.prepareSessionStart(from: sourceAdapter, context: .split)
+        try splitAdapter.startSession(using: TerminalSessionRequest(configInheritanceSourcePaneID: PaneID("source")))
 
         XCTAssertEqual(runtime.makeSurfaceCallCount, 2)
         XCTAssertEqual(runtime.receivedConfigTemplates.count, 2)
         XCTAssertNil(runtime.receivedConfigTemplates[0])
         XCTAssertEqual(runtime.receivedConfigTemplates[1]?.context, inheritedConfig.context)
+    }
+
+    func test_prepare_session_start_requests_inherited_config_for_requested_context() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let sourceAdapter = LibghosttyAdapter(runtime: runtime)
+        let tabAdapter = LibghosttyAdapter(runtime: runtime)
+
+        try sourceAdapter.startSession(using: TerminalSessionRequest())
+
+        tabAdapter.prepareSessionStart(from: sourceAdapter, context: .tab)
+
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+        XCTAssertEqual(surfaceController.inheritedConfigRequests, [GHOSTTY_SURFACE_CONTEXT_TAB])
     }
 
     func test_copy_action_payload_copies_pwd_string_before_async_boundary() {
@@ -233,10 +246,12 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
 
 private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling {
     var hasScrollback = false
+    var cellWidth: CGFloat = 0
     var cellHeight: CGFloat = 0
     private(set) var refreshCallCount = 0
     private(set) var focusValues: [Bool] = []
     private(set) var bindingActions: [String] = []
+    private(set) var inheritedConfigRequests: [ghostty_surface_context_e] = []
     var selectionPresent = false
     var inheritedConfigContext: ghostty_surface_context_e?
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
@@ -257,6 +272,7 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     }
     func hasSelection() -> Bool { selectionPresent }
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {
+        inheritedConfigRequests.append(context)
         guard let inheritedConfigContext else {
             return nil
         }

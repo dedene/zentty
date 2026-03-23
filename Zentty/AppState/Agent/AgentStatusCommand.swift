@@ -250,7 +250,8 @@ struct AgentSignalCommand {
                         path: options["path"],
                         home: options["home"],
                         user: options["user"],
-                        host: options["host"]
+                        host: options["host"],
+                        gitBranch: options["git-branch"]
                     ),
                     origin: origin,
                     toolName: nil,

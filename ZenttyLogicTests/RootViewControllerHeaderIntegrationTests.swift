@@ -216,9 +216,9 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let chrome = controller.chromeView
         XCTAssertEqual(
             chrome.focusedLabelText,
-            "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails"
+            "feature/scaleway-transactional-mails · …/scaleway-transactional-mails"
         )
-        XCTAssertEqual(chrome.branchText, "feature/scaleway-transactional-mails")
+        XCTAssertEqual(chrome.branchText, "")
         XCTAssertEqual(chrome.pullRequestText, "PR #1413")
         XCTAssertEqual(chrome.reviewChipTexts, ["1 failing"])
 
@@ -230,10 +230,62 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         }
     }
 
+    func test_root_controller_populates_header_when_local_pane_context_supplies_cwd() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("main\n"),
+            prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
+            prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"RSpec"}]"#)
+        )
+        let controller = makeController(
+            reviewStateResolver: WorkspaceReviewStateResolver(runner: runner)
+        )
+        let paneID = PaneID("pane-shell")
+
+        controller.replaceWorkspaces([
+            WorkspaceState(
+                id: WorkspaceID("workspace-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "shell")],
+                    focusedPaneID: paneID
+                ),
+                metadataByPaneID: [
+                    paneID: TerminalMetadata(
+                        title: "Claude Code",
+                        currentWorkingDirectory: nil,
+                        processName: "zsh"
+                    ),
+                ],
+                paneContextByPaneID: [
+                    paneID: PaneShellContext(
+                        scope: .local,
+                        path: "/tmp/project",
+                        home: "/Users/peter",
+                        user: "peter",
+                        host: "m1-pro-peter"
+                    ),
+                ]
+            ),
+        ])
+
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        let chrome = controller.chromeView
+        XCTAssertEqual(chrome.focusedLabelText, "Claude Code")
+        XCTAssertEqual(chrome.branchText, "main")
+        XCTAssertEqual(chrome.pullRequestText, "PR #1413")
+        XCTAssertEqual(chrome.reviewChipTexts, ["1 failing"])
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls.count, 4)
+        XCTAssertEqual(calls[0].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
+    }
+
     func test_root_controller_keeps_long_terminal_title_readable_inside_real_visible_lane() throws {
         let controller = makeController()
         let paneID = PaneID("pane-shell")
-        let focusedLabel = "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails"
+        let focusedLabel = "feature/scaleway-transactional-mails · …/scaleway-transactional-mails"
         let branch = "feature/scaleway-transactional-mails"
 
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
@@ -271,7 +323,6 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
 
         let chrome = controller.chromeView
         let focusedLabelView = try XCTUnwrap(findLabel(in: chrome, withText: focusedLabel))
-        let branchLabelView = try XCTUnwrap(findLabel(in: chrome, withText: branch))
         let pullRequestButton = try XCTUnwrap(findButton(in: chrome, withTitle: "PR #1413"))
 
         XCTAssertEqual(
@@ -280,16 +331,15 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             accuracy: 0.5
         )
         XCTAssertLessThanOrEqual(chrome.overflowBeforeCompression, 4)
-        XCTAssertEqual(chrome.finalTotalWidth, chrome.rowFrame.width, accuracy: 0.5)
+        XCTAssertLessThanOrEqual(chrome.finalTotalWidth, chrome.rowFrame.width + 0.5)
         XCTAssertGreaterThanOrEqual(chrome.focusedLabelFrameWidth, chrome.focusedLabelIntrinsicWidth - 4)
-        XCTAssertEqual(chrome.branchFrameWidth, chrome.branchIntrinsicWidth, accuracy: 0.5)
+        XCTAssertLessThanOrEqual(chrome.branchFrameWidth, 4.5)
         XCTAssertEqual(chrome.pullRequestFrameWidth, chrome.pullRequestIntrinsicWidth, accuracy: 0.5)
         XCTAssertGreaterThanOrEqual(focusedLabelView.frame.width, requiredSingleLineWidth(of: focusedLabelView) - 4)
-        XCTAssertGreaterThanOrEqual(branchLabelView.frame.width, requiredSingleLineWidth(of: branchLabelView) - 0.5)
         XCTAssertGreaterThanOrEqual(pullRequestButton.frame.width, requiredSingleLineWidth(of: pullRequestButton) - 0.5)
 
-        let contentMinX = min(focusedLabelView.frame.minX, branchLabelView.frame.minX, pullRequestButton.frame.minX)
-        let contentMaxX = max(focusedLabelView.frame.maxX, branchLabelView.frame.maxX, pullRequestButton.frame.maxX)
+        let contentMinX = min(focusedLabelView.frame.minX, pullRequestButton.frame.minX)
+        let contentMaxX = max(focusedLabelView.frame.maxX, pullRequestButton.frame.maxX)
         XCTAssertGreaterThanOrEqual(contentMinX, -0.5)
         XCTAssertLessThanOrEqual(contentMaxX, chrome.rowFrame.width + 0.5)
     }
@@ -318,7 +368,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         ])
 
         let chrome = controller.chromeView
-        XCTAssertEqual(chrome.focusedLabelText, "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/nim...")
+        XCTAssertEqual(chrome.focusedLabelText, "…/nimbu")
     }
 
     func test_root_controller_keeps_cached_review_branch_when_metadata_branch_is_compacted() {
@@ -352,7 +402,8 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         ])
 
         let chrome = controller.chromeView
-        XCTAssertEqual(chrome.branchText, "main")
+        XCTAssertEqual(chrome.focusedLabelText, "main · …/project")
+        XCTAssertEqual(chrome.branchText, "")
     }
 
     private func makeController(
@@ -410,6 +461,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
 @MainActor
 private final class QuietTerminalAdapter: TerminalAdapter {
     let hasScrollback = false
+    let cellWidth: CGFloat = 0
     let cellHeight: CGFloat = 0
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?

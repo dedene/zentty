@@ -44,30 +44,51 @@ _zentty_hostname() {
     printf '%s' "$host"
 }
 
+_zentty_apply_initial_working_directory() {
+    local initial_cwd="${ZENTTY_INITIAL_WORKING_DIRECTORY:-}"
+    [[ -n "$initial_cwd" ]] || return 0
+
+    unset ZENTTY_INITIAL_WORKING_DIRECTORY
+    _zentty_is_remote_shell && return 0
+    [[ -d "$initial_cwd" ]] || return 0
+
+    builtin cd -- "$initial_cwd"
+}
+
+_zentty_local_git_branch() {
+    command git rev-parse --git-dir >/dev/null 2>&1 || return 0
+    command git branch --show-current 2>/dev/null || true
+}
+
 _zentty_emit_pane_context() {
-    local path="${PWD:-}"
-    local home="${HOME:-}"
+    local cwd_path="${PWD:-}"
+    local home_path="${HOME:-}"
+    local git_branch=""
 
     if _zentty_is_remote_shell; then
         _zentty_agent_signal pane-context remote \
-            --path "$path" \
-            --home "$home" \
+            --path "$cwd_path" \
+            --home "$home_path" \
             --user "${USER:-}" \
-            --host "$(_zentty_hostname)"
+            --host "$(_zentty_hostname)" \
+            --git-branch "$git_branch"
         return 0
     fi
 
+    git_branch="$(_zentty_local_git_branch)"
     _zentty_agent_signal pane-context local \
-        --path "$path" \
-        --home "$home" \
+        --path "$cwd_path" \
+        --home "$home_path" \
         --user "${USER:-}" \
-        --host "$(_zentty_hostname)"
+        --host "$(_zentty_hostname)" \
+        --git-branch "$git_branch"
 }
 
 _zentty_bash_original_prompt_command="${ZENTTY_BASH_ORIGINAL_PROMPT_COMMAND:-}"
 
 _zentty_bash_prompt_hook() {
     _zentty_ensure_wrapper_path
+    _zentty_apply_initial_working_directory
     _zentty_agent_signal shell-state prompt
     _zentty_emit_pane_context
     if [[ -n "$_zentty_bash_original_prompt_command" ]]; then

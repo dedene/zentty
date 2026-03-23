@@ -44,6 +44,10 @@ final class PaneStripView: NSView {
     var onPaneSelected: ((PaneID) -> Void)?
     var onPaneCloseRequested: ((PaneID) -> Void)?
     var onBorderChromeSnapshotsDidChange: (([PaneBorderChromeSnapshot]) -> Void)?
+    var onDividerInteraction: ((PaneDivider) -> Void)?
+    var onDividerResizeRequested: ((PaneResizeTarget, CGFloat) -> Void)?
+    var onDividerEqualizeRequested: ((PaneDivider) -> Void)?
+    var onPaneStripStateRestoreRequested: ((PaneStripState) -> Void)?
 
     private let motionController = PaneStripMotionController()
     private let scrollSwitchHandler = ScrollSwitchGestureHandler()
@@ -55,6 +59,7 @@ final class PaneStripView: NSView {
     private var currentPaneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:]
     private var currentPresentation: StripPresentation?
     private var paneViews: [PaneID: PaneContainerView] = [:]
+    private var dividerViews: [PaneDivider: PaneDividerHandleView] = [:]
     private var lastRenderedSize: CGSize = .zero
     private var currentOffset: CGFloat = 0
     private var lastFocusedPaneID: PaneID?
@@ -64,6 +69,18 @@ final class PaneStripView: NSView {
     private var renderGuard = RenderGuard()
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resolvedLeadingVisibleInset: CGFloat = 0
+    private var hoveredDivider: PaneDivider?
+    private var activeDivider: PaneDivider?
+    private var dividerDragSession: DividerDragSession?
+    private var dividerDragEscapeMonitor: Any?
+    private var dividerDragSuspendedPaneIDs: Set<PaneID> = []
+
+    private struct DividerDragSession {
+        let divider: PaneDivider
+        let target: PaneResizeTarget
+        let initialState: PaneStripState
+        var lastTranslation: CGFloat
+    }
 
     var leadingVisibleInset: CGFloat {
         get { resolvedLeadingVisibleInset }
@@ -324,6 +341,7 @@ final class PaneStripView: NSView {
                 insertionTransition: insertionTransition,
                 allowInactiveDimming: !shouldAnimate
             )
+            self.reconcileDividerViews(with: presentation, offset: targetOffset)
         }
 
         if shouldAnimate {
@@ -346,6 +364,7 @@ final class PaneStripView: NSView {
                     insertionTransition: insertionTransition,
                     allowInactiveDimming: true
                 )
+                self.reconcileDividerViews(with: presentation, offset: targetOffset)
                 self.paneViews.values.forEach { $0.syncInsetBorderNow() }
                 Task { @MainActor [weak self] in
                     guard let self, self.renderGuard.generation == settleGeneration else {
@@ -552,7 +571,9 @@ final class PaneStripView: NSView {
 
     private func applyViewportSyncSuspension(to suspendedPaneIDs: Set<PaneID>) {
         paneViews.forEach { paneID, paneView in
-            paneView.setTerminalViewportSyncSuspended(suspendedPaneIDs.contains(paneID))
+            paneView.setTerminalViewportSyncSuspended(
+                suspendedPaneIDs.contains(paneID) || dividerDragSuspendedPaneIDs.contains(paneID)
+            )
         }
     }
 
@@ -588,6 +609,313 @@ final class PaneStripView: NSView {
                 emphasis: panePresentation.emphasis,
                 borderContext: currentPaneBorderContextByPaneID[panePresentation.paneID]
             )
+        }
+    }
+
+    private func reconcileDividerViews(
+        with presentation: StripPresentation,
+        offset: CGFloat
+    ) {
+        let nextDividerIDs = Set(presentation.dividers.map(\.divider))
+        let obsoleteDividerIDs = Set(dividerViews.keys).subtracting(nextDividerIDs)
+
+        for divider in obsoleteDividerIDs {
+            dividerViews[divider]?.removeFromSuperview()
+            dividerViews.removeValue(forKey: divider)
+        }
+        if let hoveredDivider, !nextDividerIDs.contains(hoveredDivider) {
+            self.hoveredDivider = nil
+        }
+        if let activeDivider, !nextDividerIDs.contains(activeDivider) {
+            self.activeDivider = nil
+        }
+
+        for dividerPresentation in presentation.dividers {
+            let dividerView: PaneDividerHandleView
+            if let existingDividerView = dividerViews[dividerPresentation.divider] {
+                dividerView = existingDividerView
+            } else {
+                let createdDividerView = PaneDividerHandleView()
+                createdDividerView.onPan = { [weak self, weak createdDividerView] recognizer in
+                    guard let self, let createdDividerView else {
+                        return
+                    }
+                    let divider = createdDividerView.divider
+                    let location = recognizer.location(in: createdDividerView)
+                    self.handleDividerPan(
+                        divider,
+                        locationInDividerView: location,
+                        recognizer: recognizer
+                    )
+                }
+                createdDividerView.onDoubleClick = { [weak self, weak createdDividerView] in
+                    guard let self, let divider = createdDividerView?.divider else {
+                        return
+                    }
+                    self.handleDividerDoubleClick(divider)
+                }
+                createdDividerView.onHoverChanged = { [weak self, weak createdDividerView] isHovered in
+                    guard let self, let divider = createdDividerView?.divider else {
+                        return
+                    }
+                    self.handleDividerHover(divider, isHovered: isHovered)
+                }
+                dividerViews[dividerPresentation.divider] = createdDividerView
+                viewportView.addSubview(createdDividerView)
+                dividerView = createdDividerView
+            }
+
+            let translatedHitFrame = dividerPresentation.hitFrame.offsetBy(
+                dx: -resolvedOffset(offset),
+                dy: 0
+            )
+            let translatedDividerFrame = dividerPresentation.frame.offsetBy(
+                dx: -resolvedOffset(offset),
+                dy: 0
+            )
+            dividerView.frame = translatedHitFrame
+            dividerView.divider = dividerPresentation.divider
+            dividerView.render(
+                axis: dividerPresentation.axis,
+                dividerFrameInSelf: translatedDividerFrame.offsetBy(
+                    dx: -translatedHitFrame.minX,
+                    dy: -translatedHitFrame.minY
+                ),
+                highlighted: hoveredDivider == dividerPresentation.divider,
+                active: activeDivider == dividerPresentation.divider,
+                accessibilityLabel: accessibilityLabel(for: dividerPresentation.divider)
+            )
+        }
+
+        refreshHoveredDividerFromPointer()
+    }
+
+    private func handleDividerHover(_ divider: PaneDivider, isHovered: Bool) {
+        if isHovered {
+            hoveredDivider = divider
+            onDividerInteraction?(divider)
+        } else if hoveredDivider == divider {
+            hoveredDivider = nil
+        }
+        updateDividerHighlightStates()
+    }
+
+    private func handleDividerPan(
+        _ divider: PaneDivider,
+        locationInDividerView: CGPoint,
+        recognizer: NSPanGestureRecognizer
+    ) {
+        switch recognizer.state {
+        case .began:
+            guard let currentState,
+                  let target = resizeTarget(
+                    for: divider,
+                    locationInDividerView: locationInDividerView,
+                    state: currentState
+                  ) else {
+                return
+            }
+            dividerDragSession = DividerDragSession(
+                divider: divider,
+                target: target,
+                initialState: currentState,
+                lastTranslation: 0
+            )
+            activeDivider = divider
+            hoveredDivider = divider
+            onDividerInteraction?(divider)
+            beginDividerDrag()
+        case .changed, .ended:
+            guard var dividerDragSession else {
+                return
+            }
+            let translation = recognizer.translation(in: self)
+            let resolvedTranslation = resolvedDividerTranslation(
+                translation,
+                axis: dividerDragSession.target.axis
+            )
+            let delta = resolvedTranslation - dividerDragSession.lastTranslation
+            if abs(delta) > 0.001 {
+                onDividerResizeRequested?(dividerDragSession.target, delta)
+                dividerDragSession.lastTranslation = resolvedTranslation
+                self.dividerDragSession = dividerDragSession
+            }
+            if recognizer.state == .ended {
+                endDividerDrag()
+            }
+        case .cancelled, .failed:
+            cancelDividerDrag()
+        default:
+            break
+        }
+    }
+
+    private func handleDividerDoubleClick(_ divider: PaneDivider) {
+        onDividerInteraction?(divider)
+        activeDivider = divider
+        updateDividerHighlightStates()
+        onDividerEqualizeRequested?(divider)
+        activeDivider = nil
+        refreshHoveredDividerFromPointer()
+    }
+
+    private func resizeTarget(
+        for divider: PaneDivider,
+        locationInDividerView: CGPoint,
+        state: PaneStripState
+    ) -> PaneResizeTarget? {
+        switch divider {
+        case .pane:
+            return .divider(divider)
+        case .column:
+            guard let dividerView = dividerViews[divider] else {
+                return nil
+            }
+            let width = max(1, dividerView.bounds.width)
+            let grabOffsetRatio = locationInDividerView.x / width
+            guard let target = state.horizontalResizeTarget(
+                for: divider,
+                grabOffsetRatio: grabOffsetRatio
+            ) else {
+                return nil
+            }
+            return .horizontalEdge(target)
+        }
+    }
+
+    private func beginDividerDrag() {
+        dividerDragSuspendedPaneIDs = Set(currentState?.panes.map(\.id) ?? [])
+        applyViewportSyncSuspension(to: [])
+        installDividerDragEscapeMonitorIfNeeded()
+        updateDividerHighlightStates()
+    }
+
+    private func endDividerDrag() {
+        dividerDragSession = nil
+        dividerDragSuspendedPaneIDs = []
+        removeDividerDragEscapeMonitor()
+        activeDivider = nil
+        applyViewportSyncSuspension(to: [])
+        refreshHoveredDividerFromPointer()
+    }
+
+    private func cancelDividerDrag() {
+        if let dividerDragSession {
+            onPaneStripStateRestoreRequested?(dividerDragSession.initialState)
+        }
+        endDividerDrag()
+    }
+
+    private func installDividerDragEscapeMonitorIfNeeded() {
+        guard dividerDragEscapeMonitor == nil else {
+            return
+        }
+
+        dividerDragEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.dividerDragSession != nil else {
+                return event
+            }
+
+            guard event.keyCode == 53 else {
+                return event
+            }
+
+            self.cancelDividerDrag()
+            return nil
+        }
+    }
+
+    private func removeDividerDragEscapeMonitor() {
+        guard let dividerDragEscapeMonitor else {
+            return
+        }
+
+        NSEvent.removeMonitor(dividerDragEscapeMonitor)
+        self.dividerDragEscapeMonitor = nil
+    }
+
+    private func resolvedDividerTranslation(
+        _ translation: CGPoint,
+        axis: PaneResizeAxis
+    ) -> CGFloat {
+        switch axis {
+        case .horizontal:
+            translation.x
+        case .vertical:
+            -translation.y
+        }
+    }
+
+    private func refreshHoveredDividerFromPointer() {
+        guard let window else {
+            hoveredDivider = nil
+            updateDividerHighlightStates()
+            return
+        }
+
+        let locationInViewport = viewportView.convert(
+            window.mouseLocationOutsideOfEventStream,
+            from: nil
+        )
+
+        let resolvedHoveredDivider: PaneDivider?
+        if let hoveredDivider,
+           let hoveredView = dividerViews[hoveredDivider],
+           hoveredView.frame.contains(locationInViewport) {
+            resolvedHoveredDivider = hoveredDivider
+        } else {
+            resolvedHoveredDivider = dividerViews.first { _, dividerView in
+                dividerView.frame.contains(locationInViewport)
+            }?.key
+        }
+
+        hoveredDivider = resolvedHoveredDivider
+        updateDividerHighlightStates()
+    }
+
+    #if DEBUG
+    func dividerTranslationForTesting(
+        _ translation: CGPoint,
+        axis: PaneResizeAxis
+    ) -> CGFloat {
+        resolvedDividerTranslation(translation, axis: axis)
+    }
+
+    func dividerCursorDescriptionForTesting(_ divider: PaneDivider) -> String? {
+        dividerViews[divider]?.cursorDescriptionForTesting
+    }
+
+    func dividerHighlightStateForTesting(_ divider: PaneDivider) -> (highlighted: Bool, active: Bool)? {
+        guard dividerViews[divider] != nil else {
+            return nil
+        }
+
+        return (
+            highlighted: hoveredDivider == divider,
+            active: activeDivider == divider
+        )
+    }
+
+    func simulateDividerDoubleClickForTesting(_ divider: PaneDivider) {
+        handleDividerDoubleClick(divider)
+    }
+    #endif
+
+    private func updateDividerHighlightStates() {
+        for (divider, dividerView) in dividerViews {
+            dividerView.updateHighlightState(
+                highlighted: hoveredDivider == divider,
+                active: activeDivider == divider
+            )
+        }
+    }
+
+    private func accessibilityLabel(for divider: PaneDivider) -> String {
+        switch divider {
+        case .column:
+            "Resize pane width from this split"
+        case .pane:
+            "Resize adjacent stacked panes"
         }
     }
 
@@ -678,4 +1006,165 @@ final class PaneStripView: NSView {
     ) -> Bool {
         insertionTransition?.paneID == panePresentation.paneID
     }
+}
+
+private final class PaneDividerHandleView: NSView {
+    override var frame: NSRect {
+        didSet {
+            guard oldValue != frame else {
+                return
+            }
+
+            invalidatePointerAffordances()
+        }
+    }
+
+    var divider: PaneDivider = .column(afterColumnID: PaneColumnID("divider")) {
+        didSet {
+            invalidatePointerAffordances()
+        }
+    }
+
+    var onPan: ((NSPanGestureRecognizer) -> Void)?
+    var onDoubleClick: (() -> Void)?
+    var onHoverChanged: ((Bool) -> Void)?
+
+    private let highlightLayer = CALayer()
+    private var trackingAreaValue: NSTrackingArea?
+    private var axis: PaneResizeAxis = .horizontal
+    private var accessibilityLabelText = ""
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        highlightLayer.backgroundColor = NSColor.clear.cgColor
+        highlightLayer.cornerRadius = 1
+        layer?.addSublayer(highlightLayer)
+        let recognizer = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        addGestureRecognizer(recognizer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaValue {
+            removeTrackingArea(trackingAreaValue)
+        }
+        let trackingAreaValue = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingAreaValue)
+        self.trackingAreaValue = trackingAreaValue
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        invalidatePointerAffordances()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        resolvedCursor.set()
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHoverChanged?(false)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            onDoubleClick?()
+            return
+        }
+
+        super.mouseDown(with: event)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: resolvedCursor)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        super.cursorUpdate(with: event)
+        resolvedCursor.set()
+    }
+
+    override func isAccessibilityElement() -> Bool {
+        true
+    }
+
+    override func accessibilityLabel() -> String? {
+        accessibilityLabelText
+    }
+
+    func render(
+        axis: PaneResizeAxis,
+        dividerFrameInSelf: CGRect,
+        highlighted: Bool,
+        active: Bool,
+        accessibilityLabel: String
+    ) {
+        let didChangeAxis = self.axis != axis
+        self.axis = axis
+        accessibilityLabelText = accessibilityLabel
+        toolTip = accessibilityLabel
+        highlightLayer.frame = dividerFrameInSelf
+        if didChangeAxis {
+            invalidatePointerAffordances()
+        }
+        updateHighlightState(highlighted: highlighted, active: active)
+    }
+
+    func updateHighlightState(highlighted: Bool, active: Bool) {
+        let alpha: CGFloat
+        if active {
+            alpha = 0.5
+        } else if highlighted {
+            alpha = 0.28
+        } else {
+            alpha = 0
+        }
+        highlightLayer.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(alpha).cgColor
+    }
+
+    @objc
+    private func handlePan(_ recognizer: NSPanGestureRecognizer) {
+        onPan?(recognizer)
+    }
+
+    private var resolvedCursor: NSCursor {
+        axis == .horizontal ? .resizeLeftRight : .resizeUpDown
+    }
+
+    private func invalidatePointerAffordances() {
+        updateTrackingAreas()
+        discardCursorRects()
+        window?.invalidateCursorRects(for: self)
+
+        guard let window else {
+            return
+        }
+
+        let locationInSelf = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        if bounds.contains(locationInSelf) {
+            resolvedCursor.set()
+        }
+    }
+
+    #if DEBUG
+    var cursorDescriptionForTesting: String {
+        axis == .horizontal ? "resizeLeftRight" : "resizeUpDown"
+    }
+    #endif
 }

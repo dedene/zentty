@@ -10,6 +10,7 @@ enum KeyboardShortcutKey: Hashable, Sendable {
 
 enum KeyboardModifier: Hashable, Sendable {
     case command
+    case control
     case option
     case shift
 }
@@ -29,6 +30,9 @@ struct KeyboardShortcut: Hashable, Sendable {
 
         if sanitizedFlags.contains(.command) {
             modifiers.insert(.command)
+        }
+        if sanitizedFlags.contains(.control) {
+            modifiers.insert(.control)
         }
         if sanitizedFlags.contains(.option) {
             modifiers.insert(.option)

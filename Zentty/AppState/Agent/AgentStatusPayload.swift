@@ -80,6 +80,9 @@ struct AgentStatusPayload: Equatable, Sendable {
             if let host = paneContext.host {
                 userInfo["paneContextHost"] = host
             }
+            if let gitBranch = paneContext.gitBranch {
+                userInfo["paneContextGitBranch"] = gitBranch
+            }
         }
         if let toolName {
             userInfo["toolName"] = toolName
@@ -153,7 +156,8 @@ struct AgentStatusPayload: Equatable, Sendable {
                     path: userInfo["paneContextPath"] as? String,
                     home: userInfo["paneContextHome"] as? String,
                     user: userInfo["paneContextUser"] as? String,
-                    host: userInfo["paneContextHost"] as? String
+                    host: userInfo["paneContextHost"] as? String,
+                    gitBranch: userInfo["paneContextGitBranch"] as? String
                 )
             }
         let artifactURL = (userInfo["artifactURL"] as? String).flatMap(URL.init(string:))

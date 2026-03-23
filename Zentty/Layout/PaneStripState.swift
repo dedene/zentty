@@ -16,6 +16,62 @@ struct PaneColumnID: Hashable, Equatable, Sendable {
     }
 }
 
+enum PaneResizeAxis: Equatable, Sendable {
+    case horizontal
+    case vertical
+}
+
+enum PaneDivider: Hashable, Equatable, Sendable {
+    case column(afterColumnID: PaneColumnID)
+    case pane(columnID: PaneColumnID, afterPaneID: PaneID)
+
+    var axis: PaneResizeAxis {
+        switch self {
+        case .column:
+            .horizontal
+        case .pane:
+            .vertical
+        }
+    }
+}
+
+enum PaneHorizontalEdge: Equatable, Sendable {
+    case left
+    case right
+}
+
+struct PaneHorizontalResizeTarget: Equatable, Sendable {
+    let columnID: PaneColumnID
+    let edge: PaneHorizontalEdge
+    let divider: PaneDivider
+}
+
+enum PaneResizeTarget: Equatable, Sendable {
+    case divider(PaneDivider)
+    case horizontalEdge(PaneHorizontalResizeTarget)
+
+    var axis: PaneResizeAxis {
+        switch self {
+        case .divider(let divider):
+            divider.axis
+        case .horizontalEdge:
+            .horizontal
+        }
+    }
+}
+
+struct PaneMinimumSize: Equatable, Sendable {
+    static let fallback = PaneMinimumSize(width: 320, height: 160)
+
+    let width: CGFloat
+    let height: CGFloat
+
+    init(width: CGFloat, height: CGFloat) {
+        self.width = max(1, width)
+        self.height = max(1, height)
+    }
+}
+
 struct PaneState: Equatable, Sendable {
     let id: PaneID
     var title: String
@@ -51,6 +107,7 @@ struct PaneColumnState: Equatable, Sendable {
     let id: PaneColumnID
     var panes: [PaneState]
     var width: CGFloat
+    private(set) var paneHeights: [CGFloat]
     private(set) var focusedPaneID: PaneID?
     private(set) var lastFocusedPaneID: PaneID?
 
@@ -58,12 +115,17 @@ struct PaneColumnState: Equatable, Sendable {
         id: PaneColumnID,
         panes: [PaneState],
         width: CGFloat,
+        paneHeights: [CGFloat] = [],
         focusedPaneID: PaneID? = nil,
         lastFocusedPaneID: PaneID? = nil
     ) {
         self.id = id
         self.panes = panes
         self.width = max(1, width)
+        self.paneHeights = Self.resolvedStoredPaneHeights(
+            preferred: paneHeights,
+            paneCount: panes.count
+        )
         self.focusedPaneID = PaneColumnState.resolvePaneID(
             panes: panes,
             preferredID: focusedPaneID
@@ -119,8 +181,23 @@ struct PaneColumnState: Equatable, Sendable {
     }
 
     mutating func insertPaneVertically(_ pane: PaneState) {
-        let insertionIndex = min(focusedPaneIndex + 1, panes.count)
+        guard !panes.isEmpty else {
+            panes = [pane]
+            paneHeights = [1]
+            focusPane(id: pane.id)
+            return
+        }
+
+        let sourceIndex = max(0, min(focusedPaneIndex, paneHeights.count - 1))
+        let insertionIndex = min(sourceIndex + 1, panes.count)
+        let sourceHeight = paneHeights[sourceIndex]
+        let insertedHeight = max(1, sourceHeight / 2)
+        let retainedHeight = max(1, sourceHeight - insertedHeight)
+
+        paneHeights[sourceIndex] = retainedHeight
+        paneHeights.insert(insertedHeight, at: insertionIndex)
         panes.insert(pane, at: insertionIndex)
+        reconcilePaneHeights()
         focusPane(id: pane.id)
     }
 
@@ -135,10 +212,12 @@ struct PaneColumnState: Equatable, Sendable {
         }
 
         let removedPane = panes.remove(at: removalIndex)
+        let removedHeight = paneHeights.indices.contains(removalIndex) ? paneHeights.remove(at: removalIndex) : 1
 
         guard !panes.isEmpty else {
             self.focusedPaneID = nil
             self.lastFocusedPaneID = nil
+            paneHeights = []
             return removedPane
         }
 
@@ -146,8 +225,119 @@ struct PaneColumnState: Equatable, Sendable {
         let nextPaneID = panes[nextIndex].id
         self.focusedPaneID = nextPaneID
         self.lastFocusedPaneID = nextPaneID
+        if paneHeights.indices.contains(nextIndex) {
+            paneHeights[nextIndex] += removedHeight
+        }
+        reconcilePaneHeights()
 
         return removedPane
+    }
+
+    mutating func resizePaneDivider(
+        afterPaneAt dividerIndex: Int,
+        delta: CGFloat,
+        totalHeight: CGFloat,
+        spacing: CGFloat,
+        minimumHeights: [CGFloat]
+    ) -> Bool {
+        guard dividerIndex >= 0, dividerIndex + 1 < panes.count else {
+            return false
+        }
+
+        let currentHeights = resolvedPaneHeights(
+            totalHeight: totalHeight,
+            spacing: spacing,
+            minimumHeights: minimumHeights
+        )
+        let upperMinimum = Self.normalizedMinimums(minimumHeights, paneCount: panes.count)[dividerIndex]
+        let lowerMinimum = Self.normalizedMinimums(minimumHeights, paneCount: panes.count)[dividerIndex + 1]
+        let combinedHeight = currentHeights[dividerIndex] + currentHeights[dividerIndex + 1]
+        let proposedUpperHeight = currentHeights[dividerIndex] + delta
+        let resolvedUpperHeight = min(
+            max(upperMinimum, proposedUpperHeight),
+            combinedHeight - lowerMinimum
+        )
+        let resolvedLowerHeight = combinedHeight - resolvedUpperHeight
+
+        guard
+            resolvedUpperHeight >= upperMinimum,
+            resolvedLowerHeight >= lowerMinimum,
+            abs(resolvedUpperHeight - currentHeights[dividerIndex]) > 0.001
+        else {
+            return false
+        }
+
+        var updatedHeights = currentHeights
+        updatedHeights[dividerIndex] = resolvedUpperHeight
+        updatedHeights[dividerIndex + 1] = resolvedLowerHeight
+        paneHeights = updatedHeights
+        reconcilePaneHeights()
+        return true
+    }
+
+    mutating func equalizeAdjacentPanes(
+        afterPaneAt dividerIndex: Int,
+        totalHeight: CGFloat,
+        spacing: CGFloat
+    ) -> Bool {
+        guard dividerIndex >= 0, dividerIndex + 1 < panes.count else {
+            return false
+        }
+
+        let currentHeights = resolvedPaneHeights(
+            totalHeight: totalHeight,
+            spacing: spacing
+        )
+        let combinedHeight = currentHeights[dividerIndex] + currentHeights[dividerIndex + 1]
+        let equalizedHeight = combinedHeight / 2
+
+        guard abs(currentHeights[dividerIndex] - equalizedHeight) > 0.001 else {
+            return false
+        }
+
+        var updatedHeights = currentHeights
+        updatedHeights[dividerIndex] = equalizedHeight
+        updatedHeights[dividerIndex + 1] = equalizedHeight
+        paneHeights = updatedHeights
+        reconcilePaneHeights()
+        return true
+    }
+
+    mutating func resetPaneHeights() {
+        paneHeights = Self.resolvedStoredPaneHeights(preferred: [], paneCount: panes.count)
+    }
+
+    func resolvedPaneHeights(
+        totalHeight: CGFloat,
+        spacing: CGFloat,
+        minimumHeights: [CGFloat] = []
+    ) -> [CGFloat] {
+        guard !panes.isEmpty else {
+            return []
+        }
+
+        let usableHeight = max(0, totalHeight - (spacing * CGFloat(max(0, panes.count - 1))))
+        guard usableHeight > 0 else {
+            return Array(repeating: 0, count: panes.count)
+        }
+
+        let preferredHeights = Self.resolvedStoredPaneHeights(
+            preferred: paneHeights,
+            paneCount: panes.count
+        )
+        let totalPreferredHeight = preferredHeights.reduce(0, +)
+        let scaledHeights: [CGFloat]
+        if totalPreferredHeight > 0 {
+            scaledHeights = preferredHeights.map { $0 * usableHeight / totalPreferredHeight }
+        } else {
+            scaledHeights = Array(repeating: usableHeight / CGFloat(panes.count), count: panes.count)
+        }
+
+        return Self.applyingMinimums(
+            to: scaledHeights,
+            total: usableHeight,
+            minimums: Self.normalizedMinimums(minimumHeights, paneCount: panes.count)
+        )
     }
 
     private mutating func moveFocus(by delta: Int) {
@@ -163,6 +353,13 @@ struct PaneColumnState: Equatable, Sendable {
         lastFocusedPaneID = nextPaneID
     }
 
+    private mutating func reconcilePaneHeights() {
+        paneHeights = Self.resolvedStoredPaneHeights(
+            preferred: paneHeights,
+            paneCount: panes.count
+        )
+    }
+
     private static func resolvePaneID(
         panes: [PaneState],
         preferredID: PaneID?
@@ -173,6 +370,91 @@ struct PaneColumnState: Equatable, Sendable {
 
         return panes.contains(where: { $0.id == preferredID }) ? preferredID : panes.first?.id
     }
+
+    private static func resolvedStoredPaneHeights(
+        preferred: [CGFloat],
+        paneCount: Int
+    ) -> [CGFloat] {
+        guard paneCount > 0 else {
+            return []
+        }
+
+        let sanitized = preferred.prefix(paneCount).map { max(1, $0) }
+        guard sanitized.count == paneCount else {
+            return Array(repeating: 1, count: paneCount)
+        }
+
+        return sanitized
+    }
+
+    private static func normalizedMinimums(
+        _ minimumHeights: [CGFloat],
+        paneCount: Int
+    ) -> [CGFloat] {
+        guard minimumHeights.count == paneCount else {
+            return Array(repeating: 0, count: paneCount)
+        }
+
+        return minimumHeights.map { max(0, $0) }
+    }
+
+    private static func applyingMinimums(
+        to sizes: [CGFloat],
+        total: CGFloat,
+        minimums: [CGFloat]
+    ) -> [CGFloat] {
+        guard sizes.count == minimums.count else {
+            return sizes
+        }
+
+        let minimumTotal = minimums.reduce(0, +)
+        guard total > 0 else {
+            return Array(repeating: 0, count: sizes.count)
+        }
+
+        if minimumTotal >= total, minimumTotal > 0 {
+            let scale = total / minimumTotal
+            return minimums.map { $0 * scale }
+        }
+
+        var result = sizes
+        var deficit: CGFloat = 0
+
+        for index in result.indices where result[index] < minimums[index] {
+            deficit += minimums[index] - result[index]
+            result[index] = minimums[index]
+        }
+
+        while deficit > 0.001 {
+            let donorIndices = result.indices.filter { result[$0] > minimums[$0] + 0.001 }
+            guard !donorIndices.isEmpty else {
+                break
+            }
+
+            let totalDonorCapacity = donorIndices.reduce(0) { partialResult, index in
+                partialResult + (result[index] - minimums[index])
+            }
+            guard totalDonorCapacity > 0 else {
+                break
+            }
+
+            let resolvedAdjustment = min(deficit, totalDonorCapacity)
+            for index in donorIndices {
+                let donorCapacity = result[index] - minimums[index]
+                let donorShare = resolvedAdjustment * (donorCapacity / totalDonorCapacity)
+                result[index] -= donorShare
+            }
+            deficit -= resolvedAdjustment
+        }
+
+        let correction = total - result.reduce(0, +)
+        if abs(correction) > 0.001,
+           let correctionIndex = result.indices.max(by: { result[$0] < result[$1] }) {
+            result[correctionIndex] = max(0, result[correctionIndex] + correction)
+        }
+
+        return result
+    }
 }
 
 struct PaneStripState: Equatable, Sendable {
@@ -181,11 +463,13 @@ struct PaneStripState: Equatable, Sendable {
     private(set) var columns: [PaneColumnState]
     private(set) var focusedColumnID: PaneColumnID?
     private(set) var layoutSizing: PaneLayoutSizing
+    private(set) var lastInteractedDivider: PaneDivider?
 
     init(
         columns: [PaneColumnState],
         focusedColumnID: PaneColumnID? = nil,
-        layoutSizing: PaneLayoutSizing = .balanced
+        layoutSizing: PaneLayoutSizing = .balanced,
+        lastInteractedDivider: PaneDivider? = nil
     ) {
         self.columns = columns.filter { !$0.panes.isEmpty }
         self.layoutSizing = layoutSizing
@@ -193,13 +477,16 @@ struct PaneStripState: Equatable, Sendable {
             columns: self.columns,
             preferredID: focusedColumnID
         )
+        self.lastInteractedDivider = lastInteractedDivider
         restoreColumnFocusIfNeeded()
+        sanitizeLastInteractedDivider()
     }
 
     init(
         panes: [PaneState],
         focusedPaneID: PaneID? = nil,
-        layoutSizing: PaneLayoutSizing = .balanced
+        layoutSizing: PaneLayoutSizing = .balanced,
+        lastInteractedDivider: PaneDivider? = nil
     ) {
         let columns = panes.map { pane in
             PaneColumnState(
@@ -215,7 +502,12 @@ struct PaneStripState: Equatable, Sendable {
                 column.panes.contains(where: { $0.id == paneID })
             })?.id
         }
-        self.init(columns: columns, focusedColumnID: focusedColumnID, layoutSizing: layoutSizing)
+        self.init(
+            columns: columns,
+            focusedColumnID: focusedColumnID,
+            layoutSizing: layoutSizing,
+            lastInteractedDivider: lastInteractedDivider
+        )
         if let focusedPaneID {
             focusPane(id: focusedPaneID)
         }
@@ -268,19 +560,20 @@ struct PaneStripState: Equatable, Sendable {
         in containerSize: CGSize,
         leadingVisibleInset: CGFloat = 0
     ) -> [PaneLayoutItem] {
+        _ = leadingVisibleInset
         let totalHeight = layoutSizing.paneHeight(for: containerSize.height)
 
         return columns.flatMap { column in
-            let perPaneHeight = resolvedPaneHeight(
+            let resolvedHeights = column.resolvedPaneHeights(
                 totalHeight: totalHeight,
-                paneCount: column.panes.count
+                spacing: layoutSizing.interPaneSpacing
             )
 
-            return column.panes.map { pane in
+            return zip(column.panes, resolvedHeights).map { pane, resolvedHeight in
                 PaneLayoutItem(
                     pane: pane,
                     width: max(1, column.width),
-                    height: perPaneHeight,
+                    height: resolvedHeight,
                     isFocused: pane.id == focusedPaneID
                 )
             }
@@ -364,6 +657,7 @@ struct PaneStripState: Equatable, Sendable {
                 )
             ]
             focusedColumnID = columns.first?.id
+            sanitizeLastInteractedDivider()
             return
         }
 
@@ -387,6 +681,7 @@ struct PaneStripState: Equatable, Sendable {
         )
         columns.insert(newColumn, at: insertionIndex)
         focusedColumnID = newColumn.id
+        sanitizeLastInteractedDivider()
     }
 
     @discardableResult
@@ -415,6 +710,7 @@ struct PaneStripState: Equatable, Sendable {
 
         columns[targetIndex].insertPaneVertically(pane)
         focusedColumnID = columns[targetIndex].id
+        sanitizeLastInteractedDivider()
         return true
     }
 
@@ -443,6 +739,7 @@ struct PaneStripState: Equatable, Sendable {
                let singleColumnWidth {
                 columns[focusedColumnIndex].width = max(1, singleColumnWidth)
             }
+            sanitizeLastInteractedDivider()
             return removedPane
         }
 
@@ -454,6 +751,7 @@ struct PaneStripState: Equatable, Sendable {
 
         guard !columns.isEmpty else {
             focusedColumnID = nil
+            lastInteractedDivider = nil
             return removedPane
         }
 
@@ -465,6 +763,7 @@ struct PaneStripState: Equatable, Sendable {
             columns[0].width = max(1, singleColumnWidth)
         }
 
+        sanitizeLastInteractedDivider()
         return removedPane
     }
 
@@ -501,14 +800,6 @@ struct PaneStripState: Equatable, Sendable {
         return true
     }
 
-    private var focusedColumnIndex: Int? {
-        guard let focusedColumnID else {
-            return nil
-        }
-
-        return columns.firstIndex { $0.id == focusedColumnID }
-    }
-
     @discardableResult
     mutating func updateLayoutSizing(_ layoutSizing: PaneLayoutSizing) -> Bool {
         guard self.layoutSizing != layoutSizing else {
@@ -517,6 +808,236 @@ struct PaneStripState: Equatable, Sendable {
 
         self.layoutSizing = layoutSizing
         return true
+    }
+
+    @discardableResult
+    mutating func resizeDivider(
+        _ divider: PaneDivider,
+        delta: CGFloat,
+        availableSize: CGSize,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize] = [:]
+    ) -> Bool {
+        switch divider {
+        case .column(let afterColumnID):
+            guard
+                let columnIndex = columns.firstIndex(where: { $0.id == afterColumnID }),
+                columnIndex + 1 < columns.count
+            else {
+                return false
+            }
+
+            let leftMinimumWidth = minimumColumnWidth(
+                for: columns[columnIndex],
+                minimumSizeByPaneID: minimumSizeByPaneID
+            )
+            let rightMinimumWidth = minimumColumnWidth(
+                for: columns[columnIndex + 1],
+                minimumSizeByPaneID: minimumSizeByPaneID
+            )
+            let combinedWidth = columns[columnIndex].width + columns[columnIndex + 1].width
+            let proposedLeadingWidth = columns[columnIndex].width + delta
+            let resolvedLeadingWidth = min(
+                max(leftMinimumWidth, proposedLeadingWidth),
+                combinedWidth - rightMinimumWidth
+            )
+            let resolvedTrailingWidth = combinedWidth - resolvedLeadingWidth
+
+            guard
+                resolvedLeadingWidth >= leftMinimumWidth,
+                resolvedTrailingWidth >= rightMinimumWidth,
+                abs(resolvedLeadingWidth - columns[columnIndex].width) > 0.001
+            else {
+                return false
+            }
+
+            columns[columnIndex].width = resolvedLeadingWidth
+            columns[columnIndex + 1].width = resolvedTrailingWidth
+        case .pane(let columnID, let afterPaneID):
+            guard
+                let columnIndex = columns.firstIndex(where: { $0.id == columnID }),
+                let paneIndex = columns[columnIndex].panes.firstIndex(where: { $0.id == afterPaneID })
+            else {
+                return false
+            }
+
+            let minimumHeights = columns[columnIndex].panes.map { pane in
+                (minimumSizeByPaneID[pane.id] ?? .fallback).height
+            }
+            let didResize = columns[columnIndex].resizePaneDivider(
+                afterPaneAt: paneIndex,
+                delta: delta,
+                totalHeight: layoutSizing.paneHeight(for: availableSize.height),
+                spacing: layoutSizing.interPaneSpacing,
+                minimumHeights: minimumHeights
+            )
+            guard didResize else {
+                return false
+            }
+        }
+
+        lastInteractedDivider = divider
+        return true
+    }
+
+    @discardableResult
+    mutating func resize(
+        _ target: PaneResizeTarget,
+        delta: CGFloat,
+        availableSize: CGSize,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize] = [:]
+    ) -> Bool {
+        switch target {
+        case .divider(let divider):
+            return resizeDivider(
+                divider,
+                delta: delta,
+                availableSize: availableSize,
+                minimumSizeByPaneID: minimumSizeByPaneID
+            )
+        case .horizontalEdge(let horizontalTarget):
+            return resizeHorizontalEdge(
+                horizontalTarget,
+                delta: delta,
+                availableSize: availableSize,
+                minimumSizeByPaneID: minimumSizeByPaneID
+            )
+        }
+    }
+
+    @discardableResult
+    mutating func equalizeDivider(
+        _ divider: PaneDivider,
+        availableSize: CGSize
+    ) -> Bool {
+        switch divider {
+        case .column(let afterColumnID):
+            guard
+                let columnIndex = columns.firstIndex(where: { $0.id == afterColumnID }),
+                columnIndex + 1 < columns.count
+            else {
+                return false
+            }
+
+            let combinedWidth = columns[columnIndex].width + columns[columnIndex + 1].width
+            let equalizedWidth = combinedWidth / 2
+            guard abs(columns[columnIndex].width - equalizedWidth) > 0.001 else {
+                return false
+            }
+            columns[columnIndex].width = equalizedWidth
+            columns[columnIndex + 1].width = equalizedWidth
+        case .pane(let columnID, let afterPaneID):
+            guard
+                let columnIndex = columns.firstIndex(where: { $0.id == columnID }),
+                let paneIndex = columns[columnIndex].panes.firstIndex(where: { $0.id == afterPaneID })
+            else {
+                return false
+            }
+
+            let didEqualize = columns[columnIndex].equalizeAdjacentPanes(
+                afterPaneAt: paneIndex,
+                totalHeight: layoutSizing.paneHeight(for: availableSize.height),
+                spacing: layoutSizing.interPaneSpacing
+            )
+            guard didEqualize else {
+                return false
+            }
+        }
+
+        lastInteractedDivider = divider
+        return true
+    }
+
+    mutating func resetPaneHeights() {
+        for index in columns.indices {
+            columns[index].resetPaneHeights()
+        }
+    }
+
+    mutating func markDividerInteraction(_ divider: PaneDivider) {
+        guard contains(divider: divider) else {
+            return
+        }
+
+        lastInteractedDivider = divider
+    }
+
+    func preferredDivider(for axis: PaneResizeAxis) -> PaneDivider? {
+        if let lastInteractedDivider,
+           lastInteractedDivider.axis == axis,
+           isDividerAvailableToFocusedPane(lastInteractedDivider) {
+            return lastInteractedDivider
+        }
+
+        return nearestDivider(for: axis)
+    }
+
+    func horizontalResizeTarget(
+        for divider: PaneDivider,
+        grabOffsetRatio: CGFloat
+    ) -> PaneHorizontalResizeTarget? {
+        guard case .column(let afterColumnID) = divider,
+              let dividerColumnIndex = columns.firstIndex(where: { $0.id == afterColumnID }),
+              dividerColumnIndex + 1 < columns.count else {
+            return nil
+        }
+
+        let clampedRatio = min(max(0, grabOffsetRatio), 1)
+        if clampedRatio <= 0.5 {
+            return PaneHorizontalResizeTarget(
+                columnID: columns[dividerColumnIndex].id,
+                edge: .right,
+                divider: divider
+            )
+        }
+
+        return PaneHorizontalResizeTarget(
+            columnID: columns[dividerColumnIndex + 1].id,
+            edge: .left,
+            divider: divider
+        )
+    }
+
+    @discardableResult
+    mutating func resizeFocusedPane(
+        in axis: PaneResizeAxis,
+        delta: CGFloat,
+        availableSize: CGSize,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize] = [:]
+    ) -> Bool {
+        switch axis {
+        case .horizontal:
+            guard let target = focusedHorizontalResizeTarget(for: delta) else {
+                return false
+            }
+
+            return resizeHorizontalEdge(
+                target,
+                delta: delta,
+                availableSize: availableSize,
+                minimumSizeByPaneID: minimumSizeByPaneID
+            )
+        case .vertical:
+            guard let divider = preferredDivider(for: axis) else {
+                return false
+            }
+
+            let resolvedDelta = adjustedResizeDelta(delta, for: divider)
+
+            return resizeDivider(
+                divider,
+                delta: resolvedDelta,
+                availableSize: availableSize,
+                minimumSizeByPaneID: minimumSizeByPaneID
+            )
+        }
+    }
+
+    private var focusedColumnIndex: Int? {
+        guard let focusedColumnID else {
+            return nil
+        }
+
+        return columns.firstIndex { $0.id == focusedColumnID }
     }
 
     private mutating func moveColumnFocus(by delta: Int) {
@@ -537,6 +1058,214 @@ struct PaneStripState: Equatable, Sendable {
         }
 
         columns[focusedColumnIndex].restoreLastFocusedPane()
+    }
+
+    private mutating func sanitizeLastInteractedDivider() {
+        if let lastInteractedDivider, !contains(divider: lastInteractedDivider) {
+            self.lastInteractedDivider = nil
+        }
+    }
+
+    private func contains(divider: PaneDivider) -> Bool {
+        switch divider {
+        case .column(let afterColumnID):
+            guard let columnIndex = columns.firstIndex(where: { $0.id == afterColumnID }) else {
+                return false
+            }
+
+            return columnIndex + 1 < columns.count
+        case .pane(let columnID, let afterPaneID):
+            guard let column = columns.first(where: { $0.id == columnID }),
+                  let paneIndex = column.panes.firstIndex(where: { $0.id == afterPaneID }) else {
+                return false
+            }
+
+            return paneIndex + 1 < column.panes.count
+        }
+    }
+
+    private func isDividerAvailableToFocusedPane(_ divider: PaneDivider) -> Bool {
+        guard contains(divider: divider), let focusedColumnIndex else {
+            return false
+        }
+
+        switch divider {
+        case .column(let afterColumnID):
+            guard let dividerColumnIndex = columns.firstIndex(where: { $0.id == afterColumnID }) else {
+                return false
+            }
+            return focusedColumnIndex == dividerColumnIndex || focusedColumnIndex == dividerColumnIndex + 1
+        case .pane(let columnID, let afterPaneID):
+            guard columns[focusedColumnIndex].id == columnID,
+                  let dividerPaneIndex = columns[focusedColumnIndex].panes.firstIndex(where: { $0.id == afterPaneID }) else {
+                return false
+            }
+            let focusedPaneIndex = columns[focusedColumnIndex].focusedPaneIndex
+            return focusedPaneIndex == dividerPaneIndex || focusedPaneIndex == dividerPaneIndex + 1
+        }
+    }
+
+    private func nearestDivider(for axis: PaneResizeAxis) -> PaneDivider? {
+        guard let focusedColumnIndex else {
+            return nil
+        }
+
+        switch axis {
+        case .horizontal:
+            if focusedColumnIndex + 1 < columns.count {
+                return .column(afterColumnID: columns[focusedColumnIndex].id)
+            }
+            if focusedColumnIndex > 0 {
+                return .column(afterColumnID: columns[focusedColumnIndex - 1].id)
+            }
+            return nil
+        case .vertical:
+            let column = columns[focusedColumnIndex]
+            let paneIndex = column.focusedPaneIndex
+            if paneIndex + 1 < column.panes.count {
+                return .pane(columnID: column.id, afterPaneID: column.panes[paneIndex].id)
+            }
+            if paneIndex > 0 {
+                return .pane(columnID: column.id, afterPaneID: column.panes[paneIndex - 1].id)
+            }
+            return nil
+        }
+    }
+
+    private func focusedHorizontalResizeTarget(for delta: CGFloat) -> PaneHorizontalResizeTarget? {
+        guard let focusedColumnIndex else {
+            return nil
+        }
+
+        if delta > 0 {
+            guard focusedColumnIndex + 1 < columns.count else {
+                return nil
+            }
+
+            let columnID = columns[focusedColumnIndex].id
+            return PaneHorizontalResizeTarget(
+                columnID: columnID,
+                edge: .right,
+                divider: .column(afterColumnID: columnID)
+            )
+        }
+
+        if delta < 0 {
+            guard focusedColumnIndex > 0 else {
+                return nil
+            }
+
+            return PaneHorizontalResizeTarget(
+                columnID: columns[focusedColumnIndex].id,
+                edge: .left,
+                divider: .column(afterColumnID: columns[focusedColumnIndex - 1].id)
+            )
+        }
+
+        return nil
+    }
+
+    @discardableResult
+    private mutating func resizeHorizontalEdge(
+        _ target: PaneHorizontalResizeTarget,
+        delta: CGFloat,
+        availableSize: CGSize,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+    ) -> Bool {
+        guard let columnIndex = columns.firstIndex(where: { $0.id == target.columnID }) else {
+            return false
+        }
+
+        switch target.edge {
+        case .left:
+            guard columnIndex > 0 else {
+                return false
+            }
+        case .right:
+            guard columnIndex + 1 < columns.count else {
+                return false
+            }
+        }
+
+        let minimumWidth = minimumColumnWidth(
+            for: columns[columnIndex],
+            minimumSizeByPaneID: minimumSizeByPaneID
+        )
+        let maximumWidth = maximumColumnWidth(for: availableSize.width)
+        let currentTotalColumnWidth = totalColumnWidth
+        let minimumTotalWidth = minimumTotalColumnWidth(for: availableSize.width)
+        let otherColumnWidths = currentTotalColumnWidth - columns[columnIndex].width
+        let stripFloorMinimumWidth: CGFloat
+        if currentTotalColumnWidth <= minimumTotalWidth + 0.001 {
+            stripFloorMinimumWidth = columns[columnIndex].width
+        } else {
+            stripFloorMinimumWidth = max(1, minimumTotalWidth - otherColumnWidths)
+        }
+        let effectiveMinimumWidth = max(minimumWidth, stripFloorMinimumWidth)
+        let widthDelta = target.edge == .right ? delta : -delta
+        let proposedWidth = columns[columnIndex].width + widthDelta
+        let resolvedWidth = min(maximumWidth, max(effectiveMinimumWidth, proposedWidth))
+
+        guard abs(resolvedWidth - columns[columnIndex].width) > 0.001 else {
+            return false
+        }
+
+        columns[columnIndex].width = resolvedWidth
+        lastInteractedDivider = target.divider
+        return true
+    }
+
+    private func adjustedResizeDelta(
+        _ delta: CGFloat,
+        for divider: PaneDivider
+    ) -> CGFloat {
+        switch divider {
+        case .column(let afterColumnID):
+            guard let focusedColumnIndex,
+                  let dividerColumnIndex = columns.firstIndex(where: { $0.id == afterColumnID }) else {
+                return delta
+            }
+
+            return focusedColumnIndex == dividerColumnIndex + 1 ? -delta : delta
+        case .pane(let columnID, let afterPaneID):
+            guard let focusedColumnIndex,
+                  columns.indices.contains(focusedColumnIndex),
+                  columns[focusedColumnIndex].id == columnID,
+                  let dividerPaneIndex = columns[focusedColumnIndex].panes.firstIndex(where: { $0.id == afterPaneID }) else {
+                return delta
+            }
+
+            return columns[focusedColumnIndex].focusedPaneIndex == dividerPaneIndex + 1 ? -delta : delta
+        }
+    }
+
+    private func minimumColumnWidth(
+        for column: PaneColumnState,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+    ) -> CGFloat {
+        column.panes
+            .map { (minimumSizeByPaneID[$0.id] ?? .fallback).width }
+            .max()
+            ?? PaneMinimumSize.fallback.width
+    }
+
+    private func maximumColumnWidth(for availableWidth: CGFloat) -> CGFloat {
+        max(
+            1,
+            layoutSizing.readableWidth(
+                for: availableWidth,
+                leadingVisibleInset: 0
+            )
+        )
+    }
+
+    private var totalColumnWidth: CGFloat {
+        columns.reduce(0) { $0 + $1.width }
+    }
+
+    private func minimumTotalColumnWidth(for availableWidth: CGFloat) -> CGFloat {
+        let totalSpacing = layoutSizing.interPaneSpacing * CGFloat(max(0, columns.count - 1))
+        return max(1, availableWidth - (layoutSizing.horizontalInset * 2) - totalSpacing)
     }
 
     private static func resolveFocusedColumnID(

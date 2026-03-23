@@ -6,6 +6,7 @@ final class SidebarView: NSView {
         static let contentInset: CGFloat = ShellMetrics.sidebarContentInset
         static let topInset: CGFloat = ShellMetrics.sidebarTopInset
         static let bottomInset: CGFloat = ShellMetrics.sidebarBottomInset
+        static let resizeHandleWidth: CGFloat = 12
     }
 
     var onWorkspaceSelected: ((WorkspaceID) -> Void)?
@@ -91,9 +92,9 @@ final class SidebarView: NSView {
             listStack.bottomAnchor.constraint(equalTo: listDocumentView.bottomAnchor),
 
             resizeHandleView.topAnchor.constraint(equalTo: topAnchor),
-            resizeHandleView.centerXAnchor.constraint(equalTo: trailingAnchor),
+            resizeHandleView.trailingAnchor.constraint(equalTo: trailingAnchor),
             resizeHandleView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            resizeHandleView.widthAnchor.constraint(equalToConstant: 12),
+            resizeHandleView.widthAnchor.constraint(equalToConstant: Layout.resizeHandleWidth),
         ])
 
         apply(theme: currentTheme, animated: false)
@@ -122,6 +123,14 @@ final class SidebarView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         onPointerExited?()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard isResizeEnabled, !resizeHandleView.isHidden, resizeHandleView.frame.contains(point) else {
+            return super.hitTest(point)
+        }
+
+        return resizeHandleView
     }
 
     func render(
@@ -170,8 +179,13 @@ final class SidebarView: NSView {
 
     func apply(theme: ZenttyTheme, animated: Bool) {
         currentTheme = theme
+        let sidebarAppearance = NSAppearance(named: theme.sidebarGlassAppearance.nsAppearanceName)
+        appearance = sidebarAppearance
+        listScrollView.appearance = sidebarAppearance
+        listDocumentView.appearance = sidebarAppearance
+        listStack.appearance = sidebarAppearance
         addWorkspaceButton.configure(theme: theme, animated: animated)
-        resizeHandleView.apply()
+        resizeHandleView.apply(theme: theme, animated: animated)
         backgroundView.apply(theme: theme, animated: animated)
 
         performThemeAnimation(animated: animated) {
@@ -220,7 +234,12 @@ final class SidebarView: NSView {
             resizeStartWidth = bounds.width
         case .changed, .ended:
             let translation = recognizer.translation(in: self).x
-            onResized?(SidebarWidthPreference.clamped(resizeStartWidth + translation))
+            onResized?(
+                SidebarWidthPreference.clamped(
+                    resizeStartWidth + translation,
+                    availableWidth: window?.screen?.visibleFrame.width
+                )
+            )
         default:
             break
         }
@@ -346,6 +365,14 @@ final class SidebarView: NSView {
     var isResizeHandleHidden: Bool {
         resizeHandleView.isHidden
     }
+
+    var trailingEdgeHitTargetsResizeHandle: Bool {
+        hitTest(NSPoint(x: bounds.maxX - 1, y: bounds.midY)) === resizeHandleView
+    }
+
+    var appearanceMatchForTesting: NSAppearance.Name? {
+        appearance?.bestMatch(from: [.darkAqua, .aqua])
+    }
 }
 
 private final class FlippedSidebarDocumentView: NSView {
@@ -456,19 +483,58 @@ private final class SidebarResizeHandleView: NSView {
     var onPan: ((NSPanGestureRecognizer) -> Void)?
 
     private var panRecognizer: NSPanGestureRecognizer?
+    private var trackingArea: NSTrackingArea?
     private(set) var isEnabled = true
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        setAccessibilityLabel("Resize sidebar")
         let recognizer = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         addGestureRecognizer(recognizer)
         panRecognizer = recognizer
+        updateIndicatorAppearance(animated: false)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        self.trackingArea = trackingArea
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        invalidatePointerAffordances()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard isEnabled else {
+            return
+        }
+
+        NSCursor.resizeLeftRight.set()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
     }
 
     override func resetCursorRects() {
@@ -479,15 +545,25 @@ private final class SidebarResizeHandleView: NSView {
         addCursorRect(bounds, cursor: .resizeLeftRight)
     }
 
-    func apply() {
-        layer?.backgroundColor = NSColor.clear.cgColor
+    override func cursorUpdate(with event: NSEvent) {
+        super.cursorUpdate(with: event)
+        guard isEnabled else {
+            return
+        }
+
+        NSCursor.resizeLeftRight.set()
+    }
+
+    func apply(theme _: ZenttyTheme, animated: Bool) {
+        updateIndicatorAppearance(animated: animated)
     }
 
     func setEnabled(_ isEnabled: Bool) {
         self.isEnabled = isEnabled
         panRecognizer?.isEnabled = isEnabled
         isHidden = !isEnabled
-        discardCursorRects()
+        invalidatePointerAffordances()
+        updateIndicatorAppearance(animated: false)
     }
 
     @objc
@@ -496,6 +572,18 @@ private final class SidebarResizeHandleView: NSView {
             return
         }
         onPan?(recognizer)
+    }
+
+    private func updateIndicatorAppearance(animated: Bool) {
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = NSColor.clear.cgColor
+        }
+    }
+
+    private func invalidatePointerAffordances() {
+        updateTrackingAreas()
+        discardCursorRects()
+        window?.invalidateCursorRects(for: self)
     }
 
     var fillAlpha: CGFloat {

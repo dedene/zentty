@@ -215,6 +215,70 @@ final class GhosttyThemeResolverTests: XCTestCase {
         XCTAssertNotEqual(theme.sidebarGradientEnd.themeToken, theme.sidebarButtonActiveBackground.themeToken)
     }
 
+    func test_dark_theme_working_text_highlight_stays_closer_to_text_than_sidebar_surface() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            )
+        )
+
+        XCTAssertLessThan(
+            colorDistance(theme.sidebarWorkingTextHighlight, theme.primaryText),
+            colorDistance(theme.sidebarGradientStart, theme.primaryText)
+        )
+    }
+
+    func test_light_theme_working_text_highlight_lifts_toward_active_text_instead_of_sidebar_surface() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#F7FBFF")!,
+                foreground: NSColor(hexString: "#102030")!,
+                cursorColor: NSColor(hexString: "#2F74D0")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.94,
+                backgroundBlurRadius: 18
+            )
+        )
+
+        XCTAssertGreaterThan(
+            theme.sidebarWorkingTextHighlight.perceivedLuminance,
+            theme.primaryText.perceivedLuminance
+        )
+        XCTAssertLessThan(
+            colorDistance(theme.sidebarWorkingTextHighlight, theme.sidebarButtonActiveText),
+            colorDistance(theme.sidebarGradientStart, theme.sidebarButtonActiveText)
+        )
+    }
+
+    func test_dark_background_with_dark_foreground_inverts_text_palette_to_light_readable_text() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#101418")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            )
+        )
+
+        XCTAssertGreaterThan(theme.primaryText.contrastRatio(against: theme.windowBackground), 7)
+        XCTAssertGreaterThan(theme.sidebarButtonInactiveText.contrastRatio(against: theme.sidebarBackground), 4.5)
+        XCTAssertGreaterThan(theme.primaryText.perceivedLuminance, theme.windowBackground.perceivedLuminance)
+        XCTAssertGreaterThan(theme.sidebarButtonInactiveText.perceivedLuminance, theme.sidebarBackground.perceivedLuminance)
+    }
+
     func test_derived_theme_prefers_dark_sidebar_glass_for_dark_terminal_backgrounds() {
         let theme = ZenttyTheme(
             resolvedTheme: GhosttyResolvedTheme(

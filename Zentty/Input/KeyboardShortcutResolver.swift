@@ -26,6 +26,14 @@ enum KeyboardShortcutResolver {
             return .pane(.focusFirstColumn)
         case (.rightArrow, [.command, .option, .shift]):
             return .pane(.focusLastColumn)
+        case (.leftArrow, [.command, .control, .option]):
+            return .pane(.resizeLeft)
+        case (.rightArrow, [.command, .control, .option]):
+            return .pane(.resizeRight)
+        case (.upArrow, [.command, .control, .option]):
+            return .pane(.resizeUp)
+        case (.downArrow, [.command, .control, .option]):
+            return .pane(.resizeDown)
         default:
             return nil
         }

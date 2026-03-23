@@ -23,10 +23,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         paneLayoutDefaults: UserDefaults = .standard
     ) {
         let initialFrame = Self.defaultFrame()
+        let initialScreenWidth = NSScreen.main?.visibleFrame.width
         let sidebarVisibility = SidebarVisibilityPreference.restoredVisibility(from: sidebarVisibilityDefaults)
         let initialLayoutContext = Self.initialPaneLayoutContext(
             initialFrame: initialFrame,
-            sidebarWidth: SidebarWidthPreference.restoredWidth(from: sidebarWidthDefaults),
+            sidebarWidth: SidebarWidthPreference.restoredWidth(
+                from: sidebarWidthDefaults,
+                availableWidth: initialScreenWidth
+            ),
             sidebarVisibility: sidebarVisibility,
             paneLayoutDefaults: paneLayoutDefaults
         )
@@ -140,6 +144,31 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @objc
     func focusLastColumn(_ sender: Any?) {
         handle(.pane(.focusLastColumn))
+    }
+
+    @objc
+    func resizePaneLeft(_ sender: Any?) {
+        handle(.pane(.resizeLeft))
+    }
+
+    @objc
+    func resizePaneRight(_ sender: Any?) {
+        handle(.pane(.resizeRight))
+    }
+
+    @objc
+    func resizePaneUp(_ sender: Any?) {
+        handle(.pane(.resizeUp))
+    }
+
+    @objc
+    func resizePaneDown(_ sender: Any?) {
+        handle(.pane(.resizeDown))
+    }
+
+    @objc
+    func resetPaneLayout(_ sender: Any?) {
+        handle(.pane(.resetLayout))
     }
 
     @objc

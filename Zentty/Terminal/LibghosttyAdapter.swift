@@ -1,6 +1,19 @@
 import AppKit
 import GhosttyKit
 
+extension TerminalSurfaceContext {
+    var libghosttyValue: ghostty_surface_context_e {
+        switch self {
+        case .window:
+            GHOSTTY_SURFACE_CONTEXT_WINDOW
+        case .tab:
+            GHOSTTY_SURFACE_CONTEXT_TAB
+        case .split:
+            GHOSTTY_SURFACE_CONTEXT_SPLIT
+        }
+    }
+}
+
 @MainActor
 protocol LibghosttyRuntimeProviding: AnyObject {
     func makeSurface(
@@ -21,6 +34,7 @@ enum TerminalKeyAction: Equatable {
 @MainActor
 protocol LibghosttySurfaceControlling: AnyObject {
     var hasScrollback: Bool { get }
+    var cellWidth: CGFloat { get }
     var cellHeight: CGFloat { get }
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?)
     func setFocused(_ isFocused: Bool)
@@ -48,6 +62,7 @@ final class LibghosttyAdapter: TerminalAdapter {
     private var inheritedConfigTemplate: ghostty_surface_config_s?
 
     var hasScrollback: Bool { surfaceController?.hasScrollback ?? false }
+    var cellWidth: CGFloat { surfaceController?.cellWidth ?? 0 }
     var cellHeight: CGFloat { surfaceController?.cellHeight ?? 0 }
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
@@ -101,7 +116,10 @@ final class LibghosttyAdapter: TerminalAdapter {
 }
 
 extension LibghosttyAdapter: TerminalSessionInheritanceConfiguring {
-    func prepareSessionStart(from sourceAdapter: (any TerminalAdapter)?) {
+    func prepareSessionStart(
+        from sourceAdapter: (any TerminalAdapter)?,
+        context: TerminalSurfaceContext
+    ) {
         guard surfaceController == nil else {
             return
         }
@@ -109,7 +127,7 @@ extension LibghosttyAdapter: TerminalSessionInheritanceConfiguring {
         guard
             let sourceAdapter = sourceAdapter as? LibghosttyAdapter,
             let inheritedConfig = sourceAdapter.surfaceController?.inheritedConfig(
-                for: GHOSTTY_SURFACE_CONTEXT_SPLIT
+                for: context.libghosttyValue
             )
         else {
             inheritedConfigTemplate = nil

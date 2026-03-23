@@ -13,4 +13,9 @@ enum PaneCommand: Equatable, Sendable {
     case focusLast
     case focusFirstColumn
     case focusLastColumn
+    case resizeLeft
+    case resizeRight
+    case resizeUp
+    case resizeDown
+    case resetLayout
 }

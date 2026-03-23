@@ -32,6 +32,11 @@ extension WorkspaceStore {
         var workspace = workspaces[workspaceIndex]
         let previousState = workspace.auxiliaryStateByPaneID[paneID]?.reviewState
         let previousArtifact = workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact
+        if resolution.updatePolicy == .preserveExistingOnEmpty,
+           resolution.reviewState == nil,
+           resolution.inferredArtifact == nil {
+            return
+        }
         guard previousState != resolution.reviewState || previousArtifact != resolution.inferredArtifact else {
             return
         }

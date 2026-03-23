@@ -10,6 +10,7 @@ enum WorkspaceRowTextRow: Equatable {
     case topLabel
     case primary
     case status
+    case stateBadge
     case context
     case detail(Int)
     case overflow
@@ -105,6 +106,8 @@ struct WorkspaceRowLayoutMetrics: Equatable {
             return primaryLineHeight
         case .status:
             return statusLineHeight
+        case .stateBadge:
+            return detailLineHeight
         case .context:
             return contextLineHeight
         case .detail:
@@ -126,33 +129,25 @@ struct SidebarWorkspaceRowLayout: Equatable {
     ) {
         let visibleTextRows = Self.visibleTextRows(for: summary)
         let mode = Self.mode(for: summary)
-        let includesTopLabel = Self.hasVisibleText(summary.topLabel)
-        let includesStatus = Self.hasVisibleText(summary.statusText)
-        let includesOverflow = Self.hasVisibleText(summary.overflowText)
-        let detailLineCount = summary.detailLines.count
         let includesArtifact = summary.artifactLink != nil
 
         self.mode = mode
         self.visibleTextRows = visibleTextRows
+        let computedHeight = metrics.height(for: visibleTextRows)
         self.rowHeight = mode == .compact
             ? metrics.compactHeight
-            : metrics.rowHeight(
-                includesTopLabel: includesTopLabel,
-                includesStatus: includesStatus,
-                detailLineCount: detailLineCount,
-                includesOverflow: includesOverflow,
-                includesArtifact: includesArtifact
-            )
+            : (includesArtifact ? max(computedHeight, metrics.expandedHeight) : computedHeight)
     }
 
     static func mode(for summary: WorkspaceSidebarSummary) -> WorkspaceRowMode {
         let hasVisibleTitle = hasVisibleText(summary.topLabel)
         let hasVisibleStatus = hasVisibleText(summary.statusText)
+        let hasVisibleStateBadge = hasVisibleText(summary.stateBadgeText)
         let hasVisibleDetailLines = summary.detailLines.isEmpty == false
         let hasOverflow = hasVisibleText(summary.overflowText)
         let hasArtifact = summary.artifactLink != nil
 
-        return hasVisibleTitle || hasVisibleStatus || hasVisibleDetailLines || hasOverflow || hasArtifact
+        return hasVisibleTitle || hasVisibleStatus || hasVisibleStateBadge || hasVisibleDetailLines || hasOverflow || hasArtifact
             ? .expanded
             : .compact
     }
@@ -164,13 +159,28 @@ struct SidebarWorkspaceRowLayout: Equatable {
             rows.append(.topLabel)
         }
 
-        rows.append(.primary)
+        let paneLineCount = max(1, summary.detailLines.count + 1)
+        let focusedPaneLineIndex = min(
+            max(0, summary.focusedPaneLineIndex),
+            paneLineCount - 1
+        )
+        var detailIndex = 0
+        for paneLineIndex in 0..<paneLineCount {
+            if paneLineIndex == focusedPaneLineIndex {
+                rows.append(.primary)
+            } else {
+                rows.append(.detail(detailIndex))
+                detailIndex += 1
+            }
+        }
 
         if hasVisibleText(summary.statusText) {
             rows.append(.status)
         }
 
-        rows.append(contentsOf: summary.detailLines.indices.map(WorkspaceRowTextRow.detail))
+        if hasVisibleText(summary.stateBadgeText) {
+            rows.append(.stateBadge)
+        }
 
         if hasVisibleText(summary.overflowText) {
             rows.append(.overflow)

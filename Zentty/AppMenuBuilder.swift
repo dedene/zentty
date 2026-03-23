@@ -143,6 +143,38 @@ enum AppMenuBuilder {
             keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!),
             modifiers: [.command, .option, .shift]
         ))
+        viewMenu.addItem(NSMenuItem.separator())
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Resize Pane Left",
+            action: #selector(MainWindowController.resizePaneLeft(_:)),
+            keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [.command, .control, .option]
+        ))
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Resize Pane Right",
+            action: #selector(MainWindowController.resizePaneRight(_:)),
+            keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+            modifiers: [.command, .control, .option]
+        ))
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Resize Pane Up",
+            action: #selector(MainWindowController.resizePaneUp(_:)),
+            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+            modifiers: [.command, .control, .option]
+        ))
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Resize Pane Down",
+            action: #selector(MainWindowController.resizePaneDown(_:)),
+            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [.command, .control, .option]
+        ))
+        viewMenu.addItem(NSMenuItem.separator())
+        viewMenu.addItem(makeMenuActionItem(
+            title: "Reset Pane Layout",
+            action: #selector(MainWindowController.resetPaneLayout(_:)),
+            keyEquivalent: "0",
+            modifiers: [.command, .control, .option]
+        ))
 
         viewMenuItem.submenu = viewMenu
         return viewMenuItem
@@ -203,6 +235,13 @@ enum AppMenuBuilder {
             ("Focus Down In Column", #selector(MainWindowController.focusDownInColumn(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), [.command, .option]),
             ("Focus First Column", #selector(MainWindowController.focusFirstColumn(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option, .shift]),
             ("Focus Last Column", #selector(MainWindowController.focusLastColumn(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option, .shift]),
+            (nil, nil, "", []),
+            ("Resize Pane Left", #selector(MainWindowController.resizePaneLeft(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .control, .option]),
+            ("Resize Pane Right", #selector(MainWindowController.resizePaneRight(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .control, .option]),
+            ("Resize Pane Up", #selector(MainWindowController.resizePaneUp(_:)), String(UnicodeScalar(NSUpArrowFunctionKey)!), [.command, .control, .option]),
+            ("Resize Pane Down", #selector(MainWindowController.resizePaneDown(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), [.command, .control, .option]),
+            (nil, nil, "", []),
+            ("Reset Pane Layout", #selector(MainWindowController.resetPaneLayout(_:)), "0", [.command, .control, .option]),
         ]
         let hasFileItems = hasRequiredItems(requiredFileItems, in: fileMenu)
         let hasEditItems =

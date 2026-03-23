@@ -1,31 +1,33 @@
 import AppKit
+import CoreText
 import QuartzCore
 
 @MainActor
 final class SidebarWorkspaceRowButton: NSButton {
     private enum Layout {
         static let contentInset = ShellMetrics.sidebarRowHorizontalInset
-    }
-
-    private enum WorkingIndicator {
-        static let shimmerAnimationKey = "workspace-row-shimmer"
+        static let primaryTextLeadingInset: CGFloat = 0
     }
 
     let workspaceID: WorkspaceID?
 
     private let leadingAccessoryContainer = NSView()
     private let leadingAccessoryView = NSImageView()
-    private let topLabel = NSTextField(labelWithString: "")
-    private let primaryLabel = NSTextField(labelWithString: "")
-    private let statusLabel = NSTextField(labelWithString: "")
-    private let overflowLabel = NSTextField(labelWithString: "")
+    private let topLabel = SidebarStaticLabel()
+    private let primaryTextContainer = SidebarPrimaryTextContainerView()
+    private let primaryBaseLabel = SidebarStaticLabel()
+    private let primaryLabel = SidebarShimmerTextView()
+    private let statusLabel = SidebarStaticLabel()
+    private let stateBadgeIconView = NSImageView()
+    private let stateBadgeLabel = SidebarStaticLabel()
+    private let stateBadgeStack = NSStackView()
+    private let overflowLabel = SidebarStaticLabel()
     private let textStack = NSStackView()
     private let bodyStack = NSStackView()
     private let contentStack = NSStackView()
     private let artifactButton = NSButton(title: "", target: nil, action: nil)
-    private let shimmerLayer = CAGradientLayer()
 
-    private var detailLabels: [NSTextField] = []
+    private var detailLabels: [SidebarStaticLabel] = []
     private var currentSummary: WorkspaceSidebarSummary?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var isHovered = false
@@ -52,6 +54,10 @@ final class SidebarWorkspaceRowButton: NSButton {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override var allowsVibrancy: Bool {
+        false
+    }
+
     private func setup() {
         isBordered = false
         bezelStyle = .regularSquare
@@ -64,24 +70,35 @@ final class SidebarWorkspaceRowButton: NSButton {
         translatesAutoresizingMaskIntoConstraints = false
         setButtonType(.momentaryChange)
 
-        shimmerLayer.isHidden = true
-        shimmerLayer.startPoint = CGPoint(x: 0, y: 0.5)
-        shimmerLayer.endPoint = CGPoint(x: 1, y: 0.5)
-        layer?.addSublayer(shimmerLayer)
-
         configureLabel(
             topLabel,
             font: ShellMetrics.sidebarTitleFont(),
             lineBreakMode: .byTruncatingTail
         )
         configureLabel(
-            primaryLabel,
+            primaryBaseLabel,
             font: ShellMetrics.sidebarPrimaryFont(),
             lineBreakMode: .byTruncatingTail
         )
+        primaryLabel.font = ShellMetrics.sidebarPrimaryFont()
+        primaryLabel.lineHeight = ShellMetrics.sidebarPrimaryLineHeight
+        primaryLabel.lineBreakMode = .byTruncatingTail
+        primaryLabel.translatesAutoresizingMaskIntoConstraints = false
+        primaryLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        primaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        primaryTextContainer.translatesAutoresizingMaskIntoConstraints = false
+        primaryTextContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        primaryTextContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        primaryTextContainer.addSubview(primaryBaseLabel)
+        primaryTextContainer.addSubview(primaryLabel)
         configureLabel(
             statusLabel,
             font: ShellMetrics.sidebarStatusFont(),
+            lineBreakMode: .byTruncatingTail
+        )
+        configureLabel(
+            stateBadgeLabel,
+            font: NSFont.systemFont(ofSize: 11, weight: .semibold),
             lineBreakMode: .byTruncatingTail
         )
         configureLabel(
@@ -89,6 +106,18 @@ final class SidebarWorkspaceRowButton: NSButton {
             font: ShellMetrics.sidebarOverflowFont(),
             lineBreakMode: .byTruncatingTail
         )
+        stateBadgeIconView.translatesAutoresizingMaskIntoConstraints = false
+        stateBadgeIconView.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
+        stateBadgeIconView.setContentHuggingPriority(.required, for: .horizontal)
+        stateBadgeIconView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        stateBadgeStack.orientation = .horizontal
+        stateBadgeStack.alignment = .centerY
+        stateBadgeStack.spacing = 5
+        stateBadgeStack.translatesAutoresizingMaskIntoConstraints = false
+        stateBadgeStack.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        stateBadgeStack.addArrangedSubview(stateBadgeIconView)
+        stateBadgeStack.addArrangedSubview(stateBadgeLabel)
 
         leadingAccessoryContainer.translatesAutoresizingMaskIntoConstraints = false
         leadingAccessoryView.translatesAutoresizingMaskIntoConstraints = false
@@ -106,6 +135,14 @@ final class SidebarWorkspaceRowButton: NSButton {
             leadingAccessoryView.centerYAnchor.constraint(equalTo: leadingAccessoryContainer.centerYAnchor),
             leadingAccessoryView.widthAnchor.constraint(equalToConstant: ShellMetrics.sidebarLeadingAccessorySize),
             leadingAccessoryView.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarLeadingAccessorySize),
+            primaryBaseLabel.topAnchor.constraint(equalTo: primaryTextContainer.topAnchor),
+            primaryBaseLabel.leadingAnchor.constraint(equalTo: primaryTextContainer.leadingAnchor, constant: Layout.primaryTextLeadingInset),
+            primaryBaseLabel.trailingAnchor.constraint(equalTo: primaryTextContainer.trailingAnchor),
+            primaryBaseLabel.bottomAnchor.constraint(equalTo: primaryTextContainer.bottomAnchor),
+            primaryLabel.topAnchor.constraint(equalTo: primaryTextContainer.topAnchor),
+            primaryLabel.leadingAnchor.constraint(equalTo: primaryTextContainer.leadingAnchor),
+            primaryLabel.trailingAnchor.constraint(equalTo: primaryTextContainer.trailingAnchor),
+            primaryLabel.bottomAnchor.constraint(equalTo: primaryTextContainer.bottomAnchor),
         ])
 
         textStack.orientation = .vertical
@@ -149,12 +186,8 @@ final class SidebarWorkspaceRowButton: NSButton {
             contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset),
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.contentInset),
             contentStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -ShellMetrics.sidebarRowBottomInset),
+            primaryTextContainer.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarPrimaryLineHeight),
         ])
-    }
-
-    override func layout() {
-        super.layout()
-        shimmerLayer.frame = bounds
     }
 
     override func updateTrackingAreas() {
@@ -197,9 +230,12 @@ final class SidebarWorkspaceRowButton: NSButton {
         let layout = SidebarWorkspaceRowLayout(summary: summary)
 
         topLabel.stringValue = summary.topLabel ?? ""
+        primaryBaseLabel.stringValue = summary.primaryText
         primaryLabel.stringValue = summary.primaryText
         statusLabel.stringValue = summary.statusText ?? ""
+        stateBadgeLabel.stringValue = summary.stateBadgeText ?? ""
         overflowLabel.stringValue = summary.overflowText ?? ""
+        configureStateBadge(for: summary)
         configureDetailLabels(for: summary.detailLines)
         configureLeadingAccessory(
             accessory: summary.leadingAccessory,
@@ -221,7 +257,7 @@ final class SidebarWorkspaceRowButton: NSButton {
 
     private func configureDetailLabels(for detailLines: [WorkspaceSidebarDetailLine]) {
         while detailLabels.count < detailLines.count {
-            let label = NSTextField(labelWithString: "")
+            let label = SidebarStaticLabel()
             configureLabel(
                 label,
                 font: ShellMetrics.sidebarDetailFont(),
@@ -269,23 +305,30 @@ final class SidebarWorkspaceRowButton: NSButton {
             return
         }
 
+        appearance = NSAppearance(named: currentTheme.sidebarGlassAppearance.nsAppearanceName)
         updateShimmerState()
 
         let activeTextColor = currentTheme.sidebarButtonActiveText
         let inactiveTextColor = currentTheme.sidebarButtonInactiveText
 
-        topLabel.textColor = summary.isActive
-            ? activeTextColor.withAlphaComponent(0.66)
-            : currentTheme.tertiaryText
-        primaryLabel.textColor = summary.isActive ? activeTextColor : inactiveTextColor
+        topLabel.textColor = topLabelTextColor(
+            for: summary,
+            activeTextColor: activeTextColor,
+            inactiveTextColor: inactiveTextColor
+        )
+        primaryBaseLabel.textColor = primaryTextColor(
+            for: summary,
+            activeTextColor: activeTextColor,
+            inactiveTextColor: inactiveTextColor
+        )
         statusLabel.textColor = statusTextColor(for: summary)
+        stateBadgeLabel.textColor = stateBadgeTextColor(for: summary)
+        stateBadgeIconView.contentTintColor = stateBadgeLabel.textColor
         overflowLabel.textColor = summary.isActive
             ? activeTextColor.withAlphaComponent(0.54)
             : currentTheme.tertiaryText
         artifactButton.contentTintColor = summary.isActive ? activeTextColor : inactiveTextColor
-        leadingAccessoryView.contentTintColor = summary.isActive
-            ? activeTextColor.withAlphaComponent(0.78)
-            : currentTheme.secondaryText
+        leadingAccessoryView.contentTintColor = leadingAccessoryColor(for: summary, activeTextColor: activeTextColor)
 
         for (index, detailLabel) in detailLabels.enumerated() {
             guard summary.detailLines.indices.contains(index) else {
@@ -321,6 +364,18 @@ final class SidebarWorkspaceRowButton: NSButton {
         }
     }
 
+    private func configureStateBadge(for summary: WorkspaceSidebarSummary) {
+        guard let symbolName = stateBadgeSymbolName(for: summary) else {
+            stateBadgeIconView.image = nil
+            return
+        }
+
+        stateBadgeIconView.image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: summary.stateBadgeText
+        )?.withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+    }
+
     private func backgroundColor(
         isActive: Bool,
         activeBackground: NSColor,
@@ -328,7 +383,12 @@ final class SidebarWorkspaceRowButton: NSButton {
         inactiveBackground: NSColor
     ) -> NSColor {
         if isActive {
+            guard isWorking else {
+                return activeBackground
+            }
+
             return activeBackground
+                .mixed(towards: currentTheme.sidebarGradientStart.brightenedForLabel, amount: 0.12)
         }
 
         if isHovered {
@@ -345,41 +405,104 @@ final class SidebarWorkspaceRowButton: NSButton {
     }
 
     private func updateShimmerState() {
-        shimmerLayer.removeAnimation(forKey: WorkingIndicator.shimmerAnimationKey)
+        let isActive = currentSummary?.isActive ?? false
+        let activeTextColor = currentTheme.sidebarButtonActiveText
+        let inactiveTextColor = currentTheme.sidebarButtonInactiveText
+        primaryLabel.isShimmering = isWorking
+        primaryLabel.reducedMotion = reducedMotionProvider()
+        primaryLabel.shimmerColor = workingTextHighlightColor(
+            isActive: isActive,
+            activeTextColor: activeTextColor,
+            inactiveTextColor: inactiveTextColor
+        )
+            .withAlphaComponent(shimmerHighlightAlpha(isActive: isActive))
+    }
 
-        guard isWorking else {
-            shimmerLayer.isHidden = true
-            shimmerLayer.opacity = 0
-            return
+    private func primaryTextColor(
+        for summary: WorkspaceSidebarSummary,
+        activeTextColor: NSColor,
+        inactiveTextColor: NSColor
+    ) -> NSColor {
+        guard summary.isWorking else {
+            return summary.isActive ? activeTextColor : inactiveTextColor
         }
 
-        let highlight = currentTheme.sidebarGradientStart
-            .brightenedForLabel
-            .withAlphaComponent(currentTheme.reducedTransparency ? 0.14 : 0.22)
-        shimmerLayer.colors = [
-            NSColor.clear.cgColor,
-            highlight.cgColor,
-            NSColor.clear.cgColor,
-        ]
+        let emphasis = inactiveTextColor.mixed(
+            towards: workingTextHighlightColor(
+                isActive: false,
+                activeTextColor: activeTextColor,
+                inactiveTextColor: inactiveTextColor
+            ),
+            amount: 0.34
+        )
 
-        if reducedMotionProvider() {
-            shimmerLayer.isHidden = false
-            shimmerLayer.opacity = 0.55
-            shimmerLayer.locations = [0.30, 0.50, 0.70]
-            return
+        return summary.isActive
+            ? activeTextColor
+            : emphasis
+    }
+
+    private func topLabelTextColor(
+        for summary: WorkspaceSidebarSummary,
+        activeTextColor: NSColor,
+        inactiveTextColor: NSColor
+    ) -> NSColor {
+        guard summary.isWorking else {
+            return summary.isActive
+                ? activeTextColor.withAlphaComponent(0.66)
+                : currentTheme.tertiaryText
         }
 
-        shimmerLayer.isHidden = false
-        shimmerLayer.opacity = 1
-        shimmerLayer.locations = [0, 0.18, 0.36]
+        let emphasis = workingTextHighlightColor(
+            isActive: summary.isActive,
+            activeTextColor: activeTextColor,
+            inactiveTextColor: inactiveTextColor
+        )
 
-        let animation = CABasicAnimation(keyPath: "locations")
-        animation.fromValue = [-0.55, -0.20, 0.15]
-        animation.toValue = [0.85, 1.20, 1.55]
-        animation.duration = 1.15
-        animation.repeatCount = .infinity
-        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        shimmerLayer.add(animation, forKey: WorkingIndicator.shimmerAnimationKey)
+        return summary.isActive
+            ? emphasis.withAlphaComponent(0.84)
+            : emphasis.withAlphaComponent(0.78)
+    }
+
+    private func leadingAccessoryColor(
+        for summary: WorkspaceSidebarSummary,
+        activeTextColor: NSColor
+    ) -> NSColor {
+        guard summary.isWorking else {
+            return summary.isActive
+                ? activeTextColor.withAlphaComponent(0.78)
+                : currentTheme.secondaryText
+        }
+
+        let emphasis = workingTextHighlightColor(
+            isActive: summary.isActive,
+            activeTextColor: activeTextColor,
+            inactiveTextColor: currentTheme.sidebarButtonInactiveText
+        )
+            .withAlphaComponent(summary.isActive ? 0.94 : 0.88)
+
+        return summary.isActive
+            ? emphasis
+            : emphasis
+    }
+
+    private func workingTextHighlightColor(
+        isActive: Bool,
+        activeTextColor: NSColor,
+        inactiveTextColor: NSColor
+    ) -> NSColor {
+        if isActive {
+            return activeTextColor.mixed(towards: .white, amount: 0.10)
+        }
+
+        return inactiveTextColor.mixed(towards: currentTheme.sidebarWorkingTextHighlight, amount: 0.58)
+    }
+
+    private func shimmerHighlightAlpha(isActive: Bool) -> CGFloat {
+        if currentTheme.reducedTransparency {
+            return isActive ? 0.24 : 0.18
+        }
+
+        return isActive ? 0.38 : 0.28
     }
 
     private func statusTextColor(for summary: WorkspaceSidebarSummary) -> NSColor {
@@ -419,14 +542,60 @@ final class SidebarWorkspaceRowButton: NSButton {
         }
     }
 
-    private func label(for row: WorkspaceRowTextRow) -> NSTextField {
+    private func stateBadgeTextColor(for summary: WorkspaceSidebarSummary) -> NSColor {
+        switch summary.attentionState {
+        case .needsInput:
+            return NSColor.systemBlue
+        case .unresolvedStop:
+            return NSColor.systemOrange
+        case .running:
+            return NSColor.systemGreen
+        case .completed:
+            return summary.isActive
+                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.70)
+                : currentTheme.secondaryText
+        case nil:
+            if summary.isWorking {
+                return NSColor.systemGreen
+            }
+
+            return summary.isActive
+                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.62)
+                : currentTheme.tertiaryText
+        }
+    }
+
+    private func stateBadgeSymbolName(for summary: WorkspaceSidebarSummary) -> String? {
+        switch summary.attentionState {
+        case .needsInput:
+            return "bell.badge.fill"
+        case .unresolvedStop:
+            return "exclamationmark.circle.fill"
+        case .running:
+            return "circle.fill"
+        case .completed:
+            return "checkmark.circle.fill"
+        case nil:
+            if summary.isWorking {
+                return "circle.fill"
+            }
+            if summary.stateBadgeText != nil {
+                return "pause.circle.fill"
+            }
+            return nil
+        }
+    }
+
+    private func label(for row: WorkspaceRowTextRow) -> NSView {
         switch row {
         case .topLabel:
             topLabel
         case .primary:
-            primaryLabel
+            primaryTextContainer
         case .status:
             statusLabel
+        case .stateBadge:
+            stateBadgeStack
         case .context:
             detailLabels.first ?? overflowLabel
         case .detail(let index):
@@ -457,6 +626,18 @@ final class SidebarWorkspaceRowButton: NSButton {
         currentSummary?.overflowText ?? ""
     }
 
+    var statusTextForTesting: String {
+        statusLabel.stringValue
+    }
+
+    var topLabelColorForTesting: NSColor {
+        topLabel.textColor ?? .clear
+    }
+
+    var stateBadgeTextForTesting: String {
+        stateBadgeLabel.stringValue
+    }
+
     var leadingAccessorySymbolNameForTesting: String {
         currentLeadingAccessorySymbolName ?? ""
     }
@@ -466,11 +647,31 @@ final class SidebarWorkspaceRowButton: NSButton {
     }
 
     var shimmerIsAnimatingForTesting: Bool {
-        shimmerLayer.animation(forKey: WorkingIndicator.shimmerAnimationKey) != nil
+        primaryLabel.shimmerIsAnimating
+    }
+
+    var shimmerColorForTesting: NSColor {
+        primaryLabel.shimmerColor
+    }
+
+    var primaryTextColorForTesting: NSColor {
+        primaryBaseLabel.textColor ?? .clear
+    }
+
+    var primaryRowIndexForTesting: Int? {
+        textStack.arrangedSubviews.firstIndex(of: primaryTextContainer)
+    }
+
+    var backgroundColorForTesting: NSColor? {
+        layer?.backgroundColor.flatMap(NSColor.init(cgColor:))
+    }
+
+    var appearanceMatchForTesting: NSAppearance.Name? {
+        appearance?.bestMatch(from: [.darkAqua, .aqua])
     }
 
     func primaryMinX(in view: NSView) -> CGFloat {
-        view.convert(primaryLabel.bounds, from: primaryLabel).minX
+        view.convert(primaryBaseLabel.bounds, from: primaryBaseLabel).minX
     }
 
     private func configureLabel(
@@ -482,6 +683,358 @@ final class SidebarWorkspaceRowButton: NSButton {
         label.lineBreakMode = lineBreakMode
         label.translatesAutoresizingMaskIntoConstraints = false
         label.maximumNumberOfLines = 1
+    }
+}
+
+@MainActor
+private final class SidebarShimmerTextView: NSView {
+    private enum Animation {
+        static let duration: CFTimeInterval = 1.05
+        static let frameInterval: TimeInterval = 1.0 / 30.0
+    }
+
+    private static let textLeadingInset: CGFloat = 0
+
+    struct LayoutSnapshot {
+        let line: CTLine
+        let glyphPath: CGPath
+        let origin: CGPoint
+        let width: CGFloat
+    }
+
+    var stringValue: String = "" {
+        didSet {
+            guard oldValue != stringValue else { return }
+            invalidateLayout()
+        }
+    }
+
+    var font: NSFont = .systemFont(ofSize: 13, weight: .semibold) {
+        didSet {
+            guard oldValue != font else { return }
+            invalidateLayout()
+        }
+    }
+
+    var lineBreakMode: NSLineBreakMode = .byTruncatingTail {
+        didSet {
+            guard oldValue != lineBreakMode else { return }
+            invalidateLayout()
+        }
+    }
+
+    var shimmerColor: NSColor = .clear {
+        didSet {
+            guard oldValue != shimmerColor else { return }
+            needsDisplay = true
+        }
+    }
+
+    var lineHeight: CGFloat = ShellMetrics.sidebarPrimaryLineHeight {
+        didSet {
+            guard oldValue != lineHeight else { return }
+            invalidateIntrinsicContentSize()
+            needsDisplay = true
+        }
+    }
+
+    var isShimmering: Bool = false {
+        didSet {
+            guard oldValue != isShimmering else { return }
+            updateAnimationState()
+            needsDisplay = true
+        }
+    }
+
+    var reducedMotion: Bool = false {
+        didSet {
+            guard oldValue != reducedMotion else { return }
+            updateAnimationState()
+            needsDisplay = true
+        }
+    }
+
+    private var shimmerTimer: Timer?
+    private var shimmerStartTime: CFTimeInterval?
+    private var shimmerProgress: CGFloat = 0
+    private var cachedWidth: CGFloat = -1
+    private var cachedStringValue = ""
+    private var cachedFont: NSFont?
+    private var cachedLineBreakMode: NSLineBreakMode = .byTruncatingTail
+    private var cachedLayout: LayoutSnapshot?
+
+    override var isOpaque: Bool {
+        false
+    }
+
+    override var allowsVibrancy: Bool {
+        false
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: preferredTextWidth + Self.textLeadingInset, height: lineHeight)
+    }
+
+    var shimmerIsAnimating: Bool {
+        shimmerTimer != nil
+    }
+
+    private var preferredTextWidth: CGFloat {
+        guard stringValue.isEmpty == false else {
+            return 0
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let line = CTLineCreateWithAttributedString(
+            NSAttributedString(string: stringValue, attributes: attributes)
+        )
+        return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let previousWidth = frame.size.width
+        super.setFrameSize(newSize)
+        if abs(previousWidth - newSize.width) > .ulpOfOne {
+            invalidateLayout()
+        }
+    }
+
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        guard newSuperview == nil else {
+            return
+        }
+
+        shimmerTimer?.invalidate()
+        shimmerTimer = nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard
+            let context = NSGraphicsContext.current?.cgContext,
+            let layout = layoutSnapshot(forWidth: bounds.width)
+        else {
+            return
+        }
+
+        guard isShimmering else {
+            return
+        }
+
+        context.saveGState()
+        context.addPath(layout.glyphPath)
+        context.clip()
+        drawShimmerOverlay(in: context, layout: layout)
+        context.restoreGState()
+    }
+
+    private func drawShimmerOverlay(
+        in context: CGContext,
+        layout: LayoutSnapshot
+    ) {
+        let availableWidth = max(0, bounds.width - Self.textLeadingInset)
+        let bandWidth = max(32, min(availableWidth * 0.7, max(layout.width * 0.9, 32)))
+        let originX: CGFloat
+        if reducedMotion {
+            originX = Self.textLeadingInset + (availableWidth / 2) - (bandWidth / 2)
+        } else {
+            let travel = availableWidth + bandWidth
+            originX = Self.textLeadingInset - bandWidth + (travel * shimmerProgress)
+        }
+
+        guard let gradient = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(),
+            colors: [
+                shimmerColor.withAlphaComponent(0).cgColor,
+                shimmerColor.cgColor,
+                shimmerColor.withAlphaComponent(0).cgColor,
+            ] as CFArray,
+            locations: [0, 0.5, 1]
+        ) else {
+            return
+        }
+
+        let start = CGPoint(x: originX, y: layout.origin.y)
+        let end = CGPoint(x: originX + bandWidth, y: layout.origin.y)
+        context.drawLinearGradient(gradient, start: start, end: end, options: [])
+    }
+
+    private func layoutSnapshot(forWidth width: CGFloat) -> LayoutSnapshot? {
+        let availableWidth = width - Self.textLeadingInset
+        guard availableWidth > 0, stringValue.isEmpty == false else {
+            return nil
+        }
+
+        if
+            let cachedLayout,
+            abs(cachedWidth - width) <= .ulpOfOne,
+            cachedStringValue == stringValue,
+            cachedFont == font,
+            cachedLineBreakMode == lineBreakMode
+        {
+            return cachedLayout
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+        ]
+        let line = CTLineCreateWithAttributedString(
+            NSAttributedString(string: stringValue, attributes: attributes)
+        )
+        let drawLine = truncatedLine(from: line, attributes: attributes, availableWidth: availableWidth)
+
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        let lineWidth = CGFloat(CTLineGetTypographicBounds(drawLine, &ascent, &descent, nil))
+        let totalLineHeight = ascent + descent
+        let bottomPadding = max(0, (bounds.height - totalLineHeight) / 2)
+        let origin = CGPoint(x: Self.textLeadingInset, y: bottomPadding + descent)
+        let glyphPath = glyphPath(for: drawLine, lineOrigin: origin)
+        let snapshot = LayoutSnapshot(
+            line: drawLine,
+            glyphPath: glyphPath,
+            origin: origin,
+            width: lineWidth
+        )
+
+        cachedWidth = width
+        cachedStringValue = stringValue
+        cachedFont = font
+        cachedLineBreakMode = lineBreakMode
+        cachedLayout = snapshot
+
+        return snapshot
+    }
+
+    private func truncatedLine(
+        from line: CTLine,
+        attributes: [NSAttributedString.Key: Any],
+        availableWidth: CGFloat
+    ) -> CTLine {
+        guard lineBreakMode == .byTruncatingTail else {
+            return line
+        }
+
+        guard CTLineGetTypographicBounds(line, nil, nil, nil) > availableWidth else {
+            return line
+        }
+
+        let token = NSAttributedString(string: "\u{2026}", attributes: attributes)
+        let tokenLine = CTLineCreateWithAttributedString(token)
+        return CTLineCreateTruncatedLine(line, Double(availableWidth), .end, tokenLine) ?? line
+    }
+
+    private func glyphPath(
+        for line: CTLine,
+        lineOrigin: CGPoint
+    ) -> CGPath {
+        let glyphPath = CGMutablePath()
+        let runs = CTLineGetGlyphRuns(line) as NSArray
+
+        for case let run as CTRun in runs {
+            let glyphCount = CTRunGetGlyphCount(run)
+            guard glyphCount > 0 else {
+                continue
+            }
+
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            guard let fontObject = attributes[kCTFontAttributeName] else {
+                continue
+            }
+            let ctFont = fontObject as! CTFont
+
+            var glyphs = Array(repeating: CGGlyph(), count: glyphCount)
+            var positions = Array(repeating: CGPoint.zero, count: glyphCount)
+            CTRunGetGlyphs(run, CFRange(location: 0, length: 0), &glyphs)
+            CTRunGetPositions(run, CFRange(location: 0, length: 0), &positions)
+
+            for index in 0..<glyphCount {
+                guard let path = CTFontCreatePathForGlyph(ctFont, glyphs[index], nil) else {
+                    continue
+                }
+
+                var transform = CGAffineTransform(
+                    translationX: lineOrigin.x + positions[index].x,
+                    y: lineOrigin.y + positions[index].y
+                )
+                glyphPath.addPath(path, transform: transform)
+            }
+        }
+
+        return glyphPath
+    }
+
+    private func updateAnimationState() {
+        shimmerTimer?.invalidate()
+        shimmerTimer = nil
+
+        guard isShimmering, reducedMotion == false else {
+            shimmerProgress = 0.5
+            shimmerStartTime = nil
+            return
+        }
+
+        shimmerStartTime = CACurrentMediaTime()
+        let timer = Timer(timeInterval: Animation.frameInterval, repeats: true) { [weak self] _ in
+            guard let self else {
+                return
+            }
+
+            Task { @MainActor in
+                self.handleShimmerTick()
+            }
+        }
+        shimmerTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func handleShimmerTick() {
+        guard let shimmerStartTime else {
+            return
+        }
+
+        let elapsed = CACurrentMediaTime() - shimmerStartTime
+        shimmerProgress = CGFloat((elapsed / Animation.duration).truncatingRemainder(dividingBy: 1))
+        needsDisplay = true
+    }
+
+    private func invalidateLayout() {
+        cachedWidth = -1
+        cachedStringValue = ""
+        cachedFont = nil
+        cachedLineBreakMode = lineBreakMode
+        cachedLayout = nil
+        invalidateIntrinsicContentSize()
+        needsDisplay = true
+    }
+}
+
+private final class SidebarStaticLabel: NSTextField {
+    init() {
+        super.init(frame: .zero)
+        isEditable = false
+        isSelectable = false
+        isBordered = false
+        drawsBackground = false
+        backgroundColor = .clear
+        stringValue = ""
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var allowsVibrancy: Bool {
+        false
+    }
+}
+
+private final class SidebarPrimaryTextContainerView: NSView {
+    override var allowsVibrancy: Bool {
+        false
     }
 }
 

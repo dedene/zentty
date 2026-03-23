@@ -3,6 +3,10 @@ import QuartzCore
 
 @MainActor
 final class WorkspaceRenderCoordinator {
+    private enum ReviewPolling {
+        static let interval: TimeInterval = 30
+    }
+
     struct ViewBindings {
         let sidebarView: SidebarView
         let windowChromeView: WindowChromeView
@@ -19,6 +23,8 @@ final class WorkspaceRenderCoordinator {
 
     private var views: ViewBindings?
     private var currentPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] = []
+    private var reviewPollingTimer: Timer?
+    private var reviewPollingTarget: (workspaceID: WorkspaceID, paneID: PaneID, path: String, preferredBranch: String?)?
 
     var onNeedsSidebarSync: (() -> Void)?
     var themeProvider: (() -> ZenttyTheme)?
@@ -71,6 +77,7 @@ final class WorkspaceRenderCoordinator {
     }
 
     func updateSurfaceActivities() {
+        updateReviewPolling()
         updateRuntimeSurfaceActivities()
     }
 
@@ -135,6 +142,7 @@ final class WorkspaceRenderCoordinator {
                 activeWorkspaceID: workspaceStore.activeWorkspaceID,
                 windowIsKey: windowState.isKeyWindow
             )
+            updateReviewPolling()
             updateRuntimeSurfaceActivities()
         }
     }
@@ -205,5 +213,66 @@ final class WorkspaceRenderCoordinator {
             snapshots: translatedPaneBorderChromeSnapshots,
             theme: currentTheme
         )
+    }
+
+    private func updateReviewPolling() {
+        guard let target = makeReviewPollingTarget() else {
+            reviewPollingTarget = nil
+            reviewPollingTimer?.invalidate()
+            reviewPollingTimer = nil
+            return
+        }
+
+        let targetChanged = reviewPollingTarget?.workspaceID != target.workspaceID
+            || reviewPollingTarget?.paneID != target.paneID
+            || reviewPollingTarget?.path != target.path
+            || reviewPollingTarget?.preferredBranch != target.preferredBranch
+
+        reviewPollingTarget = target
+        if reviewPollingTimer == nil || targetChanged {
+            reviewPollingTimer?.invalidate()
+            reviewPollingTimer = Timer.scheduledTimer(
+                withTimeInterval: ReviewPolling.interval,
+                repeats: true
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshReviewPollingTarget(forceReload: true)
+                }
+            }
+        }
+    }
+
+    private func makeReviewPollingTarget() -> (workspaceID: WorkspaceID, paneID: PaneID, path: String, preferredBranch: String?)? {
+        let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
+        guard windowState.isVisible, windowState.isKeyWindow,
+              let workspace = workspaceStore.activeWorkspace,
+              let paneID = workspace.paneStripState.focusedPaneID,
+              let auxiliaryState = workspace.auxiliaryStateByPaneID[paneID],
+              let path = auxiliaryState.localReviewWorkingDirectory
+        else {
+            return nil
+        }
+
+        return (
+            workspaceID: workspace.id,
+            paneID: paneID,
+            path: path,
+            preferredBranch: auxiliaryState.metadata?.gitBranch
+        )
+    }
+
+    private func refreshReviewPollingTarget(forceReload: Bool) {
+        guard let target = reviewPollingTarget else {
+            return
+        }
+
+        reviewStateResolver.refreshFocusedPane(
+            path: target.path,
+            preferredBranch: target.preferredBranch,
+            paneID: target.paneID,
+            forceReload: forceReload
+        ) { [weak self] paneID, resolution in
+            self?.workspaceStore.updateReviewResolution(paneID: paneID, resolution: resolution)
+        }
     }
 }

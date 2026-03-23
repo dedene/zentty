@@ -31,7 +31,7 @@ final class WindowChromeViewTests: XCTestCase {
         XCTAssertEqual(view.reviewChipTexts, ["Draft", "2 failing"])
     }
 
-    func test_window_chrome_renders_branch_without_pr_and_shows_no_pr_chip() {
+    func test_window_chrome_renders_branch_without_pr_and_hides_review_chips() {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
         )
@@ -41,12 +41,12 @@ final class WindowChromeViewTests: XCTestCase {
             focusedLabel: "Claude Code",
             branch: "main",
             pullRequest: nil,
-            reviewChips: [WorkspaceReviewChip(text: "No PR", style: .neutral)]
+            reviewChips: []
         ))
 
         XCTAssertEqual(view.branchText, "main")
         XCTAssertEqual(view.pullRequestText, "")
-        XCTAssertEqual(view.reviewChipTexts, ["No PR"])
+        XCTAssertEqual(view.reviewChipTexts, [])
     }
 
     func test_window_chrome_renders_non_git_summary_with_only_focused_label() {

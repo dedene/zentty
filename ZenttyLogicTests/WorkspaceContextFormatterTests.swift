@@ -7,7 +7,7 @@ final class WorkspaceContextFormatterTests: XCTestCase {
             "/Users/peter/Development/Personal/worktrees/feature/sidebar"
         )
 
-        XCTAssertEqual(compact, "feature/sidebar")
+        XCTAssertEqual(compact, "…/sidebar")
     }
 
     func test_compact_workspace_path_maps_home_to_tilde() {
@@ -28,7 +28,7 @@ final class WorkspaceContextFormatterTests: XCTestCase {
             fallbackTitle: "shell"
         )
 
-        XCTAssertEqual(detail, "main • git")
+        XCTAssertEqual(detail, "main • …/git")
     }
 
     func test_pane_detail_line_drops_generated_split_fallback_when_only_directory_exists() {
@@ -42,7 +42,7 @@ final class WorkspaceContextFormatterTests: XCTestCase {
             fallbackTitle: "pane 1"
         )
 
-        XCTAssertEqual(detail, "copy")
+        XCTAssertEqual(detail, "/tmp/copy")
     }
 
     func test_resolved_working_directory_prefers_more_specific_title_path_when_reported_cwd_is_stale() {
@@ -70,5 +70,28 @@ final class WorkspaceContextFormatterTests: XCTestCase {
         )
 
         XCTAssertEqual(resolved, "/tmp/current-project")
+    }
+
+    func test_resolved_working_directory_prefers_more_specific_shell_context_path_when_metadata_is_home() {
+        let projectPath = (NSHomeDirectory() as NSString).appendingPathComponent(
+            "Development/Personal/zentty"
+        )
+        let resolved = WorkspaceContextFormatter.resolvedWorkingDirectory(
+            for: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: NSHomeDirectory(),
+                processName: "zsh",
+                gitBranch: nil
+            ),
+            shellContext: PaneShellContext(
+                scope: .local,
+                path: projectPath,
+                home: NSHomeDirectory(),
+                user: "peter",
+                host: "m1-pro-peter"
+            )
+        )
+
+        XCTAssertEqual(resolved, projectPath)
     }
 }

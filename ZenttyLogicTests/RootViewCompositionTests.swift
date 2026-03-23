@@ -376,6 +376,11 @@ final class RootViewCompositionTests: XCTestCase {
     func test_sidebar_width_clamps_to_supported_range() {
         XCTAssertEqual(SidebarWidthPreference.clamped(120), SidebarWidthPreference.minimumWidth, accuracy: 0.001)
         XCTAssertEqual(SidebarWidthPreference.clamped(500), SidebarWidthPreference.maximumWidth, accuracy: 0.001)
+        XCTAssertEqual(
+            SidebarWidthPreference.clamped(500, availableWidth: 900),
+            SidebarWidthPreference.maximumWidth(for: 900),
+            accuracy: 0.001
+        )
     }
 
     func test_sidebar_places_add_workspace_button_below_last_row_without_visible_divider() {
@@ -682,14 +687,16 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertLessThan(sidebarView.addWorkspaceIconAlpha, sidebarView.addWorkspaceTitleAlpha)
     }
 
-    func test_sidebar_resize_hit_area_is_centered_on_outer_edge_without_hover_fill() {
+    func test_sidebar_resize_hit_area_is_centered_on_outer_edge_without_visible_indicator() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
 
         sidebarView.layoutSubtreeIfNeeded()
 
         XCTAssertLessThan(sidebarView.resizeHandleMinX, sidebarView.bounds.maxX)
-        XCTAssertGreaterThan(sidebarView.resizeHandleMaxX, sidebarView.bounds.maxX)
+        XCTAssertEqual(sidebarView.resizeHandleMaxX, sidebarView.bounds.maxX, accuracy: 0.001)
         XCTAssertEqual(sidebarView.resizeHandleFillAlpha, 0, accuracy: 0.001)
+        XCTAssertFalse(sidebarView.isResizeHandleHidden)
+        XCTAssertTrue(sidebarView.trailingEdgeHitTargetsResizeHandle)
     }
 
     func test_sidebar_hides_resize_handle_when_resize_is_disabled() {
@@ -742,6 +749,48 @@ final class RootViewCompositionTests: XCTestCase {
         glassView.apply(theme: theme, animated: false)
 
         XCTAssertEqual(glassView.appearance?.bestMatch(from: [.darkAqua, .aqua]), .aqua)
+    }
+
+    func test_sidebar_content_tree_forces_dark_appearance_for_dark_themes() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        sidebarView.appearance = NSAppearance(named: .aqua)
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: false
+        )
+
+        sidebarView.render(
+            summaries: [
+                WorkspaceSidebarSummary(
+                    workspaceID: WorkspaceID("workspace-main"),
+                    badgeText: "1",
+                    topLabel: "peter@m1-pro-peter:~",
+                    primaryText: "~",
+                    statusText: nil,
+                    detailLines: [],
+                    overflowText: nil,
+                    leadingAccessory: .agent(.claudeCode),
+                    attentionState: nil,
+                    artifactLink: nil,
+                    isWorking: false,
+                    isActive: false
+                )
+            ],
+            theme: theme
+        )
+
+        XCTAssertEqual(sidebarView.appearanceMatchForTesting, .darkAqua)
+        let firstRow = try! XCTUnwrap(sidebarView.workspaceButtonsForTesting.first as? SidebarWorkspaceRowButton)
+        XCTAssertEqual(firstRow.appearanceMatchForTesting, .darkAqua)
     }
 
     func test_sidebar_row_exposes_single_trailing_artifact_pill() {
@@ -816,7 +865,7 @@ final class RootViewCompositionTests: XCTestCase {
             ShellMetrics.sidebarRowHeight(
                 includesTopLabel: true,
                 includesStatus: true,
-                detailLineCount: 0,
+                detailLineCount: 1,
                 includesOverflow: false,
                 includesArtifact: false
             ),

@@ -52,9 +52,12 @@ final class TerminalPaneHostView: NSView {
         adapter.setSurfaceActivity(activity)
     }
 
-    func prepareSessionStart(from sourceAdapter: (any TerminalAdapter)?) {
+    func prepareSessionStart(
+        from sourceAdapter: (any TerminalAdapter)?,
+        context: TerminalSurfaceContext
+    ) {
         (adapter as? any TerminalSessionInheritanceConfiguring)?
-            .prepareSessionStart(from: sourceAdapter)
+            .prepareSessionStart(from: sourceAdapter, context: context)
     }
 
     func setViewportSyncSuspended(_ suspended: Bool) {
@@ -173,6 +176,10 @@ final class PaneRuntime {
         adapterValue.cellHeight
     }
 
+    var cellWidth: CGFloat {
+        adapterValue.cellWidth
+    }
+
     var snapshot: PaneRuntimeSnapshot {
         PaneRuntimeSnapshot(
             metadata: metadata,
@@ -207,7 +214,10 @@ final class PaneRuntime {
     }
 
     func prepareSessionStart(from sourceRuntime: PaneRuntime?) {
-        hostViewValue.prepareSessionStart(from: sourceRuntime?.adapter)
+        hostViewValue.prepareSessionStart(
+            from: sourceRuntime?.adapter,
+            context: sessionRequest.surfaceContext
+        )
     }
 
     func addObserver(_ observer: @escaping (PaneRuntimeSnapshot) -> Void) -> UUID {
@@ -290,7 +300,9 @@ final class PaneRuntimeRegistry {
             for pane in workspace.paneStripState.panes {
                 nextPaneIDs.insert(pane.id)
                 let runtime = runtime(for: pane)
-                let sourceRuntime = pane.sessionRequest.inheritFromPaneID.flatMap { runtimes[$0] }
+                let sourcePaneID = pane.sessionRequest.configInheritanceSourcePaneID
+                    ?? pane.sessionRequest.inheritFromPaneID
+                let sourceRuntime = sourcePaneID.flatMap { runtimes[$0] }
                 runtime.prepareSessionStart(from: sourceRuntime)
             }
         }

@@ -4,6 +4,27 @@ import XCTest
 
 @MainActor
 final class WorkspaceReviewStateResolverTests: XCTestCase {
+    func test_default_review_command_runner_includes_common_gui_command_locations_in_search_path() {
+        let searchPaths = DefaultWorkspaceReviewCommandRunner.executableSearchPaths(environment: [
+            "HOME": "/Users/tester",
+            "PATH": "/usr/bin:/bin",
+        ])
+
+        XCTAssertTrue(searchPaths.contains("/opt/homebrew/bin"))
+        XCTAssertTrue(searchPaths.contains("/usr/local/bin"))
+        XCTAssertTrue(searchPaths.contains("/Users/tester/.local/bin"))
+    }
+
+    func test_default_review_command_runner_resolves_absolute_executable_paths() {
+        XCTAssertEqual(
+            DefaultWorkspaceReviewCommandRunner.resolveExecutablePath(
+                for: "/bin/echo",
+                environment: [:]
+            ),
+            "/bin/echo"
+        )
+    }
+
     func test_resolver_builds_draft_pull_request_state_with_failing_check_chip() async {
         let runner = StubGHRunner(
             gitBranchResult: .stdout("feature/review-band\n"),
@@ -45,7 +66,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["Ready"])
     }
 
-    func test_resolver_returns_branch_only_no_pr_when_gh_reports_no_pull_request() async {
+    func test_resolver_returns_branch_only_when_gh_reports_no_pull_request() async {
         let runner = StubGHRunner(
             gitBranchResult: .stdout("feature/review-band\n"),
             prViewResult: .failure(stderr: "no pull requests found for branch \"feature/review-band\""),
@@ -57,7 +78,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
 
         XCTAssertEqual(resolution.reviewState?.branch, "feature/review-band")
         XCTAssertNil(resolution.reviewState?.pullRequest)
-        XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["No PR"])
+        XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), [])
         XCTAssertNil(resolution.inferredArtifact)
     }
 
@@ -72,6 +93,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
 
         XCTAssertNil(unavailableResolution.reviewState)
         XCTAssertNil(unavailableResolution.inferredArtifact)
+        XCTAssertEqual(unavailableResolution.updatePolicy, .preserveExistingOnEmpty)
 
         let authRunner = StubGHRunner(
             gitBranchResult: .stdout("main\n"),
@@ -83,6 +105,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
 
         XCTAssertNil(authResolution.reviewState)
         XCTAssertNil(authResolution.inferredArtifact)
+        XCTAssertEqual(authResolution.updatePolicy, .preserveExistingOnEmpty)
     }
 
     func test_resolver_maps_merged_running_and_closed_states_to_expected_chips() async {
@@ -150,13 +173,15 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         await fulfillment(of: [secondRefresh], timeout: 1.0)
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 4)
-        XCTAssertEqual(calls[0].arguments, ["git", "branch", "--show-current"])
-        XCTAssertEqual(calls[1].arguments[2], "view")
-        XCTAssertTrue(calls[1].arguments.contains("feature/review-band"))
-        XCTAssertEqual(calls[2].arguments[2], "checks")
-        XCTAssertTrue(calls[2].arguments.contains("feature/review-band"))
-        XCTAssertEqual(calls[3].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls.count, 6)
+        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[3].arguments[2], "view")
+        XCTAssertTrue(calls[3].arguments.contains("feature/review-band"))
+        XCTAssertEqual(calls[4].arguments[2], "checks")
+        XCTAssertTrue(calls[4].arguments.contains("feature/review-band"))
+        XCTAssertEqual(calls[5].arguments, ["git", "branch", "--show-current"])
     }
 
     func test_resolver_derives_branch_from_git_before_loading_pr_and_checks() async throws {
@@ -196,19 +221,83 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["Draft", "2 failing"])
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 3)
-        XCTAssertEqual(calls[0].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls.count, 5)
+        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
         XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[1].arguments[0...2], ["gh", "pr", "view"])
-        XCTAssertTrue(calls[1].arguments.contains("feature/review-band"))
+        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
         XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[2].arguments[0...2], ["gh", "pr", "checks"])
-        XCTAssertTrue(calls[2].arguments.contains("feature/review-band"))
+        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
         XCTAssertEqual(calls[2].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls[3].arguments[0...2], ["gh", "pr", "view"])
+        XCTAssertTrue(calls[3].arguments.contains("feature/review-band"))
+        XCTAssertEqual(calls[3].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "checks"])
+        XCTAssertTrue(calls[4].arguments.contains("feature/review-band"))
+        XCTAssertEqual(calls[4].currentDirectoryPath, "/tmp/project")
+    }
+
+    func test_resolver_uses_local_pane_context_path_when_metadata_cwd_is_missing() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("main\n"),
+            prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
+            prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"RSpec"}]"#)
+        )
+        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let paneID = PaneID("pane-shell")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "Claude Code",
+                    currentWorkingDirectory: nil,
+                    processName: "zsh"
+                ),
+            ],
+            paneContextByPaneID: [
+                paneID: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/project",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: "m1-pro-peter"
+                ),
+            ]
+        )
+
+        var updates: [WorkspaceReviewResolution] = []
+        let refreshExpectation = expectation(description: "refresh update")
+        resolver.refresh(for: [workspace]) { _, resolution in
+            updates.append(resolution)
+            refreshExpectation.fulfill()
+        }
+        await fulfillment(of: [refreshExpectation], timeout: 1.0)
+
+        XCTAssertEqual(updates.last?.reviewState?.branch, "main")
+        XCTAssertEqual(updates.last?.reviewState?.pullRequest?.number, 1413)
+        XCTAssertEqual(updates.last?.reviewState?.reviewChips.map(\.text), ["1 failing"])
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls.count, 5)
+        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[2].currentDirectoryPath, "/tmp/project")
+        XCTAssertTrue(calls[3].arguments.contains("main"))
+        XCTAssertEqual(calls[3].currentDirectoryPath, "/tmp/project")
+        XCTAssertTrue(calls[4].arguments.contains("main"))
+        XCTAssertEqual(calls[4].currentDirectoryPath, "/tmp/project")
     }
 
     func test_resolver_returns_nil_when_git_branch_lookup_fails() async {
         let runner = StubGHRunner(
+            gitRepositoryProbeResult: .failure(stderr: "fatal: not a git repository"),
             gitBranchResult: .failure(stderr: "fatal: not a git repository"),
             prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
@@ -243,7 +332,53 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
 
         let calls = await runner.calls
         XCTAssertEqual(calls, [
-            .init(arguments: ["git", "branch", "--show-current"], currentDirectoryPath: "/tmp/project"),
+            .init(arguments: ["git", "rev-parse", "--git-dir"], currentDirectoryPath: "/tmp/project"),
+        ])
+    }
+
+    func test_resolver_probes_repository_before_branch_lookup_and_skips_follow_up_for_non_repo() async {
+        let runner = StubGHRunner(
+            gitRepositoryProbeResult: .failure(stderr: "fatal: not a git repository"),
+            gitBranchResult: .stdout("main\n"),
+            gitRemoteResult: .stdout("git@github.com:zenjoy/zentty.git\n"),
+            prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":false,"state":"OPEN"}"#),
+            prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
+        )
+        let resolver = WorkspaceReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/non-repo", branch: "main")
+
+        XCTAssertNil(resolution.reviewState)
+        XCTAssertNil(resolution.inferredArtifact)
+        XCTAssertEqual(resolution.updatePolicy, .preserveExistingOnEmpty)
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls, [
+            .init(arguments: ["git", "rev-parse", "--git-dir"], currentDirectoryPath: "/tmp/non-repo"),
+        ])
+    }
+
+    func test_resolver_skips_github_commands_when_origin_is_not_github() async {
+        let runner = StubGHRunner(
+            gitRepositoryProbeResult: .stdout(".git\n"),
+            gitBranchResult: .stdout("main\n"),
+            gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+            prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":false,"state":"OPEN"}"#),
+            prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
+        )
+        let resolver = WorkspaceReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(resolution.reviewState?.branch, "main")
+        XCTAssertNil(resolution.reviewState?.pullRequest)
+        XCTAssertEqual(resolution.reviewState?.reviewChips, [])
+        XCTAssertNil(resolution.inferredArtifact)
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls, [
+            .init(arguments: ["git", "rev-parse", "--git-dir"], currentDirectoryPath: "/tmp/project"),
+            .init(arguments: ["git", "remote", "get-url", "origin"], currentDirectoryPath: "/tmp/project"),
         ])
     }
 
@@ -284,11 +419,13 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(updates.last?.reviewState?.pullRequest?.number, 1413)
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 3)
-        XCTAssertEqual(calls[0].arguments, ["git", "branch", "--show-current"])
-        XCTAssertTrue(calls[1].arguments.contains("main"))
-        XCTAssertFalse(calls[1].arguments.contains("m...n"))
-        XCTAssertTrue(calls[2].arguments.contains("main"))
+        XCTAssertEqual(calls.count, 5)
+        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertTrue(calls[3].arguments.contains("main"))
+        XCTAssertFalse(calls[3].arguments.contains("m...n"))
+        XCTAssertTrue(calls[4].arguments.contains("main"))
     }
 
     func test_resolver_reloads_pr_when_branch_changes_in_same_cwd() async {
@@ -344,13 +481,107 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(updates.map { $0.reviewState?.reviewChips.map(\.text) ?? [] }, [["Draft", "1 failing"], ["Checks passed"]])
 
         let calls = await runner.calls
+        XCTAssertEqual(calls.count, 8)
+        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertTrue(calls[3].arguments.contains("feature/review-band"))
+        XCTAssertTrue(calls[4].arguments.contains("feature/review-band"))
+        XCTAssertEqual(calls[5].arguments, ["git", "branch", "--show-current"])
+        XCTAssertTrue(calls[6].arguments.contains("main"))
+        XCTAssertTrue(calls[7].arguments.contains("main"))
+    }
+
+    func test_refresh_focused_pane_force_reload_bypasses_cache_for_same_branch() async {
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("main\n")],
+            prViewResults: [
+                .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":true,"state":"OPEN"}"#),
+                .json(#"{"number":256,"url":"https://example.com/pr/256","isDraft":false,"state":"OPEN"}"#),
+            ],
+            prChecksResults: [
+                .json(#"[{"bucket":"fail","state":"FAILURE","name":"unit-tests"}]"#),
+                .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#),
+            ]
+        )
+        let resolver = WorkspaceReviewStateResolver(runner: runner)
+
+        let initialResolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+        XCTAssertEqual(initialResolution.reviewState?.pullRequest?.number, 128)
+        XCTAssertEqual(initialResolution.reviewState?.reviewChips.map(\.text), ["Draft", "1 failing"])
+
+        var refreshedResolution: WorkspaceReviewResolution?
+        let refreshExpectation = expectation(description: "forced refresh update")
+        resolver.refreshFocusedPane(
+            path: "/tmp/project",
+            preferredBranch: "main",
+            paneID: PaneID("pane-main"),
+            forceReload: true
+        ) { _, resolution in
+            refreshedResolution = resolution
+            refreshExpectation.fulfill()
+        }
+        await fulfillment(of: [refreshExpectation], timeout: 1.0)
+
+        XCTAssertEqual(refreshedResolution?.reviewState?.pullRequest?.number, 256)
+        XCTAssertEqual(refreshedResolution?.reviewState?.reviewChips.map(\.text), ["Checks passed"])
+
+        let calls = await runner.calls
         XCTAssertEqual(calls.count, 6)
-        XCTAssertEqual(calls[0].arguments, ["git", "branch", "--show-current"])
-        XCTAssertTrue(calls[1].arguments.contains("feature/review-band"))
-        XCTAssertTrue(calls[2].arguments.contains("feature/review-band"))
-        XCTAssertEqual(calls[3].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(calls[1].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[2].arguments[0...2], ["gh", "pr", "view"])
+        XCTAssertTrue(calls[2].arguments.contains("main"))
+        XCTAssertEqual(calls[3].arguments[0...2], ["gh", "pr", "checks"])
+        XCTAssertTrue(calls[3].arguments.contains("main"))
+        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "view"])
         XCTAssertTrue(calls[4].arguments.contains("main"))
+        XCTAssertEqual(calls[5].arguments[0...2], ["gh", "pr", "checks"])
         XCTAssertTrue(calls[5].arguments.contains("main"))
+    }
+
+    func test_refresh_focused_pane_force_reload_preserves_cached_resolution_when_gh_view_fails() async {
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("main\n")],
+            prViewResults: [
+                .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":false,"state":"OPEN"}"#),
+                .failure(stderr: "network timeout"),
+            ],
+            prChecksResults: [
+                .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#),
+                .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#),
+            ]
+        )
+        let resolver = WorkspaceReviewStateResolver(runner: runner)
+
+        let initialResolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+        XCTAssertEqual(initialResolution.reviewState?.pullRequest?.number, 128)
+        XCTAssertEqual(initialResolution.reviewState?.reviewChips.map { $0.text }, ["Checks passed"])
+
+        var refreshedResolution: WorkspaceReviewResolution?
+        let refreshExpectation = expectation(description: "forced refresh keeps cache")
+        resolver.refreshFocusedPane(
+            path: "/tmp/project",
+            preferredBranch: "main",
+            paneID: PaneID("pane-main"),
+            forceReload: true
+        ) { _, resolution in
+            refreshedResolution = resolution
+            refreshExpectation.fulfill()
+        }
+        await fulfillment(of: [refreshExpectation], timeout: 1.0)
+
+        XCTAssertEqual(refreshedResolution?.reviewState?.pullRequest?.number, 128)
+        XCTAssertEqual(refreshedResolution?.reviewState?.reviewChips.map { $0.text }, ["Checks passed"])
+        XCTAssertEqual(refreshedResolution?.updatePolicy, .replace)
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls.count, 5)
+        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(calls[1].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[2].arguments[0...2], ["gh", "pr", "view"])
+        XCTAssertEqual(calls[3].arguments[0...2], ["gh", "pr", "checks"])
+        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "view"])
     }
 }
 
@@ -366,19 +597,37 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
         case failure(stderr: String)
     }
 
+    private var gitRepositoryProbeResults: [ResultFixture]
     private var gitBranchResults: [ResultFixture]
+    private var gitRemoteResults: [ResultFixture]
     private var prViewResults: [ResultFixture]
     private var prChecksResults: [ResultFixture]
     private(set) var calls: [Invocation] = []
 
-    init(gitBranchResult: ResultFixture, prViewResult: ResultFixture, prChecksResult: ResultFixture) {
+    init(
+        gitRepositoryProbeResult: ResultFixture = .stdout(".git\n"),
+        gitBranchResult: ResultFixture = .stdout("main\n"),
+        gitRemoteResult: ResultFixture = .stdout("git@github.com:zenjoy/zentty.git\n"),
+        prViewResult: ResultFixture = .failure(stderr: "missing prViewResult fixture"),
+        prChecksResult: ResultFixture = .failure(stderr: "missing prChecksResult fixture")
+    ) {
+        self.gitRepositoryProbeResults = [gitRepositoryProbeResult]
         self.gitBranchResults = [gitBranchResult]
+        self.gitRemoteResults = [gitRemoteResult]
         self.prViewResults = [prViewResult]
         self.prChecksResults = [prChecksResult]
     }
 
-    init(gitBranchResults: [ResultFixture], prViewResults: [ResultFixture], prChecksResults: [ResultFixture]) {
+    init(
+        gitRepositoryProbeResults: [ResultFixture] = [.stdout(".git\n")],
+        gitBranchResults: [ResultFixture],
+        gitRemoteResults: [ResultFixture] = [.stdout("git@github.com:zenjoy/zentty.git\n")],
+        prViewResults: [ResultFixture],
+        prChecksResults: [ResultFixture]
+    ) {
+        self.gitRepositoryProbeResults = gitRepositoryProbeResults
         self.gitBranchResults = gitBranchResults
+        self.gitRemoteResults = gitRemoteResults
         self.prViewResults = prViewResults
         self.prChecksResults = prChecksResults
     }
@@ -386,8 +635,16 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
     func run(arguments: [String], currentDirectoryPath: String) async -> WorkspaceReviewCommandResult {
         calls.append(Invocation(arguments: arguments, currentDirectoryPath: currentDirectoryPath))
 
+        if arguments == ["git", "rev-parse", "--git-dir"] {
+            return makeCommandResult(from: nextFixture(in: &gitRepositoryProbeResults))
+        }
+
         if arguments == ["git", "branch", "--show-current"] {
             return makeCommandResult(from: nextFixture(in: &gitBranchResults))
+        }
+
+        if arguments == ["git", "remote", "get-url", "origin"] {
+            return makeCommandResult(from: nextFixture(in: &gitRemoteResults))
         }
 
         if arguments.contains("view") {

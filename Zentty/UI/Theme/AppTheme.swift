@@ -70,6 +70,7 @@ struct ZenttyTheme: Equatable {
     let sidebarButtonInactiveBorder: NSColor
     let sidebarButtonActiveText: NSColor
     let sidebarButtonInactiveText: NSColor
+    let sidebarWorkingTextHighlight: NSColor
     let sidebarGradientStart: NSColor
     let sidebarGradientEnd: NSColor
     let underlapShadow: NSColor
@@ -88,7 +89,7 @@ struct ZenttyTheme: Equatable {
             lhs.startupSurface, lhs.failureOverlayBackground, lhs.failurePrimaryText,
             lhs.failureSecondaryText, lhs.sidebarButtonActiveBackground, lhs.sidebarButtonHoverBackground,
             lhs.sidebarButtonInactiveBackground, lhs.sidebarButtonActiveBorder, lhs.sidebarButtonInactiveBorder,
-            lhs.sidebarButtonActiveText, lhs.sidebarButtonInactiveText, lhs.sidebarGradientStart,
+            lhs.sidebarButtonActiveText, lhs.sidebarButtonInactiveText, lhs.sidebarWorkingTextHighlight, lhs.sidebarGradientStart,
             lhs.sidebarGradientEnd,
             lhs.underlapShadow,
         ].map(\.themeToken) == [
@@ -100,7 +101,7 @@ struct ZenttyTheme: Equatable {
             rhs.startupSurface, rhs.failureOverlayBackground, rhs.failurePrimaryText,
             rhs.failureSecondaryText, rhs.sidebarButtonActiveBackground, rhs.sidebarButtonHoverBackground,
             rhs.sidebarButtonInactiveBackground, rhs.sidebarButtonActiveBorder, rhs.sidebarButtonInactiveBorder,
-            rhs.sidebarButtonActiveText, rhs.sidebarButtonInactiveText, rhs.sidebarGradientStart,
+            rhs.sidebarButtonActiveText, rhs.sidebarButtonInactiveText, rhs.sidebarWorkingTextHighlight, rhs.sidebarGradientStart,
             rhs.sidebarGradientEnd,
             rhs.underlapShadow,
         ].map(\.themeToken)
@@ -135,6 +136,9 @@ struct ZenttyTheme: Equatable {
         let sidebarRowIdleBase = background.isDarkThemeColor
             ? baseSidebar.mixed(towards: foreground, amount: 0.22)
             : baseSidebar.mixed(towards: foreground, amount: 0.18)
+        let readableForeground = foreground.ensuringTextContrast(on: background)
+        let readableSidebarText = foreground.ensuringTextContrast(on: baseSidebar)
+        let readableSidebarActiveText = foreground.ensuringTextContrast(on: sidebarRowSelectedBase)
 
         self.reducedTransparency = reduceTransparency
         sidebarGlassAppearance = background.isDarkThemeColor ? .dark : .light
@@ -155,18 +159,18 @@ struct ZenttyTheme: Equatable {
         workspaceChipBackground = accent
             .mixed(towards: background, amount: background.isDarkThemeColor ? 0.82 : 0.88)
             .withAlphaComponent(0.92)
-        workspaceChipText = foreground.withAlphaComponent(0.96)
-        primaryText = foreground.withAlphaComponent(0.96)
-        secondaryText = foreground.withAlphaComponent(0.72)
-        tertiaryText = foreground.withAlphaComponent(0.54)
+        workspaceChipText = readableForeground.withAlphaComponent(0.96)
+        primaryText = readableForeground.withAlphaComponent(0.96)
+        secondaryText = readableForeground.withAlphaComponent(0.72)
+        tertiaryText = readableForeground.withAlphaComponent(0.54)
         paneBorderFocused = accent.withAlphaComponent(background.isDarkThemeColor ? 0.42 : 0.34)
         paneBorderUnfocused = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.13 : 0.10)
         paneFillFocused = background.mixed(towards: accent, amount: 0.08).withAlphaComponent(0.98)
         paneFillUnfocused = background.withAlphaComponent(0.96)
         paneShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.06)
         failureOverlayBackground = background.mixed(towards: foreground, amount: 0.08).withAlphaComponent(0.92)
-        failurePrimaryText = foreground.withAlphaComponent(0.96)
-        failureSecondaryText = foreground.withAlphaComponent(0.72)
+        failurePrimaryText = readableForeground.withAlphaComponent(0.96)
+        failureSecondaryText = readableForeground.withAlphaComponent(0.72)
         sidebarButtonActiveBackground = sidebarRowSelectedBase.withAlphaComponent(
             reduceTransparency ? 0.94 : (background.isDarkThemeColor ? 0.62 : 0.88)
         )
@@ -178,10 +182,11 @@ struct ZenttyTheme: Equatable {
         )
         sidebarButtonActiveBorder = accent.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.10)
         sidebarButtonInactiveBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.10 : 0.12)
-        sidebarButtonActiveText = background.isDarkThemeColor
-            ? foreground.withAlphaComponent(0.98)
-            : NSColor.white.withAlphaComponent(0.96)
-        sidebarButtonInactiveText = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.74 : 0.72)
+        sidebarButtonActiveText = readableSidebarActiveText.withAlphaComponent(background.isDarkThemeColor ? 0.98 : 0.96)
+        sidebarButtonInactiveText = readableSidebarText.withAlphaComponent(background.isDarkThemeColor ? 0.74 : 0.72)
+        sidebarWorkingTextHighlight = background.isDarkThemeColor
+            ? readableSidebarText.mixed(towards: NSColor.white, amount: 0.14)
+            : readableSidebarText.mixed(towards: NSColor.white, amount: 0.82)
         sidebarGradientStart = baseSidebar
             .mixed(towards: NSColor.black, amount: background.isDarkThemeColor ? 0.12 : 0.04)
             .withAlphaComponent(reduceTransparency ? 0.05 : (background.isDarkThemeColor ? 0.18 : 0.12))
@@ -290,6 +295,25 @@ extension NSColor {
 
     var brightenedForLabel: NSColor {
         mixed(towards: .white, amount: 0.35)
+    }
+
+    func contrastRatio(against other: NSColor) -> CGFloat {
+        let lighter = max(perceivedLuminance, other.perceivedLuminance)
+        let darker = min(perceivedLuminance, other.perceivedLuminance)
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    func ensuringTextContrast(on background: NSColor, minimum: CGFloat = 4.5) -> NSColor {
+        let preferred = srgbClamped.withAlphaComponent(1)
+        guard preferred.contrastRatio(against: background) < minimum else {
+            return preferred
+        }
+
+        let lightFallback = NSColor(calibratedWhite: 0.98, alpha: 1)
+        let darkFallback = NSColor(calibratedWhite: 0.08, alpha: 1)
+        let lightContrast = lightFallback.contrastRatio(against: background)
+        let darkContrast = darkFallback.contrastRatio(against: background)
+        return lightContrast >= darkContrast ? lightFallback : darkFallback
     }
 
     func mixed(towards other: NSColor, amount: CGFloat) -> NSColor {

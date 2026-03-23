@@ -2,7 +2,7 @@ import XCTest
 @testable import Zentty
 
 final class WorkspaceSidebarSummaryTests: XCTestCase {
-    func test_builder_uses_compact_cwd_for_primary_text_before_process_name() {
+    func test_builder_uses_branch_prefixed_cwd_for_focused_primary_text_when_identity_is_path_derived() {
         let paneID = PaneID("workspace-main-shell")
         let workspace = WorkspaceState(
             id: WorkspaceID("workspace-main"),
@@ -23,8 +23,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
 
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
 
-        XCTAssertEqual(summary.primaryText, "feature/sidebar")
-        XCTAssertEqual(summary.detailLines.map(\.text), ["fix-pane-border-text-visibility • sidebar"])
+        XCTAssertEqual(summary.primaryText, "fix-pane-border-text-visibility • …/sidebar")
+        XCTAssertEqual(summary.focusedPaneLineIndex, 0)
+        XCTAssertEqual(summary.detailLines.map(\.text), [])
         XCTAssertNil(summary.topLabel)
         XCTAssertNil(summary.leadingAccessory)
         XCTAssertNil(summary.overflowText)
@@ -57,7 +58,45 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.detailLines, [])
     }
 
-    func test_builder_prefers_meaningful_terminal_identity_when_focused_pane_has_no_metadata() {
+    func test_builder_prefers_more_specific_local_pane_context_over_stale_home_metadata() {
+        let paneID = PaneID("workspace-main-shell")
+        let projectPath = (NSHomeDirectory() as NSString).appendingPathComponent(
+            "Development/Personal/zentty"
+        )
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "zsh",
+                    currentWorkingDirectory: NSHomeDirectory(),
+                    processName: "zsh",
+                    gitBranch: "main"
+                )
+            ],
+            paneContextByPaneID: [
+                paneID: PaneShellContext(
+                    scope: .local,
+                    path: projectPath,
+                    home: NSHomeDirectory(),
+                    user: "peter",
+                    host: "m1-pro-peter"
+                )
+            ]
+        )
+
+        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+
+        XCTAssertEqual(summary.primaryText, "main • …/zentty")
+        XCTAssertEqual(summary.detailLines.map(\.text), [])
+        XCTAssertNil(summary.leadingAccessory)
+    }
+
+    func test_builder_keeps_focused_slot_when_focused_pane_has_no_metadata() {
         let focusedPaneID = PaneID("workspace-main-pane-1")
         let notesPaneID = PaneID("workspace-main-notes")
         let workspace = WorkspaceState(
@@ -82,8 +121,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
 
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
 
-        XCTAssertEqual(summary.primaryText, "notes")
-        XCTAssertEqual(summary.detailLines.map(\.text), ["notes • project"])
+        XCTAssertEqual(summary.primaryText, "Shell")
+        XCTAssertEqual(summary.focusedPaneLineIndex, 0)
+        XCTAssertEqual(summary.detailLines.map(\.text), ["notes • /tmp/project"])
         XCTAssertNil(summary.leadingAccessory)
     }
 
@@ -177,8 +217,53 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
 
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
 
-        XCTAssertEqual(summary.primaryText, "git")
-        XCTAssertEqual(summary.detailLines.map(\.text), ["main • app"])
+        XCTAssertEqual(summary.primaryText, "feature/sidebar-feedback • …/docs")
+        XCTAssertEqual(summary.focusedPaneLineIndex, 1)
+        XCTAssertEqual(summary.detailLines.map(\.text), ["main • …/app"])
+    }
+
+    func test_builder_tracks_middle_focused_pane_without_reordering_visible_pane_lines() {
+        let firstPaneID = PaneID("workspace-main-pane-1")
+        let focusedPaneID = PaneID("workspace-main-pane-2")
+        let thirdPaneID = PaneID("workspace-main-pane-3")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: firstPaneID, title: "server"),
+                    PaneState(id: focusedPaneID, title: "git"),
+                    PaneState(id: thirdPaneID, title: "notes"),
+                ],
+                focusedPaneID: focusedPaneID
+            ),
+            metadataByPaneID: [
+                firstPaneID: TerminalMetadata(
+                    title: "server",
+                    currentWorkingDirectory: "/tmp/app",
+                    processName: "zsh",
+                    gitBranch: "main"
+                ),
+                focusedPaneID: TerminalMetadata(
+                    title: "git",
+                    currentWorkingDirectory: "/tmp/docs",
+                    processName: "zsh",
+                    gitBranch: "feature/sidebar-feedback"
+                ),
+                thirdPaneID: TerminalMetadata(
+                    title: "notes",
+                    currentWorkingDirectory: "/tmp/copy",
+                    processName: "notes",
+                    gitBranch: nil
+                ),
+            ]
+        )
+
+        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+
+        XCTAssertEqual(summary.primaryText, "feature/sidebar-feedback • …/docs")
+        XCTAssertEqual(summary.focusedPaneLineIndex, 1)
+        XCTAssertEqual(summary.detailLines.map(\.text), ["main • …/app", "notes • /tmp/copy"])
     }
 
     func test_builder_falls_back_to_generic_shell_when_workspace_is_anonymous() {
@@ -238,12 +323,13 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
 
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
 
-        XCTAssertEqual(summary.primaryText, "project")
-        XCTAssertEqual(summary.statusText, "Needs input")
+        XCTAssertEqual(summary.primaryText, "main • …/project")
+        XCTAssertEqual(summary.statusText, "Claude Code is waiting for your input")
+        XCTAssertEqual(summary.stateBadgeText, "Needs input")
         XCTAssertEqual(
             summary.detailLines.map(\.text),
             [
-                "feature/dismissals • project",
+                "feature/dismissals • …/project",
             ]
         )
         XCTAssertEqual(summary.leadingAccessory, .agent(.claudeCode))
@@ -272,8 +358,8 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
 
         XCTAssertEqual(summary.topLabel, "Docs")
-        XCTAssertEqual(summary.primaryText, "marketing-site")
-        XCTAssertEqual(summary.detailLines.map(\.text), ["refresh-homepage-copy • marketing-site"])
+        XCTAssertEqual(summary.primaryText, "refresh-homepage-copy • …/marketing-site")
+        XCTAssertEqual(summary.detailLines.map(\.text), [])
     }
 
     func test_builder_omits_detail_line_for_single_pane_rows_without_branch() {
@@ -297,7 +383,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
 
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
 
-        XCTAssertEqual(summary.primaryText, "feature/sidebar")
+        XCTAssertEqual(summary.primaryText, "…/sidebar")
         XCTAssertEqual(summary.detailLines, [])
     }
 
@@ -323,7 +409,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
 
         XCTAssertNil(summary.topLabel)
-        XCTAssertEqual(summary.primaryText, "feature/sidebar")
+        XCTAssertEqual(summary.primaryText, "fix-pane-border-text-visibility • …/sidebar")
     }
 
     func test_builder_prefers_explicit_artifact_over_inferred_pull_request() {
@@ -370,7 +456,8 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
 
         XCTAssertEqual(summary.artifactLink?.label, "Session")
-        XCTAssertEqual(summary.statusText, "Needs input")
+        XCTAssertEqual(summary.statusText, "Claude Code is waiting for your input")
+        XCTAssertEqual(summary.stateBadgeText, "Needs input")
     }
 
     func test_builder_uses_pane_specific_detail_lines_for_multi_pane_workspaces() {
@@ -412,12 +499,12 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
 
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
 
-        XCTAssertEqual(summary.primaryText, "feature/sidebar")
+        XCTAssertEqual(summary.primaryText, "fix-pane-border-text-visibility • …/sidebar")
         XCTAssertEqual(
             summary.detailLines.map(\.text),
             [
-                "main • git",
-                "notes • copy",
+                "main • …/git",
+                "notes • /tmp/copy",
             ]
         )
         XCTAssertNil(summary.overflowText)
@@ -465,10 +552,11 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(
             summary.detailLines.map(\.text),
             [
-                "fix-pane-border-text-visibility • sidebar",
-                "main • git",
+                "fix-pane-border-text-visibility • …/sidebar",
+                "main • …/git",
             ]
         )
+        XCTAssertEqual(summary.focusedPaneLineIndex, 2)
     }
 
     func test_builder_shows_all_non_focused_pane_detail_lines_without_overflow_for_four_pane_workspaces() {
@@ -521,9 +609,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(
             summary.detailLines.map(\.text),
             [
-                "fix-pane-border-text-visibility • sidebar",
-                "main • git",
-                "notes • copy",
+                "fix-pane-border-text-visibility • …/sidebar",
+                "main • …/git",
+                "notes • /tmp/copy",
             ]
         )
         XCTAssertNil(summary.overflowText)
@@ -560,11 +648,11 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
 
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
 
-        XCTAssertEqual(summary.primaryText, "api")
+        XCTAssertEqual(summary.primaryText, "/tmp/api")
         XCTAssertEqual(
             summary.detailLines.map(\.text),
             [
-                "src/api",
+                "\(NSHomeDirectory())/src/api",
             ]
         )
     }
@@ -612,7 +700,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             activeWorkspaceID: apiWorkspaceID
         )
 
-        XCTAssertEqual(summaries.map(\.primaryText), ["tmp/api", "src/api"])
+        XCTAssertEqual(summaries.map(\.primaryText), ["main • …/api", "feature/sidebar • …/api"])
     }
 
     func test_builder_marks_workspace_as_working_when_background_terminal_progress_exists() {
@@ -650,7 +738,74 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
 
         XCTAssertTrue(summary.isWorking)
-        XCTAssertEqual(summary.statusText, "Running")
+        XCTAssertEqual(summary.statusText, "Claude Code is working")
+        XCTAssertEqual(summary.stateBadgeText, "Running")
         XCTAssertEqual(summary.attentionState, .running)
+        XCTAssertEqual(summary.leadingAccessory, .agent(.claudeCode))
+    }
+
+    func test_builder_marks_recognized_agent_workspace_as_idle_with_explicit_state_copy() {
+        let paneID = PaneID("workspace-main-agent")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "Claude Code",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "claude",
+                    gitBranch: "feature/sidebar"
+                )
+            ]
+        )
+
+        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+
+        XCTAssertEqual(summary.primaryText, "Claude Code")
+        XCTAssertEqual(summary.statusText, "Claude Code is idle")
+        XCTAssertEqual(summary.stateBadgeText, "Idle")
+        XCTAssertEqual(summary.leadingAccessory, .agent(.claudeCode))
+        XCTAssertFalse(summary.isWorking)
+    }
+
+    func test_summaries_preserve_working_state_after_disambiguation_pass() {
+        let workspaceID = WorkspaceID("workspace-main")
+        let paneID = PaneID("workspace-main-agent")
+        let workspaces = [
+            WorkspaceState(
+                id: workspaceID,
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "agent")],
+                    focusedPaneID: paneID
+                ),
+                metadataByPaneID: [
+                    paneID: TerminalMetadata(
+                        title: "Claude Code",
+                        currentWorkingDirectory: "/tmp/project",
+                        processName: "claude",
+                        gitBranch: "feature/sidebar"
+                    )
+                ],
+                terminalProgressByPaneID: [
+                    paneID: TerminalProgressReport(state: .indeterminate, progress: nil)
+                ]
+            )
+        ]
+
+        let summary = try! XCTUnwrap(
+            WorkspaceSidebarSummaryBuilder.summaries(
+                for: workspaces,
+                activeWorkspaceID: workspaceID
+            ).first
+        )
+
+        XCTAssertTrue(summary.isWorking)
+        XCTAssertEqual(summary.statusText, "Claude Code is working")
+        XCTAssertEqual(summary.stateBadgeText, "Running")
     }
 }

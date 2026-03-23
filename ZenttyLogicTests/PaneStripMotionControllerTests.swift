@@ -327,6 +327,172 @@ final class PaneStripMotionControllerTests: XCTestCase {
         XCTAssertGreaterThan(middlePane.frame.minY, bottomPane.frame.minY)
     }
 
+    @MainActor
+    func test_presentation_includes_horizontal_and_vertical_dividers() {
+        let controller = PaneStripMotionController()
+        let state = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("left"),
+                    panes: [
+                        PaneState(id: PaneID("top"), title: "top"),
+                        PaneState(id: PaneID("bottom"), title: "bottom"),
+                    ],
+                    width: 420,
+                    focusedPaneID: PaneID("top"),
+                    lastFocusedPaneID: PaneID("top")
+                ),
+                PaneColumnState(
+                    id: PaneColumnID("right"),
+                    panes: [PaneState(id: PaneID("editor"), title: "editor")],
+                    width: 420,
+                    focusedPaneID: PaneID("editor"),
+                    lastFocusedPaneID: PaneID("editor")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        let presentation = controller.presentation(
+            for: state,
+            in: CGSize(width: 1200, height: 680)
+        )
+
+        XCTAssertTrue(presentation.dividers.contains(where: { $0.divider == .column(afterColumnID: PaneColumnID("left")) }))
+        XCTAssertTrue(presentation.dividers.contains(where: {
+            $0.divider == .pane(columnID: PaneColumnID("left"), afterPaneID: PaneID("top"))
+        }))
+    }
+
+    @MainActor
+    func test_focused_pane_with_clamped_width_remains_fully_visible() throws {
+        let controller = PaneStripMotionController()
+        let state = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("left"),
+                    panes: [PaneState(id: PaneID("left"), title: "left")],
+                    width: 320,
+                    focusedPaneID: PaneID("left"),
+                    lastFocusedPaneID: PaneID("left")
+                ),
+                PaneColumnState(
+                    id: PaneColumnID("middle"),
+                    panes: [PaneState(id: PaneID("middle"), title: "middle")],
+                    width: 900,
+                    focusedPaneID: PaneID("middle"),
+                    lastFocusedPaneID: PaneID("middle")
+                ),
+                PaneColumnState(
+                    id: PaneColumnID("right"),
+                    panes: [PaneState(id: PaneID("right"), title: "right")],
+                    width: 320,
+                    focusedPaneID: PaneID("right"),
+                    lastFocusedPaneID: PaneID("right")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+
+        let viewportWidth: CGFloat = 900
+        let presentation = controller.presentation(
+            for: state,
+            in: CGSize(width: viewportWidth, height: 680)
+        )
+        let focusedPane = try XCTUnwrap(presentation.focusedPane)
+        let visibleFrame = focusedPane.frame.offsetBy(dx: -presentation.targetOffset, dy: 0)
+
+        XCTAssertGreaterThanOrEqual(visibleFrame.minX, 0)
+        XCTAssertLessThanOrEqual(visibleFrame.maxX, viewportWidth)
+    }
+
+    @MainActor
+    func test_content_width_matches_viewport_when_columns_fill_width_floor_exactly() {
+        let controller = PaneStripMotionController()
+        let state = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("left"),
+                    panes: [PaneState(id: PaneID("left"), title: "left")],
+                    width: 394,
+                    focusedPaneID: PaneID("left"),
+                    lastFocusedPaneID: PaneID("left")
+                ),
+                PaneColumnState(
+                    id: PaneColumnID("right"),
+                    panes: [PaneState(id: PaneID("right"), title: "right")],
+                    width: 600,
+                    focusedPaneID: PaneID("right"),
+                    lastFocusedPaneID: PaneID("right")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        let presentation = controller.presentation(
+            for: state,
+            in: CGSize(width: 1000, height: 680)
+        )
+
+        XCTAssertEqual(presentation.contentWidth, 1000, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_shrinking_focused_pane_reveals_more_of_neighbor_without_creating_blank_space() {
+        let controller = PaneStripMotionController()
+        let viewportSize = CGSize(width: 1000, height: 680)
+        let minimums: [PaneID: PaneMinimumSize] = [
+            PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+            PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+        ]
+        let initialState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("left"),
+                    panes: [PaneState(id: PaneID("left"), title: "left")],
+                    width: 900,
+                    focusedPaneID: PaneID("left"),
+                    lastFocusedPaneID: PaneID("left")
+                ),
+                PaneColumnState(
+                    id: PaneColumnID("right"),
+                    panes: [PaneState(id: PaneID("right"), title: "right")],
+                    width: 500,
+                    focusedPaneID: PaneID("right"),
+                    lastFocusedPaneID: PaneID("right")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+        var resizedState = initialState
+        _ = resizedState.resize(
+            .horizontalEdge(
+                PaneHorizontalResizeTarget(
+                    columnID: PaneColumnID("left"),
+                    edge: .right,
+                    divider: .column(afterColumnID: PaneColumnID("left"))
+                )
+            ),
+            delta: -300,
+            availableSize: viewportSize,
+            minimumSizeByPaneID: minimums
+        )
+
+        let initialPresentation = controller.presentation(for: initialState, in: viewportSize)
+        let resizedPresentation = controller.presentation(for: resizedState, in: viewportSize)
+        let initialRightPane = initialPresentation.columns[1].panes[0].frame.offsetBy(
+            dx: -initialPresentation.targetOffset,
+            dy: 0
+        )
+        let resizedRightPane = resizedPresentation.columns[1].panes[0].frame.offsetBy(
+            dx: -resizedPresentation.targetOffset,
+            dy: 0
+        )
+
+        XCTAssertLessThan(resizedRightPane.minX, initialRightPane.minX)
+        XCTAssertGreaterThanOrEqual(resizedPresentation.contentWidth, viewportSize.width)
+    }
+
     private func assertRetinaAligned(_ value: CGFloat, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertEqual(value * 2, (value * 2).rounded(), accuracy: 0.0001, file: file, line: line)
     }

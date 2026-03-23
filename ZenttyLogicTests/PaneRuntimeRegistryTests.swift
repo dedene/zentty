@@ -206,7 +206,7 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         XCTAssertNotNil(registry.runtime(for: shell.id))
     }
 
-    func test_registry_prepares_split_pane_from_source_runtime_before_starting() throws {
+    func test_registry_prepares_local_split_pane_from_config_inheritance_source_before_starting() throws {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
             adapterFactory.makeAdapter(for: paneID)
@@ -217,7 +217,7 @@ final class PaneRuntimeRegistryTests: XCTestCase {
             title: "pane 1",
             sessionRequest: TerminalSessionRequest(
                 workingDirectory: "/tmp/project",
-                inheritFromPaneID: shell.id
+                configInheritanceSourcePaneID: shell.id
             )
         )
 
@@ -253,6 +253,90 @@ final class PaneRuntimeRegistryTests: XCTestCase {
 
         XCTAssertTrue(splitAdapter.prepareSourceAdapter === shellAdapter)
         XCTAssertEqual(splitAdapter.eventLog, ["prepare", "start"])
+        XCTAssertEqual(splitAdapter.preparedContexts, [.split])
+    }
+
+    func test_registry_prepares_new_workspace_pane_from_local_config_inheritance_source_using_tab_context() throws {
+        let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        let shell = PaneState(id: PaneID("workspace-main-shell"), title: "shell")
+        let newWorkspaceShell = PaneState(
+            id: PaneID("workspace-2-shell"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(
+                workingDirectory: "/tmp/project",
+                configInheritanceSourcePaneID: shell.id,
+                surfaceContext: .tab
+            )
+        )
+
+        let workspaces = [
+            WorkspaceState(
+                id: WorkspaceID("workspace-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [shell],
+                    focusedPaneID: shell.id
+                )
+            ),
+            WorkspaceState(
+                id: WorkspaceID("workspace-2"),
+                title: "WS 2",
+                paneStripState: PaneStripState(
+                    panes: [newWorkspaceShell],
+                    focusedPaneID: newWorkspaceShell.id
+                )
+            ),
+        ]
+
+        registry.synchronize(with: workspaces)
+        registry.updateSurfaceActivities(
+            workspaces: workspaces,
+            activeWorkspaceID: WorkspaceID("workspace-2"),
+            windowIsVisible: true,
+            windowIsKey: true
+        )
+
+        let shellAdapter = try XCTUnwrap(adapterFactory.adaptersByPaneID[shell.id])
+        let workspaceAdapter = try XCTUnwrap(adapterFactory.adaptersByPaneID[newWorkspaceShell.id])
+
+        XCTAssertTrue(workspaceAdapter.prepareSourceAdapter === shellAdapter)
+        XCTAssertEqual(workspaceAdapter.eventLog, ["prepare", "start"])
+        XCTAssertEqual(workspaceAdapter.preparedContexts, [.tab])
+    }
+
+    func test_registry_starts_local_session_with_working_directory_without_inheritance() throws {
+        let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        let shell = PaneState(
+            id: PaneID("workspace-main-shell"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project space")
+        )
+
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [shell],
+                focusedPaneID: shell.id
+            )
+        )
+
+        registry.synchronize(with: [workspace])
+        registry.updateSurfaceActivities(
+            workspaces: [workspace],
+            activeWorkspaceID: workspace.id,
+            windowIsVisible: true,
+            windowIsKey: true
+        )
+
+        let adapter = try XCTUnwrap(adapterFactory.adaptersByPaneID[shell.id])
+        XCTAssertEqual(adapter.eventLog, ["prepare", "start"])
     }
 }
 
@@ -278,6 +362,7 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
     let paneID: PaneID
     let terminalView = NSView()
     var hasScrollback = false
+    var cellWidth: CGFloat = 0
     var cellHeight: CGFloat = 0
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
@@ -285,6 +370,7 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: true, isFocused: false)
     private(set) weak var prepareSourceAdapter: PaneRuntimeTerminalAdapterSpy?
     private(set) var eventLog: [String] = []
+    private(set) var preparedContexts: [TerminalSurfaceContext] = []
 
     init(paneID: PaneID) {
         self.paneID = paneID
@@ -303,8 +389,12 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
         lastSurfaceActivity = activity
     }
 
-    func prepareSessionStart(from sourceAdapter: (any TerminalAdapter)?) {
+    func prepareSessionStart(
+        from sourceAdapter: (any TerminalAdapter)?,
+        context: TerminalSurfaceContext
+    ) {
         eventLog.append("prepare")
         prepareSourceAdapter = sourceAdapter as? PaneRuntimeTerminalAdapterSpy
+        preparedContexts.append(context)
     }
 }

@@ -9,6 +9,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     private let eventDidOccur: (TerminalEvent) -> Void
     private(set) var hasScrollback = false
 
+    var cellWidth: CGFloat {
+        guard let surface else { return 0 }
+        let size = ghostty_surface_size(surface)
+        return CGFloat(size.cell_width_px)
+    }
+
     var cellHeight: CGFloat {
         guard let surface else { return 0 }
         let size = ghostty_surface_size(surface)
@@ -35,7 +41,14 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         )
         config.userdata = Unmanaged.passUnretained(self).toOpaque()
         config.scale_factor = Double(hostView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1)
-        config.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
+        config.context = switch request.surfaceContext {
+        case .window:
+            GHOSTTY_SURFACE_CONTEXT_WINDOW
+        case .tab:
+            GHOSTTY_SURFACE_CONTEXT_TAB
+        case .split:
+            GHOSTTY_SURFACE_CONTEXT_SPLIT
+        }
         let surfaceEnvironment = makeSurfaceEnvironment(from: request.environmentVariables)
         defer {
             surfaceEnvironment.retainedPointers.forEach { free($0) }

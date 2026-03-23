@@ -28,10 +28,7 @@
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
-      onlyGenerateCoverageForSpecifiedTargets = "NO"
-      enableThreadSanitizer = "NO"
-      debugServiceExtension = "internal"
-      allowLocationSimulation = "NO">
+      onlyGenerateCoverageForSpecifiedTargets = "NO">
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
@@ -44,10 +41,10 @@
       <Testables>
          <TestableReference
             skipped = "NO"
-            parallelizable = "YES">
+            parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "CC00000000000000000020"
+               BlueprintIdentifier = "A49D02BEE612C3135AD03725"
                BuildableName = "ZenttyLogicTests.xctest"
                BlueprintName = "ZenttyLogicTests"
                ReferencedContainer = "container:Zentty.xcodeproj">
@@ -63,11 +60,6 @@
                BlueprintName = "ZenttyTests"
                ReferencedContainer = "container:Zentty.xcodeproj">
             </BuildableReference>
-            <SkippedTests>
-               <Test
-                  Identifier = "LibghosttyViewTests">
-               </Test>
-            </SkippedTests>
          </TestableReference>
       </Testables>
       <CommandLineArguments>

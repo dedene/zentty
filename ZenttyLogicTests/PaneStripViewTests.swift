@@ -150,6 +150,95 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_vertical_divider_translation_inverts_y_for_dragging() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+
+        XCTAssertEqual(
+            paneStripView.dividerTranslationForTesting(CGPoint(x: 0, y: 24), axis: .vertical),
+            -24,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            paneStripView.dividerTranslationForTesting(CGPoint(x: 18, y: 0), axis: .horizontal),
+            18,
+            accuracy: 0.001
+        )
+    }
+
+    @MainActor
+    func test_horizontal_divider_uses_left_right_resize_cursor_affordance() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("left"), title: "left", width: 420),
+                PaneState(id: PaneID("right"), title: "right", width: 420),
+            ],
+            focusedPaneID: PaneID("left")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            paneStripView.dividerCursorDescriptionForTesting(.column(afterColumnID: PaneColumnID("column-left"))),
+            "resizeLeftRight"
+        )
+    }
+
+    @MainActor
+    func test_vertical_divider_uses_up_down_resize_cursor_affordance() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let state = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("top"), title: "top"),
+                        PaneState(id: PaneID("bottom"), title: "bottom"),
+                    ],
+                    width: 640,
+                    focusedPaneID: PaneID("top"),
+                    lastFocusedPaneID: PaneID("top")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            paneStripView.dividerCursorDescriptionForTesting(
+                .pane(columnID: PaneColumnID("stack"), afterPaneID: PaneID("top"))
+            ),
+            "resizeUpDown"
+        )
+    }
+
+    @MainActor
+    func test_double_click_equalize_clears_divider_highlight_state() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let divider = PaneDivider.column(afterColumnID: PaneColumnID("column-left"))
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("left"), title: "left", width: 420),
+                PaneState(id: PaneID("right"), title: "right", width: 420),
+            ],
+            focusedPaneID: PaneID("left")
+        )
+        var equalizedDivider: PaneDivider?
+        paneStripView.onDividerEqualizeRequested = { equalizedDivider = $0 }
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.simulateDividerDoubleClickForTesting(divider)
+
+        XCTAssertEqual(equalizedDivider, divider)
+        XCTAssertEqual(paneStripView.dividerHighlightStateForTesting(divider)?.active, false)
+        XCTAssertEqual(paneStripView.dividerHighlightStateForTesting(divider)?.highlighted, false)
+    }
+
+    @MainActor
     func test_render_publishes_border_chrome_snapshots_for_visible_panes() throws {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
         let state = PaneStripState(
@@ -1362,6 +1451,7 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
     let paneID: PaneID
     let terminalView = PaneStripTerminalViewSpy()
     var hasScrollback = false
+    var cellWidth: CGFloat = 0
     var cellHeight: CGFloat = 0
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?

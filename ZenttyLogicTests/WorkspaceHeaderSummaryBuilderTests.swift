@@ -207,7 +207,7 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             reviewStateProvider: DefaultWorkspaceReviewStateProvider()
         )
 
-        XCTAssertEqual(summary.focusedLabel, "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/nim...")
+        XCTAssertEqual(summary.focusedLabel, "…/nimbu")
     }
 
     func test_summary_omits_git_fields_for_non_git_focus() {
@@ -377,7 +377,8 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             reviewStateProvider: DefaultWorkspaceReviewStateProvider()
         )
 
-        XCTAssertEqual(summary.branch, "main")
+        XCTAssertEqual(summary.focusedLabel, "main · …/project")
+        XCTAssertNil(summary.branch)
     }
 
     func test_summary_omits_compacted_cached_branch_when_no_full_branch_source_exists() {

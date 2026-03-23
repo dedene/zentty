@@ -13,4 +13,16 @@ struct PaneAuxiliaryState: Equatable, Sendable {
 
         return agentStatus?.state == .running
     }
+
+    var localReviewWorkingDirectory: String? {
+        let metadataWorkingDirectory = WorkspaceContextFormatter.resolvedWorkingDirectory(for: metadata)
+        guard let shellContext else {
+            return metadataWorkingDirectory
+        }
+        guard shellContext.scope == .local else {
+            return nil
+        }
+
+        return metadataWorkingDirectory ?? WorkspaceContextFormatter.trimmed(shellContext.path)
+    }
 }
