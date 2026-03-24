@@ -327,6 +327,31 @@ extension NSColor {
             alpha: source.alphaComponent + ((target.alphaComponent - source.alphaComponent) * clamped)
         )
     }
+
+    func composited(over background: NSColor) -> NSColor {
+        let source = srgbClamped
+        let destination = background.srgbClamped
+        let outputAlpha = source.alphaComponent + (destination.alphaComponent * (1 - source.alphaComponent))
+
+        guard outputAlpha > 0 else {
+            return .clear
+        }
+
+        let red = (
+            (source.redComponent * source.alphaComponent)
+                + (destination.redComponent * destination.alphaComponent * (1 - source.alphaComponent))
+        ) / outputAlpha
+        let green = (
+            (source.greenComponent * source.alphaComponent)
+                + (destination.greenComponent * destination.alphaComponent * (1 - source.alphaComponent))
+        ) / outputAlpha
+        let blue = (
+            (source.blueComponent * source.alphaComponent)
+                + (destination.blueComponent * destination.alphaComponent * (1 - source.alphaComponent))
+        ) / outputAlpha
+
+        return NSColor(srgbRed: red, green: green, blue: blue, alpha: outputAlpha)
+    }
 }
 
 func performThemeAnimation(animated: Bool, updates: () -> Void) {

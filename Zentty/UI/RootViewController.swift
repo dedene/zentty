@@ -38,10 +38,12 @@ final class RootViewController: NSViewController {
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
 
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
+    var onWindowChromeNeedsUpdate: (() -> Void)?
 
     init(
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
         reviewStateResolver: WorkspaceReviewStateResolver = WorkspaceReviewStateResolver(),
+        gitContextResolver: any PaneGitContextResolving = WorkspaceGitContextResolver(),
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
@@ -56,7 +58,10 @@ final class RootViewController: NSViewController {
             sidebarWidthDefaults: sidebarWidthDefaults
         )
         self.themeCoordinator = ThemeCoordinator()
-        self.workspaceStore = WorkspaceStore(layoutContext: initialLayoutContext)
+        self.workspaceStore = WorkspaceStore(
+            layoutContext: initialLayoutContext,
+            gitContextResolver: gitContextResolver
+        )
         self.renderCoordinator = WorkspaceRenderCoordinator(
             workspaceStore: workspaceStore,
             runtimeRegistry: runtimeRegistry,
@@ -515,6 +520,7 @@ final class RootViewController: NSViewController {
         appCanvasView.apply(theme: theme, animated: animated)
         applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
         renderCoordinator.renderBorderOverlay()
+        onWindowChromeNeedsUpdate?()
     }
 
     private func apply(theme: ZenttyTheme, animated: Bool) {
@@ -537,6 +543,7 @@ final class RootViewController: NSViewController {
             isActive: sidebarMotionCoordinator.mode == .pinnedOpen,
             animated: animated
         )
+        onWindowChromeNeedsUpdate?()
     }
 
     private func applySidebarMotionState(
@@ -578,10 +585,14 @@ final class RootViewController: NSViewController {
         }
 
         let sidebarTrailingEdge = leadingConstant + sidebarWidth
-        let toggleTarget = max(
-            trafficLightAnchor.x + SidebarToggleButton.spacingFromTrafficLights,
+        let closedToggleTarget = trafficLightAnchor.x + SidebarToggleButton.spacingFromTrafficLights
+        let openToggleTarget = max(
+            closedToggleTarget,
             sidebarTrailingEdge + ShellMetrics.shellGap
         )
+        let toggleTarget = motionState.reservedFraction == 1
+            ? openToggleTarget
+            : closedToggleTarget
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
@@ -637,6 +648,10 @@ final class RootViewController: NSViewController {
 
     var currentPaneLayoutPreferences: PaneLayoutPreferences {
         paneLayoutPreferences
+    }
+
+    var currentWindowTheme: ZenttyTheme {
+        currentTheme
     }
 
     var workspaceTitles: [String] {

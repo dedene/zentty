@@ -15,6 +15,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private let sidebarVisibilityDefaults: UserDefaults
     private let paneLayoutDefaults: UserDefaults
     private var settingsWindowController: PaneLayoutSettingsWindowController?
+    private let closeTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.close")
+    private let miniTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.mini")
+    private let zoomTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.zoom")
+    private var isApplicationActive = true
+    private var isWindowKey = true
 
     init(
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
@@ -68,9 +73,29 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         self.window = window
         super.init()
         window.delegate = self
+        rootViewController.onWindowChromeNeedsUpdate = { [weak self] in
+            self?.updateTrafficLightAppearance()
+        }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidResignActive),
+            name: NSApplication.didResignActiveNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     func showWindow(_ sender: Any?) {
+        isWindowKey = true
         window.makeKeyAndOrderFront(sender)
         layoutTrafficLights()
         rootViewController.activateWindowBindingsIfNeeded()
@@ -81,7 +106,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        isWindowKey = true
         layoutTrafficLights()
+        refreshTrafficLightAppearanceAfterFocusChange()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        isWindowKey = false
+        refreshTrafficLightAppearanceAfterFocusChange()
     }
 
     func showSettingsWindow(_ sender: Any?) {
@@ -249,12 +281,93 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             nextX = frame.maxX + ChromeGeometry.trafficLightSpacing
         }
 
+        syncInactiveTrafficLightOverlayFrames(
+            for: [
+                (closeButton, closeTrafficLightOverlay),
+                (miniButton, miniTrafficLightOverlay),
+                (zoomButton, zoomTrafficLightOverlay),
+            ]
+        )
+
         let anchorPointInWindow = buttonSuperview.convert(
             NSPoint(x: zoomButton.frame.maxX, y: zoomButton.frame.midY),
             to: nil
         )
         let anchorPointInContent = rootViewController.view.convert(anchorPointInWindow, from: nil)
         rootViewController.updateTrafficLightAnchor(anchorPointInContent)
+        updateTrafficLightAppearance()
+    }
+
+    @objc
+    private func applicationDidBecomeActive(_ notification: Notification) {
+        isApplicationActive = true
+        refreshTrafficLightAppearanceAfterFocusChange()
+    }
+
+    @objc
+    private func applicationDidResignActive(_ notification: Notification) {
+        isApplicationActive = false
+        refreshTrafficLightAppearanceAfterFocusChange()
+    }
+
+    private func refreshTrafficLightAppearanceAfterFocusChange() {
+        updateTrafficLightAppearance()
+        DispatchQueue.main.async { [weak self] in
+            self?.updateTrafficLightAppearance()
+        }
+    }
+
+    private func updateTrafficLightAppearance() {
+        let inactiveFillColor = (isWindowKey && isApplicationActive)
+            ? nil
+            : TrafficLightTintResolver.inactiveBezelColor(
+                theme: rootViewController.currentWindowTheme,
+                sidebarVisibilityMode: rootViewController.sidebarVisibilityMode
+            )
+
+        [
+            window.standardWindowButton(.closeButton),
+            window.standardWindowButton(.miniaturizeButton),
+            window.standardWindowButton(.zoomButton),
+        ].forEach { button in
+            guard let button else {
+                return
+            }
+
+            button.wantsLayer = true
+            button.layer?.masksToBounds = true
+            button.layer?.cornerRadius = button.bounds.height / 2
+            button.layer?.backgroundColor = nil
+            button.layer?.borderWidth = 0
+            button.layer?.borderColor = nil
+            button.bezelColor = nil
+            button.needsDisplay = true
+        }
+
+        [closeTrafficLightOverlay, miniTrafficLightOverlay, zoomTrafficLightOverlay].forEach {
+            $0.apply(fillColor: inactiveFillColor)
+        }
+    }
+
+    private func syncInactiveTrafficLightOverlayFrames(
+        for pairs: [(button: NSButton, overlay: InactiveTrafficLightOverlayView)]
+    ) {
+        pairs.forEach { button, overlay in
+            guard let hostView = button.superview else {
+                overlay.removeFromSuperview()
+                return
+            }
+
+            if overlay.superview !== hostView {
+                overlay.removeFromSuperview()
+                hostView.addSubview(overlay, positioned: .above, relativeTo: button)
+            } else {
+                overlay.removeFromSuperviewWithoutNeedingDisplay()
+                hostView.addSubview(overlay, positioned: .above, relativeTo: button)
+            }
+
+            overlay.frame = button.frame.integral
+        }
     }
 
     private static func defaultFrame() -> NSRect {
@@ -295,5 +408,58 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                 .effectiveLeadingInset(sidebarWidth: sidebarWidth),
             sizing: PaneLayoutSizing.forSidebarVisibility(sidebarVisibility)
         )
+    }
+}
+
+enum TrafficLightTintResolver {
+    static func inactiveBezelColor(
+        theme: ZenttyTheme,
+        sidebarVisibilityMode: SidebarVisibilityMode
+    ) -> NSColor {
+        switch sidebarVisibilityMode {
+        case .pinnedOpen:
+            let baseColor = theme.sidebarBackground
+                .composited(over: theme.windowBackground)
+                .withAlphaComponent(1)
+            return baseColor.mixed(towards: NSColor.black, amount: 0.10)
+        case .hidden, .hoverPeek:
+            let baseColor = theme.windowBackground.srgbClamped.withAlphaComponent(1)
+            let amount: CGFloat = baseColor.isDarkThemeColor ? 0.24 : 0.12
+            return baseColor.mixed(towards: .white, amount: amount)
+        }
+    }
+}
+
+@MainActor
+private final class InactiveTrafficLightOverlayView: NSView {
+    init(identifier: String) {
+        super.init(frame: .zero)
+        self.identifier = NSUserInterfaceItemIdentifier(identifier)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        layer?.borderWidth = 0
+        layer?.borderColor = nil
+        isHidden = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func apply(fillColor: NSColor?) {
+        layer?.backgroundColor = fillColor?.cgColor
+        layer?.borderWidth = 0
+        layer?.borderColor = nil
+        isHidden = fillColor == nil
     }
 }

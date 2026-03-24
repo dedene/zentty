@@ -4,16 +4,37 @@ import XCTest
 @MainActor
 final class MainWindowControllerTests: XCTestCase {
     private var controller: MainWindowController?
+    private var testDefaultsSuiteNames: [String] = []
+
+    private enum TrafficLightOverlayIdentifier {
+        static let close = "trafficLightOverlay.close"
+        static let mini = "trafficLightOverlay.mini"
+        static let zoom = "trafficLightOverlay.zoom"
+    }
 
     override func tearDown() {
         controller?.window.close()
         controller = nil
+        testDefaultsSuiteNames.forEach {
+            UserDefaults(suiteName: $0)?.removePersistentDomain(forName: $0)
+        }
+        testDefaultsSuiteNames.removeAll()
         super.tearDown()
     }
 
     private func makeController() -> MainWindowController {
+        makeController(sidebarVisibilityMode: .pinnedOpen)
+    }
+
+    private func makeController(sidebarVisibilityMode: SidebarVisibilityMode) -> MainWindowController {
+        let suiteName = "ZenttyTests.MainWindowControllerTests.\(UUID().uuidString)"
+        let sidebarVisibilityDefaults = UserDefaults(suiteName: suiteName) ?? .standard
+        testDefaultsSuiteNames.append(suiteName)
+        SidebarVisibilityPreference.persist(sidebarVisibilityMode, in: sidebarVisibilityDefaults)
+
         let c = MainWindowController(
-            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults
         )
         controller = c
         return c
@@ -117,6 +138,140 @@ final class MainWindowControllerTests: XCTestCase {
         )
     }
 
+    func test_window_resign_key_shows_non_black_inactive_traffic_light_overlay_when_sidebar_is_pinned_open() throws {
+        let controller = makeController(sidebarVisibilityMode: .pinnedOpen)
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        waitForLayout("inactive traffic lights settled", delay: 0.05)
+
+        let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
+        let overlay = try XCTUnwrap(
+            closeButton.superview?.descendant(withIdentifier: TrafficLightOverlayIdentifier.close)
+        )
+        let backgroundColor = try XCTUnwrap(
+            overlay.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))
+        )
+
+        XCTAssertFalse(overlay.isHidden)
+        XCTAssertNotEqual(backgroundColor.themeHexString, "#000000")
+    }
+
+    func test_application_resign_active_shows_non_black_inactive_traffic_light_overlay() throws {
+        let controller = makeController(sidebarVisibilityMode: .hidden)
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
+        let overlay = try XCTUnwrap(
+            closeButton.superview?.descendant(withIdentifier: TrafficLightOverlayIdentifier.close)
+        )
+        overlay.isHidden = true
+
+        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+        waitForLayout("app resign active settled", delay: 0.05)
+
+        let backgroundColor = try XCTUnwrap(
+            overlay.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))
+        )
+
+        XCTAssertFalse(overlay.isHidden)
+        XCTAssertNotEqual(backgroundColor.themeHexString, "#000000")
+    }
+
+    func test_inactive_traffic_light_overlay_does_not_draw_custom_border() throws {
+        let controller = makeController(sidebarVisibilityMode: .pinnedOpen)
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        waitForLayout("inactive traffic lights settled", delay: 0.05)
+
+        let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
+        let overlay = try XCTUnwrap(
+            closeButton.superview?.descendant(withIdentifier: TrafficLightOverlayIdentifier.close)
+        )
+
+        XCTAssertEqual(overlay.layer?.borderWidth, 0)
+        XCTAssertNil(overlay.layer?.borderColor)
+    }
+
+    func test_window_become_key_hides_inactive_traffic_light_overlay() throws {
+        let controller = makeController(sidebarVisibilityMode: .pinnedOpen)
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        waitForLayout("inactive traffic lights settled", delay: 0.05)
+        controller.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification))
+        waitForLayout("active traffic lights settled", delay: 0.05)
+
+        let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
+        let overlay = try XCTUnwrap(
+            closeButton.superview?.descendant(withIdentifier: TrafficLightOverlayIdentifier.close)
+        )
+
+        XCTAssertTrue(overlay.isHidden)
+    }
+
+    func test_inactive_traffic_light_overlay_tracks_standard_button_frames_after_resize() throws {
+        let controller = makeController(sidebarVisibilityMode: .pinnedOpen)
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        waitForLayout("inactive traffic lights settled", delay: 0.05)
+
+        let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
+        let miniButton = try XCTUnwrap(controller.window.standardWindowButton(.miniaturizeButton))
+        let closeOverlay = try XCTUnwrap(
+            closeButton.superview?.descendant(withIdentifier: TrafficLightOverlayIdentifier.close)
+        )
+        let miniOverlay = try XCTUnwrap(
+            closeButton.superview?.descendant(withIdentifier: TrafficLightOverlayIdentifier.mini)
+        )
+
+        XCTAssertEqual(closeOverlay.frame.integral, closeButton.frame.integral)
+        XCTAssertEqual(miniOverlay.frame.integral, miniButton.frame.integral)
+
+        let resizedFrame = NSRect(x: 120, y: 140, width: 1420, height: 880)
+        controller.window.setFrame(resizedFrame, display: false)
+        waitForLayout("resize settled", delay: 0.1)
+
+        let resizedCloseButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
+        let resizedMiniButton = try XCTUnwrap(controller.window.standardWindowButton(.miniaturizeButton))
+        let resizedCloseOverlay = try XCTUnwrap(
+            resizedCloseButton.superview?.descendant(withIdentifier: TrafficLightOverlayIdentifier.close)
+        )
+        let resizedMiniOverlay = try XCTUnwrap(
+            resizedCloseButton.superview?.descendant(withIdentifier: TrafficLightOverlayIdentifier.mini)
+        )
+
+        XCTAssertEqual(resizedCloseOverlay.frame.integral, resizedCloseButton.frame.integral)
+        XCTAssertEqual(resizedMiniOverlay.frame.integral, resizedMiniButton.frame.integral)
+    }
+
+    func test_inactive_traffic_light_overlay_does_not_block_native_button_hit_testing() throws {
+        let controller = makeController(sidebarVisibilityMode: .pinnedOpen)
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        waitForLayout("inactive traffic lights settled", delay: 0.05)
+
+        let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
+        let buttonSuperview = try XCTUnwrap(closeButton.superview)
+        let overlay = try XCTUnwrap(
+            buttonSuperview.descendant(withIdentifier: TrafficLightOverlayIdentifier.close)
+        )
+        let point = NSPoint(x: closeButton.frame.midX, y: closeButton.frame.midY)
+        let hitView = buttonSuperview.hitTest(point)
+
+        XCTAssertNotNil(hitView)
+        XCTAssertFalse(hitView?.isDescendant(of: overlay) ?? false)
+    }
+
     func test_programmatic_window_resize_relayouts_panes_without_inner_animation() throws {
         let controller = makeController()
         controller.showWindow(nil)
@@ -153,8 +308,17 @@ final class MainWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(initialWidths.count, 2)
         XCTAssertEqual(resizedWidths.count, 2)
-        XCTAssertEqual(resizedWidths[0], initialWidths[0] * expectedScaleFactor, accuracy: paneWidthTolerance)
-        XCTAssertEqual(resizedWidths[1], initialWidths[1] * expectedScaleFactor, accuracy: paneWidthTolerance)
+        guard
+            let initialLeftWidth = initialWidths.first,
+            let initialRightWidth = initialWidths.dropFirst().first,
+            let resizedLeftWidth = resizedWidths.first,
+            let resizedRightWidth = resizedWidths.dropFirst().first
+        else {
+            XCTFail("Expected exactly two pane widths before and after resize")
+            return
+        }
+        XCTAssertEqual(resizedLeftWidth, initialLeftWidth * expectedScaleFactor, accuracy: paneWidthTolerance)
+        XCTAssertEqual(resizedRightWidth, initialRightWidth * expectedScaleFactor, accuracy: paneWidthTolerance)
         XCTAssertEqual(resizedWidths.reduce(0, +), expectedTotalWidth, accuracy: paneWidthTolerance)
         XCTAssertFalse(resizedAppCanvasView.lastPaneStripRenderWasAnimatedForTesting)
     }
@@ -228,7 +392,7 @@ final class MainWindowControllerTests: XCTestCase {
             .sorted { $0.frame.minX < $1.frame.minX })
         XCTAssertEqual(paneViews.count, 2)
 
-        let rightPane = paneViews[1]
+        let rightPane = try XCTUnwrap(paneViews.dropFirst().first)
         let rightAdapter = try XCTUnwrap(adapterStore.adapters[rightPane.paneID])
         rightAdapter.emitWorkingDirectory("/tmp/project-right")
         rightPane.focusTerminal()
@@ -261,7 +425,7 @@ final class MainWindowControllerTests: XCTestCase {
             .sorted { $0.frame.minX < $1.frame.minX })
         XCTAssertEqual(paneViews.count, 2)
 
-        let rightPane = paneViews[1]
+        let rightPane = try XCTUnwrap(paneViews.dropFirst().first)
         let rightAdapter = try XCTUnwrap(adapterStore.adapters[rightPane.paneID])
         rightAdapter.emitWorkingDirectory("/tmp/project-right")
         rightPane.focusTerminal()
@@ -354,6 +518,20 @@ private extension NSView {
 
         for subview in subviews {
             if let match = subview.firstDescendant(ofType: type) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
+    func descendant(withIdentifier identifier: String) -> NSView? {
+        if self.identifier?.rawValue == identifier {
+            return self
+        }
+
+        for subview in subviews {
+            if let match = subview.descendant(withIdentifier: identifier) {
                 return match
             }
         }

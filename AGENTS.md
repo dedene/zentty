@@ -8,14 +8,10 @@ Two test targets:
 
 Run all tests (scheme controls parallelism per-target automatically):
 ```
-pkill -9 -f 'xcodebuild|Zentty' 2>/dev/null; sleep 1
 xcodebuild test -scheme Zentty -destination 'platform=macOS'
 ```
 
-Before CLI test runs, always kill stale processes:
-```
-pkill -9 -f 'xcodebuild|Zentty' 2>/dev/null
-```
+Before CLI test runs, inspect for stale or stuck `xcodebuild` / `Zentty` processes if test behavior looks suspicious. Do not kill active processes automatically. If an obviously stale instance is blocking the run, confirm with Peter before terminating it.
 
 Guidelines:
 - New tests go in `ZenttyLogicTests` unless they call `showWindow()`, `makeKeyAndOrderFront()`, or access `NSApp` lifecycle.

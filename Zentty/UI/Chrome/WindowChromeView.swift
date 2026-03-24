@@ -153,22 +153,6 @@ final class WindowChromeView: NSView {
         needsLayout = true
     }
 
-    func render(
-        workspaceName: String,
-        state: PaneStripState,
-        metadata: TerminalMetadata?,
-        attention: WorkspaceAttentionSummary?
-    ) {
-        let summary = WorkspaceChromeSummary(
-            attention: attention,
-            focusedLabel: metadata?.title ?? metadata?.processName ?? state.focusedPane?.title,
-            branch: metadata?.gitBranch,
-            pullRequest: nil,
-            reviewChips: []
-        )
-        render(summary: summary)
-    }
-
     func apply(theme: ZenttyTheme, animated: Bool) {
         currentTheme = theme
         attentionChipView.apply(theme: theme, animated: animated)

@@ -10,16 +10,13 @@ struct WorkspaceReviewResolution: Equatable, Sendable {
     }
 
     let reviewState: WorkspaceReviewState?
-    let inferredArtifact: WorkspaceArtifactLink?
     let updatePolicy: UpdatePolicy
 
     init(
         reviewState: WorkspaceReviewState?,
-        inferredArtifact: WorkspaceArtifactLink?,
         updatePolicy: UpdatePolicy = .replace
     ) {
         self.reviewState = reviewState
-        self.inferredArtifact = inferredArtifact
         self.updatePolicy = updatePolicy
     }
 }
@@ -158,7 +155,7 @@ struct DefaultWorkspaceReviewCommandRunner: WorkspaceReviewCommandRunning {
 @MainActor
 final class WorkspaceReviewStateResolver {
     private struct RepositoryKey: Hashable {
-        let path: String
+        let repoRoot: String
         let branch: String
     }
 
@@ -197,8 +194,8 @@ final class WorkspaceReviewStateResolver {
     private var cache: [RepositoryKey: WorkspaceReviewResolution] = [:]
     private var repositoryStatusByPath: [String: RepositoryStatus] = [:]
     private var githubRepositoryByKey: [RepositoryKey: GitHubRepositoryResolution] = [:]
-    private var pendingPaths: Set<String> = []
-    private var waitingPaneIDsByPath: [String: Set<PaneID>] = [:]
+    private var pendingRepositoryKeys: Set<RepositoryKey> = []
+    private var waitingPaneIDsByRepositoryKey: [RepositoryKey: Set<PaneID>] = [:]
 
     init(runner: any WorkspaceReviewCommandRunning = DefaultWorkspaceReviewCommandRunner()) {
         self.runner = runner
@@ -211,21 +208,21 @@ final class WorkspaceReviewStateResolver {
         for workspace in workspaces {
             for pane in workspace.paneStripState.panes {
                 let auxiliaryState = workspace.auxiliaryStateByPaneID[pane.id]
-                guard let path = auxiliaryState?.localReviewWorkingDirectory else {
+                guard
+                    let repoRoot = auxiliaryState?.presentation.repoRoot,
+                    let branch = preferredBranch(from: auxiliaryState?.presentation.lookupBranch)
+                else {
                     continue
                 }
 
-                let metadataBranch = preferredBranch(from: auxiliaryState?.metadata?.gitBranch)
-                if
-                    let metadataBranch,
-                    let cached = cache[RepositoryKey(path: path, branch: metadataBranch)]
-                {
+                let key = RepositoryKey(repoRoot: repoRoot, branch: branch)
+                if let cached = cache[key] {
                     update(pane.id, cached)
                     continue
                 }
 
-                waitingPaneIDsByPath[path, default: []].insert(pane.id)
-                guard pendingPaths.insert(path).inserted else {
+                waitingPaneIDsByRepositoryKey[key, default: []].insert(pane.id)
+                guard pendingRepositoryKeys.insert(key).inserted else {
                     continue
                 }
 
@@ -234,13 +231,17 @@ final class WorkspaceReviewStateResolver {
                         return
                     }
 
-                    let resolution = await self.loadResolution(path: path, preferredBranch: metadataBranch)
+                    let resolution = await self.loadPullRequestResolution(
+                        path: repoRoot,
+                        branch: branch,
+                        fallback: self.cache[key]
+                    )
                     await MainActor.run {
-                        self.pendingPaths.remove(path)
-                        if let branch = resolution.reviewState?.branch {
-                            self.cache[RepositoryKey(path: path, branch: branch)] = resolution
+                        self.pendingRepositoryKeys.remove(key)
+                        if resolution.reviewState?.branch != nil {
+                            self.cache[key] = resolution
                         }
-                        let paneIDs = self.waitingPaneIDsByPath.removeValue(forKey: path) ?? []
+                        let paneIDs = self.waitingPaneIDsByRepositoryKey.removeValue(forKey: key) ?? []
                         paneIDs.forEach { paneID in
                             update(paneID, resolution)
                         }
@@ -255,7 +256,7 @@ final class WorkspaceReviewStateResolver {
             return emptyResolution()
         }
 
-        let key = RepositoryKey(path: path, branch: sanitizedBranch)
+        let key = RepositoryKey(repoRoot: path, branch: sanitizedBranch)
         if let cached = cache[key] {
             return cached
         }
@@ -276,15 +277,18 @@ final class WorkspaceReviewStateResolver {
     }
 
     func refreshFocusedPane(
-        path: String,
-        preferredBranch: String?,
+        repoRoot: String,
+        branch: String,
         paneID: PaneID,
         forceReload: Bool = false,
         update: @escaping (PaneID, WorkspaceReviewResolution) -> Void
     ) {
-        if !forceReload,
-           let branch = self.preferredBranch(from: preferredBranch),
-           let cached = cache[RepositoryKey(path: path, branch: branch)] {
+        guard let sanitizedBranch = preferredBranch(from: branch) else {
+            return
+        }
+
+        let key = RepositoryKey(repoRoot: repoRoot, branch: sanitizedBranch)
+        if !forceReload, let cached = cache[key] {
             update(paneID, cached)
             return
         }
@@ -294,56 +298,18 @@ final class WorkspaceReviewStateResolver {
                 return
             }
 
-            let resolution = await self.loadResolution(
-                path: path,
-                preferredBranch: preferredBranch,
-                forceReload: forceReload
+            let resolution = await self.loadPullRequestResolution(
+                path: repoRoot,
+                branch: sanitizedBranch,
+                fallback: self.cache[key]
             )
             await MainActor.run {
-                if let branch = resolution.reviewState?.branch {
-                    self.cache[RepositoryKey(path: path, branch: branch)] = resolution
+                if resolution.reviewState?.branch != nil {
+                    self.cache[key] = resolution
                 }
                 update(paneID, resolution)
             }
         }
-    }
-
-    private func loadResolution(
-        path: String,
-        preferredBranch: String?,
-        forceReload: Bool = false
-    ) async -> WorkspaceReviewResolution {
-        guard await isRepository(path: path) else {
-            return emptyResolution()
-        }
-
-        let branch: String
-        if let sanitizedPreferredBranch = self.preferredBranch(from: preferredBranch) {
-            branch = sanitizedPreferredBranch
-        } else if let derivedBranch = await resolveCurrentBranch(path: path) {
-            branch = derivedBranch
-        } else {
-            return WorkspaceReviewResolution(
-                reviewState: nil,
-                inferredArtifact: nil,
-                updatePolicy: .preserveExistingOnEmpty
-            )
-        }
-
-        let key = RepositoryKey(path: path, branch: branch)
-        if !forceReload, let cached = cache[key] {
-            return cached
-        }
-
-        let resolution = await loadPullRequestResolution(
-            path: path,
-            branch: branch,
-            fallback: cache[key]
-        )
-        if resolution.reviewState?.branch != nil {
-            cache[key] = resolution
-        }
-        return resolution
     }
 
     private func loadPullRequestResolution(
@@ -361,7 +327,6 @@ final class WorkspaceReviewStateResolver {
 
             return WorkspaceReviewResolution(
                 reviewState: nil,
-                inferredArtifact: nil,
                 updatePolicy: .preserveExistingOnEmpty
             )
         case .repository(let repository):
@@ -381,7 +346,6 @@ final class WorkspaceReviewStateResolver {
 
                 return WorkspaceReviewResolution(
                     reviewState: nil,
-                    inferredArtifact: nil,
                     updatePolicy: .preserveExistingOnEmpty
                 )
             }
@@ -393,7 +357,6 @@ final class WorkspaceReviewStateResolver {
 
                 return WorkspaceReviewResolution(
                     reviewState: nil,
-                    inferredArtifact: nil,
                     updatePolicy: .preserveExistingOnEmpty
                 )
             }
@@ -408,37 +371,14 @@ final class WorkspaceReviewStateResolver {
                 currentDirectoryPath: path
             )
             let reviewChips = reviewChips(for: pullRequest, checksResult: checksResult)
-            let inferredArtifact = pullRequest.url.map { url in
-                WorkspaceArtifactLink(
-                    kind: .pullRequest,
-                    label: "PR #\(pullRequest.number)",
-                    url: url,
-                    isExplicit: false
-                )
-            }
-
             return WorkspaceReviewResolution(
                 reviewState: WorkspaceReviewState(
                     branch: branch,
                     pullRequest: pullRequest,
                     reviewChips: reviewChips
-                ),
-                inferredArtifact: inferredArtifact
+                )
             )
         }
-    }
-
-    private func resolveCurrentBranch(path: String) async -> String? {
-        let branchResult = await runCommand(
-            arguments: ["git", "branch", "--show-current"],
-            currentDirectoryPath: path
-        )
-
-        guard branchResult.terminationStatus == 0 else {
-            return nil
-        }
-
-        return WorkspaceContextFormatter.trimmed(String(decoding: branchResult.stdout, as: UTF8.self))
     }
 
     private func preferredBranch(from value: String?) -> String? {
@@ -448,7 +388,6 @@ final class WorkspaceReviewStateResolver {
     private func emptyResolution() -> WorkspaceReviewResolution {
         WorkspaceReviewResolution(
             reviewState: nil,
-            inferredArtifact: nil,
             updatePolicy: .preserveExistingOnEmpty
         )
     }
@@ -459,8 +398,7 @@ final class WorkspaceReviewStateResolver {
                 branch: branch,
                 pullRequest: nil,
                 reviewChips: []
-            ),
-            inferredArtifact: nil
+            )
         )
     }
 
@@ -487,7 +425,7 @@ final class WorkspaceReviewStateResolver {
     }
 
     private func resolveGitHubRepository(path: String, branch: String) async -> GitHubRepositoryResolution {
-        let key = RepositoryKey(path: path, branch: branch)
+        let key = RepositoryKey(repoRoot: path, branch: branch)
         if let cached = githubRepositoryByKey[key] {
             return cached
         }

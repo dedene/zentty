@@ -31,7 +31,7 @@ enum AppMenuBuilder {
         settingsItem.keyEquivalentModifierMask = [.command]
         quitItem.keyEquivalentModifierMask = [.command]
         appMenu.addItem(settingsItem)
-        appMenu.addItem(.separator())
+        appMenu.addItem(makeSeparatorItem())
         appMenu.addItem(quitItem)
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
@@ -104,9 +104,7 @@ enum AppMenuBuilder {
             keyEquivalent: "d",
             modifiers: [.command, .shift]
         ))
-        let separatorItem = NSMenuItem.separator()
-        separatorItem.keyEquivalentModifierMask = []
-        viewMenu.addItem(separatorItem)
+        viewMenu.addItem(makeSeparatorItem())
         viewMenu.addItem(makeMenuActionItem(
             title: "Focus Left Pane",
             action: #selector(MainWindowController.focusLeftPane(_:)),
@@ -143,7 +141,7 @@ enum AppMenuBuilder {
             keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!),
             modifiers: [.command, .option, .shift]
         ))
-        viewMenu.addItem(NSMenuItem.separator())
+        viewMenu.addItem(makeSeparatorItem())
         viewMenu.addItem(makeMenuActionItem(
             title: "Resize Pane Left",
             action: #selector(MainWindowController.resizePaneLeft(_:)),
@@ -168,7 +166,7 @@ enum AppMenuBuilder {
             keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!),
             modifiers: [.command, .control, .option]
         ))
-        viewMenu.addItem(NSMenuItem.separator())
+        viewMenu.addItem(makeSeparatorItem())
         viewMenu.addItem(makeMenuActionItem(
             title: "Reset Pane Layout",
             action: #selector(MainWindowController.resetPaneLayout(_:)),
@@ -196,6 +194,12 @@ enum AppMenuBuilder {
     ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
         item.keyEquivalentModifierMask = modifiers
+        return item
+    }
+
+    private static func makeSeparatorItem() -> NSMenuItem {
+        let item = NSMenuItem.separator()
+        item.keyEquivalentModifierMask = []
         return item
     }
 

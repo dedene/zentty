@@ -12,7 +12,6 @@ extension WorkspaceState {
         paneContextByPaneID: [PaneID: PaneShellContext] = [:],
         agentStatusByPaneID: [PaneID: PaneAgentStatus] = [:],
         terminalProgressByPaneID: [PaneID: TerminalProgressReport] = [:],
-        inferredArtifactByPaneID: [PaneID: WorkspaceArtifactLink] = [:],
         reviewStateByPaneID: [PaneID: WorkspaceReviewState] = [:]
     ) {
         var aux: [PaneID: PaneAuxiliaryState] = [:]
@@ -20,7 +19,6 @@ extension WorkspaceState {
             .union(paneContextByPaneID.keys)
             .union(agentStatusByPaneID.keys)
             .union(terminalProgressByPaneID.keys)
-            .union(inferredArtifactByPaneID.keys)
             .union(reviewStateByPaneID.keys)
         for paneID in allPaneIDs {
             aux[paneID] = PaneAuxiliaryState(
@@ -28,7 +26,6 @@ extension WorkspaceState {
                 shellContext: paneContextByPaneID[paneID],
                 agentStatus: agentStatusByPaneID[paneID],
                 terminalProgress: terminalProgressByPaneID[paneID],
-                inferredArtifact: inferredArtifactByPaneID[paneID],
                 reviewState: reviewStateByPaneID[paneID]
             )
         }

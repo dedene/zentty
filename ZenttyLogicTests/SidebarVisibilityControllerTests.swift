@@ -148,6 +148,43 @@ final class SidebarVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(inactiveBorder.srgbClamped.alphaComponent, 0, accuracy: 0.001)
     }
 
+    func test_inactive_traffic_light_tint_uses_composited_sidebar_surface_when_sidebar_is_pinned_open() {
+        let theme = makeTrafficLightTheme()
+
+        let tint = TrafficLightTintResolver.inactiveBezelColor(
+            theme: theme,
+            sidebarVisibilityMode: .pinnedOpen
+        )
+
+        XCTAssertEqual(
+            tint.themeToken,
+            expectedInactiveTrafficLightTint(
+                for: theme,
+                sidebarVisibilityMode: .pinnedOpen
+            ).themeToken
+        )
+    }
+
+    func test_inactive_traffic_light_tint_uses_window_background_when_sidebar_is_hidden_or_hover_peek() {
+        let theme = makeTrafficLightTheme()
+        let expected = expectedInactiveTrafficLightTint(
+            for: theme,
+            sidebarVisibilityMode: .hidden
+        )
+
+        let hiddenTint = TrafficLightTintResolver.inactiveBezelColor(
+            theme: theme,
+            sidebarVisibilityMode: .hidden
+        )
+        let hoverPeekTint = TrafficLightTintResolver.inactiveBezelColor(
+            theme: theme,
+            sidebarVisibilityMode: .hoverPeek
+        )
+
+        XCTAssertEqual(hiddenTint.themeToken, expected.themeToken)
+        XCTAssertEqual(hoverPeekTint.themeToken, expected.themeToken)
+    }
+
     func test_sidebar_toggle_icon_factory_falls_back_when_symbol_is_unavailable() {
         let image = SidebarToggleIconFactory.makeImage(symbolProvider: { _, _ -> NSImage? in nil })
 
@@ -166,5 +203,36 @@ final class SidebarVisibilityControllerTests: XCTestCase {
 
         button.configure(theme: theme, isActive: false, animated: false)
         XCTAssertFalse(button.isActive)
+    }
+
+    private func makeTrafficLightTheme() -> ZenttyTheme {
+        ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#111418") ?? .black,
+                foreground: NSColor(hexString: "#E7EDF5") ?? .white,
+                cursorColor: NSColor(hexString: "#6CB6FF") ?? .systemBlue,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: nil,
+                backgroundBlurRadius: 12
+            ),
+            reduceTransparency: false
+        )
+    }
+
+    private func expectedInactiveTrafficLightTint(
+        for theme: ZenttyTheme,
+        sidebarVisibilityMode: SidebarVisibilityMode
+    ) -> NSColor {
+        switch sidebarVisibilityMode {
+        case .pinnedOpen:
+            let compositedSidebar = theme.sidebarBackground.composited(over: theme.windowBackground)
+            return compositedSidebar.mixed(towards: .black, amount: 0.10)
+        case .hidden, .hoverPeek:
+            let base = theme.windowBackground.srgbClamped.withAlphaComponent(1)
+            let amount: CGFloat = base.isDarkThemeColor ? 0.24 : 0.12
+            return base.mixed(towards: .white, amount: amount)
+        }
     }
 }

@@ -1,27 +1,6 @@
 import Foundation
 
 extension WorkspaceStore {
-    func updateInferredArtifact(paneID: PaneID, artifact: WorkspaceArtifactLink?) {
-        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
-            workspace.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
-            return
-        }
-
-        var workspace = workspaces[workspaceIndex]
-        let previousArtifact = workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact
-        guard previousArtifact != artifact else {
-            return
-        }
-        if let artifact {
-            workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].inferredArtifact = artifact
-        } else {
-            workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil
-        }
-        workspaces[workspaceIndex] = workspace
-        notify(.auxiliaryStateUpdated(workspace.id, paneID))
-    }
-
     func updateReviewResolution(paneID: PaneID, resolution: WorkspaceReviewResolution) {
         guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
             workspace.paneStripState.panes.contains(where: { $0.id == paneID })
@@ -31,13 +10,11 @@ extension WorkspaceStore {
 
         var workspace = workspaces[workspaceIndex]
         let previousState = workspace.auxiliaryStateByPaneID[paneID]?.reviewState
-        let previousArtifact = workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact
         if resolution.updatePolicy == .preserveExistingOnEmpty,
-           resolution.reviewState == nil,
-           resolution.inferredArtifact == nil {
+           resolution.reviewState == nil {
             return
         }
-        guard previousState != resolution.reviewState || previousArtifact != resolution.inferredArtifact else {
+        guard previousState != resolution.reviewState else {
             return
         }
 
@@ -47,12 +24,7 @@ extension WorkspaceStore {
             workspace.auxiliaryStateByPaneID[paneID]?.reviewState = nil
         }
 
-        if let artifact = resolution.inferredArtifact {
-            workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].inferredArtifact = artifact
-        } else {
-            workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil
-        }
-
+        recomputePresentation(for: paneID, in: &workspace)
         workspaces[workspaceIndex] = workspace
         notify(.auxiliaryStateUpdated(workspace.id, paneID))
     }
@@ -76,6 +48,7 @@ extension WorkspaceStore {
             workspace.auxiliaryStateByPaneID[paneID]?.reviewState = nil
         }
 
+        recomputePresentation(for: paneID, in: &workspace)
         workspaces[workspaceIndex] = workspace
         notify(.auxiliaryStateUpdated(workspace.id, paneID))
     }

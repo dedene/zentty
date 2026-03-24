@@ -25,6 +25,33 @@ final class RootViewCompositionTests: XCTestCase {
         )
     }
 
+    private func makeSidebarSummary(
+        workspaceID: WorkspaceID,
+        title: String,
+        badgeText: String,
+        primaryText: String,
+        statusText: String? = nil,
+        contextText: String = "",
+        attentionState: WorkspaceAttentionState? = nil,
+        isWorking: Bool = false,
+        isActive: Bool,
+        showsGeneratedTitle: Bool
+    ) -> WorkspaceSidebarSummary {
+        WorkspaceSidebarSummary(
+            workspaceID: workspaceID,
+            badgeText: badgeText,
+            topLabel: showsGeneratedTitle ? title : nil,
+            primaryText: primaryText,
+            statusText: statusText,
+            detailLines: WorkspaceContextFormatter.trimmed(contextText).map {
+                [WorkspaceSidebarDetailLine(text: $0, emphasis: .secondary)]
+            } ?? [],
+            attentionState: attentionState,
+            isWorking: isWorking,
+            isActive: isActive
+        )
+    }
+
     func test_root_controller_layers_full_width_canvas_beneath_sidebar_overlay() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
@@ -195,27 +222,21 @@ final class RootViewCompositionTests: XCTestCase {
     func test_sidebar_view_emits_selected_workspace_id() throws {
         let sidebarView = SidebarView()
         let summaries = [
-            WorkspaceSidebarSummary(
+            makeSidebarSummary(
                 workspaceID: WorkspaceID("workspace-api"),
                 title: "API",
                 badgeText: "A",
                 primaryText: "shell",
-                statusText: nil,
                 contextText: "1 pane",
-                attentionState: nil,
-                artifactLink: nil,
                 isActive: true,
                 showsGeneratedTitle: true
             ),
-            WorkspaceSidebarSummary(
+            makeSidebarSummary(
                 workspaceID: WorkspaceID("workspace-web"),
                 title: "WEB",
                 badgeText: "W",
                 primaryText: "editor",
-                statusText: nil,
                 contextText: "project • main",
-                attentionState: nil,
-                artifactLink: nil,
                 isActive: false,
                 showsGeneratedTitle: true
             ),
@@ -355,15 +376,12 @@ final class RootViewCompositionTests: XCTestCase {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
+                makeSidebarSummary(
                     workspaceID: WorkspaceID("workspace-main"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
-                    statusText: nil,
                     contextText: "project • main",
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true,
                     showsGeneratedTitle: false
                 )
@@ -384,15 +402,12 @@ final class RootViewCompositionTests: XCTestCase {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
+                makeSidebarSummary(
                     workspaceID: WorkspaceID("workspace-main"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
-                    statusText: nil,
                     contextText: "",
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true,
                     showsGeneratedTitle: false
                 )
@@ -410,15 +425,12 @@ final class RootViewCompositionTests: XCTestCase {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
+                makeSidebarSummary(
                     workspaceID: WorkspaceID("workspace-main"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
-                    statusText: nil,
                     contextText: "",
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true,
                     showsGeneratedTitle: false
                 )
@@ -435,90 +447,63 @@ final class RootViewCompositionTests: XCTestCase {
         )
     }
 
-    func test_sidebar_keeps_primary_text_alignment_without_icon_gutter() throws {
-        let withAccessorySidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
-        withAccessorySidebar.render(
+    func test_sidebar_keeps_primary_text_alignment_for_home_and_project_rows() throws {
+        let homeSidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        homeSidebar.render(
             summaries: [
                 WorkspaceSidebarSummary(
                     workspaceID: WorkspaceID("workspace-home"),
                     badgeText: "H",
-                    topLabel: nil,
                     primaryText: "~",
-                    statusText: nil,
-                    detailLines: [],
-                    overflowText: nil,
-                    leadingAccessory: .home,
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true
                 ),
                 WorkspaceSidebarSummary(
                     workspaceID: WorkspaceID("workspace-project"),
                     badgeText: "P",
-                    topLabel: nil,
                     primaryText: "feature/sidebar",
-                    statusText: nil,
                     detailLines: [
                         WorkspaceSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
                     ],
-                    overflowText: nil,
-                    leadingAccessory: nil,
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: false
                 ),
             ],
             theme: ZenttyTheme.fallback(for: nil)
         )
-        withAccessorySidebar.layoutSubtreeIfNeeded()
+        homeSidebar.layoutSubtreeIfNeeded()
 
-        let withoutAccessorySidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
-        withoutAccessorySidebar.render(
+        let projectSidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        projectSidebar.render(
             summaries: [
                 WorkspaceSidebarSummary(
                     workspaceID: WorkspaceID("workspace-project-a"),
                     badgeText: "A",
-                    topLabel: nil,
                     primaryText: "feature/sidebar",
-                    statusText: nil,
-                    detailLines: [],
-                    overflowText: nil,
-                    leadingAccessory: nil,
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true
                 ),
                 WorkspaceSidebarSummary(
                     workspaceID: WorkspaceID("workspace-project-b"),
                     badgeText: "B",
-                    topLabel: nil,
                     primaryText: "marketing-site",
-                    statusText: nil,
-                    detailLines: [],
-                    overflowText: nil,
-                    leadingAccessory: nil,
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: false
                 ),
             ],
             theme: ZenttyTheme.fallback(for: nil)
         )
-        withoutAccessorySidebar.layoutSubtreeIfNeeded()
+        projectSidebar.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(
-            withAccessorySidebar.firstWorkspacePrimaryMinX,
-            withAccessorySidebar.secondWorkspacePrimaryMinX,
+            homeSidebar.firstWorkspacePrimaryMinX,
+            homeSidebar.secondWorkspacePrimaryMinX,
             accuracy: 0.5
         )
         XCTAssertEqual(
-            withoutAccessorySidebar.firstWorkspacePrimaryMinX,
-            withAccessorySidebar.firstWorkspacePrimaryMinX,
+            projectSidebar.firstWorkspacePrimaryMinX,
+            homeSidebar.firstWorkspacePrimaryMinX,
             accuracy: 0.5
         )
         XCTAssertEqual(
-            withoutAccessorySidebar.firstWorkspacePrimaryMinX,
-            withoutAccessorySidebar.secondWorkspacePrimaryMinX,
+            projectSidebar.firstWorkspacePrimaryMinX,
+            projectSidebar.secondWorkspacePrimaryMinX,
             accuracy: 0.5
         )
     }
@@ -538,10 +523,6 @@ final class RootViewCompositionTests: XCTestCase {
                         WorkspaceSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
                         WorkspaceSidebarDetailLine(text: "tests • specs", emphasis: .secondary),
                     ],
-                    overflowText: nil,
-                    leadingAccessory: nil,
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true
                 )
             ],
@@ -568,9 +549,7 @@ final class RootViewCompositionTests: XCTestCase {
                 WorkspaceSidebarSummary(
                     workspaceID: WorkspaceID("workspace-main"),
                     badgeText: "M",
-                    topLabel: nil,
                     primaryText: "peter@m1-pro-peter:~/Development/Personal/worktrees/feature/sidebar",
-                    statusText: nil,
                     detailLines: [
                         WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .primary),
                         WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
@@ -579,10 +558,6 @@ final class RootViewCompositionTests: XCTestCase {
                         WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
                         WorkspaceSidebarDetailLine(text: lastDetailText, emphasis: .secondary),
                     ],
-                    overflowText: nil,
-                    leadingAccessory: nil,
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true
                 )
             ],
@@ -601,28 +576,20 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertLessThanOrEqual(lastDetailFrame.maxY, button.bounds.maxY + 0.5)
     }
 
-    func test_sidebar_renders_home_accessory_with_sf_symbol() {
+    func test_sidebar_home_row_keeps_detail_lines_empty() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         sidebarView.render(
             summaries: [
                 WorkspaceSidebarSummary(
                     workspaceID: WorkspaceID("workspace-home"),
                     badgeText: "H",
-                    topLabel: nil,
                     primaryText: "~",
-                    statusText: nil,
-                    detailLines: [],
-                    overflowText: nil,
-                    leadingAccessory: nil,
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true
                 )
             ],
             theme: ZenttyTheme.fallback(for: nil)
         )
 
-        XCTAssertEqual(sidebarView.workspaceLeadingAccessorySymbols, [""])
         XCTAssertEqual(sidebarView.workspaceDetailTexts.first, [])
     }
 
@@ -630,15 +597,12 @@ final class RootViewCompositionTests: XCTestCase {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
+                makeSidebarSummary(
                     workspaceID: WorkspaceID("workspace-main"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
-                    statusText: nil,
                     contextText: "",
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true,
                     showsGeneratedTitle: false
                 )
@@ -744,12 +708,6 @@ final class RootViewCompositionTests: XCTestCase {
                     badgeText: "1",
                     topLabel: "peter@m1-pro-peter:~",
                     primaryText: "~",
-                    statusText: nil,
-                    detailLines: [],
-                    overflowText: nil,
-                    leadingAccessory: nil,
-                    attentionState: nil,
-                    artifactLink: nil,
                     isWorking: false,
                     isActive: false
                 )
@@ -762,51 +720,20 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(firstRow.appearanceMatchForTesting, .darkAqua)
     }
 
-    func test_sidebar_row_hides_trailing_artifact_pill_in_text_only_mode() {
-        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
-        sidebarView.render(
-            summaries: [
-                WorkspaceSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-main"),
-                    title: "MAIN",
-                    badgeText: "M",
-                    primaryText: "Claude Code",
-                    statusText: "Needs input",
-                    contextText: "project • main",
-                    attentionState: .needsInput,
-                    artifactLink: WorkspaceArtifactLink(
-                        kind: .pullRequest,
-                        label: "PR #42",
-                        url: URL(string: "https://example.com/pr/42")!,
-                        isExplicit: true
-                    ),
-                    isActive: true,
-                    showsGeneratedTitle: false
-                )
-            ],
-            theme: ZenttyTheme.fallback(for: nil)
-        )
-
-        XCTAssertEqual(sidebarView.workspaceArtifactTexts, [""])
-    }
-
     func test_sidebar_compacts_true_single_line_rows_only() throws {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
+                makeSidebarSummary(
                     workspaceID: WorkspaceID("workspace-compact"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
-                    statusText: nil,
                     contextText: "",
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true,
                     showsGeneratedTitle: false
                 ),
-                WorkspaceSidebarSummary(
+                makeSidebarSummary(
                     workspaceID: WorkspaceID("workspace-expanded"),
                     title: "Claude Code",
                     badgeText: "C",
@@ -814,7 +741,6 @@ final class RootViewCompositionTests: XCTestCase {
                     statusText: "Needs input",
                     contextText: "",
                     attentionState: .needsInput,
-                    artifactLink: nil,
                     isActive: false,
                     showsGeneratedTitle: true
                 ),
@@ -835,8 +761,7 @@ final class RootViewCompositionTests: XCTestCase {
                 includesTopLabel: true,
                 includesStatus: true,
                 detailLineCount: 0,
-                includesOverflow: false,
-                includesArtifact: false
+                includesOverflow: false
             ),
             accuracy: 0.5
         )
@@ -847,15 +772,12 @@ final class RootViewCompositionTests: XCTestCase {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
+                makeSidebarSummary(
                     workspaceID: WorkspaceID("workspace-context"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
-                    statusText: nil,
                     contextText: "main • ~/src/zentty",
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true,
                     showsGeneratedTitle: false
                 )
@@ -872,31 +794,22 @@ final class RootViewCompositionTests: XCTestCase {
                 includesTopLabel: false,
                 includesStatus: false,
                 detailLineCount: 1,
-                includesOverflow: false,
-                includesArtifact: false
+                includesOverflow: false
             ),
             accuracy: 0.5
         )
     }
 
-    func test_sidebar_keeps_artifact_only_rows_compact() throws {
+    func test_sidebar_keeps_primary_only_rows_compact() throws {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
+                makeSidebarSummary(
                     workspaceID: WorkspaceID("workspace-artifact"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "Claude Code",
-                    statusText: nil,
                     contextText: "",
-                    attentionState: nil,
-                    artifactLink: WorkspaceArtifactLink(
-                        kind: .pullRequest,
-                        label: "PR #42",
-                        url: URL(string: "https://example.com/pr/42")!,
-                        isExplicit: true
-                    ),
                     isActive: true,
                     showsGeneratedTitle: false
                 )
@@ -914,19 +827,16 @@ final class RootViewCompositionTests: XCTestCase {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
+                makeSidebarSummary(
                     workspaceID: WorkspaceID("workspace-compact"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
-                    statusText: nil,
                     contextText: "",
-                    attentionState: nil,
-                    artifactLink: nil,
                     isActive: true,
                     showsGeneratedTitle: false
                 ),
-                WorkspaceSidebarSummary(
+                makeSidebarSummary(
                     workspaceID: WorkspaceID("workspace-expanded"),
                     title: "Claude Code",
                     badgeText: "C",
@@ -934,7 +844,6 @@ final class RootViewCompositionTests: XCTestCase {
                     statusText: "Needs input",
                     contextText: "main • ~/src/zentty",
                     attentionState: .needsInput,
-                    artifactLink: nil,
                     isActive: false,
                     showsGeneratedTitle: true
                 ),
@@ -1064,6 +973,31 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(rightGap, borderFrameInRoot.minY, accuracy: 0.001)
         XCTAssertTrue(controller.isSidebarFloating)
         XCTAssertFalse(appCanvasView.lastPaneStripRenderWasAnimatedForTesting)
+    }
+
+    func test_root_controller_hover_peek_keeps_sidebar_toggle_at_closed_anchor() throws {
+        let visibilityDefaults = SidebarVisibilityPreference.userDefaults()
+        SidebarVisibilityPreference.persist(.hidden, in: visibilityDefaults)
+        let controller = makeController(
+            sidebarWidthDefaults: SidebarWidthPreference.userDefaults(),
+            sidebarVisibilityDefaults: visibilityDefaults
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let hiddenToggleMinX = controller.sidebarToggleMinX
+
+        controller.handleSidebarVisibilityEvent(.hoverRailEntered)
+        let settled = expectation(description: "hover peek settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarTransitionProfile.standardDuration + 0.05) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 2.0)
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(controller.sidebarVisibilityMode, .hoverPeek)
+        XCTAssertEqual(controller.sidebarToggleMinX, hiddenToggleMinX, accuracy: 0.001)
     }
 
     func test_navigate_back_to_first_pane_clears_sidebar_with_three_panes() throws {

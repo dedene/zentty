@@ -31,8 +31,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
                 includesTopLabel: true,
                 includesStatus: true,
                 detailLineCount: 1,
-                includesOverflow: false,
-                includesArtifact: false
+                includesOverflow: false
             ),
             accuracy: 0.001
         )
@@ -54,8 +53,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
                 includesTopLabel: false,
                 includesStatus: true,
                 detailLineCount: 1,
-                includesOverflow: false,
-                includesArtifact: false
+                includesOverflow: false
             ),
             accuracy: 0.001
         )
@@ -95,6 +93,37 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
         XCTAssertGreaterThan(layout.rowHeight, ShellMetrics.sidebarExpandedRowHeight)
     }
 
+    func test_layout_expands_for_multiple_pane_primary_rows_even_without_detail_or_status() {
+        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+            paneRows: [
+                WorkspaceSidebarPaneRow(
+                    paneID: PaneID("workspace-main-1"),
+                    primaryText: "main · …/nimbu",
+                    trailingText: nil,
+                    detailText: nil,
+                    statusText: nil,
+                    attentionState: nil,
+                    isFocused: true,
+                    isWorking: false
+                ),
+                WorkspaceSidebarPaneRow(
+                    paneID: PaneID("workspace-main-2"),
+                    primaryText: "build",
+                    trailingText: nil,
+                    detailText: nil,
+                    statusText: nil,
+                    attentionState: nil,
+                    isFocused: false,
+                    isWorking: false
+                ),
+            ]
+        ))
+
+        XCTAssertEqual(layout.mode, .expanded)
+        XCTAssertEqual(layout.visibleTextRows, [.panePrimary(0), .panePrimary(1)])
+        XCTAssertGreaterThan(layout.rowHeight, ShellMetrics.sidebarCompactRowHeight)
+    }
+
     func test_layout_places_primary_row_at_focused_pane_line_index() {
         let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
             primaryText: "k8s-zenjoy",
@@ -132,8 +161,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
                 includesTopLabel: false,
                 includesStatus: false,
                 detailLineCount: 3,
-                includesOverflow: false,
-                includesArtifact: false
+                includesOverflow: false
             ),
             accuracy: 0.001
         )
@@ -143,8 +171,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
                 includesTopLabel: false,
                 includesStatus: false,
                 detailLineCount: 1,
-                includesOverflow: false,
-                includesArtifact: false
+                includesOverflow: false
             )
         )
     }
@@ -170,8 +197,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
                 includesTopLabel: false,
                 includesStatus: false,
                 detailLineCount: 4,
-                includesOverflow: false,
-                includesArtifact: false
+                includesOverflow: false
             ),
             accuracy: 0.001
         )
@@ -198,26 +224,10 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
                 includesTopLabel: false,
                 includesStatus: false,
                 detailLineCount: 3,
-                includesOverflow: true,
-                includesArtifact: false
+                includesOverflow: true
             ),
             accuracy: 0.001
         )
-    }
-
-    func test_layout_does_not_expand_for_sidebar_artifact_visibility() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
-            artifactLink: WorkspaceArtifactLink(
-                kind: .pullRequest,
-                label: "PR #42",
-                url: URL(string: "https://example.com/pr/42")!,
-                isExplicit: true
-            )
-        ))
-
-        XCTAssertEqual(layout.mode, .compact)
-        XCTAssertEqual(layout.visibleTextRows, [.primary])
-        XCTAssertEqual(layout.rowHeight, ShellMetrics.sidebarCompactRowHeight, accuracy: 0.001)
     }
 
     func test_shell_metrics_preserve_current_fixed_row_heights_from_layout_budgets() {
@@ -236,8 +246,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
                 includesTopLabel: true,
                 includesStatus: true,
                 detailLineCount: 1,
-                includesOverflow: false,
-                includesArtifact: false
+                includesOverflow: false
             ),
             accuracy: 0.001
         )
@@ -299,13 +308,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
                             emphasis: .secondary
                         ),
                     ],
-                    overflowText: "+1 more pane",
-                    artifactLink: WorkspaceArtifactLink(
-                        kind: .pullRequest,
-                        label: "PR #4242 with a long label",
-                        url: URL(string: "https://example.com/pr/4242")!,
-                        isExplicit: true
-                    )
+                    overflowText: "+1 more pane"
                 )
             ],
             theme: ZenttyTheme.fallback(for: nil)
@@ -322,8 +325,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
             includesTopLabel: true,
             includesStatus: true,
             detailLineCount: 2,
-            includesOverflow: true,
-            includesArtifact: false
+            includesOverflow: true
         )
 
         XCTAssertEqual(initialHeight, expectedHeight, accuracy: 0.5)
@@ -336,12 +338,9 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
         primaryText: String = "shell",
         focusedPaneLineIndex: Int = 0,
         statusText: String? = nil,
-        stateBadgeText: String? = nil,
         detailLines: [WorkspaceSidebarDetailLine] = [],
         paneRows: [WorkspaceSidebarPaneRow] = [],
-        overflowText: String? = nil,
-        artifactLink: WorkspaceArtifactLink? = nil,
-        leadingAccessory: WorkspaceSidebarLeadingAccessory? = nil
+        overflowText: String? = nil
     ) -> WorkspaceSidebarSummary {
         WorkspaceSidebarSummary(
             workspaceID: WorkspaceID("workspace-main"),
@@ -350,13 +349,10 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
             primaryText: primaryText,
             focusedPaneLineIndex: focusedPaneLineIndex,
             statusText: statusText,
-            stateBadgeText: stateBadgeText,
             detailLines: detailLines,
             paneRows: paneRows,
             overflowText: overflowText,
-            leadingAccessory: leadingAccessory,
             attentionState: nil,
-            artifactLink: artifactLink,
             isActive: true
         )
     }
