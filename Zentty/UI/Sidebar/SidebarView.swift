@@ -26,7 +26,6 @@ final class SidebarView: NSView {
     private var workspaceSummaries: [WorkspaceSidebarSummary] = []
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resizeStartWidth: CGFloat = SidebarWidthPreference.defaultWidth
-    private var reservesLeadingAccessoryGutter = false
     private var trackingArea: NSTrackingArea?
     private var isResizeEnabled = true
 
@@ -138,7 +137,6 @@ final class SidebarView: NSView {
         theme: ZenttyTheme
     ) {
         workspaceSummaries = summaries
-        reservesLeadingAccessoryGutter = false
         apply(theme: theme, animated: true)
 
         listStack.arrangedSubviews.forEach { view in
@@ -153,7 +151,6 @@ final class SidebarView: NSView {
             button.action = #selector(handleWorkspaceButton(_:))
             button.configure(
                 with: summary,
-                reservesLeadingAccessoryGutter: reservesLeadingAccessoryGutter,
                 theme: currentTheme,
                 animated: false
             )
@@ -198,7 +195,6 @@ final class SidebarView: NSView {
             }
             button.configure(
                 with: workspaceSummaries[index],
-                reservesLeadingAccessoryGutter: reservesLeadingAccessoryGutter,
                 theme: theme,
                 animated: animated
             )
@@ -251,10 +247,6 @@ final class SidebarView: NSView {
 
     var workspaceContextTexts: [String] {
         workspaceSummaries.map(\.contextText)
-    }
-
-    var workspaceArtifactTexts: [String] {
-        workspaceButtons.map(\.artifactTextForTesting)
     }
 
     var workspaceButtonsForTesting: [NSButton] {
@@ -328,10 +320,6 @@ final class SidebarView: NSView {
 
     var workspaceOverflowTexts: [String] {
         workspaceButtons.map(\.overflowTextForTesting)
-    }
-
-    var workspaceLeadingAccessorySymbols: [String] {
-        workspaceButtons.map(\.leadingAccessorySymbolNameForTesting)
     }
 
     var addWorkspaceContentMinX: CGFloat {

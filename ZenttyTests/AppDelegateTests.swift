@@ -224,6 +224,7 @@ final class AppDelegateTests: XCTestCase {
         )
         let contentView = try XCTUnwrap(launchedWindow.contentView)
         let toggleButton = try XCTUnwrap(contentView.firstDescendant(ofType: SidebarToggleButton.self))
+        let sidebarView = try XCTUnwrap(contentView.firstDescendant(ofType: SidebarView.self))
         let zoomButton = try XCTUnwrap(launchedWindow.standardWindowButton(.zoomButton))
         let buttonSuperview = try XCTUnwrap(zoomButton.superview)
         let zoomAnchorInWindow = buttonSuperview.convert(
@@ -231,10 +232,14 @@ final class AppDelegateTests: XCTestCase {
             to: nil
         )
         let zoomAnchorInContent = contentView.convert(zoomAnchorInWindow, from: nil)
+        let expectedLeading = max(
+            zoomAnchorInContent.x + SidebarToggleButton.spacingFromTrafficLights,
+            sidebarView.frame.maxX + ShellMetrics.shellGap
+        )
 
         XCTAssertEqual(
-            toggleButton.frame.minX - zoomAnchorInContent.x,
-            12,
+            toggleButton.frame.minX,
+            expectedLeading,
             accuracy: 1.0
         )
     }

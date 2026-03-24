@@ -30,7 +30,6 @@ final class SidebarWorkspaceRowButton: NSButton {
     private var isHovered = false
     private var trackingArea: NSTrackingArea?
     private var heightConstraint: NSLayoutConstraint?
-    private var currentLeadingAccessorySymbolName: String?
     private var isWorking = false
     private let reducedMotionProvider: () -> Bool
 
@@ -177,15 +176,12 @@ final class SidebarWorkspaceRowButton: NSButton {
 
     func configure(
         with summary: WorkspaceSidebarSummary,
-        reservesLeadingAccessoryGutter: Bool,
         theme: ZenttyTheme,
         animated: Bool
     ) {
         currentSummary = summary
         currentTheme = theme
         isWorking = summary.isWorking
-        currentLeadingAccessorySymbolName = nil
-
         let layout = SidebarWorkspaceRowLayout(summary: summary)
 
         topLabel.stringValue = summary.topLabel ?? ""
@@ -650,8 +646,6 @@ final class SidebarWorkspaceRowButton: NSButton {
             paneDetailLabels[index]
         case .paneStatus(let index):
             paneStatusRows[index]
-        case .stateBadge:
-            overflowLabel
         case .context:
             detailLabels.first ?? overflowLabel
         case .detail(let index):
@@ -659,10 +653,6 @@ final class SidebarWorkspaceRowButton: NSButton {
         case .overflow:
             overflowLabel
         }
-    }
-
-    var artifactTextForTesting: String {
-        ""
     }
 
     var detailTextsForTesting: [String] {
@@ -690,14 +680,6 @@ final class SidebarWorkspaceRowButton: NSButton {
 
     var topLabelColorForTesting: NSColor {
         topLabel.textColor ?? .clear
-    }
-
-    var stateBadgeTextForTesting: String {
-        ""
-    }
-
-    var leadingAccessorySymbolNameForTesting: String {
-        currentLeadingAccessorySymbolName ?? ""
     }
 
     var isWorkingForTesting: Bool {
@@ -1289,31 +1271,5 @@ private final class SidebarPaneTextRowView: NSView {
         shimmerLabel.isShimmering = isShimmering
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor
-    }
-}
-
-private extension WorkspaceSidebarLeadingAccessory {
-    var symbolName: String {
-        switch self {
-        case .home:
-            return "house"
-        case .agent(let tool):
-            return tool.sidebarSymbolName
-        }
-    }
-}
-
-private extension AgentTool {
-    var sidebarSymbolName: String {
-        switch self {
-        case .claudeCode:
-            return "sparkles"
-        case .codex:
-            return "chevron.left.forwardslash.chevron.right"
-        case .openCode:
-            return "curlybraces.square"
-        case .custom:
-            return "sparkles"
-        }
     }
 }

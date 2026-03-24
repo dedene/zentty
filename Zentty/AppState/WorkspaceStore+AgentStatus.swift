@@ -40,6 +40,7 @@ extension WorkspaceStore {
             }
         }
 
+        recomputePresentation(for: paneID, in: &workspace)
         workspaces[workspaceIndex] = workspace
         notify(.auxiliaryStateUpdated(workspace.id, paneID))
     }
@@ -57,6 +58,7 @@ extension WorkspaceStore {
         if payload.clearsStatus {
             workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
             workspace.auxiliaryStateByPaneID[payload.paneID]?.terminalProgress = nil
+            recomputePresentation(for: payload.paneID, in: &workspace)
             workspaces[workspaceIndex] = workspace
             notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
             return
@@ -64,10 +66,12 @@ extension WorkspaceStore {
 
         if payload.clearsPaneContext {
             workspace.auxiliaryStateByPaneID[payload.paneID]?.shellContext = nil
-            clearPaneContextBranch(for: payload.paneID, in: &workspace)
+            invalidateGitContextIfNeeded(for: payload.paneID, in: &workspace)
+            recomputePresentation(for: payload.paneID, in: &workspace)
             workspaces[workspaceIndex] = workspace
             refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: payload.paneID)
             notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
+            refreshGitContextIfNeeded(for: PaneReference(workspaceID: workspace.id, paneID: payload.paneID))
             return
         }
 
@@ -106,6 +110,7 @@ extension WorkspaceStore {
                     case .promptIdle:
                         workspace.auxiliaryStateByPaneID[payload.paneID]?.terminalProgress = nil
                         workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
+                        recomputePresentation(for: payload.paneID, in: &workspace)
                         workspaces[workspaceIndex] = workspace
                         notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
                         return
@@ -156,6 +161,9 @@ extension WorkspaceStore {
                     )
                 status.trackedPID = pid
                 status.updatedAt = Date()
+                if existingStatus?.trackedPID != pid {
+                    workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].presentation.rememberedTitle = nil
+                }
                 workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = status
             case .clear:
                 guard var status = existingStatus else {
@@ -170,13 +178,70 @@ extension WorkspaceStore {
                 return
             }
 
+            let previousAuxiliaryState = workspace.auxiliaryStateByPaneID[payload.paneID]
             workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].shellContext = paneContext
-            updatePaneContextBranch(paneContext.gitBranch, for: payload.paneID, in: &workspace)
+            if paneContextChangesBranchContext(
+                previous: previousAuxiliaryState,
+                next: paneContext,
+                metadata: workspace.auxiliaryStateByPaneID[payload.paneID]?.metadata
+            ) {
+                clearBranchDerivedState(for: payload.paneID, in: &workspace)
+                workspace.auxiliaryStateByPaneID[payload.paneID]?.gitContext = nil
+                invalidateCachedGitContext(
+                    path: WorkspaceContextFormatter.resolvedWorkingDirectory(
+                        for: workspace.auxiliaryStateByPaneID[payload.paneID]?.metadata,
+                        shellContext: paneContext
+                    )
+                )
+            } else {
+                invalidateGitContextIfNeeded(for: payload.paneID, in: &workspace)
+            }
         }
 
+        recomputePresentation(for: payload.paneID, in: &workspace)
         workspaces[workspaceIndex] = workspace
         refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: payload.paneID)
         notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
+        if payload.signalKind == .paneContext {
+            refreshGitContextIfNeeded(for: PaneReference(workspaceID: workspace.id, paneID: payload.paneID))
+        }
+    }
+
+    private func paneContextChangesBranchContext(
+        previous: PaneAuxiliaryState?,
+        next: PaneShellContext,
+        metadata: TerminalMetadata?
+    ) -> Bool {
+        let previousScope = previous?.shellContext?.scope
+        if previousScope != next.scope {
+            return true
+        }
+
+        guard next.scope == .local else {
+            return false
+        }
+
+        let previousWorkingDirectory = previous?.localReviewWorkingDirectory
+        let nextWorkingDirectory = WorkspaceContextFormatter.resolvedWorkingDirectory(
+            for: metadata,
+            shellContext: next
+        ) ?? WorkspaceContextFormatter.trimmed(next.path)
+        if previousWorkingDirectory != nextWorkingDirectory {
+            return true
+        }
+
+        let previousBranchDisplay = WorkspaceContextFormatter.trimmed(previous?.presentation.branchDisplayText)
+        let nextBranchDisplay = WorkspaceContextFormatter.displayBranch(next.gitBranch)
+        return previousBranchDisplay != nextBranchDisplay
+    }
+
+    private func invalidateCachedGitContext(path: String?) {
+        guard let path = WorkspaceContextFormatter.trimmed(path) else {
+            return
+        }
+
+        cachedGitContextByPath.removeValue(forKey: path)
+        knownNonRepositoryPaths.remove(path)
     }
 
     func clearStaleAgentSessions() {
@@ -197,12 +262,12 @@ extension WorkspaceStore {
                 if status.state == .starting || status.state == .running || status.requiresHumanAttention {
                     workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
                     workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
-                    workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil
                 } else {
                     var nextStatus = status
                     nextStatus.trackedPID = nil
                     workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nextStatus
                 }
+                recomputePresentation(for: paneID, in: &workspace)
             }
 
             workspaces[workspaceIndex] = workspace
@@ -278,36 +343,6 @@ extension WorkspaceStore {
             url: url,
             isExplicit: true
         )
-    }
-
-    private func updatePaneContextBranch(
-        _ gitBranch: String?,
-        for paneID: PaneID,
-        in workspace: inout WorkspaceState
-    ) {
-        var metadata = workspace.auxiliaryStateByPaneID[paneID]?.metadata ?? TerminalMetadata()
-        let previousBranch = WorkspaceContextFormatter.trimmed(metadata.gitBranch)
-        let nextBranch = WorkspaceContextFormatter.trimmed(gitBranch)
-        guard previousBranch != nextBranch else {
-            return
-        }
-
-        metadata.gitBranch = nextBranch
-        workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
-        clearBranchDerivedReviewArtifacts(for: paneID, in: &workspace)
-    }
-
-    private func clearPaneContextBranch(for paneID: PaneID, in workspace: inout WorkspaceState) {
-        updatePaneContextBranch(nil, for: paneID, in: &workspace)
-    }
-
-    private func clearBranchDerivedReviewArtifacts(for paneID: PaneID, in workspace: inout WorkspaceState) {
-        workspace.auxiliaryStateByPaneID[paneID]?.inferredArtifact = nil
-        workspace.auxiliaryStateByPaneID[paneID]?.reviewState = nil
-        if var status = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus, status.artifactLink?.kind == .pullRequest {
-            status.artifactLink = nil
-            workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = status
-        }
     }
 
     private static func isProcessAlive(pid: Int32) -> Bool {

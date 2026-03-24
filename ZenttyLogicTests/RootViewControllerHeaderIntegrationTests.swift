@@ -19,6 +19,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                 metadataByPaneID: [
                     paneID: TerminalMetadata(
                         title: "Claude Code",
+                        currentWorkingDirectory: "/tmp/project",
                         processName: "claude",
                         gitBranch: "feature/review-band"
                     ),
@@ -46,13 +47,20 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                             WorkspaceReviewChip(text: "2 failing", style: .danger),
                         ]
                     ),
+                ],
+                gitContextByPaneID: [
+                    paneID: PaneGitContext(
+                        workingDirectory: "/tmp/project",
+                        repositoryRoot: "/tmp/project",
+                        reference: .branch("feature/review-band")
+                    ),
                 ]
             ),
         ])
 
         let chrome = controller.chromeView
         XCTAssertEqual(chrome.attentionText, "Needs input")
-        XCTAssertEqual(chrome.focusedLabelText, "Claude Code")
+        XCTAssertEqual(chrome.focusedLabelText, "/tmp/project")
         XCTAssertEqual(chrome.branchText, "feature/review-band")
         XCTAssertEqual(chrome.pullRequestText, "PR #128")
         XCTAssertEqual(chrome.reviewChipTexts, ["Draft", "2 failing"])
@@ -81,6 +89,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                     ),
                     claudePaneID: TerminalMetadata(
                         title: "Claude Code",
+                        currentWorkingDirectory: "/tmp/project",
                         processName: "claude",
                         gitBranch: "feature/review-band"
                     ),
@@ -108,6 +117,13 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                             WorkspaceReviewChip(text: "2 failing", style: .danger),
                         ]
                     ),
+                ],
+                gitContextByPaneID: [
+                    claudePaneID: PaneGitContext(
+                        workingDirectory: "/tmp/project",
+                        repositoryRoot: "/tmp/project",
+                        reference: .branch("feature/review-band")
+                    ),
                 ]
             ),
         ])
@@ -122,7 +138,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         controller.focusPaneDirectly(claudePaneID)
 
         XCTAssertEqual(chrome.attentionText, "Needs input")
-        XCTAssertEqual(chrome.focusedLabelText, "Claude Code")
+        XCTAssertEqual(chrome.focusedLabelText, "/tmp/project")
         XCTAssertEqual(chrome.branchText, "feature/review-band")
         XCTAssertEqual(chrome.pullRequestText, "PR #128")
         XCTAssertEqual(chrome.reviewChipTexts, ["Draft", "2 failing"])
@@ -142,8 +158,18 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":true,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"unit-tests"},{"bucket":"fail","state":"FAILURE","name":"e2e-macos"}]"#)
         )
+        let gitContextResolver = StubPaneGitContextResolver(
+            resultByWorkingDirectory: [
+                "/tmp/project": PaneGitContext(
+                    workingDirectory: "/tmp/project",
+                    repositoryRoot: "/tmp/project",
+                    reference: .branch("feature/review-band")
+                ),
+            ]
+        )
         let controller = makeController(
-            reviewStateResolver: WorkspaceReviewStateResolver(runner: runner)
+            reviewStateResolver: WorkspaceReviewStateResolver(runner: runner),
+            gitContextResolver: gitContextResolver
         )
         let paneID = PaneID("pane-claude")
 
@@ -178,23 +204,26 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         await fulfillment(of: [reviewLoaded], timeout: 1.2)
 
         let chrome = controller.chromeView
-        XCTAssertEqual(chrome.focusedLabelText, "Claude Code")
+        XCTAssertEqual(chrome.focusedLabelText, "/tmp/project")
         XCTAssertEqual(chrome.branchText, "feature/review-band")
         XCTAssertEqual(chrome.pullRequestText, "PR #128")
         XCTAssertEqual(chrome.reviewChipTexts, ["Draft", "2 failing"])
 
         let calls = await runner.calls
-        XCTAssertGreaterThanOrEqual(calls.count, 6)
-        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
+        XCTAssertGreaterThanOrEqual(calls.count, 4)
+        guard calls.count >= 4 else {
+            XCTFail("Expected at least four review resolver calls")
+            return
+        }
+        XCTAssertEqual(calls[0].arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
         XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
+        XCTAssertEqual(calls[1].arguments, ["git", "remote", "get-url", "origin"])
         XCTAssertEqual(calls[2].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
         XCTAssertEqual(calls[3].currentDirectoryPath, "/tmp/project")
-        XCTAssertTrue(calls[4].arguments.contains("--repo"))
-        XCTAssertTrue(calls[5].arguments.contains("--repo"))
+        XCTAssertTrue(calls[2].arguments.contains("--repo"))
+        XCTAssertTrue(calls[2].arguments.contains("feature/review-band"))
+        XCTAssertTrue(calls[3].arguments.contains("--repo"))
+        XCTAssertTrue(calls[3].arguments.contains("feature/review-band"))
     }
 
     func test_root_controller_populates_header_when_title_contains_cwd_and_metadata_cwd_is_missing() async {
@@ -205,8 +234,18 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"RSpec"}]"#)
         )
+        let gitContextResolver = StubPaneGitContextResolver(
+            resultByWorkingDirectory: [
+                repoPath: PaneGitContext(
+                    workingDirectory: repoPath,
+                    repositoryRoot: repoPath,
+                    reference: .branch("feature/scaleway-transactional-mails")
+                ),
+            ]
+        )
         let controller = makeController(
-            reviewStateResolver: WorkspaceReviewStateResolver(runner: runner)
+            reviewStateResolver: WorkspaceReviewStateResolver(runner: runner),
+            gitContextResolver: gitContextResolver
         )
         let paneID = PaneID("pane-shell")
 
@@ -231,25 +270,25 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         let chrome = controller.chromeView
-        XCTAssertEqual(
-            chrome.focusedLabelText,
-            "feature/scaleway-transactional-mails · …/scaleway-transactional-mails"
-        )
-        XCTAssertEqual(chrome.branchText, "")
+        XCTAssertEqual(chrome.focusedLabelText, "…/scaleway-transactional-mails")
+        XCTAssertEqual(chrome.branchText, "feature/scaleway-transactional-mails")
         XCTAssertEqual(chrome.pullRequestText, "PR #1413")
         XCTAssertEqual(chrome.reviewChipTexts, ["1 failing"])
 
         let calls = await runner.calls
-        XCTAssertGreaterThanOrEqual(calls.count, 6)
-        if let firstCall = calls.first {
-            XCTAssertEqual(firstCall.arguments, ["git", "rev-parse", "--git-dir"])
-            XCTAssertEqual(firstCall.currentDirectoryPath, repoPath)
+        XCTAssertGreaterThanOrEqual(calls.count, 4)
+        guard calls.count >= 4 else {
+            XCTFail("Expected at least four review resolver calls")
+            return
         }
-        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
-        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.feature/scaleway-transactional-mails.remote"])
-        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertTrue(calls[4].arguments.contains("--repo"))
-        XCTAssertTrue(calls[5].arguments.contains("--repo"))
+        XCTAssertEqual(calls[0].arguments, ["git", "config", "--get", "branch.feature/scaleway-transactional-mails.remote"])
+        XCTAssertEqual(calls[0].currentDirectoryPath, repoPath)
+        XCTAssertEqual(calls[1].arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(calls[1].currentDirectoryPath, repoPath)
+        XCTAssertTrue(calls[2].arguments.contains("--repo"))
+        XCTAssertTrue(calls[2].arguments.contains("feature/scaleway-transactional-mails"))
+        XCTAssertTrue(calls[3].arguments.contains("--repo"))
+        XCTAssertTrue(calls[3].arguments.contains("feature/scaleway-transactional-mails"))
     }
 
     func test_root_controller_populates_header_when_local_pane_context_supplies_cwd() async {
@@ -258,8 +297,18 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"RSpec"}]"#)
         )
+        let gitContextResolver = StubPaneGitContextResolver(
+            resultByWorkingDirectory: [
+                "/tmp/project": PaneGitContext(
+                    workingDirectory: "/tmp/project",
+                    repositoryRoot: "/tmp/project",
+                    reference: .branch("main")
+                ),
+            ]
+        )
         let controller = makeController(
-            reviewStateResolver: WorkspaceReviewStateResolver(runner: runner)
+            reviewStateResolver: WorkspaceReviewStateResolver(runner: runner),
+            gitContextResolver: gitContextResolver
         )
         let paneID = PaneID("pane-shell")
 
@@ -293,29 +342,31 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         let chrome = controller.chromeView
-        XCTAssertEqual(chrome.focusedLabelText, "Claude Code")
+        XCTAssertEqual(chrome.focusedLabelText, "/tmp/project")
         XCTAssertEqual(chrome.branchText, "main")
         XCTAssertEqual(chrome.pullRequestText, "PR #1413")
         XCTAssertEqual(chrome.reviewChipTexts, ["1 failing"])
 
         let calls = await runner.calls
-        XCTAssertGreaterThanOrEqual(calls.count, 6)
-        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertGreaterThanOrEqual(calls.count, 4)
+        guard calls.count >= 4 else {
+            XCTFail("Expected at least four review resolver calls")
+            return
+        }
+        XCTAssertEqual(calls[0].arguments, ["git", "config", "--get", "branch.main.remote"])
         XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls[1].arguments, ["git", "remote", "get-url", "origin"])
         XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.main.remote"])
-        XCTAssertEqual(calls[2].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertEqual(calls[3].currentDirectoryPath, "/tmp/project")
-        XCTAssertTrue(calls[4].arguments.contains("--repo"))
-        XCTAssertTrue(calls[5].arguments.contains("--repo"))
+        XCTAssertTrue(calls[2].arguments.contains("--repo"))
+        XCTAssertTrue(calls[2].arguments.contains("main"))
+        XCTAssertTrue(calls[3].arguments.contains("--repo"))
+        XCTAssertTrue(calls[3].arguments.contains("main"))
     }
 
     func test_root_controller_keeps_long_terminal_title_readable_inside_real_visible_lane() throws {
         let controller = makeController()
         let paneID = PaneID("pane-shell")
-        let focusedLabel = "feature/scaleway-transactional-mails · …/scaleway-transactional-mails"
+        let focusedLabel = "…/scaleway-transactional-mails"
         let branch = "feature/scaleway-transactional-mails"
 
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
@@ -330,7 +381,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                 ),
                 metadataByPaneID: [
                     paneID: TerminalMetadata(
-                        title: focusedLabel,
+                        title: "feature/scaleway-transactional-mails · …/scaleway-transactional-mails",
                         currentWorkingDirectory: "\(NSHomeDirectory())/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
                         processName: "zsh"
                     ),
@@ -344,6 +395,13 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                             state: .open
                         ),
                         reviewChips: []
+                    ),
+                ],
+                gitContextByPaneID: [
+                    paneID: PaneGitContext(
+                        workingDirectory: "\(NSHomeDirectory())/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
+                        repositoryRoot: "\(NSHomeDirectory())/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
+                        reference: .branch(branch)
                     ),
                 ]
             ),
@@ -363,7 +421,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         XCTAssertLessThanOrEqual(chrome.overflowBeforeCompression, 4)
         XCTAssertLessThanOrEqual(chrome.finalTotalWidth, chrome.rowFrame.width + 0.5)
         XCTAssertGreaterThanOrEqual(chrome.focusedLabelFrameWidth, chrome.focusedLabelIntrinsicWidth - 4)
-        XCTAssertLessThanOrEqual(chrome.branchFrameWidth, 4.5)
+        XCTAssertLessThanOrEqual(chrome.branchFrameWidth, chrome.branchIntrinsicWidth + 0.5)
         XCTAssertEqual(chrome.pullRequestFrameWidth, chrome.pullRequestIntrinsicWidth, accuracy: 0.5)
         XCTAssertGreaterThanOrEqual(focusedLabelView.frame.width, requiredSingleLineWidth(of: focusedLabelView) - 4)
         XCTAssertGreaterThanOrEqual(pullRequestButton.frame.width, requiredSingleLineWidth(of: pullRequestButton) - 0.5)
@@ -402,6 +460,13 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                             state: .open
                         ),
                         reviewChips: []
+                    ),
+                ],
+                gitContextByPaneID: [
+                    paneID: PaneGitContext(
+                        workingDirectory: "/tmp/project",
+                        repositoryRoot: "/tmp/project",
+                        reference: .branch("main")
                     ),
                 ]
             ),
@@ -477,16 +542,18 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         ])
 
         let chrome = controller.chromeView
-        XCTAssertEqual(chrome.focusedLabelText, "main · …/project")
+        XCTAssertEqual(chrome.focusedLabelText, "/tmp/project")
         XCTAssertEqual(chrome.branchText, "")
     }
 
     private func makeController(
-        reviewStateResolver: WorkspaceReviewStateResolver = WorkspaceReviewStateResolver()
+        reviewStateResolver: WorkspaceReviewStateResolver = WorkspaceReviewStateResolver(),
+        gitContextResolver: any PaneGitContextResolving = WorkspaceGitContextResolver()
     ) -> RootViewController {
         let controller = RootViewController(
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() }),
             reviewStateResolver: reviewStateResolver,
+            gitContextResolver: gitContextResolver,
             sidebarWidthDefaults: SidebarWidthPreference.userDefaults(),
             sidebarVisibilityDefaults: SidebarVisibilityPreference.userDefaults()
         )
@@ -530,6 +597,19 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
 
     private func requiredSingleLineWidth(of button: NSButton) -> CGFloat {
         ceil(max(button.fittingSize.width, button.intrinsicContentSize.width))
+    }
+}
+
+private struct StubPaneGitContextResolver: PaneGitContextResolving {
+    let resultByWorkingDirectory: [String: PaneGitContext]
+
+    func resolve(for workingDirectory: String) async -> PaneGitContext {
+        resultByWorkingDirectory[workingDirectory]
+            ?? PaneGitContext(
+                workingDirectory: workingDirectory,
+                repositoryRoot: nil,
+                reference: nil
+            )
     }
 }
 

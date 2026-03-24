@@ -78,7 +78,6 @@ enum WorkspaceSidebarSummaryBuilder {
             for: workspace,
             orderedPaneContexts: orderedPaneContexts
         )
-        let attention = WorkspaceAttentionSummaryBuilder.summary(for: workspace)
         let isWorking = paneRows.contains(where: \.isWorking) || workspaceIsWorking(for: workspace)
         let badgeText = badge(for: workspace.title)
         let identity = identity ?? workspaceIdentity(
@@ -99,11 +98,13 @@ enum WorkspaceSidebarSummaryBuilder {
             primaryText: primaryText,
             orderedPaneContexts: orderedPaneContexts
         )
-        let statusPresentation = sidebarStatusPresentation(
-            for: workspace,
-            attention: attention,
-            isWorking: isWorking
-        )
+        let statusPresentation = paneRows.isEmpty
+            ? sidebarStatusPresentation(
+                for: workspace,
+                attention: WorkspaceAttentionSummaryBuilder.summary(for: workspace),
+                isWorking: isWorking
+            )
+            : SidebarStatusPresentation(statusText: nil, attentionState: nil)
 
         return WorkspaceSidebarSummary(
             workspaceID: workspace.id,
@@ -112,13 +113,10 @@ enum WorkspaceSidebarSummaryBuilder {
             primaryText: primaryText,
             focusedPaneLineIndex: focusedPaneLineIndex,
             statusText: statusPresentation.statusText,
-            stateBadgeText: nil,
             detailLines: sidebarDetailLines,
             paneRows: paneRows,
             overflowText: nil,
-            leadingAccessory: nil,
             attentionState: statusPresentation.attentionState,
-            artifactLink: nil,
             isWorking: isWorking,
             isActive: isActive
         )
@@ -164,12 +162,11 @@ enum WorkspaceSidebarSummaryBuilder {
 
         return orderedPaneContexts.map { paneContext in
             let isFocused = workspace.paneStripState.focusedPaneID == paneContext.paneID
-            let statusPresentation = paneSidebarStatusPresentation(for: paneContext)
+            let statusPresentation = paneSidebarStatusPresentation(for: paneContext.presentation)
             let paneIdentity = paneIdentity(
-                for: paneContext,
-                isFocused: isFocused,
+                for: paneContext.presentation,
                 isSinglePane: isSinglePane,
-                isProcessRunning: statusPresentation.isWorking
+                fallbackTitle: paneContext.pane.title
             )
 
             return WorkspaceSidebarPaneRow(
@@ -195,27 +192,16 @@ enum WorkspaceSidebarSummaryBuilder {
         paneID: PaneID,
         workspace: WorkspaceState
     ) -> Bool {
-        let auxiliaryState = workspace.auxiliaryStateByPaneID[paneID]
-
-        if auxiliaryState?.agentStatus?.state == .running {
-            return true
-        }
-
-        if auxiliaryState?.agentStatus != nil
-            || AgentToolRecognizer.recognize(metadata: auxiliaryState?.metadata) != nil {
+        guard let paneContext = workspace.paneContext(for: paneID) else {
             return false
         }
 
-        return auxiliaryState?.terminalProgress?.state.indicatesActivity ?? false
+        return paneContext.presentation.isWorking
     }
 
     private static func workspaceAgentTool(for workspace: WorkspaceState) -> AgentTool? {
         for pane in workspace.paneStripState.panes {
-            let auxiliaryState = workspace.auxiliaryStateByPaneID[pane.id]
-            if let tool = auxiliaryState?.agentStatus?.tool {
-                return tool
-            }
-            if let recognized = AgentToolRecognizer.recognize(metadata: auxiliaryState?.metadata) {
+            if let recognized = workspace.paneContext(for: pane.id)?.presentation.recognizedTool {
                 return recognized
             }
         }
@@ -225,17 +211,11 @@ enum WorkspaceSidebarSummaryBuilder {
 
     private static func workingAgentTool(for workspace: WorkspaceState) -> AgentTool? {
         for pane in workspace.paneStripState.panes {
-            guard workspace.auxiliaryStateByPaneID[pane.id]?.isWorking == true else {
+            guard let presentation = workspace.paneContext(for: pane.id)?.presentation,
+                  presentation.isWorking else {
                 continue
             }
-
-            let auxiliaryState = workspace.auxiliaryStateByPaneID[pane.id]
-            if let tool = auxiliaryState?.agentStatus?.tool {
-                return tool
-            }
-            if let recognized = AgentToolRecognizer.recognize(metadata: auxiliaryState?.metadata) {
-                return recognized
-            }
+            if let recognized = presentation.recognizedTool { return recognized }
         }
 
         return nil
@@ -246,17 +226,18 @@ enum WorkspaceSidebarSummaryBuilder {
         orderedPaneContexts candidatePaneContexts: [WorkspacePaneContext]? = nil
     ) -> WorkspaceSidebarIdentity {
         let orderedPaneContexts = candidatePaneContexts ?? self.orderedPaneContexts(for: workspace)
+        let isSinglePane = orderedPaneContexts.count == 1
 
         if let focusedPaneContext = focusedPaneContext(
             for: workspace,
             orderedPaneContexts: orderedPaneContexts
         ) {
-            return identity(for: focusedPaneContext)
+            return identity(for: focusedPaneContext, isSinglePane: isSinglePane)
                 ?? fallbackIdentity(for: focusedPaneContext)
         }
 
         if let firstPaneContext = orderedPaneContexts.first {
-            return identity(for: firstPaneContext)
+            return identity(for: firstPaneContext, isSinglePane: isSinglePane)
                 ?? fallbackIdentity(for: firstPaneContext)
         }
 
@@ -275,27 +256,7 @@ enum WorkspaceSidebarSummaryBuilder {
     ) -> [String] {
         let paneContexts = candidatePaneContexts ?? self.orderedPaneContexts(for: workspace)
         if paneContexts.count == 1 {
-            guard let paneContext = paneContexts.first else {
-                return []
-            }
-
-            let metadata = paneContext.metadata
-            let resolvedWorkingDirectory = resolvedWorkingDirectory(for: paneContext)
-            guard let detailText = WorkspaceContextFormatter.singlePaneSidebarDetailLine(
-                metadata: metadata,
-                workingDirectory: resolvedWorkingDirectory
-            ) else {
-                return []
-            }
-
-            return detailTextRepeatsSinglePanePrimary(
-                detailText,
-                primaryText: primaryText,
-                metadata: metadata,
-                workingDirectory: resolvedWorkingDirectory
-            )
-                ? []
-                : [detailText]
+            return []
         }
 
         let focusedPaneID = workspace.paneStripState.focusedPaneID
@@ -357,182 +318,75 @@ enum WorkspaceSidebarSummaryBuilder {
         )
     }
 
-    private static func identity(for paneContext: WorkspacePaneContext) -> WorkspaceSidebarIdentity? {
-        let metadata = paneContext.metadata
-
-        let resolvedWorkingDirectory = resolvedWorkingDirectory(for: paneContext)
-
-        if AgentToolRecognizer.recognize(metadata: metadata) != nil,
-           let agentDrivenIdentity = WorkspaceContextFormatter.paneDetailLine(
-               metadata: metadata,
-               fallbackTitle: paneContext.pane.title,
-               workingDirectory: resolvedWorkingDirectory
-           ) {
-            return WorkspaceSidebarIdentity(
-                paneID: paneContext.paneID,
-                primaryText: agentDrivenIdentity,
-                cwdPath: nil,
-                isCwdDerived: false
-            )
-        }
-
-        let branch = WorkspaceContextFormatter.displayBranch(metadata?.gitBranch)
-        let formattedWorkingDirectory = WorkspaceContextFormatter.formattedWorkingDirectory(
-            resolvedWorkingDirectory,
-            branch: branch
+    private static func identity(
+        for paneContext: WorkspacePaneContext,
+        isSinglePane: Bool
+    ) -> WorkspaceSidebarIdentity? {
+        let presentation = paneContext.presentation
+        let paneIdentity = paneIdentity(
+            for: presentation,
+            isSinglePane: isSinglePane,
+            fallbackTitle: paneContext.pane.title
         )
-        let focusedPrimaryText = focusedPrimaryText(
-            metadata: metadata,
-            fallbackTitle: paneContext.pane.title,
-            workingDirectory: resolvedWorkingDirectory,
-            formattedWorkingDirectory: formattedWorkingDirectory,
-            branch: branch
+        let primaryText = paneIdentity.primaryText
+
+        return WorkspaceSidebarIdentity(
+            paneID: paneContext.paneID,
+            primaryText: primaryText,
+            cwdPath: presentation.cwd,
+            isCwdDerived: primaryText == compactSidebarContextText(for: presentation)
         )
-
-        if let focusedPrimaryText {
-            return WorkspaceSidebarIdentity(
-                paneID: paneContext.paneID,
-                primaryText: focusedPrimaryText.label,
-                cwdPath: focusedPrimaryText.isCwdDerived ? resolvedWorkingDirectory : nil,
-                isCwdDerived: focusedPrimaryText.isCwdDerived
-            )
-        }
-
-        if let terminalIdentity = WorkspaceContextFormatter.displayStablePaneIdentity(
-            for: metadata,
-            fallbackTitle: paneContext.pane.title,
-            workingDirectory: resolvedWorkingDirectory,
-            branch: branch
-        ) {
-            return WorkspaceSidebarIdentity(
-                paneID: paneContext.paneID,
-                primaryText: terminalIdentity,
-                cwdPath: terminalIdentity == formattedWorkingDirectory ? resolvedWorkingDirectory : nil,
-                isCwdDerived: terminalIdentity == formattedWorkingDirectory
-            )
-        }
-
-        return nil
     }
 
     private static func paneIdentity(
-        for paneContext: WorkspacePaneContext,
-        isFocused: Bool,
+        for presentation: PanePresentationState,
         isSinglePane: Bool,
-        isProcessRunning: Bool
+        fallbackTitle: String?
     ) -> PaneSidebarIdentity {
-        let metadata = paneContext.metadata
-        let workingDirectory = resolvedWorkingDirectory(for: paneContext)
-        let branch = WorkspaceContextFormatter.displayBranch(metadata?.gitBranch)
-        let formattedWorkingDirectory = WorkspaceContextFormatter.formattedWorkingDirectory(
-            workingDirectory,
-            branch: branch
-        )
+        let branch = presentation.branchDisplayText
+        let workingDirectory = compactWorkingDirectory(for: presentation)
 
-        if isSinglePane {
-            return singlePaneIdentity(
-                metadata: metadata,
-                fallbackTitle: paneContext.pane.title,
-                workingDirectory: workingDirectory,
-                branch: branch,
-                formattedWorkingDirectory: formattedWorkingDirectory,
-                isProcessRunning: isProcessRunning
-            )
-        }
+        if let rememberedTitle = WorkspaceContextFormatter.trimmed(presentation.rememberedTitle) {
+            if isSinglePane {
+                let contextComponents = [branch, workingDirectory]
+                    .compactMap(WorkspaceContextFormatter.trimmed)
+                let contextText = contextComponents.isEmpty ? nil : contextComponents.joined(separator: " · ")
 
-        if let meaningfulIdentity = WorkspaceContextFormatter.displayMeaningfulTerminalIdentity(
-            for: metadata,
-            fallbackTitle: paneContext.pane.title
-        ) {
-            return PaneSidebarIdentity(
-                primaryText: meaningfulIdentity,
-                trailingText: branch,
-                detailText: detailText(
-                    for: meaningfulIdentity,
-                    formattedWorkingDirectory: formattedWorkingDirectory
-                )
-            )
-        }
-
-        if isFocused,
-           let identity = identity(for: paneContext) {
-            return PaneSidebarIdentity(
-                primaryText: identity.primaryText,
-                trailingText: nil,
-                detailText: nil
-            )
-        }
-
-        if let detailText = WorkspaceContextFormatter.paneDetailLine(
-            metadata: metadata,
-            fallbackTitle: paneContext.pane.title,
-            workingDirectory: workingDirectory
-        ) {
-            return PaneSidebarIdentity(
-                primaryText: detailText,
-                trailingText: nil,
-                detailText: nil
-            )
-        }
-
-        let fallback = fallbackIdentity(for: paneContext)
-        return PaneSidebarIdentity(
-            primaryText: fallback.primaryText,
-            trailingText: nil,
-            detailText: nil
-        )
-    }
-
-    private static func singlePaneIdentity(
-        metadata: TerminalMetadata?,
-        fallbackTitle: String?,
-        workingDirectory: String?,
-        branch: String?,
-        formattedWorkingDirectory: String?,
-        isProcessRunning: Bool
-    ) -> PaneSidebarIdentity {
-        if isProcessRunning,
-           let processIdentity = WorkspaceContextFormatter.displayMeaningfulTerminalIdentity(
-               for: metadata,
-               fallbackTitle: fallbackTitle
-           ) {
-            let primaryText = [processIdentity, branch, formattedWorkingDirectory]
-                .compactMap { value in
-                    guard let value = WorkspaceContextFormatter.trimmed(value) else {
-                        return nil
-                    }
-                    return value
-                }
-                .joined(separator: " · ")
-
-            if primaryText.isEmpty == false {
                 return PaneSidebarIdentity(
-                    primaryText: primaryText,
+                    primaryText: [rememberedTitle, contextText]
+                        .compactMap(WorkspaceContextFormatter.trimmed)
+                        .joined(separator: " · "),
                     trailingText: nil,
                     detailText: nil
                 )
             }
+
+            return PaneSidebarIdentity(
+                primaryText: rememberedTitle,
+                trailingText: branch,
+                detailText: workingDirectory
+            )
         }
 
-        if let stableLocation = WorkspaceContextFormatter.branchPrefixedLocationLabel(
-            workingDirectory: workingDirectory,
-            branch: branch
-        ) {
+        if let branch, let workingDirectory {
             return PaneSidebarIdentity(
-                primaryText: stableLocation,
+                primaryText: isSinglePane ? "\(branch) · \(workingDirectory)" : "\(branch) • \(workingDirectory)",
                 trailingText: nil,
                 detailText: nil
             )
         }
 
-        if let stableIdentity = WorkspaceContextFormatter.displayStablePaneIdentity(
-            for: metadata,
-            fallbackTitle: fallbackTitle,
-            workingDirectory: workingDirectory,
-            branch: branch
-        ) {
+        if let branch {
             return PaneSidebarIdentity(
-                primaryText: stableIdentity,
+                primaryText: branch,
+                trailingText: nil,
+                detailText: nil
+            )
+        }
+
+        if let workingDirectory {
+            return PaneSidebarIdentity(
+                primaryText: workingDirectory,
                 trailingText: nil,
                 detailText: nil
             )
@@ -546,34 +400,14 @@ enum WorkspaceSidebarSummaryBuilder {
     }
 
     private static func paneSidebarStatusPresentation(
-        for paneContext: WorkspacePaneContext
+        for presentation: PanePresentationState
     ) -> PaneSidebarStatusPresentation {
-        let auxiliaryState = paneContext.auxiliaryState
-        let metadata = paneContext.metadata
-
-        if let agentStatus = auxiliaryState?.agentStatus,
-           let attentionState = agentStatus.state.workspaceAttentionState {
+        if let attentionState = attentionState(for: presentation.runtimePhase),
+           let statusText = presentation.statusText {
             return PaneSidebarStatusPresentation(
-                statusText: "╰ \(plainStatusText(for: attentionState))",
+                statusText: "╰ \(statusText)",
                 attentionState: attentionState,
-                isWorking: agentStatus.state == .running
-            )
-        }
-
-        if auxiliaryState?.agentStatus != nil
-            || AgentToolRecognizer.recognize(metadata: metadata) != nil {
-            return PaneSidebarStatusPresentation(
-                statusText: nil,
-                attentionState: nil,
-                isWorking: false
-            )
-        }
-
-        if auxiliaryState?.terminalProgress?.state.indicatesActivity == true {
-            return PaneSidebarStatusPresentation(
-                statusText: "╰ \(plainStatusText(for: .running))",
-                attentionState: .running,
-                isWorking: true
+                isWorking: presentation.isWorking
             )
         }
 
@@ -582,6 +416,46 @@ enum WorkspaceSidebarSummaryBuilder {
             attentionState: nil,
             isWorking: false
         )
+    }
+
+    private static func compactWorkingDirectory(for presentation: PanePresentationState) -> String? {
+        guard let cwd = presentation.cwd else {
+            return nil
+        }
+
+        return WorkspaceContextFormatter.compactRepositorySidebarPath(cwd)
+            ?? WorkspaceContextFormatter.formattedWorkingDirectory(cwd, branch: nil)
+    }
+
+    private static func compactSidebarContextText(for presentation: PanePresentationState) -> String? {
+        let branch = presentation.branchDisplayText
+        let workingDirectory = compactWorkingDirectory(for: presentation)
+
+        switch (branch, workingDirectory) {
+        case let (branch?, workingDirectory?):
+            return "\(branch) • \(workingDirectory)"
+        case let (branch?, nil):
+            return branch
+        case let (nil, workingDirectory?):
+            return workingDirectory
+        case (nil, nil):
+            return nil
+        }
+    }
+
+    private static func attentionState(for phase: PanePresentationPhase) -> WorkspaceAttentionState? {
+        switch phase {
+        case .idle, .starting:
+            return nil
+        case .running:
+            return .running
+        case .needsInput:
+            return .needsInput
+        case .completed:
+            return .completed
+        case .unresolvedStop:
+            return .unresolvedStop
+        }
     }
 
     private static func focusedPrimaryText(
@@ -882,13 +756,10 @@ enum WorkspaceSidebarSummaryBuilder {
                 primaryText: disambiguatedPrimaryText,
                 focusedPaneLineIndex: summary.focusedPaneLineIndex,
                 statusText: summary.statusText,
-                stateBadgeText: summary.stateBadgeText,
                 detailLines: summary.detailLines,
                 paneRows: paneRows,
                 overflowText: summary.overflowText,
-                leadingAccessory: summary.leadingAccessory,
                 attentionState: summary.attentionState,
-                artifactLink: summary.artifactLink,
                 isWorking: summary.isWorking,
                 isActive: summary.isActive
             )
@@ -921,24 +792,45 @@ enum WorkspaceSidebarSummaryBuilder {
         let requiredSegmentCount = requiredSegmentCountByWorkspaceID[summary.workspaceID] ?? 1
         let compactPrimaryText = WorkspaceContextFormatter.compactSidebarPath(path)
         let compactRepositoryPrimaryText = WorkspaceContextFormatter.compactRepositorySidebarPath(path)
-
-        if let compactRepositoryPrimaryText,
-           compactRepositoryPrimaryText.caseInsensitiveCompare(summary.primaryText) == .orderedSame {
-            return WorkspaceContextFormatter.compactRepositorySidebarPath(
-                path,
-                minimumSegments: requiredSegmentCount
-            )
-        }
-
-        guard let compactPrimaryText,
-              compactPrimaryText.caseInsensitiveCompare(summary.primaryText) == .orderedSame else {
-            return nil
-        }
-
-        return WorkspaceContextFormatter.compactSidebarPath(
+        let expandedCompactPrimaryText = WorkspaceContextFormatter.compactSidebarPath(
             path,
             minimumSegments: requiredSegmentCount
         )
+        let expandedCompactRepositoryPrimaryText = WorkspaceContextFormatter.compactRepositorySidebarPath(
+            path,
+            minimumSegments: requiredSegmentCount
+        )
+
+        if let compactRepositoryPrimaryText,
+           let expandedCompactRepositoryPrimaryText {
+            if compactRepositoryPrimaryText.caseInsensitiveCompare(summary.primaryText) == .orderedSame {
+                return expandedCompactRepositoryPrimaryText
+            }
+
+            if let range = summary.primaryText.range(
+                of: compactRepositoryPrimaryText,
+                options: [.caseInsensitive]
+            ) {
+                return summary.primaryText.replacingCharacters(in: range, with: expandedCompactRepositoryPrimaryText)
+            }
+        }
+
+        guard let compactPrimaryText, let expandedCompactPrimaryText else {
+            return nil
+        }
+
+        if compactPrimaryText.caseInsensitiveCompare(summary.primaryText) == .orderedSame {
+            return expandedCompactPrimaryText
+        }
+
+        guard let range = summary.primaryText.range(
+            of: compactPrimaryText,
+            options: [.caseInsensitive]
+        ) else {
+            return nil
+        }
+
+        return summary.primaryText.replacingCharacters(in: range, with: expandedCompactPrimaryText)
     }
 
     private static func badge(for title: String) -> String {

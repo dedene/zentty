@@ -34,47 +34,16 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
         XCTAssertEqual(summary.attention?.statusText, "Needs input")
-        XCTAssertEqual(summary.focusedLabel, "Claude Code")
+        XCTAssertEqual(summary.focusedLabel, "/tmp/project")
         XCTAssertEqual(summary.branch, "feature/review-band")
         XCTAssertEqual(summary.pullRequest?.number, 128)
         XCTAssertEqual(summary.reviewChips.map(\.text), ["Draft", "2 failing"])
     }
 
-    func test_summary_falls_back_to_inferred_pull_request_artifact_when_explicit_pr_is_missing() {
-        let paneID = PaneID("pane-shell")
-        let workspace = makeWorkspace(
-            paneID: paneID,
-            metadata: TerminalMetadata(
-                title: "Claude Code",
-                currentWorkingDirectory: "/tmp/project",
-                processName: "claude",
-                gitBranch: "feature/review-band"
-            ),
-            inferredArtifact: WorkspaceArtifactLink(
-                kind: .pullRequest,
-                label: "PR #128",
-                url: URL(string: "https://example.com/pr/128")!,
-                isExplicit: false
-            )
-        )
-
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
-
-        XCTAssertEqual(summary.branch, "feature/review-band")
-        XCTAssertEqual(summary.pullRequest?.number, 128)
-        XCTAssertEqual(summary.reviewChips, [WorkspaceReviewChip(text: "Ready", style: .success)])
-    }
-
-    func test_summary_falls_back_to_explicit_pull_request_artifact_when_cached_state_missing() {
+    func test_summary_does_not_surface_explicit_pull_request_artifact_without_review_resolution() {
         let paneID = PaneID("pane-shell")
         let workspace = makeWorkspace(
             paneID: paneID,
@@ -98,16 +67,13 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
-        XCTAssertEqual(summary.pullRequest?.number, 42)
-        XCTAssertEqual(summary.reviewChips, [WorkspaceReviewChip(text: "Ready", style: .success)])
+        XCTAssertNil(summary.pullRequest)
+        XCTAssertEqual(summary.reviewChips, [])
     }
 
-    func test_summary_ignores_non_pull_request_artifacts_when_deriving_pr_identity() {
+    func test_summary_attention_does_not_surface_pull_request_artifact_without_review_resolution() {
         let paneID = PaneID("pane-shell")
         let workspace = makeWorkspace(
             paneID: paneID,
@@ -122,30 +88,52 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
                 state: .running,
                 text: nil,
                 artifactLink: WorkspaceArtifactLink(
-                    kind: .session,
-                    label: "Session",
-                    url: URL(string: "https://example.com/session")!,
+                    kind: .pullRequest,
+                    label: "PR #42",
+                    url: URL(string: "https://example.com/pr/42")!,
                     isExplicit: true
                 ),
                 updatedAt: Date(timeIntervalSince1970: 10)
-            ),
-            inferredArtifact: WorkspaceArtifactLink(
-                kind: .pullRequest,
-                label: "PR #128",
-                url: URL(string: "https://example.com/pr/128")!,
-                isExplicit: false
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
-        XCTAssertEqual(summary.pullRequest?.number, 128)
+        XCTAssertNil(summary.attention?.artifactLink)
     }
 
-    func test_summary_shows_branch_only_when_review_state_is_unavailable() {
+    func test_summary_attention_preserves_non_pull_request_agent_artifact() {
+        let paneID = PaneID("pane-shell")
+        let sessionURL = URL(string: "https://example.com/session/abc")!
+        let workspace = makeWorkspace(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Claude Code",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .needsInput,
+                text: "Needs input",
+                artifactLink: WorkspaceArtifactLink(
+                    kind: .session,
+                    label: "Session",
+                    url: sessionURL,
+                    isExplicit: true
+                ),
+                updatedAt: Date(timeIntervalSince1970: 10)
+            )
+        )
+
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
+
+        XCTAssertEqual(summary.attention?.artifactLink?.kind, .session)
+        XCTAssertEqual(summary.attention?.artifactLink?.url, sessionURL)
+    }
+
+    func test_summary_uses_location_context_when_review_state_is_unavailable() {
         let paneID = PaneID("pane-shell")
         let workspace = makeWorkspace(
             paneID: paneID,
@@ -157,14 +145,62 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
+        XCTAssertEqual(summary.focusedLabel, "/tmp/project")
         XCTAssertEqual(summary.branch, "main")
         XCTAssertNil(summary.pullRequest)
         XCTAssertEqual(summary.reviewChips, [])
+    }
+
+    func test_summary_shows_branch_separately_when_focused_label_uses_location_context() {
+        let paneID = PaneID("pane-shell")
+        let workspace = makeWorkspace(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "zsh",
+                gitBranch: "main"
+            )
+        )
+
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
+
+        XCTAssertEqual(summary.focusedLabel, "/tmp/project")
+        XCTAssertEqual(summary.branch, "main")
+    }
+
+    func test_summary_hides_detached_branch_chip_when_focused_label_already_contains_detached_reference() {
+        let paneID = PaneID("pane-shell")
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "zsh",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "zsh",
+                    gitBranch: nil
+                )
+            ],
+            gitContextByPaneID: [
+                paneID: PaneGitContext(
+                    workingDirectory: "/tmp/project",
+                    repositoryRoot: "/tmp/project",
+                    reference: .detached("abcd123")
+                )
+            ]
+        )
+
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
+
+        XCTAssertEqual(summary.focusedLabel, "/tmp/project")
+        XCTAssertEqual(summary.branch, "abcd123 (detached)")
     }
 
     func test_summary_hides_attention_for_starting_agent_session() {
@@ -186,10 +222,7 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
         XCTAssertNil(summary.attention)
     }
@@ -206,10 +239,7 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
         XCTAssertNil(summary.branch)
         XCTAssertNil(summary.pullRequest)
@@ -229,10 +259,7 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
         XCTAssertEqual(summary.focusedLabel, "…/nimbu")
     }
@@ -249,10 +276,7 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
         XCTAssertEqual(summary.focusedLabel, "zsh")
         XCTAssertNil(summary.branch)
@@ -300,17 +324,14 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
-        XCTAssertEqual(summary.focusedLabel, "Claude Code")
+        XCTAssertEqual(summary.focusedLabel, "/tmp/docs")
         XCTAssertEqual(summary.branch, "feature/sidebar-feedback")
         XCTAssertEqual(summary.pullRequest?.number, 42)
     }
 
-    func test_summary_prefers_recognized_tool_name_before_process_name_and_pane_title() {
+    func test_summary_uses_terminal_process_name_when_no_better_identity_exists() {
         let paneID = PaneID("pane-shell")
         let workspace = makeWorkspace(
             paneID: paneID,
@@ -323,15 +344,12 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
-        XCTAssertEqual(summary.focusedLabel, "Codex")
+        XCTAssertEqual(summary.focusedLabel, "codex")
     }
 
-    func test_summary_prefers_recognized_tool_name_over_cwd_for_agent_panes() {
+    func test_summary_prefers_stable_location_over_agent_process_name_when_cwd_exists() {
         let paneID = PaneID("pane-shell")
         let workspace = makeWorkspace(
             paneID: paneID,
@@ -344,12 +362,63 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
+
+        XCTAssertEqual(summary.focusedLabel, "/tmp/project")
+    }
+
+    func test_summary_keeps_meaningful_session_title_for_completed_agent_panes() {
+        let paneID = PaneID("pane-shell")
+        let workspace = makeWorkspace(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "General coding assistance session",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .completed,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42)
+            )
         )
 
-        XCTAssertEqual(summary.focusedLabel, "Codex")
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
+
+        XCTAssertEqual(summary.focusedLabel, "General coding assistance session")
+        XCTAssertEqual(summary.branch, "main")
+    }
+
+    func test_summary_splits_branch_out_of_terminal_title_when_present() {
+        let paneID = PaneID("pane-shell")
+        let branch = "feature/scaleway-transactional-mails"
+        let workspace = makeWorkspace(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "\(branch) · …/scaleway-transactional-mails",
+                currentWorkingDirectory: "/tmp/scaleway-transactional-mails",
+                processName: "zsh",
+                gitBranch: branch
+            ),
+            reviewState: WorkspaceReviewState(
+                branch: branch,
+                pullRequest: WorkspacePullRequestSummary(
+                    number: 1413,
+                    url: URL(string: "https://example.com/pr/1413"),
+                    state: .open
+                ),
+                reviewChips: []
+            )
+        )
+
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
+
+        XCTAssertEqual(summary.focusedLabel, "…/scaleway-transactional-mails")
+        XCTAssertEqual(summary.branch, branch)
+        XCTAssertEqual(summary.pullRequest?.number, 1413)
     }
 
     func test_summary_backfills_branch_from_metadata_when_cached_review_state_omits_it() {
@@ -373,16 +442,14 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
+        XCTAssertEqual(summary.focusedLabel, "/tmp/project")
         XCTAssertEqual(summary.branch, "feature/review-band")
         XCTAssertEqual(summary.reviewChips, [WorkspaceReviewChip(text: "Draft", style: .info)])
     }
 
-    func test_summary_preserves_cached_branch_when_metadata_branch_is_compacted() {
+    func test_summary_omits_branch_when_only_compacted_sources_exist() {
         let paneID = PaneID("pane-shell")
         let workspace = makeWorkspace(
             paneID: paneID,
@@ -399,12 +466,9 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
-        XCTAssertEqual(summary.focusedLabel, "main · …/project")
+        XCTAssertEqual(summary.focusedLabel, "/tmp/project")
         XCTAssertNil(summary.branch)
     }
 
@@ -425,10 +489,7 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceHeaderSummaryBuilder.summary(
-            for: workspace,
-            reviewStateProvider: DefaultWorkspaceReviewStateProvider()
-        )
+        let summary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
 
         XCTAssertNil(summary.branch)
     }
@@ -438,7 +499,6 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
         paneTitle: String = "shell",
         metadata: TerminalMetadata,
         agentStatus: PaneAgentStatus? = nil,
-        inferredArtifact: WorkspaceArtifactLink? = nil,
         reviewState: WorkspaceReviewState? = nil
     ) -> WorkspaceState {
         WorkspaceState(
@@ -450,7 +510,6 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             ),
             metadataByPaneID: [paneID: metadata],
             agentStatusByPaneID: agentStatus.map { [paneID: $0] } ?? [:],
-            inferredArtifactByPaneID: inferredArtifact.map { [paneID: $0] } ?? [:],
             reviewStateByPaneID: reviewState.map { [paneID: $0] } ?? [:]
         )
     }

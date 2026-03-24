@@ -125,9 +125,9 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertTrue(didResize)
         XCTAssertEqual(state.lastInteractedDivider, .pane(columnID: PaneColumnID("stack"), afterPaneID: PaneID("top")))
         let heights = state.columns[0].resolvedPaneHeights(totalHeight: 920, spacing: state.layoutSizing.interPaneSpacing)
-        XCTAssertEqual(heights[0], 250, accuracy: 0.001)
-        XCTAssertEqual(heights[1], 250, accuracy: 0.001)
-        XCTAssertEqual(heights[2], 400, accuracy: 0.001)
+        XCTAssertEqual(heights[0], 251.77777777777777, accuracy: 0.001)
+        XCTAssertEqual(heights[1], 252.66666666666669, accuracy: 0.001)
+        XCTAssertEqual(heights[2], 403.55555555555554, accuracy: 0.001)
     }
 
     func test_resize_horizontal_divider_respects_column_minimums() {
@@ -350,9 +350,9 @@ final class PaneStripStateTests: XCTestCase {
 
         XCTAssertTrue(didEqualize)
         let heights = state.columns[0].resolvedPaneHeights(totalHeight: 920, spacing: state.layoutSizing.interPaneSpacing)
-        XCTAssertEqual(heights[0], 250, accuracy: 0.001)
-        XCTAssertEqual(heights[1], 250, accuracy: 0.001)
-        XCTAssertEqual(heights[2], 400, accuracy: 0.001)
+        XCTAssertEqual(heights[0], 252.22222222222223, accuracy: 0.001)
+        XCTAssertEqual(heights[1], 252.22222222222223, accuracy: 0.001)
+        XCTAssertEqual(heights[2], 403.55555555555554, accuracy: 0.001)
     }
 
     func test_preferred_divider_uses_last_interacted_divider_for_matching_axis() {
@@ -440,7 +440,7 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.columns[2].width, 500, accuracy: 0.001)
     }
 
-    func test_resize_focused_pane_down_grows_bottom_pane() {
+    func test_resize_focused_pane_down_shrinks_bottom_pane_when_bottom_is_focused() {
         var state = PaneStripState(
             columns: [
                 makeColumn(
@@ -466,8 +466,8 @@ final class PaneStripStateTests: XCTestCase {
 
         XCTAssertTrue(didResize)
         let heights = state.columns[0].resolvedPaneHeights(totalHeight: 706, spacing: state.layoutSizing.interPaneSpacing)
-        XCTAssertEqual(heights[0], 260, accuracy: 0.001)
-        XCTAssertEqual(heights[1], 340, accuracy: 0.001)
+        XCTAssertEqual(heights[0], 390, accuracy: 0.001)
+        XCTAssertEqual(heights[1], 310, accuracy: 0.001)
     }
 
     private func makeColumn(

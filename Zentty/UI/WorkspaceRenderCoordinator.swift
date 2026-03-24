@@ -18,13 +18,12 @@ final class WorkspaceRenderCoordinator {
     let runtimeRegistry: PaneRuntimeRegistry
     let reviewStateResolver: WorkspaceReviewStateResolver
 
-    private let reviewStateProvider = DefaultWorkspaceReviewStateProvider()
     private let attentionNotificationCoordinator = WorkspaceAttentionNotificationCoordinator()
 
     private var views: ViewBindings?
     private var currentPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] = []
     private var reviewPollingTimer: Timer?
-    private var reviewPollingTarget: (workspaceID: WorkspaceID, paneID: PaneID, path: String, preferredBranch: String?)?
+    private var reviewPollingTarget: (workspaceID: WorkspaceID, paneID: PaneID, repoRoot: String, branch: String)?
 
     var onNeedsSidebarSync: (() -> Void)?
     var themeProvider: (() -> ZenttyTheme)?
@@ -130,10 +129,7 @@ final class WorkspaceRenderCoordinator {
                 return
             }
 
-            let headerSummary = WorkspaceHeaderSummaryBuilder.summary(
-                for: workspace,
-                reviewStateProvider: reviewStateProvider
-            )
+            let headerSummary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
             views.windowChromeView.render(summary: headerSummary)
             renderCanvasForCurrentWorkspace(animated: animated)
             let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
@@ -225,8 +221,8 @@ final class WorkspaceRenderCoordinator {
 
         let targetChanged = reviewPollingTarget?.workspaceID != target.workspaceID
             || reviewPollingTarget?.paneID != target.paneID
-            || reviewPollingTarget?.path != target.path
-            || reviewPollingTarget?.preferredBranch != target.preferredBranch
+            || reviewPollingTarget?.repoRoot != target.repoRoot
+            || reviewPollingTarget?.branch != target.branch
 
         reviewPollingTarget = target
         if reviewPollingTimer == nil || targetChanged {
@@ -242,13 +238,14 @@ final class WorkspaceRenderCoordinator {
         }
     }
 
-    private func makeReviewPollingTarget() -> (workspaceID: WorkspaceID, paneID: PaneID, path: String, preferredBranch: String?)? {
+    private func makeReviewPollingTarget() -> (workspaceID: WorkspaceID, paneID: PaneID, repoRoot: String, branch: String)? {
         let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
         guard windowState.isVisible, windowState.isKeyWindow,
               let workspace = workspaceStore.activeWorkspace,
               let paneID = workspace.paneStripState.focusedPaneID,
               let auxiliaryState = workspace.auxiliaryStateByPaneID[paneID],
-              let path = auxiliaryState.localReviewWorkingDirectory
+              let repoRoot = auxiliaryState.presentation.repoRoot,
+              let branch = auxiliaryState.presentation.lookupBranch
         else {
             return nil
         }
@@ -256,8 +253,8 @@ final class WorkspaceRenderCoordinator {
         return (
             workspaceID: workspace.id,
             paneID: paneID,
-            path: path,
-            preferredBranch: auxiliaryState.metadata?.gitBranch
+            repoRoot: repoRoot,
+            branch: branch
         )
     }
 
@@ -267,8 +264,8 @@ final class WorkspaceRenderCoordinator {
         }
 
         reviewStateResolver.refreshFocusedPane(
-            path: target.path,
-            preferredBranch: target.preferredBranch,
+            repoRoot: target.repoRoot,
+            branch: target.branch,
             paneID: target.paneID,
             forceReload: forceReload
         ) { [weak self] paneID, resolution in

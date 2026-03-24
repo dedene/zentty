@@ -135,9 +135,6 @@ enum ShellMetrics {
     static let sidebarTopInset: CGFloat = 58
     static let sidebarBottomInset: CGFloat = 18
     static let sidebarRowHorizontalInset: CGFloat = 12
-    static let sidebarLeadingAccessorySize: CGFloat = 14
-    static let sidebarLeadingAccessorySpacing: CGFloat = 8
-    static let sidebarLeadingAccessoryGutterWidth: CGFloat = sidebarLeadingAccessorySize + sidebarLeadingAccessorySpacing
     static let sidebarRowTopInset: CGFloat = 8
     static let sidebarRowBottomInset: CGFloat = 8
     static let sidebarRowVerticalPadding: CGFloat = sidebarRowTopInset + sidebarRowBottomInset
@@ -154,8 +151,7 @@ enum ShellMetrics {
         includesTopLabel: true,
         includesStatus: true,
         detailLineCount: 1,
-        includesOverflow: false,
-        includesArtifact: false
+        includesOverflow: false
     )
     static let sidebarRowCornerRadius: CGFloat = ChromeGeometry.rowRadius
     static let sidebarFooterIconSpacing: CGFloat = 12
@@ -171,8 +167,7 @@ enum ShellMetrics {
         includesTopLabel: Bool,
         includesStatus: Bool,
         detailLineCount: Int,
-        includesOverflow: Bool,
-        includesArtifact: Bool
+        includesOverflow: Bool
     ) -> CGFloat {
         let clampedDetailLineCount = max(0, detailLineCount)
         let visibleLineHeights: [CGFloat] = [
@@ -186,16 +181,10 @@ enum ShellMetrics {
 
         let textHeight = visibleLineHeights.reduce(0, +)
         let spacingHeight = CGFloat(max(0, visibleLineHeights.count - 1)) * sidebarRowInterlineSpacing
-        let computedHeight = sidebarRowTopInset
+        return sidebarRowTopInset
             + sidebarRowBottomInset
             + textHeight
             + spacingHeight
-
-        guard includesArtifact else {
-            return computedHeight
-        }
-
-        return max(computedHeight, sidebarExpandedRowHeight)
     }
 
     static func sidebarTitleFont() -> NSFont {

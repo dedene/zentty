@@ -13,7 +13,6 @@ enum WorkspaceRowTextRow: Equatable {
     case panePrimary(Int)
     case paneDetail(Int)
     case paneStatus(Int)
-    case stateBadge
     case context
     case detail(Int)
     case overflow
@@ -49,8 +48,7 @@ struct WorkspaceRowLayoutMetrics: Equatable {
             includesTopLabel: true,
             includesStatus: true,
             detailLineCount: 1,
-            includesOverflow: false,
-            includesArtifact: false
+            includesOverflow: false
         )
     }
 
@@ -66,8 +64,7 @@ struct WorkspaceRowLayoutMetrics: Equatable {
         includesTopLabel: Bool,
         includesStatus: Bool,
         detailLineCount: Int,
-        includesOverflow: Bool,
-        includesArtifact: Bool
+        includesOverflow: Bool
     ) -> CGFloat {
         let clampedDetailLineCount = max(0, detailLineCount)
         let visibleLineHeights: [CGFloat] = [
@@ -81,13 +78,7 @@ struct WorkspaceRowLayoutMetrics: Equatable {
 
         let textHeight = visibleLineHeights.reduce(0, +)
         let spacingHeight = CGFloat(max(0, visibleLineHeights.count - 1)) * interlineSpacing
-        let computedHeight = topInset + bottomInset + textHeight + spacingHeight
-
-        guard includesArtifact else {
-            return computedHeight
-        }
-
-        return max(computedHeight, expandedHeight)
+        return topInset + bottomInset + textHeight + spacingHeight
     }
 
     func height(for visibleRows: [WorkspaceRowTextRow]) -> CGFloat {
@@ -115,8 +106,6 @@ struct WorkspaceRowLayoutMetrics: Equatable {
             return detailLineHeight
         case .paneStatus:
             return statusLineHeight
-        case .stateBadge:
-            return detailLineHeight
         case .context:
             return contextLineHeight
         case .detail:
@@ -138,19 +127,17 @@ struct SidebarWorkspaceRowLayout: Equatable {
     ) {
         let visibleTextRows = Self.visibleTextRows(for: summary)
         let mode = Self.mode(for: summary)
-        let includesArtifact = summary.artifactLink != nil
 
         self.mode = mode
         self.visibleTextRows = visibleTextRows
         let computedHeight = metrics.height(for: visibleTextRows)
-        self.rowHeight = mode == .compact
-            ? metrics.compactHeight
-            : (includesArtifact ? max(computedHeight, metrics.expandedHeight) : computedHeight)
+        self.rowHeight = mode == .compact ? metrics.compactHeight : computedHeight
     }
 
     static func mode(for summary: WorkspaceSidebarSummary) -> WorkspaceRowMode {
         if summary.paneRows.isEmpty == false {
-            return hasVisibleText(summary.topLabel)
+            return summary.paneRows.count > 1
+                || hasVisibleText(summary.topLabel)
                 || summary.paneRows.contains(where: { hasVisibleText($0.detailText) || hasVisibleText($0.statusText) })
                 || hasVisibleText(summary.overflowText)
                 ? .expanded
@@ -231,46 +218,6 @@ struct SidebarWorkspaceRowLayout: Equatable {
             return false
         }
 
-        return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-}
-
-struct SidebarWorkspaceGroupLayout: Equatable {
-    let headerVisibleRows: [WorkspaceRowTextRow]
-    let headerHeight: CGFloat
-    let paneSubRowHeight: CGFloat
-    let expandedPaneCount: Int
-    let totalHeight: CGFloat
-
-    init(
-        headerStatusText: String?,
-        headerContextText: String,
-        paneCount: Int,
-        isExpanded: Bool,
-        metrics: WorkspaceRowLayoutMetrics = .sidebar
-    ) {
-        var rows: [WorkspaceRowTextRow] = [.primary]
-        if Self.hasVisibleText(headerStatusText) {
-            rows.append(.status)
-        }
-        if Self.hasVisibleText(headerContextText) {
-            rows.append(.context)
-        }
-        self.headerVisibleRows = rows
-        self.headerHeight = metrics.height(for: rows)
-        self.paneSubRowHeight = ShellMetrics.paneSubRowHeight
-
-        if paneCount <= 1 {
-            self.expandedPaneCount = 0
-        } else {
-            self.expandedPaneCount = isExpanded ? paneCount : 0
-        }
-
-        self.totalHeight = headerHeight + CGFloat(expandedPaneCount) * paneSubRowHeight
-    }
-
-    private static func hasVisibleText(_ text: String?) -> Bool {
-        guard let text else { return false }
         return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

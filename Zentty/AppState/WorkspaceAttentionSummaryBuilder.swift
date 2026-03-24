@@ -14,28 +14,43 @@ enum WorkspaceAttentionSummaryBuilder {
         for pane: PaneState,
         in workspace: WorkspaceState
     ) -> WorkspaceAttentionSummary? {
-        let aux = workspace.auxiliaryStateByPaneID[pane.id]
-        guard let status = aux?.agentStatus,
-              let workspaceState = status.state.workspaceAttentionState else {
+        guard let paneContext = workspace.paneContext(for: pane.id) else {
             return nil
         }
 
-        let metadata = aux?.metadata
-        let primaryText = status.tool.displayName
+        let presentation = paneContext.presentation
+        guard
+            let attentionState = attentionState(for: presentation.runtimePhase),
+            let tool = presentation.recognizedTool
+        else {
+            return nil
+        }
 
         return WorkspaceAttentionSummary(
             paneID: pane.id,
-            tool: status.tool,
-            state: workspaceState,
-            primaryText: primaryText,
-            statusText: status.statusText,
-            contextText: WorkspaceContextFormatter.paneDetailLine(
-                metadata: metadata,
-                fallbackTitle: pane.title
-            ) ?? "",
-            artifactLink: status.artifactLink,
-            updatedAt: status.updatedAt
+            tool: tool,
+            state: attentionState,
+            primaryText: presentation.visibleIdentityText ?? "Shell",
+            statusText: presentation.statusText ?? "",
+            contextText: presentation.contextText ?? "",
+            artifactLink: presentation.attentionArtifactLink,
+            updatedAt: presentation.updatedAt
         )
+    }
+
+    private static func attentionState(for phase: PanePresentationPhase) -> WorkspaceAttentionState? {
+        switch phase {
+        case .idle, .starting:
+            return nil
+        case .running:
+            return .running
+        case .needsInput:
+            return .needsInput
+        case .completed:
+            return .completed
+        case .unresolvedStop:
+            return .unresolvedStop
+        }
     }
 
     private static func preferred(lhs: WorkspaceAttentionSummary, rhs: WorkspaceAttentionSummary) -> Bool {

@@ -1,72 +1,70 @@
 enum WorkspaceHeaderSummaryBuilder {
-    static func summary(
-        for workspace: WorkspaceState,
-        reviewStateProvider: WorkspaceReviewStateProvider
-    ) -> WorkspaceChromeSummary {
+    static func summary(for workspace: WorkspaceState) -> WorkspaceChromeSummary {
         let focusedPaneContext = workspace.focusedPaneContext
-        let reviewState = reviewStateProvider.reviewState(
-            for: workspace,
-            focusedPaneID: focusedPaneContext?.paneID
-        )
-        let branch = WorkspaceContextFormatter.displayBranch(
-            reviewState?.branch ?? focusedPaneContext?.metadata?.gitBranch
-        )
-        let focusedLabelPresentation = focusedLabelPresentation(
-            metadata: focusedPaneContext?.metadata,
-            paneTitle: focusedPaneContext?.pane.title,
-            shellContext: focusedPaneContext?.auxiliaryState?.shellContext,
-            branch: branch
-        )
+        let presentation = focusedPaneContext?.presentation
+        let focusedLabel = visibleFocusedLabel(from: presentation)
+        let branch = visibleBranch(from: presentation)
 
         return WorkspaceChromeSummary(
             attention: WorkspaceAttentionSummaryBuilder.summary(for: workspace),
-            focusedLabel: focusedLabelPresentation.label,
-            branch: focusedLabelPresentation.includesBranch ? nil : branch,
-            pullRequest: reviewState?.pullRequest,
-            reviewChips: reviewState?.reviewChips ?? []
+            focusedLabel: focusedLabel,
+            branch: branch,
+            pullRequest: presentation?.pullRequest,
+            reviewChips: presentation?.reviewChips ?? []
         )
     }
 
-    private static func focusedLabelPresentation(
-        metadata: TerminalMetadata?,
-        paneTitle: String?,
-        shellContext: PaneShellContext?,
-        branch: String?
-    ) -> (label: String?, includesBranch: Bool) {
-        if let recognized = AgentToolRecognizer.recognize(metadata: metadata) {
-            return (recognized.displayName, false)
+    private static func visibleFocusedLabel(from presentation: PanePresentationState?) -> String? {
+        guard
+            let presentation,
+            let rememberedTitle = WorkspaceContextFormatter.trimmed(presentation.rememberedTitle)
+        else {
+            return presentation.flatMap(visibleFallbackLabel(from:))
         }
 
-        let resolvedWorkingDirectory = WorkspaceContextFormatter.resolvedWorkingDirectory(
-            for: metadata,
-            shellContext: shellContext
-        )
-        let formattedDirectory = WorkspaceContextFormatter.formattedWorkingDirectory(
-            resolvedWorkingDirectory,
-            branch: branch
-        )
-        let stableIdentity = WorkspaceContextFormatter.displayStablePaneIdentity(
-            for: metadata,
-            fallbackTitle: paneTitle,
-            workingDirectory: resolvedWorkingDirectory,
-            branch: branch
-        )
-
-        if formattedDirectory == stableIdentity {
-            return (
-                WorkspaceContextFormatter.branchPrefixedLocationLabel(
-                    workingDirectory: resolvedWorkingDirectory,
-                    branch: branch
-                ),
-                branch != nil
-            )
+        if let decomposedTitle = decomposedRememberedTitle(
+            rememberedTitle,
+            presentation: presentation
+        ) {
+            return decomposedTitle
         }
 
-        return (
-            stableIdentity
-                ?? WorkspaceContextFormatter.displayTerminalIdentity(for: metadata, fallbackTitle: paneTitle)
-                ?? WorkspaceContextFormatter.trimmed(paneTitle),
-            false
-        )
+        return rememberedTitle
+    }
+
+    private static func visibleFallbackLabel(from presentation: PanePresentationState) -> String? {
+        if let cwd = WorkspaceContextFormatter.trimmed(presentation.cwd) {
+            return WorkspaceContextFormatter.formattedWorkingDirectory(cwd, branch: nil)
+        }
+
+        return WorkspaceContextFormatter.trimmed(presentation.visibleIdentityText)
+    }
+
+    private static func visibleBranch(from presentation: PanePresentationState?) -> String? {
+        guard let presentation else {
+            return nil
+        }
+
+        return WorkspaceContextFormatter.trimmed(presentation.branchDisplayText)
+    }
+
+    private static func decomposedRememberedTitle(
+        _ rememberedTitle: String,
+        presentation: PanePresentationState
+    ) -> String? {
+        guard
+            let branch = WorkspaceContextFormatter.trimmed(presentation.branchDisplayText)
+        else {
+            return nil
+        }
+
+        for separator in [" · ", " • "] {
+            let prefix = branch + separator
+            if rememberedTitle.hasPrefix(prefix) {
+                return WorkspaceContextFormatter.trimmed(String(rememberedTitle.dropFirst(prefix.count)))
+            }
+        }
+
+        return nil
     }
 }

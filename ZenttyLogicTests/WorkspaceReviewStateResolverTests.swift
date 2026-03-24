@@ -37,7 +37,6 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
 
         XCTAssertEqual(resolution.reviewState?.pullRequest?.state, .draft)
         XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["Draft", "2 failing"])
-        XCTAssertEqual(resolution.inferredArtifact?.label, "PR #128")
     }
 
     func test_resolver_builds_checks_passed_chip_when_all_checks_pass() async {
@@ -79,7 +78,6 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(resolution.reviewState?.branch, "feature/review-band")
         XCTAssertNil(resolution.reviewState?.pullRequest)
         XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), [])
-        XCTAssertNil(resolution.inferredArtifact)
     }
 
     func test_resolver_hides_github_diagnostics_when_gh_is_unavailable_or_unauthenticated() async {
@@ -92,7 +90,6 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         let unavailableResolution = await unavailableResolver.resolve(path: "/tmp/project", branch: "main")
 
         XCTAssertNil(unavailableResolution.reviewState)
-        XCTAssertNil(unavailableResolution.inferredArtifact)
         XCTAssertEqual(unavailableResolution.updatePolicy, .preserveExistingOnEmpty)
 
         let authRunner = StubGHRunner(
@@ -104,7 +101,6 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         let authResolution = await authResolver.resolve(path: "/tmp/project", branch: "main")
 
         XCTAssertNil(authResolution.reviewState)
-        XCTAssertNil(authResolution.inferredArtifact)
         XCTAssertEqual(authResolution.updatePolicy, .preserveExistingOnEmpty)
     }
 
@@ -137,7 +133,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(closedResolution.reviewState?.reviewChips.map(\.text), ["Closed"])
     }
 
-    func test_resolver_caches_by_path_and_branch() async {
+    func test_resolver_caches_by_repo_root_and_branch() async {
         let runner = StubGHRunner(
             gitBranchResult: .stdout("feature/review-band\n"),
             prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":false,"state":"OPEN"}"#),
@@ -156,7 +152,16 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
                 PaneID("pane-claude"): TerminalMetadata(
                     title: "Claude Code",
                     currentWorkingDirectory: "/tmp/project",
-                    processName: "claude"
+                    processName: "claude",
+                    gitBranch: "feature/review-band"
+                ),
+            ]
+            ,
+            gitContextByPaneID: [
+                PaneID("pane-claude"): PaneGitContext(
+                    workingDirectory: "/tmp/project",
+                    repositoryRoot: "/tmp/project",
+                    reference: .branch("feature/review-band")
                 ),
             ]
         )
@@ -173,21 +178,24 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         await fulfillment(of: [secondRefresh], timeout: 1.0)
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 7)
-        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
-        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
-        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertEqual(calls[4].arguments[2], "view")
-        XCTAssertTrue(calls[4].arguments.contains("feature/review-band"))
-        XCTAssertTrue(calls[4].arguments.contains("--repo"))
-        XCTAssertEqual(calls[5].arguments[2], "checks")
-        XCTAssertTrue(calls[5].arguments.contains("feature/review-band"))
-        XCTAssertTrue(calls[5].arguments.contains("--repo"))
-        XCTAssertEqual(calls[6].arguments, ["git", "branch", "--show-current"])
+        XCTAssertEqual(calls.count, 4)
+        guard
+            let call0 = requireCall(calls, at: 0),
+            let call1 = requireCall(calls, at: 1),
+            let call2 = requireCall(calls, at: 2),
+            let call3 = requireCall(calls, at: 3)
+        else { return }
+        XCTAssertEqual(call0.arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
+        XCTAssertEqual(call1.arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(call2.arguments[safe: 2], "view")
+        XCTAssertTrue(call2.arguments.contains("feature/review-band"))
+        XCTAssertTrue(call2.arguments.contains("--repo"))
+        XCTAssertEqual(call3.arguments[safe: 2], "checks")
+        XCTAssertTrue(call3.arguments.contains("feature/review-band"))
+        XCTAssertTrue(call3.arguments.contains("--repo"))
     }
 
-    func test_resolver_derives_branch_from_git_before_loading_pr_and_checks() async throws {
+    func test_resolver_uses_canonical_git_context_before_loading_pr_and_checks() async throws {
         let runner = StubGHRunner(
             gitBranchResult: .stdout("feature/review-band\n"),
             prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":true,"state":"OPEN"}"#),
@@ -206,7 +214,16 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
                 paneID: TerminalMetadata(
                     title: "Claude Code",
                     currentWorkingDirectory: "/tmp/project",
-                    processName: "claude"
+                    processName: "claude",
+                    gitBranch: "feature/review-band"
+                ),
+            ]
+            ,
+            gitContextByPaneID: [
+                paneID: PaneGitContext(
+                    workingDirectory: "/tmp/project",
+                    repositoryRoot: "/tmp/project",
+                    reference: .branch("feature/review-band")
                 ),
             ]
         )
@@ -224,26 +241,28 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["Draft", "2 failing"])
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 6)
-        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
-        XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
-        XCTAssertEqual(calls[2].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertEqual(calls[3].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "view"])
-        XCTAssertTrue(calls[4].arguments.contains("feature/review-band"))
-        XCTAssertTrue(calls[4].arguments.contains("--repo"))
-        XCTAssertEqual(calls[4].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[5].arguments[0...2], ["gh", "pr", "checks"])
-        XCTAssertTrue(calls[5].arguments.contains("feature/review-band"))
-        XCTAssertTrue(calls[5].arguments.contains("--repo"))
-        XCTAssertEqual(calls[5].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls.count, 4)
+        guard
+            let call0 = requireCall(calls, at: 0),
+            let call1 = requireCall(calls, at: 1),
+            let call2 = requireCall(calls, at: 2),
+            let call3 = requireCall(calls, at: 3)
+        else { return }
+        XCTAssertEqual(call0.arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
+        XCTAssertEqual(call0.currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(call1.arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(call1.currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(Array(call2.arguments.prefix(3)), ["gh", "pr", "view"])
+        XCTAssertTrue(call2.arguments.contains("feature/review-band"))
+        XCTAssertTrue(call2.arguments.contains("--repo"))
+        XCTAssertEqual(call2.currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(Array(call3.arguments.prefix(3)), ["gh", "pr", "checks"])
+        XCTAssertTrue(call3.arguments.contains("feature/review-band"))
+        XCTAssertTrue(call3.arguments.contains("--repo"))
+        XCTAssertEqual(call3.currentDirectoryPath, "/tmp/project")
     }
 
-    func test_resolver_uses_local_pane_context_path_when_metadata_cwd_is_missing() async {
+    func test_resolver_uses_canonical_repo_root_when_metadata_cwd_is_missing() async {
         let runner = StubGHRunner(
             gitBranchResult: .stdout("main\n"),
             prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
@@ -262,7 +281,8 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
                 paneID: TerminalMetadata(
                     title: "Claude Code",
                     currentWorkingDirectory: nil,
-                    processName: "zsh"
+                    processName: "zsh",
+                    gitBranch: "main"
                 ),
             ],
             paneContextByPaneID: [
@@ -289,24 +309,26 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(updates.last?.reviewState?.reviewChips.map(\.text), ["1 failing"])
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 6)
-        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
-        XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.main.remote"])
-        XCTAssertEqual(calls[2].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertEqual(calls[3].currentDirectoryPath, "/tmp/project")
-        XCTAssertTrue(calls[4].arguments.contains("main"))
-        XCTAssertTrue(calls[4].arguments.contains("--repo"))
-        XCTAssertEqual(calls[4].currentDirectoryPath, "/tmp/project")
-        XCTAssertTrue(calls[5].arguments.contains("main"))
-        XCTAssertTrue(calls[5].arguments.contains("--repo"))
-        XCTAssertEqual(calls[5].currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(calls.count, 4)
+        guard
+            let call0 = requireCall(calls, at: 0),
+            let call1 = requireCall(calls, at: 1),
+            let call2 = requireCall(calls, at: 2),
+            let call3 = requireCall(calls, at: 3)
+        else { return }
+        XCTAssertEqual(call0.arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(call0.currentDirectoryPath, "/tmp/project")
+        XCTAssertEqual(call1.arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(call1.currentDirectoryPath, "/tmp/project")
+        XCTAssertTrue(call2.arguments.contains("main"))
+        XCTAssertTrue(call2.arguments.contains("--repo"))
+        XCTAssertEqual(call2.currentDirectoryPath, "/tmp/project")
+        XCTAssertTrue(call3.arguments.contains("main"))
+        XCTAssertTrue(call3.arguments.contains("--repo"))
+        XCTAssertEqual(call3.currentDirectoryPath, "/tmp/project")
     }
 
-    func test_resolver_returns_nil_when_git_branch_lookup_fails() async {
+    func test_resolver_refresh_skips_pane_without_canonical_git_context() async {
         let runner = StubGHRunner(
             gitRepositoryProbeResult: .failure(stderr: "fatal: not a git repository"),
             gitBranchResult: .failure(stderr: "fatal: not a git repository"),
@@ -330,21 +352,15 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             ]
         )
         var updates: [WorkspaceReviewResolution] = []
-        let refreshExpectation = expectation(description: "refresh update")
         resolver.refresh(for: [workspace]) { _, resolution in
             updates.append(resolution)
-            refreshExpectation.fulfill()
         }
-        await fulfillment(of: [refreshExpectation], timeout: 1.0)
+        try? await Task.sleep(nanoseconds: 100_000_000)
 
-        XCTAssertEqual(updates.count, 1)
-        XCTAssertNil(updates[0].reviewState)
-        XCTAssertNil(updates[0].inferredArtifact)
+        XCTAssertEqual(updates.count, 0)
 
         let calls = await runner.calls
-        XCTAssertEqual(calls, [
-            .init(arguments: ["git", "rev-parse", "--git-dir"], currentDirectoryPath: "/tmp/project"),
-        ])
+        XCTAssertEqual(calls, [])
     }
 
     func test_resolver_probes_repository_before_branch_lookup_and_skips_follow_up_for_non_repo() async {
@@ -360,7 +376,6 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         let resolution = await resolver.resolve(path: "/tmp/non-repo", branch: "main")
 
         XCTAssertNil(resolution.reviewState)
-        XCTAssertNil(resolution.inferredArtifact)
         XCTAssertEqual(resolution.updatePolicy, .preserveExistingOnEmpty)
 
         let calls = await runner.calls
@@ -384,7 +399,6 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(resolution.reviewState?.branch, "main")
         XCTAssertNil(resolution.reviewState?.pullRequest)
         XCTAssertEqual(resolution.reviewState?.reviewChips, [])
-        XCTAssertNil(resolution.inferredArtifact)
 
         let calls = await runner.calls
         XCTAssertEqual(calls, [
@@ -415,18 +429,27 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(resolution.reviewState?.branch, "main")
         XCTAssertEqual(resolution.reviewState?.pullRequest?.number, 1413)
         XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["Checks passed"])
-        XCTAssertEqual(resolution.inferredArtifact?.label, "PR #1413")
 
         let calls = await runner.calls
-        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[1].arguments, ["git", "config", "--get", "branch.main.remote"])
-        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertEqual(calls[3].arguments, ["git", "remote"])
-        XCTAssertEqual(calls[4].arguments, ["git", "remote", "get-url", "fork"])
-        XCTAssertTrue(calls[5].arguments.contains("--repo"))
-        XCTAssertTrue(calls[5].arguments.contains("dedene/zentty"))
-        XCTAssertTrue(calls[6].arguments.contains("--repo"))
-        XCTAssertTrue(calls[6].arguments.contains("dedene/zentty"))
+        XCTAssertEqual(calls.count, 7)
+        guard
+            let call0 = requireCall(calls, at: 0),
+            let call1 = requireCall(calls, at: 1),
+            let call2 = requireCall(calls, at: 2),
+            let call3 = requireCall(calls, at: 3),
+            let call4 = requireCall(calls, at: 4),
+            let call5 = requireCall(calls, at: 5),
+            let call6 = requireCall(calls, at: 6)
+        else { return }
+        XCTAssertEqual(call0.arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(call1.arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(call2.arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(call3.arguments, ["git", "remote"])
+        XCTAssertEqual(call4.arguments, ["git", "remote", "get-url", "fork"])
+        XCTAssertTrue(call5.arguments.contains("--repo"))
+        XCTAssertTrue(call5.arguments.contains("dedene/zentty"))
+        XCTAssertTrue(call6.arguments.contains("--repo"))
+        XCTAssertTrue(call6.arguments.contains("dedene/zentty"))
     }
 
     func test_resolver_prefers_upstream_github_remote_before_origin() async {
@@ -448,14 +471,22 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(resolution.reviewState?.pullRequest?.number, 1413)
 
         let calls = await runner.calls
-        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[1].arguments, ["git", "config", "--get", "branch.main.remote"])
-        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "upstream"])
+        XCTAssertEqual(calls.count, 5)
+        guard
+            let call0 = requireCall(calls, at: 0),
+            let call1 = requireCall(calls, at: 1),
+            let call2 = requireCall(calls, at: 2),
+            let call3 = requireCall(calls, at: 3),
+            let call4 = requireCall(calls, at: 4)
+        else { return }
+        XCTAssertEqual(call0.arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(call1.arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(call2.arguments, ["git", "remote", "get-url", "upstream"])
         XCTAssertFalse(calls.contains { $0.arguments == ["git", "remote", "get-url", "origin"] })
-        XCTAssertTrue(calls[3].arguments.contains("--repo"))
-        XCTAssertTrue(calls[3].arguments.contains("dedene/zentty"))
-        XCTAssertTrue(calls[4].arguments.contains("--repo"))
-        XCTAssertTrue(calls[4].arguments.contains("dedene/zentty"))
+        XCTAssertTrue(call3.arguments.contains("--repo"))
+        XCTAssertTrue(call3.arguments.contains("dedene/zentty"))
+        XCTAssertTrue(call4.arguments.contains("--repo"))
+        XCTAssertTrue(call4.arguments.contains("dedene/zentty"))
     }
 
     func test_resolver_preserves_existing_state_when_remote_detection_fails_transiently() async {
@@ -473,7 +504,6 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
 
         XCTAssertNil(resolution.reviewState)
-        XCTAssertNil(resolution.inferredArtifact)
         XCTAssertEqual(resolution.updatePolicy, .preserveExistingOnEmpty)
     }
 
@@ -500,6 +530,14 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
                     gitBranch: "m...n"
                 ),
             ]
+            ,
+            gitContextByPaneID: [
+                paneID: PaneGitContext(
+                    workingDirectory: "/tmp/project",
+                    repositoryRoot: "/tmp/project",
+                    reference: .branch("main")
+                ),
+            ]
         )
 
         var updates: [WorkspaceReviewResolution] = []
@@ -514,16 +552,20 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(updates.last?.reviewState?.pullRequest?.number, 1413)
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 6)
-        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
-        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.main.remote"])
-        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertTrue(calls[4].arguments.contains("main"))
-        XCTAssertTrue(calls[4].arguments.contains("--repo"))
-        XCTAssertFalse(calls[4].arguments.contains("m...n"))
-        XCTAssertTrue(calls[5].arguments.contains("main"))
-        XCTAssertTrue(calls[5].arguments.contains("--repo"))
+        XCTAssertEqual(calls.count, 4)
+        guard
+            let call0 = requireCall(calls, at: 0),
+            let call1 = requireCall(calls, at: 1),
+            let call2 = requireCall(calls, at: 2),
+            let call3 = requireCall(calls, at: 3)
+        else { return }
+        XCTAssertEqual(call0.arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(call1.arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertTrue(call2.arguments.contains("main"))
+        XCTAssertTrue(call2.arguments.contains("--repo"))
+        XCTAssertFalse(call2.arguments.contains("m...n"))
+        XCTAssertTrue(call3.arguments.contains("main"))
+        XCTAssertTrue(call3.arguments.contains("--repo"))
     }
 
     func test_resolver_reloads_pr_when_branch_changes_in_same_cwd() async {
@@ -556,6 +598,35 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
                     currentWorkingDirectory: "/tmp/project",
                     processName: "claude"
                 ),
+            ],
+            gitContextByPaneID: [
+                paneID: PaneGitContext(
+                    workingDirectory: "/tmp/project",
+                    repositoryRoot: "/tmp/project",
+                    reference: .branch("feature/review-band")
+                ),
+            ]
+        )
+        let branchChangedWorkspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "claude")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "Claude Code",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "claude"
+                ),
+            ],
+            gitContextByPaneID: [
+                paneID: PaneGitContext(
+                    workingDirectory: "/tmp/project",
+                    repositoryRoot: "/tmp/project",
+                    reference: .branch("main")
+                ),
             ]
         )
 
@@ -568,7 +639,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         await fulfillment(of: [firstRefresh], timeout: 1.0)
 
         let secondRefresh = expectation(description: "second refresh")
-        resolver.refresh(for: [workspace]) { _, resolution in
+        resolver.refresh(for: [branchChangedWorkspace]) { _, resolution in
             updates.append(resolution)
             secondRefresh.fulfill()
         }
@@ -579,22 +650,29 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(updates.map { $0.reviewState?.reviewChips.map(\.text) ?? [] }, [["Draft", "1 failing"], ["Checks passed"]])
 
         let calls = await runner.calls
-        XCTAssertEqual(calls.count, 11)
-        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[1].arguments, ["git", "branch", "--show-current"])
-        XCTAssertEqual(calls[2].arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
-        XCTAssertEqual(calls[3].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertTrue(calls[4].arguments.contains("feature/review-band"))
-        XCTAssertTrue(calls[4].arguments.contains("--repo"))
-        XCTAssertTrue(calls[5].arguments.contains("feature/review-band"))
-        XCTAssertTrue(calls[5].arguments.contains("--repo"))
-        XCTAssertEqual(calls[6].arguments, ["git", "branch", "--show-current"])
-        XCTAssertEqual(calls[7].arguments, ["git", "config", "--get", "branch.main.remote"])
-        XCTAssertEqual(calls[8].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertTrue(calls[9].arguments.contains("main"))
-        XCTAssertTrue(calls[9].arguments.contains("--repo"))
-        XCTAssertTrue(calls[10].arguments.contains("main"))
-        XCTAssertTrue(calls[10].arguments.contains("--repo"))
+        XCTAssertEqual(calls.count, 8)
+        guard
+            let call0 = requireCall(calls, at: 0),
+            let call1 = requireCall(calls, at: 1),
+            let call2 = requireCall(calls, at: 2),
+            let call3 = requireCall(calls, at: 3),
+            let call4 = requireCall(calls, at: 4),
+            let call5 = requireCall(calls, at: 5),
+            let call6 = requireCall(calls, at: 6),
+            let call7 = requireCall(calls, at: 7)
+        else { return }
+        XCTAssertEqual(call0.arguments, ["git", "config", "--get", "branch.feature/review-band.remote"])
+        XCTAssertEqual(call1.arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertTrue(call2.arguments.contains("feature/review-band"))
+        XCTAssertTrue(call2.arguments.contains("--repo"))
+        XCTAssertTrue(call3.arguments.contains("feature/review-band"))
+        XCTAssertTrue(call3.arguments.contains("--repo"))
+        XCTAssertEqual(call4.arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(call5.arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertTrue(call6.arguments.contains("main"))
+        XCTAssertTrue(call6.arguments.contains("--repo"))
+        XCTAssertTrue(call7.arguments.contains("main"))
+        XCTAssertTrue(call7.arguments.contains("--repo"))
     }
 
     func test_refresh_focused_pane_force_reload_bypasses_cache_for_same_branch() async {
@@ -618,8 +696,8 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         var refreshedResolution: WorkspaceReviewResolution?
         let refreshExpectation = expectation(description: "forced refresh update")
         resolver.refreshFocusedPane(
-            path: "/tmp/project",
-            preferredBranch: "main",
+            repoRoot: "/tmp/project",
+            branch: "main",
             paneID: PaneID("pane-main"),
             forceReload: true
         ) { _, resolution in
@@ -633,21 +711,30 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
 
         let calls = await runner.calls
         XCTAssertEqual(calls.count, 7)
-        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[1].arguments, ["git", "config", "--get", "branch.main.remote"])
-        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertEqual(calls[3].arguments[0...2], ["gh", "pr", "view"])
-        XCTAssertTrue(calls[3].arguments.contains("main"))
-        XCTAssertTrue(calls[3].arguments.contains("--repo"))
-        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "checks"])
-        XCTAssertTrue(calls[4].arguments.contains("main"))
-        XCTAssertTrue(calls[4].arguments.contains("--repo"))
-        XCTAssertEqual(calls[5].arguments[0...2], ["gh", "pr", "view"])
-        XCTAssertTrue(calls[5].arguments.contains("main"))
-        XCTAssertTrue(calls[5].arguments.contains("--repo"))
-        XCTAssertEqual(calls[6].arguments[0...2], ["gh", "pr", "checks"])
-        XCTAssertTrue(calls[6].arguments.contains("main"))
-        XCTAssertTrue(calls[6].arguments.contains("--repo"))
+        guard
+            let call0 = requireCall(calls, at: 0),
+            let call1 = requireCall(calls, at: 1),
+            let call2 = requireCall(calls, at: 2),
+            let call3 = requireCall(calls, at: 3),
+            let call4 = requireCall(calls, at: 4),
+            let call5 = requireCall(calls, at: 5),
+            let call6 = requireCall(calls, at: 6)
+        else { return }
+        XCTAssertEqual(call0.arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(call1.arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(call2.arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(Array(call3.arguments.prefix(3)), ["gh", "pr", "view"])
+        XCTAssertTrue(call3.arguments.contains("main"))
+        XCTAssertTrue(call3.arguments.contains("--repo"))
+        XCTAssertEqual(Array(call4.arguments.prefix(3)), ["gh", "pr", "checks"])
+        XCTAssertTrue(call4.arguments.contains("main"))
+        XCTAssertTrue(call4.arguments.contains("--repo"))
+        XCTAssertEqual(Array(call5.arguments.prefix(3)), ["gh", "pr", "view"])
+        XCTAssertTrue(call5.arguments.contains("main"))
+        XCTAssertTrue(call5.arguments.contains("--repo"))
+        XCTAssertEqual(Array(call6.arguments.prefix(3)), ["gh", "pr", "checks"])
+        XCTAssertTrue(call6.arguments.contains("main"))
+        XCTAssertTrue(call6.arguments.contains("--repo"))
     }
 
     func test_refresh_focused_pane_force_reload_preserves_cached_resolution_when_gh_view_fails() async {
@@ -671,8 +758,8 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
         var refreshedResolution: WorkspaceReviewResolution?
         let refreshExpectation = expectation(description: "forced refresh keeps cache")
         resolver.refreshFocusedPane(
-            path: "/tmp/project",
-            preferredBranch: "main",
+            repoRoot: "/tmp/project",
+            branch: "main",
             paneID: PaneID("pane-main"),
             forceReload: true
         ) { _, resolution in
@@ -687,15 +774,42 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
 
         let calls = await runner.calls
         XCTAssertEqual(calls.count, 6)
-        XCTAssertEqual(calls[0].arguments, ["git", "rev-parse", "--git-dir"])
-        XCTAssertEqual(calls[1].arguments, ["git", "config", "--get", "branch.main.remote"])
-        XCTAssertEqual(calls[2].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertEqual(calls[3].arguments[0...2], ["gh", "pr", "view"])
-        XCTAssertTrue(calls[3].arguments.contains("--repo"))
-        XCTAssertEqual(calls[4].arguments[0...2], ["gh", "pr", "checks"])
-        XCTAssertTrue(calls[4].arguments.contains("--repo"))
-        XCTAssertEqual(calls[5].arguments[0...2], ["gh", "pr", "view"])
-        XCTAssertTrue(calls[5].arguments.contains("--repo"))
+        guard
+            let call0 = requireCall(calls, at: 0),
+            let call1 = requireCall(calls, at: 1),
+            let call2 = requireCall(calls, at: 2),
+            let call3 = requireCall(calls, at: 3),
+            let call4 = requireCall(calls, at: 4),
+            let call5 = requireCall(calls, at: 5)
+        else { return }
+        XCTAssertEqual(call0.arguments, ["git", "rev-parse", "--git-dir"])
+        XCTAssertEqual(call1.arguments, ["git", "config", "--get", "branch.main.remote"])
+        XCTAssertEqual(call2.arguments, ["git", "remote", "get-url", "origin"])
+        XCTAssertEqual(Array(call3.arguments.prefix(3)), ["gh", "pr", "view"])
+        XCTAssertTrue(call3.arguments.contains("--repo"))
+        XCTAssertEqual(Array(call4.arguments.prefix(3)), ["gh", "pr", "checks"])
+        XCTAssertTrue(call4.arguments.contains("--repo"))
+        XCTAssertEqual(Array(call5.arguments.prefix(3)), ["gh", "pr", "view"])
+        XCTAssertTrue(call5.arguments.contains("--repo"))
+    }
+}
+
+private func requireCall(
+    _ calls: [StubGHRunner.Invocation],
+    at index: Int,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) -> StubGHRunner.Invocation? {
+    guard calls.indices.contains(index) else {
+        XCTFail("Missing command invocation at index \(index); got \(calls.count)", file: file, line: line)
+        return nil
+    }
+    return calls[index]
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 

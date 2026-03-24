@@ -158,7 +158,7 @@ struct WorkspaceChangeSubscription {
 
 @MainActor
 final class WorkspaceStore {
-    private struct PaneReference {
+    struct PaneReference: Hashable {
         let workspaceID: WorkspaceID
         let paneID: PaneID
     }
@@ -169,11 +169,16 @@ final class WorkspaceStore {
     }
 
     var workspaces: [WorkspaceState]
+    let gitContextResolver: any PaneGitContextResolving
     private var layoutContext: PaneLayoutContext
     private var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
     private var lastFocusedPaneReference: PaneReference?
     private var lastFocusedLocalPaneReference: PaneReference?
     private var lastFocusedLocalWorkingDirectory: String?
+    var cachedGitContextByPath: [String: PaneGitContext] = [:]
+    var knownNonRepositoryPaths: Set<String> = []
+    var pendingGitContextPaths: Set<String> = []
+    var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
 
     private(set) var activeWorkspaceID: WorkspaceID
 
@@ -205,16 +210,21 @@ final class WorkspaceStore {
     init(
         workspaces: [WorkspaceState] = [],
         layoutContext: PaneLayoutContext = .fallback,
-        activeWorkspaceID: WorkspaceID? = nil
+        activeWorkspaceID: WorkspaceID? = nil,
+        gitContextResolver: any PaneGitContextResolving = WorkspaceGitContextResolver()
     ) {
+        self.gitContextResolver = gitContextResolver
         self.layoutContext = layoutContext
         let initialWorkspaces = workspaces.isEmpty ? WorkspaceStore.defaultWorkspaces(layoutContext: layoutContext) : workspaces
-        self.workspaces = initialWorkspaces
-        self.activeWorkspaceID = activeWorkspaceID ?? initialWorkspaces.first?.id ?? WorkspaceID("workspace-main")
-        self.activeWorkspaceID = initialWorkspaces.contains(where: { $0.id == self.activeWorkspaceID })
-            ? self.activeWorkspaceID
+        let requestedActiveWorkspaceID = activeWorkspaceID ?? initialWorkspaces.first?.id ?? WorkspaceID("workspace-main")
+        let resolvedActiveWorkspaceID = initialWorkspaces.contains(where: { $0.id == requestedActiveWorkspaceID })
+            ? requestedActiveWorkspaceID
             : initialWorkspaces.first?.id ?? WorkspaceID("workspace-main")
+        self.workspaces = initialWorkspaces
+        self.activeWorkspaceID = resolvedActiveWorkspaceID
+        normalizeAllPanePresentationState()
         refreshLastFocusedLocalWorkingDirectory()
+        refreshAllPaneGitContexts()
     }
 
     var activeWorkspace: WorkspaceState? {
@@ -567,6 +577,9 @@ final class WorkspaceStore {
         self.activeWorkspaceID = workspaces.contains(where: { $0.id == fallbackID })
             ? fallbackID
             : workspaces.first?.id ?? WorkspaceID("workspace-main")
+        normalizeAllPanePresentationState()
+        refreshLastFocusedLocalWorkingDirectory()
+        refreshAllPaneGitContexts()
         notify(.workspaceListChanged)
     }
     #endif
@@ -900,5 +913,24 @@ final class WorkspaceStore {
         let replacementIndex = min(max(activeIndex - 1, 0), workspaces.count - 1)
         activeWorkspaceID = workspaces[replacementIndex].id
         return true
+    }
+}
+
+private extension WorkspaceStore {
+    func normalizeAllPanePresentationState() {
+        for workspaceIndex in workspaces.indices {
+            let paneIDs = workspaces[workspaceIndex].paneStripState.panes.map(\.id)
+            for paneID in paneIDs {
+                recomputePresentation(for: paneID, in: &workspaces[workspaceIndex])
+            }
+        }
+    }
+
+    func refreshAllPaneGitContexts() {
+        for workspace in workspaces {
+            for pane in workspace.paneStripState.panes {
+                refreshGitContextIfNeeded(for: PaneReference(workspaceID: workspace.id, paneID: pane.id))
+            }
+        }
     }
 }
