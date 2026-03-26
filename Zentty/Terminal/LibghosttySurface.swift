@@ -7,6 +7,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     private var metadata = TerminalMetadata()
     private let metadataDidChange: (TerminalMetadata) -> Void
     private let eventDidOccur: (TerminalEvent) -> Void
+    private weak var hostView: LibghosttyView?
     private(set) var hasScrollback = false
 
     var cellWidth: CGFloat {
@@ -85,6 +86,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         }
 
         self.surface = surface
+        self.hostView = hostView
         metadata.currentWorkingDirectory = request.workingDirectory
         updateViewport(
             size: hostView.convertToBacking(hostView.bounds).size,
@@ -267,6 +269,15 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             eventDidOccur(.commandFinished(exitCode: exitCode, durationNanoseconds: durationNanoseconds))
         case .scrollbar(let total, let len):
             hasScrollback = total > len
+        case .openURL(let urlString):
+            if let url = URL(string: urlString), url.scheme != nil {
+                NSWorkspace.shared.open(url)
+            } else {
+                let expanded = NSString(string: urlString).standardizingPath
+                NSWorkspace.shared.open(URL(filePath: expanded))
+            }
+        case .mouseShape(let shape):
+            hostView?.setMouseCursorShape(shape)
         }
     }
 

@@ -8,6 +8,8 @@ enum LibghosttySurfaceActionPayload: Equatable {
     case progressReport(TerminalProgressReport)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
     case scrollbar(total: UInt64, len: UInt64)
+    case openURL(String)
+    case mouseShape(ghostty_action_mouse_shape_e)
 }
 
 func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> LibghosttySurfaceActionPayload? {
@@ -52,6 +54,18 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
     case GHOSTTY_ACTION_SCROLLBAR:
         let s = action.action.scrollbar
         return .scrollbar(total: s.total, len: s.len)
+    case GHOSTTY_ACTION_OPEN_URL:
+        let openURL = action.action.open_url
+        guard let urlPointer = openURL.url, openURL.len > 0 else {
+            return nil
+        }
+        let data = Data(bytes: urlPointer, count: Int(openURL.len))
+        guard let urlString = String(data: data, encoding: .utf8), !urlString.isEmpty else {
+            return nil
+        }
+        return .openURL(urlString)
+    case GHOSTTY_ACTION_MOUSE_SHAPE:
+        return .mouseShape(action.action.mouse_shape)
     default:
         return nil
     }

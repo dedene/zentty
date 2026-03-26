@@ -173,7 +173,12 @@ enum PanePresentationNormalizer {
     }
 
     private static func resolvedWorkingDirectory(from raw: PaneRawState) -> String? {
-        WorkspaceContextFormatter.resolvedWorkingDirectory(
+        if let agentCwd = raw.agentStatus?.workingDirectory.flatMap(WorkspaceContextFormatter.trimmed),
+           raw.agentStatus?.state == .running || raw.agentStatus?.state == .starting {
+            return agentCwd
+        }
+
+        return WorkspaceContextFormatter.resolvedWorkingDirectory(
             for: raw.metadata,
             shellContext: raw.shellContext
         ) ?? raw.gitContext.flatMap { WorkspaceContextFormatter.trimmed($0.workingDirectory) }
@@ -442,6 +447,11 @@ struct PaneAuxiliaryState: Equatable, Sendable {
     var localReviewWorkingDirectory: String? {
         guard raw.shellContext?.scope != .remote else {
             return nil
+        }
+
+        if let agentCwd = raw.agentStatus?.workingDirectory.flatMap(WorkspaceContextFormatter.trimmed),
+           raw.agentStatus?.state == .running || raw.agentStatus?.state == .starting {
+            return agentCwd
         }
 
         let currentWorkingDirectory = WorkspaceContextFormatter.resolvedWorkingDirectory(

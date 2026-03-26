@@ -312,4 +312,114 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.pullRequest?.number, 1413)
         XCTAssertNil(presentation.attentionArtifactLink)
     }
+
+    func test_normalize_prefers_agent_working_directory_over_shell_cwd_when_running() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "peter@MacBookPro:~",
+                currentWorkingDirectory: NSHomeDirectory(),
+                processName: "claude",
+                gitBranch: nil
+            ),
+            shellContext: PaneShellContext(
+                scope: .local,
+                path: NSHomeDirectory(),
+                home: NSHomeDirectory(),
+                user: "peter",
+                host: "MacBookPro"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                workingDirectory: "/Users/peter/Development/my-project"
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.cwd, "/Users/peter/Development/my-project")
+    }
+
+    func test_normalize_reverts_to_shell_cwd_after_agent_completes() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: nil,
+                currentWorkingDirectory: "/Users/peter/Development/other-project",
+                processName: "zsh",
+                gitBranch: nil
+            ),
+            shellContext: PaneShellContext(
+                scope: .local,
+                path: "/Users/peter/Development/other-project",
+                home: NSHomeDirectory(),
+                user: "peter",
+                host: "MacBookPro"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .completed,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                workingDirectory: "/Users/peter/Development/my-project"
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.cwd, "/Users/peter/Development/other-project")
+    }
+
+    func test_normalize_falls_through_when_agent_has_no_working_directory() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: nil,
+                currentWorkingDirectory: NSHomeDirectory(),
+                processName: "claude",
+                gitBranch: nil
+            ),
+            shellContext: PaneShellContext(
+                scope: .local,
+                path: NSHomeDirectory(),
+                home: NSHomeDirectory(),
+                user: "peter",
+                host: "MacBookPro"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date()
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.cwd, NSHomeDirectory())
+    }
 }

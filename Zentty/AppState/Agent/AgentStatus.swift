@@ -191,6 +191,7 @@ struct PaneAgentStatus: Equatable, Sendable {
     var interactionState: PaneInteractionState
     var shellActivityState: PaneShellActivityState
     var trackedPID: Int32?
+    var workingDirectory: String?
 
     init(
         tool: AgentTool,
@@ -202,7 +203,8 @@ struct PaneAgentStatus: Equatable, Sendable {
         origin: AgentSignalOrigin = .compatibility,
         interactionState: PaneInteractionState? = nil,
         shellActivityState: PaneShellActivityState = .unknown,
-        trackedPID: Int32? = nil
+        trackedPID: Int32? = nil,
+        workingDirectory: String? = nil
     ) {
         self.tool = tool
         self.state = state
@@ -214,6 +216,7 @@ struct PaneAgentStatus: Equatable, Sendable {
         self.interactionState = interactionState ?? (state == .needsInput ? .awaitingHuman : .none)
         self.shellActivityState = shellActivityState
         self.trackedPID = trackedPID
+        self.workingDirectory = workingDirectory
     }
 
     init(
