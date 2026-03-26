@@ -51,12 +51,7 @@ final class WindowChromeView: NSView {
         font: .systemFont(ofSize: 12, weight: .medium),
         lineBreakMode: .byTruncatingTail
     )
-    private let branchLabel = WindowChromeView.makeLabel(
-        text: "",
-        color: .tertiaryLabelColor,
-        font: .monospacedSystemFont(ofSize: 12, weight: .medium),
-        lineBreakMode: .byTruncatingMiddle
-    )
+    private let branchLabel = WindowChromeBranchLabel()
     private let pullRequestButton = WindowChromePullRequestButton(title: "", target: nil, action: nil)
     private let urlOpener: (URL) -> Void
 
@@ -65,12 +60,14 @@ final class WindowChromeView: NSView {
         attention: nil,
         focusedLabel: nil,
         branch: nil,
+        branchURL: nil,
         pullRequest: nil,
         reviewChips: []
     )
     private var currentOpenWithState: WindowChromeOpenWithState?
     private var displayedReviewChips: [WorkspaceReviewChip] = []
     private var reviewChipViews: [WindowChromeReviewChipView] = []
+    private var branchURL: URL?
     private var pullRequestURL: URL?
     private var rowLeadingConstraint: NSLayoutConstraint?
     private var rowCenterYConstraint: NSLayoutConstraint?
@@ -114,6 +111,11 @@ final class WindowChromeView: NSView {
         focusedLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         branchLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         branchLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        branchLabel.target = self
+        branchLabel.action = #selector(openBranch)
+        branchLabel.onHoverChanged = { [weak self] in
+            self?.updateBranchAppearance(animated: false)
+        }
 
         pullRequestButton.isBordered = false
         pullRequestButton.bezelStyle = .inline
@@ -211,6 +213,10 @@ final class WindowChromeView: NSView {
         let branchText = summary.branch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         branchLabel.stringValue = branchText
         branchLabel.isHidden = branchText.isEmpty
+        branchURL = summary.branchURL
+        let isBranchClickable = branchURL != nil && !branchText.isEmpty
+        branchLabel.isInteractive = isBranchClickable
+        branchLabel.toolTip = isBranchClickable ? "Open branch on remote" : nil
 
         pullRequestButton.title = summary.pullRequest.map { "PR #\($0.number)" } ?? ""
         pullRequestButton.isHidden = summary.pullRequest == nil
@@ -226,7 +232,7 @@ final class WindowChromeView: NSView {
         attentionChipView.apply(theme: theme, animated: animated)
 
         focusedLabel.textColor = theme.secondaryText
-        branchLabel.textColor = theme.tertiaryText
+        updateBranchAppearance(animated: animated)
         updatePullRequestAppearance(animated: animated)
         reviewChipViews.forEach { $0.apply(theme: theme, animated: animated) }
         updateOpenWithAppearance(animated: animated)
@@ -265,6 +271,15 @@ final class WindowChromeView: NSView {
     }
 
     @objc
+    private func openBranch() {
+        guard branchLabel.isInteractive, let branchURL else {
+            return
+        }
+
+        urlOpener(branchURL)
+    }
+
+    @objc
     private func openPullRequest() {
         guard pullRequestButton.isEnabled, let pullRequestURL else {
             return
@@ -289,6 +304,12 @@ final class WindowChromeView: NSView {
         }
 
         onOpenWithMenuAction?()
+    }
+
+    private func updateBranchAppearance(animated: Bool) {
+        let isHovered = branchLabel.isHovered && branchLabel.isInteractive
+        let color = isHovered ? currentTheme.secondaryText : currentTheme.tertiaryText
+        branchLabel.textColor = color
     }
 
     private func updatePullRequestInteraction() {
@@ -615,7 +636,7 @@ final class WindowChromeView: NSView {
             return .attention
         case let label as NSTextField where label === focusedLabel:
             return .focusedLabel
-        case let label as NSTextField where label === branchLabel:
+        case let label as WindowChromeBranchLabel where label === branchLabel:
             return .branch
         case let button as NSButton where button === pullRequestButton:
             return .pullRequest
@@ -807,6 +828,8 @@ final class WindowChromeView: NSView {
     var attentionArtifactText: String { attentionChipView.artifactTextForTesting }
     var focusedLabelText: String { focusedLabel.stringValue }
     var branchText: String { branchLabel.stringValue }
+    var isBranchInteractive: Bool { branchLabel.isInteractive }
+    var branchToolTip: String { branchLabel.toolTip ?? "" }
     var pullRequestText: String { pullRequestButton.title }
     var isPullRequestEnabled: Bool { pullRequestButton.isEnabled }
     var pullRequestToolTip: String { pullRequestButton.toolTip ?? "" }
@@ -1171,6 +1194,109 @@ private final class WindowChromePullRequestButton: NSButton {
 
     var borderColorForTesting: NSColor {
         layer?.borderColor.flatMap(NSColor.init(cgColor:)) ?? .clear
+    }
+}
+
+private final class WindowChromeBranchLabel: NSTextField {
+    var onHoverChanged: (() -> Void)?
+    var isInteractive = false {
+        didSet {
+            guard oldValue != isInteractive else {
+                return
+            }
+
+            if !isInteractive {
+                isHovered = false
+            }
+            updateTrackingAreas()
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    private(set) var isHovered = false
+    private var trackingAreaValue: NSTrackingArea?
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    convenience init() {
+        self.init(labelWithString: "")
+        font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+        lineBreakMode = .byTruncatingMiddle
+        usesSingleLineMode = true
+        textColor = .tertiaryLabelColor
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingAreaValue {
+            removeTrackingArea(trackingAreaValue)
+            self.trackingAreaValue = nil
+        }
+
+        guard isInteractive else {
+            return
+        }
+
+        let trackingAreaValue = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingAreaValue)
+        self.trackingAreaValue = trackingAreaValue
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard isInteractive else {
+            return
+        }
+
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        guard isInteractive else {
+            super.cursorUpdate(with: event)
+            return
+        }
+
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard isInteractive, !isHovered else {
+            return
+        }
+
+        isHovered = true
+        onHoverChanged?()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard isHovered else {
+            return
+        }
+
+        isHovered = false
+        onHoverChanged?()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isInteractive, let action = action, let target = target else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        NSApp.sendAction(action, to: target, from: self)
     }
 }
 

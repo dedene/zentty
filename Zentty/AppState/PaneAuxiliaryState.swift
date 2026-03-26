@@ -114,6 +114,7 @@ struct PanePresentationState: Equatable, Sendable {
     var branch: String?
     var branchDisplayText: String?
     var lookupBranch: String?
+    var branchURL: URL?
     var identityText: String?
     var contextText: String?
     var rememberedTitle: String?
@@ -211,6 +212,7 @@ enum PanePresentationNormalizer {
             ?? "Shell"
         let attentionArtifactLink = deriveAttentionArtifact(from: raw.agentStatus?.artifactLink)
         let updatedAt = raw.agentStatus?.updatedAt ?? .distantPast
+        let branchURL = deriveBranchURL(from: raw, repoRoot: repoRoot, lookupBranch: lookupBranch)
 
         return PanePresentationState(
             cwd: cwd,
@@ -218,6 +220,7 @@ enum PanePresentationNormalizer {
             branch: gitContext?.branchName,
             branchDisplayText: branchDisplayText,
             lookupBranch: lookupBranch,
+            branchURL: branchURL,
             identityText: identityText,
             contextText: contextText,
             rememberedTitle: rememberedTitle,
@@ -404,6 +407,17 @@ enum PanePresentationNormalizer {
         case .custom(let name):
             return normalized == name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         }
+    }
+
+    private static func deriveBranchURL(
+        from raw: PaneRawState,
+        repoRoot: String?,
+        lookupBranch: String?
+    ) -> URL? {
+        guard repoRoot != nil, lookupBranch != nil else {
+            return nil
+        }
+        return raw.reviewState?.branchURL
     }
 
     private static func derivePullRequest(

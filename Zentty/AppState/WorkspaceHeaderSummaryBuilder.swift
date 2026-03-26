@@ -9,6 +9,7 @@ enum WorkspaceHeaderSummaryBuilder {
             attention: WorkspaceAttentionSummaryBuilder.summary(for: workspace),
             focusedLabel: focusedLabel,
             branch: branch,
+            branchURL: presentation?.branchURL,
             pullRequest: presentation?.pullRequest,
             reviewChips: presentation?.reviewChips ?? []
         )

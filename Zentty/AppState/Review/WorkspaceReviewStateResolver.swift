@@ -194,6 +194,7 @@ final class WorkspaceReviewStateResolver {
     private var cache: [RepositoryKey: WorkspaceReviewResolution] = [:]
     private var repositoryStatusByPath: [String: RepositoryStatus] = [:]
     private var githubRepositoryByKey: [RepositoryKey: GitHubRepositoryResolution] = [:]
+    private var remoteHostInfoByRepoRoot: [String: GitRemoteHostInfo?] = [:]
     private var pendingRepositoryKeys: Set<RepositoryKey> = []
     private var waitingPaneIDsByRepositoryKey: [RepositoryKey: Set<PaneID>] = [:]
 
@@ -319,7 +320,7 @@ final class WorkspaceReviewStateResolver {
     ) async -> WorkspaceReviewResolution {
         switch await resolveGitHubRepository(path: path, branch: branch) {
         case .noGitHubRepository:
-            return branchOnlyResolution(branch: branch)
+            return branchOnlyResolution(branch: branch, repoRoot: path)
         case .unresolved:
             if let fallback {
                 return fallback
@@ -337,7 +338,7 @@ final class WorkspaceReviewStateResolver {
 
             if pullRequestResult.terminationStatus != 0 {
                 if isNoPullRequestResult(pullRequestResult) {
-                    return branchOnlyResolution(branch: branch)
+                    return branchOnlyResolution(branch: branch, repoRoot: path)
                 }
 
                 if let fallback {
@@ -371,9 +372,11 @@ final class WorkspaceReviewStateResolver {
                 currentDirectoryPath: path
             )
             let reviewChips = reviewChips(for: pullRequest, checksResult: checksResult)
+            let branchURL = remoteHostInfoByRepoRoot[path]??.branchURL(branch: branch)
             return WorkspaceReviewResolution(
                 reviewState: WorkspaceReviewState(
                     branch: branch,
+                    branchURL: branchURL,
                     pullRequest: pullRequest,
                     reviewChips: reviewChips
                 )
@@ -392,10 +395,11 @@ final class WorkspaceReviewStateResolver {
         )
     }
 
-    private func branchOnlyResolution(branch: String) -> WorkspaceReviewResolution {
+    private func branchOnlyResolution(branch: String, repoRoot: String) -> WorkspaceReviewResolution {
         WorkspaceReviewResolution(
             reviewState: WorkspaceReviewState(
                 branch: branch,
+                branchURL: remoteHostInfoByRepoRoot[repoRoot]??.branchURL(branch: branch),
                 pullRequest: nil,
                 reviewChips: []
             )
@@ -511,6 +515,11 @@ final class WorkspaceReviewStateResolver {
 
         guard let remoteURL = WorkspaceContextFormatter.trimmed(String(decoding: result.stdout, as: UTF8.self)) else {
             return .notGitHub
+        }
+
+        if remoteHostInfoByRepoRoot[path] == nil,
+           let hostInfo = GitRemoteHostInfo.parse(remoteURL: remoteURL) {
+            remoteHostInfoByRepoRoot[path] = hostInfo
         }
 
         if let repository = githubRepositorySpecifier(from: remoteURL) {
@@ -702,5 +711,127 @@ final class WorkspaceReviewStateResolver {
         combinedData.append(result.stderr)
         let combinedOutput = String(decoding: combinedData, as: UTF8.self).lowercased()
         return combinedOutput.contains("no pull requests found")
+    }
+}
+
+struct GitRemoteHostInfo: Equatable, Sendable {
+    enum HostKind: Equatable, Sendable {
+        case github
+        case gitlab
+        case bitbucket
+        case unknown
+    }
+
+    let scheme: String
+    let host: String
+    let owner: String
+    let repo: String
+    let kind: HostKind
+
+    func branchURL(branch: String) -> URL? {
+        let encodedBranch = branch
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .compactMap { String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) }
+            .joined(separator: "/")
+        let path: String
+        switch kind {
+        case .github, .unknown:
+            path = "/\(owner)/\(repo)/tree/\(encodedBranch)"
+        case .gitlab:
+            path = "/\(owner)/\(repo)/-/tree/\(encodedBranch)"
+        case .bitbucket:
+            path = "/\(owner)/\(repo)/src/\(encodedBranch)"
+        }
+        return URL(string: "\(scheme)://\(host)\(path)")
+    }
+
+    static func parse(remoteURL value: String) -> GitRemoteHostInfo? {
+        let remote = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !remote.isEmpty else {
+            return nil
+        }
+
+        if let info = parseSSH(remote) {
+            return info
+        }
+
+        return parseHTTPS(remote)
+    }
+
+    private static func parseSSH(_ remote: String) -> GitRemoteHostInfo? {
+        if remote.hasPrefix("git@") {
+            let remainder = String(remote.dropFirst("git@".count))
+            guard let colonIndex = remainder.firstIndex(of: ":"),
+                  colonIndex != remainder.startIndex else {
+                return nil
+            }
+            let host = String(remainder[remainder.startIndex..<colonIndex])
+            let pathPart = String(remainder[remainder.index(after: colonIndex)...])
+            return buildFromHostAndPath(host: host, path: pathPart, scheme: "https")
+        }
+
+        if remote.hasPrefix("ssh://git@") {
+            let remainder = String(remote.dropFirst("ssh://git@".count))
+            guard let slashIndex = remainder.firstIndex(of: "/"),
+                  slashIndex != remainder.startIndex else {
+                return nil
+            }
+            var host = String(remainder[remainder.startIndex..<slashIndex])
+            if let portIndex = host.firstIndex(of: ":") {
+                host = String(host[host.startIndex..<portIndex])
+            }
+            let pathPart = String(remainder[remainder.index(after: slashIndex)...])
+            return buildFromHostAndPath(host: host, path: pathPart, scheme: "https")
+        }
+
+        return nil
+    }
+
+    private static func parseHTTPS(_ remote: String) -> GitRemoteHostInfo? {
+        guard let url = URL(string: remote),
+              let host = url.host?.lowercased(),
+              let scheme = url.scheme?.lowercased(),
+              (scheme == "https" || scheme == "http") else {
+            return nil
+        }
+
+        return buildFromHostAndPath(host: host, path: url.path, scheme: scheme)
+    }
+
+    private static func buildFromHostAndPath(host: String, path: String, scheme: String) -> GitRemoteHostInfo? {
+        var normalizedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if normalizedPath.hasSuffix(".git") {
+            normalizedPath = String(normalizedPath.dropLast(4))
+        }
+
+        let components = normalizedPath.split(separator: "/").map(String.init)
+        guard components.count >= 2 else {
+            return nil
+        }
+
+        let owner = components[0]
+        let repo = components[1]
+        let kind = hostKind(for: host.lowercased())
+
+        return GitRemoteHostInfo(
+            scheme: scheme,
+            host: host,
+            owner: owner,
+            repo: repo,
+            kind: kind
+        )
+    }
+
+    private static func hostKind(for host: String) -> HostKind {
+        if host == "github.com" || host == "www.github.com" {
+            return .github
+        }
+        if host == "gitlab.com" || host == "www.gitlab.com" {
+            return .gitlab
+        }
+        if host == "bitbucket.org" || host == "www.bitbucket.org" {
+            return .bitbucket
+        }
+        return .unknown
     }
 }

@@ -4,6 +4,7 @@ struct WorkspaceChromeSummary: Equatable, Sendable {
     var attention: WorkspaceAttentionSummary?
     var focusedLabel: String?
     var branch: String?
+    var branchURL: URL?
     var pullRequest: WorkspacePullRequestSummary?
     var reviewChips: [WorkspaceReviewChip]
 }
@@ -36,6 +37,7 @@ struct WorkspaceReviewChip: Equatable, Sendable {
 
 struct WorkspaceReviewState: Equatable, Sendable {
     var branch: String?
+    var branchURL: URL?
     var pullRequest: WorkspacePullRequestSummary?
     var reviewChips: [WorkspaceReviewChip]
 }
