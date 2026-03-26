@@ -1,10 +1,10 @@
 @testable import Zentty
 
-extension WorkspaceState {
-    /// Test convenience — constructs WorkspaceState from separate per-pane dictionaries.
+extension WorklaneState {
+    /// Test convenience — constructs WorklaneState from separate per-pane dictionaries.
     /// Production code uses `auxiliaryStateByPaneID` directly.
     init(
-        id: WorkspaceID,
+        id: WorklaneID,
         title: String,
         paneStripState: PaneStripState,
         nextPaneNumber: Int = 1,
@@ -12,7 +12,7 @@ extension WorkspaceState {
         paneContextByPaneID: [PaneID: PaneShellContext] = [:],
         agentStatusByPaneID: [PaneID: PaneAgentStatus] = [:],
         terminalProgressByPaneID: [PaneID: TerminalProgressReport] = [:],
-        reviewStateByPaneID: [PaneID: WorkspaceReviewState] = [:],
+        reviewStateByPaneID: [PaneID: WorklaneReviewState] = [:],
         gitContextByPaneID: [PaneID: PaneGitContext] = [:]
     ) {
         var aux: [PaneID: PaneAuxiliaryState] = [:]
@@ -60,11 +60,11 @@ extension WorkspaceState {
         shellContext: PaneShellContext?
     ) -> PaneGitContext? {
         guard
-            let workingDirectory = WorkspaceContextFormatter.resolvedWorkingDirectory(
+            let workingDirectory = WorklaneContextFormatter.resolvedWorkingDirectory(
                 for: metadata,
                 shellContext: shellContext
             ),
-            let branch = WorkspaceContextFormatter.displayBranch(metadata?.gitBranch)
+            let branch = WorklaneContextFormatter.displayBranch(metadata?.gitBranch)
         else {
             return nil
         }

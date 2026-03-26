@@ -4,7 +4,7 @@ import Foundation
 
 struct AppNotification: Identifiable, Equatable, Sendable {
     let id: UUID
-    let workspaceID: WorkspaceID
+    let worklaneID: WorklaneID
     let paneID: PaneID
     let tool: AgentTool
     let interactionKind: PaneInteractionKind?
@@ -31,7 +31,7 @@ final class NotificationStore {
     // MARK: - Pending debounce state
 
     private struct PaneKey: Hashable {
-        let workspaceID: WorkspaceID
+        let worklaneID: WorklaneID
         let paneID: PaneID
     }
 
@@ -44,7 +44,7 @@ final class NotificationStore {
     // MARK: - Public API
 
     func add(
-        workspaceID: WorkspaceID,
+        worklaneID: WorklaneID,
         paneID: PaneID,
         tool: AgentTool,
         interactionKind: PaneInteractionKind?,
@@ -52,14 +52,14 @@ final class NotificationStore {
         statusText: String,
         primaryText: String
     ) {
-        let key = PaneKey(workspaceID: workspaceID, paneID: paneID)
+        let key = PaneKey(worklaneID: worklaneID, paneID: paneID)
 
         // Cancel any existing pending timer for this pane.
         cancelPending(for: key)
 
         let notification = AppNotification(
             id: UUID(),
-            workspaceID: workspaceID,
+            worklaneID: worklaneID,
             paneID: paneID,
             tool: tool,
             interactionKind: interactionKind,
@@ -79,8 +79,8 @@ final class NotificationStore {
         pendingTasks[key] = task
     }
 
-    func resolve(workspaceID: WorkspaceID, paneID: PaneID) {
-        let key = PaneKey(workspaceID: workspaceID, paneID: paneID)
+    func resolve(worklaneID: WorklaneID, paneID: PaneID) {
+        let key = PaneKey(worklaneID: worklaneID, paneID: paneID)
 
         // If there's a pending notification, cancel and discard it silently.
         if pendingNotifications[key] != nil {
@@ -92,7 +92,7 @@ final class NotificationStore {
         let now = Date()
         var changed = false
         for i in notifications.indices where !notifications[i].isResolved
-            && notifications[i].workspaceID == workspaceID
+            && notifications[i].worklaneID == worklaneID
             && notifications[i].paneID == paneID
         {
             notifications[i].isResolved = true

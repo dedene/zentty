@@ -1,10 +1,10 @@
 @testable import Zentty
 
-extension WorkspaceState {
-    /// Test convenience — constructs WorkspaceState from separate per-pane dictionaries.
+extension WorklaneState {
+    /// Test convenience — constructs WorklaneState from separate per-pane dictionaries.
     /// Production code uses `auxiliaryStateByPaneID` directly.
     init(
-        id: WorkspaceID,
+        id: WorklaneID,
         title: String,
         paneStripState: PaneStripState,
         nextPaneNumber: Int = 1,
@@ -12,7 +12,7 @@ extension WorkspaceState {
         paneContextByPaneID: [PaneID: PaneShellContext] = [:],
         agentStatusByPaneID: [PaneID: PaneAgentStatus] = [:],
         terminalProgressByPaneID: [PaneID: TerminalProgressReport] = [:],
-        reviewStateByPaneID: [PaneID: WorkspaceReviewState] = [:]
+        reviewStateByPaneID: [PaneID: WorklaneReviewState] = [:]
     ) {
         var aux: [PaneID: PaneAuxiliaryState] = [:]
         let allPaneIDs = Set(metadataByPaneID.keys)

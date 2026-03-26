@@ -4,13 +4,13 @@ import XCTest
 
 @MainActor
 final class RootViewControllerHeaderIntegrationTests: XCTestCase {
-    func test_root_controller_renders_workspace_header_summary_for_active_workspace() {
+    func test_root_controller_renders_worklane_header_summary_for_active_worklane() {
         let controller = makeController()
         let paneID = PaneID("pane-claude")
 
-        controller.replaceWorkspaces([
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "claude")],
@@ -35,16 +35,16 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                     ),
                 ],
                 reviewStateByPaneID: [
-                    paneID: WorkspaceReviewState(
+                    paneID: WorklaneReviewState(
                         branch: "feature/review-band",
-                        pullRequest: WorkspacePullRequestSummary(
+                        pullRequest: WorklanePullRequestSummary(
                             number: 128,
                             url: URL(string: "https://example.com/pr/128"),
                             state: .draft
                         ),
                         reviewChips: [
-                            WorkspaceReviewChip(text: "Draft", style: .info),
-                            WorkspaceReviewChip(text: "2 failing", style: .danger),
+                            WorklaneReviewChip(text: "Draft", style: .info),
+                            WorklaneReviewChip(text: "2 failing", style: .danger),
                         ]
                     ),
                 ],
@@ -71,9 +71,9 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let shellPaneID = PaneID("pane-shell")
         let claudePaneID = PaneID("pane-claude")
 
-        controller.replaceWorkspaces([
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [
@@ -105,16 +105,16 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                     ),
                 ],
                 reviewStateByPaneID: [
-                    claudePaneID: WorkspaceReviewState(
+                    claudePaneID: WorklaneReviewState(
                         branch: "feature/review-band",
-                        pullRequest: WorkspacePullRequestSummary(
+                        pullRequest: WorklanePullRequestSummary(
                             number: 128,
                             url: URL(string: "https://example.com/pr/128"),
                             state: .draft
                         ),
                         reviewChips: [
-                            WorkspaceReviewChip(text: "Draft", style: .info),
-                            WorkspaceReviewChip(text: "2 failing", style: .danger),
+                            WorklaneReviewChip(text: "Draft", style: .info),
+                            WorklaneReviewChip(text: "2 failing", style: .danger),
                         ]
                     ),
                 ],
@@ -168,14 +168,14 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             ]
         )
         let controller = makeController(
-            reviewStateResolver: WorkspaceReviewStateResolver(runner: runner),
+            reviewStateResolver: WorklaneReviewStateResolver(runner: runner),
             gitContextResolver: gitContextResolver
         )
         let paneID = PaneID("pane-claude")
 
-        controller.replaceWorkspaces([
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "claude")],
@@ -244,14 +244,14 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             ]
         )
         let controller = makeController(
-            reviewStateResolver: WorkspaceReviewStateResolver(runner: runner),
+            reviewStateResolver: WorklaneReviewStateResolver(runner: runner),
             gitContextResolver: gitContextResolver
         )
         let paneID = PaneID("pane-shell")
 
-        controller.replaceWorkspaces([
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
@@ -307,14 +307,14 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             ]
         )
         let controller = makeController(
-            reviewStateResolver: WorkspaceReviewStateResolver(runner: runner),
+            reviewStateResolver: WorklaneReviewStateResolver(runner: runner),
             gitContextResolver: gitContextResolver
         )
         let paneID = PaneID("pane-shell")
 
-        controller.replaceWorkspaces([
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
@@ -371,9 +371,9 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
 
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
-        controller.replaceWorkspaces([
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
@@ -387,9 +387,9 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                     ),
                 ],
                 reviewStateByPaneID: [
-                    paneID: WorkspaceReviewState(
+                    paneID: WorklaneReviewState(
                         branch: branch,
-                        pullRequest: WorkspacePullRequestSummary(
+                        pullRequest: WorklanePullRequestSummary(
                             number: 1413,
                             url: URL(string: "https://example.com/pr/1413"),
                             state: .open
@@ -436,9 +436,9 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let controller = makeController()
         let paneID = PaneID("pane-shell")
 
-        controller.replaceWorkspaces([
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
@@ -452,9 +452,9 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                     ),
                 ],
                 reviewStateByPaneID: [
-                    paneID: WorkspaceReviewState(
+                    paneID: WorklaneReviewState(
                         branch: "main",
-                        pullRequest: WorkspacePullRequestSummary(
+                        pullRequest: WorklanePullRequestSummary(
                             number: 1413,
                             url: URL(string: "https://example.com/pr/1413"),
                             state: .open
@@ -489,9 +489,9 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let paneID = PaneID("pane-shell")
         let homePath = NSHomeDirectory()
 
-        controller.replaceWorkspaces([
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
@@ -515,9 +515,9 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let controller = makeController()
         let paneID = PaneID("pane-shell")
 
-        controller.replaceWorkspaces([
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
@@ -532,7 +532,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                     ),
                 ],
                 reviewStateByPaneID: [
-                    paneID: WorkspaceReviewState(
+                    paneID: WorklaneReviewState(
                         branch: "main",
                         pullRequest: nil,
                         reviewChips: []
@@ -547,8 +547,8 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
     }
 
     private func makeController(
-        reviewStateResolver: WorkspaceReviewStateResolver = WorkspaceReviewStateResolver(),
-        gitContextResolver: any PaneGitContextResolving = WorkspaceGitContextResolver()
+        reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
+        gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver()
     ) -> RootViewController {
         let controller = RootViewController(
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() }),
@@ -632,7 +632,7 @@ private final class QuietTerminalAdapter: TerminalAdapter {
     }
 }
 
-private actor StubGHRunner: WorkspaceReviewCommandRunning {
+private actor StubGHRunner: WorklaneReviewCommandRunning {
     struct Invocation: Equatable {
         let arguments: [String]
         let currentDirectoryPath: String
@@ -668,7 +668,7 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
         self.prChecksResult = prChecksResult
     }
 
-    func run(arguments: [String], currentDirectoryPath: String) async -> WorkspaceReviewCommandResult {
+    func run(arguments: [String], currentDirectoryPath: String) async -> WorklaneReviewCommandResult {
         calls.append(Invocation(arguments: arguments, currentDirectoryPath: currentDirectoryPath))
 
         if arguments == ["git", "rev-parse", "--git-dir"] {
@@ -699,22 +699,22 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
         return makeCommandResult(from: prChecksResult)
     }
 
-    private func makeCommandResult(from fixture: ResultFixture) -> WorkspaceReviewCommandResult {
+    private func makeCommandResult(from fixture: ResultFixture) -> WorklaneReviewCommandResult {
         switch fixture {
         case .stdout(let value):
-            return WorkspaceReviewCommandResult(
+            return WorklaneReviewCommandResult(
                 terminationStatus: 0,
                 stdout: Data(value.utf8),
                 stderr: Data()
             )
         case .json(let value):
-            return WorkspaceReviewCommandResult(
+            return WorklaneReviewCommandResult(
                 terminationStatus: 0,
                 stdout: Data(value.utf8),
                 stderr: Data()
             )
         case .failure(let stderr):
-            return WorkspaceReviewCommandResult(
+            return WorklaneReviewCommandResult(
                 terminationStatus: 1,
                 stdout: Data(),
                 stderr: Data(stderr.utf8)

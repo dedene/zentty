@@ -444,7 +444,7 @@ final class PaneStripViewTests: XCTestCase {
             viewportWidth: 1437,
             leadingVisibleInset: sidebarInset
         )
-        let store = WorkspaceStore(layoutContext: initialContext)
+        let store = WorklaneStore(layoutContext: initialContext)
         store.send(.splitAfterFocusedPane)
 
         let paneStripView = PaneStripView(
@@ -667,7 +667,7 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
-    func test_workspace_switch_with_no_shared_panes_skips_cross_workspace_animation() {
+    func test_worklane_switch_with_no_shared_panes_skips_cross_worklane_animation() {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
         let mainState = PaneStripState(
             panes: [
@@ -675,17 +675,17 @@ final class PaneStripViewTests: XCTestCase {
             ],
             focusedPaneID: PaneID("main-shell")
         )
-        let workspace2State = PaneStripState(
+        let worklane2State = PaneStripState(
             panes: [
-                PaneState(id: PaneID("workspace-2-shell"), title: "shell"),
+                PaneState(id: PaneID("worklane-2-shell"), title: "shell"),
             ],
-            focusedPaneID: PaneID("workspace-2-shell")
+            focusedPaneID: PaneID("worklane-2-shell")
         )
 
         paneStripView.render(mainState)
         paneStripView.layoutSubtreeIfNeeded()
 
-        paneStripView.render(workspace2State)
+        paneStripView.render(worklane2State)
         paneStripView.layoutSubtreeIfNeeded()
 
         XCTAssertFalse(paneStripView.lastRenderWasAnimated)

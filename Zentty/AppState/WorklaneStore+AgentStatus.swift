@@ -1,26 +1,26 @@
 import Darwin
 import Foundation
 
-extension WorkspaceStore {
+extension WorklaneStore {
     func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
-        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
-            workspace.paneStripState.panes.contains(where: { $0.id == paneID })
+        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
         }) else {
             return
         }
 
-        var workspace = workspaces[workspaceIndex]
+        var worklane = worklanes[worklaneIndex]
         switch event {
         case .progressReport(let report):
             if report.state == .remove {
-                workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
+                worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
             } else {
-                workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].terminalProgress = report
+                worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].terminalProgress = report
                 if report.state.indicatesActivity {
                     resumeBlockedAgentStateIfWorkResumed(
                         paneID: paneID,
                         now: Date(),
-                        in: &workspace
+                        in: &worklane
                     )
                 }
             }
@@ -28,16 +28,16 @@ extension WorkspaceStore {
             resumeBlockedAgentStateIfWorkResumed(
                 paneID: paneID,
                 now: Date(),
-                in: &workspace
+                in: &worklane
             )
         case .commandFinished:
-            workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
-            let existingStatus = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus
+            worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
+            let existingStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
             if existingStatus?.state != .idle,
                existingStatus?.state != .needsInput,
                existingStatus?.state != .starting,
                existingStatus?.source == .explicit {
-                var auxiliaryState = workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
+                var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
                 auxiliaryState.agentReducerState = Self.seededReducerState(
                     auxiliaryState.agentReducerState,
                     from: existingStatus
@@ -47,7 +47,7 @@ extension WorkspaceStore {
                     now: Date()
                 )
                 auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
-                workspace.auxiliaryStateByPaneID[paneID] = auxiliaryState
+                worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
         case .desktopNotification(let notification):
             let title = AgentInteractionClassifier.trimmed(notification.title)
@@ -56,72 +56,72 @@ extension WorkspaceStore {
             let notificationText: String? = combined.isEmpty ? nil : combined
 
             if let notificationText {
-                var auxiliaryState = workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
+                var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
                 auxiliaryState.raw.lastDesktopNotificationText = notificationText
                 auxiliaryState.raw.lastDesktopNotificationDate = Date()
-                workspace.auxiliaryStateByPaneID[paneID] = auxiliaryState
+                worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
 
             if let payload = terminalDesktopNotificationPayload(
                 paneID: paneID,
                 notification: notification,
-                in: workspace
+                in: worklane
             ) {
-                var auxiliaryState = workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
+                var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
                 auxiliaryState.agentReducerState = Self.seededReducerState(
                     auxiliaryState.agentReducerState,
                     from: auxiliaryState.agentStatus
                 )
                 auxiliaryState.agentReducerState.apply(payload)
                 auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
-                workspace.auxiliaryStateByPaneID[paneID] = auxiliaryState
+                worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
         }
 
-        recomputePresentation(for: paneID, in: &workspace)
-        workspaces[workspaceIndex] = workspace
-        notify(.auxiliaryStateUpdated(workspace.id, paneID))
+        recomputePresentation(for: paneID, in: &worklane)
+        worklanes[worklaneIndex] = worklane
+        notify(.auxiliaryStateUpdated(worklane.id, paneID))
     }
 
     func applyAgentStatusPayload(_ payload: AgentStatusPayload) {
-        guard let workspaceIndex = workspaces.firstIndex(where: { workspace in
-            workspace.id == payload.workspaceID
-                && workspace.paneStripState.panes.contains(where: { $0.id == payload.paneID })
+        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
+            worklane.id == payload.worklaneID
+                && worklane.paneStripState.panes.contains(where: { $0.id == payload.paneID })
         }) else {
             return
         }
 
-        var workspace = workspaces[workspaceIndex]
+        var worklane = worklanes[worklaneIndex]
 
         if payload.clearsStatus {
-            var auxiliaryState = workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
+            var auxiliaryState = worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
             auxiliaryState.agentReducerState = Self.seededReducerState(auxiliaryState.agentReducerState, from: auxiliaryState.agentStatus)
             auxiliaryState.agentReducerState.apply(payload)
             auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
             auxiliaryState.terminalProgress = nil
-            workspace.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
-            recomputePresentation(for: payload.paneID, in: &workspace)
-            workspaces[workspaceIndex] = workspace
-            notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
+            worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
+            recomputePresentation(for: payload.paneID, in: &worklane)
+            worklanes[worklaneIndex] = worklane
+            notify(.auxiliaryStateUpdated(worklane.id, payload.paneID))
             return
         }
 
         if payload.clearsPaneContext {
-            workspace.auxiliaryStateByPaneID[payload.paneID]?.shellContext = nil
-            invalidateGitContextIfNeeded(for: payload.paneID, in: &workspace)
-            recomputePresentation(for: payload.paneID, in: &workspace)
-            workspaces[workspaceIndex] = workspace
-            refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: payload.paneID)
-            notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
-            refreshGitContextIfNeeded(for: PaneReference(workspaceID: workspace.id, paneID: payload.paneID))
+            worklane.auxiliaryStateByPaneID[payload.paneID]?.shellContext = nil
+            invalidateGitContextIfNeeded(for: payload.paneID, in: &worklane)
+            recomputePresentation(for: payload.paneID, in: &worklane)
+            worklanes[worklaneIndex] = worklane
+            refreshLastFocusedLocalWorkingDirectoryIfNeeded(worklane: worklane, paneID: payload.paneID)
+            notify(.auxiliaryStateUpdated(worklane.id, payload.paneID))
+            refreshGitContextIfNeeded(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
             return
         }
 
-        let existingStatus = workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus
+        let existingStatus = worklane.auxiliaryStateByPaneID[payload.paneID]?.agentStatus
         let tool = AgentTool.resolve(named: payload.toolName)
             ?? existingStatus?.tool
-            ?? AgentToolRecognizer.recognize(metadata: workspace.auxiliaryStateByPaneID[payload.paneID]?.metadata)
-        var auxiliaryState = workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
+            ?? AgentToolRecognizer.recognize(metadata: worklane.auxiliaryStateByPaneID[payload.paneID]?.metadata)
+        var auxiliaryState = worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
         auxiliaryState.agentReducerState = Self.seededReducerState(auxiliaryState.agentReducerState, from: existingStatus)
 
         switch payload.signalKind {
@@ -131,7 +131,7 @@ extension WorkspaceStore {
             }
             auxiliaryState.agentReducerState.apply(
                 AgentStatusPayload(
-                    workspaceID: payload.workspaceID,
+                    worklaneID: payload.worklaneID,
                     paneID: payload.paneID,
                     signalKind: payload.signalKind,
                     state: payload.state,
@@ -158,7 +158,7 @@ extension WorkspaceStore {
                 existingStatus: existingStatus,
                 payloadWorkingDirectory: payload.agentWorkingDirectory
             )
-            workspace.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
+            worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
         case .shellState:
             guard let shellActivityState = payload.shellActivityState else {
                 return
@@ -173,11 +173,11 @@ extension WorkspaceStore {
                     case .commandRunning:
                         break
                     case .promptIdle:
-                        workspace.auxiliaryStateByPaneID[payload.paneID]?.terminalProgress = nil
-                        workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
-                        recomputePresentation(for: payload.paneID, in: &workspace)
-                        workspaces[workspaceIndex] = workspace
-                        notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
+                        worklane.auxiliaryStateByPaneID[payload.paneID]?.terminalProgress = nil
+                        worklane.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
+                        recomputePresentation(for: payload.paneID, in: &worklane)
+                        worklanes[worklaneIndex] = worklane
+                        notify(.auxiliaryStateUpdated(worklane.id, payload.paneID))
                         return
                     case .unknown:
                         break
@@ -191,7 +191,7 @@ extension WorkspaceStore {
                     existingStatus: existingStatus,
                     payloadWorkingDirectory: payload.agentWorkingDirectory
                 )
-                workspace.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
+                worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             } else {
                 return
             }
@@ -207,7 +207,7 @@ extension WorkspaceStore {
                 }
                 auxiliaryState.agentReducerState.apply(
                     AgentStatusPayload(
-                        workspaceID: payload.workspaceID,
+                        worklaneID: payload.worklaneID,
                         paneID: payload.paneID,
                         signalKind: .pid,
                         state: nil,
@@ -232,14 +232,14 @@ extension WorkspaceStore {
                 )
                 if status?.workingDirectory == nil,
                    let processCwd = ProcessCWDResolver.workingDirectory(for: pid),
-                   WorkspaceContextFormatter.trimmed(processCwd) != nil {
+                   WorklaneContextFormatter.trimmed(processCwd) != nil {
                     status?.workingDirectory = processCwd
                 }
                 if existingStatus?.trackedPID != pid {
                     auxiliaryState.presentation.rememberedTitle = nil
                 }
                 auxiliaryState.agentStatus = status
-                workspace.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
+                worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             case .clear:
                 guard existingStatus != nil else {
                     return
@@ -250,39 +250,39 @@ extension WorkspaceStore {
                     existingStatus: existingStatus,
                     payloadWorkingDirectory: payload.agentWorkingDirectory
                 )
-                workspace.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
+                worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             }
         case .paneContext:
             guard let paneContext = payload.paneContext else {
                 return
             }
 
-            let previousAuxiliaryState = workspace.auxiliaryStateByPaneID[payload.paneID]
-            workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].shellContext = paneContext
+            let previousAuxiliaryState = worklane.auxiliaryStateByPaneID[payload.paneID]
+            worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].shellContext = paneContext
             if paneContextChangesBranchContext(
                 previous: previousAuxiliaryState,
                 next: paneContext,
-                metadata: workspace.auxiliaryStateByPaneID[payload.paneID]?.metadata
+                metadata: worklane.auxiliaryStateByPaneID[payload.paneID]?.metadata
             ) {
-                clearBranchDerivedState(for: payload.paneID, in: &workspace)
-                workspace.auxiliaryStateByPaneID[payload.paneID]?.gitContext = nil
+                clearBranchDerivedState(for: payload.paneID, in: &worklane)
+                worklane.auxiliaryStateByPaneID[payload.paneID]?.gitContext = nil
                 invalidateCachedGitContext(
-                    path: WorkspaceContextFormatter.resolvedWorkingDirectory(
-                        for: workspace.auxiliaryStateByPaneID[payload.paneID]?.metadata,
+                    path: WorklaneContextFormatter.resolvedWorkingDirectory(
+                        for: worklane.auxiliaryStateByPaneID[payload.paneID]?.metadata,
                         shellContext: paneContext
                     )
                 )
             } else {
-                invalidateGitContextIfNeeded(for: payload.paneID, in: &workspace)
+                invalidateGitContextIfNeeded(for: payload.paneID, in: &worklane)
             }
         }
 
-        recomputePresentation(for: payload.paneID, in: &workspace)
-        workspaces[workspaceIndex] = workspace
-        refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: payload.paneID)
-        notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
+        recomputePresentation(for: payload.paneID, in: &worklane)
+        worklanes[worklaneIndex] = worklane
+        refreshLastFocusedLocalWorkingDirectoryIfNeeded(worklane: worklane, paneID: payload.paneID)
+        notify(.auxiliaryStateUpdated(worklane.id, payload.paneID))
         if payload.signalKind == .paneContext || payload.agentWorkingDirectory != nil {
-            refreshGitContextIfNeeded(for: PaneReference(workspaceID: workspace.id, paneID: payload.paneID))
+            refreshGitContextIfNeeded(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
         }
     }
 
@@ -301,21 +301,21 @@ extension WorkspaceStore {
         }
 
         let previousWorkingDirectory = previous?.localReviewWorkingDirectory
-        let nextWorkingDirectory = WorkspaceContextFormatter.resolvedWorkingDirectory(
+        let nextWorkingDirectory = WorklaneContextFormatter.resolvedWorkingDirectory(
             for: metadata,
             shellContext: next
-        ) ?? WorkspaceContextFormatter.trimmed(next.path)
+        ) ?? WorklaneContextFormatter.trimmed(next.path)
         if previousWorkingDirectory != nextWorkingDirectory {
             return true
         }
 
-        let previousBranchDisplay = WorkspaceContextFormatter.trimmed(previous?.presentation.branchDisplayText)
-        let nextBranchDisplay = WorkspaceContextFormatter.displayBranch(next.gitBranch)
+        let previousBranchDisplay = WorklaneContextFormatter.trimmed(previous?.presentation.branchDisplayText)
+        let nextBranchDisplay = WorklaneContextFormatter.displayBranch(next.gitBranch)
         return previousBranchDisplay != nextBranchDisplay
     }
 
     private func invalidateCachedGitContext(path: String?) {
-        guard let path = WorkspaceContextFormatter.trimmed(path) else {
+        guard let path = WorklaneContextFormatter.trimmed(path) else {
             return
         }
 
@@ -326,10 +326,10 @@ extension WorkspaceStore {
     func clearStaleAgentSessions() {
         var didChange = false
 
-        for workspaceIndex in workspaces.indices {
-            var workspace = workspaces[workspaceIndex]
+        for worklaneIndex in worklanes.indices {
+            var worklane = worklanes[worklaneIndex]
 
-            for (paneID, aux) in workspace.auxiliaryStateByPaneID {
+            for (paneID, aux) in worklane.auxiliaryStateByPaneID {
                 if !aux.agentReducerState.sessionsByID.isEmpty {
                     var reducerState = aux.agentReducerState
                     reducerState.sweep(now: Date(), isProcessAlive: Self.isProcessAlive(pid:))
@@ -341,17 +341,17 @@ extension WorkspaceStore {
                        (reducedStatus?.state == .starting || reducedStatus?.state == .running),
                        reducedStatus?.workingDirectory == nil,
                        let processCwd = ProcessCWDResolver.workingDirectory(for: trackedPID),
-                       WorkspaceContextFormatter.trimmed(processCwd) != nil {
+                       WorklaneContextFormatter.trimmed(processCwd) != nil {
                         reducedStatus?.workingDirectory = processCwd
                     }
                     if reducerState != aux.agentReducerState || reducedStatus != aux.agentStatus {
                         didChange = true
-                        workspace.auxiliaryStateByPaneID[paneID]?.agentReducerState = reducerState
-                        workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = reducedStatus
+                        worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState = reducerState
+                        worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = reducedStatus
                         if reducedStatus == nil {
-                            workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
+                            worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
                         }
-                        recomputePresentation(for: paneID, in: &workspace)
+                        recomputePresentation(for: paneID, in: &worklane)
                     }
                     continue
                 }
@@ -366,21 +366,21 @@ extension WorkspaceStore {
 
                 didChange = true
                 if status.state == .starting || status.state == .running || status.requiresHumanAttention {
-                    workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
-                    workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
+                    worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
+                    worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
                 } else {
                     var nextStatus = status
                     nextStatus.trackedPID = nil
-                    workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nextStatus
+                    worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nextStatus
                 }
-                recomputePresentation(for: paneID, in: &workspace)
+                recomputePresentation(for: paneID, in: &worklane)
             }
 
-            workspaces[workspaceIndex] = workspace
+            worklanes[worklaneIndex] = worklane
         }
 
         if didChange {
-            notify(.workspaceListChanged)
+            notify(.worklaneListChanged)
         }
     }
 
@@ -429,7 +429,7 @@ extension WorkspaceStore {
             return nil
         }
 
-        status.workingDirectory = WorkspaceContextFormatter.trimmed(payloadWorkingDirectory)
+        status.workingDirectory = WorklaneContextFormatter.trimmed(payloadWorkingDirectory)
             ?? existingStatus?.workingDirectory
         return status
     }
@@ -437,7 +437,7 @@ extension WorkspaceStore {
     private func terminalDesktopNotificationPayload(
         paneID: PaneID,
         notification: TerminalDesktopNotification,
-        in workspace: WorkspaceState
+        in worklane: WorklaneState
     ) -> AgentStatusPayload? {
         let title = AgentInteractionClassifier.trimmed(notification.title)
         let body = AgentInteractionClassifier.trimmed(notification.body)
@@ -448,15 +448,15 @@ extension WorkspaceStore {
             return nil
         }
 
-        let existingStatus = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus
+        let existingStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
         let tool = existingStatus?.tool
-            ?? AgentToolRecognizer.recognize(metadata: workspace.auxiliaryStateByPaneID[paneID]?.metadata)
+            ?? AgentToolRecognizer.recognize(metadata: worklane.auxiliaryStateByPaneID[paneID]?.metadata)
         guard let tool else {
             return nil
         }
 
         return AgentStatusPayload(
-            workspaceID: workspace.id,
+            worklaneID: worklane.id,
             paneID: paneID,
             signalKind: .lifecycle,
             state: .needsInput,
@@ -476,9 +476,9 @@ extension WorkspaceStore {
     private func resumeBlockedAgentStateIfWorkResumed(
         paneID: PaneID,
         now: Date,
-        in workspace: inout WorkspaceState
+        in worklane: inout WorklaneState
     ) {
-        guard var auxiliaryState = workspace.auxiliaryStateByPaneID[paneID],
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
               auxiliaryState.agentStatus?.state == .needsInput
         else {
             return
@@ -493,7 +493,7 @@ extension WorkspaceStore {
         }
 
         auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus(now: now)
-        workspace.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
 
     private static func isProcessAlive(pid: Int32) -> Bool {

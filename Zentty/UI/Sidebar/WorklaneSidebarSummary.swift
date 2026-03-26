@@ -1,22 +1,22 @@
 import AppKit
 
-enum WorkspaceSidebarDetailEmphasis: Equatable {
+enum WorklaneSidebarDetailEmphasis: Equatable {
     case primary
     case secondary
 }
 
-struct WorkspaceSidebarDetailLine: Equatable {
+struct WorklaneSidebarDetailLine: Equatable {
     let text: String
-    let emphasis: WorkspaceSidebarDetailEmphasis
+    let emphasis: WorklaneSidebarDetailEmphasis
 }
 
-struct WorkspaceSidebarPaneRow: Equatable {
+struct WorklaneSidebarPaneRow: Equatable {
     let paneID: PaneID
     let primaryText: String
     let trailingText: String?
     let detailText: String?
     let statusText: String?
-    let attentionState: WorkspaceAttentionState?
+    let attentionState: WorklaneAttentionState?
     let interactionKind: PaneInteractionKind?
     let interactionLabel: String?
     let interactionSymbolName: String?
@@ -29,7 +29,7 @@ struct WorkspaceSidebarPaneRow: Equatable {
         trailingText: String?,
         detailText: String?,
         statusText: String?,
-        attentionState: WorkspaceAttentionState?,
+        attentionState: WorklaneAttentionState?,
         interactionKind: PaneInteractionKind? = nil,
         interactionLabel: String? = nil,
         interactionSymbolName: String? = nil,
@@ -50,17 +50,17 @@ struct WorkspaceSidebarPaneRow: Equatable {
     }
 }
 
-struct WorkspaceSidebarSummary: Equatable {
-    let workspaceID: WorkspaceID
+struct WorklaneSidebarSummary: Equatable {
+    let worklaneID: WorklaneID
     let badgeText: String
     let topLabel: String?
     let primaryText: String
     let focusedPaneLineIndex: Int
     let statusText: String?
-    let detailLines: [WorkspaceSidebarDetailLine]
-    let paneRows: [WorkspaceSidebarPaneRow]
+    let detailLines: [WorklaneSidebarDetailLine]
+    let paneRows: [WorklaneSidebarPaneRow]
     let overflowText: String?
-    let attentionState: WorkspaceAttentionState?
+    let attentionState: WorklaneAttentionState?
     let interactionKind: PaneInteractionKind?
     let interactionLabel: String?
     let interactionSymbolName: String?
@@ -71,7 +71,7 @@ struct WorkspaceSidebarSummary: Equatable {
     var contextText: String {
         if let paneRow = paneRows.first(where: \.isFocused) ?? paneRows.first {
             return [paneRow.trailingText, paneRow.detailText]
-                .compactMap(WorkspaceContextFormatter.trimmed)
+                .compactMap(WorklaneContextFormatter.trimmed)
                 .joined(separator: " · ")
         }
 
@@ -80,23 +80,23 @@ struct WorkspaceSidebarSummary: Equatable {
     var showsGeneratedTitle: Bool { topLabel != nil }
 
     init(
-        workspaceID: WorkspaceID,
+        worklaneID: WorklaneID,
         badgeText: String,
         topLabel: String? = nil,
         primaryText: String,
         focusedPaneLineIndex: Int = 0,
         statusText: String? = nil,
-        detailLines: [WorkspaceSidebarDetailLine] = [],
-        paneRows: [WorkspaceSidebarPaneRow] = [],
+        detailLines: [WorklaneSidebarDetailLine] = [],
+        paneRows: [WorklaneSidebarPaneRow] = [],
         overflowText: String? = nil,
-        attentionState: WorkspaceAttentionState? = nil,
+        attentionState: WorklaneAttentionState? = nil,
         interactionKind: PaneInteractionKind? = nil,
         interactionLabel: String? = nil,
         interactionSymbolName: String? = nil,
         isWorking: Bool = false,
         isActive: Bool
     ) {
-        self.workspaceID = workspaceID
+        self.worklaneID = worklaneID
         self.badgeText = badgeText
         self.topLabel = topLabel
         self.primaryText = primaryText

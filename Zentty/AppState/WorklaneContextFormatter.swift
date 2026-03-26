@@ -1,6 +1,6 @@
 import Foundation
 
-enum WorkspaceContextFormatter {
+enum WorklaneContextFormatter {
     static func contextText(for metadata: TerminalMetadata?) -> String {
         let branch = displayBranch(metadata?.gitBranch)
         let formattedDirectory = formattedWorkingDirectory(

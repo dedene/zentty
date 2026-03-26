@@ -1,6 +1,6 @@
 import AppKit
 
-struct WorkspaceAttentionChipPresentation: Equatable {
+struct WorklaneAttentionChipPresentation: Equatable {
     var statusText: String?
     var toolText: String
     var artifactLabel: String?
@@ -29,7 +29,7 @@ struct WorkspaceAttentionChipPresentation: Equatable {
 }
 
 @MainActor
-final class WorkspaceAttentionChipView: NSView {
+final class WorklaneAttentionChipView: NSView {
     private static let horizontalPadding: CGFloat = 10
     private static let symbolPointSize: CGFloat = 11
 
@@ -102,7 +102,7 @@ final class WorkspaceAttentionChipView: NSView {
         render(presentation: nil)
     }
 
-    func render(attention: WorkspaceAttentionSummary?) {
+    func render(attention: WorklaneAttentionSummary?) {
         guard let attention else {
             render(presentation: nil)
             return
@@ -114,7 +114,7 @@ final class WorkspaceAttentionChipView: NSView {
         }
 
         render(
-            presentation: WorkspaceAttentionChipPresentation(
+            presentation: WorklaneAttentionChipPresentation(
                 statusText: attention.statusText,
                 toolText: attention.primaryText,
                 artifactLabel: attention.artifactLink?.label,
@@ -126,7 +126,7 @@ final class WorkspaceAttentionChipView: NSView {
         )
     }
 
-    func render(presentation: WorkspaceAttentionChipPresentation?) {
+    func render(presentation: WorklaneAttentionChipPresentation?) {
         guard let presentation else {
             isHidden = true
             artifactURL = nil
@@ -142,7 +142,7 @@ final class WorkspaceAttentionChipView: NSView {
         }
 
         isHidden = false
-        stateLabel.stringValue = WorkspaceContextFormatter.trimmed(presentation.statusText)
+        stateLabel.stringValue = WorklaneContextFormatter.trimmed(presentation.statusText)
             ?? presentation.interactionLabel
             ?? presentation.interactionKind?.defaultLabel
             ?? ""

@@ -13,7 +13,7 @@ final class RootViewController: NSViewController {
         static let minimumRows: CGFloat = 8
     }
 
-    private let workspaceStore: WorkspaceStore
+    private let worklaneStore: WorklaneStore
     private let configStore: AppConfigStore
     private let openWithService: OpenWithServing
     private let sidebarView = SidebarView()
@@ -24,7 +24,7 @@ final class RootViewController: NSViewController {
     private let sidebarMotionCoordinator: SidebarMotionCoordinator
     private let themeCoordinator: ThemeCoordinator
     private let notificationStore = NotificationStore()
-    private let renderCoordinator: WorkspaceRenderCoordinator
+    private let renderCoordinator: WorklaneRenderCoordinator
     private var staleAgentSweepTimer: Timer?
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
     private let paneBorderContextOverlayView = PaneBorderContextOverlayView()
@@ -51,8 +51,8 @@ final class RootViewController: NSViewController {
         configStore: AppConfigStore,
         openWithService: OpenWithServing = OpenWithService(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
-        reviewStateResolver: WorkspaceReviewStateResolver = WorkspaceReviewStateResolver(),
-        gitContextResolver: any PaneGitContextResolving = WorkspaceGitContextResolver(),
+        reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
+        gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         initialLayoutContext: PaneLayoutContext = .fallback
     ) {
         self.runtimeRegistry = runtimeRegistry
@@ -64,12 +64,12 @@ final class RootViewController: NSViewController {
             configStore: configStore
         )
         self.themeCoordinator = ThemeCoordinator()
-        self.workspaceStore = WorkspaceStore(
+        self.worklaneStore = WorklaneStore(
             layoutContext: initialLayoutContext,
             gitContextResolver: gitContextResolver
         )
-        self.renderCoordinator = WorkspaceRenderCoordinator(
-            workspaceStore: workspaceStore,
+        self.renderCoordinator = WorklaneRenderCoordinator(
+            worklaneStore: worklaneStore,
             runtimeRegistry: runtimeRegistry,
             notificationStore: notificationStore,
             reviewStateResolver: reviewStateResolver
@@ -86,8 +86,8 @@ final class RootViewController: NSViewController {
         configStore: AppConfigStore? = nil,
         openWithService: OpenWithServing = OpenWithService(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
-        reviewStateResolver: WorkspaceReviewStateResolver = WorkspaceReviewStateResolver(),
-        gitContextResolver: any PaneGitContextResolving = WorkspaceGitContextResolver(),
+        reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
+        gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
@@ -213,7 +213,7 @@ final class RootViewController: NSViewController {
             notificationBellButton.heightAnchor.constraint(equalToConstant: NotificationBellButton.buttonSize),
         ])
 
-        renderCoordinator.bind(to: WorkspaceRenderCoordinator.ViewBindings(
+        renderCoordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
             sidebarView: sidebarView,
             windowChromeView: windowChromeView,
             appCanvasView: appCanvasView,
@@ -241,7 +241,7 @@ final class RootViewController: NSViewController {
             self?.syncSidebarVisibilityControls(animated: false)
         }
         renderCoordinator.startObserving()
-        _ = workspaceStore.subscribe { [weak self] _ in
+        _ = worklaneStore.subscribe { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.updateOpenWithChromeState()
             }
@@ -265,22 +265,22 @@ final class RootViewController: NSViewController {
         }
 
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
-            self?.workspaceStore.focusPane(id: paneID)
+            self?.worklaneStore.focusPane(id: paneID)
         }
         appCanvasView.paneStripView.onPaneSelected = { [weak self] paneID in
-            self?.workspaceStore.focusPane(id: paneID)
+            self?.worklaneStore.focusPane(id: paneID)
         }
         appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
-            self?.workspaceStore.closePane(id: paneID)
+            self?.worklaneStore.closePane(id: paneID)
         }
         appCanvasView.paneStripView.onDividerInteraction = { [weak self] divider in
-            self?.workspaceStore.markDividerInteraction(divider)
+            self?.worklaneStore.markDividerInteraction(divider)
         }
         appCanvasView.paneStripView.onDividerResizeRequested = { [weak self] target, delta in
             guard let self else {
                 return
             }
-            self.workspaceStore.resize(
+            self.worklaneStore.resize(
                 target,
                 delta: delta,
                 availableSize: self.appCanvasView.bounds.size,
@@ -291,38 +291,38 @@ final class RootViewController: NSViewController {
             guard let self else {
                 return
             }
-            self.workspaceStore.equalizeDivider(divider, availableSize: self.appCanvasView.bounds.size)
+            self.worklaneStore.equalizeDivider(divider, availableSize: self.appCanvasView.bounds.size)
         }
         appCanvasView.paneStripView.onPaneStripStateRestoreRequested = { [weak self] state in
-            self?.workspaceStore.restorePaneLayout(state)
+            self?.worklaneStore.restorePaneLayout(state)
         }
-        sidebarView.onWorkspaceSelected = { [weak self] id in
-            self?.workspaceStore.selectWorkspace(id: id)
+        sidebarView.onWorklaneSelected = { [weak self] id in
+            self?.worklaneStore.selectWorklane(id: id)
         }
-        sidebarView.onPaneSelected = { [weak self] workspaceID, paneID in
-            self?.workspaceStore.selectWorkspaceAndFocusPane(
-                workspaceID: workspaceID,
+        sidebarView.onPaneSelected = { [weak self] worklaneID, paneID in
+            self?.worklaneStore.selectWorklaneAndFocusPane(
+                worklaneID: worklaneID,
                 paneID: paneID
             )
         }
-        sidebarView.onCloseWorkspaceRequested = { [weak self] workspaceID, paneID in
-            self?.workspaceStore.selectWorkspaceAndFocusPane(workspaceID: workspaceID, paneID: paneID)
-            self?.workspaceStore.closeActiveWorkspace()
+        sidebarView.onCloseWorklaneRequested = { [weak self] worklaneID, paneID in
+            self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+            self?.worklaneStore.closeActiveWorklane()
         }
-        sidebarView.onClosePaneRequested = { [weak self] workspaceID, paneID in
-            self?.workspaceStore.selectWorkspaceAndFocusPane(workspaceID: workspaceID, paneID: paneID)
-            self?.workspaceStore.closePane(id: paneID)
+        sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
+            self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+            self?.worklaneStore.closePane(id: paneID)
         }
-        sidebarView.onSplitHorizontalRequested = { [weak self] workspaceID, paneID in
-            self?.workspaceStore.selectWorkspaceAndFocusPane(workspaceID: workspaceID, paneID: paneID)
-            self?.workspaceStore.send(.splitHorizontally)
+        sidebarView.onSplitHorizontalRequested = { [weak self] worklaneID, paneID in
+            self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+            self?.worklaneStore.send(.splitHorizontally)
         }
-        sidebarView.onSplitVerticalRequested = { [weak self] workspaceID, paneID in
-            self?.workspaceStore.selectWorkspaceAndFocusPane(workspaceID: workspaceID, paneID: paneID)
-            self?.workspaceStore.send(.splitVertically)
+        sidebarView.onSplitVerticalRequested = { [weak self] worklaneID, paneID in
+            self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+            self?.worklaneStore.send(.splitVertically)
         }
-        sidebarView.onNewWorkspaceRequested = { [weak self] in
-            self?.handle(.newWorkspace)
+        sidebarView.onNewWorklaneRequested = { [weak self] in
+            self?.handle(.newWorklane)
         }
         sidebarView.onResized = { [weak self] width in
             self?.handleSidebarWidthChange(width)
@@ -360,13 +360,13 @@ final class RootViewController: NSViewController {
                 return
             }
 
-            self.workspaceStore.updateMetadata(id: paneID, metadata: metadata)
+            self.worklaneStore.updateMetadata(id: paneID, metadata: metadata)
         }
         runtimeRegistry.onEventDidOccur = { [weak self] paneID, event in
-            self?.workspaceStore.handleTerminalEvent(paneID: paneID, event: event)
+            self?.worklaneStore.handleTerminalEvent(paneID: paneID, event: event)
         }
         agentStatusCenter.onPayload = { [weak self] payload in
-            self?.workspaceStore.applyAgentStatusPayload(payload)
+            self?.worklaneStore.applyAgentStatusPayload(payload)
         }
         agentStatusCenter.start()
         updateToggleButtonConstraints()
@@ -458,8 +458,12 @@ final class RootViewController: NSViewController {
         syncFocusedPaneWithResponderIfNeeded(responder)
 
         switch action {
-        case .newWorkspace:
-            workspaceStore.createWorkspace()
+        case .newWorklane:
+            worklaneStore.createWorklane()
+        case .nextWorklane:
+            worklaneStore.selectNextWorklane()
+        case .previousWorklane:
+            worklaneStore.selectPreviousWorklane()
         case .copyFocusedPanePath:
             copyFocusedPanePath()
         case .jumpToLatestNotification:
@@ -472,44 +476,44 @@ final class RootViewController: NSViewController {
     private func handlePaneCommand(_ command: PaneCommand) {
         switch command {
         case .resizeLeft:
-            workspaceStore.resizeFocusedPane(
+            worklaneStore.resizeFocusedPane(
                 in: .horizontal,
                 delta: -keyboardResizeStep(for: .horizontal),
                 availableSize: appCanvasView.bounds.size,
                 minimumSizeByPaneID: paneMinimumSizesByPaneID()
             )
         case .resizeRight:
-            workspaceStore.resizeFocusedPane(
+            worklaneStore.resizeFocusedPane(
                 in: .horizontal,
                 delta: keyboardResizeStep(for: .horizontal),
                 availableSize: appCanvasView.bounds.size,
                 minimumSizeByPaneID: paneMinimumSizesByPaneID()
             )
         case .resizeUp:
-            workspaceStore.resizeFocusedPane(
+            worklaneStore.resizeFocusedPane(
                 in: .vertical,
                 delta: keyboardResizeStep(for: .vertical),
                 availableSize: appCanvasView.bounds.size,
                 minimumSizeByPaneID: paneMinimumSizesByPaneID()
             )
         case .resizeDown:
-            workspaceStore.resizeFocusedPane(
+            worklaneStore.resizeFocusedPane(
                 in: .vertical,
                 delta: -keyboardResizeStep(for: .vertical),
                 availableSize: appCanvasView.bounds.size,
                 minimumSizeByPaneID: paneMinimumSizesByPaneID()
             )
         case .resetLayout:
-            workspaceStore.resetActiveWorkspaceLayout()
+            worklaneStore.resetActiveWorklaneLayout()
         default:
-            workspaceStore.send(command)
+            worklaneStore.send(command)
         }
     }
 
     private func jumpToLatestNotification() {
         guard let notification = notificationStore.mostUrgentUnresolved() else { return }
         closeNotificationPanel()
-        navigateToPane(workspaceID: notification.workspaceID, paneID: notification.paneID)
+        navigateToPane(worklaneID: notification.worklaneID, paneID: notification.paneID)
     }
 
     private func toggleNotificationPanel() {
@@ -534,7 +538,7 @@ final class RootViewController: NSViewController {
         }
         panel.onJumpToNotification = { [weak self] notification in
             self?.closeNotificationPanel()
-            self?.navigateToPane(workspaceID: notification.workspaceID, paneID: notification.paneID)
+            self?.navigateToPane(worklaneID: notification.worklaneID, paneID: notification.paneID)
         }
         panel.onClosePanel = { [weak self] in
             self?.closeNotificationPanel()
@@ -549,14 +553,14 @@ final class RootViewController: NSViewController {
         notificationPanelView = nil
     }
 
-    func navigateToPane(workspaceID: WorkspaceID, paneID: PaneID) {
-        workspaceStore.selectWorkspaceAndFocusPane(workspaceID: workspaceID, paneID: paneID)
-        notificationStore.resolve(workspaceID: workspaceID, paneID: paneID)
+    func navigateToPane(worklaneID: WorklaneID, paneID: PaneID) {
+        worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+        notificationStore.resolve(worklaneID: worklaneID, paneID: paneID)
     }
 
     private func copyFocusedPanePath() {
         guard
-            let focusedPaneID = workspaceStore.activeWorkspace?.paneStripState.focusedPaneID
+            let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
         else {
             return
         }
@@ -565,7 +569,7 @@ final class RootViewController: NSViewController {
 
     private func copyPath(forPaneID paneID: PaneID) {
         guard
-            let path = workspaceStore.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.shellContext?.path,
+            let path = worklaneStore.activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path,
             !path.isEmpty
         else {
             return
@@ -585,7 +589,7 @@ final class RootViewController: NSViewController {
 
     private func keyboardResizeStep(for axis: PaneResizeAxis) -> CGFloat {
         let minimumSizesByPaneID = paneMinimumSizesByPaneID()
-        guard let focusedPaneID = workspaceStore.activeWorkspace?.paneStripState.focusedPaneID,
+        guard let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
               let minimumSize = minimumSizesByPaneID[focusedPaneID]
         else {
             switch axis {
@@ -605,11 +609,11 @@ final class RootViewController: NSViewController {
     }
 
     private func paneMinimumSizesByPaneID() -> [PaneID: PaneMinimumSize] {
-        guard let workspace = workspaceStore.activeWorkspace else {
+        guard let worklane = worklaneStore.activeWorklane else {
             return [:]
         }
 
-        return Dictionary(uniqueKeysWithValues: workspace.paneStripState.panes.map { pane in
+        return Dictionary(uniqueKeysWithValues: worklane.paneStripState.panes.map { pane in
             let runtime = runtimeRegistry.runtime(for: pane)
             let minimumWidth = runtime.cellWidth > 0
                 ? max(PaneMinimumSize.fallback.width, runtime.cellWidth * PaneResize.minimumColumns)
@@ -623,11 +627,11 @@ final class RootViewController: NSViewController {
 
     private func syncFocusedPaneWithResponderIfNeeded(_ responder: NSResponder?) {
         guard let paneID = paneID(containing: responder),
-              workspaceStore.activeWorkspace?.paneStripState.focusedPaneID != paneID else {
+              worklaneStore.activeWorklane?.paneStripState.focusedPaneID != paneID else {
             return
         }
 
-        workspaceStore.focusPane(id: paneID)
+        worklaneStore.focusPane(id: paneID)
     }
 
     private func paneID(containing responder: NSResponder?) -> PaneID? {
@@ -680,7 +684,7 @@ final class RootViewController: NSViewController {
         staleAgentSweepTimer?.invalidate()
         staleAgentSweepTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.workspaceStore.clearStaleAgentSessions()
+                self?.worklaneStore.clearStaleAgentSessions()
             }
         }
     }
@@ -741,13 +745,13 @@ final class RootViewController: NSViewController {
         let timingFunction = SidebarTransitionProfile.resolvedTimingFunction(reducedMotion: reducedMotion)
 
         let previousLeadingInset = appCanvasView.leadingVisibleInset
-        let previousWorkspaceState = workspaceStore.state
+        let previousWorklaneState = worklaneStore.state
         let previousLayoutContext = currentPaneLayoutContext
-        workspaceStore.batchUpdate { [self] in
+        worklaneStore.batchUpdate { [self] in
             updatePaneLayoutContextIfNeeded(force: true, leadingVisibleInsetOverride: reservedInset)
         }
         let needsCanvasTransition = abs(previousLeadingInset - reservedInset) > 0.001
-            || previousWorkspaceState != workspaceStore.state
+            || previousWorklaneState != worklaneStore.state
             || previousLayoutContext != currentPaneLayoutContext
         windowChromeView.leadingVisibleInset = reservedInset
         if needsCanvasTransition {
@@ -831,28 +835,28 @@ final class RootViewController: NSViewController {
         currentTheme
     }
 
-    var workspaceTitles: [String] {
-        workspaceStore.workspaces.map(\.title)
+    var worklaneTitles: [String] {
+        worklaneStore.worklanes.map(\.title)
     }
 
-    var activeWorkspaceTitle: String? {
-        workspaceStore.activeWorkspace?.title
+    var activeWorklaneTitle: String? {
+        worklaneStore.activeWorklane?.title
     }
 
     var activePaneTitles: [String] {
-        workspaceStore.activeWorkspace?.paneStripState.panes.map(\.title) ?? []
+        worklaneStore.activeWorklane?.paneStripState.panes.map(\.title) ?? []
     }
 
     var focusedPaneTitle: String? {
-        workspaceStore.activeWorkspace?.paneStripState.focusedPane?.title
+        worklaneStore.activeWorklane?.paneStripState.focusedPane?.title
     }
 
-    var focusedOpenWithContext: WorkspaceOpenWithContext? {
-        workspaceStore.focusedOpenWithContext
+    var focusedOpenWithContext: WorklaneOpenWithContext? {
+        worklaneStore.focusedOpenWithContext
     }
 
     var focusedPaneIDForTesting: PaneID? {
-        workspaceStore.activeWorkspace?.paneStripState.focusedPaneID
+        worklaneStore.activeWorklane?.paneStripState.focusedPaneID
     }
 
     var availableOpenWithTargets: [OpenWithResolvedTarget] {
@@ -864,7 +868,7 @@ final class RootViewController: NSViewController {
     }
 
     private func updatePaneViewportHeight() {
-        workspaceStore.updatePaneViewportHeight(appCanvasView.bounds.height)
+        worklaneStore.updatePaneViewportHeight(appCanvasView.bounds.height)
     }
 
     var chromeView: WindowChromeView {
@@ -877,18 +881,18 @@ final class RootViewController: NSViewController {
         syncSidebarVisibilityControls(animated: false)
     }
 
-    func replaceWorkspaces(_ workspaces: [WorkspaceState], activeWorkspaceID: WorkspaceID? = nil) {
-        workspaceStore.replaceWorkspaces(workspaces, activeWorkspaceID: activeWorkspaceID)
+    func replaceWorklanes(_ worklanes: [WorklaneState], activeWorklaneID: WorklaneID? = nil) {
+        worklaneStore.replaceWorklanes(worklanes, activeWorklaneID: activeWorklaneID)
         renderCoordinator.render()
     }
 
     func focusPaneDirectly(_ paneID: PaneID) {
-        workspaceStore.focusPane(id: paneID)
+        worklaneStore.focusPane(id: paneID)
         renderCoordinator.render()
     }
 
     func applyAgentStatusPayloadForTesting(_ payload: AgentStatusPayload) {
-        workspaceStore.applyAgentStatusPayload(payload)
+        worklaneStore.applyAgentStatusPayload(payload)
         renderCoordinator.render()
     }
 
@@ -971,7 +975,7 @@ final class RootViewController: NSViewController {
         }
 
         currentPaneLayoutContext = resolvedContext
-        workspaceStore.updateLayoutContext(resolvedContext)
+        worklaneStore.updateLayoutContext(resolvedContext)
     }
 
     private func resolveCurrentPaneLayoutContext(

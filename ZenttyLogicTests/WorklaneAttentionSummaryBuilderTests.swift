@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import Zentty
 
-final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
+final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
     func test_summary_ignores_idle_phase() {
         let paneID = PaneID("pane-shell")
         var auxiliaryState = PaneAuxiliaryState()
@@ -25,8 +25,8 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
             isWorking: false
         )
 
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -35,12 +35,12 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
             auxiliaryStateByPaneID: [paneID: auxiliaryState]
         )
 
-        XCTAssertNil(WorkspaceAttentionSummaryBuilder.summary(for: workspace))
+        XCTAssertNil(WorklaneAttentionSummaryBuilder.summary(for: worklane))
     }
 
     func test_summary_uses_canonical_presentation_state_instead_of_raw_agent_fallbacks() {
         let paneID = PaneID("pane-shell")
-        let expectedArtifact = WorkspaceArtifactLink(
+        let expectedArtifact = WorklaneArtifactLink(
             kind: .share,
             label: "Share transcript",
             url: URL(string: "https://example.com/share")!,
@@ -52,7 +52,7 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
             tool: .claudeCode,
             state: .idle,
             text: "Idle",
-            artifactLink: WorkspaceArtifactLink(
+            artifactLink: WorklaneArtifactLink(
                 kind: .session,
                 label: "Old session",
                 url: URL(string: "https://example.com/session")!,
@@ -83,8 +83,8 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
             interactionSymbolName: "questionmark.circle"
         )
 
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -93,7 +93,7 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
             auxiliaryStateByPaneID: [paneID: auxiliaryState]
         )
 
-        let summary = WorkspaceAttentionSummaryBuilder.summary(for: workspace)
+        let summary = WorklaneAttentionSummaryBuilder.summary(for: worklane)
 
         XCTAssertEqual(summary?.paneID, paneID)
         XCTAssertEqual(summary?.tool, .codex)
@@ -125,7 +125,7 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
             statusText: nil,
             pullRequest: nil,
             reviewChips: [],
-            attentionArtifactLink: WorkspaceArtifactLink(
+            attentionArtifactLink: WorklaneArtifactLink(
                 kind: .share,
                 label: "Share transcript",
                 url: URL(string: "https://example.com/share")!,
@@ -135,8 +135,8 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
             isWorking: false
         )
 
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -145,7 +145,7 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
             auxiliaryStateByPaneID: [paneID: auxiliaryState]
         )
 
-        XCTAssertNil(WorkspaceAttentionSummaryBuilder.summary(for: workspace))
+        XCTAssertNil(WorklaneAttentionSummaryBuilder.summary(for: worklane))
     }
 
     func test_summary_returns_nil_for_idle_phase() {
@@ -170,8 +170,8 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
             isWorking: false
         )
 
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -180,6 +180,6 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
             auxiliaryStateByPaneID: [paneID: auxiliaryState]
         )
 
-        XCTAssertNil(WorkspaceAttentionSummaryBuilder.summary(for: workspace))
+        XCTAssertNil(WorklaneAttentionSummaryBuilder.summary(for: worklane))
     }
 }

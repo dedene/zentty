@@ -2,13 +2,13 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class WorkspaceGitContextResolverTests: XCTestCase {
+final class WorklaneGitContextResolverTests: XCTestCase {
     func test_resolve_reports_repo_root_and_branch_for_nested_repository_path() async throws {
         let repositoryURL = try makeRepository()
         let nestedURL = repositoryURL.appendingPathComponent("Sources/App", isDirectory: true)
         try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
 
-        let resolver = WorkspaceGitContextResolver()
+        let resolver = WorklaneGitContextResolver()
         let resolvedContext = await resolver.resolve(path: nestedURL.path)
         let context = try XCTUnwrap(resolvedContext)
         let canonicalRepositoryRoot = repositoryURL.resolvingSymlinksInPath().standardizedFileURL.path
@@ -23,7 +23,7 @@ final class WorkspaceGitContextResolverTests: XCTestCase {
         let repositoryURL = try makeRepository()
         try runGit(["checkout", "--detach"], in: repositoryURL)
 
-        let resolver = WorkspaceGitContextResolver()
+        let resolver = WorklaneGitContextResolver()
         let resolvedContext = await resolver.resolve(path: repositoryURL.path)
         let context = try XCTUnwrap(resolvedContext)
 

@@ -4,24 +4,24 @@ import XCTest
 
 @MainActor
 final class PaneRuntimeRegistryTests: XCTestCase {
-    func test_registry_creates_runtime_once_and_reuses_existing_session_across_workspace_switches() throws {
+    func test_registry_creates_runtime_once_and_reuses_existing_session_across_worklane_switches() throws {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
             adapterFactory.makeAdapter(for: paneID)
         })
-        let mainShell = PaneState(id: PaneID("workspace-main-shell"), title: "shell")
-        let webShell = PaneState(id: PaneID("workspace-2-shell"), title: "shell")
-        let workspaces = [
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        let mainShell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let webShell = PaneState(id: PaneID("worklane-2-shell"), title: "shell")
+        let worklanes = [
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [mainShell],
                     focusedPaneID: mainShell.id
                 )
             ),
-            WorkspaceState(
-                id: WorkspaceID("workspace-2"),
+            WorklaneState(
+                id: WorklaneID("worklane-2"),
                 title: "WS 2",
                 paneStripState: PaneStripState(
                     panes: [webShell],
@@ -30,30 +30,30 @@ final class PaneRuntimeRegistryTests: XCTestCase {
             ),
         ]
 
-        registry.synchronize(with: workspaces)
+        registry.synchronize(with: worklanes)
         let initialMainRuntime = try XCTUnwrap(registry.runtime(for: mainShell.id))
         let initialWebRuntime = try XCTUnwrap(registry.runtime(for: webShell.id))
         XCTAssertEqual(adapterFactory.adapters.map(\.startSessionCallCount), [0, 0])
 
         registry.updateSurfaceActivities(
-            workspaces: workspaces,
-            activeWorkspaceID: WorkspaceID("workspace-main"),
+            worklanes: worklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
             windowIsVisible: true,
             windowIsKey: true
         )
         registry.updateSurfaceActivities(
-            workspaces: workspaces,
-            activeWorkspaceID: WorkspaceID("workspace-2"),
+            worklanes: worklanes,
+            activeWorklaneID: WorklaneID("worklane-2"),
             windowIsVisible: true,
             windowIsKey: true
         )
         registry.updateSurfaceActivities(
-            workspaces: workspaces,
-            activeWorkspaceID: WorkspaceID("workspace-main"),
+            worklanes: worklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
             windowIsVisible: true,
             windowIsKey: true
         )
-        registry.synchronize(with: workspaces)
+        registry.synchronize(with: worklanes)
 
         let finalMainRuntime = try XCTUnwrap(registry.runtime(for: mainShell.id))
         let finalWebRuntime = try XCTUnwrap(registry.runtime(for: webShell.id))
@@ -63,25 +63,25 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         XCTAssertEqual(adapterFactory.adapters.map(\.startSessionCallCount), [1, 1])
     }
 
-    func test_registry_keeps_inactive_workspace_panes_live_while_only_active_workspace_is_visible() {
+    func test_registry_keeps_inactive_worklane_panes_live_while_only_active_worklane_is_visible() {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
             adapterFactory.makeAdapter(for: paneID)
         })
-        let mainShell = PaneState(id: PaneID("workspace-main-shell"), title: "shell")
-        let mainEditor = PaneState(id: PaneID("workspace-main-editor"), title: "editor")
-        let hiddenShell = PaneState(id: PaneID("workspace-2-shell"), title: "shell")
-        let workspaces = [
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        let mainShell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let mainEditor = PaneState(id: PaneID("worklane-main-editor"), title: "editor")
+        let hiddenShell = PaneState(id: PaneID("worklane-2-shell"), title: "shell")
+        let worklanes = [
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [mainShell, mainEditor],
                     focusedPaneID: mainEditor.id
                 )
             ),
-            WorkspaceState(
-                id: WorkspaceID("workspace-2"),
+            WorklaneState(
+                id: WorklaneID("worklane-2"),
                 title: "WS 2",
                 paneStripState: PaneStripState(
                     panes: [hiddenShell],
@@ -90,10 +90,10 @@ final class PaneRuntimeRegistryTests: XCTestCase {
             ),
         ]
 
-        registry.synchronize(with: workspaces)
+        registry.synchronize(with: worklanes)
         registry.updateSurfaceActivities(
-            workspaces: workspaces,
-            activeWorkspaceID: WorkspaceID("workspace-main"),
+            worklanes: worklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
             windowIsVisible: true,
             windowIsKey: true
         )
@@ -122,19 +122,19 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
             adapterFactory.makeAdapter(for: paneID)
         })
-        let mainShell = PaneState(id: PaneID("workspace-main-shell"), title: "shell")
-        let backgroundShell = PaneState(id: PaneID("workspace-2-shell"), title: "shell")
-        let workspaces = [
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        let mainShell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let backgroundShell = PaneState(id: PaneID("worklane-2-shell"), title: "shell")
+        let worklanes = [
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [mainShell],
                     focusedPaneID: mainShell.id
                 )
             ),
-            WorkspaceState(
-                id: WorkspaceID("workspace-2"),
+            WorklaneState(
+                id: WorklaneID("worklane-2"),
                 title: "WS 2",
                 paneStripState: PaneStripState(
                     panes: [backgroundShell],
@@ -143,10 +143,10 @@ final class PaneRuntimeRegistryTests: XCTestCase {
             ),
         ]
 
-        registry.synchronize(with: workspaces)
+        registry.synchronize(with: worklanes)
         registry.updateSurfaceActivities(
-            workspaces: workspaces,
-            activeWorkspaceID: WorkspaceID("workspace-main"),
+            worklanes: worklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
             windowIsVisible: false,
             windowIsKey: false
         )
@@ -176,12 +176,12 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
             adapterFactory.makeAdapter(for: paneID)
         })
-        let shell = PaneState(id: PaneID("workspace-main-shell"), title: "shell")
-        let editor = PaneState(id: PaneID("workspace-main-editor"), title: "editor")
+        let shell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let editor = PaneState(id: PaneID("worklane-main-editor"), title: "editor")
 
         registry.synchronize(with: [
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [shell, editor],
@@ -192,8 +192,8 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         XCTAssertNotNil(registry.runtime(for: editor.id))
 
         registry.synchronize(with: [
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [shell],
@@ -211,9 +211,9 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
             adapterFactory.makeAdapter(for: paneID)
         })
-        let shell = PaneState(id: PaneID("workspace-main-shell"), title: "shell")
+        let shell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
         let split = PaneState(
-            id: PaneID("workspace-main-pane-1"),
+            id: PaneID("worklane-main-pane-1"),
             title: "pane 1",
             sessionRequest: TerminalSessionRequest(
                 workingDirectory: "/tmp/project",
@@ -222,8 +222,8 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         )
 
         registry.synchronize(with: [
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [shell, split],
@@ -233,9 +233,9 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         ])
 
         registry.updateSurfaceActivities(
-            workspaces: [
-                WorkspaceState(
-                    id: WorkspaceID("workspace-main"),
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("worklane-main"),
                     title: "MAIN",
                     paneStripState: PaneStripState(
                         panes: [shell, split],
@@ -243,7 +243,7 @@ final class PaneRuntimeRegistryTests: XCTestCase {
                     )
                 )
             ],
-            activeWorkspaceID: WorkspaceID("workspace-main"),
+            activeWorklaneID: WorklaneID("worklane-main"),
             windowIsVisible: true,
             windowIsKey: true
         )
@@ -256,14 +256,14 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         XCTAssertEqual(splitAdapter.preparedContexts, [.split])
     }
 
-    func test_registry_prepares_new_workspace_pane_from_local_config_inheritance_source_using_tab_context() throws {
+    func test_registry_prepares_new_worklane_pane_from_local_config_inheritance_source_using_tab_context() throws {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
             adapterFactory.makeAdapter(for: paneID)
         })
-        let shell = PaneState(id: PaneID("workspace-main-shell"), title: "shell")
-        let newWorkspaceShell = PaneState(
-            id: PaneID("workspace-2-shell"),
+        let shell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let newWorklaneShell = PaneState(
+            id: PaneID("worklane-2-shell"),
             title: "shell",
             sessionRequest: TerminalSessionRequest(
                 workingDirectory: "/tmp/project",
@@ -272,39 +272,39 @@ final class PaneRuntimeRegistryTests: XCTestCase {
             )
         )
 
-        let workspaces = [
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        let worklanes = [
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [shell],
                     focusedPaneID: shell.id
                 )
             ),
-            WorkspaceState(
-                id: WorkspaceID("workspace-2"),
+            WorklaneState(
+                id: WorklaneID("worklane-2"),
                 title: "WS 2",
                 paneStripState: PaneStripState(
-                    panes: [newWorkspaceShell],
-                    focusedPaneID: newWorkspaceShell.id
+                    panes: [newWorklaneShell],
+                    focusedPaneID: newWorklaneShell.id
                 )
             ),
         ]
 
-        registry.synchronize(with: workspaces)
+        registry.synchronize(with: worklanes)
         registry.updateSurfaceActivities(
-            workspaces: workspaces,
-            activeWorkspaceID: WorkspaceID("workspace-2"),
+            worklanes: worklanes,
+            activeWorklaneID: WorklaneID("worklane-2"),
             windowIsVisible: true,
             windowIsKey: true
         )
 
         let shellAdapter = try XCTUnwrap(adapterFactory.adaptersByPaneID[shell.id])
-        let workspaceAdapter = try XCTUnwrap(adapterFactory.adaptersByPaneID[newWorkspaceShell.id])
+        let worklaneAdapter = try XCTUnwrap(adapterFactory.adaptersByPaneID[newWorklaneShell.id])
 
-        XCTAssertTrue(workspaceAdapter.prepareSourceAdapter === shellAdapter)
-        XCTAssertEqual(workspaceAdapter.eventLog, ["prepare", "start"])
-        XCTAssertEqual(workspaceAdapter.preparedContexts, [.tab])
+        XCTAssertTrue(worklaneAdapter.prepareSourceAdapter === shellAdapter)
+        XCTAssertEqual(worklaneAdapter.eventLog, ["prepare", "start"])
+        XCTAssertEqual(worklaneAdapter.preparedContexts, [.tab])
     }
 
     func test_registry_starts_local_session_with_working_directory_without_inheritance() throws {
@@ -313,13 +313,13 @@ final class PaneRuntimeRegistryTests: XCTestCase {
             adapterFactory.makeAdapter(for: paneID)
         })
         let shell = PaneState(
-            id: PaneID("workspace-main-shell"),
+            id: PaneID("worklane-main-shell"),
             title: "shell",
             sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project space")
         )
 
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [shell],
@@ -327,10 +327,10 @@ final class PaneRuntimeRegistryTests: XCTestCase {
             )
         )
 
-        registry.synchronize(with: [workspace])
+        registry.synchronize(with: [worklane])
         registry.updateSurfaceActivities(
-            workspaces: [workspace],
-            activeWorkspaceID: workspace.id,
+            worklanes: [worklane],
+            activeWorklaneID: worklane.id,
             windowIsVisible: true,
             windowIsKey: true
         )

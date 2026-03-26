@@ -3,13 +3,13 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class WorkspaceAttentionChipViewTests: XCTestCase {
+final class WorklaneAttentionChipViewTests: XCTestCase {
     func test_attention_chip_keeps_broad_status_text_while_using_split_interaction_symbol() {
-        let chip = WorkspaceAttentionChipView(frame: .zero)
+        let chip = WorklaneAttentionChipView(frame: .zero)
         chip.apply(theme: ZenttyTheme.fallback(for: nil), animated: false)
 
         chip.render(
-            presentation: WorkspaceAttentionChipPresentation(
+            presentation: WorklaneAttentionChipPresentation(
                 statusText: "Needs input",
                 toolText: "Claude Code",
                 artifactLabel: nil,
@@ -24,11 +24,11 @@ final class WorkspaceAttentionChipViewTests: XCTestCase {
     }
 
     func test_attention_chip_keeps_text_only_fallback_when_interaction_metadata_is_missing() {
-        let chip = WorkspaceAttentionChipView(frame: .zero)
+        let chip = WorklaneAttentionChipView(frame: .zero)
         chip.apply(theme: ZenttyTheme.fallback(for: nil), animated: false)
 
         chip.render(
-            presentation: WorkspaceAttentionChipPresentation(
+            presentation: WorklaneAttentionChipPresentation(
                 statusText: "Running",
                 toolText: "Claude Code",
                 artifactLabel: nil,

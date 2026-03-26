@@ -2,7 +2,7 @@ import AppKit
 import QuartzCore
 
 @MainActor
-final class WorkspaceRenderCoordinator {
+final class WorklaneRenderCoordinator {
     private enum ReviewPolling {
         static let interval: TimeInterval = 30
     }
@@ -14,16 +14,16 @@ final class WorkspaceRenderCoordinator {
         let paneBorderContextOverlayView: PaneBorderContextOverlayView
     }
 
-    let workspaceStore: WorkspaceStore
+    let worklaneStore: WorklaneStore
     let runtimeRegistry: PaneRuntimeRegistry
-    let reviewStateResolver: WorkspaceReviewStateResolver
+    let reviewStateResolver: WorklaneReviewStateResolver
 
-    private let attentionNotificationCoordinator: WorkspaceAttentionNotificationCoordinator
+    private let attentionNotificationCoordinator: WorklaneAttentionNotificationCoordinator
 
     private var views: ViewBindings?
     private var currentPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] = []
     private var reviewPollingTimer: Timer?
-    private var reviewPollingTarget: (workspaceID: WorkspaceID, paneID: PaneID, repoRoot: String, branch: String)?
+    private var reviewPollingTarget: (worklaneID: WorklaneID, paneID: PaneID, repoRoot: String, branch: String)?
 
     var onNeedsSidebarSync: (() -> Void)?
     var themeProvider: (() -> ZenttyTheme)?
@@ -32,15 +32,15 @@ final class WorkspaceRenderCoordinator {
     var windowStateProvider: (() -> (isVisible: Bool, isKeyWindow: Bool))?
 
     init(
-        workspaceStore: WorkspaceStore,
+        worklaneStore: WorklaneStore,
         runtimeRegistry: PaneRuntimeRegistry,
         notificationStore: NotificationStore,
-        reviewStateResolver: WorkspaceReviewStateResolver = WorkspaceReviewStateResolver()
+        reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver()
     ) {
-        self.workspaceStore = workspaceStore
+        self.worklaneStore = worklaneStore
         self.runtimeRegistry = runtimeRegistry
         self.reviewStateResolver = reviewStateResolver
-        self.attentionNotificationCoordinator = WorkspaceAttentionNotificationCoordinator(
+        self.attentionNotificationCoordinator = WorklaneAttentionNotificationCoordinator(
             notificationStore: notificationStore
         )
     }
@@ -54,15 +54,15 @@ final class WorkspaceRenderCoordinator {
     }
 
     func startObserving() {
-        workspaceStore.subscribe { [weak self] change in
-            self?.handleWorkspaceChange(change)
+        worklaneStore.subscribe { [weak self] change in
+            self?.handleWorklaneChange(change)
         }
     }
 
     // MARK: - Public render API
 
     func render(animated: Bool = false) {
-        renderCurrentWorkspace(animated: animated)
+        renderCurrentWorklane(animated: animated)
     }
 
     func renderCanvas(
@@ -71,7 +71,7 @@ final class WorkspaceRenderCoordinator {
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
-        renderCanvasForCurrentWorkspace(
+        renderCanvasForCurrentWorklane(
             leadingVisibleInsetOverride: leadingVisibleInsetOverride,
             animated: animated,
             duration: duration,
@@ -94,36 +94,36 @@ final class WorkspaceRenderCoordinator {
         themeProvider?() ?? ZenttyTheme.fallback(for: nil)
     }
 
-    private func handleWorkspaceChange(_ change: WorkspaceChange) {
+    private func handleWorklaneChange(_ change: WorklaneChange) {
         switch change {
         case .paneStructure, .focusChanged:
-            renderCurrentWorkspace(animated: true)
-        case .layoutResized, .auxiliaryStateUpdated, .workspaceListChanged, .activeWorkspaceChanged:
-            renderCurrentWorkspace(animated: false)
+            renderCurrentWorklane(animated: true)
+        case .layoutResized, .auxiliaryStateUpdated, .worklaneListChanged, .activeWorklaneChanged:
+            renderCurrentWorklane(animated: false)
         }
     }
 
-    private func renderCurrentWorkspace(animated: Bool = false) {
+    private func renderCurrentWorklane(animated: Bool = false) {
         guard let views else {
             return
         }
 
-        workspaceStore.batchUpdate { [self] in
-            runtimeRegistry.synchronize(with: workspaceStore.workspaces)
-            reviewStateResolver.refresh(for: workspaceStore.workspaces) { [weak self] paneID, resolution in
-                self?.workspaceStore.updateReviewResolution(paneID: paneID, resolution: resolution)
+        worklaneStore.batchUpdate { [self] in
+            runtimeRegistry.synchronize(with: worklaneStore.worklanes)
+            reviewStateResolver.refresh(for: worklaneStore.worklanes) { [weak self] paneID, resolution in
+                self?.worklaneStore.updateReviewResolution(paneID: paneID, resolution: resolution)
             }
             views.sidebarView.render(
-                summaries: WorkspaceSidebarSummaryBuilder.summaries(
-                    for: workspaceStore.workspaces,
-                    activeWorkspaceID: workspaceStore.activeWorkspaceID
+                summaries: WorklaneSidebarSummaryBuilder.summaries(
+                    for: worklaneStore.worklanes,
+                    activeWorklaneID: worklaneStore.activeWorklaneID
                 ),
                 theme: currentTheme
             )
             onNeedsSidebarSync?()
 
-            guard let workspace = workspaceStore.activeWorkspace else {
-                views.windowChromeView.render(summary: WorkspaceChromeSummary(
+            guard let worklane = worklaneStore.activeWorklane else {
+                views.windowChromeView.render(summary: WorklaneChromeSummary(
                     attention: nil,
                     focusedLabel: nil,
                     branch: nil,
@@ -133,13 +133,13 @@ final class WorkspaceRenderCoordinator {
                 return
             }
 
-            let headerSummary = WorkspaceHeaderSummaryBuilder.summary(for: workspace)
+            let headerSummary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
             views.windowChromeView.render(summary: headerSummary)
-            renderCanvasForCurrentWorkspace(animated: animated)
+            renderCanvasForCurrentWorklane(animated: animated)
             let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
             attentionNotificationCoordinator.update(
-                workspaces: workspaceStore.workspaces,
-                activeWorkspaceID: workspaceStore.activeWorkspaceID,
+                worklanes: worklaneStore.worklanes,
+                activeWorklaneID: worklaneStore.activeWorklaneID,
                 windowIsKey: windowState.isKeyWindow
             )
             updateReviewPolling()
@@ -147,13 +147,13 @@ final class WorkspaceRenderCoordinator {
         }
     }
 
-    private func renderCanvasForCurrentWorkspace(
+    private func renderCanvasForCurrentWorklane(
         leadingVisibleInsetOverride: CGFloat? = nil,
         animated: Bool = false,
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
-        guard let views, let workspace = workspaceStore.activeWorkspace else {
+        guard let views, let worklane = worklaneStore.activeWorklane else {
             return
         }
 
@@ -163,10 +163,10 @@ final class WorkspaceRenderCoordinator {
             ?? 0
 
         views.appCanvasView.render(
-            workspaceName: workspace.title,
-            state: workspace.paneStripState,
-            metadataByPaneID: workspace.auxiliaryStateByPaneID.compactMapValues(\.metadata),
-            paneBorderContextByPaneID: workspace.paneBorderContextDisplayByPaneID,
+            worklaneName: worklane.title,
+            state: worklane.paneStripState,
+            metadataByPaneID: worklane.auxiliaryStateByPaneID.compactMapValues(\.metadata),
+            paneBorderContextByPaneID: worklane.paneBorderContextDisplayByPaneID,
             theme: currentTheme,
             leadingVisibleInset: effectiveInset,
             animated: animated,
@@ -176,14 +176,14 @@ final class WorkspaceRenderCoordinator {
     }
 
     private func updateRuntimeSurfaceActivities() {
-        guard !workspaceStore.workspaces.isEmpty else {
+        guard !worklaneStore.worklanes.isEmpty else {
             return
         }
 
         let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
         runtimeRegistry.updateSurfaceActivities(
-            workspaces: workspaceStore.workspaces,
-            activeWorkspaceID: workspaceStore.activeWorkspaceID,
+            worklanes: worklaneStore.worklanes,
+            activeWorklaneID: worklaneStore.activeWorklaneID,
             windowIsVisible: windowState.isVisible,
             windowIsKey: windowState.isKeyWindow
         )
@@ -223,7 +223,7 @@ final class WorkspaceRenderCoordinator {
             return
         }
 
-        let targetChanged = reviewPollingTarget?.workspaceID != target.workspaceID
+        let targetChanged = reviewPollingTarget?.worklaneID != target.worklaneID
             || reviewPollingTarget?.paneID != target.paneID
             || reviewPollingTarget?.repoRoot != target.repoRoot
             || reviewPollingTarget?.branch != target.branch
@@ -242,12 +242,12 @@ final class WorkspaceRenderCoordinator {
         }
     }
 
-    private func makeReviewPollingTarget() -> (workspaceID: WorkspaceID, paneID: PaneID, repoRoot: String, branch: String)? {
+    private func makeReviewPollingTarget() -> (worklaneID: WorklaneID, paneID: PaneID, repoRoot: String, branch: String)? {
         let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
         guard windowState.isVisible, windowState.isKeyWindow,
-              let workspace = workspaceStore.activeWorkspace,
-              let paneID = workspace.paneStripState.focusedPaneID,
-              let auxiliaryState = workspace.auxiliaryStateByPaneID[paneID],
+              let worklane = worklaneStore.activeWorklane,
+              let paneID = worklane.paneStripState.focusedPaneID,
+              let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
               let repoRoot = auxiliaryState.presentation.repoRoot,
               let branch = auxiliaryState.presentation.lookupBranch
         else {
@@ -255,7 +255,7 @@ final class WorkspaceRenderCoordinator {
         }
 
         return (
-            workspaceID: workspace.id,
+            worklaneID: worklane.id,
             paneID: paneID,
             repoRoot: repoRoot,
             branch: branch
@@ -273,7 +273,7 @@ final class WorkspaceRenderCoordinator {
             paneID: target.paneID,
             forceReload: forceReload
         ) { [weak self] paneID, resolution in
-            self?.workspaceStore.updateReviewResolution(paneID: paneID, resolution: resolution)
+            self?.worklaneStore.updateReviewResolution(paneID: paneID, resolution: resolution)
         }
     }
 }

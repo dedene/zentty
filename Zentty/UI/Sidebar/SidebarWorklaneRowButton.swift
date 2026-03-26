@@ -3,13 +3,13 @@ import CoreText
 import QuartzCore
 
 @MainActor
-final class SidebarWorkspaceRowButton: NSButton {
+final class SidebarWorklaneRowButton: NSButton {
     private enum Layout {
         static let contentInset = ShellMetrics.sidebarRowHorizontalInset
         static let primaryTextLeadingInset: CGFloat = 0
     }
 
-    let workspaceID: WorkspaceID?
+    let worklaneID: WorklaneID?
 
     private let topLabel = SidebarStaticLabel()
     private let primaryTextContainer = SidebarPrimaryTextContainerView()
@@ -28,7 +28,7 @@ final class SidebarWorkspaceRowButton: NSButton {
     private var paneDetailLabels: [SidebarStaticLabel] = []
     private var paneStatusRows: [SidebarPaneTextRowView] = []
     private var paneRowButtons: [SidebarPaneRowButton] = []
-    private var currentSummary: WorkspaceSidebarSummary?
+    private var currentSummary: WorklaneSidebarSummary?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var currentStatusSymbolName = ""
     private var isHovered = false
@@ -39,18 +39,18 @@ final class SidebarWorkspaceRowButton: NSButton {
     private let reducedMotionProvider: () -> Bool
 
     var onPaneSelected: ((PaneID) -> Void)?
-    var onCloseWorkspaceRequested: ((PaneID) -> Void)?
+    var onCloseWorklaneRequested: ((PaneID) -> Void)?
     var onClosePaneRequested: ((PaneID) -> Void)?
     var onSplitHorizontalRequested: ((PaneID) -> Void)?
     var onSplitVerticalRequested: ((PaneID) -> Void)?
 
     init(
-        workspaceID: WorkspaceID?,
+        worklaneID: WorklaneID?,
         reducedMotionProvider: @escaping () -> Bool = {
             NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         }
     ) {
-        self.workspaceID = workspaceID
+        self.worklaneID = worklaneID
         self.reducedMotionProvider = reducedMotionProvider
         super.init(frame: .zero)
         setup()
@@ -230,14 +230,14 @@ final class SidebarWorkspaceRowButton: NSButton {
     }
 
     func configure(
-        with summary: WorkspaceSidebarSummary,
+        with summary: WorklaneSidebarSummary,
         theme: ZenttyTheme,
         animated: Bool
     ) {
         currentSummary = summary
         currentTheme = theme
         isWorking = summary.isWorking
-        let layout = SidebarWorkspaceRowLayout(summary: summary)
+        let layout = SidebarWorklaneRowLayout(summary: summary)
 
         topLabel.stringValue = summary.topLabel ?? ""
         overflowLabel.stringValue = summary.overflowText ?? ""
@@ -285,7 +285,7 @@ final class SidebarWorkspaceRowButton: NSButton {
         applyCurrentAppearance(animated: animated)
     }
 
-    private func configureDetailLabels(for detailLines: [WorkspaceSidebarDetailLine]) {
+    private func configureDetailLabels(for detailLines: [WorklaneSidebarDetailLine]) {
         while detailLabels.count < detailLines.count {
             let label = SidebarStaticLabel()
             configureLabel(
@@ -301,7 +301,7 @@ final class SidebarWorkspaceRowButton: NSButton {
         }
     }
 
-    private func configurePaneRows(for paneRows: [WorkspaceSidebarPaneRow]) {
+    private func configurePaneRows(for paneRows: [WorklaneSidebarPaneRow]) {
         while panePrimaryRows.count < paneRows.count {
             panePrimaryRows.append(SidebarPanePrimaryRowView())
         }
@@ -347,13 +347,13 @@ final class SidebarWorkspaceRowButton: NSButton {
 
             let button = paneRowButtons[index]
             button.paneID = paneRow.paneID
-            button.isLastPaneInWorkspace = paneRows.count == 1
+            button.isLastPaneInWorklane = paneRows.count == 1
             button.setAccessibilityLabel(paneRow.primaryText)
             button.onPaneClicked = { [weak self] paneID in
                 self?.onPaneSelected?(paneID)
             }
-            button.onCloseWorkspace = { [weak self] paneID in
-                self?.onCloseWorkspaceRequested?(paneID)
+            button.onCloseWorklane = { [weak self] paneID in
+                self?.onCloseWorklaneRequested?(paneID)
             }
             button.onClosePane = { [weak self] paneID in
                 self?.onClosePaneRequested?(paneID)
@@ -512,7 +512,7 @@ final class SidebarWorkspaceRowButton: NSButton {
     }
 
     private func primaryTextColor(
-        for summary: WorkspaceSidebarSummary,
+        for summary: WorklaneSidebarSummary,
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
@@ -535,7 +535,7 @@ final class SidebarWorkspaceRowButton: NSButton {
     }
 
     private func applyPaneRowColors(
-        paneRows: [WorkspaceSidebarPaneRow],
+        paneRows: [WorklaneSidebarPaneRow],
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) {
@@ -595,7 +595,7 @@ final class SidebarWorkspaceRowButton: NSButton {
     }
 
     private func panePrimaryTextColor(
-        for paneRow: WorkspaceSidebarPaneRow,
+        for paneRow: WorklaneSidebarPaneRow,
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
@@ -617,7 +617,7 @@ final class SidebarWorkspaceRowButton: NSButton {
     }
 
     private func paneTrailingTextColor(
-        for paneRow: WorkspaceSidebarPaneRow,
+        for paneRow: WorklaneSidebarPaneRow,
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
@@ -640,7 +640,7 @@ final class SidebarWorkspaceRowButton: NSButton {
     }
 
     private func paneDetailTextColor(
-        for paneRow: WorkspaceSidebarPaneRow,
+        for paneRow: WorklaneSidebarPaneRow,
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
@@ -663,7 +663,7 @@ final class SidebarWorkspaceRowButton: NSButton {
     }
 
     private func topLabelTextColor(
-        for summary: WorkspaceSidebarSummary,
+        for summary: WorklaneSidebarSummary,
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
@@ -704,7 +704,7 @@ final class SidebarWorkspaceRowButton: NSButton {
         return isActive ? 1.0 : 0.72
     }
 
-    private func statusTextColor(for summary: WorkspaceSidebarSummary) -> NSColor {
+    private func statusTextColor(for summary: WorklaneSidebarSummary) -> NSColor {
         switch summary.attentionState {
         case .needsInput:
             return NSColor.systemBlue
@@ -722,7 +722,7 @@ final class SidebarWorkspaceRowButton: NSButton {
     }
 
     private func paneStatusTextColor(
-        for paneRow: WorkspaceSidebarPaneRow,
+        for paneRow: WorklaneSidebarPaneRow,
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
@@ -743,8 +743,8 @@ final class SidebarWorkspaceRowButton: NSButton {
     }
 
     private func detailTextColor(
-        for emphasis: WorkspaceSidebarDetailEmphasis,
-        summary: WorkspaceSidebarSummary
+        for emphasis: WorklaneSidebarDetailEmphasis,
+        summary: WorklaneSidebarSummary
     ) -> NSColor {
         switch emphasis {
         case .primary:
@@ -758,7 +758,7 @@ final class SidebarWorkspaceRowButton: NSButton {
         }
     }
 
-    private func groupedViews(for layout: SidebarWorkspaceRowLayout) -> [NSView] {
+    private func groupedViews(for layout: SidebarWorklaneRowLayout) -> [NSView] {
         var views: [NSView] = []
         var currentPaneIndex: Int?
 
@@ -792,7 +792,7 @@ final class SidebarWorkspaceRowButton: NSButton {
         return views
     }
 
-    private func label(for row: WorkspaceRowTextRow) -> NSView {
+    private func label(for row: WorklaneRowTextRow) -> NSView {
         switch row {
         case .topLabel:
             topLabel
@@ -1522,10 +1522,10 @@ private final class SidebarPaneTextRowView: NSView {
 @MainActor
 private final class SidebarPaneRowButton: NSButton {
     var paneID = PaneID("")
-    var isLastPaneInWorkspace = false
+    var isLastPaneInWorklane = false
     var onPaneClicked: ((PaneID) -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
-    var onCloseWorkspace: ((PaneID) -> Void)?
+    var onCloseWorklane: ((PaneID) -> Void)?
     var onClosePane: ((PaneID) -> Void)?
     var onSplitHorizontal: ((PaneID) -> Void)?
     var onSplitVertical: ((PaneID) -> Void)?
@@ -1654,15 +1654,15 @@ private final class SidebarPaneRowButton: NSButton {
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
 
-        let closeWorkspaceItem = NSMenuItem(
-            title: "Close Workspace",
-            action: #selector(handleCloseWorkspace),
+        let closeWorklaneItem = NSMenuItem(
+            title: "Close Worklane",
+            action: #selector(handleCloseWorklane),
             keyEquivalent: ""
         )
-        closeWorkspaceItem.target = self
-        menu.addItem(closeWorkspaceItem)
+        closeWorklaneItem.target = self
+        menu.addItem(closeWorklaneItem)
 
-        if !isLastPaneInWorkspace {
+        if !isLastPaneInWorklane {
             let closePaneItem = NSMenuItem(
                 title: "Close Pane",
                 action: #selector(handleClosePane),
@@ -1693,8 +1693,8 @@ private final class SidebarPaneRowButton: NSButton {
         return menu
     }
 
-    @objc private func handleCloseWorkspace() {
-        onCloseWorkspace?(paneID)
+    @objc private func handleCloseWorklane() {
+        onCloseWorklane?(paneID)
     }
 
     @objc private func handleClosePane() {

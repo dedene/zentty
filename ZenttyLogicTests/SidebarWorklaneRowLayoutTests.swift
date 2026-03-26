@@ -2,9 +2,9 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class SidebarWorkspaceRowLayoutTests: XCTestCase {
+final class SidebarWorklaneRowLayoutTests: XCTestCase {
     func test_layout_uses_compact_mode_for_primary_only_rows() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary())
+        let layout = SidebarWorklaneRowLayout(summary: makeSummary())
 
         XCTAssertEqual(layout.mode, .compact)
         XCTAssertEqual(layout.visibleTextRows, [.primary])
@@ -12,11 +12,11 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
     }
 
     func test_layout_expands_when_top_label_status_and_detail_line_are_visible() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+        let layout = SidebarWorklaneRowLayout(summary: makeSummary(
             topLabel: "Docs",
             statusText: "Needs input",
             detailLines: [
-                WorkspaceSidebarDetailLine(
+                WorklaneSidebarDetailLine(
                     text: "feature/sidebar • zentty",
                     emphasis: .primary
                 )
@@ -38,10 +38,10 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
     }
 
     func test_layout_does_not_include_state_badge_as_separate_line() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+        let layout = SidebarWorklaneRowLayout(summary: makeSummary(
             statusText: "Needs input",
             detailLines: [
-                WorkspaceSidebarDetailLine(text: "feature/sidebar • zentty", emphasis: .primary),
+                WorklaneSidebarDetailLine(text: "feature/sidebar • zentty", emphasis: .primary),
             ]
         ))
 
@@ -60,10 +60,10 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
     }
 
     func test_layout_flattens_pane_rows_in_order_with_local_status_lines() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+        let layout = SidebarWorklaneRowLayout(summary: makeSummary(
             paneRows: [
-                WorkspaceSidebarPaneRow(
-                    paneID: PaneID("workspace-main-agent"),
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-agent"),
                     primaryText: "General coding assistance session",
                     trailingText: "main",
                     detailText: "…/nimbu",
@@ -72,8 +72,8 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
                     isFocused: true,
                     isWorking: false
                 ),
-                WorkspaceSidebarPaneRow(
-                    paneID: PaneID("workspace-main-build"),
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-build"),
                     primaryText: "npm test",
                     trailingText: nil,
                     detailText: "/tmp/project",
@@ -94,10 +94,10 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
     }
 
     func test_layout_expands_for_multiple_pane_primary_rows_even_without_detail_or_status() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+        let layout = SidebarWorklaneRowLayout(summary: makeSummary(
             paneRows: [
-                WorkspaceSidebarPaneRow(
-                    paneID: PaneID("workspace-main-1"),
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-1"),
                     primaryText: "main · …/nimbu",
                     trailingText: nil,
                     detailText: nil,
@@ -106,8 +106,8 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
                     isFocused: true,
                     isWorking: false
                 ),
-                WorkspaceSidebarPaneRow(
-                    paneID: PaneID("workspace-main-2"),
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-2"),
                     primaryText: "build",
                     trailingText: nil,
                     detailText: nil,
@@ -125,12 +125,12 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
     }
 
     func test_layout_places_primary_row_at_focused_pane_line_index() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+        let layout = SidebarWorklaneRowLayout(summary: makeSummary(
             primaryText: "k8s-zenjoy",
             focusedPaneLineIndex: 1,
             detailLines: [
-                WorkspaceSidebarDetailLine(text: "feature/scaleway-transactional-mails", emphasis: .secondary),
-                WorkspaceSidebarDetailLine(text: "Personal", emphasis: .secondary),
+                WorklaneSidebarDetailLine(text: "feature/scaleway-transactional-mails", emphasis: .secondary),
+                WorklaneSidebarDetailLine(text: "Personal", emphasis: .secondary),
             ]
         ))
 
@@ -142,11 +142,11 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
     }
 
     func test_layout_height_grows_with_detail_line_count() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+        let layout = SidebarWorklaneRowLayout(summary: makeSummary(
             detailLines: [
-                WorkspaceSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
-                WorkspaceSidebarDetailLine(text: "main • git", emphasis: .secondary),
-                WorkspaceSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
+                WorklaneSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
+                WorklaneSidebarDetailLine(text: "main • git", emphasis: .secondary),
+                WorklaneSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
             ]
         ))
 
@@ -177,12 +177,12 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
     }
 
     func test_layout_supports_more_than_three_detail_lines_without_overflow_row() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+        let layout = SidebarWorklaneRowLayout(summary: makeSummary(
             detailLines: [
-                WorkspaceSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
-                WorkspaceSidebarDetailLine(text: "main • git", emphasis: .secondary),
-                WorkspaceSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
-                WorkspaceSidebarDetailLine(text: "tests • specs", emphasis: .secondary),
+                WorklaneSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
+                WorklaneSidebarDetailLine(text: "main • git", emphasis: .secondary),
+                WorklaneSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
+                WorklaneSidebarDetailLine(text: "tests • specs", emphasis: .secondary),
             ]
         ))
 
@@ -204,11 +204,11 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
     }
 
     func test_layout_includes_overflow_line_in_visible_rows_and_height() {
-        let layout = SidebarWorkspaceRowLayout(summary: makeSummary(
+        let layout = SidebarWorklaneRowLayout(summary: makeSummary(
             detailLines: [
-                WorkspaceSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
-                WorkspaceSidebarDetailLine(text: "main • git", emphasis: .secondary),
-                WorkspaceSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
+                WorklaneSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
+                WorklaneSidebarDetailLine(text: "main • git", emphasis: .secondary),
+                WorklaneSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
             ],
             overflowText: "+1 more pane"
         ))
@@ -231,7 +231,7 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
     }
 
     func test_shell_metrics_preserve_current_fixed_row_heights_from_layout_budgets() {
-        let metrics = WorkspaceRowLayoutMetrics.sidebar
+        let metrics = WorklaneRowLayoutMetrics.sidebar
 
         XCTAssertEqual(
             ShellMetrics.sidebarCompactRowHeight,
@@ -295,15 +295,15 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
         sidebarView.render(
             summaries: [
                 makeSummary(
-                    topLabel: "Claude Code Session Workspace",
+                    topLabel: "Claude Code Session Worklane",
                     primaryText: "Claude Code working on a very long branch name for layout checks",
                     statusText: "Needs input from the operator immediately",
                     detailLines: [
-                        WorkspaceSidebarDetailLine(
+                        WorklaneSidebarDetailLine(
                             text: "~/Development/Personal/zentty/a/really/long/path/that/should/truncate",
                             emphasis: .primary
                         ),
-                        WorkspaceSidebarDetailLine(
+                        WorklaneSidebarDetailLine(
                             text: "refresh-homepage-copy • marketing-site",
                             emphasis: .secondary
                         ),
@@ -315,11 +315,11 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
         )
 
         sidebarView.layoutSubtreeIfNeeded()
-        let initialHeight = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.first?.frame.height)
+        let initialHeight = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first?.frame.height)
 
         sidebarView.frame.size.width = 220
         sidebarView.layoutSubtreeIfNeeded()
-        let resizedHeight = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.first?.frame.height)
+        let resizedHeight = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first?.frame.height)
 
         let expectedHeight = ShellMetrics.sidebarRowHeight(
             includesTopLabel: true,
@@ -338,12 +338,12 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
         primaryText: String = "shell",
         focusedPaneLineIndex: Int = 0,
         statusText: String? = nil,
-        detailLines: [WorkspaceSidebarDetailLine] = [],
-        paneRows: [WorkspaceSidebarPaneRow] = [],
+        detailLines: [WorklaneSidebarDetailLine] = [],
+        paneRows: [WorklaneSidebarPaneRow] = [],
         overflowText: String? = nil
-    ) -> WorkspaceSidebarSummary {
-        WorkspaceSidebarSummary(
-            workspaceID: WorkspaceID("workspace-main"),
+    ) -> WorklaneSidebarSummary {
+        WorklaneSidebarSummary(
+            worklaneID: WorklaneID("worklane-main"),
             badgeText: "M",
             topLabel: topLabel,
             primaryText: primaryText,

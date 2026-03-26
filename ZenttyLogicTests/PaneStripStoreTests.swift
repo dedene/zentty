@@ -3,103 +3,103 @@ import XCTest
 
 @MainActor
 final class PaneStripStoreTests: XCTestCase {
-    func test_store_starts_with_single_main_workspace_and_first_active() {
-        let store = WorkspaceStore()
+    func test_store_starts_with_single_main_worklane_and_first_active() {
+        let store = WorklaneStore()
 
-        XCTAssertEqual(store.workspaces.map(\.title), ["MAIN"])
-        XCTAssertEqual(store.activeWorkspace?.title, "MAIN")
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.map(\.title), ["shell"])
+        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN"])
+        XCTAssertEqual(store.activeWorklane?.title, "MAIN")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.panes.first?.sessionRequest.workingDirectory,
+            store.activeWorklane?.paneStripState.panes.first?.sessionRequest.workingDirectory,
             NSHomeDirectory()
         )
     }
 
-    func test_select_workspace_switches_active_workspace_without_resetting_other_workspace_state() throws {
-        let store = WorkspaceStore()
-        store.createWorkspace()
+    func test_select_worklane_switches_active_worklane_without_resetting_other_worklane_state() throws {
+        let store = WorklaneStore()
+        store.createWorklane()
 
-        let workspace2ID = try XCTUnwrap(store.workspaces.first(where: { $0.title == "WS 2" })?.id)
-        let mainID = try XCTUnwrap(store.workspaces.first(where: { $0.title == "MAIN" })?.id)
-        store.selectWorkspace(id: workspace2ID)
+        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 2" })?.id)
+        let mainID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "MAIN" })?.id)
+        store.selectWorklane(id: worklane2ID)
         store.send(.splitAfterFocusedPane)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.map(\.title), ["shell", "pane 1"])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell", "pane 1"])
 
-        store.selectWorkspace(id: mainID)
-        XCTAssertEqual(store.activeWorkspace?.title, "MAIN")
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.map(\.title), ["shell"])
+        store.selectWorklane(id: mainID)
+        XCTAssertEqual(store.activeWorklane?.title, "MAIN")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
 
-        store.selectWorkspace(id: workspace2ID)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.map(\.title), ["shell", "pane 1"])
+        store.selectWorklane(id: worklane2ID)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell", "pane 1"])
     }
 
-    func test_create_workspace_adds_new_workspace_with_single_shell_pane_and_focuses_it() {
-        let store = WorkspaceStore()
+    func test_create_worklane_adds_new_worklane_with_single_shell_pane_and_focuses_it() {
+        let store = WorklaneStore()
 
-        store.createWorkspace()
+        store.createWorklane()
 
-        XCTAssertEqual(store.workspaces.map(\.title), ["MAIN", "WS 2"])
-        XCTAssertEqual(store.activeWorkspace?.title, "WS 2")
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.map(\.title), ["shell"])
+        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN", "WS 2"])
+        XCTAssertEqual(store.activeWorklane?.title, "WS 2")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.surfaceContext,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.surfaceContext,
             .tab
         )
     }
 
-    func test_default_workspace_uses_window_surface_context() throws {
-        let store = WorkspaceStore()
+    func test_default_worklane_uses_window_surface_context() throws {
+        let store = WorklaneStore()
 
-        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
 
         XCTAssertEqual(request.surfaceContext, .window)
     }
 
     func test_split_after_inserts_adjacent_pane_and_inherits_focused_working_directory() throws {
-        let store = WorkspaceStore()
-        _ = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        _ = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.updateMetadata(
-            paneID: PaneID("workspace-main-shell"),
+            paneID: PaneID("worklane-main-shell"),
             metadata: TerminalMetadata(currentWorkingDirectory: "/tmp/project")
         )
 
         store.send(.splitAfterFocusedPane)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.map(\.title), ["shell", "pane 1"])
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "pane 1")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell", "pane 1"])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "pane 1")
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
             "/tmp/project"
         )
-        XCTAssertNil(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID)
+        XCTAssertNil(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID)
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
-            PaneID("workspace-main-shell")
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            PaneID("worklane-main-shell")
         )
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.surfaceContext, .split)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.surfaceContext, .split)
     }
 
     func test_split_after_falls_back_to_home_when_focused_working_directory_is_missing() throws {
-        let store = WorkspaceStore()
-        _ = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        _ = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.send(.splitAfterFocusedPane)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "pane 1")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "pane 1")
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
             NSHomeDirectory()
         )
-        XCTAssertNil(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID)
+        XCTAssertNil(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID)
     }
 
     func test_split_after_uses_focused_local_pane_context_when_metadata_is_missing() throws {
-        let store = WorkspaceStore()
-        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: shellPaneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -122,21 +122,21 @@ final class PaneStripStoreTests: XCTestCase {
         store.send(.splitAfterFocusedPane)
 
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
             "/tmp/local-project"
         )
-        XCTAssertNil(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID)
+        XCTAssertNil(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID)
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
             shellPaneID
         )
     }
 
     func test_split_after_prefers_focused_local_pane_context_over_seed_metadata() throws {
-        let store = WorkspaceStore()
-        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         let seededWorkingDirectory = try XCTUnwrap(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.workingDirectory
         )
 
         store.updateMetadata(
@@ -145,7 +145,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: shellPaneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -167,7 +167,7 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.send(.splitAfterFocusedPane)
 
-        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
         XCTAssertEqual(request.workingDirectory, "/tmp/local-project")
         XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], "/tmp/local-project")
         XCTAssertNil(request.inheritFromPaneID)
@@ -175,12 +175,12 @@ final class PaneStripStoreTests: XCTestCase {
     }
 
     func test_split_after_uses_focused_remote_pane_context_when_metadata_is_missing() throws {
-        let store = WorkspaceStore()
-        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: shellPaneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -203,26 +203,26 @@ final class PaneStripStoreTests: XCTestCase {
         store.send(.splitAfterFocusedPane)
 
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
             "/srv/remote-project"
         )
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID,
             shellPaneID
         )
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
             shellPaneID
         )
     }
 
-    func test_create_workspace_uses_last_focused_local_pane_context() throws {
-        let store = WorkspaceStore()
-        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+    func test_create_worklane_uses_last_focused_local_pane_context() throws {
+        let store = WorklaneStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: shellPaneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -242,24 +242,24 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        store.createWorkspace()
+        store.createWorklane()
 
-        XCTAssertEqual(store.activeWorkspace?.title, "WS 2")
+        XCTAssertEqual(store.activeWorklane?.title, "WS 2")
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
             "/tmp/local-project"
         )
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
             shellPaneID
         )
     }
 
-    func test_create_workspace_prefers_last_focused_local_pane_context_over_seed_metadata() throws {
-        let store = WorkspaceStore()
-        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+    func test_create_worklane_prefers_last_focused_local_pane_context_over_seed_metadata() throws {
+        let store = WorklaneStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         let seededWorkingDirectory = try XCTUnwrap(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.workingDirectory
         )
 
         store.updateMetadata(
@@ -268,7 +268,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: shellPaneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -288,17 +288,17 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        store.createWorkspace()
+        store.createWorklane()
 
-        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
         XCTAssertEqual(request.workingDirectory, "/tmp/local-project")
         XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], "/tmp/local-project")
         XCTAssertEqual(request.configInheritanceSourcePaneID, shellPaneID)
     }
 
     func test_review_state_does_not_override_canonical_git_branch_in_presentation() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.updateGitContext(
             paneID: paneID,
@@ -310,9 +310,9 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.updateReviewState(
             paneID: paneID,
-            reviewState: WorkspaceReviewState(
+            reviewState: WorklaneReviewState(
                 branch: "feature/stale-pr-branch",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 42,
                     url: URL(string: "https://example.com/pr/42"),
                     state: .open
@@ -321,18 +321,18 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        let presentation = try XCTUnwrap(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation)
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
         XCTAssertEqual(presentation.branch, "main")
         XCTAssertEqual(presentation.pullRequest?.number, 42)
     }
 
-    func test_create_workspace_keeps_last_focused_local_directory_when_current_focus_is_remote() throws {
-        let store = WorkspaceStore()
-        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+    func test_create_worklane_keeps_last_focused_local_directory_when_current_focus_is_remote() throws {
+        let store = WorklaneStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: shellPaneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -353,11 +353,11 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         store.send(.splitAfterFocusedPane)
-        let remotePaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let remotePaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: remotePaneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -377,14 +377,14 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        store.createWorkspace()
+        store.createWorklane()
 
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
             "/tmp/local-project"
         )
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
             remotePaneID
         )
     }
@@ -395,11 +395,11 @@ final class PaneStripStoreTests: XCTestCase {
             viewportWidth: 1200,
             leadingVisibleInset: 290
         )
-        let store = WorkspaceStore(layoutContext: layoutContext)
+        let store = WorklaneStore(layoutContext: layoutContext)
 
         store.send(.splitHorizontally)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.map(\.width), [910, 910])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [910, 910])
     }
 
     func test_split_horizontally_keeps_first_column_width_for_laptop_context() throws {
@@ -412,10 +412,10 @@ final class PaneStripStoreTests: XCTestCase {
             viewportWidth: 1200,
             leadingVisibleInset: 290
         )
-        let store = WorkspaceStore(
-            workspaces: [
-                WorkspaceState(
-                    id: WorkspaceID("main"),
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
                     title: "MAIN",
                     paneStripState: PaneStripState(
                         panes: [
@@ -426,12 +426,12 @@ final class PaneStripStoreTests: XCTestCase {
                 )
             ],
             layoutContext: layoutContext,
-            activeWorkspaceID: WorkspaceID("main")
+            activeWorklaneID: WorklaneID("main")
         )
 
         store.send(.splitHorizontally)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.map(\.width), [1200, 1200])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [1200, 1200])
     }
 
     func test_split_horizontally_keeps_first_column_width_for_large_display_context() throws {
@@ -444,10 +444,10 @@ final class PaneStripStoreTests: XCTestCase {
             viewportWidth: 1720,
             leadingVisibleInset: 290
         )
-        let store = WorkspaceStore(
-            workspaces: [
-                WorkspaceState(
-                    id: WorkspaceID("main"),
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
                     title: "MAIN",
                     paneStripState: PaneStripState(
                         panes: [
@@ -458,12 +458,12 @@ final class PaneStripStoreTests: XCTestCase {
                 )
             ],
             layoutContext: layoutContext,
-            activeWorkspaceID: WorkspaceID("main")
+            activeWorklaneID: WorklaneID("main")
         )
 
         store.send(.splitHorizontally)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.map(\.width), [1600, 1600])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [1600, 1600])
     }
 
     func test_split_horizontally_equalizes_first_column_on_ultrawide_context() throws {
@@ -476,11 +476,11 @@ final class PaneStripStoreTests: XCTestCase {
             viewportWidth: 3440,
             leadingVisibleInset: 290
         )
-        let store = WorkspaceStore(layoutContext: layoutContext)
+        let store = WorklaneStore(layoutContext: layoutContext)
 
         store.send(.splitHorizontally)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.map(\.width), [1720, 1720])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [1720, 1720])
     }
 
     func test_updating_layout_context_resizes_existing_single_pane_to_full_readable_width() {
@@ -494,12 +494,12 @@ final class PaneStripStoreTests: XCTestCase {
             viewportWidth: 1500,
             leadingVisibleInset: 290
         )
-        let store = WorkspaceStore(layoutContext: initialContext)
+        let store = WorklaneStore(layoutContext: initialContext)
 
         store.updateLayoutContext(updatedContext)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.count, 1)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.first?.width ?? 0, 1210, accuracy: 0.001)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.count, 1)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.first?.width ?? 0, 1210, accuracy: 0.001)
     }
 
     func test_updating_layout_context_scales_multi_pane_widths_proportionally_to_viewport() {
@@ -513,12 +513,12 @@ final class PaneStripStoreTests: XCTestCase {
             viewportWidth: 1500,
             leadingVisibleInset: 290
         )
-        let store = WorkspaceStore(layoutContext: initialContext)
+        let store = WorklaneStore(layoutContext: initialContext)
         store.send(.splitAfterFocusedPane)
 
         store.updateLayoutContext(updatedContext)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.map(\.width), [1137.5, 1137.5])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [1137.5, 1137.5])
     }
 
     func test_updating_layout_context_reprojects_multi_pane_layout_sizing_even_when_widths_do_not_change() {
@@ -539,7 +539,7 @@ final class PaneStripStoreTests: XCTestCase {
             leadingVisibleInset: 0,
             sizing: collapsedSizing
         )
-        let store = WorkspaceStore(layoutContext: initialContext)
+        let store = WorklaneStore(layoutContext: initialContext)
         store.send(.splitAfterFocusedPane)
 
         var changeNotifications = 0
@@ -549,12 +549,12 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.updateLayoutContext(updatedContext)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.layoutSizing, collapsedSizing)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.layoutSizing, collapsedSizing)
         XCTAssertEqual(changeNotifications, 1)
     }
 
     func test_updating_from_fallback_layout_context_reprojects_initial_shell_to_current_full_width() {
-        let store = WorkspaceStore(layoutContext: .fallback)
+        let store = WorklaneStore(layoutContext: .fallback)
         let actualContext = PaneLayoutPreferences.default.makeLayoutContext(
             displayClass: .laptop,
             viewportWidth: 1268,
@@ -563,8 +563,8 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.updateLayoutContext(actualContext)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.count, 1)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.first?.width ?? 0, 978, accuracy: 0.001)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.count, 1)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.first?.width ?? 0, 978, accuracy: 0.001)
     }
 
     func test_closing_back_to_single_pane_restores_full_readable_width() {
@@ -573,42 +573,42 @@ final class PaneStripStoreTests: XCTestCase {
             viewportWidth: 1200,
             leadingVisibleInset: 290
         )
-        let store = WorkspaceStore(layoutContext: layoutContext)
+        let store = WorklaneStore(layoutContext: layoutContext)
 
         store.send(.splitAfterFocusedPane)
         store.send(.closeFocusedPane)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.count, 1)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.first?.width ?? 0, 910, accuracy: 0.001)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.count, 1)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.first?.width ?? 0, 910, accuracy: 0.001)
     }
 
     func test_split_vertically_adds_pane_inside_current_column() {
-        let store = WorkspaceStore()
+        let store = WorklaneStore()
         store.updatePaneViewportHeight(640)
 
         store.send(.splitVertically)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.count, 1)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.first?.panes.map(\.title), ["shell", "pane 1"])
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "pane 1")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.count, 1)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.first?.panes.map(\.title), ["shell", "pane 1"])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "pane 1")
     }
 
     func test_split_vertically_refuses_when_viewport_height_is_below_minimum_equalized_height() {
-        let store = WorkspaceStore()
+        let store = WorklaneStore()
         store.updatePaneViewportHeight(300)
 
         store.send(.splitVertically)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.count, 1)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.first?.panes.map(\.title), ["shell"])
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "shell")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.count, 1)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.first?.panes.map(\.title), ["shell"])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "shell")
     }
 
     func test_closing_focused_pane_inside_vertical_stack_prefers_lower_neighbor() {
-        let store = WorkspaceStore(
-            workspaces: [
-                WorkspaceState(
-                    id: WorkspaceID("main"),
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
                     title: "MAIN",
                     paneStripState: PaneStripState(
                         columns: [
@@ -628,21 +628,21 @@ final class PaneStripStoreTests: XCTestCase {
                     )
                 )
             ],
-            activeWorkspaceID: WorkspaceID("main")
+            activeWorklaneID: WorklaneID("main")
         )
 
         store.send(.closeFocusedPane)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.count, 1)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns.first?.panes.map(\.title), ["top", "bottom"])
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "bottom")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.count, 1)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.first?.panes.map(\.title), ["top", "bottom"])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "bottom")
     }
 
     func test_resize_focused_pane_uses_last_interacted_vertical_divider() {
-        let store = WorkspaceStore(
-            workspaces: [
-                WorkspaceState(
-                    id: WorkspaceID("main"),
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
                     title: "MAIN",
                     paneStripState: PaneStripState(
                         columns: [
@@ -663,7 +663,7 @@ final class PaneStripStoreTests: XCTestCase {
                     )
                 )
             ],
-            activeWorkspaceID: WorkspaceID("main")
+            activeWorklaneID: WorklaneID("main")
         )
 
         store.markDividerInteraction(.pane(columnID: PaneColumnID("stack"), afterPaneID: PaneID("middle")))
@@ -678,19 +678,19 @@ final class PaneStripStoreTests: XCTestCase {
             ]
         )
 
-        let heights = store.activeWorkspace?.paneStripState.columns[0].resolvedPaneHeights(
+        let heights = store.activeWorklane?.paneStripState.columns[0].resolvedPaneHeights(
             totalHeight: 920,
-            spacing: store.activeWorkspace?.paneStripState.layoutSizing.interPaneSpacing ?? 6
+            spacing: store.activeWorklane?.paneStripState.layoutSizing.interPaneSpacing ?? 6
         )
         XCTAssertEqual(heights?[1] ?? 0, 252.66666666666669, accuracy: 0.001)
         XCTAssertEqual(heights?[2] ?? 0, 453.5555555555555, accuracy: 0.001)
     }
 
     func test_resize_focused_pane_left_grows_only_the_focused_column() {
-        let store = WorkspaceStore(
-            workspaces: [
-                WorkspaceState(
-                    id: WorkspaceID("main"),
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
                     title: "MAIN",
                     paneStripState: PaneStripState(
                         columns: [
@@ -720,7 +720,7 @@ final class PaneStripStoreTests: XCTestCase {
                     )
                 )
             ],
-            activeWorkspaceID: WorkspaceID("main")
+            activeWorklaneID: WorklaneID("main")
         )
 
         store.resizeFocusedPane(
@@ -734,26 +734,26 @@ final class PaneStripStoreTests: XCTestCase {
             ]
         )
 
-        let columns = store.activeWorkspace?.paneStripState.columns
+        let columns = store.activeWorklane?.paneStripState.columns
         XCTAssertEqual(columns?[0].width ?? 0, 300, accuracy: 0.001)
         XCTAssertEqual(columns?[1].width ?? 0, 440, accuracy: 0.001)
         XCTAssertEqual(columns?[2].width ?? 0, 500, accuracy: 0.001)
         XCTAssertEqual(
-            store.activeWorkspace?.paneStripState.lastInteractedDivider,
+            store.activeWorklane?.paneStripState.lastInteractedDivider,
             .column(afterColumnID: PaneColumnID("left"))
         )
     }
 
-    func test_reset_active_workspace_layout_restores_default_widths_and_equal_heights() {
+    func test_reset_active_worklane_layout_restores_default_widths_and_equal_heights() {
         let layoutContext = PaneLayoutPreferences.default.makeLayoutContext(
             displayClass: .largeDisplay,
             viewportWidth: 1400,
             leadingVisibleInset: 0
         )
-        let store = WorkspaceStore(
-            workspaces: [
-                WorkspaceState(
-                    id: WorkspaceID("main"),
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
                     title: "MAIN",
                     paneStripState: PaneStripState(
                         columns: [
@@ -781,25 +781,25 @@ final class PaneStripStoreTests: XCTestCase {
                 )
             ],
             layoutContext: layoutContext,
-            activeWorkspaceID: WorkspaceID("main")
+            activeWorklaneID: WorklaneID("main")
         )
 
-        store.resetActiveWorkspaceLayout()
+        store.resetActiveWorklaneLayout()
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns[0].width ?? 0, layoutContext.newPaneWidth, accuracy: 0.001)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.columns[1].width ?? 0, layoutContext.newPaneWidth, accuracy: 0.001)
-        let heights = store.activeWorkspace?.paneStripState.columns[0].resolvedPaneHeights(
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns[0].width ?? 0, layoutContext.newPaneWidth, accuracy: 0.001)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns[1].width ?? 0, layoutContext.newPaneWidth, accuracy: 0.001)
+        let heights = store.activeWorklane?.paneStripState.columns[0].resolvedPaneHeights(
             totalHeight: 920,
-            spacing: store.activeWorkspace?.paneStripState.layoutSizing.interPaneSpacing ?? 6
+            spacing: store.activeWorklane?.paneStripState.layoutSizing.interPaneSpacing ?? 6
         )
         XCTAssertEqual(heights?[0] ?? 0, heights?[1] ?? 0, accuracy: 0.001)
     }
 
     func test_focus_up_and_down_move_within_vertical_stack() {
-        let store = WorkspaceStore(
-            workspaces: [
-                WorkspaceState(
-                    id: WorkspaceID("main"),
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
                     title: "MAIN",
                     paneStripState: PaneStripState(
                         columns: [
@@ -819,21 +819,21 @@ final class PaneStripStoreTests: XCTestCase {
                     )
                 )
             ],
-            activeWorkspaceID: WorkspaceID("main")
+            activeWorklaneID: WorklaneID("main")
         )
 
         store.send(.focusDown)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "bottom")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "bottom")
 
         store.send(.focusUp)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "middle")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "middle")
     }
 
     func test_focus_first_and_last_column_move_between_columns() {
-        let store = WorkspaceStore(
-            workspaces: [
-                WorkspaceState(
-                    id: WorkspaceID("main"),
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
                     title: "MAIN",
                     paneStripState: PaneStripState(
                         columns: [
@@ -856,21 +856,21 @@ final class PaneStripStoreTests: XCTestCase {
                     )
                 )
             ],
-            activeWorkspaceID: WorkspaceID("main")
+            activeWorklaneID: WorklaneID("main")
         )
 
         store.send(.focusFirstColumn)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedColumn?.id, PaneColumnID("left"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedColumn?.id, PaneColumnID("left"))
 
         store.send(.focusLastColumn)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedColumn?.id, PaneColumnID("right"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedColumn?.id, PaneColumnID("right"))
     }
 
     func test_split_before_inserts_adjacent_pane_before_focus() {
-        let store = WorkspaceStore(
-            workspaces: [
-                WorkspaceState(
-                    id: WorkspaceID("api"),
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("api"),
                     title: "API",
                     paneStripState: PaneStripState(
                         panes: [
@@ -882,71 +882,71 @@ final class PaneStripStoreTests: XCTestCase {
                     nextPaneNumber: 1
                 )
             ],
-            activeWorkspaceID: WorkspaceID("api")
+            activeWorklaneID: WorklaneID("api")
         )
 
         store.send(.splitBeforeFocusedPane)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.map(\.title), ["shell", "pane 1", "editor"])
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "pane 1")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell", "pane 1", "editor"])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "pane 1")
     }
 
-    func test_close_removes_focused_pane_inside_active_workspace_only() throws {
-        let store = WorkspaceStore()
-        store.createWorkspace()
-        let workspace2ID = try XCTUnwrap(store.workspaces.first(where: { $0.title == "WS 2" })?.id)
+    func test_close_removes_focused_pane_inside_active_worklane_only() throws {
+        let store = WorklaneStore()
+        store.createWorklane()
+        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 2" })?.id)
 
-        store.selectWorkspace(id: workspace2ID)
+        store.selectWorklane(id: worklane2ID)
         store.send(.splitAfterFocusedPane)
         store.send(.closeFocusedPane)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.map(\.title), ["shell"])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
 
-        store.selectWorkspace(id: WorkspaceID("workspace-main"))
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.map(\.title), ["shell"])
+        store.selectWorklane(id: WorklaneID("worklane-main"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
     }
 
-    func test_close_focused_pane_on_single_pane_workspace_closes_workspace_when_another_workspace_exists() throws {
-        let store = WorkspaceStore()
-        store.createWorkspace()
+    func test_close_focused_pane_on_single_pane_worklane_closes_worklane_when_another_worklane_exists() throws {
+        let store = WorklaneStore()
+        store.createWorklane()
 
-        let mainID = try XCTUnwrap(store.workspaces.first(where: { $0.title == "MAIN" })?.id)
-        let workspace2ID = try XCTUnwrap(store.workspaces.first(where: { $0.title == "WS 2" })?.id)
+        let mainID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "MAIN" })?.id)
+        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 2" })?.id)
 
-        store.selectWorkspace(id: workspace2ID)
+        store.selectWorklane(id: worklane2ID)
         store.send(.closeFocusedPane)
 
-        XCTAssertEqual(store.workspaces.map(\.title), ["MAIN"])
-        XCTAssertEqual(store.activeWorkspaceID, mainID)
+        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN"])
+        XCTAssertEqual(store.activeWorklaneID, mainID)
     }
 
-    func test_close_focused_pane_on_last_remaining_workspace_keeps_single_shell_open() {
-        let store = WorkspaceStore()
+    func test_close_focused_pane_on_last_remaining_worklane_keeps_single_shell_open() {
+        let store = WorklaneStore()
 
         store.send(.closeFocusedPane)
 
-        XCTAssertEqual(store.workspaces.map(\.title), ["MAIN"])
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.map(\.title), ["shell"])
+        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN"])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
     }
 
-    func test_close_pane_removes_requested_pane_from_active_workspace() throws {
-        let store = WorkspaceStore()
+    func test_close_pane_removes_requested_pane_from_active_worklane() throws {
+        let store = WorklaneStore()
 
         store.send(.splitAfterFocusedPane)
-        let insertedPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.count, 2)
+        let insertedPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.count, 2)
 
         store.closePane(id: insertedPaneID)
 
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.panes.count, 1)
-        XCTAssertFalse(store.activeWorkspace?.paneStripState.panes.contains(where: { $0.id == insertedPaneID }) ?? true)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.count, 1)
+        XCTAssertFalse(store.activeWorklane?.paneStripState.panes.contains(where: { $0.id == insertedPaneID }) ?? true)
     }
 
-    func test_focus_commands_update_only_active_workspace() {
-        let store = WorkspaceStore(
-            workspaces: [
-                WorkspaceState(
-                    id: WorkspaceID("api"),
+    func test_focus_commands_update_only_active_worklane() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("api"),
                     title: "API",
                     paneStripState: PaneStripState(
                         panes: [
@@ -958,8 +958,8 @@ final class PaneStripStoreTests: XCTestCase {
                     ),
                     nextPaneNumber: 1
                 ),
-                WorkspaceState(
-                    id: WorkspaceID("web"),
+                WorklaneState(
+                    id: WorklaneID("web"),
                     title: "WEB",
                     paneStripState: PaneStripState(
                         panes: [
@@ -970,22 +970,22 @@ final class PaneStripStoreTests: XCTestCase {
                     nextPaneNumber: 1
                 ),
             ],
-            activeWorkspaceID: WorkspaceID("api")
+            activeWorklaneID: WorklaneID("api")
         )
 
         store.send(.focusRight)
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "shell")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "shell")
 
-        store.selectWorkspace(id: WorkspaceID("web"))
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "shell")
+        store.selectWorklane(id: WorklaneID("web"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "shell")
 
-        store.selectWorkspace(id: WorkspaceID("api"))
-        XCTAssertEqual(store.activeWorkspace?.paneStripState.focusedPane?.title, "shell")
+        store.selectWorklane(id: WorklaneID("api"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "shell")
     }
 
     func test_update_metadata_notifies_change_immediately() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         var notificationCount = 0
 
         store.onChange = { _ in
@@ -998,13 +998,13 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(notificationCount, 1)
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.metadata?.currentWorkingDirectory, "/tmp/project")
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.metadata?.gitBranch, "main")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.metadata?.currentWorkingDirectory, "/tmp/project")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.metadata?.gitBranch, "main")
     }
 
     func test_apply_local_pane_context_uses_shell_branch_provisionally_and_clears_stale_review_state() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.updateMetadata(
             paneID: paneID,
@@ -1020,19 +1020,19 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.updateReviewState(
             paneID: paneID,
-            reviewState: WorkspaceReviewState(
+            reviewState: WorklaneReviewState(
                 branch: "main",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 42,
                     url: URL(string: "https://example.com/pr/42"),
                     state: .open
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Ready", style: .success)]
+                reviewChips: [WorklaneReviewChip(text: "Ready", style: .success)]
             )
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .lifecycle,
                 state: .running,
@@ -1048,7 +1048,7 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -1069,7 +1069,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        let auxiliaryState = try XCTUnwrap(store.activeWorkspace?.auxiliaryStateByPaneID[paneID])
+        let auxiliaryState = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
         XCTAssertEqual(auxiliaryState.metadata?.gitBranch, "main")
         XCTAssertEqual(auxiliaryState.shellContext?.gitBranch, "feature/review-band")
         XCTAssertNil(auxiliaryState.gitContext)
@@ -1084,8 +1084,8 @@ final class PaneStripStoreTests: XCTestCase {
     }
 
     func test_updating_canonical_git_context_branch_clears_branch_derived_state() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.updateMetadata(
             paneID: paneID,
@@ -1101,14 +1101,14 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.updateReviewState(
             paneID: paneID,
-            reviewState: WorkspaceReviewState(
+            reviewState: WorklaneReviewState(
                 branch: "main",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 42,
                     url: URL(string: "https://example.com/pr/42"),
                     state: .open
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Ready", style: .success)]
+                reviewChips: [WorklaneReviewChip(text: "Ready", style: .success)]
             )
         )
         store.updateGitContext(
@@ -1120,20 +1120,20 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState)
         XCTAssertEqual(
-            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation.branch,
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.branch,
             "feature/review-band"
         )
     }
 
-    func test_default_workspace_shell_session_contains_agent_identity_environment() throws {
-        let store = WorkspaceStore()
+    func test_default_worklane_shell_session_contains_agent_identity_environment() throws {
+        let store = WorklaneStore()
 
-        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
 
-        XCTAssertEqual(request.environmentVariables["ZENTTY_WORKSPACE_ID"], "workspace-main")
-        XCTAssertEqual(request.environmentVariables["ZENTTY_PANE_ID"], "workspace-main-shell")
+        XCTAssertEqual(request.environmentVariables["ZENTTY_WORKLANE_ID"], "worklane-main")
+        XCTAssertEqual(request.environmentVariables["ZENTTY_PANE_ID"], "worklane-main-shell")
         XCTAssertFalse((request.environmentVariables["ZENTTY_AGENT_BIN"] ?? "").isEmpty)
         XCTAssertEqual(request.environmentVariables["ZENTTY_AGENT_SIGNAL_COMMAND"], "\(request.environmentVariables["ZENTTY_AGENT_BIN"]!) agent-signal")
         XCTAssertEqual(request.environmentVariables["ZENTTY_CLAUDE_HOOK_COMMAND"], "\(request.environmentVariables["ZENTTY_AGENT_BIN"]!) claude-hook")
@@ -1142,30 +1142,30 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertTrue((request.environmentVariables["ZENTTY_SHELL_INTEGRATION_DIR"] ?? "").contains("/Contents/Resources/shell-integration"))
     }
 
-    func test_default_workspace_shell_session_overrides_zsh_zdotdir_for_shell_integration() throws {
-        let store = WorkspaceStore()
+    func test_default_worklane_shell_session_overrides_zsh_zdotdir_for_shell_integration() throws {
+        let store = WorklaneStore()
 
-        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
 
         XCTAssertTrue((request.environmentVariables["ZDOTDIR"] ?? "").contains("/Contents/Resources/shell-integration"))
         XCTAssertNotNil(request.environmentVariables["ZENTTY_SHELL_INTEGRATION"])
     }
 
-    func test_default_workspace_shell_session_sets_initial_working_directory_environment() throws {
-        let store = WorkspaceStore()
+    func test_default_worklane_shell_session_sets_initial_working_directory_environment() throws {
+        let store = WorklaneStore()
 
-        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
 
         XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], NSHomeDirectory())
     }
 
     func test_split_after_local_pane_sets_initial_working_directory_environment() throws {
-        let store = WorkspaceStore()
-        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: shellPaneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -1187,17 +1187,17 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.send(.splitAfterFocusedPane)
 
-        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
         XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], "/tmp/local-project")
     }
 
     func test_split_after_remote_pane_does_not_set_initial_working_directory_environment() throws {
-        let store = WorkspaceStore()
-        let shellPaneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: shellPaneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -1219,14 +1219,14 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.send(.splitAfterFocusedPane)
 
-        let request = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPane?.sessionRequest)
+        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
         XCTAssertNil(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"])
         XCTAssertEqual(request.inheritFromPaneID, shellPaneID)
     }
 
     func test_command_finished_does_not_promote_title_only_agent_to_unresolved_stop() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.updateMetadata(
             paneID: paneID,
             metadata: TerminalMetadata(
@@ -1242,12 +1242,12 @@ final class PaneStripStoreTests: XCTestCase {
             event: .commandFinished(exitCode: 1, durationNanoseconds: 500_000_000)
         )
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
     }
 
     func test_command_finished_promotes_explicit_running_agent_to_unresolved_stop() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.updateMetadata(
             paneID: paneID,
             metadata: TerminalMetadata(
@@ -1259,7 +1259,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .running,
                 toolName: "Claude Code",
@@ -1275,13 +1275,13 @@ final class PaneStripStoreTests: XCTestCase {
             event: .commandFinished(exitCode: 1, durationNanoseconds: 500_000_000)
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .unresolvedStop)
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool, .claudeCode)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .unresolvedStop)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool, .claudeCode)
     }
 
     func test_progress_report_event_stores_and_removes_terminal_progress() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         let report = TerminalProgressReport(state: .indeterminate, progress: nil)
 
         store.handleTerminalEvent(
@@ -1289,19 +1289,19 @@ final class PaneStripStoreTests: XCTestCase {
             event: .progressReport(report)
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.terminalProgress, report)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.terminalProgress, report)
 
         store.handleTerminalEvent(
             paneID: paneID,
             event: .progressReport(TerminalProgressReport(state: .remove, progress: nil))
         )
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.terminalProgress)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.terminalProgress)
     }
 
     func test_progress_report_activity_clears_blocked_agent_state_into_running() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.updateMetadata(
             paneID: paneID,
@@ -1314,7 +1314,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .needsInput,
                 origin: .explicitHook,
@@ -1334,17 +1334,17 @@ final class PaneStripStoreTests: XCTestCase {
             event: .progressReport(TerminalProgressReport(state: .indeterminate, progress: nil))
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
         XCTAssertEqual(
-            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
             .some(.none)
         )
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
     }
 
     func test_submit_input_event_clears_blocked_claude_state_into_running() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.updateMetadata(
             paneID: paneID,
@@ -1357,7 +1357,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .needsInput,
                 origin: .explicitHook,
@@ -1377,17 +1377,17 @@ final class PaneStripStoreTests: XCTestCase {
             event: .userSubmittedInput
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
         XCTAssertEqual(
-            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
             .some(.none)
         )
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
     }
 
     func test_desktop_notification_event_surfaces_generic_needs_input_for_codex() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.updateMetadata(
             paneID: paneID,
@@ -1406,21 +1406,21 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
         XCTAssertEqual(
-            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
             .some(.genericInput)
         )
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Needs input")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Needs input")
     }
 
     func test_desktop_notification_event_promotes_running_codex_session_to_needs_input() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .lifecycle,
                 state: .running,
@@ -1442,17 +1442,17 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
         XCTAssertEqual(
-            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
             .some(.genericInput)
         )
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.sessionID, "session-1")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.sessionID, "session-1")
     }
 
     func test_submit_input_event_clears_blocked_codex_state_into_running() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.updateMetadata(
             paneID: paneID,
@@ -1465,7 +1465,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .lifecycle,
                 state: .needsInput,
@@ -1486,17 +1486,17 @@ final class PaneStripStoreTests: XCTestCase {
             event: .userSubmittedInput
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
         XCTAssertEqual(
-            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
             .some(.none)
         )
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.sessionID, "session-1")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.sessionID, "session-1")
     }
 
     func test_desktop_notification_event_ignores_non_actionable_copy_for_codex() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.updateMetadata(
             paneID: paneID,
@@ -1515,16 +1515,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
     }
 
     func test_session_scoped_idle_signal_retires_running_codex_session() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .lifecycle,
                 state: .running,
@@ -1549,40 +1549,40 @@ final class PaneStripStoreTests: XCTestCase {
                 "--session-id", "session-1",
             ],
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
                 "ZENTTY_PANE_ID": paneID.rawValue,
             ]
         )
         store.applyAgentStatusPayload(idleCommand.payload)
 
-        let status = store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus
+        let status = store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus
         XCTAssertEqual(status?.state, .idle)
         XCTAssertEqual(status?.sessionID, "session-1")
         XCTAssertTrue(status?.hasObservedRunning ?? false)
     }
 
     func test_command_finished_clears_active_terminal_progress() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.handleTerminalEvent(
             paneID: paneID,
             event: .progressReport(TerminalProgressReport(state: .set, progress: 40))
         )
 
-        XCTAssertNotNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.terminalProgress)
+        XCTAssertNotNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.terminalProgress)
 
         store.handleTerminalEvent(
             paneID: paneID,
             event: .commandFinished(exitCode: 0, durationNanoseconds: 250_000_000)
         )
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.terminalProgress)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.terminalProgress)
     }
 
     func test_metadata_update_to_non_agent_title_clears_inferred_attention_state() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.updateMetadata(
             paneID: paneID,
             metadata: TerminalMetadata(
@@ -1594,7 +1594,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .running,
                 toolName: "Claude Code",
@@ -1619,16 +1619,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
     }
 
     func test_explicit_running_replaces_prior_attention_state() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .needsInput,
                 toolName: "Claude Code",
@@ -1640,7 +1640,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .running,
                 toolName: "Claude Code",
@@ -1651,16 +1651,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
     }
 
     func test_prompt_idle_alone_does_not_create_attention_state() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .shellState,
                 state: nil,
@@ -1674,16 +1674,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
     }
 
     func test_prompt_idle_retires_running_claude_session_into_idle() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .running,
                 origin: .explicitHook,
@@ -1697,7 +1697,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .shellState,
                 state: nil,
@@ -1711,17 +1711,17 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Idle")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Idle")
     }
 
     func test_shell_command_running_alone_does_not_create_running_agent_status() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .shellState,
                 state: nil,
@@ -1735,16 +1735,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
     }
 
     func test_pid_attach_alone_creates_non_visible_starting_agent_status() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .pid,
                 state: nil,
@@ -1759,19 +1759,19 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        let status = try XCTUnwrap(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        let status = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
         XCTAssertEqual(status.state, .starting)
         XCTAssertEqual(status.tool, .codex)
         XCTAssertEqual(status.trackedPID, 4242)
-        XCTAssertFalse(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.isWorking ?? true)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.isWorking ?? true)
     }
 
     func test_command_finished_does_not_promote_starting_agent_to_unresolved_stop() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .pid,
                 state: nil,
@@ -1791,76 +1791,76 @@ final class PaneStripStoreTests: XCTestCase {
             event: .commandFinished(exitCode: 1, durationNanoseconds: 250_000_000)
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .starting)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .starting)
     }
 
     func test_update_review_state_stores_and_clears_review_state_for_a_pane() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
-        let reviewState = WorkspaceReviewState(
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let reviewState = WorklaneReviewState(
             branch: "feature/review-band",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 128,
                 url: URL(string: "https://example.com/pr/128"),
                 state: .draft
             ),
-            reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+            reviewChips: [WorklaneReviewChip(text: "Draft", style: .info)]
         )
 
         store.updateReviewState(paneID: paneID, reviewState: reviewState)
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState, reviewState)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState, reviewState)
 
         store.updateReviewState(paneID: paneID, reviewState: nil)
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState)
     }
 
     func test_update_review_resolution_updates_review_state_with_single_notification() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         var notificationCount = 0
 
         store.onChange = { _ in
             notificationCount += 1
         }
 
-        let resolution = WorkspaceReviewResolution(
-            reviewState: WorkspaceReviewState(
+        let resolution = WorklaneReviewResolution(
+            reviewState: WorklaneReviewState(
                 branch: "feature/review-band",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 128,
                     url: URL(string: "https://example.com/pr/128"),
                     state: .draft
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+                reviewChips: [WorklaneReviewChip(text: "Draft", style: .info)]
             )
         )
 
         store.updateReviewResolution(paneID: paneID, resolution: resolution)
 
         XCTAssertEqual(notificationCount, 1)
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState, resolution.reviewState)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState, resolution.reviewState)
 
         store.updateReviewResolution(
             paneID: paneID,
-            resolution: WorkspaceReviewResolution(reviewState: nil)
+            resolution: WorklaneReviewResolution(reviewState: nil)
         )
 
         XCTAssertEqual(notificationCount, 2)
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState)
     }
 
     func test_update_review_resolution_preserves_existing_state_on_transient_empty_refresh() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
-        let existingResolution = WorkspaceReviewResolution(
-            reviewState: WorkspaceReviewState(
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let existingResolution = WorklaneReviewResolution(
+            reviewState: WorklaneReviewState(
                 branch: "feature/review-band",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 128,
                     url: URL(string: "https://example.com/pr/128"),
                     state: .draft
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+                reviewChips: [WorklaneReviewChip(text: "Draft", style: .info)]
             )
         )
         store.updateReviewResolution(paneID: paneID, resolution: existingResolution)
@@ -1872,35 +1872,35 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.updateReviewResolution(
             paneID: paneID,
-            resolution: WorkspaceReviewResolution(
+            resolution: WorklaneReviewResolution(
                 reviewState: nil,
                 updatePolicy: .preserveExistingOnEmpty
             )
         )
 
         XCTAssertEqual(notificationCount, 0)
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState, existingResolution.reviewState)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState, existingResolution.reviewState)
     }
 
     func test_clearing_agent_status_keeps_review_state_for_that_pane() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.updateReviewState(
             paneID: paneID,
-            reviewState: WorkspaceReviewState(
+            reviewState: WorklaneReviewState(
                 branch: "feature/review-band",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 128,
                     url: URL(string: "https://example.com/pr/128"),
                     state: .draft
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+                reviewChips: [WorklaneReviewChip(text: "Draft", style: .info)]
             )
         )
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: nil,
                 toolName: nil,
@@ -1911,16 +1911,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNotNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
+        XCTAssertNotNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState)
     }
 
     func test_explicit_needs_input_beats_prompt_idle_shell_state() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .needsInput,
                 origin: .explicitHook,
@@ -1933,7 +1933,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .shellState,
                 state: nil,
@@ -1947,13 +1947,13 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionState, .awaitingHuman)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionState, .awaitingHuman)
     }
 
     func test_updating_canonical_git_context_clears_branch_derived_review_state_when_branch_changes() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.updateMetadata(
             paneID: paneID,
             metadata: TerminalMetadata(
@@ -1973,19 +1973,19 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.updateReviewState(
             paneID: paneID,
-            reviewState: WorkspaceReviewState(
+            reviewState: WorklaneReviewState(
                 branch: "feature/review-band",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 128,
                     url: URL(string: "https://example.com/pr/128"),
                     state: .draft
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+                reviewChips: [WorklaneReviewChip(text: "Draft", style: .info)]
             )
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .running,
                 toolName: "Claude Code",
@@ -2005,17 +2005,17 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.artifactLink)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.artifactLink)
     }
 
     func test_equal_priority_needs_input_update_does_not_downgrade_specific_waiting_copy() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .needsInput,
                 origin: .explicitHook,
@@ -2028,7 +2028,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .needsInput,
                 origin: .explicitHook,
@@ -2040,16 +2040,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.text, "Claude needs your approval")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.text, "Claude needs your approval")
     }
 
     func test_equal_priority_needs_input_update_can_upgrade_generic_waiting_copy() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .needsInput,
                 origin: .explicitHook,
@@ -2062,7 +2062,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .needsInput,
                 origin: .explicitHook,
@@ -2074,12 +2074,12 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.text, "Claude needs your approval")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.text, "Claude needs your approval")
     }
 
     func test_clear_stale_agent_sessions_removes_dead_running_process_status() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "sleep 0.1"]
@@ -2087,7 +2087,7 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 state: .running,
                 origin: .explicitAPI,
@@ -2100,7 +2100,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .pid,
                 state: nil,
@@ -2118,12 +2118,12 @@ final class PaneStripStoreTests: XCTestCase {
         process.waitUntilExit()
         store.clearStaleAgentSessions()
 
-        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .unresolvedStop)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .unresolvedStop)
     }
 
     func test_clear_stale_agent_sessions_persists_reducer_cleanup_even_when_visible_status_is_unchanged() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         let now = Date()
 
         var reducerState = PaneAgentReducerState()
@@ -2166,25 +2166,25 @@ final class PaneStripStoreTests: XCTestCase {
             unresolvedStopVisibleUntil: nil
         )
 
-        var workspace = try XCTUnwrap(store.activeWorkspace)
-        workspace.auxiliaryStateByPaneID[paneID]?.agentReducerState = reducerState
-        workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = reducerState.reducedStatus(now: now)
-        store.activeWorkspace = workspace
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState = reducerState
+        worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = reducerState.reducedStatus(now: now)
+        store.activeWorklane = worklane
 
         store.clearStaleAgentSessions()
 
-        let aux = try XCTUnwrap(store.activeWorkspace?.auxiliaryStateByPaneID[paneID])
+        let aux = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
         XCTAssertEqual(aux.agentStatus?.state, .running)
         XCTAssertEqual(aux.agentReducerState.sessionsByID.keys.sorted(), ["session-running"])
     }
 
     func test_pane_context_signal_stores_local_context_and_formats_home_relative_display() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -2205,7 +2205,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.shellContext,
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext,
             PaneShellContext(
                 scope: .local,
                 path: "/Users/peter/src/zentty",
@@ -2214,16 +2214,16 @@ final class PaneStripStoreTests: XCTestCase {
                 host: nil
             )
         )
-        XCTAssertEqual(store.activeWorkspace?.paneBorderContextDisplayByPaneID[paneID]?.text, "~/src/zentty")
+        XCTAssertEqual(store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text, "~/src/zentty")
     }
 
     func test_pane_context_local_home_with_user_and_host_shows_identity() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -2243,16 +2243,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.paneBorderContextDisplayByPaneID[paneID]?.text, "peter@m1-pro-peter:~")
+        XCTAssertEqual(store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text, "peter@m1-pro-peter:~")
     }
 
     func test_pane_context_local_home_with_only_user_shows_user_identity() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -2272,16 +2272,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.paneBorderContextDisplayByPaneID[paneID]?.text, "peter:~")
+        XCTAssertEqual(store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text, "peter:~")
     }
 
     func test_pane_context_local_home_without_identity_falls_back_to_tilde() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -2301,16 +2301,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.paneBorderContextDisplayByPaneID[paneID]?.text, "~")
+        XCTAssertEqual(store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text, "~")
     }
 
     func test_pane_context_local_subdirectory_with_identity_shows_only_path() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -2330,16 +2330,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.paneBorderContextDisplayByPaneID[paneID]?.text, "~/src/zentty")
+        XCTAssertEqual(store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text, "~/src/zentty")
     }
 
     func test_pane_context_signal_formats_remote_identity_and_path() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -2360,18 +2360,18 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            store.activeWorkspace?.paneBorderContextDisplayByPaneID[paneID]?.text,
+            store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text,
             "peter@gilfoyle ~/project"
         )
     }
 
     func test_pane_context_signal_uses_remote_identity_without_path_fallback() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -2391,16 +2391,16 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorkspace?.paneBorderContextDisplayByPaneID[paneID]?.text, "peter@gilfoyle")
+        XCTAssertEqual(store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text, "peter@gilfoyle")
     }
 
     func test_pane_context_signal_clear_removes_stored_context() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -2421,7 +2421,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -2435,18 +2435,18 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.shellContext)
-        XCTAssertNil(store.activeWorkspace?.paneBorderContextDisplayByPaneID[paneID])
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext)
+        XCTAssertNil(store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID])
     }
 
     func test_pane_context_is_removed_when_pane_closes() throws {
-        let store = WorkspaceStore()
+        let store = WorklaneStore()
         store.send(.splitAfterFocusedPane)
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -2468,12 +2468,12 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.closePane(id: paneID)
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.shellContext)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext)
     }
 
     func test_updating_metadata_clears_branch_derived_review_state_when_title_implies_new_working_directory() throws {
-        let store = WorkspaceStore()
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.updateMetadata(
             paneID: paneID,
             metadata: TerminalMetadata(
@@ -2485,14 +2485,14 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.updateReviewState(
             paneID: paneID,
-            reviewState: WorkspaceReviewState(
+            reviewState: WorklaneReviewState(
                 branch: "feature/project-a",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 128,
                     url: URL(string: "https://example.com/pr/128"),
                     state: .draft
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Draft", style: .info)]
+                reviewChips: [WorklaneReviewChip(text: "Draft", style: .info)]
             )
         )
         store.updateMetadata(
@@ -2505,7 +2505,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.reviewState)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState)
     }
 
 }

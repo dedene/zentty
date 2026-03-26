@@ -231,13 +231,13 @@ enum PaneAgentStatusSource: Equatable, Sendable {
     case inferred
 }
 
-enum WorkspaceAttentionState: String, Equatable, Sendable {
+enum WorklaneAttentionState: String, Equatable, Sendable {
     case needsInput
     case unresolvedStop
     case running
 }
 
-enum WorkspaceArtifactKind: String, Equatable, Sendable {
+enum WorklaneArtifactKind: String, Equatable, Sendable {
     case pullRequest = "pull-request"
     case session
     case share
@@ -245,8 +245,8 @@ enum WorkspaceArtifactKind: String, Equatable, Sendable {
     case generic
 }
 
-struct WorkspaceArtifactLink: Equatable, Sendable {
-    let kind: WorkspaceArtifactKind
+struct WorklaneArtifactLink: Equatable, Sendable {
+    let kind: WorklaneArtifactKind
     let label: String
     let url: URL
     let isExplicit: Bool
@@ -269,7 +269,7 @@ struct PaneAgentStatus: Equatable, Sendable {
     let tool: AgentTool
     var state: PaneAgentState
     var text: String?
-    var artifactLink: WorkspaceArtifactLink?
+    var artifactLink: WorklaneArtifactLink?
     var updatedAt: Date
     var source: PaneAgentStatusSource
     var origin: AgentSignalOrigin
@@ -287,7 +287,7 @@ struct PaneAgentStatus: Equatable, Sendable {
         tool: AgentTool,
         state: PaneAgentState,
         text: String?,
-        artifactLink: WorkspaceArtifactLink?,
+        artifactLink: WorklaneArtifactLink?,
         updatedAt: Date,
         source: PaneAgentStatusSource = .explicit,
         origin: AgentSignalOrigin = .compatibility,
@@ -324,7 +324,7 @@ struct PaneAgentStatus: Equatable, Sendable {
         tool: AgentTool,
         state: PaneAgentState,
         text: String?,
-        artifactLink: WorkspaceArtifactLink?,
+        artifactLink: WorklaneArtifactLink?,
         updatedAt: Date
     ) {
         self.init(
@@ -385,7 +385,7 @@ struct PaneAgentStatus: Equatable, Sendable {
 }
 
 extension PaneAgentState {
-    var workspaceAttentionState: WorkspaceAttentionState? {
+    var worklaneAttentionState: WorklaneAttentionState? {
         switch self {
         case .starting:
             return nil
@@ -401,29 +401,29 @@ extension PaneAgentState {
     }
 }
 
-struct WorkspaceAttentionSummary: Equatable, Sendable {
+struct WorklaneAttentionSummary: Equatable, Sendable {
     let paneID: PaneID
     let tool: AgentTool
-    let state: WorkspaceAttentionState
+    let state: WorklaneAttentionState
     let interactionKind: PaneInteractionKind?
     let interactionLabel: String?
     let primaryText: String
     let statusText: String
     let contextText: String
-    let artifactLink: WorkspaceArtifactLink?
+    let artifactLink: WorklaneArtifactLink?
     let interactionSymbolName: String?
     let updatedAt: Date
 
     init(
         paneID: PaneID,
         tool: AgentTool,
-        state: WorkspaceAttentionState,
+        state: WorklaneAttentionState,
         interactionKind: PaneInteractionKind? = nil,
         interactionLabel: String? = nil,
         primaryText: String,
         statusText: String,
         contextText: String,
-        artifactLink: WorkspaceArtifactLink?,
+        artifactLink: WorklaneArtifactLink?,
         interactionSymbolName: String? = nil,
         updatedAt: Date
     ) {

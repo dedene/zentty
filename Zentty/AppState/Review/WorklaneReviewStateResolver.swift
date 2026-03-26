@@ -3,17 +3,17 @@ import os
 
 private let reviewLogger = Logger(subsystem: "be.zentty", category: "ReviewState")
 
-struct WorkspaceReviewResolution: Equatable, Sendable {
+struct WorklaneReviewResolution: Equatable, Sendable {
     enum UpdatePolicy: Equatable, Sendable {
         case replace
         case preserveExistingOnEmpty
     }
 
-    let reviewState: WorkspaceReviewState?
+    let reviewState: WorklaneReviewState?
     let updatePolicy: UpdatePolicy
 
     init(
-        reviewState: WorkspaceReviewState?,
+        reviewState: WorklaneReviewState?,
         updatePolicy: UpdatePolicy = .replace
     ) {
         self.reviewState = reviewState
@@ -21,24 +21,24 @@ struct WorkspaceReviewResolution: Equatable, Sendable {
     }
 }
 
-struct WorkspaceReviewCommandResult: Equatable, Sendable {
+struct WorklaneReviewCommandResult: Equatable, Sendable {
     let terminationStatus: Int32
     let stdout: Data
     let stderr: Data
 }
 
-protocol WorkspaceReviewCommandRunning: Sendable {
-    func run(arguments: [String], currentDirectoryPath: String) async -> WorkspaceReviewCommandResult
+protocol WorklaneReviewCommandRunning: Sendable {
+    func run(arguments: [String], currentDirectoryPath: String) async -> WorklaneReviewCommandResult
 }
 
-struct DefaultWorkspaceReviewCommandRunner: WorkspaceReviewCommandRunning {
+struct DefaultWorklaneReviewCommandRunner: WorklaneReviewCommandRunning {
     private let environment: [String: String]
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.environment = environment
     }
 
-    func run(arguments: [String], currentDirectoryPath: String) async -> WorkspaceReviewCommandResult {
+    func run(arguments: [String], currentDirectoryPath: String) async -> WorklaneReviewCommandResult {
         await withCheckedContinuation { continuation in
             let environment = self.environment
             DispatchQueue.global(qos: .utility).async {
@@ -46,7 +46,7 @@ struct DefaultWorkspaceReviewCommandRunner: WorkspaceReviewCommandRunning {
                       let executablePath = Self.resolveExecutablePath(for: command, environment: environment)
                 else {
                     let missingCommand = arguments.first ?? "<missing>"
-                    continuation.resume(returning: WorkspaceReviewCommandResult(
+                    continuation.resume(returning: WorklaneReviewCommandResult(
                         terminationStatus: -1,
                         stdout: Data(),
                         stderr: Data("Unable to locate executable for command: \(missingCommand)".utf8)
@@ -68,14 +68,14 @@ struct DefaultWorkspaceReviewCommandRunner: WorkspaceReviewCommandRunning {
                 do {
                     try process.run()
                     process.waitUntilExit()
-                    continuation.resume(returning: WorkspaceReviewCommandResult(
+                    continuation.resume(returning: WorklaneReviewCommandResult(
                         terminationStatus: process.terminationStatus,
                         stdout: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
                         stderr: stderrPipe.fileHandleForReading.readDataToEndOfFile()
                     ))
                 } catch {
                     reviewLogger.debug("Review command failed: \(error.localizedDescription)")
-                    continuation.resume(returning: WorkspaceReviewCommandResult(
+                    continuation.resume(returning: WorklaneReviewCommandResult(
                         terminationStatus: -1,
                         stdout: Data(),
                         stderr: Data(error.localizedDescription.utf8)
@@ -153,7 +153,7 @@ struct DefaultWorkspaceReviewCommandRunner: WorkspaceReviewCommandRunning {
 }
 
 @MainActor
-final class WorkspaceReviewStateResolver {
+final class WorklaneReviewStateResolver {
     private struct RepositoryKey: Hashable {
         let repoRoot: String
         let branch: String
@@ -190,25 +190,25 @@ final class WorkspaceReviewStateResolver {
         let link: URL?
     }
 
-    private let runner: any WorkspaceReviewCommandRunning
-    private var cache: [RepositoryKey: WorkspaceReviewResolution] = [:]
+    private let runner: any WorklaneReviewCommandRunning
+    private var cache: [RepositoryKey: WorklaneReviewResolution] = [:]
     private var repositoryStatusByPath: [String: RepositoryStatus] = [:]
     private var githubRepositoryByKey: [RepositoryKey: GitHubRepositoryResolution] = [:]
     private var remoteHostInfoByRepoRoot: [String: GitRemoteHostInfo?] = [:]
     private var pendingRepositoryKeys: Set<RepositoryKey> = []
     private var waitingPaneIDsByRepositoryKey: [RepositoryKey: Set<PaneID>] = [:]
 
-    init(runner: any WorkspaceReviewCommandRunning = DefaultWorkspaceReviewCommandRunner()) {
+    init(runner: any WorklaneReviewCommandRunning = DefaultWorklaneReviewCommandRunner()) {
         self.runner = runner
     }
 
     func refresh(
-        for workspaces: [WorkspaceState],
-        update: @escaping (PaneID, WorkspaceReviewResolution) -> Void
+        for worklanes: [WorklaneState],
+        update: @escaping (PaneID, WorklaneReviewResolution) -> Void
     ) {
-        for workspace in workspaces {
-            for pane in workspace.paneStripState.panes {
-                let auxiliaryState = workspace.auxiliaryStateByPaneID[pane.id]
+        for worklane in worklanes {
+            for pane in worklane.paneStripState.panes {
+                let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
                 guard
                     let repoRoot = auxiliaryState?.presentation.repoRoot,
                     let branch = preferredBranch(from: auxiliaryState?.presentation.lookupBranch)
@@ -252,8 +252,8 @@ final class WorkspaceReviewStateResolver {
         }
     }
 
-    func resolve(path: String, branch: String) async -> WorkspaceReviewResolution {
-        guard let sanitizedBranch = preferredBranch(from: branch) ?? WorkspaceContextFormatter.trimmed(branch) else {
+    func resolve(path: String, branch: String) async -> WorklaneReviewResolution {
+        guard let sanitizedBranch = preferredBranch(from: branch) ?? WorklaneContextFormatter.trimmed(branch) else {
             return emptyResolution()
         }
 
@@ -282,7 +282,7 @@ final class WorkspaceReviewStateResolver {
         branch: String,
         paneID: PaneID,
         forceReload: Bool = false,
-        update: @escaping (PaneID, WorkspaceReviewResolution) -> Void
+        update: @escaping (PaneID, WorklaneReviewResolution) -> Void
     ) {
         guard let sanitizedBranch = preferredBranch(from: branch) else {
             return
@@ -316,8 +316,8 @@ final class WorkspaceReviewStateResolver {
     private func loadPullRequestResolution(
         path: String,
         branch: String,
-        fallback: WorkspaceReviewResolution?
-    ) async -> WorkspaceReviewResolution {
+        fallback: WorklaneReviewResolution?
+    ) async -> WorklaneReviewResolution {
         switch await resolveGitHubRepository(path: path, branch: branch) {
         case .noGitHubRepository:
             return branchOnlyResolution(branch: branch, repoRoot: path)
@@ -326,7 +326,7 @@ final class WorkspaceReviewStateResolver {
                 return fallback
             }
 
-            return WorkspaceReviewResolution(
+            return WorklaneReviewResolution(
                 reviewState: nil,
                 updatePolicy: .preserveExistingOnEmpty
             )
@@ -345,7 +345,7 @@ final class WorkspaceReviewStateResolver {
                     return fallback
                 }
 
-                return WorkspaceReviewResolution(
+                return WorklaneReviewResolution(
                     reviewState: nil,
                     updatePolicy: .preserveExistingOnEmpty
                 )
@@ -356,13 +356,13 @@ final class WorkspaceReviewStateResolver {
                     return fallback
                 }
 
-                return WorkspaceReviewResolution(
+                return WorklaneReviewResolution(
                     reviewState: nil,
                     updatePolicy: .preserveExistingOnEmpty
                 )
             }
 
-            let pullRequest = WorkspacePullRequestSummary(
+            let pullRequest = WorklanePullRequestSummary(
                 number: pullRequestPayload.number,
                 url: pullRequestPayload.url,
                 state: pullRequestState(from: pullRequestPayload)
@@ -373,8 +373,8 @@ final class WorkspaceReviewStateResolver {
             )
             let reviewChips = reviewChips(for: pullRequest, checksResult: checksResult)
             let branchURL = remoteHostInfoByRepoRoot[path]??.branchURL(branch: branch)
-            return WorkspaceReviewResolution(
-                reviewState: WorkspaceReviewState(
+            return WorklaneReviewResolution(
+                reviewState: WorklaneReviewState(
                     branch: branch,
                     branchURL: branchURL,
                     pullRequest: pullRequest,
@@ -385,19 +385,19 @@ final class WorkspaceReviewStateResolver {
     }
 
     private func preferredBranch(from value: String?) -> String? {
-        WorkspaceContextFormatter.displayBranch(value)
+        WorklaneContextFormatter.displayBranch(value)
     }
 
-    private func emptyResolution() -> WorkspaceReviewResolution {
-        WorkspaceReviewResolution(
+    private func emptyResolution() -> WorklaneReviewResolution {
+        WorklaneReviewResolution(
             reviewState: nil,
             updatePolicy: .preserveExistingOnEmpty
         )
     }
 
-    private func branchOnlyResolution(branch: String, repoRoot: String) -> WorkspaceReviewResolution {
-        WorkspaceReviewResolution(
-            reviewState: WorkspaceReviewState(
+    private func branchOnlyResolution(branch: String, repoRoot: String) -> WorklaneReviewResolution {
+        WorklaneReviewResolution(
+            reviewState: WorklaneReviewState(
                 branch: branch,
                 branchURL: remoteHostInfoByRepoRoot[repoRoot]??.branchURL(branch: branch),
                 pullRequest: nil,
@@ -423,7 +423,7 @@ final class WorkspaceReviewStateResolver {
             return false
         }
 
-        let gitDirectory = WorkspaceContextFormatter.trimmed(String(decoding: result.stdout, as: UTF8.self)) ?? ".git"
+        let gitDirectory = WorklaneContextFormatter.trimmed(String(decoding: result.stdout, as: UTF8.self)) ?? ".git"
         repositoryStatusByPath[path] = .repository(gitDirectory: gitDirectory)
         return true
     }
@@ -498,7 +498,7 @@ final class WorkspaceReviewStateResolver {
             return nil
         }
 
-        return WorkspaceContextFormatter.trimmed(String(decoding: result.stdout, as: UTF8.self))
+        return WorklaneContextFormatter.trimmed(String(decoding: result.stdout, as: UTF8.self))
     }
 
     private func resolveGitHubRepositorySpecifier(
@@ -513,7 +513,7 @@ final class WorkspaceReviewStateResolver {
             return .failed
         }
 
-        guard let remoteURL = WorkspaceContextFormatter.trimmed(String(decoding: result.stdout, as: UTF8.self)) else {
+        guard let remoteURL = WorklaneContextFormatter.trimmed(String(decoding: result.stdout, as: UTF8.self)) else {
             return .notGitHub
         }
 
@@ -582,7 +582,7 @@ final class WorkspaceReviewStateResolver {
     private func runCommand(
         arguments: [String],
         currentDirectoryPath: String
-    ) async -> WorkspaceReviewCommandResult {
+    ) async -> WorklaneReviewCommandResult {
         let result = await runner.run(
             arguments: arguments,
             currentDirectoryPath: currentDirectoryPath
@@ -594,7 +594,7 @@ final class WorkspaceReviewStateResolver {
     private func logCommandFailure(
         arguments: [String],
         currentDirectoryPath: String,
-        result: WorkspaceReviewCommandResult
+        result: WorklaneReviewCommandResult
     ) {
         guard result.terminationStatus != 0 else {
             return
@@ -618,7 +618,7 @@ final class WorkspaceReviewStateResolver {
         try? JSONDecoder().decode([PullRequestCheckPayload].self, from: data)
     }
 
-    private func pullRequestState(from payload: PullRequestPayload) -> WorkspacePullRequestState {
+    private func pullRequestState(from payload: PullRequestPayload) -> WorklanePullRequestState {
         switch payload.state.uppercased() {
         case "MERGED":
             return .merged
@@ -630,9 +630,9 @@ final class WorkspaceReviewStateResolver {
     }
 
     private func reviewChips(
-        for pullRequest: WorkspacePullRequestSummary,
-        checksResult: WorkspaceReviewCommandResult
-    ) -> [WorkspaceReviewChip] {
+        for pullRequest: WorklanePullRequestSummary,
+        checksResult: WorklaneReviewCommandResult
+    ) -> [WorklaneReviewChip] {
         var chips = stateChips(for: pullRequest.state)
 
         guard pullRequest.state == .open || pullRequest.state == .draft else {
@@ -641,21 +641,21 @@ final class WorkspaceReviewStateResolver {
 
         guard checksResult.terminationStatus == 0 else {
             if pullRequest.state == .open {
-                chips.append(WorkspaceReviewChip(text: "Ready", style: .success))
+                chips.append(WorklaneReviewChip(text: "Ready", style: .success))
             }
             return chips
         }
 
         guard let checks = decodeChecks(from: checksResult.stdout), !checks.isEmpty else {
             if pullRequest.state == .open {
-                chips.append(WorkspaceReviewChip(text: "Ready", style: .success))
+                chips.append(WorklaneReviewChip(text: "Ready", style: .success))
             }
             return chips
         }
 
         let failureCount = checks.filter(isFailingCheck).count
         if failureCount > 0 {
-            chips.append(WorkspaceReviewChip(
+            chips.append(WorklaneReviewChip(
                 text: failureCount == 1 ? "1 failing" : "\(failureCount) failing",
                 style: .danger
             ))
@@ -663,24 +663,24 @@ final class WorkspaceReviewStateResolver {
         }
 
         if checks.contains(where: isPendingCheck) {
-            chips.append(WorkspaceReviewChip(text: "Running", style: .warning))
+            chips.append(WorklaneReviewChip(text: "Running", style: .warning))
             return chips
         }
 
-        chips.append(WorkspaceReviewChip(text: "Checks passed", style: .success))
+        chips.append(WorklaneReviewChip(text: "Checks passed", style: .success))
         return chips
     }
 
-    private func stateChips(for state: WorkspacePullRequestState) -> [WorkspaceReviewChip] {
+    private func stateChips(for state: WorklanePullRequestState) -> [WorklaneReviewChip] {
         switch state {
         case .draft:
-            return [WorkspaceReviewChip(text: "Draft", style: .info)]
+            return [WorklaneReviewChip(text: "Draft", style: .info)]
         case .open:
             return []
         case .merged:
-            return [WorkspaceReviewChip(text: "Merged", style: .success)]
+            return [WorklaneReviewChip(text: "Merged", style: .success)]
         case .closed:
-            return [WorkspaceReviewChip(text: "Closed", style: .neutral)]
+            return [WorklaneReviewChip(text: "Closed", style: .neutral)]
         }
     }
 
@@ -706,7 +706,7 @@ final class WorkspaceReviewStateResolver {
             || state == "in_progress"
     }
 
-    private func isNoPullRequestResult(_ result: WorkspaceReviewCommandResult) -> Bool {
+    private func isNoPullRequestResult(_ result: WorklaneReviewCommandResult) -> Bool {
         var combinedData = result.stdout
         combinedData.append(result.stderr)
         let combinedOutput = String(decoding: combinedData, as: UTF8.self).lowercased()

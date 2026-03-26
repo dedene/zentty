@@ -2,7 +2,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class WorkspaceStoreGitContextTests: XCTestCase {
+final class WorklaneStoreGitContextTests: XCTestCase {
     func test_metadata_update_resolves_git_context_from_cwd_and_updates_presentation() async throws {
         let resolver = StubPaneGitContextResolver(
             resultByWorkingDirectory: [
@@ -13,8 +13,8 @@ final class WorkspaceStoreGitContextTests: XCTestCase {
                 )
             ]
         )
-        let store = WorkspaceStore(gitContextResolver: resolver)
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore(gitContextResolver: resolver)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         let updated = expectation(description: "git context resolved")
 
         let subscription = store.subscribe { change in
@@ -22,7 +22,7 @@ final class WorkspaceStoreGitContextTests: XCTestCase {
                 return
             }
 
-            if store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation.branch == "main" {
+            if store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.branch == "main" {
                 updated.fulfill()
             }
         }
@@ -42,7 +42,7 @@ final class WorkspaceStoreGitContextTests: XCTestCase {
 
         await fulfillment(of: [updated], timeout: 1.0)
 
-        let presentation = try XCTUnwrap(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation)
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
         XCTAssertEqual(presentation.repoRoot, "/tmp/project")
         XCTAssertEqual(presentation.branch, "main")
         XCTAssertEqual(presentation.contextText, "main · /tmp/project")
@@ -59,8 +59,8 @@ final class WorkspaceStoreGitContextTests: XCTestCase {
             ],
             delayNanoseconds: 300_000_000
         )
-        let store = WorkspaceStore(gitContextResolver: resolver)
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore(gitContextResolver: resolver)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.updateMetadata(
             paneID: paneID,
@@ -81,20 +81,20 @@ final class WorkspaceStoreGitContextTests: XCTestCase {
         )
         store.updateReviewState(
             paneID: paneID,
-            reviewState: WorkspaceReviewState(
+            reviewState: WorklaneReviewState(
                 branch: "main",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 42,
                     url: URL(string: "https://example.com/pr/42"),
                     state: .open
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Ready", style: .success)]
+                reviewChips: [WorklaneReviewChip(text: "Ready", style: .success)]
             )
         )
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -115,7 +115,7 @@ final class WorkspaceStoreGitContextTests: XCTestCase {
             )
         )
 
-        let auxiliaryState = try XCTUnwrap(store.activeWorkspace?.auxiliaryStateByPaneID[paneID])
+        let auxiliaryState = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
         XCTAssertNil(auxiliaryState.gitContext)
         XCTAssertNil(auxiliaryState.reviewState)
         XCTAssertEqual(auxiliaryState.localReviewWorkingDirectory, "/tmp/project-b")
@@ -136,8 +136,8 @@ final class WorkspaceStoreGitContextTests: XCTestCase {
             ],
             delayNanoseconds: 300_000_000
         )
-        let store = WorkspaceStore(gitContextResolver: resolver)
-        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let store = WorklaneStore(gitContextResolver: resolver)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.updateMetadata(
             paneID: paneID,
@@ -158,20 +158,20 @@ final class WorkspaceStoreGitContextTests: XCTestCase {
         )
         store.updateReviewState(
             paneID: paneID,
-            reviewState: WorkspaceReviewState(
+            reviewState: WorklaneReviewState(
                 branch: "main",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 42,
                     url: URL(string: "https://example.com/pr/42"),
                     state: .open
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Ready", style: .success)]
+                reviewChips: [WorklaneReviewChip(text: "Ready", style: .success)]
             )
         )
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -192,7 +192,7 @@ final class WorkspaceStoreGitContextTests: XCTestCase {
             )
         )
 
-        let auxiliaryState = try XCTUnwrap(store.activeWorkspace?.auxiliaryStateByPaneID[paneID])
+        let auxiliaryState = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
         XCTAssertNil(auxiliaryState.gitContext)
         XCTAssertNil(auxiliaryState.reviewState)
         XCTAssertEqual(auxiliaryState.localReviewWorkingDirectory, "/tmp/project")

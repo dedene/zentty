@@ -1,5 +1,7 @@
 enum AppAction: Equatable, Sendable {
-    case newWorkspace
+    case newWorklane
+    case nextWorklane
+    case previousWorklane
     case copyFocusedPanePath
     case jumpToLatestNotification
     case pane(PaneCommand)
@@ -9,7 +11,11 @@ enum KeyboardShortcutResolver {
     static func resolve(_ shortcut: KeyboardShortcut) -> AppAction? {
         switch (shortcut.key, shortcut.modifiers) {
         case (.character("t"), [.command]):
-            return .newWorkspace
+            return .newWorklane
+        case (.tab, [.control]):
+            return .nextWorklane
+        case (.tab, [.control, .shift]):
+            return .previousWorklane
         case (.character("c"), [.command, .shift]):
             return .copyFocusedPanePath
         case (.character("u"), [.command, .shift]):

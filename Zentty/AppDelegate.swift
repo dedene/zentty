@@ -57,7 +57,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     ) async {
         let userInfo = response.notification.request.content.userInfo
         let actionIdentifier = response.actionIdentifier
-        guard let workspaceRaw = userInfo["workspaceID"] as? String,
+        guard let worklaneRaw = userInfo["worklaneID"] as? String,
               let paneRaw = userInfo["paneID"] as? String else {
             return
         }
@@ -67,7 +67,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         await MainActor.run {
             if shouldJump {
                 self.windowController?.navigateToPane(
-                    workspaceID: WorkspaceID(workspaceRaw),
+                    worklaneID: WorklaneID(worklaneRaw),
                     paneID: PaneID(paneRaw)
                 )
             }

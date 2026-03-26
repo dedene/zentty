@@ -49,8 +49,8 @@ struct ZenttyTheme: Equatable {
     let canvasShadow: NSColor
     let contextStripBackground: NSColor
     let contextStripBorder: NSColor
-    let workspaceChipBackground: NSColor
-    let workspaceChipText: NSColor
+    let worklaneChipBackground: NSColor
+    let worklaneChipText: NSColor
     let primaryText: NSColor
     let secondaryText: NSColor
     let tertiaryText: NSColor
@@ -99,7 +99,7 @@ struct ZenttyTheme: Equatable {
         [
             lhs.windowBackground, lhs.sidebarBackground, lhs.sidebarBorder, lhs.sidebarShadow,
             lhs.topChromeBackground, lhs.topChromeBorder, lhs.canvasBackground, lhs.canvasBorder,
-            lhs.canvasShadow, lhs.contextStripBackground, lhs.contextStripBorder, lhs.workspaceChipBackground, lhs.workspaceChipText,
+            lhs.canvasShadow, lhs.contextStripBackground, lhs.contextStripBorder, lhs.worklaneChipBackground, lhs.worklaneChipText,
             lhs.primaryText, lhs.secondaryText, lhs.tertiaryText, lhs.paneBorderFocused,
             lhs.paneBorderUnfocused, lhs.paneFillFocused, lhs.paneFillUnfocused, lhs.paneShadow,
             lhs.startupSurface, lhs.failureOverlayBackground, lhs.failurePrimaryText,
@@ -117,7 +117,7 @@ struct ZenttyTheme: Equatable {
         ].map(\.themeToken) == [
             rhs.windowBackground, rhs.sidebarBackground, rhs.sidebarBorder, rhs.sidebarShadow,
             rhs.topChromeBackground, rhs.topChromeBorder, rhs.canvasBackground, rhs.canvasBorder,
-            rhs.canvasShadow, rhs.contextStripBackground, rhs.contextStripBorder, rhs.workspaceChipBackground, rhs.workspaceChipText,
+            rhs.canvasShadow, rhs.contextStripBackground, rhs.contextStripBorder, rhs.worklaneChipBackground, rhs.worklaneChipText,
             rhs.primaryText, rhs.secondaryText, rhs.tertiaryText, rhs.paneBorderFocused,
             rhs.paneBorderUnfocused, rhs.paneFillFocused, rhs.paneFillUnfocused, rhs.paneShadow,
             rhs.startupSurface, rhs.failureOverlayBackground, rhs.failurePrimaryText,
@@ -189,10 +189,10 @@ struct ZenttyTheme: Equatable {
             .mixed(towards: startupSurface, amount: background.isDarkThemeColor ? 0.88 : 0.92)
             .withAlphaComponent(reduceTransparency ? 0.94 : 0.74)
         contextStripBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.10 : 0.12)
-        workspaceChipBackground = accent
+        worklaneChipBackground = accent
             .mixed(towards: background, amount: background.isDarkThemeColor ? 0.82 : 0.88)
             .withAlphaComponent(0.92)
-        workspaceChipText = readableForeground.withAlphaComponent(0.96)
+        worklaneChipText = readableForeground.withAlphaComponent(0.96)
         primaryText = readableForeground.withAlphaComponent(0.96)
         secondaryText = readableForeground.withAlphaComponent(0.72)
         tertiaryText = readableForeground.withAlphaComponent(0.54)

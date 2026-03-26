@@ -12,7 +12,7 @@ struct ClaudeHookInput {
 
 struct ClaudeHookSessionRecord: Codable, Equatable {
     let sessionID: String
-    var workspaceIDRawValue: String
+    var worklaneIDRawValue: String
     var paneIDRawValue: String
     var cwd: String?
     var pid: Int32?
@@ -24,8 +24,8 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     var lastNotificationText: String?
     var updatedAt: TimeInterval
 
-    var workspaceID: WorkspaceID {
-        WorkspaceID(workspaceIDRawValue)
+    var worklaneID: WorklaneID {
+        WorklaneID(worklaneIDRawValue)
     }
 
     var paneID: PaneID {
@@ -111,7 +111,7 @@ enum ClaudeHookBridge {
             if let sessionID = input.sessionID {
                 try sessionStore.upsert(
                     sessionID: sessionID,
-                    workspaceID: target.workspaceID,
+                    worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     cwd: input.cwd,
                     pid: pid
@@ -122,7 +122,7 @@ enum ClaudeHookBridge {
             }
             return [
                 pidPayload(
-                    workspaceID: target.workspaceID,
+                    worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     pid: pid,
                     event: .attach,
@@ -167,7 +167,7 @@ enum ClaudeHookBridge {
 
                 return [
                     lifecyclePayload(
-                        workspaceID: target.workspaceID,
+                        worklaneID: target.worklaneID,
                         paneID: target.paneID,
                         state: .needsInput,
                         text: message,
@@ -190,7 +190,7 @@ enum ClaudeHookBridge {
 
             return [
                 lifecyclePayload(
-                    workspaceID: target.workspaceID,
+                    worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .needsInput,
                     text: message,
@@ -213,7 +213,7 @@ enum ClaudeHookBridge {
             if let sessionID = input.sessionID {
                 try sessionStore.rememberStructuredInteraction(
                     sessionID: sessionID,
-                    workspaceID: existing?.workspaceID ?? target.workspaceID,
+                    worklaneID: existing?.worklaneID ?? target.worklaneID,
                     paneID: existing?.paneID ?? target.paneID,
                     cwd: input.cwd ?? existing?.cwd,
                     pid: existing?.pid,
@@ -224,7 +224,7 @@ enum ClaudeHookBridge {
             }
             return [
                 lifecyclePayload(
-                    workspaceID: target.workspaceID,
+                    worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .needsInput,
                     text: message,
@@ -248,7 +248,7 @@ enum ClaudeHookBridge {
                 )
                 try sessionStore.rememberStructuredInteraction(
                     sessionID: sessionID,
-                    workspaceID: existing?.workspaceID ?? target.workspaceID,
+                    worklaneID: existing?.worklaneID ?? target.worklaneID,
                     paneID: existing?.paneID ?? target.paneID,
                     cwd: input.cwd ?? existing?.cwd,
                     pid: existing?.pid,
@@ -258,7 +258,7 @@ enum ClaudeHookBridge {
                 )
                 return [
                     lifecyclePayload(
-                        workspaceID: target.workspaceID,
+                        worklaneID: target.worklaneID,
                         paneID: target.paneID,
                         state: .needsInput,
                         text: message,
@@ -274,7 +274,7 @@ enum ClaudeHookBridge {
             let preToolExisting = try lookupRecord(for: input, sessionStore: sessionStore)
             return [
                 lifecyclePayload(
-                    workspaceID: target.workspaceID,
+                    worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .running,
                     text: nil,
@@ -293,7 +293,7 @@ enum ClaudeHookBridge {
             let promptExisting = try lookupRecord(for: input, sessionStore: sessionStore)
             return [
                 lifecyclePayload(
-                    workspaceID: target.workspaceID,
+                    worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .running,
                     text: nil,
@@ -308,7 +308,7 @@ enum ClaudeHookBridge {
             let target = try resolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             return [
                 lifecyclePayload(
-                    workspaceID: target.workspaceID,
+                    worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .idle,
                     text: nil,
@@ -322,7 +322,7 @@ enum ClaudeHookBridge {
             let target = try resolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             return [
                 lifecyclePayload(
-                    workspaceID: target.workspaceID,
+                    worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .idle,
                     text: nil,
@@ -336,7 +336,7 @@ enum ClaudeHookBridge {
             let current = currentTargetIfAvailable(from: environment)
             let record = try sessionStore.consume(
                 sessionID: input.sessionID,
-                fallbackWorkspaceID: current?.workspaceID,
+                fallbackWorklaneID: current?.worklaneID,
                 fallbackPaneID: current?.paneID
             )
             guard let record else {
@@ -344,7 +344,7 @@ enum ClaudeHookBridge {
             }
             return [
                 AgentStatusPayload(
-                    workspaceID: record.workspaceID,
+                    worklaneID: record.worklaneID,
                     paneID: record.paneID,
                     signalKind: .lifecycle,
                     state: nil,
@@ -357,7 +357,7 @@ enum ClaudeHookBridge {
                     artifactURL: nil
                 ),
                 pidPayload(
-                    workspaceID: record.workspaceID,
+                    worklaneID: record.worklaneID,
                     paneID: record.paneID,
                     pid: nil,
                     event: .clear,
@@ -370,31 +370,31 @@ enum ClaudeHookBridge {
         }
     }
 
-    private static func currentTarget(from environment: [String: String]) throws -> (workspaceID: WorkspaceID, paneID: PaneID) {
-        guard let workspaceID = environment["ZENTTY_WORKSPACE_ID"] else {
-            throw AgentStatusPayloadError.missingWorkspaceID
+    private static func currentTarget(from environment: [String: String]) throws -> (worklaneID: WorklaneID, paneID: PaneID) {
+        guard let worklaneID = environment["ZENTTY_WORKLANE_ID"] else {
+            throw AgentStatusPayloadError.missingWorklaneID
         }
         guard let paneID = environment["ZENTTY_PANE_ID"] else {
             throw AgentStatusPayloadError.missingPaneID
         }
-        return (WorkspaceID(workspaceID), PaneID(paneID))
+        return (WorklaneID(worklaneID), PaneID(paneID))
     }
 
-    private static func currentTargetIfAvailable(from environment: [String: String]) -> (workspaceID: WorkspaceID, paneID: PaneID)? {
-        guard let workspaceID = environment["ZENTTY_WORKSPACE_ID"],
+    private static func currentTargetIfAvailable(from environment: [String: String]) -> (worklaneID: WorklaneID, paneID: PaneID)? {
+        guard let worklaneID = environment["ZENTTY_WORKLANE_ID"],
               let paneID = environment["ZENTTY_PANE_ID"] else {
             return nil
         }
-        return (WorkspaceID(workspaceID), PaneID(paneID))
+        return (WorklaneID(worklaneID), PaneID(paneID))
     }
 
     private static func resolvedTarget(
         for input: ClaudeHookInput,
         environment: [String: String],
         sessionStore: ClaudeHookSessionStore
-    ) throws -> (workspaceID: WorkspaceID, paneID: PaneID) {
+    ) throws -> (worklaneID: WorklaneID, paneID: PaneID) {
         if let record = try lookupRecord(for: input, sessionStore: sessionStore) {
-            return (record.workspaceID, record.paneID)
+            return (record.worklaneID, record.paneID)
         }
         return try currentTarget(from: environment)
     }
@@ -419,7 +419,7 @@ enum ClaudeHookBridge {
     }
 
     private static func lifecyclePayload(
-        workspaceID: WorkspaceID,
+        worklaneID: WorklaneID,
         paneID: PaneID,
         state: PaneAgentState?,
         text: String?,
@@ -430,7 +430,7 @@ enum ClaudeHookBridge {
         sessionID: String? = nil
     ) -> AgentStatusPayload {
         AgentStatusPayload(
-            workspaceID: workspaceID,
+            worklaneID: worklaneID,
             paneID: paneID,
             signalKind: .lifecycle,
             state: state,
@@ -449,14 +449,14 @@ enum ClaudeHookBridge {
     }
 
     private static func pidPayload(
-        workspaceID: WorkspaceID,
+        worklaneID: WorklaneID,
         paneID: PaneID,
         pid: Int32?,
         event: AgentPIDSignalEvent,
         sessionID: String? = nil
     ) -> AgentStatusPayload {
         AgentStatusPayload(
-            workspaceID: workspaceID,
+            worklaneID: worklaneID,
             paneID: paneID,
             signalKind: .pid,
             state: nil,

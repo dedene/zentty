@@ -3,20 +3,20 @@ import Foundation
 import UserNotifications
 
 @MainActor
-protocol WorkspaceAttentionUserNotificationCenter: AnyObject {
+protocol WorklaneAttentionUserNotificationCenter: AnyObject {
     func requestAuthorizationIfNeeded()
-    func add(identifier: String, title: String, body: String, workspaceID: String, paneID: String)
+    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String)
 }
 
 @MainActor
-final class WorkspaceAttentionNotificationCoordinator {
-    private let center: any WorkspaceAttentionUserNotificationCenter
+final class WorklaneAttentionNotificationCoordinator {
+    private let center: any WorklaneAttentionUserNotificationCenter
     private let notificationStore: NotificationStore
-    private var lastSeenStates: [WorkspaceID: WorkspaceAttentionState] = [:]
-    private var lastSeenPaneIDs: [WorkspaceID: PaneID] = [:]
+    private var lastSeenStates: [WorklaneID: WorklaneAttentionState] = [:]
+    private var lastSeenPaneIDs: [WorklaneID: PaneID] = [:]
 
     init(
-        center: any WorkspaceAttentionUserNotificationCenter = WorkspaceAttentionUNCenter(),
+        center: any WorklaneAttentionUserNotificationCenter = WorklaneAttentionUNCenter(),
         notificationStore: NotificationStore
     ) {
         self.center = center
@@ -25,44 +25,44 @@ final class WorkspaceAttentionNotificationCoordinator {
     }
 
     func update(
-        workspaces: [WorkspaceState],
-        activeWorkspaceID: WorkspaceID,
+        worklanes: [WorklaneState],
+        activeWorklaneID: WorklaneID,
         windowIsKey: Bool
     ) {
-        var nextSeenStates: [WorkspaceID: WorkspaceAttentionState] = [:]
-        var nextSeenPaneIDs: [WorkspaceID: PaneID] = [:]
-        var visitedWorkspaceIDs = Set<WorkspaceID>()
+        var nextSeenStates: [WorklaneID: WorklaneAttentionState] = [:]
+        var nextSeenPaneIDs: [WorklaneID: PaneID] = [:]
+        var visitedWorklaneIDs = Set<WorklaneID>()
 
-        for workspace in workspaces {
-            visitedWorkspaceIDs.insert(workspace.id)
+        for worklane in worklanes {
+            visitedWorklaneIDs.insert(worklane.id)
 
-            guard let attention = WorkspaceAttentionSummaryBuilder.summary(for: workspace) else {
-                // Workspace no longer has attention — resolve if it was previously needsInput.
-                if lastSeenStates[workspace.id] == .needsInput,
-                   let previousPaneID = lastSeenPaneIDs[workspace.id] {
-                    notificationStore.resolve(workspaceID: workspace.id, paneID: previousPaneID)
+            guard let attention = WorklaneAttentionSummaryBuilder.summary(for: worklane) else {
+                // Worklane no longer has attention — resolve if it was previously needsInput.
+                if lastSeenStates[worklane.id] == .needsInput,
+                   let previousPaneID = lastSeenPaneIDs[worklane.id] {
+                    notificationStore.resolve(worklaneID: worklane.id, paneID: previousPaneID)
                 }
                 continue
             }
 
-            nextSeenStates[workspace.id] = attention.state
-            nextSeenPaneIDs[workspace.id] = attention.paneID
+            nextSeenStates[worklane.id] = attention.state
+            nextSeenPaneIDs[worklane.id] = attention.paneID
 
-            let stateChanged = lastSeenStates[workspace.id] != attention.state
-            let paneChanged = lastSeenPaneIDs[workspace.id] != attention.paneID
+            let stateChanged = lastSeenStates[worklane.id] != attention.state
+            let paneChanged = lastSeenPaneIDs[worklane.id] != attention.paneID
             let didChange = stateChanged || paneChanged
 
             // Resolve in-app notification when leaving needsInput or when the attention pane changed.
             if didChange,
-               lastSeenStates[workspace.id] == .needsInput,
-               let previousPaneID = lastSeenPaneIDs[workspace.id] {
-                notificationStore.resolve(workspaceID: workspace.id, paneID: previousPaneID)
+               lastSeenStates[worklane.id] == .needsInput,
+               let previousPaneID = lastSeenPaneIDs[worklane.id] {
+                notificationStore.resolve(worklaneID: worklane.id, paneID: previousPaneID)
             }
 
             // Add in-app notification when entering needsInput or when the attention pane changed.
             if didChange, attention.state == .needsInput {
                 notificationStore.add(
-                    workspaceID: workspace.id,
+                    worklaneID: worklane.id,
                     paneID: attention.paneID,
                     tool: attention.tool,
                     interactionKind: attention.interactionKind,
@@ -72,17 +72,17 @@ final class WorkspaceAttentionNotificationCoordinator {
                 )
             }
 
-            // System notification — only for background / non-active workspaces.
-            let shouldNotify = (workspace.id != activeWorkspaceID) || !windowIsKey
+            // System notification — only for background / non-active worklanes.
+            let shouldNotify = (worklane.id != activeWorklaneID) || !windowIsKey
             guard didChange, shouldNotify, attention.state == .needsInput else {
                 continue
             }
 
             center.add(
-                identifier: "\(workspace.id.rawValue)-\(attention.state.rawValue)-\(attention.updatedAt.timeIntervalSince1970)",
+                identifier: "\(worklane.id.rawValue)-\(attention.state.rawValue)-\(attention.updatedAt.timeIntervalSince1970)",
                 title: attention.statusText,
                 body: attention.primaryText,
-                workspaceID: workspace.id.rawValue,
+                worklaneID: worklane.id.rawValue,
                 paneID: attention.paneID.rawValue
             )
             if !windowIsKey {
@@ -90,12 +90,12 @@ final class WorkspaceAttentionNotificationCoordinator {
             }
         }
 
-        // Resolve any workspaces that were removed entirely (not in the workspaces array).
-        for (workspaceID, previousState) in lastSeenStates {
+        // Resolve any worklanes that were removed entirely (not in the worklanes array).
+        for (worklaneID, previousState) in lastSeenStates {
             guard previousState == .needsInput,
-                  !visitedWorkspaceIDs.contains(workspaceID),
-                  let previousPaneID = lastSeenPaneIDs[workspaceID] else { continue }
-            notificationStore.resolve(workspaceID: workspaceID, paneID: previousPaneID)
+                  !visitedWorklaneIDs.contains(worklaneID),
+                  let previousPaneID = lastSeenPaneIDs[worklaneID] else { continue }
+            notificationStore.resolve(worklaneID: worklaneID, paneID: previousPaneID)
         }
 
         lastSeenStates = nextSeenStates
@@ -104,7 +104,7 @@ final class WorkspaceAttentionNotificationCoordinator {
 }
 
 @MainActor
-final class WorkspaceAttentionUNCenter: NSObject, WorkspaceAttentionUserNotificationCenter {
+final class WorklaneAttentionUNCenter: NSObject, WorklaneAttentionUserNotificationCenter {
     private let center = UNUserNotificationCenter.current()
     private var hasRequestedAuthorization = false
 
@@ -148,7 +148,7 @@ final class WorkspaceAttentionUNCenter: NSObject, WorkspaceAttentionUserNotifica
 
         let jumpAction = UNNotificationAction(
             identifier: "JUMP",
-            title: "Jump to Workspace",
+            title: "Jump to Worklane",
             options: [.foreground]
         )
         let dismissAction = UNNotificationAction(
@@ -164,13 +164,13 @@ final class WorkspaceAttentionUNCenter: NSObject, WorkspaceAttentionUserNotifica
         center.setNotificationCategories([category])
     }
 
-    func add(identifier: String, title: String, body: String, workspaceID: String, paneID: String) {
+    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.categoryIdentifier = "agent-attention"
-        content.threadIdentifier = workspaceID
-        content.userInfo = ["workspaceID": workspaceID, "paneID": paneID]
+        content.threadIdentifier = worklaneID
+        content.userInfo = ["worklaneID": worklaneID, "paneID": paneID]
         let request = UNNotificationRequest(
             identifier: identifier,
             content: content,

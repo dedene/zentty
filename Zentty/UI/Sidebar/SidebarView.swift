@@ -9,13 +9,13 @@ final class SidebarView: NSView {
         static let resizeHandleWidth: CGFloat = 12
     }
 
-    var onWorkspaceSelected: ((WorkspaceID) -> Void)?
-    var onPaneSelected: ((WorkspaceID, PaneID) -> Void)?
-    var onCloseWorkspaceRequested: ((WorkspaceID, PaneID) -> Void)?
-    var onClosePaneRequested: ((WorkspaceID, PaneID) -> Void)?
-    var onSplitHorizontalRequested: ((WorkspaceID, PaneID) -> Void)?
-    var onSplitVerticalRequested: ((WorkspaceID, PaneID) -> Void)?
-    var onNewWorkspaceRequested: (() -> Void)?
+    var onWorklaneSelected: ((WorklaneID) -> Void)?
+    var onPaneSelected: ((WorklaneID, PaneID) -> Void)?
+    var onCloseWorklaneRequested: ((WorklaneID, PaneID) -> Void)?
+    var onClosePaneRequested: ((WorklaneID, PaneID) -> Void)?
+    var onSplitHorizontalRequested: ((WorklaneID, PaneID) -> Void)?
+    var onSplitVerticalRequested: ((WorklaneID, PaneID) -> Void)?
+    var onNewWorklaneRequested: (() -> Void)?
     var onResized: ((CGFloat) -> Void)?
     var onPointerEntered: (() -> Void)?
     var onPointerExited: (() -> Void)?
@@ -24,11 +24,11 @@ final class SidebarView: NSView {
     private let listScrollView = NSScrollView()
     private let listDocumentView = FlippedSidebarDocumentView()
     private let listStack = NSStackView()
-    private let addWorkspaceButton = SidebarFooterButton()
+    private let addWorklaneButton = SidebarFooterButton()
     private let resizeHandleView = SidebarResizeHandleView()
 
-    private var workspaceButtons: [SidebarWorkspaceRowButton] = []
-    private var workspaceSummaries: [WorkspaceSidebarSummary] = []
+    private var worklaneButtons: [SidebarWorklaneRowButton] = []
+    private var worklaneSummaries: [WorklaneSidebarSummary] = []
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resizeStartWidth: CGFloat = SidebarWidthPreference.defaultWidth
     private var trackingArea: NSTrackingArea?
@@ -64,9 +64,9 @@ final class SidebarView: NSView {
         listDocumentView.addSubview(listStack)
         listScrollView.documentView = listDocumentView
 
-        addWorkspaceButton.translatesAutoresizingMaskIntoConstraints = false
-        addWorkspaceButton.target = self
-        addWorkspaceButton.action = #selector(handleCreateWorkspace)
+        addWorklaneButton.translatesAutoresizingMaskIntoConstraints = false
+        addWorklaneButton.target = self
+        addWorklaneButton.action = #selector(handleCreateWorklane)
 
         resizeHandleView.translatesAutoresizingMaskIntoConstraints = false
         resizeHandleView.onPan = { [weak self] recognizer in
@@ -138,14 +138,14 @@ final class SidebarView: NSView {
     }
 
     func render(
-        summaries: [WorkspaceSidebarSummary],
+        summaries: [WorklaneSidebarSummary],
         theme: ZenttyTheme
     ) {
-        let previousActiveID = workspaceSummaries.first(where: \.isActive)?.workspaceID
-        workspaceSummaries = summaries
+        let previousActiveID = worklaneSummaries.first(where: \.isActive)?.worklaneID
+        worklaneSummaries = summaries
 
-        let oldIDs = workspaceButtons.map(\.workspaceID)
-        let newIDs = summaries.map(\.workspaceID)
+        let oldIDs = worklaneButtons.map(\.worklaneID)
+        let newIDs = summaries.map(\.worklaneID)
 
         if oldIDs == newIDs {
             apply(theme: theme, animated: true)
@@ -156,28 +156,28 @@ final class SidebarView: NSView {
                 listStack.removeArrangedSubview(view)
                 view.removeFromSuperview()
             }
-            workspaceButtons.removeAll(keepingCapacity: true)
+            worklaneButtons.removeAll(keepingCapacity: true)
 
             for summary in summaries {
-                let button = SidebarWorkspaceRowButton(workspaceID: summary.workspaceID)
+                let button = SidebarWorklaneRowButton(worklaneID: summary.worklaneID)
                 button.target = self
-                button.action = #selector(handleWorkspaceButton(_:))
+                button.action = #selector(handleWorklaneButton(_:))
 
-                let workspaceID = summary.workspaceID
+                let worklaneID = summary.worklaneID
                 button.onPaneSelected = { [weak self] paneID in
-                    self?.onPaneSelected?(workspaceID, paneID)
+                    self?.onPaneSelected?(worklaneID, paneID)
                 }
-                button.onCloseWorkspaceRequested = { [weak self] paneID in
-                    self?.onCloseWorkspaceRequested?(workspaceID, paneID)
+                button.onCloseWorklaneRequested = { [weak self] paneID in
+                    self?.onCloseWorklaneRequested?(worklaneID, paneID)
                 }
                 button.onClosePaneRequested = { [weak self] paneID in
-                    self?.onClosePaneRequested?(workspaceID, paneID)
+                    self?.onClosePaneRequested?(worklaneID, paneID)
                 }
                 button.onSplitHorizontalRequested = { [weak self] paneID in
-                    self?.onSplitHorizontalRequested?(workspaceID, paneID)
+                    self?.onSplitHorizontalRequested?(worklaneID, paneID)
                 }
                 button.onSplitVerticalRequested = { [weak self] paneID in
-                    self?.onSplitVerticalRequested?(workspaceID, paneID)
+                    self?.onSplitVerticalRequested?(worklaneID, paneID)
                 }
 
                 button.configure(
@@ -185,7 +185,7 @@ final class SidebarView: NSView {
                     theme: currentTheme,
                     animated: false
                 )
-                workspaceButtons.append(button)
+                worklaneButtons.append(button)
                 listStack.addArrangedSubview(button)
                 NSLayoutConstraint.activate([
                     button.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
@@ -193,31 +193,31 @@ final class SidebarView: NSView {
                 ])
             }
 
-            if let lastWorkspaceButton = workspaceButtons.last {
-                listStack.setCustomSpacing(8, after: lastWorkspaceButton)
+            if let lastWorklaneButton = worklaneButtons.last {
+                listStack.setCustomSpacing(8, after: lastWorklaneButton)
             }
 
-            addWorkspaceButton.configure(theme: currentTheme, animated: false)
-            listStack.addArrangedSubview(addWorkspaceButton)
+            addWorklaneButton.configure(theme: currentTheme, animated: false)
+            listStack.addArrangedSubview(addWorklaneButton)
             NSLayoutConstraint.activate([
-                addWorkspaceButton.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
-                addWorkspaceButton.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
+                addWorklaneButton.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
+                addWorklaneButton.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
             ])
         }
 
-        let newActiveID = summaries.first(where: \.isActive)?.workspaceID
+        let newActiveID = summaries.first(where: \.isActive)?.worklaneID
         if newActiveID != previousActiveID, let newActiveID {
             listStack.layoutSubtreeIfNeeded()
-            scrollToWorkspace(id: newActiveID)
+            scrollToWorklane(id: newActiveID)
         }
     }
 
-    private func scrollToWorkspace(id: WorkspaceID) {
-        guard let index = workspaceSummaries.firstIndex(where: { $0.workspaceID == id }),
-              workspaceButtons.indices.contains(index) else {
+    private func scrollToWorklane(id: WorklaneID) {
+        guard let index = worklaneSummaries.firstIndex(where: { $0.worklaneID == id }),
+              worklaneButtons.indices.contains(index) else {
             return
         }
-        let button = workspaceButtons[index]
+        let button = worklaneButtons[index]
         let buttonFrame = listDocumentView.convert(button.bounds, from: button)
         listScrollView.contentView.scrollToVisible(buttonFrame)
     }
@@ -229,7 +229,7 @@ final class SidebarView: NSView {
         listScrollView.appearance = sidebarAppearance
         listDocumentView.appearance = sidebarAppearance
         listStack.appearance = sidebarAppearance
-        addWorkspaceButton.configure(theme: theme, animated: animated)
+        addWorklaneButton.configure(theme: theme, animated: animated)
         resizeHandleView.apply(theme: theme, animated: animated)
         backgroundView.apply(theme: theme, animated: animated)
 
@@ -237,12 +237,12 @@ final class SidebarView: NSView {
             self.layer?.backgroundColor = NSColor.clear.cgColor
         }
 
-        workspaceButtons.enumerated().forEach { index, button in
-            guard workspaceSummaries.indices.contains(index) else {
+        worklaneButtons.enumerated().forEach { index, button in
+            guard worklaneSummaries.indices.contains(index) else {
                 return
             }
             button.configure(
-                with: workspaceSummaries[index],
+                with: worklaneSummaries[index],
                 theme: theme,
                 animated: animated
             )
@@ -255,17 +255,17 @@ final class SidebarView: NSView {
     }
 
     @objc
-    private func handleWorkspaceButton(_ sender: SidebarWorkspaceRowButton) {
-        guard let workspaceID = sender.workspaceID else {
+    private func handleWorklaneButton(_ sender: SidebarWorklaneRowButton) {
+        guard let worklaneID = sender.worklaneID else {
             return
         }
 
-        onWorkspaceSelected?(workspaceID)
+        onWorklaneSelected?(worklaneID)
     }
 
     @objc
-    private func handleCreateWorkspace() {
-        onNewWorkspaceRequested?()
+    private func handleCreateWorklane() {
+        onNewWorklaneRequested?()
     }
 
     private func handleResizePan(_ recognizer: NSPanGestureRecognizer) {
@@ -289,20 +289,20 @@ final class SidebarView: NSView {
         }
     }
 
-    var workspacePrimaryTexts: [String] {
-        workspaceSummaries.map(\.primaryText)
+    var worklanePrimaryTexts: [String] {
+        worklaneSummaries.map(\.primaryText)
     }
 
-    var workspaceContextTexts: [String] {
-        workspaceSummaries.map(\.contextText)
+    var worklaneContextTexts: [String] {
+        worklaneSummaries.map(\.contextText)
     }
 
-    var workspaceButtonsForTesting: [NSButton] {
-        workspaceButtons
+    var worklaneButtonsForTesting: [NSButton] {
+        worklaneButtons
     }
 
-    var addWorkspaceTitle: String {
-        addWorkspaceButton.titleText
+    var addWorklaneTitle: String {
+        addWorklaneButton.titleText
     }
 
     var isHeaderHidden: Bool {
@@ -313,8 +313,8 @@ final class SidebarView: NSView {
         false
     }
 
-    var firstWorkspaceTopInset: CGFloat {
-        guard let firstButton = workspaceButtons.first else {
+    var firstWorklaneTopInset: CGFloat {
+        guard let firstButton = worklaneButtons.first else {
             return .greatestFiniteMagnitude
         }
 
@@ -322,68 +322,68 @@ final class SidebarView: NSView {
         return listScrollView.frame.maxY - buttonFrame.maxY
     }
 
-    var firstWorkspaceMinY: CGFloat {
-        guard let firstButton = workspaceButtons.first else {
+    var firstWorklaneMinY: CGFloat {
+        guard let firstButton = worklaneButtons.first else {
             return 0
         }
 
         return convert(firstButton.bounds, from: firstButton).minY
     }
 
-    var firstWorkspaceMaxY: CGFloat {
-        guard let firstButton = workspaceButtons.first else {
+    var firstWorklaneMaxY: CGFloat {
+        guard let firstButton = worklaneButtons.first else {
             return 0
         }
 
         return convert(firstButton.bounds, from: firstButton).maxY
     }
 
-    var addWorkspaceMinY: CGFloat {
-        convert(addWorkspaceButton.bounds, from: addWorkspaceButton).minY
+    var addWorklaneMinY: CGFloat {
+        convert(addWorklaneButton.bounds, from: addWorklaneButton).minY
     }
 
-    var addWorkspaceMaxY: CGFloat {
-        convert(addWorkspaceButton.bounds, from: addWorkspaceButton).maxY
+    var addWorklaneMaxY: CGFloat {
+        convert(addWorklaneButton.bounds, from: addWorklaneButton).maxY
     }
 
-    var firstWorkspaceWidth: CGFloat {
-        workspaceButtons.first.map { convert($0.bounds, from: $0).width } ?? 0
+    var firstWorklaneWidth: CGFloat {
+        worklaneButtons.first.map { convert($0.bounds, from: $0).width } ?? 0
     }
 
-    var firstWorkspacePrimaryMinX: CGFloat {
-        workspaceButtons.first.map { $0.primaryMinX(in: self) } ?? 0
+    var firstWorklanePrimaryMinX: CGFloat {
+        worklaneButtons.first.map { $0.primaryMinX(in: self) } ?? 0
     }
 
-    var secondWorkspacePrimaryMinX: CGFloat {
-        guard workspaceButtons.count > 1 else {
+    var secondWorklanePrimaryMinX: CGFloat {
+        guard worklaneButtons.count > 1 else {
             return 0
         }
 
-        return workspaceButtons[1].primaryMinX(in: self)
+        return worklaneButtons[1].primaryMinX(in: self)
     }
 
-    var workspaceDetailTexts: [[String]] {
-        workspaceButtons.map(\.detailTextsForTesting)
+    var worklaneDetailTexts: [[String]] {
+        worklaneButtons.map(\.detailTextsForTesting)
     }
 
-    var workspaceOverflowTexts: [String] {
-        workspaceButtons.map(\.overflowTextForTesting)
+    var worklaneOverflowTexts: [String] {
+        worklaneButtons.map(\.overflowTextForTesting)
     }
 
-    var addWorkspaceContentMinX: CGFloat {
-        addWorkspaceButton.contentMinX(in: self)
+    var addWorklaneContentMinX: CGFloat {
+        addWorklaneButton.contentMinX(in: self)
     }
 
-    var addWorkspaceContentMidX: CGFloat {
-        addWorkspaceButton.contentMidX(in: self)
+    var addWorklaneContentMidX: CGFloat {
+        addWorklaneButton.contentMidX(in: self)
     }
 
-    var addWorkspaceIconAlpha: CGFloat {
-        addWorkspaceButton.iconAlpha
+    var addWorklaneIconAlpha: CGFloat {
+        addWorklaneButton.iconAlpha
     }
 
-    var addWorkspaceTitleAlpha: CGFloat {
-        addWorkspaceButton.titleAlpha
+    var addWorklaneTitleAlpha: CGFloat {
+        addWorklaneButton.titleAlpha
     }
 
     var resizeHandleMinX: CGFloat {
@@ -417,7 +417,7 @@ private final class FlippedSidebarDocumentView: NSView {
 
 private final class SidebarFooterButton: NSButton {
     private let iconView = NSImageView()
-    private let titleLabel = NSTextField(labelWithString: "New workspace")
+    private let titleLabel = NSTextField(labelWithString: "New worklane")
     private let contentStack = NSStackView()
 
     override init(frame frameRect: NSRect) {
@@ -432,7 +432,7 @@ private final class SidebarFooterButton: NSButton {
 
     private func setup() {
         title = ""
-        setAccessibilityLabel("New workspace")
+        setAccessibilityLabel("New worklane")
         isBordered = false
         bezelStyle = .regularSquare
         contentTintColor = .secondaryLabelColor
@@ -447,7 +447,7 @@ private final class SidebarFooterButton: NSButton {
 
         iconView.image = NSImage(
             systemSymbolName: "plus",
-            accessibilityDescription: "New workspace"
+            accessibilityDescription: "New worklane"
         )?.withSymbolConfiguration(.init(pointSize: 15, weight: .regular))
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.setContentHuggingPriority(.required, for: .horizontal)
@@ -484,7 +484,7 @@ private final class SidebarFooterButton: NSButton {
         let titleColor = theme.secondaryText.withAlphaComponent(0.90)
         let iconColor = theme.tertiaryText.withAlphaComponent(0.68)
         titleLabel.textColor = titleColor
-        titleLabel.stringValue = "New workspace"
+        titleLabel.stringValue = "New worklane"
         iconView.contentTintColor = iconColor
 
         performThemeAnimation(animated: animated) {

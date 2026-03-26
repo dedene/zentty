@@ -48,19 +48,19 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(quitItem?.keyEquivalent, "q")
     }
 
-    func test_application_launch_installs_file_menu_with_new_workspace_action() {
+    func test_application_launch_installs_file_menu_with_new_worklane_action() {
         NSApp.mainMenu = nil
 
         let delegate = AppDelegate(shouldOpenMainWindow: false)
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
         let fileMenu = menu(named: "File")
-        let newWorkspaceItem = fileMenu?.items.first(where: { $0.action == #selector(MainWindowController.newWorkspace(_:)) })
+        let newWorklaneItem = fileMenu?.items.first(where: { $0.action == #selector(MainWindowController.newWorklane(_:)) })
 
         XCTAssertEqual(fileMenu?.title, "File")
-        XCTAssertEqual(newWorkspaceItem?.title, "New Workspace")
-        XCTAssertEqual(newWorkspaceItem?.keyEquivalent, "t")
-        XCTAssertEqual(newWorkspaceItem?.keyEquivalentModifierMask, [.command])
+        XCTAssertEqual(newWorklaneItem?.title, "New Worklane")
+        XCTAssertEqual(newWorklaneItem?.keyEquivalent, "t")
+        XCTAssertEqual(newWorklaneItem?.keyEquivalentModifierMask, [.command])
     }
 
     @objc func test_application_launch_installs_edit_menu_with_standard_actions() {

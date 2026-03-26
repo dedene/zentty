@@ -3,7 +3,7 @@ import Foundation
 enum AgentStatusPayloadError: Error {
     case missingPaneID
     case missingPID
-    case missingWorkspaceID
+    case missingWorklaneID
     case missingState
     case invalidArguments(String)
     case invalidArtifactURL(String)
@@ -24,7 +24,7 @@ enum AgentPIDSignalEvent: String, Equatable, Sendable {
 }
 
 struct AgentStatusPayload: Equatable, Sendable {
-    let workspaceID: WorkspaceID
+    let worklaneID: WorklaneID
     let paneID: PaneID
     let signalKind: AgentSignalKind
     let state: PaneAgentState?
@@ -40,7 +40,7 @@ struct AgentStatusPayload: Equatable, Sendable {
     let confidence: AgentSignalConfidence?
     let sessionID: String?
     let parentSessionID: String?
-    let artifactKind: WorkspaceArtifactKind?
+    let artifactKind: WorklaneArtifactKind?
     let artifactLabel: String?
     let artifactURL: URL?
     let agentWorkingDirectory: String?
@@ -55,7 +55,7 @@ struct AgentStatusPayload: Equatable, Sendable {
 
     var notificationUserInfo: [AnyHashable: Any]? {
         var userInfo: [AnyHashable: Any] = [
-            "workspaceID": workspaceID.rawValue,
+            "worklaneID": worklaneID.rawValue,
             "paneID": paneID.rawValue,
             "kind": signalKind.rawValue,
             "origin": origin.rawValue,
@@ -127,7 +127,7 @@ struct AgentStatusPayload: Equatable, Sendable {
     }
 
     init(
-        workspaceID: WorkspaceID,
+        worklaneID: WorklaneID,
         paneID: PaneID,
         signalKind: AgentSignalKind = .lifecycle,
         state: PaneAgentState?,
@@ -143,12 +143,12 @@ struct AgentStatusPayload: Equatable, Sendable {
         confidence: AgentSignalConfidence? = nil,
         sessionID: String? = nil,
         parentSessionID: String? = nil,
-        artifactKind: WorkspaceArtifactKind?,
+        artifactKind: WorklaneArtifactKind?,
         artifactLabel: String?,
         artifactURL: URL?,
         agentWorkingDirectory: String? = nil
     ) {
-        self.workspaceID = workspaceID
+        self.worklaneID = worklaneID
         self.paneID = paneID
         self.signalKind = signalKind
         self.state = state
@@ -172,7 +172,7 @@ struct AgentStatusPayload: Equatable, Sendable {
 
     init(userInfo: [AnyHashable: Any]) throws {
         guard
-            let workspaceID = userInfo["workspaceID"] as? String,
+            let worklaneID = userInfo["worklaneID"] as? String,
             let paneID = userInfo["paneID"] as? String
         else {
             throw AgentStatusPayloadError.invalidNotificationPayload
@@ -199,7 +199,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         let artifactURL = (userInfo["artifactURL"] as? String).flatMap(URL.init(string:))
 
         self.init(
-            workspaceID: WorkspaceID(workspaceID),
+            worklaneID: WorklaneID(worklaneID),
             paneID: PaneID(paneID),
             signalKind: signalKind,
             state: state,
@@ -215,7 +215,7 @@ struct AgentStatusPayload: Equatable, Sendable {
             confidence: (userInfo["confidence"] as? String).flatMap(AgentSignalConfidence.init(rawValue:)),
             sessionID: userInfo["sessionID"] as? String,
             parentSessionID: userInfo["parentSessionID"] as? String,
-            artifactKind: (userInfo["artifactKind"] as? String).flatMap(WorkspaceArtifactKind.init(rawValue:)),
+            artifactKind: (userInfo["artifactKind"] as? String).flatMap(WorklaneArtifactKind.init(rawValue:)),
             artifactLabel: userInfo["artifactLabel"] as? String,
             artifactURL: artifactURL,
             agentWorkingDirectory: userInfo["agentWorkingDirectory"] as? String

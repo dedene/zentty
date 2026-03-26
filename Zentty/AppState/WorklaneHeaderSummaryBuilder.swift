@@ -1,12 +1,12 @@
-enum WorkspaceHeaderSummaryBuilder {
-    static func summary(for workspace: WorkspaceState) -> WorkspaceChromeSummary {
-        let focusedPaneContext = workspace.focusedPaneContext
+enum WorklaneHeaderSummaryBuilder {
+    static func summary(for worklane: WorklaneState) -> WorklaneChromeSummary {
+        let focusedPaneContext = worklane.focusedPaneContext
         let presentation = focusedPaneContext?.presentation
         let focusedLabel = visibleFocusedLabel(from: presentation)
         let branch = visibleBranch(from: presentation)
 
-        return WorkspaceChromeSummary(
-            attention: WorkspaceAttentionSummaryBuilder.summary(for: workspace),
+        return WorklaneChromeSummary(
+            attention: WorklaneAttentionSummaryBuilder.summary(for: worklane),
             focusedLabel: focusedLabel,
             branch: branch,
             branchURL: presentation?.branchURL,
@@ -18,7 +18,7 @@ enum WorkspaceHeaderSummaryBuilder {
     private static func visibleFocusedLabel(from presentation: PanePresentationState?) -> String? {
         guard
             let presentation,
-            let rememberedTitle = WorkspaceContextFormatter.trimmed(presentation.rememberedTitle)
+            let rememberedTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
         else {
             return presentation.flatMap(visibleFallbackLabel(from:))
         }
@@ -34,11 +34,11 @@ enum WorkspaceHeaderSummaryBuilder {
     }
 
     private static func visibleFallbackLabel(from presentation: PanePresentationState) -> String? {
-        if let cwd = WorkspaceContextFormatter.trimmed(presentation.cwd) {
-            return WorkspaceContextFormatter.formattedWorkingDirectory(cwd, branch: nil)
+        if let cwd = WorklaneContextFormatter.trimmed(presentation.cwd) {
+            return WorklaneContextFormatter.formattedWorkingDirectory(cwd, branch: nil)
         }
 
-        return WorkspaceContextFormatter.trimmed(presentation.visibleIdentityText)
+        return WorklaneContextFormatter.trimmed(presentation.visibleIdentityText)
     }
 
     private static func visibleBranch(from presentation: PanePresentationState?) -> String? {
@@ -46,7 +46,7 @@ enum WorkspaceHeaderSummaryBuilder {
             return nil
         }
 
-        return WorkspaceContextFormatter.trimmed(presentation.branchDisplayText)
+        return WorklaneContextFormatter.trimmed(presentation.branchDisplayText)
     }
 
     private static func decomposedRememberedTitle(
@@ -54,7 +54,7 @@ enum WorkspaceHeaderSummaryBuilder {
         presentation: PanePresentationState
     ) -> String? {
         guard
-            let branch = WorkspaceContextFormatter.trimmed(presentation.branchDisplayText)
+            let branch = WorklaneContextFormatter.trimmed(presentation.branchDisplayText)
         else {
             return nil
         }
@@ -62,7 +62,7 @@ enum WorkspaceHeaderSummaryBuilder {
         for separator in [" · ", " • "] {
             let prefix = branch + separator
             if rememberedTitle.hasPrefix(prefix) {
-                return WorkspaceContextFormatter.trimmed(String(rememberedTitle.dropFirst(prefix.count)))
+                return WorklaneContextFormatter.trimmed(String(rememberedTitle.dropFirst(prefix.count)))
             }
         }
 
