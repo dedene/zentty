@@ -30,8 +30,8 @@ struct AgentStatusCommand {
         }
 
         let options = try parseOptions(Array(trimmedArguments.dropFirst()))
-        guard let workspaceID = options["workspace-id"] ?? environment["ZENTTY_WORKSPACE_ID"] else {
-            throw AgentStatusPayloadError.missingWorkspaceID
+        guard let worklaneID = options["worklane-id"] ?? environment["ZENTTY_WORKLANE_ID"] else {
+            throw AgentStatusPayloadError.missingWorklaneID
         }
         guard let paneID = options["pane-id"] ?? environment["ZENTTY_PANE_ID"] else {
             throw AgentStatusPayloadError.missingPaneID
@@ -39,7 +39,7 @@ struct AgentStatusCommand {
 
         return AgentStatusCommand(
             payload: AgentStatusPayload(
-                workspaceID: WorkspaceID(workspaceID),
+                worklaneID: WorklaneID(worklaneID),
                 paneID: PaneID(paneID),
                 signalKind: .lifecycle,
                 state: state,
@@ -48,7 +48,7 @@ struct AgentStatusCommand {
                 text: options["text"],
                 sessionID: options["session-id"],
                 parentSessionID: options["parent-session-id"],
-                artifactKind: options["artifact-kind"].flatMap(WorkspaceArtifactKind.init(rawValue:)),
+                artifactKind: options["artifact-kind"].flatMap(WorklaneArtifactKind.init(rawValue:)),
                 artifactLabel: options["artifact-label"],
                 artifactURL: try parseArtifactURL(from: options["artifact-url"])
             )
@@ -104,8 +104,8 @@ struct AgentSignalCommand {
         }
 
         let (positionals, options) = try parsePositionalsAndOptions(Array(trimmedArguments.dropFirst()))
-        guard let workspaceID = options["workspace-id"] ?? environment["ZENTTY_WORKSPACE_ID"] else {
-            throw AgentStatusPayloadError.missingWorkspaceID
+        guard let worklaneID = options["worklane-id"] ?? environment["ZENTTY_WORKLANE_ID"] else {
+            throw AgentStatusPayloadError.missingWorklaneID
         }
         guard let paneID = options["pane-id"] ?? environment["ZENTTY_PANE_ID"] else {
             throw AgentStatusPayloadError.missingPaneID
@@ -135,7 +135,7 @@ struct AgentSignalCommand {
 
             return AgentSignalCommand(
                 payload: AgentStatusPayload(
-                    workspaceID: WorkspaceID(workspaceID),
+                    worklaneID: WorklaneID(worklaneID),
                     paneID: PaneID(paneID),
                     signalKind: .lifecycle,
                     state: state,
@@ -144,7 +144,7 @@ struct AgentSignalCommand {
                     text: options["text"],
                     sessionID: options["session-id"],
                     parentSessionID: options["parent-session-id"],
-                    artifactKind: options["artifact-kind"].flatMap(WorkspaceArtifactKind.init(rawValue:)),
+                    artifactKind: options["artifact-kind"].flatMap(WorklaneArtifactKind.init(rawValue:)),
                     artifactLabel: options["artifact-label"],
                     artifactURL: try AgentStatusCommand.parseArtifactURL(from: options["artifact-url"])
                 )
@@ -168,7 +168,7 @@ struct AgentSignalCommand {
 
             return AgentSignalCommand(
                 payload: AgentStatusPayload(
-                    workspaceID: WorkspaceID(workspaceID),
+                    worklaneID: WorklaneID(worklaneID),
                     paneID: PaneID(paneID),
                     signalKind: .shellState,
                     state: nil,
@@ -204,7 +204,7 @@ struct AgentSignalCommand {
 
             return AgentSignalCommand(
                 payload: AgentStatusPayload(
-                    workspaceID: WorkspaceID(workspaceID),
+                    worklaneID: WorklaneID(worklaneID),
                     paneID: PaneID(paneID),
                     signalKind: .pid,
                     state: nil,
@@ -228,7 +228,7 @@ struct AgentSignalCommand {
             if rawScope == "clear" {
                 return AgentSignalCommand(
                     payload: AgentStatusPayload(
-                        workspaceID: WorkspaceID(workspaceID),
+                        worklaneID: WorklaneID(worklaneID),
                         paneID: PaneID(paneID),
                         signalKind: .paneContext,
                         state: nil,
@@ -249,7 +249,7 @@ struct AgentSignalCommand {
 
             return AgentSignalCommand(
                 payload: AgentStatusPayload(
-                    workspaceID: WorkspaceID(workspaceID),
+                    worklaneID: WorklaneID(worklaneID),
                     paneID: PaneID(paneID),
                     signalKind: .paneContext,
                     state: nil,

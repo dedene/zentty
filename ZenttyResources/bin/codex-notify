@@ -43,7 +43,7 @@ notify_agent() {
     [[ "$payload" == *"agent-turn-complete"* ]] || return 0
     [[ -n "${ZENTTY_AGENT_BIN:-}" ]] || return 0
     [[ -x "${ZENTTY_AGENT_BIN}" ]] || return 0
-    [[ -n "${ZENTTY_WORKSPACE_ID:-}" ]] || return 0
+    [[ -n "${ZENTTY_WORKLANE_ID:-}" ]] || return 0
     [[ -n "${ZENTTY_PANE_ID:-}" ]] || return 0
 
     session_id="$(extract_session_id "$payload")"

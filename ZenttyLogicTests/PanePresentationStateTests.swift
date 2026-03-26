@@ -187,14 +187,14 @@ final class PanePresentationStateTests: XCTestCase {
                 hasObservedRunning: true
             ),
             terminalProgress: nil,
-            reviewState: WorkspaceReviewState(
+            reviewState: WorklaneReviewState(
                 branch: "main",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 1413,
                     url: URL(string: "https://example.com/pr/1413"),
                     state: .open
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Ready", style: .success)]
+                reviewChips: [WorklaneReviewChip(text: "Ready", style: .success)]
             ),
             gitContext: nil
         )
@@ -234,14 +234,14 @@ final class PanePresentationStateTests: XCTestCase {
                 hasObservedRunning: true
             ),
             terminalProgress: nil,
-            reviewState: WorkspaceReviewState(
+            reviewState: WorklaneReviewState(
                 branch: "main",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 1413,
                     url: URL(string: "https://example.com/pr/1413"),
                     state: .open
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Ready", style: .success)]
+                reviewChips: [WorklaneReviewChip(text: "Ready", style: .success)]
             ),
             gitContext: nil
         )
@@ -304,7 +304,7 @@ final class PanePresentationStateTests: XCTestCase {
                 tool: .codex,
                 state: .needsInput,
                 text: "Needs input",
-                artifactLink: WorkspaceArtifactLink(
+                artifactLink: WorklaneArtifactLink(
                     kind: .session,
                     label: "Session",
                     url: sessionURL,
@@ -384,7 +384,7 @@ final class PanePresentationStateTests: XCTestCase {
                 tool: .claudeCode,
                 state: .running,
                 text: nil,
-                artifactLink: WorkspaceArtifactLink(
+                artifactLink: WorklaneArtifactLink(
                     kind: .pullRequest,
                     label: "PR #1413",
                     url: URL(string: "https://example.com/pr/1413")!,
@@ -393,14 +393,14 @@ final class PanePresentationStateTests: XCTestCase {
                 updatedAt: Date(timeIntervalSince1970: 60)
             ),
             terminalProgress: nil,
-            reviewState: WorkspaceReviewState(
+            reviewState: WorklaneReviewState(
                 branch: "feature/review-band",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 1413,
                     url: URL(string: "https://example.com/pr/1413"),
                     state: .open
                 ),
-                reviewChips: [WorkspaceReviewChip(text: "Ready", style: .success)]
+                reviewChips: [WorklaneReviewChip(text: "Ready", style: .success)]
             ),
             gitContext: PaneGitContext(
                 workingDirectory: "/tmp/project",

@@ -9,7 +9,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .running,
                 origin: .explicitHook,
@@ -25,7 +25,7 @@ final class PaneAgentReducerTests: XCTestCase {
         )
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .idle,
                 origin: .explicitHook,
@@ -55,7 +55,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .running,
                 origin: .explicitHook,
@@ -71,7 +71,7 @@ final class PaneAgentReducerTests: XCTestCase {
         )
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .idle,
                 origin: .explicitHook,
@@ -87,7 +87,7 @@ final class PaneAgentReducerTests: XCTestCase {
         )
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .running,
                 origin: .explicitHook,
@@ -113,7 +113,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .idle,
                 origin: .explicitAPI,
@@ -136,7 +136,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .needsInput,
                 origin: .heuristic,
@@ -153,7 +153,7 @@ final class PaneAgentReducerTests: XCTestCase {
         )
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .needsInput,
                 origin: .explicitHook,
@@ -181,7 +181,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .running,
                 origin: .explicitHook,
@@ -197,7 +197,7 @@ final class PaneAgentReducerTests: XCTestCase {
         )
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .needsInput,
                 origin: .heuristic,
@@ -225,7 +225,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .running,
                 origin: .explicitHook,
@@ -241,7 +241,7 @@ final class PaneAgentReducerTests: XCTestCase {
         )
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .idle,
                 origin: .explicitHook,
@@ -257,7 +257,7 @@ final class PaneAgentReducerTests: XCTestCase {
         )
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .needsInput,
                 origin: .heuristic,
@@ -284,7 +284,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .needsInput,
                 origin: .explicitHook,
@@ -301,7 +301,7 @@ final class PaneAgentReducerTests: XCTestCase {
         )
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .idle,
                 origin: .explicitHook,
@@ -329,7 +329,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .needsInput,
                 origin: .explicitHook,
@@ -347,7 +347,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .needsInput,
                 origin: .explicitHook,
@@ -374,7 +374,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .needsInput,
                 origin: .explicitHook,
@@ -392,7 +392,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .needsInput,
                 origin: .explicitHook,
@@ -419,7 +419,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .needsInput,
                 origin: .explicitHook,
@@ -437,7 +437,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 signalKind: .shellState,
                 state: nil,
@@ -464,7 +464,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .running,
                 origin: .explicitHook,
@@ -481,7 +481,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 signalKind: .shellState,
                 state: nil,
@@ -509,7 +509,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 state: .running,
                 origin: .explicitAPI,
@@ -524,7 +524,7 @@ final class PaneAgentReducerTests: XCTestCase {
         )
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 signalKind: .pid,
                 state: nil,
@@ -555,7 +555,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.apply(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-shell"),
                 signalKind: .pid,
                 state: nil,

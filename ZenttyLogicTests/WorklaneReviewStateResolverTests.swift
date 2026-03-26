@@ -3,9 +3,9 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class WorkspaceReviewStateResolverTests: XCTestCase {
+final class WorklaneReviewStateResolverTests: XCTestCase {
     func test_default_review_command_runner_includes_common_gui_command_locations_in_search_path() {
-        let searchPaths = DefaultWorkspaceReviewCommandRunner.executableSearchPaths(environment: [
+        let searchPaths = DefaultWorklaneReviewCommandRunner.executableSearchPaths(environment: [
             "HOME": "/Users/tester",
             "PATH": "/usr/bin:/bin",
         ])
@@ -17,7 +17,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
 
     func test_default_review_command_runner_resolves_absolute_executable_paths() {
         XCTAssertEqual(
-            DefaultWorkspaceReviewCommandRunner.resolveExecutablePath(
+            DefaultWorklaneReviewCommandRunner.resolveExecutablePath(
                 for: "/bin/echo",
                 environment: [:]
             ),
@@ -32,7 +32,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"unit-tests"},{"bucket":"fail","state":"FAILURE","name":"e2e-macos"}]"#)
         )
 
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
         let resolution = await resolver.resolve(path: "/tmp/project", branch: "feature/review-band")
 
         XCTAssertEqual(resolution.reviewState?.pullRequest?.state, .draft)
@@ -46,7 +46,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
         )
 
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
         let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
 
         XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["Checks passed"])
@@ -59,7 +59,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prChecksResult: .failure(stderr: "GraphQL: checks unavailable")
         )
 
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
         let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
 
         XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["Ready"])
@@ -72,7 +72,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prChecksResult: .json("[]")
         )
 
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
         let resolution = await resolver.resolve(path: "/tmp/project", branch: "feature/review-band")
 
         XCTAssertEqual(resolution.reviewState?.branch, "feature/review-band")
@@ -86,7 +86,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .failure(stderr: "gh: command not found"),
             prChecksResult: .json("[]")
         )
-        let unavailableResolver = WorkspaceReviewStateResolver(runner: unavailableRunner)
+        let unavailableResolver = WorklaneReviewStateResolver(runner: unavailableRunner)
         let unavailableResolution = await unavailableResolver.resolve(path: "/tmp/project", branch: "main")
 
         XCTAssertNil(unavailableResolution.reviewState)
@@ -97,7 +97,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .failure(stderr: "To get started with GitHub CLI, please run: gh auth login"),
             prChecksResult: .json("[]")
         )
-        let authResolver = WorkspaceReviewStateResolver(runner: authRunner)
+        let authResolver = WorklaneReviewStateResolver(runner: authRunner)
         let authResolution = await authResolver.resolve(path: "/tmp/project", branch: "main")
 
         XCTAssertNil(authResolution.reviewState)
@@ -110,7 +110,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":11,"url":"https://example.com/pr/11","isDraft":false,"state":"MERGED"}"#),
             prChecksResult: .json("[]")
         )
-        let mergedResolver = WorkspaceReviewStateResolver(runner: mergedRunner)
+        let mergedResolver = WorklaneReviewStateResolver(runner: mergedRunner)
         let mergedResolution = await mergedResolver.resolve(path: "/tmp/project", branch: "main")
         XCTAssertEqual(mergedResolution.reviewState?.reviewChips.map(\.text), ["Merged"])
 
@@ -119,7 +119,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":12,"url":"https://example.com/pr/12","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"pending","state":"IN_PROGRESS","name":"lint"}]"#)
         )
-        let runningResolver = WorkspaceReviewStateResolver(runner: runningRunner)
+        let runningResolver = WorklaneReviewStateResolver(runner: runningRunner)
         let runningResolution = await runningResolver.resolve(path: "/tmp/project", branch: "main")
         XCTAssertEqual(runningResolution.reviewState?.reviewChips.map(\.text), ["Running"])
 
@@ -128,7 +128,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":13,"url":"https://example.com/pr/13","isDraft":false,"state":"CLOSED"}"#),
             prChecksResult: .json("[]")
         )
-        let closedResolver = WorkspaceReviewStateResolver(runner: closedRunner)
+        let closedResolver = WorklaneReviewStateResolver(runner: closedRunner)
         let closedResolution = await closedResolver.resolve(path: "/tmp/project", branch: "main")
         XCTAssertEqual(closedResolution.reviewState?.reviewChips.map(\.text), ["Closed"])
     }
@@ -140,9 +140,9 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
         )
 
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: PaneID("pane-claude"), title: "claude")],
@@ -166,13 +166,13 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             ]
         )
         let firstRefresh = expectation(description: "first refresh")
-        resolver.refresh(for: [workspace]) { _, _ in
+        resolver.refresh(for: [worklane]) { _, _ in
             firstRefresh.fulfill()
         }
         await fulfillment(of: [firstRefresh], timeout: 1.0)
 
         let secondRefresh = expectation(description: "second refresh")
-        resolver.refresh(for: [workspace]) { _, _ in
+        resolver.refresh(for: [worklane]) { _, _ in
             secondRefresh.fulfill()
         }
         await fulfillment(of: [secondRefresh], timeout: 1.0)
@@ -201,10 +201,10 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":true,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"unit-tests"},{"bucket":"fail","state":"FAILURE","name":"e2e-macos"}]"#)
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
         let paneID = PaneID("pane-claude")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "claude")],
@@ -227,9 +227,9 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
                 ),
             ]
         )
-        var updates: [WorkspaceReviewResolution] = []
+        var updates: [WorklaneReviewResolution] = []
         let refreshExpectation = expectation(description: "refresh update")
-        resolver.refresh(for: [workspace]) { _, resolution in
+        resolver.refresh(for: [worklane]) { _, resolution in
             updates.append(resolution)
             refreshExpectation.fulfill()
         }
@@ -268,10 +268,10 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"RSpec"}]"#)
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
         let paneID = PaneID("pane-shell")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -296,9 +296,9 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             ]
         )
 
-        var updates: [WorkspaceReviewResolution] = []
+        var updates: [WorklaneReviewResolution] = []
         let refreshExpectation = expectation(description: "refresh update")
-        resolver.refresh(for: [workspace]) { _, resolution in
+        resolver.refresh(for: [worklane]) { _, resolution in
             updates.append(resolution)
             refreshExpectation.fulfill()
         }
@@ -335,9 +335,9 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: PaneID("pane-claude"), title: "claude")],
@@ -351,8 +351,8 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
                 ),
             ]
         )
-        var updates: [WorkspaceReviewResolution] = []
-        resolver.refresh(for: [workspace]) { _, resolution in
+        var updates: [WorklaneReviewResolution] = []
+        resolver.refresh(for: [worklane]) { _, resolution in
             updates.append(resolution)
         }
         try? await Task.sleep(nanoseconds: 100_000_000)
@@ -371,7 +371,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
 
         let resolution = await resolver.resolve(path: "/tmp/non-repo", branch: "main")
 
@@ -392,7 +392,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
 
         let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
 
@@ -422,7 +422,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
 
         let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
 
@@ -464,7 +464,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
 
         let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
 
@@ -499,7 +499,7 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#)
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
 
         let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
 
@@ -513,10 +513,10 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
             prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"RSpec"}]"#)
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
         let paneID = PaneID("pane-shell")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -540,9 +540,9 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             ]
         )
 
-        var updates: [WorkspaceReviewResolution] = []
+        var updates: [WorklaneReviewResolution] = []
         let refreshExpectation = expectation(description: "refresh update")
-        resolver.refresh(for: [workspace]) { _, resolution in
+        resolver.refresh(for: [worklane]) { _, resolution in
             updates.append(resolution)
             refreshExpectation.fulfill()
         }
@@ -583,10 +583,10 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
                 .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#),
             ]
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
         let paneID = PaneID("pane-claude")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "claude")],
@@ -607,8 +607,8 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
                 ),
             ]
         )
-        let branchChangedWorkspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let branchChangedWorklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "claude")],
@@ -630,16 +630,16 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
             ]
         )
 
-        var updates: [WorkspaceReviewResolution] = []
+        var updates: [WorklaneReviewResolution] = []
         let firstRefresh = expectation(description: "first refresh")
-        resolver.refresh(for: [workspace]) { _, resolution in
+        resolver.refresh(for: [worklane]) { _, resolution in
             updates.append(resolution)
             firstRefresh.fulfill()
         }
         await fulfillment(of: [firstRefresh], timeout: 1.0)
 
         let secondRefresh = expectation(description: "second refresh")
-        resolver.refresh(for: [branchChangedWorkspace]) { _, resolution in
+        resolver.refresh(for: [branchChangedWorklane]) { _, resolution in
             updates.append(resolution)
             secondRefresh.fulfill()
         }
@@ -687,13 +687,13 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
                 .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#),
             ]
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
 
         let initialResolution = await resolver.resolve(path: "/tmp/project", branch: "main")
         XCTAssertEqual(initialResolution.reviewState?.pullRequest?.number, 128)
         XCTAssertEqual(initialResolution.reviewState?.reviewChips.map(\.text), ["Draft", "1 failing"])
 
-        var refreshedResolution: WorkspaceReviewResolution?
+        var refreshedResolution: WorklaneReviewResolution?
         let refreshExpectation = expectation(description: "forced refresh update")
         resolver.refreshFocusedPane(
             repoRoot: "/tmp/project",
@@ -749,13 +749,13 @@ final class WorkspaceReviewStateResolverTests: XCTestCase {
                 .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#),
             ]
         )
-        let resolver = WorkspaceReviewStateResolver(runner: runner)
+        let resolver = WorklaneReviewStateResolver(runner: runner)
 
         let initialResolution = await resolver.resolve(path: "/tmp/project", branch: "main")
         XCTAssertEqual(initialResolution.reviewState?.pullRequest?.number, 128)
         XCTAssertEqual(initialResolution.reviewState?.reviewChips.map { $0.text }, ["Checks passed"])
 
-        var refreshedResolution: WorkspaceReviewResolution?
+        var refreshedResolution: WorklaneReviewResolution?
         let refreshExpectation = expectation(description: "forced refresh keeps cache")
         resolver.refreshFocusedPane(
             repoRoot: "/tmp/project",
@@ -813,7 +813,7 @@ private extension Array {
     }
 }
 
-private actor StubGHRunner: WorkspaceReviewCommandRunning {
+private actor StubGHRunner: WorklaneReviewCommandRunning {
     struct Invocation: Equatable {
         let arguments: [String]
         let currentDirectoryPath: String
@@ -875,7 +875,7 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
         self.prChecksResults = prChecksResults
     }
 
-    func run(arguments: [String], currentDirectoryPath: String) async -> WorkspaceReviewCommandResult {
+    func run(arguments: [String], currentDirectoryPath: String) async -> WorklaneReviewCommandResult {
         calls.append(Invocation(arguments: arguments, currentDirectoryPath: currentDirectoryPath))
 
         if arguments == ["git", "rev-parse", "--git-dir"] {
@@ -930,22 +930,22 @@ private actor StubGHRunner: WorkspaceReviewCommandRunning {
         return fixtures.removeFirst()
     }
 
-    private func makeCommandResult(from fixture: ResultFixture) -> WorkspaceReviewCommandResult {
+    private func makeCommandResult(from fixture: ResultFixture) -> WorklaneReviewCommandResult {
         switch fixture {
         case .stdout(let value):
-            return WorkspaceReviewCommandResult(
+            return WorklaneReviewCommandResult(
                 terminationStatus: 0,
                 stdout: Data(value.utf8),
                 stderr: Data()
             )
         case .json(let value):
-            return WorkspaceReviewCommandResult(
+            return WorklaneReviewCommandResult(
                 terminationStatus: 0,
                 stdout: Data(value.utf8),
                 stderr: Data()
             )
         case .failure(let stderr):
-            return WorkspaceReviewCommandResult(
+            return WorklaneReviewCommandResult(
                 terminationStatus: 1,
                 stdout: Data(),
                 stderr: Data(stderr.utf8)

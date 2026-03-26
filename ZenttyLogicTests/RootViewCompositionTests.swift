@@ -26,25 +26,25 @@ final class RootViewCompositionTests: XCTestCase {
     }
 
     private func makeSidebarSummary(
-        workspaceID: WorkspaceID,
+        worklaneID: WorklaneID,
         title: String,
         badgeText: String,
         primaryText: String,
         statusText: String? = nil,
         contextText: String = "",
-        attentionState: WorkspaceAttentionState? = nil,
+        attentionState: WorklaneAttentionState? = nil,
         isWorking: Bool = false,
         isActive: Bool,
         showsGeneratedTitle: Bool
-    ) -> WorkspaceSidebarSummary {
-        WorkspaceSidebarSummary(
-            workspaceID: workspaceID,
+    ) -> WorklaneSidebarSummary {
+        WorklaneSidebarSummary(
+            worklaneID: worklaneID,
             badgeText: badgeText,
             topLabel: showsGeneratedTitle ? title : nil,
             primaryText: primaryText,
             statusText: statusText,
-            detailLines: WorkspaceContextFormatter.trimmed(contextText).map {
-                [WorkspaceSidebarDetailLine(text: $0, emphasis: .secondary)]
+            detailLines: WorklaneContextFormatter.trimmed(contextText).map {
+                [WorklaneSidebarDetailLine(text: $0, emphasis: .secondary)]
             } ?? [],
             attentionState: attentionState,
             isWorking: isWorking,
@@ -65,8 +65,8 @@ final class RootViewCompositionTests: XCTestCase {
 
         XCTAssertNotNil(sidebarView)
         XCTAssertFalse(appCanvasView.containsDescendant(ofType: SidebarView.self))
-        XCTAssertEqual(sidebarView?.workspacePrimaryTexts, ["~"])
-        XCTAssertEqual(sidebarView?.workspaceContextTexts, [""])
+        XCTAssertEqual(sidebarView?.worklanePrimaryTexts, ["~"])
+        XCTAssertEqual(sidebarView?.worklaneContextTexts, [""])
         XCTAssertEqual(
             appCanvasView.frame.minX,
             ShellMetrics.outerInset,
@@ -219,11 +219,11 @@ final class RootViewCompositionTests: XCTestCase {
         button.configure(theme: theme, isActive: false, animated: false)
         XCTAssertFalse(button.isActive)
     }
-    func test_sidebar_view_emits_selected_workspace_id() throws {
+    func test_sidebar_view_emits_selected_worklane_id() throws {
         let sidebarView = SidebarView()
         let summaries = [
             makeSidebarSummary(
-                workspaceID: WorkspaceID("workspace-api"),
+                worklaneID: WorklaneID("worklane-api"),
                 title: "API",
                 badgeText: "A",
                 primaryText: "shell",
@@ -232,7 +232,7 @@ final class RootViewCompositionTests: XCTestCase {
                 showsGeneratedTitle: true
             ),
             makeSidebarSummary(
-                workspaceID: WorkspaceID("workspace-web"),
+                worklaneID: WorklaneID("worklane-web"),
                 title: "WEB",
                 badgeText: "W",
                 primaryText: "editor",
@@ -241,17 +241,17 @@ final class RootViewCompositionTests: XCTestCase {
                 showsGeneratedTitle: true
             ),
         ]
-        var selectedID: WorkspaceID?
-        sidebarView.onWorkspaceSelected = { selectedID = $0 }
+        var selectedID: WorklaneID?
+        sidebarView.onWorklaneSelected = { selectedID = $0 }
         sidebarView.render(
             summaries: summaries,
             theme: ZenttyTheme.fallback(for: nil)
         )
 
-        let webButton = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.last)
+        let webButton = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.last)
         webButton.performClick(nil)
 
-        XCTAssertEqual(selectedID, WorkspaceID("workspace-web"))
+        XCTAssertEqual(selectedID, WorklaneID("worklane-web"))
     }
 
     func test_root_controller_restores_persisted_sidebar_width() {
@@ -372,12 +372,12 @@ final class RootViewCompositionTests: XCTestCase {
         )
     }
 
-    func test_sidebar_places_add_workspace_button_below_last_row_without_visible_divider() {
+    func test_sidebar_places_add_worklane_button_below_last_row_without_visible_divider() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
         sidebarView.render(
             summaries: [
                 makeSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-main"),
+                    worklaneID: WorklaneID("worklane-main"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
@@ -391,11 +391,11 @@ final class RootViewCompositionTests: XCTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(sidebarView.addWorkspaceTitle, "New workspace")
+        XCTAssertEqual(sidebarView.addWorklaneTitle, "New worklane")
         XCTAssertFalse(sidebarView.hasVisibleDivider)
-        XCTAssertGreaterThan(sidebarView.firstWorkspaceMinY, 40)
-        XCTAssertGreaterThanOrEqual(sidebarView.addWorkspaceMinY, ShellMetrics.sidebarBottomInset)
-        XCTAssertLessThan(sidebarView.addWorkspaceMaxY, sidebarView.firstWorkspaceMinY)
+        XCTAssertGreaterThan(sidebarView.firstWorklaneMinY, 40)
+        XCTAssertGreaterThanOrEqual(sidebarView.addWorklaneMinY, ShellMetrics.sidebarBottomInset)
+        XCTAssertLessThan(sidebarView.addWorklaneMaxY, sidebarView.firstWorklaneMinY)
     }
 
     func test_sidebar_uses_full_width_tabs_and_no_header_label() {
@@ -403,7 +403,7 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarView.render(
             summaries: [
                 makeSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-main"),
+                    worklaneID: WorklaneID("worklane-main"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
@@ -418,15 +418,15 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarView.layoutSubtreeIfNeeded()
 
         XCTAssertTrue(sidebarView.isHeaderHidden)
-        XCTAssertGreaterThan(sidebarView.firstWorkspaceWidth, 258)
+        XCTAssertGreaterThan(sidebarView.firstWorklaneWidth, 258)
     }
 
-    func test_sidebar_workspace_text_uses_slightly_larger_horizontal_inset() {
+    func test_sidebar_worklane_text_uses_slightly_larger_horizontal_inset() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
         sidebarView.render(
             summaries: [
                 makeSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-main"),
+                    worklaneID: WorklaneID("worklane-main"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
@@ -441,7 +441,7 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarView.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(
-            sidebarView.firstWorkspacePrimaryMinX,
+            sidebarView.firstWorklanePrimaryMinX,
             ShellMetrics.sidebarContentInset + 10,
             accuracy: 0.5
         )
@@ -451,18 +451,18 @@ final class RootViewCompositionTests: XCTestCase {
         let homeSidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         homeSidebar.render(
             summaries: [
-                WorkspaceSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-home"),
+                WorklaneSidebarSummary(
+                    worklaneID: WorklaneID("worklane-home"),
                     badgeText: "H",
                     primaryText: "~",
                     isActive: true
                 ),
-                WorkspaceSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-project"),
+                WorklaneSidebarSummary(
+                    worklaneID: WorklaneID("worklane-project"),
                     badgeText: "P",
                     primaryText: "feature/sidebar",
                     detailLines: [
-                        WorkspaceSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
+                        WorklaneSidebarDetailLine(text: "fix-pane-border • sidebar", emphasis: .primary),
                     ],
                     isActive: false
                 ),
@@ -474,14 +474,14 @@ final class RootViewCompositionTests: XCTestCase {
         let projectSidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         projectSidebar.render(
             summaries: [
-                WorkspaceSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-project-a"),
+                WorklaneSidebarSummary(
+                    worklaneID: WorklaneID("worklane-project-a"),
                     badgeText: "A",
                     primaryText: "feature/sidebar",
                     isActive: true
                 ),
-                WorkspaceSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-project-b"),
+                WorklaneSidebarSummary(
+                    worklaneID: WorklaneID("worklane-project-b"),
                     badgeText: "B",
                     primaryText: "marketing-site",
                     isActive: false
@@ -492,18 +492,18 @@ final class RootViewCompositionTests: XCTestCase {
         projectSidebar.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(
-            homeSidebar.firstWorkspacePrimaryMinX,
-            homeSidebar.secondWorkspacePrimaryMinX,
+            homeSidebar.firstWorklanePrimaryMinX,
+            homeSidebar.secondWorklanePrimaryMinX,
             accuracy: 0.5
         )
         XCTAssertEqual(
-            projectSidebar.firstWorkspacePrimaryMinX,
-            homeSidebar.firstWorkspacePrimaryMinX,
+            projectSidebar.firstWorklanePrimaryMinX,
+            homeSidebar.firstWorklanePrimaryMinX,
             accuracy: 0.5
         )
         XCTAssertEqual(
-            projectSidebar.firstWorkspacePrimaryMinX,
-            projectSidebar.secondWorkspacePrimaryMinX,
+            projectSidebar.firstWorklanePrimaryMinX,
+            projectSidebar.secondWorklanePrimaryMinX,
             accuracy: 0.5
         )
     }
@@ -512,16 +512,16 @@ final class RootViewCompositionTests: XCTestCase {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-main"),
+                WorklaneSidebarSummary(
+                    worklaneID: WorklaneID("worklane-main"),
                     badgeText: "M",
                     topLabel: "Docs",
                     primaryText: "feature/sidebar",
                     statusText: nil,
                     detailLines: [
-                        WorkspaceSidebarDetailLine(text: "main • git", emphasis: .primary),
-                        WorkspaceSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
-                        WorkspaceSidebarDetailLine(text: "tests • specs", emphasis: .secondary),
+                        WorklaneSidebarDetailLine(text: "main • git", emphasis: .primary),
+                        WorklaneSidebarDetailLine(text: "notes • copy", emphasis: .secondary),
+                        WorklaneSidebarDetailLine(text: "tests • specs", emphasis: .secondary),
                     ],
                     isActive: true
                 )
@@ -530,14 +530,14 @@ final class RootViewCompositionTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            sidebarView.workspaceDetailTexts.first,
+            sidebarView.worklaneDetailTexts.first,
             [
                 "main • git",
                 "notes • copy",
                 "tests • specs",
             ]
         )
-        XCTAssertEqual(sidebarView.workspaceOverflowTexts, [""])
+        XCTAssertEqual(sidebarView.worklaneOverflowTexts, [""])
     }
 
     func test_sidebar_keeps_last_detail_line_inside_button_bounds_for_tall_rows() throws {
@@ -546,17 +546,17 @@ final class RootViewCompositionTests: XCTestCase {
 
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-main"),
+                WorklaneSidebarSummary(
+                    worklaneID: WorklaneID("worklane-main"),
                     badgeText: "M",
                     primaryText: "peter@m1-pro-peter:~/Development/Personal/worktrees/feature/sidebar",
                     detailLines: [
-                        WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .primary),
-                        WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
-                        WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
-                        WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
-                        WorkspaceSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
-                        WorkspaceSidebarDetailLine(text: lastDetailText, emphasis: .secondary),
+                        WorklaneSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .primary),
+                        WorklaneSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
+                        WorklaneSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
+                        WorklaneSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
+                        WorklaneSidebarDetailLine(text: "peter@m1-pro-peter:~", emphasis: .secondary),
+                        WorklaneSidebarDetailLine(text: lastDetailText, emphasis: .secondary),
                     ],
                     isActive: true
                 )
@@ -566,7 +566,7 @@ final class RootViewCompositionTests: XCTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        let button = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.first)
+        let button = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first)
         let lastDetailLabel = try XCTUnwrap(
             button.descendantLabel(withText: lastDetailText)
         )
@@ -580,8 +580,8 @@ final class RootViewCompositionTests: XCTestCase {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-home"),
+                WorklaneSidebarSummary(
+                    worklaneID: WorklaneID("worklane-home"),
                     badgeText: "H",
                     primaryText: "~",
                     isActive: true
@@ -590,7 +590,7 @@ final class RootViewCompositionTests: XCTestCase {
             theme: ZenttyTheme.fallback(for: nil)
         )
 
-        XCTAssertEqual(sidebarView.workspaceDetailTexts.first, [])
+        XCTAssertEqual(sidebarView.worklaneDetailTexts.first, [])
     }
 
     func test_sidebar_footer_centers_on_sidebar_and_dims_plus_icon() {
@@ -598,7 +598,7 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarView.render(
             summaries: [
                 makeSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-main"),
+                    worklaneID: WorklaneID("worklane-main"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
@@ -613,11 +613,11 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarView.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(
-            sidebarView.addWorkspaceContentMidX,
+            sidebarView.addWorklaneContentMidX,
             sidebarView.bounds.midX,
             accuracy: 1
         )
-        XCTAssertLessThan(sidebarView.addWorkspaceIconAlpha, sidebarView.addWorkspaceTitleAlpha)
+        XCTAssertLessThan(sidebarView.addWorklaneIconAlpha, sidebarView.addWorklaneTitleAlpha)
     }
 
     func test_sidebar_resize_hit_area_is_centered_on_outer_edge_without_visible_indicator() {
@@ -732,8 +732,8 @@ final class RootViewCompositionTests: XCTestCase {
 
         sidebarView.render(
             summaries: [
-                WorkspaceSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-main"),
+                WorklaneSidebarSummary(
+                    worklaneID: WorklaneID("worklane-main"),
                     badgeText: "1",
                     topLabel: "peter@m1-pro-peter:~",
                     primaryText: "~",
@@ -745,7 +745,7 @@ final class RootViewCompositionTests: XCTestCase {
         )
 
         XCTAssertEqual(sidebarView.appearanceMatchForTesting, .darkAqua)
-        let firstRow = try! XCTUnwrap(sidebarView.workspaceButtonsForTesting.first as? SidebarWorkspaceRowButton)
+        let firstRow = try! XCTUnwrap(sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton)
         XCTAssertEqual(firstRow.appearanceMatchForTesting, .darkAqua)
     }
 
@@ -754,7 +754,7 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarView.render(
             summaries: [
                 makeSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-compact"),
+                    worklaneID: WorklaneID("worklane-compact"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
@@ -763,7 +763,7 @@ final class RootViewCompositionTests: XCTestCase {
                     showsGeneratedTitle: false
                 ),
                 makeSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-expanded"),
+                    worklaneID: WorklaneID("worklane-expanded"),
                     title: "Claude Code",
                     badgeText: "C",
                     primaryText: "Claude Code",
@@ -779,7 +779,7 @@ final class RootViewCompositionTests: XCTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        let buttons = sidebarView.workspaceButtonsForTesting
+        let buttons = sidebarView.worklaneButtonsForTesting
         let compactFrame = try XCTUnwrap(buttons.first?.frame)
         let expandedFrame = try XCTUnwrap(buttons.last?.frame)
 
@@ -802,7 +802,7 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarView.render(
             summaries: [
                 makeSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-context"),
+                    worklaneID: WorklaneID("worklane-context"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
@@ -816,7 +816,7 @@ final class RootViewCompositionTests: XCTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        let frame = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.first?.frame)
+        let frame = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first?.frame)
         XCTAssertEqual(
             frame.height,
             ShellMetrics.sidebarRowHeight(
@@ -834,7 +834,7 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarView.render(
             summaries: [
                 makeSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-artifact"),
+                    worklaneID: WorklaneID("worklane-artifact"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "Claude Code",
@@ -848,7 +848,7 @@ final class RootViewCompositionTests: XCTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        let frame = try XCTUnwrap(sidebarView.workspaceButtonsForTesting.first?.frame)
+        let frame = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first?.frame)
         XCTAssertEqual(frame.height, ShellMetrics.sidebarCompactRowHeight, accuracy: 0.5)
     }
 
@@ -857,7 +857,7 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarView.render(
             summaries: [
                 makeSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-compact"),
+                    worklaneID: WorklaneID("worklane-compact"),
                     title: "MAIN",
                     badgeText: "M",
                     primaryText: "shell",
@@ -866,7 +866,7 @@ final class RootViewCompositionTests: XCTestCase {
                     showsGeneratedTitle: false
                 ),
                 makeSidebarSummary(
-                    workspaceID: WorkspaceID("workspace-expanded"),
+                    worklaneID: WorklaneID("worklane-expanded"),
                     title: "Claude Code",
                     badgeText: "C",
                     primaryText: "Claude Code",
@@ -882,16 +882,16 @@ final class RootViewCompositionTests: XCTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        let buttons = sidebarView.workspaceButtonsForTesting
+        let buttons = sidebarView.worklaneButtonsForTesting
         let firstButton = try XCTUnwrap(buttons.first)
         let secondButton = try XCTUnwrap(buttons.last)
         let firstFrame = sidebarView.convert(firstButton.bounds, from: firstButton)
         let secondFrame = sidebarView.convert(secondButton.bounds, from: secondButton)
         let footerFrame = CGRect(
             x: 0,
-            y: sidebarView.addWorkspaceMinY,
+            y: sidebarView.addWorklaneMinY,
             width: sidebarView.bounds.width,
-            height: sidebarView.addWorkspaceMaxY - sidebarView.addWorkspaceMinY
+            height: sidebarView.addWorklaneMaxY - sidebarView.addWorklaneMinY
         )
 
         XCTAssertFalse(firstFrame.intersects(secondFrame))
@@ -900,14 +900,14 @@ final class RootViewCompositionTests: XCTestCase {
 
     func test_window_chrome_shows_attention_chip_only_for_attention_states() {
         let windowChromeView = WindowChromeView()
-        let attention = WorkspaceAttentionSummary(
+        let attention = WorklaneAttentionSummary(
             paneID: PaneID("shell"),
             tool: .claudeCode,
             state: .needsInput,
             primaryText: "Claude Code",
             statusText: "Needs input",
             contextText: "project • main",
-            artifactLink: WorkspaceArtifactLink(
+            artifactLink: WorklaneArtifactLink(
                 kind: .pullRequest,
                 label: "PR #42",
                 url: URL(string: "https://example.com/pr/42")!,
@@ -916,7 +916,7 @@ final class RootViewCompositionTests: XCTestCase {
             updatedAt: Date(timeIntervalSince1970: 42)
         )
 
-        windowChromeView.render(summary: WorkspaceChromeSummary(
+        windowChromeView.render(summary: WorklaneChromeSummary(
             attention: attention,
             focusedLabel: "Claude Code",
             branch: "main",
@@ -928,8 +928,8 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(windowChromeView.attentionText, "Needs input")
         XCTAssertEqual(windowChromeView.attentionArtifactText, "PR #42")
 
-        windowChromeView.render(summary: WorkspaceChromeSummary(
-            attention: WorkspaceAttentionSummary(
+        windowChromeView.render(summary: WorklaneChromeSummary(
+            attention: WorklaneAttentionSummary(
                 paneID: PaneID("shell"),
                 tool: .claudeCode,
                 state: .running,
@@ -1081,9 +1081,9 @@ private extension RootViewCompositionTests {
         controller.view.frame = NSRect(x: 0, y: 0, width: width, height: 840)
 
         let paneID = PaneID("pane-claude")
-        controller.replaceWorkspaces([
-            WorkspaceState(
-                id: WorkspaceID("workspace-main"),
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "claude")],
@@ -1108,16 +1108,16 @@ private extension RootViewCompositionTests {
                     ),
                 ],
                 reviewStateByPaneID: [
-                    paneID: WorkspaceReviewState(
+                    paneID: WorklaneReviewState(
                         branch: "feature/review-band",
-                        pullRequest: WorkspacePullRequestSummary(
+                        pullRequest: WorklanePullRequestSummary(
                             number: 128,
                             url: URL(string: "https://example.com/pr/128"),
                             state: .draft
                         ),
                         reviewChips: [
-                            WorkspaceReviewChip(text: "Draft", style: .info),
-                            WorkspaceReviewChip(text: "2 failing", style: .danger),
+                            WorklaneReviewChip(text: "Draft", style: .info),
+                            WorklaneReviewChip(text: "2 failing", style: .danger),
                         ]
                     ),
                 ]

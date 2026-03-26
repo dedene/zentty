@@ -1,9 +1,9 @@
 import AppKit
 
-enum WorkspaceSidebarSummaryBuilder {
+enum WorklaneSidebarSummaryBuilder {
     private struct SidebarStatusPresentation {
         let statusText: String?
-        let attentionState: WorkspaceAttentionState?
+        let attentionState: WorklaneAttentionState?
         let interactionKind: PaneInteractionKind?
         let interactionLabel: String?
         let interactionSymbolName: String?
@@ -11,14 +11,14 @@ enum WorkspaceSidebarSummaryBuilder {
 
     private struct PaneSidebarStatusPresentation {
         let statusText: String?
-        let attentionState: WorkspaceAttentionState?
+        let attentionState: WorklaneAttentionState?
         let interactionKind: PaneInteractionKind?
         let interactionLabel: String?
         let interactionSymbolName: String?
         let isWorking: Bool
     }
 
-    private struct WorkspaceSidebarIdentity {
+    private struct WorklaneSidebarIdentity {
         let paneID: PaneID?
         let primaryText: String
         let cwdPath: String?
@@ -40,74 +40,74 @@ enum WorkspaceSidebarSummaryBuilder {
     }
 
     static func summaries(
-        for workspaces: [WorkspaceState],
-        activeWorkspaceID: WorkspaceID
-    ) -> [WorkspaceSidebarSummary] {
-        let identitiesByWorkspaceID = Dictionary(
-            uniqueKeysWithValues: workspaces.map { workspace in
-                (workspace.id, workspaceIdentity(for: workspace))
+        for worklanes: [WorklaneState],
+        activeWorklaneID: WorklaneID
+    ) -> [WorklaneSidebarSummary] {
+        let identitiesByWorklaneID = Dictionary(
+            uniqueKeysWithValues: worklanes.map { worklane in
+                (worklane.id, worklaneIdentity(for: worklane))
             }
         )
-        let baseSummaries = workspaces.map { workspace in
+        let baseSummaries = worklanes.map { worklane in
             summary(
-                for: workspace,
-                isActive: workspace.id == activeWorkspaceID,
-                identity: identitiesByWorkspaceID[workspace.id]
+                for: worklane,
+                isActive: worklane.id == activeWorklaneID,
+                identity: identitiesByWorklaneID[worklane.id]
             )
         }
 
         return disambiguatedSummaries(
             baseSummaries,
-            identitiesByWorkspaceID: identitiesByWorkspaceID,
-            workspaces: workspaces
+            identitiesByWorklaneID: identitiesByWorklaneID,
+            worklanes: worklanes
         )
     }
 
     static func summary(
-        for workspace: WorkspaceState,
+        for worklane: WorklaneState,
         isActive: Bool
-    ) -> WorkspaceSidebarSummary {
+    ) -> WorklaneSidebarSummary {
         summary(
-            for: workspace,
+            for: worklane,
             isActive: isActive,
-            identity: workspaceIdentity(for: workspace)
+            identity: worklaneIdentity(for: worklane)
         )
     }
 
     private static func summary(
-        for workspace: WorkspaceState,
+        for worklane: WorklaneState,
         isActive: Bool,
-        identity: WorkspaceSidebarIdentity?
-    ) -> WorkspaceSidebarSummary {
-        let orderedPaneContexts = orderedPaneContexts(for: workspace)
+        identity: WorklaneSidebarIdentity?
+    ) -> WorklaneSidebarSummary {
+        let orderedPaneContexts = orderedPaneContexts(for: worklane)
         let paneRows = paneRows(
-            for: workspace,
+            for: worklane,
             orderedPaneContexts: orderedPaneContexts
         )
-        let isWorking = paneRows.contains(where: \.isWorking) || workspaceIsWorking(for: workspace)
-        let badgeText = badge(for: workspace.title)
-        let identity = identity ?? workspaceIdentity(
-            for: workspace,
+        let isWorking = paneRows.contains(where: \.isWorking) || worklaneIsWorking(for: worklane)
+        let badgeText = badge(for: worklane.title)
+        let identity = identity ?? worklaneIdentity(
+            for: worklane,
             orderedPaneContexts: orderedPaneContexts
         )
         let primaryText = identity.primaryText
         let focusedPaneLineIndex = focusedPaneLineIndex(
-            for: workspace,
+            for: worklane,
             orderedPaneContexts: orderedPaneContexts
         )
         let topLabel = visibleTopLabel(
-            workspace.title,
+            worklane.title,
             primaryText: primaryText
         )
         let sidebarDetailLines = detailLines(
-            for: workspace,
+            for: worklane,
             primaryText: primaryText,
             orderedPaneContexts: orderedPaneContexts
         )
         let statusPresentation = paneRows.isEmpty
             ? sidebarStatusPresentation(
-                for: workspace,
-                attention: WorkspaceAttentionSummaryBuilder.summary(for: workspace),
+                for: worklane,
+                attention: WorklaneAttentionSummaryBuilder.summary(for: worklane),
                 isWorking: isWorking
             )
             : SidebarStatusPresentation(
@@ -118,8 +118,8 @@ enum WorkspaceSidebarSummaryBuilder {
                 interactionSymbolName: nil
             )
 
-        return WorkspaceSidebarSummary(
-            workspaceID: workspace.id,
+        return WorklaneSidebarSummary(
+            worklaneID: worklane.id,
             badgeText: badgeText,
             topLabel: topLabel,
             primaryText: primaryText,
@@ -138,8 +138,8 @@ enum WorkspaceSidebarSummaryBuilder {
     }
 
     private static func sidebarStatusPresentation(
-        for workspace: WorkspaceState,
-        attention: WorkspaceAttentionSummary?,
+        for worklane: WorklaneState,
+        attention: WorklaneAttentionSummary?,
         isWorking: Bool
     ) -> SidebarStatusPresentation {
         if let attention {
@@ -164,7 +164,7 @@ enum WorkspaceSidebarSummaryBuilder {
             )
         }
 
-        if workspaceAgentTool(for: workspace) != nil {
+        if worklaneAgentTool(for: worklane) != nil {
             return SidebarStatusPresentation(
                 statusText: nil,
                 attentionState: nil,
@@ -184,13 +184,13 @@ enum WorkspaceSidebarSummaryBuilder {
     }
 
     private static func paneRows(
-        for workspace: WorkspaceState,
-        orderedPaneContexts: [WorkspacePaneContext]
-    ) -> [WorkspaceSidebarPaneRow] {
+        for worklane: WorklaneState,
+        orderedPaneContexts: [WorklanePaneContext]
+    ) -> [WorklaneSidebarPaneRow] {
         let isSinglePane = orderedPaneContexts.count == 1
 
         return orderedPaneContexts.map { paneContext in
-            let isFocused = workspace.paneStripState.focusedPaneID == paneContext.paneID
+            let isFocused = worklane.paneStripState.focusedPaneID == paneContext.paneID
             let statusPresentation = paneSidebarStatusPresentation(for: paneContext.presentation)
             let paneIdentity = paneIdentity(
                 for: paneContext.presentation,
@@ -198,7 +198,7 @@ enum WorkspaceSidebarSummaryBuilder {
                 fallbackTitle: paneContext.pane.title
             )
 
-            return WorkspaceSidebarPaneRow(
+            return WorklaneSidebarPaneRow(
                 paneID: paneContext.paneID,
                 primaryText: paneIdentity.primaryText,
                 trailingText: paneIdentity.trailingText,
@@ -214,26 +214,26 @@ enum WorkspaceSidebarSummaryBuilder {
         }
     }
 
-    private static func workspaceIsWorking(for workspace: WorkspaceState) -> Bool {
-        workspace.paneStripState.panes.contains { pane in
-            paneIsWorkingInSidebar(paneID: pane.id, workspace: workspace)
+    private static func worklaneIsWorking(for worklane: WorklaneState) -> Bool {
+        worklane.paneStripState.panes.contains { pane in
+            paneIsWorkingInSidebar(paneID: pane.id, worklane: worklane)
         }
     }
 
     private static func paneIsWorkingInSidebar(
         paneID: PaneID,
-        workspace: WorkspaceState
+        worklane: WorklaneState
     ) -> Bool {
-        guard let paneContext = workspace.paneContext(for: paneID) else {
+        guard let paneContext = worklane.paneContext(for: paneID) else {
             return false
         }
 
         return paneContext.presentation.isWorking
     }
 
-    private static func workspaceAgentTool(for workspace: WorkspaceState) -> AgentTool? {
-        for pane in workspace.paneStripState.panes {
-            if let recognized = workspace.paneContext(for: pane.id)?.presentation.recognizedTool {
+    private static func worklaneAgentTool(for worklane: WorklaneState) -> AgentTool? {
+        for pane in worklane.paneStripState.panes {
+            if let recognized = worklane.paneContext(for: pane.id)?.presentation.recognizedTool {
                 return recognized
             }
         }
@@ -241,9 +241,9 @@ enum WorkspaceSidebarSummaryBuilder {
         return nil
     }
 
-    private static func workingAgentTool(for workspace: WorkspaceState) -> AgentTool? {
-        for pane in workspace.paneStripState.panes {
-            guard let presentation = workspace.paneContext(for: pane.id)?.presentation,
+    private static func workingAgentTool(for worklane: WorklaneState) -> AgentTool? {
+        for pane in worklane.paneStripState.panes {
+            guard let presentation = worklane.paneContext(for: pane.id)?.presentation,
                   presentation.isWorking else {
                 continue
             }
@@ -253,15 +253,15 @@ enum WorkspaceSidebarSummaryBuilder {
         return nil
     }
 
-    private static func workspaceIdentity(
-        for workspace: WorkspaceState,
-        orderedPaneContexts candidatePaneContexts: [WorkspacePaneContext]? = nil
-    ) -> WorkspaceSidebarIdentity {
-        let orderedPaneContexts = candidatePaneContexts ?? self.orderedPaneContexts(for: workspace)
+    private static func worklaneIdentity(
+        for worklane: WorklaneState,
+        orderedPaneContexts candidatePaneContexts: [WorklanePaneContext]? = nil
+    ) -> WorklaneSidebarIdentity {
+        let orderedPaneContexts = candidatePaneContexts ?? self.orderedPaneContexts(for: worklane)
         let isSinglePane = orderedPaneContexts.count == 1
 
         if let focusedPaneContext = focusedPaneContext(
-            for: workspace,
+            for: worklane,
             orderedPaneContexts: orderedPaneContexts
         ) {
             return identity(for: focusedPaneContext, isSinglePane: isSinglePane)
@@ -273,8 +273,8 @@ enum WorkspaceSidebarSummaryBuilder {
                 ?? fallbackIdentity(for: firstPaneContext)
         }
 
-        return WorkspaceSidebarIdentity(
-            paneID: workspace.paneStripState.focusedPaneID,
+        return WorklaneSidebarIdentity(
+            paneID: worklane.paneStripState.focusedPaneID,
             primaryText: "Shell",
             cwdPath: nil,
             isCwdDerived: false
@@ -282,16 +282,16 @@ enum WorkspaceSidebarSummaryBuilder {
     }
 
     private static func paneDetailTexts(
-        for workspace: WorkspaceState,
+        for worklane: WorklaneState,
         primaryText: String,
-        orderedPaneContexts candidatePaneContexts: [WorkspacePaneContext]? = nil
+        orderedPaneContexts candidatePaneContexts: [WorklanePaneContext]? = nil
     ) -> [String] {
-        let paneContexts = candidatePaneContexts ?? self.orderedPaneContexts(for: workspace)
+        let paneContexts = candidatePaneContexts ?? self.orderedPaneContexts(for: worklane)
         if paneContexts.count == 1 {
             return []
         }
 
-        let focusedPaneID = workspace.paneStripState.focusedPaneID
+        let focusedPaneID = worklane.paneStripState.focusedPaneID
         let candidates = paneContexts.compactMap { paneContext -> PaneDetailCandidate? in
             guard paneContext.paneID != focusedPaneID else {
                 return nil
@@ -308,16 +308,16 @@ enum WorkspaceSidebarSummaryBuilder {
     }
 
     private static func detailLines(
-        for workspace: WorkspaceState,
+        for worklane: WorklaneState,
         primaryText: String,
-        orderedPaneContexts: [WorkspacePaneContext]? = nil
-    ) -> [WorkspaceSidebarDetailLine] {
+        orderedPaneContexts: [WorklanePaneContext]? = nil
+    ) -> [WorklaneSidebarDetailLine] {
         paneDetailTexts(
-            for: workspace,
+            for: worklane,
             primaryText: primaryText,
             orderedPaneContexts: orderedPaneContexts
         ).enumerated().map { index, text in
-            WorkspaceSidebarDetailLine(
+            WorklaneSidebarDetailLine(
                 text: text,
                 emphasis: .secondary
             )
@@ -325,15 +325,15 @@ enum WorkspaceSidebarSummaryBuilder {
     }
 
     private static func paneDetailCandidate(
-        for paneContext: WorkspacePaneContext
+        for paneContext: WorklanePaneContext
     ) -> PaneDetailCandidate? {
         let metadata = paneContext.metadata
         let cwdPath = resolvedWorkingDirectory(for: paneContext)
         let maxPathSegments = cwdPath.flatMap {
-            WorkspaceContextFormatter.maxSidebarPathSegments($0)
+            WorklaneContextFormatter.maxSidebarPathSegments($0)
         } ?? 1
 
-        guard WorkspaceContextFormatter.paneDetailLine(
+        guard WorklaneContextFormatter.paneDetailLine(
             metadata: metadata,
             fallbackTitle: paneContext.pane.title,
             workingDirectory: cwdPath
@@ -351,9 +351,9 @@ enum WorkspaceSidebarSummaryBuilder {
     }
 
     private static func identity(
-        for paneContext: WorkspacePaneContext,
+        for paneContext: WorklanePaneContext,
         isSinglePane: Bool
-    ) -> WorkspaceSidebarIdentity? {
+    ) -> WorklaneSidebarIdentity? {
         let presentation = paneContext.presentation
         let paneIdentity = paneIdentity(
             for: presentation,
@@ -362,7 +362,7 @@ enum WorkspaceSidebarSummaryBuilder {
         )
         let primaryText = paneIdentity.primaryText
 
-        return WorkspaceSidebarIdentity(
+        return WorklaneSidebarIdentity(
             paneID: paneContext.paneID,
             primaryText: primaryText,
             cwdPath: presentation.cwd,
@@ -378,15 +378,15 @@ enum WorkspaceSidebarSummaryBuilder {
         let branch = presentation.branchDisplayText
         let workingDirectory = compactWorkingDirectory(for: presentation)
 
-        if let rememberedTitle = WorkspaceContextFormatter.trimmed(presentation.rememberedTitle) {
+        if let rememberedTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle) {
             if isSinglePane {
                 let contextComponents = [branch, workingDirectory]
-                    .compactMap(WorkspaceContextFormatter.trimmed)
+                    .compactMap(WorklaneContextFormatter.trimmed)
                 let contextText = contextComponents.isEmpty ? nil : contextComponents.joined(separator: " · ")
 
                 return PaneSidebarIdentity(
                     primaryText: [rememberedTitle, contextText]
-                        .compactMap(WorkspaceContextFormatter.trimmed)
+                        .compactMap(WorklaneContextFormatter.trimmed)
                         .joined(separator: " · "),
                     trailingText: nil,
                     detailText: nil
@@ -395,7 +395,7 @@ enum WorkspaceSidebarSummaryBuilder {
 
             return PaneSidebarIdentity(
                 primaryText: [rememberedTitle, workingDirectory]
-                    .compactMap(WorkspaceContextFormatter.trimmed)
+                    .compactMap(WorklaneContextFormatter.trimmed)
                     .joined(separator: " · "),
                 trailingText: branch,
                 detailText: nil
@@ -427,7 +427,7 @@ enum WorkspaceSidebarSummaryBuilder {
         }
 
         return PaneSidebarIdentity(
-            primaryText: WorkspaceContextFormatter.normalizeSidebarFallbackTitle(fallbackTitle) ?? "Shell",
+            primaryText: WorklaneContextFormatter.normalizeSidebarFallbackTitle(fallbackTitle) ?? "Shell",
             trailingText: nil,
             detailText: nil
         )
@@ -470,8 +470,8 @@ enum WorkspaceSidebarSummaryBuilder {
             return nil
         }
 
-        return WorkspaceContextFormatter.compactRepositorySidebarPath(cwd)
-            ?? WorkspaceContextFormatter.formattedWorkingDirectory(cwd, branch: nil)
+        return WorklaneContextFormatter.compactRepositorySidebarPath(cwd)
+            ?? WorklaneContextFormatter.formattedWorkingDirectory(cwd, branch: nil)
     }
 
     private static func compactSidebarContextText(for presentation: PanePresentationState) -> String? {
@@ -490,7 +490,7 @@ enum WorkspaceSidebarSummaryBuilder {
         }
     }
 
-    private static func attentionState(for phase: PanePresentationPhase) -> WorkspaceAttentionState? {
+    private static func attentionState(for phase: PanePresentationPhase) -> WorklaneAttentionState? {
         switch phase {
         case .idle, .starting:
             return nil
@@ -510,7 +510,7 @@ enum WorkspaceSidebarSummaryBuilder {
         formattedWorkingDirectory: String?,
         branch: String?
     ) -> (label: String, isCwdDerived: Bool)? {
-        let stableIdentity = WorkspaceContextFormatter.displayStablePaneIdentity(
+        let stableIdentity = WorklaneContextFormatter.displayStablePaneIdentity(
             for: metadata,
             fallbackTitle: fallbackTitle,
             workingDirectory: workingDirectory,
@@ -526,7 +526,7 @@ enum WorkspaceSidebarSummaryBuilder {
             return (stableIdentity, isCwdDerived)
         }
 
-        let branchPrefixedIdentity = WorkspaceContextFormatter.paneDetailLine(
+        let branchPrefixedIdentity = WorklaneContextFormatter.paneDetailLine(
             metadata: metadata,
             fallbackTitle: fallbackTitle,
             workingDirectory: workingDirectory
@@ -602,7 +602,7 @@ enum WorkspaceSidebarSummaryBuilder {
         for candidate: PaneDetailCandidate,
         minimumPathSegments: Int
     ) -> String? {
-        WorkspaceContextFormatter.paneDetailLine(
+        WorklaneContextFormatter.paneDetailLine(
             metadata: candidate.metadata,
             fallbackTitle: candidate.fallbackTitle,
             workingDirectory: candidate.cwdPath,
@@ -610,45 +610,45 @@ enum WorkspaceSidebarSummaryBuilder {
         )
     }
 
-    private static func resolvedWorkingDirectory(for paneContext: WorkspacePaneContext) -> String? {
-        WorkspaceContextFormatter.resolvedWorkingDirectory(
+    private static func resolvedWorkingDirectory(for paneContext: WorklanePaneContext) -> String? {
+        WorklaneContextFormatter.resolvedWorkingDirectory(
             for: paneContext.metadata,
             shellContext: paneContext.auxiliaryState?.shellContext
         )
     }
 
-    private static func orderedPaneContexts(for workspace: WorkspaceState) -> [WorkspacePaneContext] {
-        workspace.paneStripState.panes.compactMap { pane in
-            workspace.paneContext(for: pane.id)
+    private static func orderedPaneContexts(for worklane: WorklaneState) -> [WorklanePaneContext] {
+        worklane.paneStripState.panes.compactMap { pane in
+            worklane.paneContext(for: pane.id)
         }
     }
 
     private static func focusedPaneContext(
-        for workspace: WorkspaceState,
-        orderedPaneContexts: [WorkspacePaneContext]
-    ) -> WorkspacePaneContext? {
-        guard let focusedPaneID = workspace.paneStripState.focusedPaneID else {
+        for worklane: WorklaneState,
+        orderedPaneContexts: [WorklanePaneContext]
+    ) -> WorklanePaneContext? {
+        guard let focusedPaneID = worklane.paneStripState.focusedPaneID else {
             return orderedPaneContexts.first
         }
 
         return orderedPaneContexts.first { $0.paneID == focusedPaneID } ?? orderedPaneContexts.first
     }
 
-    private static func fallbackIdentity(for paneContext: WorkspacePaneContext) -> WorkspaceSidebarIdentity {
-        WorkspaceSidebarIdentity(
+    private static func fallbackIdentity(for paneContext: WorklanePaneContext) -> WorklaneSidebarIdentity {
+        WorklaneSidebarIdentity(
             paneID: paneContext.paneID,
-            primaryText: WorkspaceContextFormatter.normalizeSidebarFallbackTitle(paneContext.pane.title) ?? "Shell",
+            primaryText: WorklaneContextFormatter.normalizeSidebarFallbackTitle(paneContext.pane.title) ?? "Shell",
             cwdPath: nil,
             isCwdDerived: false
         )
     }
 
     private static func focusedPaneLineIndex(
-        for workspace: WorkspaceState,
-        orderedPaneContexts: [WorkspacePaneContext]
+        for worklane: WorklaneState,
+        orderedPaneContexts: [WorklanePaneContext]
     ) -> Int {
         guard orderedPaneContexts.count > 1,
-              let focusedPaneID = workspace.paneStripState.focusedPaneID else {
+              let focusedPaneID = worklane.paneStripState.focusedPaneID else {
             return 0
         }
 
@@ -681,8 +681,8 @@ enum WorkspaceSidebarSummaryBuilder {
         _ title: String,
         primaryText: String
     ) -> String? {
-        let normalizedTitle = WorkspaceContextFormatter.trimmed(title)
-        guard let normalizedTitle, isGeneratedWorkspaceTitle(normalizedTitle) == false else {
+        let normalizedTitle = WorklaneContextFormatter.trimmed(title)
+        guard let normalizedTitle, isGeneratedWorklaneTitle(normalizedTitle) == false else {
             return nil
         }
 
@@ -715,49 +715,49 @@ enum WorkspaceSidebarSummaryBuilder {
     }
 
     private static func disambiguatedSummaries(
-        _ summaries: [WorkspaceSidebarSummary],
-        identitiesByWorkspaceID: [WorkspaceID: WorkspaceSidebarIdentity],
-        workspaces: [WorkspaceState]
-    ) -> [WorkspaceSidebarSummary] {
-        let cwdDerivedPaths: [(WorkspaceID, String)] = identitiesByWorkspaceID.compactMap { workspaceID, identity in
+        _ summaries: [WorklaneSidebarSummary],
+        identitiesByWorklaneID: [WorklaneID: WorklaneSidebarIdentity],
+        worklanes: [WorklaneState]
+    ) -> [WorklaneSidebarSummary] {
+        let cwdDerivedPaths: [(WorklaneID, String)] = identitiesByWorklaneID.compactMap { worklaneID, identity in
                 guard identity.isCwdDerived, let cwdPath = identity.cwdPath else {
                     return nil
                 }
 
-                return (workspaceID, cwdPath)
+                return (worklaneID, cwdPath)
             }
-        let pathsByWorkspaceID = Dictionary(uniqueKeysWithValues: cwdDerivedPaths)
+        let pathsByWorklaneID = Dictionary(uniqueKeysWithValues: cwdDerivedPaths)
 
-        var requiredSegmentCountByWorkspaceID = Dictionary(
-            uniqueKeysWithValues: Array(pathsByWorkspaceID.keys).map { ($0, 1) }
+        var requiredSegmentCountByWorklaneID = Dictionary(
+            uniqueKeysWithValues: Array(pathsByWorklaneID.keys).map { ($0, 1) }
         )
 
         while true {
-            let labelsByWorkspaceID = summaries.reduce(into: [String: [WorkspaceID]]()) { result, summary in
+            let labelsByWorklaneID = summaries.reduce(into: [String: [WorklaneID]]()) { result, summary in
                 let label = disambiguatedPrimaryText(
                     for: summary,
-                    pathsByWorkspaceID: pathsByWorkspaceID,
-                    requiredSegmentCountByWorkspaceID: requiredSegmentCountByWorkspaceID
+                    pathsByWorklaneID: pathsByWorklaneID,
+                    requiredSegmentCountByWorklaneID: requiredSegmentCountByWorklaneID
                 ) ?? summary.primaryText
 
-                result[label.lowercased(), default: []].append(summary.workspaceID)
+                result[label.lowercased(), default: []].append(summary.worklaneID)
             }
 
             var didExpandAnyPath = false
 
-            for workspaceIDs in labelsByWorkspaceID.values where workspaceIDs.count > 1 {
-                for workspaceID in workspaceIDs {
-                    guard let path = pathsByWorkspaceID[workspaceID],
-                          let maxSegmentCount = WorkspaceContextFormatter.maxSidebarPathSegments(path) else {
+            for worklaneIDs in labelsByWorklaneID.values where worklaneIDs.count > 1 {
+                for worklaneID in worklaneIDs {
+                    guard let path = pathsByWorklaneID[worklaneID],
+                          let maxSegmentCount = WorklaneContextFormatter.maxSidebarPathSegments(path) else {
                         continue
                     }
 
-                    let currentSegmentCount = requiredSegmentCountByWorkspaceID[workspaceID] ?? 1
+                    let currentSegmentCount = requiredSegmentCountByWorklaneID[worklaneID] ?? 1
                     guard currentSegmentCount < maxSegmentCount else {
                         continue
                     }
 
-                    requiredSegmentCountByWorkspaceID[workspaceID] = currentSegmentCount + 1
+                    requiredSegmentCountByWorklaneID[worklaneID] = currentSegmentCount + 1
                     didExpandAnyPath = true
                 }
             }
@@ -767,11 +767,11 @@ enum WorkspaceSidebarSummaryBuilder {
             }
         }
 
-        return zip(workspaces, summaries).map { workspace, summary in
+        return zip(worklanes, summaries).map { worklane, summary in
             let disambiguatedPrimaryText = disambiguatedPrimaryText(
                 for: summary,
-                pathsByWorkspaceID: pathsByWorkspaceID,
-                requiredSegmentCountByWorkspaceID: requiredSegmentCountByWorkspaceID
+                pathsByWorklaneID: pathsByWorklaneID,
+                requiredSegmentCountByWorklaneID: requiredSegmentCountByWorklaneID
             ) ?? summary.primaryText
             let paneRows = summary.paneRows.map { paneRow in
                 guard paneRow.isFocused,
@@ -779,7 +779,7 @@ enum WorkspaceSidebarSummaryBuilder {
                     return paneRow
                 }
 
-                return WorkspaceSidebarPaneRow(
+                return WorklaneSidebarPaneRow(
                     paneID: paneRow.paneID,
                     primaryText: disambiguatedPrimaryText,
                     trailingText: paneRow.trailingText,
@@ -794,11 +794,11 @@ enum WorkspaceSidebarSummaryBuilder {
                 )
             }
 
-            return WorkspaceSidebarSummary(
-                workspaceID: summary.workspaceID,
+            return WorklaneSidebarSummary(
+                worklaneID: summary.worklaneID,
                 badgeText: summary.badgeText,
                 topLabel: visibleTopLabel(
-                    workspace.title,
+                    worklane.title,
                     primaryText: disambiguatedPrimaryText
                 ),
                 primaryText: disambiguatedPrimaryText,
@@ -817,7 +817,7 @@ enum WorkspaceSidebarSummaryBuilder {
         }
     }
 
-    private static func defaultSymbolName(for state: WorkspaceAttentionState) -> String {
+    private static func defaultSymbolName(for state: WorklaneAttentionState) -> String {
         switch state {
         case .running:
             return "bolt.fill"
@@ -828,7 +828,7 @@ enum WorkspaceSidebarSummaryBuilder {
         }
     }
 
-    private static func plainStatusText(for state: WorkspaceAttentionState) -> String {
+    private static func plainStatusText(for state: WorklaneAttentionState) -> String {
         switch state {
         case .needsInput:
             return "Needs input"
@@ -840,23 +840,23 @@ enum WorkspaceSidebarSummaryBuilder {
     }
 
     private static func disambiguatedPrimaryText(
-        for summary: WorkspaceSidebarSummary,
-        pathsByWorkspaceID: [WorkspaceID: String],
-        requiredSegmentCountByWorkspaceID: [WorkspaceID: Int]
+        for summary: WorklaneSidebarSummary,
+        pathsByWorklaneID: [WorklaneID: String],
+        requiredSegmentCountByWorklaneID: [WorklaneID: Int]
     ) -> String? {
         guard summary.attentionState == nil,
-              let path = pathsByWorkspaceID[summary.workspaceID] else {
+              let path = pathsByWorklaneID[summary.worklaneID] else {
             return nil
         }
 
-        let requiredSegmentCount = requiredSegmentCountByWorkspaceID[summary.workspaceID] ?? 1
-        let compactPrimaryText = WorkspaceContextFormatter.compactSidebarPath(path)
-        let compactRepositoryPrimaryText = WorkspaceContextFormatter.compactRepositorySidebarPath(path)
-        let expandedCompactPrimaryText = WorkspaceContextFormatter.compactSidebarPath(
+        let requiredSegmentCount = requiredSegmentCountByWorklaneID[summary.worklaneID] ?? 1
+        let compactPrimaryText = WorklaneContextFormatter.compactSidebarPath(path)
+        let compactRepositoryPrimaryText = WorklaneContextFormatter.compactRepositorySidebarPath(path)
+        let expandedCompactPrimaryText = WorklaneContextFormatter.compactSidebarPath(
             path,
             minimumSegments: requiredSegmentCount
         )
-        let expandedCompactRepositoryPrimaryText = WorkspaceContextFormatter.compactRepositorySidebarPath(
+        let expandedCompactRepositoryPrimaryText = WorklaneContextFormatter.compactRepositorySidebarPath(
             path,
             minimumSegments: requiredSegmentCount
         )
@@ -913,7 +913,7 @@ enum WorkspaceSidebarSummaryBuilder {
         return String(firstCharacter).uppercased()
     }
 
-    private static func isGeneratedWorkspaceTitle(_ title: String) -> Bool {
+    private static func isGeneratedWorklaneTitle(_ title: String) -> Bool {
         let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.uppercased() == "MAIN" {
             return true
@@ -951,8 +951,8 @@ enum WorkspaceSidebarSummaryBuilder {
         }
 
         let normalizedPrimaryText = primaryText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let branch = WorkspaceContextFormatter.displayBranch(metadata?.gitBranch)
-        let formattedWorkingDirectory = WorkspaceContextFormatter.formattedWorkingDirectory(
+        let branch = WorklaneContextFormatter.displayBranch(metadata?.gitBranch)
+        let formattedWorkingDirectory = WorklaneContextFormatter.formattedWorkingDirectory(
             workingDirectory,
             branch: branch
         )

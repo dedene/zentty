@@ -2,6 +2,7 @@ import AppKit
 
 enum KeyboardShortcutKey: Hashable, Sendable {
     case character(String)
+    case tab
     case leftArrow
     case rightArrow
     case upArrow
@@ -44,6 +45,8 @@ struct KeyboardShortcut: Hashable, Sendable {
         let key: KeyboardShortcutKey
 
         switch event.keyCode {
+        case 48:
+            key = .tab
         case 123:
             key = .leftArrow
         case 124:

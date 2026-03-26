@@ -37,7 +37,7 @@ final class WindowChromeView: NSView {
         }
     }
 
-    private let attentionChipView = WorkspaceAttentionChipView()
+    private let attentionChipView = WorklaneAttentionChipView()
     private let rowContainerView = NSView()
     private let openWithContainerView = NSView()
     private let openWithPrimaryBackgroundView = NSView()
@@ -56,7 +56,7 @@ final class WindowChromeView: NSView {
     private let urlOpener: (URL) -> Void
 
     private var currentTheme = ZenttyTheme.fallback(for: nil)
-    private var currentSummary = WorkspaceChromeSummary(
+    private var currentSummary = WorklaneChromeSummary(
         attention: nil,
         focusedLabel: nil,
         branch: nil,
@@ -65,7 +65,7 @@ final class WindowChromeView: NSView {
         reviewChips: []
     )
     private var currentOpenWithState: WindowChromeOpenWithState?
-    private var displayedReviewChips: [WorkspaceReviewChip] = []
+    private var displayedReviewChips: [WorklaneReviewChip] = []
     private var reviewChipViews: [WindowChromeReviewChipView] = []
     private var branchURL: URL?
     private var pullRequestURL: URL?
@@ -200,7 +200,7 @@ final class WindowChromeView: NSView {
         render(openWith: currentOpenWithState)
     }
 
-    func render(summary: WorkspaceChromeSummary) {
+    func render(summary: WorklaneChromeSummary) {
         currentSummary = summary
         pullRequestURL = summary.pullRequest?.url
 
@@ -400,7 +400,7 @@ final class WindowChromeView: NSView {
     }
 
     private func pullRequestPalette(
-        for pullRequest: WorkspacePullRequestSummary?,
+        for pullRequest: WorklanePullRequestSummary?,
         isHovered: Bool,
         isInteractive: Bool
     ) -> (background: NSColor, border: NSColor, text: NSColor) {
@@ -423,7 +423,7 @@ final class WindowChromeView: NSView {
         return (background, border, text)
     }
 
-    private func githubStateColor(for state: WorkspacePullRequestState) -> NSColor {
+    private func githubStateColor(for state: WorklanePullRequestState) -> NSColor {
         switch state {
         case .draft:
             return NSColor(hexString: "#59636E") ?? .systemGray
@@ -454,7 +454,7 @@ final class WindowChromeView: NSView {
         updateReviewChipViews(chips: desiredChips)
     }
 
-    private func updateReviewChipViews(chips: [WorkspaceReviewChip]) {
+    private func updateReviewChipViews(chips: [WorklaneReviewChip]) {
         displayedReviewChips = chips
         reviewChipViews.forEach { $0.removeFromSuperview() }
         reviewChipViews = chips.map { chip in
@@ -632,7 +632,7 @@ final class WindowChromeView: NSView {
 
     private func kind(for view: NSView) -> WindowChromeRowLayoutPlanner.Kind {
         switch view {
-        case let attentionChip as WorkspaceAttentionChipView where attentionChip === attentionChipView:
+        case let attentionChip as WorklaneAttentionChipView where attentionChip === attentionChipView:
             return .attention
         case let label as NSTextField where label === focusedLabel:
             return .focusedLabel
@@ -763,7 +763,7 @@ final class WindowChromeView: NSView {
 
     private func intrinsicWidth(for view: NSView) -> CGFloat {
         switch view {
-        case let attentionChip as WorkspaceAttentionChipView:
+        case let attentionChip as WorklaneAttentionChipView:
             return attentionChip.preferredWidthForCurrentContent
         case let label as NSTextField:
             return Self.requiredSingleLineWidth(for: label)
@@ -1302,9 +1302,9 @@ private final class WindowChromeBranchLabel: NSTextField {
 
 private final class WindowChromeReviewChipView: NSView {
     private let label = NSTextField(labelWithString: "")
-    private let chip: WorkspaceReviewChip
+    private let chip: WorklaneReviewChip
 
-    init(chip: WorkspaceReviewChip) {
+    init(chip: WorklaneReviewChip) {
         self.chip = chip
         super.init(frame: .zero)
         setup()
@@ -1379,7 +1379,7 @@ private final class WindowChromeReviewChipView: NSView {
             )
         case .info:
             return (
-                background: baseBackground.mixed(towards: theme.workspaceChipBackground, amount: 0.24),
+                background: baseBackground.mixed(towards: theme.worklaneChipBackground, amount: 0.24),
                 border: baseBorder.mixed(towards: .systemBlue, amount: 0.28),
                 text: theme.primaryText
             )
@@ -1388,7 +1388,7 @@ private final class WindowChromeReviewChipView: NSView {
 
     var text: String { label.stringValue }
 
-    static func preferredWidth(for chip: WorkspaceReviewChip) -> CGFloat {
+    static func preferredWidth(for chip: WorklaneReviewChip) -> CGFloat {
         let label = NSTextField(labelWithString: chip.text)
         label.font = .systemFont(ofSize: 11, weight: .semibold)
         label.lineBreakMode = .byClipping

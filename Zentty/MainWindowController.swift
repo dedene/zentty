@@ -151,8 +151,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
-    func newWorkspace(_ sender: Any?) {
-        handle(.newWorkspace)
+    func newWorklane(_ sender: Any?) {
+        handle(.newWorklane)
+    }
+
+    @objc
+    func nextWorklane(_ sender: Any?) {
+        handle(.nextWorklane)
+    }
+
+    @objc
+    func previousWorklane(_ sender: Any?) {
+        handle(.previousWorklane)
     }
 
     @objc
@@ -249,18 +259,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         settingsWindowController?.window
     }
 
-    func navigateToPane(workspaceID: WorkspaceID, paneID: PaneID) {
+    func navigateToPane(worklaneID: WorklaneID, paneID: PaneID) {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        rootViewController.navigateToPane(workspaceID: workspaceID, paneID: paneID)
+        rootViewController.navigateToPane(worklaneID: worklaneID, paneID: paneID)
     }
 
-    var workspaceTitles: [String] {
-        rootViewController.workspaceTitles
+    var worklaneTitles: [String] {
+        rootViewController.worklaneTitles
     }
 
-    var activeWorkspaceTitle: String? {
-        rootViewController.activeWorkspaceTitle
+    var activeWorklaneTitle: String? {
+        rootViewController.activeWorklaneTitle
     }
 
     var activePaneTitles: [String] {
@@ -537,7 +547,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
         rootViewController.applyAgentStatusPayloadForTesting(
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
+                worklaneID: WorklaneID("worklane-main"),
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,

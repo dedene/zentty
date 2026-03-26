@@ -1,12 +1,12 @@
 import CoreGraphics
 import Foundation
 
-enum WorkspaceRowMode: Equatable {
+enum WorklaneRowMode: Equatable {
     case compact
     case expanded
 }
 
-enum WorkspaceRowTextRow: Equatable {
+enum WorklaneRowTextRow: Equatable {
     case topLabel
     case primary
     case status
@@ -18,7 +18,7 @@ enum WorkspaceRowTextRow: Equatable {
     case overflow
 }
 
-struct WorkspaceRowLayoutMetrics: Equatable {
+struct WorklaneRowLayoutMetrics: Equatable {
     let topInset: CGFloat
     let bottomInset: CGFloat
     let interlineSpacing: CGFloat
@@ -29,7 +29,7 @@ struct WorkspaceRowLayoutMetrics: Equatable {
     let overflowLineHeight: CGFloat
     let paneButtonVerticalPadding: CGFloat
 
-    static let sidebar = WorkspaceRowLayoutMetrics(
+    static let sidebar = WorklaneRowLayoutMetrics(
         topInset: ShellMetrics.sidebarRowTopInset,
         bottomInset: ShellMetrics.sidebarRowBottomInset,
         interlineSpacing: ShellMetrics.sidebarRowInterlineSpacing,
@@ -83,7 +83,7 @@ struct WorkspaceRowLayoutMetrics: Equatable {
         return topInset + bottomInset + textHeight + spacingHeight
     }
 
-    func height(for visibleRows: [WorkspaceRowTextRow]) -> CGFloat {
+    func height(for visibleRows: [WorklaneRowTextRow]) -> CGFloat {
         var total = verticalPadding
         for row in visibleRows {
             total += lineHeight(for: row)
@@ -104,7 +104,7 @@ struct WorkspaceRowLayoutMetrics: Equatable {
         return total
     }
 
-    private func lineHeight(for row: WorkspaceRowTextRow) -> CGFloat {
+    private func lineHeight(for row: WorklaneRowTextRow) -> CGFloat {
         switch row {
         case .topLabel:
             return titleLineHeight
@@ -128,14 +128,14 @@ struct WorkspaceRowLayoutMetrics: Equatable {
     }
 }
 
-struct SidebarWorkspaceRowLayout: Equatable {
-    let mode: WorkspaceRowMode
-    let visibleTextRows: [WorkspaceRowTextRow]
+struct SidebarWorklaneRowLayout: Equatable {
+    let mode: WorklaneRowMode
+    let visibleTextRows: [WorklaneRowTextRow]
     let rowHeight: CGFloat
 
     init(
-        summary: WorkspaceSidebarSummary,
-        metrics: WorkspaceRowLayoutMetrics = .sidebar
+        summary: WorklaneSidebarSummary,
+        metrics: WorklaneRowLayoutMetrics = .sidebar
     ) {
         let visibleTextRows = Self.visibleTextRows(for: summary)
         let mode = Self.mode(for: summary)
@@ -148,7 +148,7 @@ struct SidebarWorkspaceRowLayout: Equatable {
             : computedHeight
     }
 
-    static func mode(for summary: WorkspaceSidebarSummary) -> WorkspaceRowMode {
+    static func mode(for summary: WorklaneSidebarSummary) -> WorklaneRowMode {
         if summary.paneRows.isEmpty == false {
             return summary.paneRows.count > 1
                 || hasVisibleText(summary.topLabel)
@@ -168,9 +168,9 @@ struct SidebarWorkspaceRowLayout: Equatable {
             : .compact
     }
 
-    static func visibleTextRows(for summary: WorkspaceSidebarSummary) -> [WorkspaceRowTextRow] {
+    static func visibleTextRows(for summary: WorklaneSidebarSummary) -> [WorklaneRowTextRow] {
         if summary.paneRows.isEmpty == false {
-            var rows: [WorkspaceRowTextRow] = []
+            var rows: [WorklaneRowTextRow] = []
 
             if hasVisibleText(summary.topLabel) {
                 rows.append(.topLabel)
@@ -195,7 +195,7 @@ struct SidebarWorkspaceRowLayout: Equatable {
             return rows
         }
 
-        var rows: [WorkspaceRowTextRow] = []
+        var rows: [WorklaneRowTextRow] = []
 
         if hasVisibleText(summary.topLabel) {
             rows.append(.topLabel)

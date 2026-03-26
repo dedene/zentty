@@ -1,11 +1,11 @@
 import XCTest
 @testable import Zentty
 
-final class WorkspaceSidebarSummaryTests: XCTestCase {
+final class WorklaneSidebarSummaryTests: XCTestCase {
     func test_builder_uses_branch_prefixed_cwd_for_focused_primary_text_when_identity_is_path_derived() {
-        let paneID = PaneID("workspace-main-shell")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -21,7 +21,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
 
         XCTAssertEqual(summary.primaryText, "fix-pane-border-text-visibility · …/sidebar")
         XCTAssertEqual(summary.focusedPaneLineIndex, 0)
@@ -32,9 +32,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_maps_home_directory_to_tilde_with_home_accessory() {
-        let paneID = PaneID("workspace-main-shell")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -50,19 +50,19 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "~")
         XCTAssertEqual(summary.detailLines, [])
     }
 
     func test_builder_prefers_more_specific_local_pane_context_over_stale_home_metadata() {
-        let paneID = PaneID("workspace-main-shell")
+        let paneID = PaneID("worklane-main-shell")
         let projectPath = (NSHomeDirectory() as NSString).appendingPathComponent(
             "Development/Personal/zentty"
         )
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -87,16 +87,16 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "main · …/zentty")
         XCTAssertEqual(summary.detailLines.map(\.text), [])
     }
 
     func test_builder_prefers_local_shell_context_when_metadata_cwd_is_stale_non_descendant() {
-        let paneID = PaneID("workspace-main-shell")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -121,17 +121,17 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "main · …/k8s-zenjoy")
         XCTAssertEqual(summary.detailLines.map(\.text), [])
     }
 
     func test_builder_keeps_focused_slot_when_focused_pane_has_no_metadata() {
-        let focusedPaneID = PaneID("workspace-main-pane-1")
-        let notesPaneID = PaneID("workspace-main-notes")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let focusedPaneID = PaneID("worklane-main-pane-1")
+        let notesPaneID = PaneID("worklane-main-notes")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -150,7 +150,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "Shell")
         XCTAssertEqual(summary.focusedPaneLineIndex, 0)
@@ -158,9 +158,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_uses_process_name_when_no_cwd_exists_anywhere() {
-        let paneID = PaneID("workspace-main-shell")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -176,17 +176,17 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "Shell")
         XCTAssertEqual(summary.detailLines, [])
     }
 
     func test_builder_uses_focused_pane_for_fallback_identity_when_cwd_is_missing() {
-        let firstPaneID = PaneID("workspace-main-pane-1")
-        let secondPaneID = PaneID("workspace-main-pane-2")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let firstPaneID = PaneID("worklane-main-pane-1")
+        let secondPaneID = PaneID("worklane-main-pane-2")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -211,16 +211,16 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "git")
     }
 
     func test_builder_prefers_focused_meaningful_terminal_identity_over_earlier_pane_cwd() {
-        let firstPaneID = PaneID("workspace-main-pane-1")
-        let focusedPaneID = PaneID("workspace-main-pane-2")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let firstPaneID = PaneID("worklane-main-pane-1")
+        let focusedPaneID = PaneID("worklane-main-pane-2")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -245,7 +245,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "feature/sidebar-feedback • …/docs")
         XCTAssertEqual(summary.focusedPaneLineIndex, 1)
@@ -253,11 +253,11 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_tracks_middle_focused_pane_without_reordering_visible_pane_lines() {
-        let firstPaneID = PaneID("workspace-main-pane-1")
-        let focusedPaneID = PaneID("workspace-main-pane-2")
-        let thirdPaneID = PaneID("workspace-main-pane-3")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let firstPaneID = PaneID("worklane-main-pane-1")
+        let focusedPaneID = PaneID("worklane-main-pane-2")
+        let thirdPaneID = PaneID("worklane-main-pane-3")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -289,17 +289,17 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "feature/sidebar-feedback • …/docs")
         XCTAssertEqual(summary.focusedPaneLineIndex, 1)
         XCTAssertEqual(summary.detailLines.map(\.text), ["main • …/app", "notes • /tmp/copy"])
     }
 
-    func test_builder_falls_back_to_generic_shell_when_workspace_is_anonymous() {
-        let paneID = PaneID("workspace-main-pane-1")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+    func test_builder_falls_back_to_generic_shell_when_worklane_is_anonymous() {
+        let paneID = PaneID("worklane-main-pane-1")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "pane 1")],
@@ -307,17 +307,17 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             )
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "Shell")
         XCTAssertEqual(summary.detailLines, [])
     }
 
     func test_builder_prioritizes_attention_from_non_focused_agent_pane() {
-        let shellPaneID = PaneID("workspace-main-shell")
-        let agentPaneID = PaneID("workspace-main-agent")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let shellPaneID = PaneID("worklane-main-shell")
+        let agentPaneID = PaneID("worklane-main-agent")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -351,7 +351,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
 
         XCTAssertEqual(summary.primaryText, "main • …/project")
         XCTAssertNil(summary.statusText)
@@ -364,7 +364,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_carries_split_interaction_metadata_into_pane_rows() {
-        let paneID = PaneID("workspace-main-agent")
+        let paneID = PaneID("worklane-main-agent")
         var auxiliaryState = PaneAuxiliaryState()
         auxiliaryState.presentation = PanePresentationState(
             cwd: "/tmp/project",
@@ -388,8 +388,8 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             interactionSymbolName: "questionmark.circle"
         )
 
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
@@ -398,7 +398,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             auxiliaryStateByPaneID: [paneID: auxiliaryState]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
         XCTAssertEqual(paneRow.attentionState, .needsInput)
@@ -409,7 +409,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_uses_default_interaction_label_and_symbol_for_kind_only_metadata() {
-        let paneID = PaneID("workspace-main-agent")
+        let paneID = PaneID("worklane-main-agent")
         var auxiliaryState = PaneAuxiliaryState()
         auxiliaryState.presentation = PanePresentationState(
             cwd: "/tmp/project",
@@ -431,8 +431,8 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             interactionKind: .auth
         )
 
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
@@ -441,7 +441,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             auxiliaryStateByPaneID: [paneID: auxiliaryState]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
         XCTAssertEqual(paneRow.interactionKind, .auth)
@@ -449,10 +449,10 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.interactionSymbolName, "key.fill")
     }
 
-    func test_builder_keeps_meaningful_custom_workspace_title_as_quiet_top_label() {
-        let paneID = PaneID("workspace-docs-shell")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-docs"),
+    func test_builder_keeps_meaningful_custom_worklane_title_as_quiet_top_label() {
+        let paneID = PaneID("worklane-docs-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-docs"),
             title: "Docs",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -468,7 +468,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.topLabel, "Docs")
         XCTAssertEqual(summary.primaryText, "refresh-homepage-copy · …/marketing-site")
@@ -476,9 +476,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_omits_detail_line_for_single_pane_rows_without_branch() {
-        let paneID = PaneID("workspace-sidebar-shell")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-sidebar"),
+        let paneID = PaneID("worklane-sidebar-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-sidebar"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -494,16 +494,16 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "…/sidebar")
         XCTAssertEqual(summary.detailLines, [])
     }
 
-    func test_builder_omits_custom_workspace_title_when_it_repeats_primary_identity() {
-        let paneID = PaneID("workspace-sidebar-shell")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-sidebar"),
+    func test_builder_omits_custom_worklane_title_when_it_repeats_primary_identity() {
+        let paneID = PaneID("worklane-sidebar-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-sidebar"),
             title: "sidebar",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -519,16 +519,16 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertNil(summary.topLabel)
         XCTAssertEqual(summary.primaryText, "fix-pane-border-text-visibility · …/sidebar")
     }
 
     func test_builder_keeps_explicit_session_artifact_out_of_sidebar_card() {
-        let paneID = PaneID("workspace-main-shell")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -547,7 +547,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
                     tool: .claudeCode,
                     state: .needsInput,
                     text: nil,
-                    artifactLink: WorkspaceArtifactLink(
+                    artifactLink: WorklaneArtifactLink(
                         kind: .session,
                         label: "Session",
                         url: URL(string: "https://example.com/session")!,
@@ -558,18 +558,18 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
 
         XCTAssertNil(summary.statusText)
         XCTAssertEqual(summary.paneRows.first?.statusText, "Needs input")
     }
 
-    func test_builder_uses_pane_specific_detail_lines_for_multi_pane_workspaces() {
-        let shellPaneID = PaneID("workspace-main-shell")
-        let gitPaneID = PaneID("workspace-main-pane-1")
-        let notesPaneID = PaneID("workspace-main-pane-2")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+    func test_builder_uses_pane_specific_detail_lines_for_multi_pane_worklanes() {
+        let shellPaneID = PaneID("worklane-main-shell")
+        let gitPaneID = PaneID("worklane-main-pane-1")
+        let notesPaneID = PaneID("worklane-main-pane-2")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -601,7 +601,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "fix-pane-border-text-visibility • …/sidebar")
         XCTAssertEqual(summary.detailLines.map(\.text), ["main • …/git", "notes • /tmp/copy"])
@@ -609,11 +609,11 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_excludes_focused_pane_from_detail_lines_while_preserving_other_pane_order() {
-        let shellPaneID = PaneID("workspace-main-shell")
-        let gitPaneID = PaneID("workspace-main-pane-1")
-        let notesPaneID = PaneID("workspace-main-pane-2")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let shellPaneID = PaneID("worklane-main-shell")
+        let gitPaneID = PaneID("worklane-main-pane-1")
+        let notesPaneID = PaneID("worklane-main-pane-2")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -645,19 +645,19 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.detailLines.map(\.text), ["fix-pane-border-text-visibility • …/sidebar", "main • …/git"])
         XCTAssertEqual(summary.focusedPaneLineIndex, 2)
     }
 
-    func test_builder_shows_all_non_focused_pane_detail_lines_without_overflow_for_four_pane_workspaces() {
-        let firstPaneID = PaneID("workspace-main-shell")
-        let secondPaneID = PaneID("workspace-main-pane-1")
-        let thirdPaneID = PaneID("workspace-main-pane-2")
-        let fourthPaneID = PaneID("workspace-main-pane-3")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+    func test_builder_shows_all_non_focused_pane_detail_lines_without_overflow_for_four_pane_worklanes() {
+        let firstPaneID = PaneID("worklane-main-shell")
+        let secondPaneID = PaneID("worklane-main-pane-1")
+        let thirdPaneID = PaneID("worklane-main-pane-2")
+        let fourthPaneID = PaneID("worklane-main-pane-3")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -696,17 +696,17 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.detailLines.map(\.text), ["fix-pane-border-text-visibility • …/sidebar", "main • …/git", "notes • /tmp/copy"])
         XCTAssertNil(summary.overflowText)
     }
 
     func test_builder_expands_branchless_pane_paths_instead_of_dropping_lines_that_repeat_primary() {
-        let primaryPaneID = PaneID("workspace-main-pane-1")
-        let secondaryPaneID = PaneID("workspace-main-pane-2")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let primaryPaneID = PaneID("worklane-main-pane-1")
+        let secondaryPaneID = PaneID("worklane-main-pane-2")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -731,7 +731,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "…/api")
         XCTAssertEqual(
@@ -743,18 +743,18 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_summaries_expand_colliding_primary_paths_to_longer_labels() {
-        let apiWorkspaceID = WorkspaceID("workspace-api")
-        let srcApiWorkspaceID = WorkspaceID("workspace-src-api")
-        let workspaces = [
-            WorkspaceState(
-                id: apiWorkspaceID,
+        let apiWorklaneID = WorklaneID("worklane-api")
+        let srcApiWorklaneID = WorklaneID("worklane-src-api")
+        let worklanes = [
+            WorklaneState(
+                id: apiWorklaneID,
                 title: "MAIN",
                 paneStripState: PaneStripState(
-                    panes: [PaneState(id: PaneID("workspace-api-shell"), title: "shell")],
-                    focusedPaneID: PaneID("workspace-api-shell")
+                    panes: [PaneState(id: PaneID("worklane-api-shell"), title: "shell")],
+                    focusedPaneID: PaneID("worklane-api-shell")
                 ),
                 metadataByPaneID: [
-                    PaneID("workspace-api-shell"): TerminalMetadata(
+                    PaneID("worklane-api-shell"): TerminalMetadata(
                         title: "zsh",
                         currentWorkingDirectory: "/tmp/api",
                         processName: "zsh",
@@ -762,15 +762,15 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
                     )
                 ]
             ),
-            WorkspaceState(
-                id: srcApiWorkspaceID,
+            WorklaneState(
+                id: srcApiWorklaneID,
                 title: "MAIN",
                 paneStripState: PaneStripState(
-                    panes: [PaneState(id: PaneID("workspace-src-api-shell"), title: "shell")],
-                    focusedPaneID: PaneID("workspace-src-api-shell")
+                    panes: [PaneState(id: PaneID("worklane-src-api-shell"), title: "shell")],
+                    focusedPaneID: PaneID("worklane-src-api-shell")
                 ),
                 metadataByPaneID: [
-                    PaneID("workspace-src-api-shell"): TerminalMetadata(
+                    PaneID("worklane-src-api-shell"): TerminalMetadata(
                         title: "zsh",
                         currentWorkingDirectory: NSHomeDirectory() + "/src/api",
                         processName: "zsh",
@@ -780,19 +780,19 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ),
         ]
 
-        let summaries = WorkspaceSidebarSummaryBuilder.summaries(
-            for: workspaces,
-            activeWorkspaceID: apiWorkspaceID
+        let summaries = WorklaneSidebarSummaryBuilder.summaries(
+            for: worklanes,
+            activeWorklaneID: apiWorklaneID
         )
 
         XCTAssertEqual(summaries.map(\.primaryText), ["main · …/api", "feature/sidebar · …/api"])
     }
 
-    func test_builder_marks_workspace_as_working_when_background_terminal_progress_exists() {
-        let shellPaneID = PaneID("workspace-main-shell")
-        let backgroundPaneID = PaneID("workspace-main-background")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+    func test_builder_marks_worklane_as_working_when_background_terminal_progress_exists() {
+        let shellPaneID = PaneID("worklane-main-shell")
+        let backgroundPaneID = PaneID("worklane-main-background")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -820,7 +820,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertTrue(summary.isWorking)
         XCTAssertNil(summary.statusText)
@@ -828,9 +828,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_keeps_terminal_derived_primary_text_for_recognized_agent_before_meaningful_work() {
-        let paneID = PaneID("workspace-main-agent")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let paneID = PaneID("worklane-main-agent")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
@@ -846,17 +846,17 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "feature/sidebar · …/project")
         XCTAssertNil(summary.statusText)
         XCTAssertFalse(summary.isWorking)
     }
 
-    func test_builder_does_not_mark_recognized_agent_workspace_as_running_from_terminal_progress_alone() {
-        let paneID = PaneID("workspace-main-agent")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+    func test_builder_does_not_mark_recognized_agent_worklane_as_running_from_terminal_progress_alone() {
+        let paneID = PaneID("worklane-main-agent")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
@@ -875,7 +875,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "…/project")
         XCTAssertEqual(summary.detailLines.map(\.text), [])
@@ -885,9 +885,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_omits_single_pane_detail_when_primary_already_contains_same_directory() {
-        let paneID = PaneID("workspace-main-agent")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let paneID = PaneID("worklane-main-agent")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
@@ -903,18 +903,18 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "…/nimbu")
         XCTAssertEqual(summary.detailLines.map(\.text), [])
     }
 
     func test_summaries_drop_startup_progress_for_recognized_agents_after_disambiguation_pass() {
-        let workspaceID = WorkspaceID("workspace-main")
-        let paneID = PaneID("workspace-main-agent")
-        let workspaces = [
-            WorkspaceState(
-                id: workspaceID,
+        let worklaneID = WorklaneID("worklane-main")
+        let paneID = PaneID("worklane-main-agent")
+        let worklanes = [
+            WorklaneState(
+                id: worklaneID,
                 title: "MAIN",
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "agent")],
@@ -935,9 +935,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         ]
 
         let summary = try! XCTUnwrap(
-            WorkspaceSidebarSummaryBuilder.summaries(
-                for: workspaces,
-                activeWorkspaceID: workspaceID
+            WorklaneSidebarSummaryBuilder.summaries(
+                for: worklanes,
+                activeWorklaneID: worklaneID
             ).first
         )
 
@@ -946,9 +946,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_uses_review_state_without_extra_sidebar_artifact_projection() {
-        let paneID = PaneID("workspace-main-agent")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let paneID = PaneID("worklane-main-agent")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
@@ -963,28 +963,28 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
                 )
             ],
             reviewStateByPaneID: [
-                paneID: WorkspaceReviewState(
+                paneID: WorklaneReviewState(
                     branch: "main",
-                    pullRequest: WorkspacePullRequestSummary(
+                    pullRequest: WorklanePullRequestSummary(
                         number: 1413,
                         url: URL(string: "https://example.com/pr/1413"),
                         state: .open
                     ),
-                    reviewChips: [WorkspaceReviewChip(text: "1 failing", style: .danger)]
+                    reviewChips: [WorklaneReviewChip(text: "1 failing", style: .danger)]
                 )
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "main · …/project")
         XCTAssertEqual(summary.detailLines.map { $0.text }, [])
     }
 
     func test_builder_uses_inline_process_branch_and_cwd_for_running_single_pane_agent_row() {
-        let paneID = PaneID("workspace-main-agent-running")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main-running"),
+        let paneID = PaneID("worklane-main-agent-running")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main-running"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
@@ -1009,7 +1009,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
         XCTAssertEqual(summary.paneRows.count, 1)
@@ -1022,9 +1022,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_uses_stable_branch_and_cwd_for_idle_single_pane_agent_row() {
-        let paneID = PaneID("workspace-main-agent")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let paneID = PaneID("worklane-main-agent")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
@@ -1050,7 +1050,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
         XCTAssertEqual(summary.paneRows.count, 1)
@@ -1064,9 +1064,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_uses_stable_branch_and_cwd_for_starting_single_pane_recognized_agent() {
-        let paneID = PaneID("workspace-main-agent-starting")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main-starting"),
+        let paneID = PaneID("worklane-main-agent-starting")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main-starting"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
@@ -1091,7 +1091,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
         XCTAssertEqual(paneRow.primaryText, "Test session setup · main · …/nimbu")
@@ -1103,9 +1103,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_does_not_surface_path_like_title_for_idle_single_pane_agent_row() {
-        let paneID = PaneID("workspace-main-agent-path")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main-path"),
+        let paneID = PaneID("worklane-main-agent-path")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main-path"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
@@ -1131,7 +1131,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
         XCTAssertEqual(paneRow.primaryText, "main · …/nimbu")
@@ -1141,10 +1141,10 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_attaches_terminal_progress_status_to_own_non_agent_pane_row() {
-        let shellPaneID = PaneID("workspace-main-shell")
-        let buildPaneID = PaneID("workspace-main-build")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let shellPaneID = PaneID("worklane-main-shell")
+        let buildPaneID = PaneID("worklane-main-build")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -1172,7 +1172,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first { $0.paneID == buildPaneID })
 
         XCTAssertEqual(paneRow.primaryText, "npm test · …/project")
@@ -1184,10 +1184,10 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
     }
 
     func test_builder_keeps_cwd_detail_for_multi_pane_agent_rows_with_meaningful_titles() {
-        let shellPaneID = PaneID("workspace-main-shell")
-        let agentPaneID = PaneID("workspace-main-agent")
-        let workspace = WorkspaceState(
-            id: WorkspaceID("workspace-main"),
+        let shellPaneID = PaneID("worklane-main-shell")
+        let agentPaneID = PaneID("worklane-main-agent")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [
@@ -1222,7 +1222,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             ]
         )
 
-        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first { $0.paneID == agentPaneID })
 
         XCTAssertEqual(paneRow.primaryText, "Test session setup · …/nimbu")

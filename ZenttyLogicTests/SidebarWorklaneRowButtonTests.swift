@@ -3,8 +3,8 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class SidebarWorkspaceRowButtonTests: XCTestCase {
-    func test_working_workspace_row_starts_shimmer_animation() {
+final class SidebarWorklaneRowButtonTests: XCTestCase {
+    func test_working_worklane_row_starts_shimmer_animation() {
         let row = makeRow()
 
         row.configure(
@@ -12,7 +12,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
                 primaryText: "Claude Code",
                 statusText: "Running",
                 detailLines: [
-                    WorkspaceSidebarDetailLine(text: "feature/sidebar • project", emphasis: .primary),
+                    WorklaneSidebarDetailLine(text: "feature/sidebar • project", emphasis: .primary),
                 ],
                 attentionState: .running,
                 isWorking: true
@@ -26,7 +26,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertTrue(row.statusShimmerIsAnimatingForTesting)
     }
 
-    func test_idle_workspace_row_stops_existing_shimmer_animation() {
+    func test_idle_worklane_row_stops_existing_shimmer_animation() {
         let row = makeRow()
 
         row.configure(
@@ -53,7 +53,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertFalse(row.statusShimmerIsAnimatingForTesting)
     }
 
-    func test_working_active_workspace_row_uses_distinct_background_tint() {
+    func test_working_active_worklane_row_uses_distinct_background_tint() {
         let row = makeRow()
         let theme = ZenttyTheme.fallback(for: nil)
 
@@ -82,7 +82,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertTrue(row.shimmerIsAnimatingForTesting)
     }
 
-    func test_workspace_row_exposes_plain_status_copy() {
+    func test_worklane_row_exposes_plain_status_copy() {
         let row = makeRow(height: 88)
 
         row.configure(
@@ -90,7 +90,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
                 primaryText: "Claude Code",
                 statusText: "Needs input",
                 detailLines: [
-                    WorkspaceSidebarDetailLine(text: "feature/sidebar • project", emphasis: .primary),
+                    WorklaneSidebarDetailLine(text: "feature/sidebar • project", emphasis: .primary),
                 ],
                 attentionState: .needsInput
             ),
@@ -102,7 +102,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertEqual(row.statusSymbolNameForTesting, "")
     }
 
-    func test_workspace_row_keeps_top_level_broad_status_text_and_interaction_icon() {
+    func test_worklane_row_keeps_top_level_broad_status_text_and_interaction_icon() {
         let row = makeRow(height: 88)
 
         row.configure(
@@ -122,15 +122,15 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertEqual(row.statusSymbolNameForTesting, "questionmark.circle")
     }
 
-    func test_workspace_row_renders_pane_local_branch_detail_and_status_lines() {
+    func test_worklane_row_renders_pane_local_branch_detail_and_status_lines() {
         let row = makeRow(width: 320, height: 110)
 
         row.configure(
             with: makeSummary(
                 primaryText: "General coding assistance session",
                 paneRows: [
-                    WorkspaceSidebarPaneRow(
-                        paneID: PaneID("workspace-main-agent"),
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
                         primaryText: "General coding assistance session",
                         trailingText: "main",
                         detailText: "…/nimbu",
@@ -151,15 +151,15 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Idle"])
     }
 
-    func test_workspace_row_keeps_pane_broad_status_text_and_interaction_icon() {
+    func test_worklane_row_keeps_pane_broad_status_text_and_interaction_icon() {
         let row = makeRow(width: 320, height: 110)
 
         row.configure(
             with: makeSummary(
                 primaryText: "Claude Code",
                 paneRows: [
-                    WorkspaceSidebarPaneRow(
-                        paneID: PaneID("workspace-main-agent"),
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
                         primaryText: "Claude Code",
                         trailingText: nil,
                         detailText: nil,
@@ -181,7 +181,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["questionmark.circle"])
     }
 
-    func test_workspace_row_moves_primary_view_to_focused_pane_position() {
+    func test_worklane_row_moves_primary_view_to_focused_pane_position() {
         let row = makeRow(height: 92)
 
         row.configure(
@@ -189,8 +189,8 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
                 primaryText: "k8s-zenjoy",
                 focusedPaneLineIndex: 1,
                 detailLines: [
-                    WorkspaceSidebarDetailLine(text: "feature/scaleway-transactional-mails", emphasis: .secondary),
-                    WorkspaceSidebarDetailLine(text: "Personal", emphasis: .secondary),
+                    WorklaneSidebarDetailLine(text: "feature/scaleway-transactional-mails", emphasis: .secondary),
+                    WorklaneSidebarDetailLine(text: "Personal", emphasis: .secondary),
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -201,7 +201,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertEqual(row.detailTextsForTesting, ["feature/scaleway-transactional-mails", "Personal"])
     }
 
-    func test_working_workspace_row_uses_text_derived_shimmer_highlight() {
+    func test_working_worklane_row_uses_text_derived_shimmer_highlight() {
         let row = makeRow()
         let theme = darkTheme(foreground: "#F0F3F6")
 
@@ -226,7 +226,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         )
     }
 
-    func test_working_workspace_row_lifts_top_label_out_of_tertiary_text() {
+    func test_working_worklane_row_lifts_top_label_out_of_tertiary_text() {
         let row = makeRow()
         let theme = darkTheme(foreground: "#F0F3F6")
 
@@ -291,7 +291,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertFalse(makeRow().allowsVibrancy)
     }
 
-    func test_workspace_row_ignores_legacy_sidebar_accessory_and_artifact_concepts() {
+    func test_worklane_row_ignores_legacy_sidebar_accessory_and_artifact_concepts() {
         let row = makeRow(height: 88)
 
         row.configure(
@@ -299,7 +299,7 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
                 primaryText: "Claude Code",
                 statusText: "Needs input",
                 detailLines: [
-                    WorkspaceSidebarDetailLine(text: "main • …/project", emphasis: .primary),
+                    WorklaneSidebarDetailLine(text: "main • …/project", emphasis: .primary),
                 ],
                 attentionState: .needsInput
             ),
@@ -311,9 +311,9 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertEqual(row.statusTextForTesting, "Needs input")
     }
 
-    private func makeRow(width: CGFloat = 280, height: CGFloat = 72) -> SidebarWorkspaceRowButton {
-        let row = SidebarWorkspaceRowButton(
-            workspaceID: WorkspaceID("workspace-main"),
+    private func makeRow(width: CGFloat = 280, height: CGFloat = 72) -> SidebarWorklaneRowButton {
+        let row = SidebarWorklaneRowButton(
+            worklaneID: WorklaneID("worklane-main"),
             reducedMotionProvider: { false }
         )
         row.frame = NSRect(x: 0, y: 0, width: width, height: height)
@@ -325,17 +325,17 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         primaryText: String,
         focusedPaneLineIndex: Int = 0,
         statusText: String? = nil,
-        detailLines: [WorkspaceSidebarDetailLine] = [],
-        paneRows: [WorkspaceSidebarPaneRow] = [],
-        attentionState: WorkspaceAttentionState? = nil,
+        detailLines: [WorklaneSidebarDetailLine] = [],
+        paneRows: [WorklaneSidebarPaneRow] = [],
+        attentionState: WorklaneAttentionState? = nil,
         interactionKind: PaneInteractionKind? = nil,
         interactionLabel: String? = nil,
         interactionSymbolName: String? = nil,
         isWorking: Bool = false,
         isActive: Bool = false
-    ) -> WorkspaceSidebarSummary {
-        WorkspaceSidebarSummary(
-            workspaceID: WorkspaceID("workspace-main"),
+    ) -> WorklaneSidebarSummary {
+        WorklaneSidebarSummary(
+            worklaneID: WorklaneID("worklane-main"),
             badgeText: "1",
             topLabel: topLabel,
             primaryText: primaryText,

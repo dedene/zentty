@@ -86,9 +86,21 @@ enum AppMenuBuilder {
         let fileMenu = NSMenu(title: "File")
 
         fileMenu.addItem(makeMenuActionItem(
-            title: "New Workspace",
-            action: #selector(MainWindowController.newWorkspace(_:)),
+            title: "New Worklane",
+            action: #selector(MainWindowController.newWorklane(_:)),
             keyEquivalent: "t"
+        ))
+        fileMenu.addItem(makeMenuActionItem(
+            title: "Next Worklane",
+            action: #selector(MainWindowController.nextWorklane(_:)),
+            keyEquivalent: "\t",
+            modifiers: [.control]
+        ))
+        fileMenu.addItem(makeMenuActionItem(
+            title: "Previous Worklane",
+            action: #selector(MainWindowController.previousWorklane(_:)),
+            keyEquivalent: "\t",
+            modifiers: [.control, .shift]
         ))
 
         fileMenuItem.submenu = fileMenu
@@ -228,7 +240,9 @@ enum AppMenuBuilder {
         let editMenu = menu(named: "Edit", in: mainMenu)
         let viewMenu = menu(named: "View", in: mainMenu)
         let requiredFileItems: [(String, Selector, String, NSEvent.ModifierFlags)] = [
-            ("New Workspace", #selector(MainWindowController.newWorkspace(_:)), "t", [.command]),
+            ("New Worklane", #selector(MainWindowController.newWorklane(_:)), "t", [.command]),
+            ("Next Worklane", #selector(MainWindowController.nextWorklane(_:)), "\t", [.control]),
+            ("Previous Worklane", #selector(MainWindowController.previousWorklane(_:)), "\t", [.control, .shift]),
         ]
         let requiredEditItems: [(String, Selector, String, NSEvent.ModifierFlags)] = [
             ("Copy", #selector(NSText.copy(_:)), "c", [.command]),

@@ -109,13 +109,13 @@ final class AgentStatusSupportTests: XCTestCase {
                 "--artifact-url", "https://example.com/pr/42",
             ],
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
-        XCTAssertEqual(command.payload.workspaceID, WorkspaceID("workspace-main"))
-        XCTAssertEqual(command.payload.paneID, PaneID("workspace-main-shell"))
+        XCTAssertEqual(command.payload.worklaneID, WorklaneID("worklane-main"))
+        XCTAssertEqual(command.payload.paneID, PaneID("worklane-main-shell"))
         XCTAssertEqual(command.payload.state, .needsInput)
         XCTAssertEqual(command.payload.toolName, "Claude Code")
         XCTAssertEqual(command.payload.text, "Claude is waiting for your input")
@@ -130,8 +130,8 @@ final class AgentStatusSupportTests: XCTestCase {
     func test_agent_status_payload_decodes_legacy_notification_defaults_when_kind_and_origin_are_omitted() throws {
         let payload = try AgentStatusPayload(
             userInfo: [
-                "workspaceID": "workspace-main",
-                "paneID": "workspace-main-shell",
+                "worklaneID": "worklane-main",
+                "paneID": "worklane-main-shell",
                 "state": "running",
                 "toolName": "Claude Code",
             ]
@@ -146,8 +146,8 @@ final class AgentStatusSupportTests: XCTestCase {
     func test_agent_status_payload_decodes_legacy_completed_state_as_idle() throws {
         let payload = try AgentStatusPayload(
             userInfo: [
-                "workspaceID": "workspace-main",
-                "paneID": "workspace-main-shell",
+                "worklaneID": "worklane-main",
+                "paneID": "worklane-main-shell",
                 "state": "completed",
                 "toolName": "Codex",
             ]
@@ -160,8 +160,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let command = try AgentStatusCommand.parse(
             arguments: ["agent-status", "completed", "--tool", "Codex"],
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -179,8 +179,8 @@ final class AgentStatusSupportTests: XCTestCase {
                 "--session-id", "session-1",
             ],
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -200,8 +200,8 @@ final class AgentStatusSupportTests: XCTestCase {
                 "--home", "/Users/peter",
             ],
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -230,8 +230,8 @@ final class AgentStatusSupportTests: XCTestCase {
                 "--git-branch", "feature/review-band",
             ],
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -251,8 +251,8 @@ final class AgentStatusSupportTests: XCTestCase {
 
     func test_agent_status_payload_round_trips_pane_context_git_branch() throws {
         let payload = AgentStatusPayload(
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             signalKind: .paneContext,
             state: nil,
             paneContext: PaneShellContext(
@@ -290,8 +290,8 @@ final class AgentStatusSupportTests: XCTestCase {
                 "--host", "gilfoyle",
             ],
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -317,8 +317,8 @@ final class AgentStatusSupportTests: XCTestCase {
                 "clear",
             ],
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -336,21 +336,21 @@ final class AgentStatusSupportTests: XCTestCase {
                     "pane-context",
                 ],
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ]
             )
         )
     }
 
     func test_notification_coordinator_fires_once_per_attention_state_entry() {
-        let recorder = WorkspaceAttentionNotificationRecorder()
-        let coordinator = WorkspaceAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
-        let paneID = PaneID("workspace-main-shell")
-        let workspaceID = WorkspaceID("workspace-main")
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
 
-        let needsInputWorkspace = WorkspaceState(
-            id: workspaceID,
+        let needsInputWorklane = WorklaneState(
+            id: worklaneID,
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -368,20 +368,20 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         coordinator.update(
-            workspaces: [needsInputWorkspace],
-            activeWorkspaceID: workspaceID,
+            worklanes: [needsInputWorklane],
+            activeWorklaneID: worklaneID,
             windowIsKey: false
         )
         coordinator.update(
-            workspaces: [needsInputWorkspace],
-            activeWorkspaceID: workspaceID,
+            worklanes: [needsInputWorklane],
+            activeWorklaneID: worklaneID,
             windowIsKey: false
         )
 
         XCTAssertEqual(recorder.requests.count, 1)
 
-        let clearedWorkspace = WorkspaceState(
-            id: workspaceID,
+        let clearedWorklane = WorklaneState(
+            id: worklaneID,
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -389,13 +389,13 @@ final class AgentStatusSupportTests: XCTestCase {
             )
         )
         coordinator.update(
-            workspaces: [clearedWorkspace],
-            activeWorkspaceID: workspaceID,
+            worklanes: [clearedWorklane],
+            activeWorklaneID: worklaneID,
             windowIsKey: false
         )
         coordinator.update(
-            workspaces: [needsInputWorkspace],
-            activeWorkspaceID: workspaceID,
+            worklanes: [needsInputWorklane],
+            activeWorklaneID: worklaneID,
             windowIsKey: false
         )
 
@@ -411,8 +411,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: nil
         )
@@ -421,8 +421,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -431,8 +431,8 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(
             payload,
             AgentStatusPayload(
-                workspaceID: WorkspaceID("workspace-main"),
-                paneID: PaneID("workspace-main-shell"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("worklane-main-shell"),
                 signalKind: .lifecycle,
                 state: .needsInput,
                 origin: .explicitHook,
@@ -458,8 +458,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: nil
         )
@@ -468,8 +468,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -489,8 +489,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: nil
         )
@@ -499,8 +499,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -517,8 +517,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: 4242
         )
@@ -548,8 +548,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -564,8 +564,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: 4242
         )
@@ -591,8 +591,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -607,8 +607,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: nil
         )
@@ -628,8 +628,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: permissionRequest,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -638,8 +638,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: notification,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -653,8 +653,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: 4242,
             lastHumanMessage: "Choose one",
@@ -671,8 +671,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -686,8 +686,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: 4242,
             lastHumanMessage: "Claude needs your approval",
@@ -719,8 +719,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -741,8 +741,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let payloads = try ClaudeHookBridge.makePayloads(
             from: input,
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
                 "ZENTTY_CLAUDE_PID": "4242",
             ],
             sessionStore: store
@@ -752,8 +752,8 @@ final class AgentStatusSupportTests: XCTestCase {
             payloads,
             [
                 AgentStatusPayload(
-                    workspaceID: WorkspaceID("workspace-main"),
-                    paneID: PaneID("workspace-main-shell"),
+                    worklaneID: WorklaneID("worklane-main"),
+                    paneID: PaneID("worklane-main-shell"),
                     signalKind: .pid,
                     state: nil,
                     pid: 4242,
@@ -770,8 +770,8 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let record = try XCTUnwrap(store.lookup(sessionID: "session-1"))
-        XCTAssertEqual(record.workspaceID, WorkspaceID("workspace-main"))
-        XCTAssertEqual(record.paneID, PaneID("workspace-main-shell"))
+        XCTAssertEqual(record.worklaneID, WorklaneID("worklane-main"))
+        XCTAssertEqual(record.paneID, PaneID("worklane-main-shell"))
         XCTAssertEqual(record.cwd, "/tmp/project")
         XCTAssertEqual(record.pid, 4242)
     }
@@ -785,7 +785,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-a"),
+            worklaneID: WorklaneID("worklane-a"),
             paneID: PaneID("pane-a"),
             cwd: nil,
             pid: 4242
@@ -795,14 +795,14 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-b",
+                    "ZENTTY_WORKLANE_ID": "worklane-b",
                     "ZENTTY_PANE_ID": "pane-b",
                 ],
                 sessionStore: store
             ).first
         )
 
-        XCTAssertEqual(payload.workspaceID, WorkspaceID("workspace-a"))
+        XCTAssertEqual(payload.worklaneID, WorklaneID("worklane-a"))
         XCTAssertEqual(payload.paneID, PaneID("pane-a"))
     }
 
@@ -810,8 +810,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: 4242
         )
@@ -841,8 +841,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
             from: preToolUse,
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ],
             sessionStore: store
         ).first
@@ -862,8 +862,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: notification,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -876,8 +876,8 @@ final class AgentStatusSupportTests: XCTestCase {
     func test_agent_status_center_delivers_payloads_on_main_actor() {
         let center = AgentStatusCenter()
         let payload = AgentStatusPayload(
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             state: .needsInput,
             origin: .explicitHook,
             toolName: "Claude Code",
@@ -916,8 +916,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: 4242
         )
@@ -926,16 +926,16 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
         )
 
         XCTAssertEqual(payload.state, .running)
-        XCTAssertEqual(payload.workspaceID, WorkspaceID("workspace-main"))
-        XCTAssertEqual(payload.paneID, PaneID("workspace-main-shell"))
+        XCTAssertEqual(payload.worklaneID, WorklaneID("worklane-main"))
+        XCTAssertEqual(payload.paneID, PaneID("worklane-main-shell"))
     }
 
     func test_claude_hook_prompt_submit_maps_to_running_payload() throws {
@@ -947,8 +947,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: nil
         )
@@ -957,8 +957,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -977,8 +977,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: 4242
         )
@@ -987,8 +987,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ClaudeHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ],
                 sessionStore: store
             ).first
@@ -1012,8 +1012,8 @@ final class AgentStatusSupportTests: XCTestCase {
             CodexHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ]
             ).first
         )
@@ -1033,8 +1033,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let payloads = try CodexHookBridge.makePayloads(
             from: input,
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -1052,8 +1052,8 @@ final class AgentStatusSupportTests: XCTestCase {
             CodexHookBridge.makePayloads(
                 from: input,
                 environment: [
-                    "ZENTTY_WORKSPACE_ID": "workspace-main",
-                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
                 ]
             ).first
         )
@@ -1072,8 +1072,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: "/tmp/project",
             pid: 4242
         )
@@ -1081,8 +1081,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let payloads = try ClaudeHookBridge.makePayloads(
             from: input,
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ],
             sessionStore: store
         )
@@ -1106,15 +1106,15 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-parent",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: "/tmp/project",
             pid: 4242
         )
         try store.upsert(
             sessionID: "session-child",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: "/tmp/project",
             pid: 4343
         )
@@ -1122,8 +1122,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let payloads = try ClaudeHookBridge.makePayloads(
             from: input,
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ],
             sessionStore: store
         )
@@ -1142,8 +1142,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: nil
         )
@@ -1151,8 +1151,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let payloads = try ClaudeHookBridge.makePayloads(
             from: input,
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ],
             sessionStore: store
         )
@@ -1169,8 +1169,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             cwd: nil,
             pid: nil
         )
@@ -1178,8 +1178,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let payloads = try ClaudeHookBridge.makePayloads(
             from: input,
             environment: [
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ],
             sessionStore: store
         )
@@ -1188,13 +1188,13 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_notification_coordinator_does_not_fire_for_unresolved_stop() {
-        let recorder = WorkspaceAttentionNotificationRecorder()
-        let coordinator = WorkspaceAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
-        let paneID = PaneID("workspace-main-shell")
-        let workspaceID = WorkspaceID("workspace-main")
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
 
-        let workspace = WorkspaceState(
-            id: workspaceID,
+        let worklane = WorklaneState(
+            id: worklaneID,
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
@@ -1212,8 +1212,8 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         coordinator.update(
-            workspaces: [workspace],
-            activeWorkspaceID: workspaceID,
+            worklanes: [worklane],
+            activeWorklaneID: worklaneID,
             windowIsKey: false
         )
 
@@ -1378,8 +1378,8 @@ final class AgentStatusSupportTests: XCTestCase {
 
     func test_agent_status_payload_round_trips_agent_working_directory() throws {
         let payload = AgentStatusPayload(
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             signalKind: .lifecycle,
             state: .running,
             origin: .explicitHook,
@@ -1400,8 +1400,8 @@ final class AgentStatusSupportTests: XCTestCase {
 
     func test_agent_status_payload_round_trips_nil_agent_working_directory() throws {
         let payload = AgentStatusPayload(
-            workspaceID: WorkspaceID("workspace-main"),
-            paneID: PaneID("workspace-main-shell"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
             signalKind: .lifecycle,
             state: .running,
             origin: .explicitHook,
@@ -1420,7 +1420,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 }
 
-private final class WorkspaceAttentionNotificationRecorder: WorkspaceAttentionUserNotificationCenter {
+private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUserNotificationCenter {
     struct RequestRecord: Equatable {
         let identifier: String
         let title: String
@@ -1431,7 +1431,7 @@ private final class WorkspaceAttentionNotificationRecorder: WorkspaceAttentionUs
 
     func requestAuthorizationIfNeeded() {}
 
-    func add(identifier: String, title: String, body: String, workspaceID: String, paneID: String) {
+    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String) {
         requests.append(RequestRecord(identifier: identifier, title: title, body: body))
     }
 }

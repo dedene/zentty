@@ -205,7 +205,7 @@ enum CodexHookBridge {
         case "UserPromptSubmit":
             return [
                 lifecyclePayload(
-                    workspaceID: target.workspaceID,
+                    worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .running,
                     sessionID: input.sessionID
@@ -214,7 +214,7 @@ enum CodexHookBridge {
         case "Stop":
             return [
                 lifecyclePayload(
-                    workspaceID: target.workspaceID,
+                    worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .idle,
                     sessionID: input.sessionID
@@ -238,32 +238,32 @@ enum CodexHookBridge {
         }
     }
 
-    private static func currentTarget(from environment: [String: String]) throws -> (workspaceID: WorkspaceID, paneID: PaneID) {
-        guard let workspaceID = environment["ZENTTY_WORKSPACE_ID"] else {
-            throw AgentStatusPayloadError.missingWorkspaceID
+    private static func currentTarget(from environment: [String: String]) throws -> (worklaneID: WorklaneID, paneID: PaneID) {
+        guard let worklaneID = environment["ZENTTY_WORKLANE_ID"] else {
+            throw AgentStatusPayloadError.missingWorklaneID
         }
         guard let paneID = environment["ZENTTY_PANE_ID"] else {
             throw AgentStatusPayloadError.missingPaneID
         }
-        return (WorkspaceID(workspaceID), PaneID(paneID))
+        return (WorklaneID(worklaneID), PaneID(paneID))
     }
 
-    private static func currentTargetIfAvailable(from environment: [String: String]) -> (workspaceID: WorkspaceID, paneID: PaneID)? {
-        guard let workspaceID = environment["ZENTTY_WORKSPACE_ID"],
+    private static func currentTargetIfAvailable(from environment: [String: String]) -> (worklaneID: WorklaneID, paneID: PaneID)? {
+        guard let worklaneID = environment["ZENTTY_WORKLANE_ID"],
               let paneID = environment["ZENTTY_PANE_ID"] else {
             return nil
         }
-        return (WorkspaceID(workspaceID), PaneID(paneID))
+        return (WorklaneID(worklaneID), PaneID(paneID))
     }
 
     private static func lifecyclePayload(
-        workspaceID: WorkspaceID,
+        worklaneID: WorklaneID,
         paneID: PaneID,
         state: PaneAgentState,
         sessionID: String?
     ) -> AgentStatusPayload {
         AgentStatusPayload(
-            workspaceID: workspaceID,
+            worklaneID: worklaneID,
             paneID: paneID,
             signalKind: .lifecycle,
             state: state,

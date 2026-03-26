@@ -4,7 +4,7 @@ Zentty exports these environment variables into every pane:
 
 - `ZENTTY_AGENT_BIN`
 - `ZENTTY_CLAUDE_HOOK_COMMAND`
-- `ZENTTY_WORKSPACE_ID`
+- `ZENTTY_WORKLANE_ID`
 - `ZENTTY_PANE_ID`
 
 `ZENTTY_CLAUDE_HOOK_COMMAND` expands to the bundled Zentty helper with the Claude bridge subcommand:

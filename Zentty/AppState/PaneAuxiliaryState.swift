@@ -16,7 +16,7 @@ struct PaneGitContext: Equatable, Sendable {
         guard case .branch(let branch)? = reference else {
             return nil
         }
-        return WorkspaceContextFormatter.trimmed(branch)
+        return WorklaneContextFormatter.trimmed(branch)
     }
 
     var lookupBranch: String? {
@@ -26,9 +26,9 @@ struct PaneGitContext: Equatable, Sendable {
     var branchDisplayText: String {
         switch reference {
         case .branch(let branch):
-            return WorkspaceContextFormatter.trimmed(branch) ?? ""
+            return WorklaneContextFormatter.trimmed(branch) ?? ""
         case .detached(let sha):
-            let shortSHA = WorkspaceContextFormatter.trimmed(sha) ?? ""
+            let shortSHA = WorklaneContextFormatter.trimmed(sha) ?? ""
             return shortSHA.isEmpty ? "" : "\(shortSHA) (detached)"
         case nil:
             return ""
@@ -121,9 +121,9 @@ struct PanePresentationState: Equatable, Sendable {
     var recognizedTool: AgentTool?
     var runtimePhase: PanePresentationPhase = .idle
     var statusText: String?
-    var pullRequest: WorkspacePullRequestSummary?
-    var reviewChips: [WorkspaceReviewChip] = []
-    var attentionArtifactLink: WorkspaceArtifactLink?
+    var pullRequest: WorklanePullRequestSummary?
+    var reviewChips: [WorklaneReviewChip] = []
+    var attentionArtifactLink: WorklaneArtifactLink?
     var updatedAt: Date = .distantPast
     var isWorking = false
     var interactionKind: PaneInteractionKind?
@@ -153,7 +153,7 @@ struct PaneRawState: Equatable, Sendable {
     var agentStatus: PaneAgentStatus?
     var agentReducerState: PaneAgentReducerState = .init()
     var terminalProgress: TerminalProgressReport?
-    var reviewState: WorkspaceReviewState?
+    var reviewState: WorklaneReviewState?
     var gitContext: PaneGitContext?
     var lastDesktopNotificationText: String?
     var lastDesktopNotificationDate: Date?
@@ -168,12 +168,12 @@ enum PanePresentationNormalizer {
         let cwd = resolvedWorkingDirectory(from: raw)
         let gitContext = normalizedGitContext(raw.gitContext, fallbackWorkingDirectory: cwd)
         let repoRoot = gitContext?.repoRoot
-        let branchDisplayText = WorkspaceContextFormatter.trimmed(gitContext?.branchDisplayText)
+        let branchDisplayText = WorklaneContextFormatter.trimmed(gitContext?.branchDisplayText)
             ?? provisionalShellBranchDisplayText(from: raw.shellContext)
         let lookupBranch = gitContext?.lookupBranch
-        let cwdLabel = cwd.flatMap { WorkspaceContextFormatter.formattedWorkingDirectory($0, branch: nil) }
+        let cwdLabel = cwd.flatMap { WorklaneContextFormatter.formattedWorkingDirectory($0, branch: nil) }
         let contextText = [branchDisplayText, cwdLabel]
-            .compactMap(WorkspaceContextFormatter.trimmed)
+            .compactMap(WorklaneContextFormatter.trimmed)
             .joined(separator: " · ")
             .nilIfEmpty
         let recognizedTool = raw.agentStatus?.tool ?? AgentToolRecognizer.recognize(metadata: raw.metadata)
@@ -206,11 +206,11 @@ enum PanePresentationNormalizer {
             repoRoot: repoRoot,
             lookupBranch: lookupBranch
         )
-        let terminalFallback = WorkspaceContextFormatter.displayTerminalIdentity(
+        let terminalFallback = WorklaneContextFormatter.displayTerminalIdentity(
             for: raw.metadata,
             fallbackTitle: paneTitle
-        ) ?? WorkspaceContextFormatter.trimmed(paneTitle)
-        let identityText = WorkspaceContextFormatter.trimmed(rememberedTitle)
+        ) ?? WorklaneContextFormatter.trimmed(paneTitle)
+        let identityText = WorklaneContextFormatter.trimmed(rememberedTitle)
             ?? contextText
             ?? terminalFallback
             ?? "Shell"
@@ -247,19 +247,19 @@ enum PanePresentationNormalizer {
             return nil
         }
 
-        return WorkspaceContextFormatter.displayBranch(shellContext?.gitBranch)
+        return WorklaneContextFormatter.displayBranch(shellContext?.gitBranch)
     }
 
     private static func resolvedWorkingDirectory(from raw: PaneRawState) -> String? {
-        if let agentCwd = raw.agentStatus?.workingDirectory.flatMap(WorkspaceContextFormatter.trimmed),
+        if let agentCwd = raw.agentStatus?.workingDirectory.flatMap(WorklaneContextFormatter.trimmed),
            raw.agentStatus?.state == .running || raw.agentStatus?.state == .starting {
             return agentCwd
         }
 
-        return WorkspaceContextFormatter.resolvedWorkingDirectory(
+        return WorklaneContextFormatter.resolvedWorkingDirectory(
             for: raw.metadata,
             shellContext: raw.shellContext
-        ) ?? raw.gitContext.flatMap { WorkspaceContextFormatter.trimmed($0.workingDirectory) }
+        ) ?? raw.gitContext.flatMap { WorklaneContextFormatter.trimmed($0.workingDirectory) }
     }
 
     private static func normalizedGitContext(
@@ -277,7 +277,7 @@ enum PanePresentationNormalizer {
             )
         }
 
-        let workingDirectory = WorkspaceContextFormatter.trimmed(gitContext.workingDirectory)
+        let workingDirectory = WorklaneContextFormatter.trimmed(gitContext.workingDirectory)
             ?? fallbackWorkingDirectory
         guard let workingDirectory else {
             return nil
@@ -285,7 +285,7 @@ enum PanePresentationNormalizer {
 
         return PaneGitContext(
             workingDirectory: workingDirectory,
-            repositoryRoot: WorkspaceContextFormatter.trimmed(gitContext.repositoryRoot),
+            repositoryRoot: WorklaneContextFormatter.trimmed(gitContext.repositoryRoot),
             reference: gitContext.reference
         )
     }
@@ -383,8 +383,8 @@ enum PanePresentationNormalizer {
         recognizedTool: AgentTool?
     ) -> String? {
         let candidates = [
-            WorkspaceContextFormatter.normalizeDisplayIdentity(metadata?.title),
-            WorkspaceContextFormatter.normalizeDisplayIdentity(metadata?.processName),
+            WorklaneContextFormatter.normalizeDisplayIdentity(metadata?.title),
+            WorklaneContextFormatter.normalizeDisplayIdentity(metadata?.processName),
         ]
 
         for candidate in candidates {
@@ -394,7 +394,7 @@ enum PanePresentationNormalizer {
             guard rawShellLabelLooksMeaningful(candidate) else {
                 continue
             }
-            guard WorkspaceContextFormatter.displayMeaningfulTerminalIdentity(
+            guard WorklaneContextFormatter.displayMeaningfulTerminalIdentity(
                 for: TerminalMetadata(
                     title: candidate,
                     currentWorkingDirectory: nil,
@@ -410,7 +410,7 @@ enum PanePresentationNormalizer {
             return candidate
         }
 
-        let normalizedFallbackTitle = WorkspaceContextFormatter.normalizeDisplayIdentity(fallbackTitle)
+        let normalizedFallbackTitle = WorklaneContextFormatter.normalizeDisplayIdentity(fallbackTitle)
         if let normalizedFallbackTitle,
            rawShellLabelLooksMeaningful(normalizedFallbackTitle),
            matchesRecognizedTool(normalizedFallbackTitle, tool: recognizedTool) == false {
@@ -470,7 +470,7 @@ enum PanePresentationNormalizer {
         from raw: PaneRawState,
         repoRoot: String?,
         lookupBranch: String?
-    ) -> WorkspacePullRequestSummary? {
+    ) -> WorklanePullRequestSummary? {
         guard repoRoot != nil, lookupBranch != nil else {
             return nil
         }
@@ -478,11 +478,11 @@ enum PanePresentationNormalizer {
     }
 
     private static func deriveReviewChips(
-        reviewState: WorkspaceReviewState?,
-        pullRequest: WorkspacePullRequestSummary?,
+        reviewState: WorklaneReviewState?,
+        pullRequest: WorklanePullRequestSummary?,
         repoRoot: String?,
         lookupBranch: String?
-    ) -> [WorkspaceReviewChip] {
+    ) -> [WorklaneReviewChip] {
         guard repoRoot != nil, lookupBranch != nil else {
             return []
         }
@@ -494,17 +494,17 @@ enum PanePresentationNormalizer {
 
         switch pullRequest.state {
         case .draft:
-            return [WorkspaceReviewChip(text: "Draft", style: .info)]
+            return [WorklaneReviewChip(text: "Draft", style: .info)]
         case .open:
-            return [WorkspaceReviewChip(text: "Ready", style: .success)]
+            return [WorklaneReviewChip(text: "Ready", style: .success)]
         case .merged:
-            return [WorkspaceReviewChip(text: "Merged", style: .success)]
+            return [WorklaneReviewChip(text: "Merged", style: .success)]
         case .closed:
-            return [WorkspaceReviewChip(text: "Closed", style: .neutral)]
+            return [WorklaneReviewChip(text: "Closed", style: .neutral)]
         }
     }
 
-    private static func deriveAttentionArtifact(from artifact: WorkspaceArtifactLink?) -> WorkspaceArtifactLink? {
+    private static func deriveAttentionArtifact(from artifact: WorklaneArtifactLink?) -> WorklaneArtifactLink? {
         guard artifact?.kind != .pullRequest else {
             return nil
         }
@@ -531,7 +531,7 @@ struct PaneAuxiliaryState: Equatable, Sendable {
         agentStatus: PaneAgentStatus? = nil,
         agentReducerState: PaneAgentReducerState = .init(),
         terminalProgress: TerminalProgressReport? = nil,
-        reviewState: WorkspaceReviewState? = nil,
+        reviewState: WorklaneReviewState? = nil,
         gitContext: PaneGitContext? = nil,
         presentation: PanePresentationState = PanePresentationState()
     ) {
@@ -572,7 +572,7 @@ struct PaneAuxiliaryState: Equatable, Sendable {
         set { raw.terminalProgress = newValue }
     }
 
-    var reviewState: WorkspaceReviewState? {
+    var reviewState: WorklaneReviewState? {
         get { raw.reviewState }
         set { raw.reviewState = newValue }
     }
@@ -591,12 +591,12 @@ struct PaneAuxiliaryState: Equatable, Sendable {
             return nil
         }
 
-        if let agentCwd = raw.agentStatus?.workingDirectory.flatMap(WorkspaceContextFormatter.trimmed),
+        if let agentCwd = raw.agentStatus?.workingDirectory.flatMap(WorklaneContextFormatter.trimmed),
            raw.agentStatus?.state == .running || raw.agentStatus?.state == .starting {
             return agentCwd
         }
 
-        let currentWorkingDirectory = WorkspaceContextFormatter.resolvedWorkingDirectory(
+        let currentWorkingDirectory = WorklaneContextFormatter.resolvedWorkingDirectory(
             for: raw.metadata,
             shellContext: raw.shellContext
         )
@@ -605,7 +605,7 @@ struct PaneAuxiliaryState: Equatable, Sendable {
     }
 }
 
-extension WorkspacePaneContext {
+extension WorklanePaneContext {
     var presentation: PanePresentationState {
         if let auxiliaryState, auxiliaryState.presentation.hasResolvedIdentity {
             return auxiliaryState.presentation
@@ -625,7 +625,7 @@ protocol PaneGitContextResolving: Sendable {
 
 extension PaneGitContextResolving {
     func resolve(path: String) async -> PaneGitContext? {
-        guard WorkspaceContextFormatter.trimmed(path) != nil else {
+        guard WorklaneContextFormatter.trimmed(path) != nil else {
             return nil
         }
 
@@ -633,9 +633,9 @@ extension PaneGitContextResolving {
     }
 }
 
-struct WorkspaceGitContextResolver: PaneGitContextResolving {
+struct WorklaneGitContextResolver: PaneGitContextResolving {
     func resolve(for workingDirectory: String) async -> PaneGitContext {
-        guard let workingDirectory = WorkspaceContextFormatter.trimmed(workingDirectory) else {
+        guard let workingDirectory = WorklaneContextFormatter.trimmed(workingDirectory) else {
             return PaneGitContext(
                 workingDirectory: "",
                 repositoryRoot: nil,
@@ -704,7 +704,7 @@ struct WorkspaceGitContextResolver: PaneGitContextResolving {
                     }
 
                     let output = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                    continuation.resume(returning: WorkspaceContextFormatter.trimmed(output))
+                    continuation.resume(returning: WorklaneContextFormatter.trimmed(output))
                 } catch {
                     continuation.resume(returning: nil)
                 }

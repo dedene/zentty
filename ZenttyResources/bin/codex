@@ -95,7 +95,7 @@ has_notify_override() {
 integration_is_available() {
     [[ -n "${ZENTTY_AGENT_BIN:-}" ]] || return 1
     [[ -x "${ZENTTY_AGENT_BIN}" ]] || return 1
-    [[ -n "${ZENTTY_WORKSPACE_ID:-}" ]] || return 1
+    [[ -n "${ZENTTY_WORKLANE_ID:-}" ]] || return 1
     [[ -n "${ZENTTY_PANE_ID:-}" ]] || return 1
 }
 

@@ -1,10 +1,10 @@
 import Foundation
 
-enum WorkspaceAttentionSummaryBuilder {
-    static func summary(for workspace: WorkspaceState) -> WorkspaceAttentionSummary? {
-        workspace.paneStripState.panes
+enum WorklaneAttentionSummaryBuilder {
+    static func summary(for worklane: WorklaneState) -> WorklaneAttentionSummary? {
+        worklane.paneStripState.panes
             .compactMap { pane in
-                summary(for: pane, in: workspace)
+                summary(for: pane, in: worklane)
             }
             .sorted(by: preferred(lhs:rhs:))
             .first
@@ -12,9 +12,9 @@ enum WorkspaceAttentionSummaryBuilder {
 
     private static func summary(
         for pane: PaneState,
-        in workspace: WorkspaceState
-    ) -> WorkspaceAttentionSummary? {
-        guard let paneContext = workspace.paneContext(for: pane.id) else {
+        in worklane: WorklaneState
+    ) -> WorklaneAttentionSummary? {
+        guard let paneContext = worklane.paneContext(for: pane.id) else {
             return nil
         }
 
@@ -26,7 +26,7 @@ enum WorkspaceAttentionSummaryBuilder {
             return nil
         }
 
-        return WorkspaceAttentionSummary(
+        return WorklaneAttentionSummary(
             paneID: pane.id,
             tool: tool,
             state: attentionState,
@@ -41,7 +41,7 @@ enum WorkspaceAttentionSummaryBuilder {
         )
     }
 
-    private static func attentionState(for phase: PanePresentationPhase) -> WorkspaceAttentionState? {
+    private static func attentionState(for phase: PanePresentationPhase) -> WorklaneAttentionState? {
         switch phase {
         case .idle, .starting:
             return nil
@@ -54,7 +54,7 @@ enum WorkspaceAttentionSummaryBuilder {
         }
     }
 
-    private static func preferred(lhs: WorkspaceAttentionSummary, rhs: WorkspaceAttentionSummary) -> Bool {
+    private static func preferred(lhs: WorklaneAttentionSummary, rhs: WorklaneAttentionSummary) -> Bool {
         if lhs.state.priority != rhs.state.priority {
             return lhs.state.priority > rhs.state.priority
         }
@@ -63,7 +63,7 @@ enum WorkspaceAttentionSummaryBuilder {
     }
 }
 
-private extension WorkspaceAttentionState {
+private extension WorklaneAttentionState {
     var priority: Int {
         switch self {
         case .needsInput:

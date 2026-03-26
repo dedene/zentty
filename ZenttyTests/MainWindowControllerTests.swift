@@ -76,12 +76,12 @@ final class MainWindowControllerTests: XCTestCase {
         wait(for: [settled], timeout: 2.0)
     }
 
-    private func makeRequestOnlyWorkspace(
+    private func makeRequestOnlyWorklane(
         workingDirectory: String,
         title: String = "shell"
-    ) -> WorkspaceState {
-        let workspaceID = WorkspaceID("workspace-main")
-        let paneID = PaneID("\(workspaceID.rawValue)-shell")
+    ) -> WorklaneState {
+        let worklaneID = WorklaneID("worklane-main")
+        let paneID = PaneID("\(worklaneID.rawValue)-shell")
         let pane = PaneState(
             id: paneID,
             title: title,
@@ -92,8 +92,8 @@ final class MainWindowControllerTests: XCTestCase {
             width: 720
         )
 
-        return WorkspaceState(
-            id: workspaceID,
+        return WorklaneState(
+            id: worklaneID,
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [pane],
@@ -102,12 +102,12 @@ final class MainWindowControllerTests: XCTestCase {
         )
     }
 
-    private func makeMetadataOnlyInheritedWorkspace(
+    private func makeMetadataOnlyInheritedWorklane(
         workingDirectory: String,
         title: String = "ssh"
-    ) -> WorkspaceState {
-        let workspaceID = WorkspaceID("workspace-main")
-        let paneID = PaneID("\(workspaceID.rawValue)-shell")
+    ) -> WorklaneState {
+        let worklaneID = WorklaneID("worklane-main")
+        let paneID = PaneID("\(worklaneID.rawValue)-shell")
         let pane = PaneState(
             id: paneID,
             title: title,
@@ -118,8 +118,8 @@ final class MainWindowControllerTests: XCTestCase {
             width: 720
         )
 
-        return WorkspaceState(
-            id: workspaceID,
+        return WorklaneState(
+            id: worklaneID,
             title: "MAIN",
             paneStripState: PaneStripState(
                 panes: [pane],
@@ -437,17 +437,17 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertFalse(resizedAppCanvasView.lastPaneStripRenderWasAnimatedForTesting)
     }
 
-    func test_new_workspace_action_creates_and_focuses_new_workspace() {
+    func test_new_worklane_action_creates_and_focuses_new_worklane() {
         let controller = makeController()
 
-        controller.newWorkspace(nil)
+        controller.newWorklane(nil)
 
-        XCTAssertEqual(controller.workspaceTitles, ["MAIN", "WS 2"])
-        XCTAssertEqual(controller.activeWorkspaceTitle, "WS 2")
+        XCTAssertEqual(controller.worklaneTitles, ["MAIN", "WS 2"])
+        XCTAssertEqual(controller.activeWorklaneTitle, "WS 2")
         XCTAssertEqual(controller.activePaneTitles, ["shell"])
     }
 
-    func test_new_workspace_uses_reported_working_directory_of_focused_pane() throws {
+    func test_new_worklane_uses_reported_working_directory_of_focused_pane() throws {
         let adapterStore = MetadataAdapterStore()
         let controller = makeController(adapterStore: adapterStore)
         controller.showWindow(nil)
@@ -457,10 +457,10 @@ final class MainWindowControllerTests: XCTestCase {
         let initialAdapter = try XCTUnwrap(adapterStore.adapters[initialPane.paneID])
         initialAdapter.emitWorkingDirectory("/tmp/project-a")
 
-        controller.newWorkspace(nil)
-        waitForLayout("workspace settled", delay: 0.05)
+        controller.newWorklane(nil)
+        waitForLayout("worklane settled", delay: 0.05)
 
-        XCTAssertEqual(controller.activeWorkspaceTitle, "WS 2")
+        XCTAssertEqual(controller.activeWorklaneTitle, "WS 2")
         let activePane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
         let activeAdapter = try XCTUnwrap(adapterStore.adapters[activePane.paneID])
         XCTAssertEqual(activeAdapter.lastRequest?.workingDirectory, "/tmp/project-a")
@@ -488,7 +488,7 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(insertedAdapter.lastRequest?.workingDirectory, "/tmp/project-b")
     }
 
-    func test_new_workspace_uses_reported_working_directory_of_last_focused_pane() throws {
+    func test_new_worklane_uses_reported_working_directory_of_last_focused_pane() throws {
         let adapterStore = MetadataAdapterStore()
         let controller = makeController(adapterStore: adapterStore)
         controller.showWindow(nil)
@@ -512,10 +512,10 @@ final class MainWindowControllerTests: XCTestCase {
         rightPane.focusTerminal()
         waitForLayout("focus settled", delay: 0.05)
 
-        controller.newWorkspace(nil)
-        waitForLayout("workspace settled", delay: 0.05)
+        controller.newWorklane(nil)
+        waitForLayout("worklane settled", delay: 0.05)
 
-        XCTAssertEqual(controller.activeWorkspaceTitle, "WS 2")
+        XCTAssertEqual(controller.activeWorklaneTitle, "WS 2")
         let activePane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
         let activeAdapter = try XCTUnwrap(adapterStore.adapters[activePane.paneID])
         XCTAssertEqual(activeAdapter.lastRequest?.workingDirectory, "/tmp/project-right")
@@ -651,9 +651,9 @@ final class MainWindowControllerTests: XCTestCase {
         controller.showWindow(nil)
         waitForLayout()
 
-        let workspace = makeRequestOnlyWorkspace(workingDirectory: "/tmp/request-only-open-with")
-        controller.rootViewControllerForTesting.replaceWorkspaces([workspace], activeWorkspaceID: workspace.id)
-        waitForLayout("workspace replaced", delay: 0.05)
+        let worklane = makeRequestOnlyWorklane(workingDirectory: "/tmp/request-only-open-with")
+        controller.rootViewControllerForTesting.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+        waitForLayout("worklane replaced", delay: 0.05)
 
         XCTAssertEqual(
             controller.rootViewControllerForTesting.focusedOpenWithContext?.workingDirectory,
@@ -809,9 +809,9 @@ final class MainWindowControllerTests: XCTestCase {
         controller.showWindow(nil)
         waitForLayout()
 
-        let workspace = makeMetadataOnlyInheritedWorkspace(workingDirectory: "/srv/ambiguous-project")
-        controller.rootViewControllerForTesting.replaceWorkspaces([workspace], activeWorkspaceID: workspace.id)
-        waitForLayout("workspace replaced", delay: 0.05)
+        let worklane = makeMetadataOnlyInheritedWorklane(workingDirectory: "/srv/ambiguous-project")
+        controller.rootViewControllerForTesting.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+        waitForLayout("worklane replaced", delay: 0.05)
 
         XCTAssertNil(controller.rootViewControllerForTesting.focusedOpenWithContext)
 

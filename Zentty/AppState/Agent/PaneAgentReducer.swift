@@ -6,7 +6,7 @@ struct PaneAgentSessionState: Equatable, Sendable {
     var tool: AgentTool
     var state: PaneAgentState
     var text: String?
-    var artifactLink: WorkspaceArtifactLink?
+    var artifactLink: WorklaneArtifactLink?
     var updatedAt: Date
     var source: PaneAgentStatusSource
     var origin: AgentSignalOrigin
@@ -504,7 +504,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         lhs.priority >= rhs.priority ? lhs : rhs
     }
 
-    private func explicitArtifactLink(from payload: AgentStatusPayload) -> WorkspaceArtifactLink? {
+    private func explicitArtifactLink(from payload: AgentStatusPayload) -> WorklaneArtifactLink? {
         guard
             let kind = payload.artifactKind,
             let label = payload.artifactLabel,
@@ -513,6 +513,6 @@ struct PaneAgentReducerState: Equatable, Sendable {
             return nil
         }
 
-        return WorkspaceArtifactLink(kind: kind, label: label, url: url, isExplicit: true)
+        return WorklaneArtifactLink(kind: kind, label: label, url: url, isExplicit: true)
     }
 }

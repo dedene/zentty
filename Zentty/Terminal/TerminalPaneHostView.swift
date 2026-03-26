@@ -293,11 +293,11 @@ final class PaneRuntimeRegistry {
         runtimes[paneID]
     }
 
-    func synchronize(with workspaces: [WorkspaceState]) {
+    func synchronize(with worklanes: [WorklaneState]) {
         var nextPaneIDs = Set<PaneID>()
 
-        for workspace in workspaces {
-            for pane in workspace.paneStripState.panes {
+        for worklane in worklanes {
+            for pane in worklane.paneStripState.panes {
                 nextPaneIDs.insert(pane.id)
                 let runtime = runtime(for: pane)
                 let sourcePaneID = pane.sessionRequest.configInheritanceSourcePaneID
@@ -314,16 +314,16 @@ final class PaneRuntimeRegistry {
     }
 
     func updateSurfaceActivities(
-        workspaces: [WorkspaceState],
-        activeWorkspaceID: WorkspaceID,
+        worklanes: [WorklaneState],
+        activeWorklaneID: WorklaneID,
         windowIsVisible: Bool,
         windowIsKey: Bool
     ) {
-        for workspace in workspaces {
-            let isActiveWorkspace = workspace.id == activeWorkspaceID
-            for pane in workspace.paneStripState.panes {
-                let isVisible = windowIsVisible && isActiveWorkspace
-                let isFocused = isVisible && windowIsKey && pane.id == workspace.paneStripState.focusedPaneID
+        for worklane in worklanes {
+            let isActiveWorklane = worklane.id == activeWorklaneID
+            for pane in worklane.paneStripState.panes {
+                let isVisible = windowIsVisible && isActiveWorklane
+                let isFocused = isVisible && windowIsKey && pane.id == worklane.paneStripState.focusedPaneID
                 let runtime = runtime(for: pane)
                 runtime.setSurfaceActivity(
                     TerminalSurfaceActivity(

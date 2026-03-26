@@ -10,15 +10,15 @@ final class NotificationStoreTests: XCTestCase {
         NotificationStore()
     }
 
-    private let workspaceA = WorkspaceID("workspace-a")
-    private let workspaceB = WorkspaceID("workspace-b")
+    private let worklaneA = WorklaneID("worklane-a")
+    private let worklaneB = WorklaneID("worklane-b")
     private let paneA = PaneID("pane-a")
     private let paneB = PaneID("pane-b")
 
     /// Adds a notification and waits for it to commit through the debounce window.
     private func addAndWaitForCommit(
         _ store: NotificationStore,
-        workspaceID: WorkspaceID? = nil,
+        worklaneID: WorklaneID? = nil,
         paneID: PaneID? = nil,
         primaryText: String = "Test notification"
     ) async {
@@ -29,7 +29,7 @@ final class NotificationStoreTests: XCTestCase {
             committed.fulfill()
         }
         store.add(
-            workspaceID: workspaceID ?? workspaceA,
+            worklaneID: worklaneID ?? worklaneA,
             paneID: paneID ?? paneA,
             tool: .claudeCode,
             interactionKind: .approval,
@@ -46,7 +46,7 @@ final class NotificationStoreTests: XCTestCase {
         let store = makeStore()
 
         store.add(
-            workspaceID: workspaceA,
+            worklaneID: worklaneA,
             paneID: paneA,
             tool: .claudeCode,
             interactionKind: .approval,
@@ -69,7 +69,7 @@ final class NotificationStoreTests: XCTestCase {
         let store = makeStore()
 
         store.add(
-            workspaceID: workspaceA,
+            worklaneID: worklaneA,
             paneID: paneA,
             tool: .claudeCode,
             interactionKind: .approval,
@@ -78,7 +78,7 @@ final class NotificationStoreTests: XCTestCase {
             primaryText: "Should be suppressed"
         )
 
-        store.resolve(workspaceID: workspaceA, paneID: paneA)
+        store.resolve(worklaneID: worklaneA, paneID: paneA)
 
         // Wait longer than the debounce window to confirm the notification was suppressed.
         try? await Task.sleep(nanoseconds: 4_000_000_000)
@@ -92,7 +92,7 @@ final class NotificationStoreTests: XCTestCase {
 
         XCTAssertFalse(store.notifications[0].isResolved)
 
-        store.resolve(workspaceID: workspaceA, paneID: paneA)
+        store.resolve(worklaneID: worklaneA, paneID: paneA)
 
         XCTAssertTrue(store.notifications[0].isResolved)
         XCTAssertNotNil(store.notifications[0].resolvedAt)
@@ -140,7 +140,7 @@ final class NotificationStoreTests: XCTestCase {
         await addAndWaitForCommit(store, paneID: PaneID("pane-3"), primaryText: "Newest")
 
         // Resolve the newest.
-        store.resolve(workspaceID: workspaceA, paneID: PaneID("pane-3"))
+        store.resolve(worklaneID: worklaneA, paneID: PaneID("pane-3"))
 
         let urgent = store.mostUrgentUnresolved()
         XCTAssertEqual(urgent?.primaryText, "Middle", "should return the newest unresolved notification")
@@ -169,7 +169,7 @@ final class NotificationStoreTests: XCTestCase {
 
         XCTAssertEqual(store.unresolvedCount, 3)
 
-        store.resolve(workspaceID: workspaceA, paneID: PaneID("pane-2"))
+        store.resolve(worklaneID: worklaneA, paneID: PaneID("pane-2"))
 
         XCTAssertEqual(store.unresolvedCount, 2)
     }
@@ -180,7 +180,7 @@ final class NotificationStoreTests: XCTestCase {
         store.onChange = { changeFired.fulfill() }
 
         store.add(
-            workspaceID: workspaceA,
+            worklaneID: worklaneA,
             paneID: paneA,
             tool: .claudeCode,
             interactionKind: .approval,

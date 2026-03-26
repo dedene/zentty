@@ -2,12 +2,12 @@ import XCTest
 @testable import Zentty
 
 final class KeyboardShortcutResolverTests: XCTestCase {
-    func test_resolves_new_workspace_shortcut() {
+    func test_resolves_new_worklane_shortcut() {
         let action = KeyboardShortcutResolver.resolve(
             .init(key: .character("t"), modifiers: [.command])
         )
 
-        XCTAssertEqual(action, .newWorkspace)
+        XCTAssertEqual(action, .newWorklane)
     }
 
     func test_resolves_horizontal_split_shortcut() {

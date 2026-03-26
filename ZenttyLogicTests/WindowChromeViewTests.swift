@@ -9,18 +9,18 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 900, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: makeNeedsInputAttention(),
             focusedLabel: "Claude Code",
             branch: "feature/review-band",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 128,
                 url: URL(string: "https://example.com/pr/128"),
                 state: .draft
             ),
             reviewChips: [
-                WorkspaceReviewChip(text: "Draft", style: .info),
-                WorkspaceReviewChip(text: "2 failing", style: .danger),
+                WorklaneReviewChip(text: "Draft", style: .info),
+                WorklaneReviewChip(text: "2 failing", style: .danger),
             ]
         ))
 
@@ -36,7 +36,7 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "Claude Code",
             branch: "main",
@@ -54,7 +54,7 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "zsh",
             branch: nil,
@@ -73,7 +73,7 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "Claude Code",
             branch: "feature/review-band",
@@ -136,7 +136,7 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 1440, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
@@ -155,11 +155,11 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 1440, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 1413,
                 url: URL(string: "https://example.com/pr/1413"),
                 state: .open
@@ -194,11 +194,11 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 1720, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
             branch: "feature/scaleway-transactional-mails",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 1413,
                 url: URL(string: "https://example.com/pr/1413"),
                 state: .open
@@ -221,7 +221,7 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 1440, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
@@ -251,11 +251,11 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 1720, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
             branch: "feature/scaleway-transactional-mails",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 1413,
                 url: URL(string: "https://example.com/pr/1413"),
                 state: .open
@@ -282,11 +282,11 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
             branch: "feature/scaleway-transactional-mails",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 1413,
                 url: URL(string: "https://example.com/pr/1413"),
                 state: .open
@@ -316,7 +316,7 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
@@ -335,7 +335,7 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 1720, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
@@ -357,7 +357,7 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
@@ -382,11 +382,11 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 360, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
             branch: "main",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 1413,
                 url: URL(string: "https://example.com/pr/1413"),
                 state: .open
@@ -412,16 +412,16 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 360, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
             branch: "main",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 1413,
                 url: URL(string: "https://example.com/pr/1413"),
                 state: .open
             ),
-            reviewChips: [WorkspaceReviewChip(text: "1 failing", style: .danger)]
+            reviewChips: [WorklaneReviewChip(text: "1 failing", style: .danger)]
         ))
         view.layoutSubtreeIfNeeded()
         view.leadingVisibleInset = 240
@@ -529,11 +529,11 @@ final class WindowChromeViewTests: XCTestCase {
         )
 
         let pullRequestURL = try XCTUnwrap(URL(string: "https://example.com/pr/1413"))
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "Claude Code",
             branch: "main",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 1413,
                 url: pullRequestURL,
                 state: .open
@@ -554,11 +554,11 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "Claude Code",
             branch: "main",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 1413,
                 url: URL(string: "https://example.com/pr/1413"),
                 state: .open
@@ -576,11 +576,11 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "Claude Code",
             branch: "main",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 1413,
                 url: nil,
                 state: .open
@@ -594,17 +594,17 @@ final class WindowChromeViewTests: XCTestCase {
 
     func test_window_chrome_keeps_pull_request_background_constant_while_tinting_text_and_border_by_state() {
         let theme = ZenttyTheme.fallback(for: nil)
-        let states: [WorkspacePullRequestState] = [.draft, .open, .merged, .closed]
+        let states: [WorklanePullRequestState] = [.draft, .open, .merged, .closed]
         let views = states.map { state -> WindowChromeView in
             let view = WindowChromeView(
                 frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
             )
             view.apply(theme: theme, animated: false)
-            view.render(summary: WorkspaceChromeSummary(
+            view.render(summary: WorklaneChromeSummary(
                 attention: nil,
                 focusedLabel: "Claude Code",
                 branch: "main",
-                pullRequest: WorkspacePullRequestSummary(
+                pullRequest: WorklanePullRequestSummary(
                     number: 1413,
                     url: URL(string: "https://example.com/pr/1413"),
                     state: state
@@ -636,11 +636,11 @@ final class WindowChromeViewTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
         )
 
-        view.render(summary: WorkspaceChromeSummary(
+        view.render(summary: WorklaneChromeSummary(
             attention: nil,
             focusedLabel: "Claude Code",
             branch: "main",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 1413,
                 url: URL(string: "https://example.com/pr/1413"),
                 state: .open
@@ -661,8 +661,8 @@ final class WindowChromeViewTests: XCTestCase {
         )
     }
 
-    private func makeNeedsInputAttention() -> WorkspaceAttentionSummary {
-        WorkspaceAttentionSummary(
+    private func makeNeedsInputAttention() -> WorklaneAttentionSummary {
+        WorklaneAttentionSummary(
             paneID: PaneID("pane-shell"),
             tool: .claudeCode,
             state: .needsInput,
@@ -674,19 +674,19 @@ final class WindowChromeViewTests: XCTestCase {
         )
     }
 
-    private func makeCrowdedSummary() -> WorkspaceChromeSummary {
-        WorkspaceChromeSummary(
+    private func makeCrowdedSummary() -> WorklaneChromeSummary {
+        WorklaneChromeSummary(
             attention: makeNeedsInputAttention(),
             focusedLabel: "Claude Code Session With An Intentionally Long Focus Label",
             branch: "feature/review-band",
-            pullRequest: WorkspacePullRequestSummary(
+            pullRequest: WorklanePullRequestSummary(
                 number: 128,
                 url: URL(string: "https://example.com/pr/128"),
                 state: .draft
             ),
             reviewChips: [
-                WorkspaceReviewChip(text: "Draft", style: .info),
-                WorkspaceReviewChip(text: "2 failing", style: .danger),
+                WorklaneReviewChip(text: "Draft", style: .info),
+                WorklaneReviewChip(text: "2 failing", style: .danger),
             ]
         )
     }

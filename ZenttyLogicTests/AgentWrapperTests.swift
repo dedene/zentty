@@ -44,8 +44,8 @@ final class AgentWrapperTests: XCTestCase {
             arguments: ["hello"],
             extraEnvironment: [
                 "ZENTTY_AGENT_BIN": harness.helperPath,
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -101,8 +101,8 @@ final class AgentWrapperTests: XCTestCase {
             arguments: [],
             extraEnvironment: [
                 "ZENTTY_AGENT_BIN": harness.helperPath,
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -134,8 +134,8 @@ final class AgentWrapperTests: XCTestCase {
             arguments: ["exec"],
             extraEnvironment: [
                 "ZENTTY_AGENT_BIN": harness.helperPath,
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -174,8 +174,8 @@ final class AgentWrapperTests: XCTestCase {
             arguments: ["exec", "hello"],
             extraEnvironment: [
                 "ZENTTY_AGENT_BIN": harness.helperPath,
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -206,8 +206,8 @@ final class AgentWrapperTests: XCTestCase {
             ],
             extraEnvironment: [
                 "ZENTTY_AGENT_BIN": harness.helperPath,
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -231,8 +231,8 @@ final class AgentWrapperTests: XCTestCase {
             stdin: "{\"type\":\"agent-turn-complete\",\"turn-id\":\"turn-1\",\"session_id\":\"session-stdin\"}",
             extraEnvironment: [
                 "ZENTTY_AGENT_BIN": harness.helperPath,
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -273,8 +273,8 @@ final class AgentWrapperTests: XCTestCase {
             extraEnvironment: [
                 "CODEX_HOME": sourceCodexHome.path,
                 "ZENTTY_AGENT_BIN": harness.helperPath,
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
@@ -328,8 +328,8 @@ final class AgentWrapperTests: XCTestCase {
             extraEnvironment: [
                 "CODEX_HOME": sourceCodexHome.path,
                 "ZENTTY_AGENT_BIN": harness.helperPath,
-                "ZENTTY_WORKSPACE_ID": "workspace-main",
-                "ZENTTY_PANE_ID": "workspace-main-shell",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
             ]
         )
 
