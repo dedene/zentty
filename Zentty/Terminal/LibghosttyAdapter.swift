@@ -69,6 +69,9 @@ final class LibghosttyAdapter: TerminalAdapter {
 
     init(runtime: any LibghosttyRuntimeProviding = LibghosttyRuntime.shared) {
         self.runtime = runtime
+        hostView.onLocalEventDidOccur = { [weak self] event in
+            self?.eventDidOccur?(event)
+        }
     }
 
     func makeTerminalView() -> NSView {

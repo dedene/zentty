@@ -17,8 +17,37 @@ struct WorkspaceSidebarPaneRow: Equatable {
     let detailText: String?
     let statusText: String?
     let attentionState: WorkspaceAttentionState?
+    let interactionKind: PaneInteractionKind?
+    let interactionLabel: String?
+    let interactionSymbolName: String?
     let isFocused: Bool
     let isWorking: Bool
+
+    init(
+        paneID: PaneID,
+        primaryText: String,
+        trailingText: String?,
+        detailText: String?,
+        statusText: String?,
+        attentionState: WorkspaceAttentionState?,
+        interactionKind: PaneInteractionKind? = nil,
+        interactionLabel: String? = nil,
+        interactionSymbolName: String? = nil,
+        isFocused: Bool,
+        isWorking: Bool
+    ) {
+        self.paneID = paneID
+        self.primaryText = primaryText
+        self.trailingText = trailingText
+        self.detailText = detailText
+        self.statusText = statusText
+        self.attentionState = attentionState
+        self.interactionKind = interactionKind
+        self.interactionLabel = interactionLabel
+        self.interactionSymbolName = interactionSymbolName
+        self.isFocused = isFocused
+        self.isWorking = isWorking
+    }
 }
 
 struct WorkspaceSidebarSummary: Equatable {
@@ -32,6 +61,9 @@ struct WorkspaceSidebarSummary: Equatable {
     let paneRows: [WorkspaceSidebarPaneRow]
     let overflowText: String?
     let attentionState: WorkspaceAttentionState?
+    let interactionKind: PaneInteractionKind?
+    let interactionLabel: String?
+    let interactionSymbolName: String?
     let isWorking: Bool
     let isActive: Bool
 
@@ -58,6 +90,9 @@ struct WorkspaceSidebarSummary: Equatable {
         paneRows: [WorkspaceSidebarPaneRow] = [],
         overflowText: String? = nil,
         attentionState: WorkspaceAttentionState? = nil,
+        interactionKind: PaneInteractionKind? = nil,
+        interactionLabel: String? = nil,
+        interactionSymbolName: String? = nil,
         isWorking: Bool = false,
         isActive: Bool
     ) {
@@ -71,6 +106,9 @@ struct WorkspaceSidebarSummary: Equatable {
         self.paneRows = paneRows
         self.overflowText = overflowText
         self.attentionState = attentionState
+        self.interactionKind = interactionKind
+        self.interactionLabel = interactionLabel
+        self.interactionSymbolName = interactionSymbolName
         self.isWorking = isWorking
         self.isActive = isActive
     }

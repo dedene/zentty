@@ -4,11 +4,17 @@ enum WorkspaceSidebarSummaryBuilder {
     private struct SidebarStatusPresentation {
         let statusText: String?
         let attentionState: WorkspaceAttentionState?
+        let interactionKind: PaneInteractionKind?
+        let interactionLabel: String?
+        let interactionSymbolName: String?
     }
 
     private struct PaneSidebarStatusPresentation {
         let statusText: String?
         let attentionState: WorkspaceAttentionState?
+        let interactionKind: PaneInteractionKind?
+        let interactionLabel: String?
+        let interactionSymbolName: String?
         let isWorking: Bool
     }
 
@@ -104,7 +110,13 @@ enum WorkspaceSidebarSummaryBuilder {
                 attention: WorkspaceAttentionSummaryBuilder.summary(for: workspace),
                 isWorking: isWorking
             )
-            : SidebarStatusPresentation(statusText: nil, attentionState: nil)
+            : SidebarStatusPresentation(
+                statusText: nil,
+                attentionState: nil,
+                interactionKind: nil,
+                interactionLabel: nil,
+                interactionSymbolName: nil
+            )
 
         return WorkspaceSidebarSummary(
             workspaceID: workspace.id,
@@ -117,6 +129,9 @@ enum WorkspaceSidebarSummaryBuilder {
             paneRows: paneRows,
             overflowText: nil,
             attentionState: statusPresentation.attentionState,
+            interactionKind: statusPresentation.interactionKind,
+            interactionLabel: statusPresentation.interactionLabel,
+            interactionSymbolName: statusPresentation.interactionSymbolName,
             isWorking: isWorking,
             isActive: isActive
         )
@@ -128,29 +143,41 @@ enum WorkspaceSidebarSummaryBuilder {
         isWorking: Bool
     ) -> SidebarStatusPresentation {
         if let attention {
-            let effectiveAttentionState: WorkspaceAttentionState = isWorking && attention.state == .completed
-                ? .running
-                : attention.state
             return SidebarStatusPresentation(
-                statusText: plainStatusText(for: effectiveAttentionState),
-                attentionState: effectiveAttentionState
+                statusText: plainStatusText(for: attention.state),
+                attentionState: attention.state,
+                interactionKind: attention.interactionKind,
+                interactionLabel: attention.interactionLabel ?? attention.interactionKind?.defaultLabel,
+                interactionSymbolName: attention.interactionSymbolName ?? attention.interactionKind?.defaultSymbolName
             )
         }
 
         if isWorking {
             return SidebarStatusPresentation(
                 statusText: plainStatusText(for: .running),
-                attentionState: .running
+                attentionState: .running,
+                interactionKind: nil,
+                interactionLabel: nil,
+                interactionSymbolName: nil
             )
         }
 
         if workspaceAgentTool(for: workspace) != nil {
-            return SidebarStatusPresentation(statusText: nil, attentionState: nil)
+            return SidebarStatusPresentation(
+                statusText: nil,
+                attentionState: nil,
+                interactionKind: nil,
+                interactionLabel: nil,
+                interactionSymbolName: nil
+            )
         }
 
         return SidebarStatusPresentation(
             statusText: nil,
-            attentionState: nil
+            attentionState: nil,
+            interactionKind: nil,
+            interactionLabel: nil,
+            interactionSymbolName: nil
         )
     }
 
@@ -176,6 +203,9 @@ enum WorkspaceSidebarSummaryBuilder {
                 detailText: paneIdentity.detailText,
                 statusText: statusPresentation.statusText,
                 attentionState: statusPresentation.attentionState,
+                interactionKind: statusPresentation.interactionKind,
+                interactionLabel: statusPresentation.interactionLabel,
+                interactionSymbolName: statusPresentation.interactionSymbolName,
                 isFocused: isFocused,
                 isWorking: statusPresentation.isWorking
             )
@@ -402,19 +432,30 @@ enum WorkspaceSidebarSummaryBuilder {
     private static func paneSidebarStatusPresentation(
         for presentation: PanePresentationState
     ) -> PaneSidebarStatusPresentation {
-        if let attentionState = attentionState(for: presentation.runtimePhase),
-           let statusText = presentation.statusText {
+        let statusText = presentation.statusText.map { "╰ \($0)" }
+        let attentionState = attentionState(for: presentation.runtimePhase)
+        guard statusText != nil
+            || attentionState != nil
+            || presentation.interactionKind != nil
+            || presentation.interactionLabel != nil
+            || presentation.interactionSymbolName != nil else {
             return PaneSidebarStatusPresentation(
-                statusText: "╰ \(statusText)",
-                attentionState: attentionState,
-                isWorking: presentation.isWorking
+                statusText: nil,
+                attentionState: nil,
+                interactionKind: nil,
+                interactionLabel: nil,
+                interactionSymbolName: nil,
+                isWorking: false
             )
         }
 
         return PaneSidebarStatusPresentation(
-            statusText: nil,
-            attentionState: nil,
-            isWorking: false
+            statusText: statusText,
+            attentionState: attentionState,
+            interactionKind: presentation.interactionKind,
+            interactionLabel: presentation.interactionLabel ?? presentation.interactionKind?.defaultLabel,
+            interactionSymbolName: presentation.interactionSymbolName ?? presentation.interactionKind?.defaultSymbolName,
+            isWorking: presentation.isWorking
         )
     }
 
@@ -451,8 +492,6 @@ enum WorkspaceSidebarSummaryBuilder {
             return .running
         case .needsInput:
             return .needsInput
-        case .completed:
-            return .completed
         case .unresolvedStop:
             return .unresolvedStop
         }
@@ -741,6 +780,9 @@ enum WorkspaceSidebarSummaryBuilder {
                     detailText: paneRow.detailText,
                     statusText: paneRow.statusText,
                     attentionState: paneRow.attentionState,
+                    interactionKind: paneRow.interactionKind,
+                    interactionLabel: paneRow.interactionLabel,
+                    interactionSymbolName: paneRow.interactionSymbolName,
                     isFocused: paneRow.isFocused,
                     isWorking: paneRow.isWorking
                 )
@@ -760,6 +802,9 @@ enum WorkspaceSidebarSummaryBuilder {
                 paneRows: paneRows,
                 overflowText: summary.overflowText,
                 attentionState: summary.attentionState,
+                interactionKind: summary.interactionKind,
+                interactionLabel: summary.interactionLabel,
+                interactionSymbolName: summary.interactionSymbolName,
                 isWorking: summary.isWorking,
                 isActive: summary.isActive
             )
@@ -774,8 +819,6 @@ enum WorkspaceSidebarSummaryBuilder {
             return "Stopped early"
         case .running:
             return "Running"
-        case .completed:
-            return "Completed"
         }
     }
 

@@ -48,8 +48,64 @@ enum PanePresentationPhase: String, Equatable, Sendable {
     case starting
     case running
     case needsInput
-    case completed
     case unresolvedStop
+}
+
+enum PaneInteractionKind: String, Equatable, Sendable {
+    case approval
+    case question
+    case decision
+    case auth
+    case genericInput = "generic-input"
+}
+
+extension PaneInteractionKind {
+    init?(_ kind: PaneAgentInteractionKind) {
+        switch kind {
+        case .none:
+            return nil
+        case .approval:
+            self = .approval
+        case .question:
+            self = .question
+        case .decision:
+            self = .decision
+        case .auth:
+            self = .auth
+        case .genericInput:
+            self = .genericInput
+        }
+    }
+
+    var defaultLabel: String {
+        switch self {
+        case .approval:
+            return "Needs approval"
+        case .question:
+            return "Question"
+        case .decision:
+            return "Needs decision"
+        case .auth:
+            return "Needs sign-in"
+        case .genericInput:
+            return "Needs input"
+        }
+    }
+
+    var defaultSymbolName: String? {
+        switch self {
+        case .approval:
+            return "checkmark.shield"
+        case .question:
+            return "questionmark.circle"
+        case .decision:
+            return "list.bullet"
+        case .auth:
+            return "key.fill"
+        case .genericInput:
+            return "ellipsis.circle"
+        }
+    }
 }
 
 struct PanePresentationState: Equatable, Sendable {
@@ -69,6 +125,9 @@ struct PanePresentationState: Equatable, Sendable {
     var attentionArtifactLink: WorkspaceArtifactLink?
     var updatedAt: Date = .distantPast
     var isWorking = false
+    var interactionKind: PaneInteractionKind?
+    var interactionLabel: String?
+    var interactionSymbolName: String?
 
     var hasResolvedIdentity: Bool {
         identityText != nil || contextText != nil || rememberedTitle != nil || branch != nil || cwd != nil
@@ -91,6 +150,7 @@ struct PaneRawState: Equatable, Sendable {
     var metadata: TerminalMetadata?
     var shellContext: PaneShellContext?
     var agentStatus: PaneAgentStatus?
+    var agentReducerState: PaneAgentReducerState = .init()
     var terminalProgress: TerminalProgressReport?
     var reviewState: WorkspaceReviewState?
     var gitContext: PaneGitContext?
@@ -121,7 +181,15 @@ enum PanePresentationNormalizer {
         )
         let rememberedTitle = latestMeaningfulTitle ?? previous?.rememberedTitle
         let runtimePhase = normalizedRuntimePhase(from: raw, recognizedTool: recognizedTool)
-        let statusText = visibleStatusText(for: runtimePhase)
+        let agentInteractionKind = raw.agentStatus?.interactionKind ?? .none
+        let statusText = visibleStatusText(
+            for: runtimePhase,
+            interactionKind: agentInteractionKind,
+            hasObservedRunning: raw.agentStatus?.hasObservedRunning == true
+        )
+        let interactionKind = PaneInteractionKind(agentInteractionKind)
+        let interactionLabel = runtimePhase == .needsInput ? raw.agentStatus?.statusLabel : nil
+        let interactionSymbolName = runtimePhase == .needsInput ? raw.agentStatus?.statusSymbolName : nil
         let pullRequest = derivePullRequest(
             from: raw,
             repoRoot: repoRoot,
@@ -160,7 +228,10 @@ enum PanePresentationNormalizer {
             reviewChips: reviewChips,
             attentionArtifactLink: attentionArtifactLink,
             updatedAt: updatedAt,
-            isWorking: runtimePhase == .running
+            isWorking: runtimePhase == .running,
+            interactionKind: interactionKind,
+            interactionLabel: interactionLabel,
+            interactionSymbolName: interactionSymbolName
         )
     }
 
@@ -219,8 +290,8 @@ enum PanePresentationNormalizer {
                 return .running
             case .needsInput:
                 return .needsInput
-            case .completed:
-                return .completed
+            case .idle:
+                return .idle
             case .unresolvedStop:
                 return .unresolvedStop
             }
@@ -233,16 +304,20 @@ enum PanePresentationNormalizer {
         return .idle
     }
 
-    private static func visibleStatusText(for phase: PanePresentationPhase) -> String? {
+    private static func visibleStatusText(
+        for phase: PanePresentationPhase,
+        interactionKind: PaneAgentInteractionKind,
+        hasObservedRunning: Bool
+    ) -> String? {
         switch phase {
-        case .idle, .starting:
+        case .idle:
+            return hasObservedRunning ? "Idle" : nil
+        case .starting:
             return nil
         case .running:
             return "Running"
         case .needsInput:
             return "Needs input"
-        case .completed:
-            return "Completed"
         case .unresolvedStop:
             return "Stopped early"
         }
@@ -389,6 +464,7 @@ struct PaneAuxiliaryState: Equatable, Sendable {
         metadata: TerminalMetadata? = nil,
         shellContext: PaneShellContext? = nil,
         agentStatus: PaneAgentStatus? = nil,
+        agentReducerState: PaneAgentReducerState = .init(),
         terminalProgress: TerminalProgressReport? = nil,
         reviewState: WorkspaceReviewState? = nil,
         gitContext: PaneGitContext? = nil,
@@ -398,6 +474,7 @@ struct PaneAuxiliaryState: Equatable, Sendable {
             metadata: metadata,
             shellContext: shellContext,
             agentStatus: agentStatus,
+            agentReducerState: agentReducerState,
             terminalProgress: terminalProgress,
             reviewState: reviewState,
             gitContext: gitContext
@@ -418,6 +495,11 @@ struct PaneAuxiliaryState: Equatable, Sendable {
     var agentStatus: PaneAgentStatus? {
         get { raw.agentStatus }
         set { raw.agentStatus = newValue }
+    }
+
+    var agentReducerState: PaneAgentReducerState {
+        get { raw.agentReducerState }
+        set { raw.agentReducerState = newValue }
     }
 
     var terminalProgress: TerminalProgressReport? {

@@ -127,6 +127,68 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(decodedPayload, command.payload)
     }
 
+    func test_agent_status_payload_decodes_legacy_notification_defaults_when_kind_and_origin_are_omitted() throws {
+        let payload = try AgentStatusPayload(
+            userInfo: [
+                "workspaceID": "workspace-main",
+                "paneID": "workspace-main-shell",
+                "state": "running",
+                "toolName": "Claude Code",
+            ]
+        )
+
+        XCTAssertEqual(payload.signalKind, .lifecycle)
+        XCTAssertEqual(payload.origin, .compatibility)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.toolName, "Claude Code")
+    }
+
+    func test_agent_status_payload_decodes_legacy_completed_state_as_idle() throws {
+        let payload = try AgentStatusPayload(
+            userInfo: [
+                "workspaceID": "workspace-main",
+                "paneID": "workspace-main-shell",
+                "state": "completed",
+                "toolName": "Codex",
+            ]
+        )
+
+        XCTAssertEqual(payload.state, .idle)
+    }
+
+    func test_agent_status_command_accepts_legacy_completed_alias() throws {
+        let command = try AgentStatusCommand.parse(
+            arguments: ["agent-status", "completed", "--tool", "Codex"],
+            environment: [
+                "ZENTTY_WORKSPACE_ID": "workspace-main",
+                "ZENTTY_PANE_ID": "workspace-main-shell",
+            ]
+        )
+
+        XCTAssertEqual(command.payload.state, .idle)
+        XCTAssertEqual(command.payload.toolName, "Codex")
+    }
+
+    func test_agent_signal_command_accepts_legacy_completed_alias_and_session_id() throws {
+        let command = try AgentSignalCommand.parse(
+            arguments: [
+                "agent-signal",
+                "lifecycle",
+                "completed",
+                "--tool", "Codex",
+                "--session-id", "session-1",
+            ],
+            environment: [
+                "ZENTTY_WORKSPACE_ID": "workspace-main",
+                "ZENTTY_PANE_ID": "workspace-main-shell",
+            ]
+        )
+
+        XCTAssertEqual(command.payload.state, .idle)
+        XCTAssertEqual(command.payload.toolName, "Codex")
+        XCTAssertEqual(command.payload.sessionID, "session-1")
+    }
+
     func test_agent_signal_command_parses_local_pane_context_payload() throws {
         let command = try AgentSignalCommand.parse(
             arguments: [
@@ -376,11 +438,46 @@ final class AgentStatusSupportTests: XCTestCase {
                 origin: .explicitHook,
                 toolName: "Claude Code",
                 text: "Claude is waiting for your input",
+                lifecycleEvent: .update,
+                interactionKind: .genericInput,
+                confidence: .strong,
+                sessionID: "session-1",
                 artifactKind: nil,
                 artifactLabel: nil,
                 artifactURL: nil
             )
         )
+    }
+
+    func test_claude_hook_notification_stays_generic_input_when_message_mentions_approval() throws {
+        let input = try ClaudeHookBridge.parseInput(
+            Data("""
+            {"hook_event_name":"Notification","session_id":"session-1","message":"Claude needs your approval"}
+            """.utf8)
+        )
+        let store = try makeClaudeHookSessionStore()
+        try store.upsert(
+            sessionID: "session-1",
+            workspaceID: WorkspaceID("workspace-main"),
+            paneID: PaneID("workspace-main-shell"),
+            cwd: nil,
+            pid: nil
+        )
+
+        let payload = try XCTUnwrap(
+            ClaudeHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKSPACE_ID": "workspace-main",
+                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                ],
+                sessionStore: store
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .genericInput)
+        XCTAssertNotEqual(payload.interactionKind, .approval)
     }
 
     func test_claude_hook_permission_request_maps_to_needs_input_payload() throws {
@@ -412,6 +509,98 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.state, .needsInput)
         XCTAssertEqual(payload.toolName, "Claude Code")
         XCTAssertEqual(payload.text, "Allow file write?")
+        XCTAssertEqual(payload.interactionKind, .approval)
+        XCTAssertEqual(payload.confidence, .explicit)
+    }
+
+    func test_claude_hook_ask_user_question_with_options_maps_to_decision_payload() throws {
+        let store = try makeClaudeHookSessionStore()
+        try store.upsert(
+            sessionID: "session-1",
+            workspaceID: WorkspaceID("workspace-main"),
+            paneID: PaneID("workspace-main-shell"),
+            cwd: nil,
+            pid: 4242
+        )
+
+        let input = try ClaudeHookBridge.parseInput(
+            Data("""
+            {
+              "hook_event_name":"PreToolUse",
+              "session_id":"session-1",
+              "tool_name":"AskUserQuestion",
+              "tool_input":{
+                "questions":[
+                  {
+                    "question":"Ship this?",
+                    "options":[
+                      {"label":"Yes"},
+                      {"label":"No"}
+                    ]
+                  }
+                ]
+              }
+            }
+            """.utf8)
+        )
+
+        let payload = try XCTUnwrap(
+            ClaudeHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKSPACE_ID": "workspace-main",
+                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                ],
+                sessionStore: store
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .decision)
+        XCTAssertEqual(payload.text, "Ship this?\n[Yes] [No]")
+    }
+
+    func test_claude_hook_ask_user_question_without_options_maps_to_question_payload() throws {
+        let store = try makeClaudeHookSessionStore()
+        try store.upsert(
+            sessionID: "session-1",
+            workspaceID: WorkspaceID("workspace-main"),
+            paneID: PaneID("workspace-main-shell"),
+            cwd: nil,
+            pid: 4242
+        )
+
+        let input = try ClaudeHookBridge.parseInput(
+            Data("""
+            {
+              "hook_event_name":"PreToolUse",
+              "session_id":"session-1",
+              "tool_name":"AskUserQuestion",
+              "tool_input":{
+                "questions":[
+                  {
+                    "question":"Ship this?"
+                  }
+                ]
+              }
+            }
+            """.utf8)
+        )
+
+        let payload = try XCTUnwrap(
+            ClaudeHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKSPACE_ID": "workspace-main",
+                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                ],
+                sessionStore: store
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .question)
+        XCTAssertEqual(payload.text, "Ship this?")
     }
 
     func test_claude_hook_generic_notification_does_not_replace_permission_request_copy() throws {
@@ -460,6 +649,87 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(notificationPayload.text, "Claude needs your approval")
     }
 
+    func test_claude_hook_generic_approval_notification_does_not_relabel_explicit_decision_prompt() throws {
+        let store = try makeClaudeHookSessionStore()
+        try store.upsert(
+            sessionID: "session-1",
+            workspaceID: WorkspaceID("workspace-main"),
+            paneID: PaneID("workspace-main-shell"),
+            cwd: nil,
+            pid: 4242,
+            lastHumanMessage: "Choose one",
+            lastInteractionKind: .decision
+        )
+
+        let input = try ClaudeHookBridge.parseInput(
+            Data("""
+            {"hook_event_name":"Notification","session_id":"session-1","message":"Claude needs your approval before continuing"}
+            """.utf8)
+        )
+
+        let payload = try XCTUnwrap(
+            ClaudeHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKSPACE_ID": "workspace-main",
+                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                ],
+                sessionStore: store
+            ).first
+        )
+
+        XCTAssertEqual(payload.interactionKind, .decision)
+        XCTAssertEqual(payload.text, "Choose one")
+    }
+
+    func test_claude_hook_ask_user_question_replaces_prior_explicit_approval_copy_when_kind_changes() throws {
+        let store = try makeClaudeHookSessionStore()
+        try store.upsert(
+            sessionID: "session-1",
+            workspaceID: WorkspaceID("workspace-main"),
+            paneID: PaneID("workspace-main-shell"),
+            cwd: nil,
+            pid: 4242,
+            lastHumanMessage: "Claude needs your approval",
+            lastInteractionKind: .approval
+        )
+
+        let input = try ClaudeHookBridge.parseInput(
+            Data("""
+            {
+              "hook_event_name":"PreToolUse",
+              "session_id":"session-1",
+              "tool_name":"AskUserQuestion",
+              "tool_input":{
+                "questions":[
+                  {
+                    "question":"Ship this?",
+                    "options":[
+                      {"label":"Yes"},
+                      {"label":"No"}
+                    ]
+                  }
+                ]
+              }
+            }
+            """.utf8)
+        )
+
+        let payload = try XCTUnwrap(
+            ClaudeHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKSPACE_ID": "workspace-main",
+                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                ],
+                sessionStore: store
+            ).first
+        )
+
+        XCTAssertEqual(payload.interactionKind, .decision)
+        XCTAssertEqual(payload.text, "Ship this?\n[Yes] [No]")
+    }
+
     func test_claude_hook_session_start_records_mapping_and_emits_pid_attach() throws {
         let input = try ClaudeHookBridge.parseInput(
             Data("""
@@ -491,6 +761,7 @@ final class AgentStatusSupportTests: XCTestCase {
                     origin: .explicitHook,
                     toolName: "Claude Code",
                     text: nil,
+                    sessionID: "session-1",
                     artifactKind: nil,
                     artifactLabel: nil,
                     artifactURL: nil
@@ -535,7 +806,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.paneID, PaneID("pane-a"))
     }
 
-    func test_claude_hook_pre_tool_use_ask_user_question_persists_richer_message_for_notification() throws {
+    func test_claude_hook_pre_tool_use_ask_user_question_with_options_emits_explicit_decision_payload_and_persists_richer_message() throws {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
@@ -566,16 +837,20 @@ final class AgentStatusSupportTests: XCTestCase {
             """.utf8)
         )
 
-        let preToolUsePayloads = try ClaudeHookBridge.makePayloads(
+        let preToolUsePayload = try XCTUnwrap(
+            ClaudeHookBridge.makePayloads(
             from: preToolUse,
             environment: [
                 "ZENTTY_WORKSPACE_ID": "workspace-main",
                 "ZENTTY_PANE_ID": "workspace-main-shell",
             ],
             sessionStore: store
+        ).first
         )
 
-        XCTAssertTrue(preToolUsePayloads.isEmpty)
+        XCTAssertEqual(preToolUsePayload.state, .needsInput)
+        XCTAssertEqual(preToolUsePayload.interactionKind, .decision)
+        XCTAssertEqual(preToolUsePayload.text, "Ship this?\n[Yes] [No]")
 
         let notification = try ClaudeHookBridge.parseInput(
             Data("""
@@ -595,6 +870,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.text, "Ship this?\n[Yes] [No]")
+        XCTAssertEqual(payload.interactionKind, .decision)
     }
 
     func test_agent_status_center_delivers_payloads_on_main_actor() {
@@ -692,7 +968,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.toolName, "Claude Code")
     }
 
-    func test_claude_hook_stop_maps_to_completed_payload_without_clearing_pid_mapping() throws {
+    func test_claude_hook_stop_maps_to_stop_candidate_payload_without_clearing_pid_mapping() throws {
         let input = try ClaudeHookBridge.parseInput(
             Data("""
             {"hook_event_name":"Stop","session_id":"session-1"}
@@ -718,9 +994,73 @@ final class AgentStatusSupportTests: XCTestCase {
             ).first
         )
 
-        XCTAssertEqual(payload.state, .completed)
+        XCTAssertEqual(payload.state, .idle)
+        XCTAssertEqual(payload.lifecycleEvent, .stopCandidate)
+        XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Claude Code")
         XCTAssertEqual(try store.lookup(sessionID: "session-1")?.pid, 4242)
+    }
+
+    func test_codex_hook_prompt_submit_maps_to_running_payload() throws {
+        let input = try CodexHookBridge.parseInput(
+            Data("""
+            {"hook_event_name":"UserPromptSubmit","session_id":"session-1","cwd":"/tmp/project"}
+            """.utf8)
+        )
+
+        let payload = try XCTUnwrap(
+            CodexHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKSPACE_ID": "workspace-main",
+                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.toolName, "Codex")
+    }
+
+    func test_codex_hook_session_start_is_non_visible_noop() throws {
+        let input = try CodexHookBridge.parseInput(
+            Data("""
+            {"hook_event_name":"SessionStart","session_id":"session-1","cwd":"/tmp/project"}
+            """.utf8)
+        )
+
+        let payloads = try CodexHookBridge.makePayloads(
+            from: input,
+            environment: [
+                "ZENTTY_WORKSPACE_ID": "workspace-main",
+                "ZENTTY_PANE_ID": "workspace-main-shell",
+            ]
+        )
+
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
+    func test_codex_hook_stop_maps_to_idle_payload() throws {
+        let input = try CodexHookBridge.parseInput(
+            Data("""
+            {"hook_event_name":"Stop","session_id":"session-1","last_assistant_message":"Done"}
+            """.utf8)
+        )
+
+        let payload = try XCTUnwrap(
+            CodexHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKSPACE_ID": "workspace-main",
+                    "ZENTTY_PANE_ID": "workspace-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .idle)
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.toolName, "Codex")
     }
 
     func test_claude_hook_session_end_clears_status_pid_and_mapping() throws {
@@ -750,9 +1090,47 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payloads.count, 2)
         XCTAssertEqual(payloads[0].signalKind, .lifecycle)
         XCTAssertNil(payloads[0].state)
+        XCTAssertEqual(payloads[0].sessionID, "session-1")
         XCTAssertEqual(payloads[1].signalKind, .pid)
         XCTAssertEqual(payloads[1].pidEvent, .clear)
+        XCTAssertEqual(payloads[1].sessionID, "session-1")
         XCTAssertNil(try store.lookup(sessionID: "session-1"))
+    }
+
+    func test_claude_hook_session_end_without_session_id_does_not_clear_ambiguous_pane_sessions() throws {
+        let input = try ClaudeHookBridge.parseInput(
+            Data("""
+            {"hook_event_name":"SessionEnd"}
+            """.utf8)
+        )
+        let store = try makeClaudeHookSessionStore()
+        try store.upsert(
+            sessionID: "session-parent",
+            workspaceID: WorkspaceID("workspace-main"),
+            paneID: PaneID("workspace-main-shell"),
+            cwd: "/tmp/project",
+            pid: 4242
+        )
+        try store.upsert(
+            sessionID: "session-child",
+            workspaceID: WorkspaceID("workspace-main"),
+            paneID: PaneID("workspace-main-shell"),
+            cwd: "/tmp/project",
+            pid: 4343
+        )
+
+        let payloads = try ClaudeHookBridge.makePayloads(
+            from: input,
+            environment: [
+                "ZENTTY_WORKSPACE_ID": "workspace-main",
+                "ZENTTY_PANE_ID": "workspace-main-shell",
+            ],
+            sessionStore: store
+        )
+
+        XCTAssertTrue(payloads.isEmpty)
+        XCTAssertNotNil(try store.lookup(sessionID: "session-parent"))
+        XCTAssertNotNil(try store.lookup(sessionID: "session-child"))
     }
 
     func test_claude_hook_non_action_notification_is_ignored() throws {

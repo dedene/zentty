@@ -7,6 +7,7 @@ enum LibghosttySurfaceActionPayload: Equatable {
     case pwd(String?)
     case progressReport(TerminalProgressReport)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
+    case desktopNotification(TerminalDesktopNotification)
     case scrollbar(total: UInt64, len: UInt64)
 }
 
@@ -49,6 +50,11 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
             exitCode: exitCode,
             durationNanoseconds: action.action.command_finished.duration
         )
+    case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
+        let notification = action.action.desktop_notification
+        let title = notification.title.map { String(cString: $0) }
+        let body = notification.body.map { String(cString: $0) }
+        return .desktopNotification(TerminalDesktopNotification(title: title, body: body))
     case GHOSTTY_ACTION_SCROLLBAR:
         let s = action.action.scrollbar
         return .scrollbar(total: s.total, len: s.len)

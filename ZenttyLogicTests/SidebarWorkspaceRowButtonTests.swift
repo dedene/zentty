@@ -99,6 +99,27 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         )
 
         XCTAssertEqual(row.statusTextForTesting, "Needs input")
+        XCTAssertEqual(row.statusSymbolNameForTesting, "")
+    }
+
+    func test_workspace_row_keeps_top_level_broad_status_text_and_interaction_icon() {
+        let row = makeRow(height: 88)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Needs input",
+                attentionState: .needsInput,
+                interactionKind: .question,
+                interactionLabel: "Question",
+                interactionSymbolName: "questionmark.circle"
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.statusTextForTesting, "Needs input")
+        XCTAssertEqual(row.statusSymbolNameForTesting, "questionmark.circle")
     }
 
     func test_workspace_row_renders_pane_local_branch_detail_and_status_lines() {
@@ -113,8 +134,8 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
                         primaryText: "General coding assistance session",
                         trailingText: "main",
                         detailText: "…/nimbu",
-                        statusText: "╰ Completed",
-                        attentionState: .completed,
+                        statusText: "╰ Idle",
+                        attentionState: nil,
                         isFocused: true,
                         isWorking: false
                     ),
@@ -127,7 +148,37 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         XCTAssertEqual(row.primaryTextsForTesting, ["General coding assistance session"])
         XCTAssertEqual(row.primaryTrailingTextsForTesting, ["main"])
         XCTAssertEqual(row.detailTextsForTesting, ["…/nimbu"])
-        XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Completed"])
+        XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Idle"])
+    }
+
+    func test_workspace_row_keeps_pane_broad_status_text_and_interaction_icon() {
+        let row = makeRow(width: 320, height: 110)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorkspaceSidebarPaneRow(
+                        paneID: PaneID("workspace-main-agent"),
+                        primaryText: "Claude Code",
+                        trailingText: nil,
+                        detailText: nil,
+                        statusText: "╰ Needs input",
+                        attentionState: .needsInput,
+                        interactionKind: .question,
+                        interactionLabel: "Question",
+                        interactionSymbolName: "questionmark.circle",
+                        isFocused: true,
+                        isWorking: false
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Needs input"])
+        XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["questionmark.circle"])
     }
 
     func test_workspace_row_moves_primary_view_to_focused_pane_position() {
@@ -277,6 +328,9 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
         detailLines: [WorkspaceSidebarDetailLine] = [],
         paneRows: [WorkspaceSidebarPaneRow] = [],
         attentionState: WorkspaceAttentionState? = nil,
+        interactionKind: PaneInteractionKind? = nil,
+        interactionLabel: String? = nil,
+        interactionSymbolName: String? = nil,
         isWorking: Bool = false,
         isActive: Bool = false
     ) -> WorkspaceSidebarSummary {
@@ -291,6 +345,9 @@ final class SidebarWorkspaceRowButtonTests: XCTestCase {
             paneRows: paneRows,
             overflowText: nil,
             attentionState: attentionState,
+            interactionKind: interactionKind,
+            interactionLabel: interactionLabel,
+            interactionSymbolName: interactionSymbolName,
             isWorking: isWorking,
             isActive: isActive
         )

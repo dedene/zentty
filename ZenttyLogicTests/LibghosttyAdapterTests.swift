@@ -107,6 +107,38 @@ final class LibghosttyAdapterTests: XCTestCase {
         XCTAssertEqual(receivedEvent, .progressReport(report))
     }
 
+    func test_return_key_emits_user_submitted_input_event() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var receivedEvents: [TerminalEvent] = []
+
+        adapter.eventDidOccur = { receivedEvents.append($0) }
+
+        _ = adapter.makeTerminalView()
+        try adapter.startSession(using: TerminalSessionRequest())
+
+        let hostView = try XCTUnwrap(runtime.lastHostView)
+        hostView.keyDown(with: try makeKeyEvent(characters: "\r", keyCode: 36))
+
+        XCTAssertTrue(receivedEvents.contains(.userSubmittedInput))
+    }
+
+    func test_navigation_key_does_not_emit_user_submitted_input_event() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var receivedEvents: [TerminalEvent] = []
+
+        adapter.eventDidOccur = { receivedEvents.append($0) }
+
+        _ = adapter.makeTerminalView()
+        try adapter.startSession(using: TerminalSessionRequest())
+
+        let hostView = try XCTUnwrap(runtime.lastHostView)
+        hostView.keyDown(with: try makeKeyEvent(characters: "\u{F700}", keyCode: 126))
+
+        XCTAssertFalse(receivedEvents.contains(.userSubmittedInput))
+    }
+
     func test_prepare_session_start_uses_inherited_config_from_source_surface() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let sourceAdapter = LibghosttyAdapter(runtime: runtime)
@@ -201,6 +233,34 @@ final class LibghosttyAdapterTests: XCTestCase {
         )
     }
 
+    func test_copy_action_payload_copies_desktop_notification_values() {
+        let duplicatedTitle = strdup("Codex")
+        let duplicatedBody = strdup("Needs your input")
+        defer {
+            free(duplicatedTitle)
+            free(duplicatedBody)
+        }
+
+        let action = ghostty_action_s(
+            tag: GHOSTTY_ACTION_DESKTOP_NOTIFICATION,
+            action: ghostty_action_u(
+                desktop_notification: ghostty_action_desktop_notification_s(
+                    title: duplicatedTitle,
+                    body: duplicatedBody
+                )
+            )
+        )
+
+        let payload = copyLibghosttySurfaceActionPayload(from: action)
+
+        XCTAssertEqual(
+            payload,
+            .desktopNotification(
+                TerminalDesktopNotification(title: "Codex", body: "Needs your input")
+            )
+        )
+    }
+
     func test_make_runtime_config_enables_clipboard_callbacks() {
         let config = LibghosttyRuntime.makeRuntimeConfig(
             userdata: UnsafeMutableRawPointer(bitPattern: 0x1)
@@ -281,4 +341,25 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
         config.context = inheritedConfigContext
         return config
     }
+}
+
+private func makeKeyEvent(
+    characters: String,
+    keyCode: UInt16,
+    modifierFlags: NSEvent.ModifierFlags = []
+) throws -> NSEvent {
+    try XCTUnwrap(
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )
+    )
 }

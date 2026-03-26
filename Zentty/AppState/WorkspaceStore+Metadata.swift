@@ -16,10 +16,11 @@ extension WorkspaceStore {
         }
         if
             let existingStatus = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus,
-            existingStatus.source == .inferred,
+            (existingStatus.source == .inferred || existingStatus.origin == .compatibility),
             AgentToolRecognizer.recognize(metadata: metadata) == nil
         {
             workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
+            workspace.auxiliaryStateByPaneID[paneID]?.agentReducerState = PaneAgentReducerState()
         }
         invalidateGitContextIfNeeded(for: paneID, in: &workspace)
         recomputePresentation(for: paneID, in: &workspace)
