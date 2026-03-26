@@ -73,6 +73,22 @@ struct ZenttyTheme: Equatable {
     let sidebarWorkingTextHighlight: NSColor
     let sidebarGradientStart: NSColor
     let sidebarGradientEnd: NSColor
+    let openWithChromeBackground: NSColor
+    let openWithChromeBorder: NSColor
+    let openWithChromeDivider: NSColor
+    let openWithChromePrimaryTint: NSColor
+    let openWithChromeChevronTint: NSColor
+    let openWithChromeHoverBackground: NSColor
+    let openWithChromePressedBackground: NSColor
+    let openWithPopoverBackground: NSColor
+    let openWithPopoverBorder: NSColor
+    let openWithPopoverShadow: NSColor
+    let openWithPopoverText: NSColor
+    let openWithPopoverSecondaryText: NSColor
+    let openWithPopoverRowHoverBackground: NSColor
+    let openWithPopoverRowSelectedBackground: NSColor
+    let openWithPopoverRowSelectedBorder: NSColor
+    let openWithPopoverFooterSeparator: NSColor
     let underlapShadow: NSColor
     let sidebarGlassAppearance: ThemeChromeAppearance
     let reducedTransparency: Bool
@@ -90,7 +106,13 @@ struct ZenttyTheme: Equatable {
             lhs.failureSecondaryText, lhs.sidebarButtonActiveBackground, lhs.sidebarButtonHoverBackground,
             lhs.sidebarButtonInactiveBackground, lhs.sidebarButtonActiveBorder, lhs.sidebarButtonInactiveBorder,
             lhs.sidebarButtonActiveText, lhs.sidebarButtonInactiveText, lhs.sidebarWorkingTextHighlight, lhs.sidebarGradientStart,
-            lhs.sidebarGradientEnd,
+            lhs.sidebarGradientEnd, lhs.openWithChromeBackground, lhs.openWithChromeBorder,
+            lhs.openWithChromeDivider, lhs.openWithChromePrimaryTint, lhs.openWithChromeChevronTint,
+            lhs.openWithChromeHoverBackground, lhs.openWithChromePressedBackground, lhs.openWithPopoverBackground,
+            lhs.openWithPopoverBorder, lhs.openWithPopoverShadow, lhs.openWithPopoverText,
+            lhs.openWithPopoverSecondaryText, lhs.openWithPopoverRowHoverBackground,
+            lhs.openWithPopoverRowSelectedBackground, lhs.openWithPopoverRowSelectedBorder,
+            lhs.openWithPopoverFooterSeparator,
             lhs.underlapShadow,
         ].map(\.themeToken) == [
             rhs.windowBackground, rhs.sidebarBackground, rhs.sidebarBorder, rhs.sidebarShadow,
@@ -102,7 +124,13 @@ struct ZenttyTheme: Equatable {
             rhs.failureSecondaryText, rhs.sidebarButtonActiveBackground, rhs.sidebarButtonHoverBackground,
             rhs.sidebarButtonInactiveBackground, rhs.sidebarButtonActiveBorder, rhs.sidebarButtonInactiveBorder,
             rhs.sidebarButtonActiveText, rhs.sidebarButtonInactiveText, rhs.sidebarWorkingTextHighlight, rhs.sidebarGradientStart,
-            rhs.sidebarGradientEnd,
+            rhs.sidebarGradientEnd, rhs.openWithChromeBackground, rhs.openWithChromeBorder,
+            rhs.openWithChromeDivider, rhs.openWithChromePrimaryTint, rhs.openWithChromeChevronTint,
+            rhs.openWithChromeHoverBackground, rhs.openWithChromePressedBackground, rhs.openWithPopoverBackground,
+            rhs.openWithPopoverBorder, rhs.openWithPopoverShadow, rhs.openWithPopoverText,
+            rhs.openWithPopoverSecondaryText, rhs.openWithPopoverRowHoverBackground,
+            rhs.openWithPopoverRowSelectedBackground, rhs.openWithPopoverRowSelectedBorder,
+            rhs.openWithPopoverFooterSeparator,
             rhs.underlapShadow,
         ].map(\.themeToken)
             && lhs.sidebarGlassAppearance == rhs.sidebarGlassAppearance
@@ -139,10 +167,15 @@ struct ZenttyTheme: Equatable {
         let readableForeground = foreground.ensuringTextContrast(on: background)
         let readableSidebarText = foreground.ensuringTextContrast(on: baseSidebar)
         let readableSidebarActiveText = foreground.ensuringTextContrast(on: sidebarRowSelectedBase)
+        let startupSurfaceBase = background.withAlphaComponent(1)
+        let openWithChromeBase = accent
+            .mixed(towards: startupSurfaceBase, amount: background.isDarkThemeColor ? 0.92 : 0.95)
+        let openWithPopoverBase = baseSidebar
+            .mixed(towards: startupSurfaceBase, amount: background.isDarkThemeColor ? 0.14 : 0.32)
 
         self.reducedTransparency = reduceTransparency
         sidebarGlassAppearance = background.isDarkThemeColor ? .dark : .light
-        startupSurface = background.withAlphaComponent(1)
+        startupSurface = startupSurfaceBase
         windowBackground = startupSurface
         sidebarBackground = baseSidebar.withAlphaComponent(reduceTransparency ? 0.92 : (background.isDarkThemeColor ? 0.42 : 0.74))
         sidebarBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.10)
@@ -193,6 +226,34 @@ struct ZenttyTheme: Equatable {
         sidebarGradientEnd = baseSidebar
             .mixed(towards: foreground, amount: background.isDarkThemeColor ? 0.05 : 0.12)
             .withAlphaComponent(reduceTransparency ? 0.04 : (background.isDarkThemeColor ? 0.10 : 0.08))
+        openWithChromeBackground = openWithChromeBase.withAlphaComponent(
+            reduceTransparency ? 0.96 : (background.isDarkThemeColor ? 0.60 : 0.82)
+        )
+        openWithChromeBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.10)
+        openWithChromeDivider = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.035 : 0.055)
+        openWithChromePrimaryTint = readableForeground.withAlphaComponent(0.96)
+        openWithChromeChevronTint = readableForeground.withAlphaComponent(background.isDarkThemeColor ? 0.68 : 0.62)
+        openWithChromeHoverBackground = openWithChromeBase
+            .mixed(towards: foreground, amount: background.isDarkThemeColor ? 0.08 : 0.12)
+            .withAlphaComponent(reduceTransparency ? 0.18 : (background.isDarkThemeColor ? 0.18 : 0.24))
+        openWithChromePressedBackground = openWithChromeBase
+            .mixed(towards: foreground, amount: background.isDarkThemeColor ? 0.14 : 0.18)
+            .withAlphaComponent(reduceTransparency ? 0.24 : (background.isDarkThemeColor ? 0.26 : 0.32))
+        openWithPopoverBackground = openWithPopoverBase.withAlphaComponent(
+            reduceTransparency ? 0.96 : (background.isDarkThemeColor ? 0.72 : 0.84)
+        )
+        openWithPopoverBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.10)
+        openWithPopoverShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.22 : 0.10)
+        openWithPopoverText = readableForeground.withAlphaComponent(0.96)
+        openWithPopoverSecondaryText = readableForeground.withAlphaComponent(0.70)
+        openWithPopoverRowHoverBackground = sidebarRowHoverBase.withAlphaComponent(
+            reduceTransparency ? 0.26 : (background.isDarkThemeColor ? 0.26 : 0.34)
+        )
+        openWithPopoverRowSelectedBackground = accent
+            .mixed(towards: openWithPopoverBase, amount: background.isDarkThemeColor ? 0.78 : 0.84)
+            .withAlphaComponent(reduceTransparency ? 0.92 : (background.isDarkThemeColor ? 0.56 : 0.72))
+        openWithPopoverRowSelectedBorder = accent.withAlphaComponent(background.isDarkThemeColor ? 0.22 : 0.18)
+        openWithPopoverFooterSeparator = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.06 : 0.08)
         underlapShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.06)
     }
 

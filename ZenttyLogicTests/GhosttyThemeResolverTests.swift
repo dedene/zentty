@@ -215,6 +215,55 @@ final class GhosttyThemeResolverTests: XCTestCase {
         XCTAssertNotEqual(theme.sidebarGradientEnd.themeToken, theme.sidebarButtonActiveBackground.themeToken)
     }
 
+    func test_dark_theme_open_with_chrome_stays_softer_than_context_strip() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            )
+        )
+
+        XCTAssertGreaterThan(
+            colorDistance(theme.openWithChromeBackground, theme.windowBackground),
+            0
+        )
+        XCTAssertLessThan(
+            colorDistance(theme.openWithChromeBackground, theme.windowBackground),
+            colorDistance(theme.contextStripBackground, theme.windowBackground)
+        )
+        XCTAssertLessThan(
+            theme.openWithChromeDivider.srgbClamped.alphaComponent,
+            theme.contextStripBorder.srgbClamped.alphaComponent
+        )
+    }
+
+    func test_light_theme_open_with_popover_selected_row_stays_more_emphasized_than_hover_row() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#F7FBFF")!,
+                foreground: NSColor(hexString: "#102030")!,
+                cursorColor: NSColor(hexString: "#2F74D0")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.94,
+                backgroundBlurRadius: 18
+            )
+        )
+
+        XCTAssertNotEqual(theme.openWithPopoverBackground.themeToken, theme.sidebarBackground.themeToken)
+        XCTAssertGreaterThan(
+            theme.openWithPopoverRowSelectedBackground.srgbClamped.alphaComponent,
+            theme.openWithPopoverRowHoverBackground.srgbClamped.alphaComponent
+        )
+    }
+
     func test_dark_theme_working_text_highlight_stays_closer_to_text_than_sidebar_surface() {
         let theme = ZenttyTheme(
             resolvedTheme: GhosttyResolvedTheme(

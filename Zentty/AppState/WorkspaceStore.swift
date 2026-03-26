@@ -41,6 +41,13 @@ struct WorkspacePaneContext: Equatable, Sendable {
     var metadata: TerminalMetadata? { auxiliaryState?.metadata }
 }
 
+struct WorkspaceOpenWithContext: Equatable, Sendable {
+    let workspaceID: WorkspaceID
+    let paneID: PaneID
+    let workingDirectory: String
+    let scope: PaneShellContextScope
+}
+
 struct PaneBorderContextDisplayModel: Equatable, Sendable {
     let text: String
 }
@@ -238,6 +245,24 @@ final class WorkspaceStore {
 
             workspaces[index] = newValue
         }
+    }
+
+    var focusedOpenWithContext: WorkspaceOpenWithContext? {
+        guard
+            let workspace = activeWorkspace,
+            let focusedPaneID = workspace.paneStripState.focusedPaneID,
+            let launchContext = resolveLaunchContext(for: focusedPaneID, in: workspace),
+            canTreatLaunchContextAsLocal(launchContext, for: focusedPaneID, in: workspace)
+        else {
+            return nil
+        }
+
+        return WorkspaceOpenWithContext(
+            workspaceID: workspace.id,
+            paneID: focusedPaneID,
+            workingDirectory: launchContext.path,
+            scope: .local
+        )
     }
 
     var state: PaneStripState {
@@ -772,6 +797,21 @@ final class WorkspaceStore {
 
         return (metadataWorkingDirectory ?? requestWorkingDirectory)
             .map { PaneLaunchContext(path: $0, scope: nil) }
+    }
+
+    private func canTreatLaunchContextAsLocal(
+        _ launchContext: PaneLaunchContext,
+        for paneID: PaneID,
+        in workspace: WorkspaceState
+    ) -> Bool {
+        switch launchContext.scope {
+        case .local:
+            return true
+        case .remote:
+            return false
+        case nil:
+            return nonInheritedSessionWorkingDirectory(for: paneID, in: workspace) != nil
+        }
     }
 
     private func refreshLastFocusedLocalWorkingDirectory() {

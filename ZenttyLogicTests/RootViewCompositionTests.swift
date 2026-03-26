@@ -684,6 +684,35 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(glassView.appearance?.bestMatch(from: [.darkAqua, .aqua]), .aqua)
     }
 
+    func test_open_with_popover_glass_uses_menu_material_and_theme_palette() {
+        let glassView = GlassSurfaceView(style: .openWithPopover)
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: false
+        )
+
+        glassView.apply(theme: theme, animated: false)
+
+        XCTAssertEqual(glassView.material, .menu)
+        XCTAssertEqual(
+            glassView.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.themeToken,
+            theme.openWithPopoverBackground.themeToken
+        )
+        XCTAssertEqual(
+            glassView.layer?.borderColor.flatMap(NSColor.init(cgColor:))?.themeToken,
+            theme.openWithPopoverBorder.themeToken
+        )
+    }
+
     func test_sidebar_content_tree_forces_dark_appearance_for_dark_themes() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
         sidebarView.appearance = NSAppearance(named: .aqua)

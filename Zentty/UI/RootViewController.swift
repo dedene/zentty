@@ -14,7 +14,8 @@ final class RootViewController: NSViewController {
     }
 
     private let workspaceStore: WorkspaceStore
-    private let paneLayoutDefaults: UserDefaults
+    private let configStore: AppConfigStore
+    private let openWithService: OpenWithServing
     private let sidebarView = SidebarView()
     private let sidebarHoverRailView = SidebarHoverRailView()
     private let sidebarToggleButton = SidebarToggleButton()
@@ -39,23 +40,24 @@ final class RootViewController: NSViewController {
 
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
     var onWindowChromeNeedsUpdate: (() -> Void)?
+    var onOpenWithPrimaryRequested: (() -> Void)?
+    var onOpenWithMenuRequested: (() -> Void)?
 
     init(
+        configStore: AppConfigStore,
+        openWithService: OpenWithServing = OpenWithService(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
         reviewStateResolver: WorkspaceReviewStateResolver = WorkspaceReviewStateResolver(),
         gitContextResolver: any PaneGitContextResolving = WorkspaceGitContextResolver(),
-        sidebarWidthDefaults: UserDefaults = .standard,
-        sidebarVisibilityDefaults: UserDefaults = .standard,
-        paneLayoutDefaults: UserDefaults = .standard,
         initialLayoutContext: PaneLayoutContext = .fallback
     ) {
         self.runtimeRegistry = runtimeRegistry
-        self.paneLayoutDefaults = paneLayoutDefaults
-        self.paneLayoutPreferences = PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults)
+        self.configStore = configStore
+        self.openWithService = openWithService
+        self.paneLayoutPreferences = configStore.current.paneLayout
         self.currentPaneLayoutContext = initialLayoutContext
         self.sidebarMotionCoordinator = SidebarMotionCoordinator(
-            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
-            sidebarWidthDefaults: sidebarWidthDefaults
+            configStore: configStore
         )
         self.themeCoordinator = ThemeCoordinator()
         self.workspaceStore = WorkspaceStore(
@@ -68,6 +70,37 @@ final class RootViewController: NSViewController {
             reviewStateResolver: reviewStateResolver
         )
         super.init(nibName: nil, bundle: nil)
+        configStore.onChange = { [weak self] config in
+            DispatchQueue.main.async {
+                self?.applyPersistedConfig(config)
+            }
+        }
+    }
+
+    convenience init(
+        configStore: AppConfigStore? = nil,
+        openWithService: OpenWithServing = OpenWithService(),
+        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
+        reviewStateResolver: WorkspaceReviewStateResolver = WorkspaceReviewStateResolver(),
+        gitContextResolver: any PaneGitContextResolving = WorkspaceGitContextResolver(),
+        sidebarWidthDefaults: UserDefaults = .standard,
+        sidebarVisibilityDefaults: UserDefaults = .standard,
+        paneLayoutDefaults: UserDefaults = .standard,
+        initialLayoutContext: PaneLayoutContext = .fallback
+    ) {
+        self.init(
+            configStore: configStore ?? AppConfigStore(
+                fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.RootViewController"),
+                sidebarWidthDefaults: sidebarWidthDefaults,
+                sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+                paneLayoutDefaults: paneLayoutDefaults
+            ),
+            openWithService: openWithService,
+            runtimeRegistry: runtimeRegistry,
+            reviewStateResolver: reviewStateResolver,
+            gitContextResolver: gitContextResolver,
+            initialLayoutContext: initialLayoutContext
+        )
     }
 
     @available(*, unavailable)
@@ -196,6 +229,11 @@ final class RootViewController: NSViewController {
             self?.syncSidebarVisibilityControls(animated: false)
         }
         renderCoordinator.startObserving()
+        _ = workspaceStore.subscribe { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateOpenWithChromeState()
+            }
+        }
 
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.workspaceStore.focusPane(id: paneID)
@@ -288,6 +326,13 @@ final class RootViewController: NSViewController {
         installStaleAgentSweepTimer()
         themeCoordinator.refreshTheme(for: NSApp.effectiveAppearance, animated: false)
         renderCoordinator.render()
+        windowChromeView.onOpenWithPrimaryAction = { [weak self] in
+            self?.onOpenWithPrimaryRequested?()
+        }
+        windowChromeView.onOpenWithMenuAction = { [weak self] in
+            self?.onOpenWithMenuRequested?()
+        }
+        updateOpenWithChromeState()
     }
 
     override func viewDidLayout() {
@@ -670,6 +715,22 @@ final class RootViewController: NSViewController {
         workspaceStore.activeWorkspace?.paneStripState.focusedPane?.title
     }
 
+    var focusedOpenWithContext: WorkspaceOpenWithContext? {
+        workspaceStore.focusedOpenWithContext
+    }
+
+    var focusedPaneIDForTesting: PaneID? {
+        workspaceStore.activeWorkspace?.paneStripState.focusedPaneID
+    }
+
+    var availableOpenWithTargets: [OpenWithResolvedTarget] {
+        openWithService.availableTargets(preferences: configStore.current.openWith)
+    }
+
+    var primaryOpenWithTarget: OpenWithResolvedTarget? {
+        openWithService.primaryTarget(preferences: configStore.current.openWith)
+    }
+
     private func updatePaneViewportHeight() {
         workspaceStore.updatePaneViewportHeight(appCanvasView.bounds.height)
     }
@@ -691,6 +752,11 @@ final class RootViewController: NSViewController {
 
     func focusPaneDirectly(_ paneID: PaneID) {
         workspaceStore.focusPane(id: paneID)
+        renderCoordinator.render()
+    }
+
+    func applyAgentStatusPayloadForTesting(_ payload: AgentStatusPayload) {
+        workspaceStore.applyAgentStatusPayload(payload)
         renderCoordinator.render()
     }
 
@@ -729,11 +795,36 @@ final class RootViewController: NSViewController {
 
     func updatePaneLayoutPreferences(_ preferences: PaneLayoutPreferences) {
         paneLayoutPreferences = preferences
-        PaneLayoutPreferenceStore.persist(preferences.laptopPreset, for: .laptop, in: paneLayoutDefaults)
-        PaneLayoutPreferenceStore.persist(preferences.largeDisplayPreset, for: .largeDisplay, in: paneLayoutDefaults)
-        PaneLayoutPreferenceStore.persist(preferences.ultrawidePreset, for: .ultrawide, in: paneLayoutDefaults)
+        try? configStore.update {
+            $0.paneLayout = preferences
+        }
         updatePaneLayoutContextIfNeeded(force: true)
         renderCoordinator.render()
+    }
+
+    private func applyPersistedConfig(_ config: AppConfig) {
+        paneLayoutPreferences = config.paneLayout
+        sidebarMotionCoordinator.applyPersistedSidebarSettings(
+            config.sidebar,
+            availableWidth: resolvedSidebarAvailableWidth()
+        )
+        sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
+        syncSidebarVisibilityControls(animated: false)
+        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        updatePaneLayoutContextIfNeeded(force: true)
+        renderCoordinator.render()
+        updateOpenWithChromeState()
+    }
+
+    private func updateOpenWithChromeState() {
+        let primaryTarget = primaryOpenWithTarget
+        let canOpenFocusedPane = focusedOpenWithContext != nil && primaryTarget != nil
+        windowChromeView.render(openWith: WindowChromeOpenWithState(
+            title: primaryTarget?.displayName ?? "Open With",
+            icon: primaryTarget.flatMap { openWithService.icon(for: $0) },
+            isPrimaryEnabled: canOpenFocusedPane,
+            isMenuEnabled: true
+        ))
     }
 
     private func updatePaneLayoutContextIfNeeded(

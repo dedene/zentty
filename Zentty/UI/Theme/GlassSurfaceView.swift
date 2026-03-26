@@ -2,6 +2,7 @@ import AppKit
 
 enum GlassSurfaceStyle {
     case sidebar
+    case openWithPopover
 }
 
 @MainActor
@@ -31,7 +32,7 @@ final class GlassSurfaceView: NSVisualEffectView {
     override func layout() {
         super.layout()
         gradientLayer.frame = bounds
-        gradientLayer.cornerRadius = ChromeGeometry.sidebarRadius
+        gradientLayer.cornerRadius = layer?.cornerRadius ?? ChromeGeometry.sidebarRadius
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {
@@ -53,6 +54,23 @@ final class GlassSurfaceView: NSVisualEffectView {
                 theme.sidebarGradientStart.cgColor,
                 theme.sidebarGradientEnd.cgColor,
             ]
+        case .openWithPopover:
+            material = .menu
+            appearance = NSAppearance(named: theme.sidebarGlassAppearance.nsAppearanceName)
+            backgroundColor = theme.openWithPopoverBackground
+            borderColor = theme.openWithPopoverBorder
+            shadowColor = theme.openWithPopoverShadow
+            cornerRadius = 16
+            gradientColors = [
+                theme.openWithPopoverBackground
+                    .mixed(towards: .white, amount: theme.sidebarGlassAppearance == .dark ? 0.03 : 0.10)
+                    .withAlphaComponent(theme.reducedTransparency ? 0.14 : 0.10)
+                    .cgColor,
+                theme.openWithPopoverBackground
+                    .mixed(towards: .black, amount: theme.sidebarGlassAppearance == .dark ? 0.06 : 0.02)
+                    .withAlphaComponent(theme.reducedTransparency ? 0.08 : 0.06)
+                    .cgColor,
+            ]
         }
 
         performThemeAnimation(animated: animated) {
@@ -66,7 +84,7 @@ final class GlassSurfaceView: NSVisualEffectView {
         }
 
         layer?.shadowOpacity = 1
-        layer?.shadowRadius = 12
-        layer?.shadowOffset = CGSize(width: 0, height: 10)
+        layer?.shadowRadius = style == .openWithPopover ? 18 : 12
+        layer?.shadowOffset = style == .openWithPopover ? CGSize(width: 0, height: 14) : CGSize(width: 0, height: 10)
     }
 }

@@ -47,24 +47,38 @@ final class SidebarMotionCoordinator {
 
     private var sidebarVisibilityController: SidebarVisibilityController
     private var sidebarDismissWorkItem: DispatchWorkItem?
-    private let sidebarVisibilityDefaults: UserDefaults
-    private let sidebarWidthDefaults: UserDefaults
+    private let configStore: AppConfigStore
 
     // MARK: - Init
 
     init(
+        configStore: AppConfigStore,
+        sidebarAvailableWidth: CGFloat? = nil
+    ) {
+        let config = configStore.current
+        let restoredMode = config.sidebar.visibility
+        self.configStore = configStore
+        self.sidebarVisibilityController = SidebarVisibilityController(mode: restoredMode)
+        self.currentMotionState = SidebarMotionState(mode: restoredMode)
+        self.currentSidebarWidth = SidebarWidthPreference.clamped(
+            config.sidebar.width,
+            availableWidth: sidebarAvailableWidth
+        )
+    }
+
+    convenience init(
         sidebarVisibilityDefaults: UserDefaults = .standard,
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarAvailableWidth: CGFloat? = nil
     ) {
-        let restoredMode = SidebarVisibilityPreference.restoredVisibility(from: sidebarVisibilityDefaults)
-        self.sidebarVisibilityDefaults = sidebarVisibilityDefaults
-        self.sidebarWidthDefaults = sidebarWidthDefaults
-        self.sidebarVisibilityController = SidebarVisibilityController(mode: restoredMode)
-        self.currentMotionState = SidebarMotionState(mode: restoredMode)
-        self.currentSidebarWidth = SidebarWidthPreference.restoredWidth(
-            from: sidebarWidthDefaults,
-            availableWidth: sidebarAvailableWidth
+        self.init(
+            configStore: AppConfigStore(
+                fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.SidebarMotionCoordinator"),
+                sidebarWidthDefaults: sidebarWidthDefaults,
+                sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+                paneLayoutDefaults: .standard
+            ),
+            sidebarAvailableWidth: sidebarAvailableWidth
         )
     }
 
@@ -89,10 +103,9 @@ final class SidebarMotionCoordinator {
             return
         }
 
-        SidebarVisibilityPreference.persist(
-            sidebarVisibilityController.persistedMode,
-            in: sidebarVisibilityDefaults
-        )
+        try? configStore.update {
+            $0.sidebar.visibility = sidebarVisibilityController.persistedMode
+        }
         let motionState = SidebarMotionState(mode: nextMode)
         currentMotionState = motionState
         onMotionStateDidChange?(motionState, true)
@@ -105,8 +118,21 @@ final class SidebarMotionCoordinator {
         currentSidebarWidth = clampedWidth
 
         if persist {
-            SidebarWidthPreference.persist(clampedWidth, in: sidebarWidthDefaults, availableWidth: availableWidth)
+            try? configStore.update {
+                $0.sidebar.width = clampedWidth
+            }
         }
+    }
+
+    func applyPersistedSidebarSettings(_ sidebar: AppConfig.Sidebar, availableWidth: CGFloat?) {
+        let visibility = sidebar.visibility == .hoverPeek ? .hidden : sidebar.visibility
+        if visibility != sidebarVisibilityController.persistedMode {
+            sidebarVisibilityController = SidebarVisibilityController(mode: visibility)
+            currentMotionState = SidebarMotionState(mode: visibility)
+        } else {
+            currentMotionState = SidebarMotionState(mode: sidebarVisibilityController.mode)
+        }
+        currentSidebarWidth = SidebarWidthPreference.clamped(sidebar.width, availableWidth: availableWidth)
     }
 
     func syncSidebarWidthToAvailableWidth(_ availableWidth: CGFloat?) {

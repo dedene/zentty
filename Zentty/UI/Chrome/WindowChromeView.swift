@@ -1,10 +1,23 @@
 import AppKit
 
+struct WindowChromeOpenWithState: Equatable {
+    let title: String
+    let icon: NSImage?
+    let isPrimaryEnabled: Bool
+    let isMenuEnabled: Bool
+}
+
 @MainActor
 final class WindowChromeView: NSView {
     static let preferredHeight: CGFloat = ChromeGeometry.headerHeight
     private static let minimumBootstrapLaneWidth: CGFloat = 160
     private static let minimumRowHeight: CGFloat = 22
+    private static let openWithControlWidth: CGFloat = 66
+    private static let openWithControlHeight: CGFloat = 30
+    private static let openWithPrimaryWidth: CGFloat = 40
+    private static let openWithMenuWidth: CGFloat = 24
+    private static let openWithSectionSpacing: CGFloat = 14
+    private static let openWithSegmentInset: CGFloat = 2
     fileprivate static let leadingItemSpacing: CGFloat = 10
     fileprivate static let reviewChipSpacing: CGFloat = 8
     fileprivate static let sectionSpacing: CGFloat = 12
@@ -26,6 +39,12 @@ final class WindowChromeView: NSView {
 
     private let attentionChipView = WorkspaceAttentionChipView()
     private let rowContainerView = NSView()
+    private let openWithContainerView = NSView()
+    private let openWithPrimaryBackgroundView = NSView()
+    private let openWithMenuBackgroundView = NSView()
+    private let openWithPrimaryButton = WindowChromeSegmentButton()
+    private let openWithMenuButton = WindowChromeSegmentButton()
+    private let openWithDividerView = NSView()
     private let focusedLabel = WindowChromeView.makeLabel(
         text: "",
         color: .secondaryLabelColor,
@@ -49,6 +68,7 @@ final class WindowChromeView: NSView {
         pullRequest: nil,
         reviewChips: []
     )
+    private var currentOpenWithState: WindowChromeOpenWithState?
     private var displayedReviewChips: [WorkspaceReviewChip] = []
     private var reviewChipViews: [WindowChromeReviewChipView] = []
     private var pullRequestURL: URL?
@@ -58,6 +78,8 @@ final class WindowChromeView: NSView {
     private var rowHeightConstraint: NSLayoutConstraint?
     private var hasEstablishedRenderableLayout = false
     private var lastRowLayoutPlan = RowLayoutPlan.empty
+    var onOpenWithPrimaryAction: (() -> Void)?
+    var onOpenWithMenuAction: (() -> Void)?
 
     init(
         frame frameRect: NSRect,
@@ -79,6 +101,7 @@ final class WindowChromeView: NSView {
 
     override func layout() {
         super.layout()
+        layoutOpenWithControl()
         syncVisibleRowContent(forceChipRefresh: false)
         layoutRowContent()
     }
@@ -105,8 +128,52 @@ final class WindowChromeView: NSView {
             self?.updatePullRequestAppearance(animated: false)
         }
 
+        openWithContainerView.wantsLayer = true
+        openWithContainerView.layer?.cornerRadius = Self.openWithControlHeight / 2
+        openWithContainerView.layer?.cornerCurve = .continuous
+        openWithContainerView.layer?.shadowOpacity = 1
+        openWithContainerView.layer?.shadowRadius = 12
+        openWithContainerView.layer?.shadowOffset = CGSize(width: 0, height: 8)
+
+        [openWithPrimaryBackgroundView, openWithMenuBackgroundView].forEach {
+            $0.wantsLayer = true
+            $0.layer?.cornerCurve = .continuous
+            openWithContainerView.addSubview($0)
+        }
+
+        openWithPrimaryButton.isBordered = false
+        openWithPrimaryButton.imagePosition = .imageOnly
+        openWithPrimaryButton.focusRingType = .none
+        openWithPrimaryButton.target = self
+        openWithPrimaryButton.action = #selector(handleOpenWithPrimaryAction)
+        openWithPrimaryButton.setAccessibilityRole(.button)
+        openWithPrimaryButton.imageScaling = .scaleProportionallyDown
+        openWithPrimaryButton.onInteractionStateChanged = { [weak self] in
+            self?.updateOpenWithAppearance(animated: true)
+        }
+
+        openWithMenuButton.isBordered = false
+        openWithMenuButton.image = NSImage(
+            systemSymbolName: "chevron.down",
+            accessibilityDescription: "Show Open With menu"
+        )
+        openWithMenuButton.imagePosition = .imageOnly
+        openWithMenuButton.focusRingType = .none
+        openWithMenuButton.target = self
+        openWithMenuButton.action = #selector(handleOpenWithMenuAction)
+        openWithMenuButton.imageScaling = .scaleProportionallyDown
+        openWithMenuButton.onInteractionStateChanged = { [weak self] in
+            self?.updateOpenWithAppearance(animated: true)
+        }
+
+        openWithDividerView.wantsLayer = true
+
         rowContainerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(rowContainerView)
+        addSubview(openWithContainerView)
+        openWithContainerView.addSubview(openWithDividerView)
+        openWithContainerView.addSubview(openWithPrimaryButton)
+        openWithContainerView.addSubview(openWithMenuButton)
         [attentionChipView, focusedLabel, branchLabel, pullRequestButton].forEach {
             rowContainerView.addSubview($0)
         }
@@ -128,6 +195,7 @@ final class WindowChromeView: NSView {
 
         apply(theme: currentTheme, animated: false)
         render(summary: currentSummary)
+        render(openWith: currentOpenWithState)
     }
 
     func render(summary: WorkspaceChromeSummary) {
@@ -161,10 +229,39 @@ final class WindowChromeView: NSView {
         branchLabel.textColor = theme.tertiaryText
         updatePullRequestAppearance(animated: animated)
         reviewChipViews.forEach { $0.apply(theme: theme, animated: animated) }
+        updateOpenWithAppearance(animated: animated)
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = theme.topChromeBackground.cgColor
         }
+    }
+
+    func render(openWith state: WindowChromeOpenWithState?) {
+        currentOpenWithState = state
+
+        guard let state else {
+            openWithContainerView.isHidden = true
+            needsLayout = true
+            return
+        }
+
+        openWithContainerView.isHidden = false
+        openWithPrimaryButton.image = state.icon ?? NSImage(
+            systemSymbolName: "square.and.arrow.up.on.square",
+            accessibilityDescription: state.title
+        )?.withSymbolConfiguration(.init(pointSize: 15, weight: .semibold))
+        openWithPrimaryButton.isEnabled = state.isPrimaryEnabled
+        openWithPrimaryButton.toolTip = state.isPrimaryEnabled ? "Open focused pane in \(state.title)" : "Open With unavailable"
+        openWithPrimaryButton.setAccessibilityLabel("Open focused pane in \(state.title)")
+        openWithMenuButton.isEnabled = state.isMenuEnabled
+        openWithMenuButton.image = NSImage(
+            systemSymbolName: "chevron.down",
+            accessibilityDescription: "Show Open With menu"
+        )?.withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
+        openWithMenuButton.toolTip = "Show Open With menu"
+        openWithMenuButton.setAccessibilityLabel("Show Open With menu")
+        updateOpenWithAppearance(animated: false)
+        needsLayout = true
     }
 
     @objc
@@ -174,6 +271,24 @@ final class WindowChromeView: NSView {
         }
 
         urlOpener(pullRequestURL)
+    }
+
+    @objc
+    private func handleOpenWithPrimaryAction() {
+        guard openWithPrimaryButton.isEnabled else {
+            return
+        }
+
+        onOpenWithPrimaryAction?()
+    }
+
+    @objc
+    private func handleOpenWithMenuAction() {
+        guard openWithMenuButton.isEnabled else {
+            return
+        }
+
+        onOpenWithMenuAction?()
     }
 
     private func updatePullRequestInteraction() {
@@ -209,6 +324,58 @@ final class WindowChromeView: NSView {
             font: .systemFont(ofSize: 12, weight: .semibold),
             animated: animated
         )
+    }
+
+    private func updateOpenWithAppearance(animated: Bool) {
+        let primaryTint = openWithPrimaryButton.isEnabled
+            ? currentTheme.openWithChromePrimaryTint
+            : currentTheme.openWithChromePrimaryTint.withAlphaComponent(0.48)
+        let menuTint = openWithMenuButton.isEnabled
+            ? currentTheme.openWithChromeChevronTint
+            : currentTheme.openWithChromeChevronTint.withAlphaComponent(0.42)
+        let primaryBackground = segmentBackgroundColor(
+            isEnabled: openWithPrimaryButton.isEnabled,
+            isHovered: openWithPrimaryButton.isHovered,
+            isPressed: openWithPrimaryButton.isPressed
+        )
+        let menuBackground = segmentBackgroundColor(
+            isEnabled: openWithMenuButton.isEnabled,
+            isHovered: openWithMenuButton.isHovered,
+            isPressed: openWithMenuButton.isPressed
+        )
+        performThemeAnimation(animated: animated) {
+            self.openWithContainerView.layer?.backgroundColor = self.currentTheme.openWithChromeBackground.cgColor
+            self.openWithContainerView.layer?.borderWidth = 1
+            self.openWithContainerView.layer?.borderColor = self.currentTheme.openWithChromeBorder.cgColor
+            self.openWithContainerView.layer?.shadowColor = self.currentTheme.openWithPopoverShadow
+                .withAlphaComponent(0.45)
+                .cgColor
+            self.openWithDividerView.layer?.backgroundColor = self.currentTheme.openWithChromeDivider.cgColor
+            self.openWithPrimaryBackgroundView.layer?.backgroundColor = primaryBackground.cgColor
+            self.openWithMenuBackgroundView.layer?.backgroundColor = menuBackground.cgColor
+            self.openWithPrimaryButton.contentTintColor = primaryTint
+            self.openWithMenuButton.contentTintColor = menuTint
+        }
+    }
+
+    private func segmentBackgroundColor(
+        isEnabled: Bool,
+        isHovered: Bool,
+        isPressed: Bool
+    ) -> NSColor {
+        guard isEnabled else {
+            return .clear
+        }
+
+        if isPressed {
+            return currentTheme.openWithChromePressedBackground
+        }
+
+        if isHovered {
+            return currentTheme.openWithChromeHoverBackground
+        }
+
+        return .clear
     }
 
     private func pullRequestPalette(
@@ -318,6 +485,55 @@ final class WindowChromeView: NSView {
         )
         lastRowLayoutPlan = layoutPlan
         layout(items: layoutPlan.items, availableWidth: rowWidth, rowHeight: rowHeight)
+    }
+
+    private func layoutOpenWithControl() {
+        guard currentOpenWithState != nil else {
+            openWithContainerView.isHidden = true
+            openWithContainerView.frame = .zero
+            return
+        }
+
+        let width = Self.openWithControlWidth
+        let height = Self.openWithControlHeight
+        let originX = max(
+            ChromeGeometry.headerHorizontalInset,
+            bounds.width - ChromeGeometry.headerHorizontalInset - width
+        )
+        let originY = floor((bounds.height - height) / 2)
+        openWithContainerView.frame = NSRect(x: originX, y: originY, width: width, height: height)
+        openWithPrimaryBackgroundView.frame = NSRect(
+            x: Self.openWithSegmentInset,
+            y: Self.openWithSegmentInset,
+            width: Self.openWithPrimaryWidth - Self.openWithSegmentInset,
+            height: height - (Self.openWithSegmentInset * 2)
+        )
+        openWithPrimaryBackgroundView.layer?.cornerRadius = openWithPrimaryBackgroundView.frame.height / 2
+        openWithMenuBackgroundView.frame = NSRect(
+            x: width - Self.openWithMenuWidth + 1,
+            y: Self.openWithSegmentInset,
+            width: Self.openWithMenuWidth - Self.openWithSegmentInset,
+            height: height - (Self.openWithSegmentInset * 2)
+        )
+        openWithMenuBackgroundView.layer?.cornerRadius = openWithMenuBackgroundView.frame.height / 2
+        openWithPrimaryButton.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: Self.openWithPrimaryWidth,
+            height: height
+        )
+        openWithDividerView.frame = NSRect(
+            x: Self.openWithPrimaryWidth,
+            y: 7,
+            width: 1,
+            height: height - 14
+        )
+        openWithMenuButton.frame = NSRect(
+            x: width - Self.openWithMenuWidth,
+            y: 0,
+            width: Self.openWithMenuWidth,
+            height: height
+        )
     }
 
     private func makeLayoutPlan(
@@ -497,8 +713,17 @@ final class WindowChromeView: NSView {
 
     var visibleLaneFrame: NSRect {
         let minX = effectiveLeadingVisibleInset
-        let maxX = max(minX, bounds.width - ChromeGeometry.headerHorizontalInset)
+        let trailingInset = ChromeGeometry.headerHorizontalInset + openWithReservedWidth
+        let maxX = max(minX, bounds.width - trailingInset)
         return NSRect(x: minX, y: 0, width: maxX - minX, height: bounds.height)
+    }
+
+    private var openWithReservedWidth: CGFloat {
+        guard currentOpenWithState != nil else {
+            return 0
+        }
+
+        return Self.openWithControlWidth + Self.openWithSectionSpacing
     }
 
     private var canRenderRowContent: Bool {
@@ -633,6 +858,87 @@ final class WindowChromeView: NSView {
     var branchFrameWidth: CGFloat { branchLabel.frame.width }
     var branchIntrinsicWidth: CGFloat { Self.requiredSingleLineWidth(for: branchLabel) }
     var rowFrame: NSRect { rowContainerView.frame }
+    var openWithControlFrame: NSRect { openWithContainerView.frame }
+    var openWithPrimaryFrame: NSRect { openWithPrimaryButton.frame }
+    var openWithMenuFrame: NSRect { openWithMenuButton.frame }
+    var openWithMenuAnchorRect: NSRect { openWithContainerView.frame }
+    var openWithBackgroundTokenForTesting: String {
+        openWithContainerView.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.themeToken ?? ""
+    }
+    var openWithDividerTokenForTesting: String {
+        openWithDividerView.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.themeToken ?? ""
+    }
+    var openWithDividerAlphaForTesting: CGFloat {
+        openWithDividerView.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.srgbClamped.alphaComponent ?? 0
+    }
+    var openWithPrimaryTintTokenForTesting: String { openWithPrimaryButton.contentTintColor?.themeToken ?? "" }
+    var openWithMenuTintTokenForTesting: String { openWithMenuButton.contentTintColor?.themeToken ?? "" }
+
+    func performOpenWithPrimaryClickForTesting() {
+        openWithPrimaryButton.performClick(openWithPrimaryButton)
+    }
+
+    func performOpenWithMenuClickForTesting() {
+        openWithMenuButton.performClick(openWithMenuButton)
+    }
+}
+
+private final class WindowChromeSegmentButton: NSButton {
+    var onInteractionStateChanged: (() -> Void)?
+    private(set) var isHovered = false
+    private(set) var isPressed = false
+    private var trackingAreaValue: NSTrackingArea?
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingAreaValue {
+            removeTrackingArea(trackingAreaValue)
+        }
+
+        let trackingAreaValue = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingAreaValue)
+        self.trackingAreaValue = trackingAreaValue
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard !isHovered else {
+            return
+        }
+
+        isHovered = true
+        onInteractionStateChanged?()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard isHovered else {
+            return
+        }
+
+        isHovered = false
+        onInteractionStateChanged?()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isPressed = true
+        onInteractionStateChanged?()
+        super.mouseDown(with: event)
+        isPressed = false
+        onInteractionStateChanged?()
+    }
 }
 
 private struct RowLayoutPlan {

@@ -52,10 +52,90 @@ final class MainWindowControllerTests: XCTestCase {
         return c
     }
 
+    private func makeController(
+        configStore: AppConfigStore,
+        openWithService: OpenWithServing,
+        adapterStore: MetadataAdapterStore
+    ) -> MainWindowController {
+        let c = MainWindowController(
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { paneID in
+                let adapter = MetadataEmittingTerminalAdapter()
+                adapterStore.adapters[paneID] = adapter
+                return adapter
+            }),
+            configStore: configStore,
+            openWithService: openWithService
+        )
+        controller = c
+        return c
+    }
+
     private func waitForLayout(_ description: String = "layout settled", delay: TimeInterval = 0.1) {
         let settled = expectation(description: description)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { settled.fulfill() }
         wait(for: [settled], timeout: 2.0)
+    }
+
+    private func makeRequestOnlyWorkspace(
+        workingDirectory: String,
+        title: String = "shell"
+    ) -> WorkspaceState {
+        let workspaceID = WorkspaceID("workspace-main")
+        let paneID = PaneID("\(workspaceID.rawValue)-shell")
+        let pane = PaneState(
+            id: paneID,
+            title: title,
+            sessionRequest: TerminalSessionRequest(
+                workingDirectory: workingDirectory,
+                surfaceContext: .window
+            ),
+            width: 720
+        )
+
+        return WorkspaceState(
+            id: workspaceID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [pane],
+                focusedPaneID: paneID
+            )
+        )
+    }
+
+    private func makeMetadataOnlyInheritedWorkspace(
+        workingDirectory: String,
+        title: String = "ssh"
+    ) -> WorkspaceState {
+        let workspaceID = WorkspaceID("workspace-main")
+        let paneID = PaneID("\(workspaceID.rawValue)-shell")
+        let pane = PaneState(
+            id: paneID,
+            title: title,
+            sessionRequest: TerminalSessionRequest(
+                inheritFromPaneID: PaneID("source-pane"),
+                surfaceContext: .window
+            ),
+            width: 720
+        )
+
+        return WorkspaceState(
+            id: workspaceID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [pane],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    metadata: TerminalMetadata(
+                        title: title,
+                        currentWorkingDirectory: workingDirectory,
+                        processName: title,
+                        gitBranch: nil
+                    )
+                )
+            ]
+        )
     }
 
     func test_main_window_starts_with_expected_content_size() {
@@ -136,6 +216,40 @@ final class MainWindowControllerTests: XCTestCase {
             ChromeGeometry.trafficLightSpacing,
             accuracy: 1.0
         )
+    }
+
+    func test_show_settings_window_opens_settings_shell_on_pane_layout() throws {
+        let controller = makeController()
+
+        controller.showSettingsWindow(nil)
+
+        let settingsWindow = try XCTUnwrap(controller.settingsWindow)
+        let settingsViewController = try XCTUnwrap(
+            settingsWindow.contentViewController as? SettingsViewController
+        )
+        settingsViewController.loadViewIfNeeded()
+
+        XCTAssertEqual(settingsViewController.selectedSection, .paneLayout)
+        XCTAssertEqual(settingsViewController.contentSectionTitle, "Pane Layout")
+    }
+
+    func test_show_settings_window_can_route_existing_window_to_open_with() throws {
+        let controller = makeController()
+
+        controller.showSettingsWindow(nil)
+        let firstSettingsWindow = try XCTUnwrap(controller.settingsWindow)
+
+        controller.showSettingsWindow(section: .openWith, sender: nil)
+
+        let routedSettingsWindow = try XCTUnwrap(controller.settingsWindow)
+        let settingsViewController = try XCTUnwrap(
+            routedSettingsWindow.contentViewController as? SettingsViewController
+        )
+        settingsViewController.loadViewIfNeeded()
+
+        XCTAssertTrue(firstSettingsWindow === routedSettingsWindow)
+        XCTAssertEqual(settingsViewController.selectedSection, .openWith)
+        XCTAssertEqual(settingsViewController.contentSectionTitle, "Open With")
     }
 
     func test_window_resign_key_shows_non_black_inactive_traffic_light_overlay_when_sidebar_is_pinned_open() throws {
@@ -452,11 +566,589 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(controller.activePaneTitles, ["shell", "pane 1"])
         XCTAssertEqual(controller.focusedPaneTitle, "shell")
     }
+
+    func test_open_with_primary_action_uses_focused_pane_working_directory() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
+        )
+        try store.update { config in
+            config.openWith.primaryTargetID = "cursor"
+            config.openWith.enabledTargetIDs = ["cursor", "finder"]
+        }
+
+        let openWithService = RecordingOpenWithService(
+            availableTargets: [
+                OpenWithResolvedTarget(
+                    stableID: "cursor",
+                    kind: .editor,
+                    displayName: "Cursor",
+                    builtInID: .cursor,
+                    appPath: nil
+                )
+            ],
+            primaryTarget: OpenWithResolvedTarget(
+                stableID: "cursor",
+                kind: .editor,
+                displayName: "Cursor",
+                builtInID: .cursor,
+                appPath: nil
+            )
+        )
+        let adapterStore = MetadataAdapterStore()
+        let controller = makeController(
+            configStore: store,
+            openWithService: openWithService,
+            adapterStore: adapterStore
+        )
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let initialPane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
+        let initialAdapter = try XCTUnwrap(adapterStore.adapters[initialPane.paneID])
+        initialAdapter.emitWorkingDirectory("/tmp/project-open-with")
+        controller.injectFocusedPaneShellContextForTesting(path: "/tmp/project-open-with")
+        waitForLayout("metadata settled", delay: 0.05)
+
+        controller.performOpenWithPrimaryActionForTesting()
+
+        XCTAssertEqual(openWithService.openCalls.map(\.target.stableID), ["cursor"])
+        XCTAssertEqual(openWithService.openCalls.map(\.workingDirectory), ["/tmp/project-open-with"])
+    }
+
+    func test_open_with_primary_action_uses_request_working_directory_before_pane_context_arrives() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
+        )
+        try store.update { config in
+            config.openWith.primaryTargetID = "cursor"
+            config.openWith.enabledTargetIDs = ["cursor"]
+        }
+
+        let openWithService = RecordingOpenWithService(
+            availableTargets: [
+                OpenWithResolvedTarget(
+                    stableID: "cursor",
+                    kind: .editor,
+                    displayName: "Cursor",
+                    builtInID: .cursor,
+                    appPath: nil
+                )
+            ],
+            primaryTarget: OpenWithResolvedTarget(
+                stableID: "cursor",
+                kind: .editor,
+                displayName: "Cursor",
+                builtInID: .cursor,
+                appPath: nil
+            )
+        )
+        let adapterStore = MetadataAdapterStore()
+        let controller = makeController(
+            configStore: store,
+            openWithService: openWithService,
+            adapterStore: adapterStore
+        )
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let workspace = makeRequestOnlyWorkspace(workingDirectory: "/tmp/request-only-open-with")
+        controller.rootViewControllerForTesting.replaceWorkspaces([workspace], activeWorkspaceID: workspace.id)
+        waitForLayout("workspace replaced", delay: 0.05)
+
+        XCTAssertEqual(
+            controller.rootViewControllerForTesting.focusedOpenWithContext?.workingDirectory,
+            "/tmp/request-only-open-with"
+        )
+        XCTAssertEqual(controller.rootViewControllerForTesting.focusedOpenWithContext?.scope, .local)
+
+        controller.performOpenWithPrimaryActionForTesting()
+
+        XCTAssertEqual(openWithService.openCalls.map(\.target.stableID), ["cursor"])
+        XCTAssertEqual(openWithService.openCalls.map(\.workingDirectory), ["/tmp/request-only-open-with"])
+    }
+
+    func test_open_with_menu_selection_remembers_selected_target_globally() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
+        )
+        try store.update { config in
+            config.openWith.primaryTargetID = "cursor"
+            config.openWith.enabledTargetIDs = ["cursor", "xcode"]
+        }
+
+        let openWithService = RecordingOpenWithService(
+            availableTargets: [
+                OpenWithResolvedTarget(
+                    stableID: "cursor",
+                    kind: .editor,
+                    displayName: "Cursor",
+                    builtInID: .cursor,
+                    appPath: nil
+                ),
+                OpenWithResolvedTarget(
+                    stableID: "xcode",
+                    kind: .editor,
+                    displayName: "Xcode",
+                    builtInID: .xcode,
+                    appPath: nil
+                )
+            ],
+            primaryTarget: OpenWithResolvedTarget(
+                stableID: "cursor",
+                kind: .editor,
+                displayName: "Cursor",
+                builtInID: .cursor,
+                appPath: nil
+            )
+        )
+        let adapterStore = MetadataAdapterStore()
+        let controller = makeController(
+            configStore: store,
+            openWithService: openWithService,
+            adapterStore: adapterStore
+        )
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let initialPane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
+        let initialAdapter = try XCTUnwrap(adapterStore.adapters[initialPane.paneID])
+        initialAdapter.emitWorkingDirectory("/tmp/project-open-with")
+        controller.injectFocusedPaneShellContextForTesting(path: "/tmp/project-open-with")
+        waitForLayout("metadata settled", delay: 0.05)
+
+        controller.performOpenWithMenuSelectionForTesting(stableID: "xcode")
+
+        XCTAssertEqual(openWithService.openCalls.map(\.target.stableID), ["xcode"])
+        XCTAssertEqual(openWithService.openCalls.map(\.workingDirectory), ["/tmp/project-open-with"])
+        XCTAssertEqual(store.current.openWith.primaryTargetID, "xcode")
+    }
+
+    func test_open_with_menu_button_presents_custom_popover() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
+        )
+        try store.update { config in
+            config.openWith.primaryTargetID = "cursor"
+            config.openWith.enabledTargetIDs = ["cursor", "finder"]
+        }
+
+        let openWithService = RecordingOpenWithService(
+            availableTargets: [
+                OpenWithResolvedTarget(
+                    stableID: "cursor",
+                    kind: .editor,
+                    displayName: "Cursor",
+                    builtInID: .cursor,
+                    appPath: nil
+                ),
+                OpenWithResolvedTarget(
+                    stableID: "finder",
+                    kind: .fileManager,
+                    displayName: "Finder",
+                    builtInID: .finder,
+                    appPath: nil
+                )
+            ],
+            primaryTarget: OpenWithResolvedTarget(
+                stableID: "cursor",
+                kind: .editor,
+                displayName: "Cursor",
+                builtInID: .cursor,
+                appPath: nil
+            )
+        )
+        let adapterStore = MetadataAdapterStore()
+        let controller = makeController(
+            configStore: store,
+            openWithService: openWithService,
+            adapterStore: adapterStore
+        )
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover settled", delay: 0.05)
+
+        XCTAssertTrue(controller.isOpenWithPopoverShownForTesting)
+        XCTAssertEqual(controller.openWithPopoverSelectedStableIDForTesting, "cursor")
+    }
+
+    func test_open_with_popover_disables_rows_for_metadata_only_inherited_pane() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
+        )
+        try store.update { config in
+            config.openWith.primaryTargetID = "cursor"
+            config.openWith.enabledTargetIDs = ["cursor"]
+        }
+
+        let openWithService = RecordingOpenWithService(
+            availableTargets: [
+                OpenWithResolvedTarget(
+                    stableID: "cursor",
+                    kind: .editor,
+                    displayName: "Cursor",
+                    builtInID: .cursor,
+                    appPath: nil
+                )
+            ],
+            primaryTarget: OpenWithResolvedTarget(
+                stableID: "cursor",
+                kind: .editor,
+                displayName: "Cursor",
+                builtInID: .cursor,
+                appPath: nil
+            )
+        )
+        let adapterStore = MetadataAdapterStore()
+        let controller = makeController(
+            configStore: store,
+            openWithService: openWithService,
+            adapterStore: adapterStore
+        )
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let workspace = makeMetadataOnlyInheritedWorkspace(workingDirectory: "/srv/ambiguous-project")
+        controller.rootViewControllerForTesting.replaceWorkspaces([workspace], activeWorkspaceID: workspace.id)
+        waitForLayout("workspace replaced", delay: 0.05)
+
+        XCTAssertNil(controller.rootViewControllerForTesting.focusedOpenWithContext)
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover settled", delay: 0.05)
+
+        XCTAssertEqual(controller.openWithPopoverEnabledStableIDsForTesting, [])
+        XCTAssertEqual(controller.openWithPopoverDisabledStableIDsForTesting, ["cursor"])
+    }
+
+    func test_open_with_popover_enables_rows_before_pane_context_arrives_for_local_pane() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
+        )
+        try store.update { config in
+            config.openWith.primaryTargetID = "cursor"
+            config.openWith.enabledTargetIDs = ["cursor"]
+        }
+
+        let openWithService = RecordingOpenWithService(
+            availableTargets: [
+                OpenWithResolvedTarget(
+                    stableID: "cursor",
+                    kind: .editor,
+                    displayName: "Cursor",
+                    builtInID: .cursor,
+                    appPath: nil
+                )
+            ],
+            primaryTarget: OpenWithResolvedTarget(
+                stableID: "cursor",
+                kind: .editor,
+                displayName: "Cursor",
+                builtInID: .cursor,
+                appPath: nil
+            )
+        )
+        let adapterStore = MetadataAdapterStore()
+        let controller = makeController(
+            configStore: store,
+            openWithService: openWithService,
+            adapterStore: adapterStore
+        )
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover settled", delay: 0.05)
+
+        XCTAssertEqual(controller.openWithPopoverEnabledStableIDsForTesting, ["cursor"])
+        XCTAssertEqual(controller.openWithPopoverDisabledStableIDsForTesting, [])
+    }
+
+    func test_open_with_popover_footer_routes_to_settings() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
+        )
+        try store.update { config in
+            config.openWith.primaryTargetID = "cursor"
+            config.openWith.enabledTargetIDs = ["cursor"]
+        }
+
+        let openWithService = RecordingOpenWithService(
+            availableTargets: [
+                OpenWithResolvedTarget(
+                    stableID: "cursor",
+                    kind: .editor,
+                    displayName: "Cursor",
+                    builtInID: .cursor,
+                    appPath: nil
+                )
+            ],
+            primaryTarget: OpenWithResolvedTarget(
+                stableID: "cursor",
+                kind: .editor,
+                displayName: "Cursor",
+                builtInID: .cursor,
+                appPath: nil
+            )
+        )
+        let adapterStore = MetadataAdapterStore()
+        let controller = makeController(
+            configStore: store,
+            openWithService: openWithService,
+            adapterStore: adapterStore
+        )
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover settled", delay: 0.05)
+        controller.performOpenWithSettingsActionForTesting()
+
+        let settingsWindow = try XCTUnwrap(controller.settingsWindow)
+        let settingsViewController = try XCTUnwrap(
+            settingsWindow.contentViewController as? SettingsViewController
+        )
+        settingsViewController.loadViewIfNeeded()
+
+        XCTAssertEqual(settingsViewController.selectedSection, .openWith)
+    }
+
+    func test_open_with_popover_clears_row_highlight_when_mouse_leaves_row() throws {
+        let controller = try makeOpenWithPopoverController()
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover settled", delay: 0.05)
+
+        controller.simulateOpenWithPopoverRowHoverForTesting(stableID: "finder")
+        XCTAssertEqual(controller.openWithPopoverHighlightedStableIDForTesting, "finder")
+
+        controller.simulateOpenWithPopoverRowExitForTesting(stableID: "finder")
+        XCTAssertNil(controller.openWithPopoverHighlightedStableIDForTesting)
+    }
+
+    func test_open_with_popover_footer_hover_uses_emphasized_row_treatment() throws {
+        let controller = try makeOpenWithPopoverController()
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover settled", delay: 0.05)
+        controller.simulateOpenWithPopoverSettingsHoverForTesting()
+
+        XCTAssertNotEqual(controller.openWithPopoverSettingsBackgroundTokenForTesting, "#000000-0")
+        XCTAssertNotEqual(controller.openWithPopoverSettingsBorderTokenForTesting, "#000000-0")
+    }
+
+    func test_open_with_popover_escape_dismisses() throws {
+        let controller = try makeOpenWithPopoverController()
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover settled", delay: 0.05)
+        XCTAssertTrue(controller.isOpenWithPopoverShownForTesting)
+
+        controller.dismissOpenWithPopoverWithEscapeForTesting()
+        waitForLayout("escape dismissal", delay: 0.05)
+
+        XCTAssertFalse(controller.isOpenWithPopoverShownForTesting)
+    }
+
+    func test_open_with_popover_outside_click_dismisses() throws {
+        let controller = try makeOpenWithPopoverController()
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover settled", delay: 0.05)
+        XCTAssertTrue(controller.isOpenWithPopoverShownForTesting)
+
+        controller.performOpenWithPopoverOutsideClickDismissalForTesting()
+        waitForLayout("outside dismissal", delay: 0.05)
+
+        XCTAssertFalse(controller.isOpenWithPopoverShownForTesting)
+    }
+
+    func test_open_with_menu_button_toggles_custom_popover() throws {
+        let controller = try makeOpenWithPopoverController()
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover settled", delay: 0.05)
+        XCTAssertTrue(controller.isOpenWithPopoverShownForTesting)
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover toggle dismissal", delay: 0.05)
+
+        XCTAssertFalse(controller.isOpenWithPopoverShownForTesting)
+    }
+
+    func test_open_with_popover_keyboard_navigation_activates_highlighted_target() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
+        )
+        try store.update { config in
+            config.openWith.primaryTargetID = "cursor"
+            config.openWith.enabledTargetIDs = ["cursor", "finder"]
+        }
+
+        let openWithService = RecordingOpenWithService(
+            availableTargets: [
+                OpenWithResolvedTarget(
+                    stableID: "cursor",
+                    kind: .editor,
+                    displayName: "Cursor",
+                    builtInID: .cursor,
+                    appPath: nil
+                ),
+                OpenWithResolvedTarget(
+                    stableID: "finder",
+                    kind: .fileManager,
+                    displayName: "Finder",
+                    builtInID: .finder,
+                    appPath: nil
+                )
+            ],
+            primaryTarget: OpenWithResolvedTarget(
+                stableID: "cursor",
+                kind: .editor,
+                displayName: "Cursor",
+                builtInID: .cursor,
+                appPath: nil
+            )
+        )
+        let adapterStore = MetadataAdapterStore()
+        let controller = makeController(
+            configStore: store,
+            openWithService: openWithService,
+            adapterStore: adapterStore
+        )
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let initialPane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
+        let initialAdapter = try XCTUnwrap(adapterStore.adapters[initialPane.paneID])
+        initialAdapter.emitWorkingDirectory("/tmp/project-open-with")
+        controller.injectFocusedPaneShellContextForTesting(path: "/tmp/project-open-with")
+        waitForLayout("metadata settled", delay: 0.05)
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover settled", delay: 0.05)
+
+        XCTAssertNil(controller.openWithPopoverHighlightedStableIDForTesting)
+
+        controller.moveOpenWithPopoverSelectionDownForTesting()
+        waitForLayout("move highlight", delay: 0.05)
+        XCTAssertEqual(controller.openWithPopoverHighlightedStableIDForTesting, "cursor")
+
+        controller.moveOpenWithPopoverSelectionDownForTesting()
+        waitForLayout("move highlight again", delay: 0.05)
+        XCTAssertEqual(controller.openWithPopoverHighlightedStableIDForTesting, "finder")
+
+        controller.activateOpenWithPopoverSelectionForTesting()
+        waitForLayout("activate highlight", delay: 0.05)
+
+        XCTAssertEqual(openWithService.openCalls.map(\.target.stableID), ["finder"])
+        XCTAssertEqual(openWithService.openCalls.map(\.workingDirectory), ["/tmp/project-open-with"])
+        XCTAssertEqual(store.current.openWith.primaryTargetID, "finder")
+        XCTAssertFalse(controller.isOpenWithPopoverShownForTesting)
+    }
+
+    func test_open_with_popover_closes_when_window_resigns_key() throws {
+        let controller = try makeOpenWithPopoverController()
+
+        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
+        waitForLayout("popover settled", delay: 0.05)
+        XCTAssertTrue(controller.isOpenWithPopoverShownForTesting)
+
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: controller.window))
+        waitForLayout("window resign dismissal", delay: 0.05)
+
+        XCTAssertFalse(controller.isOpenWithPopoverShownForTesting)
+    }
 }
 
 @MainActor
 private final class MetadataAdapterStore {
     var adapters: [PaneID: MetadataEmittingTerminalAdapter] = [:]
+}
+
+@MainActor
+private extension MainWindowControllerTests {
+    func makeOpenWithPopoverController() throws -> MainWindowController {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
+        )
+        try store.update { config in
+            config.openWith.primaryTargetID = "cursor"
+            config.openWith.enabledTargetIDs = ["cursor", "finder"]
+        }
+
+        let openWithService = RecordingOpenWithService(
+            availableTargets: [
+                OpenWithResolvedTarget(
+                    stableID: "cursor",
+                    kind: .editor,
+                    displayName: "Cursor",
+                    builtInID: .cursor,
+                    appPath: nil
+                ),
+                OpenWithResolvedTarget(
+                    stableID: "finder",
+                    kind: .fileManager,
+                    displayName: "Finder",
+                    builtInID: .finder,
+                    appPath: nil
+                )
+            ],
+            primaryTarget: OpenWithResolvedTarget(
+                stableID: "cursor",
+                kind: .editor,
+                displayName: "Cursor",
+                builtInID: .cursor,
+                appPath: nil
+            )
+        )
+        let adapterStore = MetadataAdapterStore()
+        let controller = makeController(
+            configStore: store,
+            openWithService: openWithService,
+            adapterStore: adapterStore
+        )
+        controller.showWindow(nil)
+        waitForLayout()
+        return controller
+    }
+}
+
+@MainActor
+private final class RecordingOpenWithService: OpenWithServing {
+    let availableTargetsValue: [OpenWithResolvedTarget]
+    let primaryTargetValue: OpenWithResolvedTarget?
+    private(set) var openCalls: [(target: OpenWithResolvedTarget, workingDirectory: String)] = []
+
+    init(
+        availableTargets: [OpenWithResolvedTarget],
+        primaryTarget: OpenWithResolvedTarget?
+    ) {
+        self.availableTargetsValue = availableTargets
+        self.primaryTargetValue = primaryTarget
+    }
+
+    func detectedTargets(preferences: AppConfig.OpenWith) -> [OpenWithDetectedTarget] {
+        availableTargetsValue.map { OpenWithDetectedTarget(target: $0, isAvailable: true) }
+    }
+
+    func availableTargets(preferences: AppConfig.OpenWith) -> [OpenWithResolvedTarget] {
+        availableTargetsValue
+    }
+
+    func primaryTarget(preferences: AppConfig.OpenWith) -> OpenWithResolvedTarget? {
+        primaryTargetValue
+    }
+
+    func icon(for target: OpenWithResolvedTarget) -> NSImage? {
+        nil
+    }
+
+    func open(target: OpenWithResolvedTarget, workingDirectory: String) -> Bool {
+        openCalls.append((target: target, workingDirectory: workingDirectory))
+        return true
+    }
 }
 
 @MainActor

@@ -438,6 +438,89 @@ final class WindowChromeViewTests: XCTestCase {
         XCTAssertLessThan(view.finalTotalWidth, view.preferredTotalWidth)
     }
 
+    func test_window_chrome_reserves_trailing_lane_for_open_with_split_button() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: makeCrowdedSummary())
+        view.render(openWith: WindowChromeOpenWithState(
+            title: "Cursor",
+            icon: nil,
+            isPrimaryEnabled: true,
+            isMenuEnabled: true
+        ))
+        view.leadingVisibleInset = 280
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThan(view.openWithControlFrame.width, 0.5)
+        XCTAssertLessThanOrEqual(view.visibleLaneFrame.maxX, view.openWithControlFrame.minX - 8)
+        XCTAssertLessThanOrEqual(view.rowFrame.maxX, view.visibleLaneFrame.maxX + 0.5)
+    }
+
+    func test_window_chrome_uses_larger_open_with_glass_button_geometry() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(openWith: WindowChromeOpenWithState(
+            title: "Cursor",
+            icon: nil,
+            isPrimaryEnabled: true,
+            isMenuEnabled: true
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.openWithControlFrame.height, 30, accuracy: 0.5)
+        XCTAssertEqual(view.openWithControlFrame.width, 66, accuracy: 0.5)
+        XCTAssertEqual(view.openWithPrimaryFrame.width, 40, accuracy: 0.5)
+        XCTAssertEqual(view.openWithMenuFrame.width, 24, accuracy: 0.5)
+    }
+
+    func test_window_chrome_open_with_control_uses_dedicated_theme_tokens() {
+        let theme = ZenttyTheme.fallback(for: nil)
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
+        )
+
+        view.apply(theme: theme, animated: false)
+        view.render(openWith: WindowChromeOpenWithState(
+            title: "Cursor",
+            icon: nil,
+            isPrimaryEnabled: true,
+            isMenuEnabled: true
+        ))
+
+        XCTAssertEqual(view.openWithBackgroundTokenForTesting, theme.openWithChromeBackground.themeToken)
+        XCTAssertEqual(view.openWithDividerTokenForTesting, theme.openWithChromeDivider.themeToken)
+        XCTAssertEqual(view.openWithPrimaryTintTokenForTesting, theme.openWithChromePrimaryTint.themeToken)
+        XCTAssertEqual(view.openWithMenuTintTokenForTesting, theme.openWithChromeChevronTint.themeToken)
+        XCTAssertLessThan(view.openWithDividerAlphaForTesting, theme.contextStripBorder.srgbClamped.alphaComponent)
+    }
+
+    func test_window_chrome_invokes_open_with_primary_and_menu_actions() {
+        var primaryActionCount = 0
+        var menuActionCount = 0
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
+        )
+        view.onOpenWithPrimaryAction = { primaryActionCount += 1 }
+        view.onOpenWithMenuAction = { menuActionCount += 1 }
+
+        view.render(openWith: WindowChromeOpenWithState(
+            title: "Finder",
+            icon: nil,
+            isPrimaryEnabled: true,
+            isMenuEnabled: true
+        ))
+
+        view.performOpenWithPrimaryClickForTesting()
+        view.performOpenWithMenuClickForTesting()
+
+        XCTAssertEqual(primaryActionCount, 1)
+        XCTAssertEqual(menuActionCount, 1)
+    }
+
     func test_window_chrome_opens_pull_request_url_when_button_is_clicked() throws {
         var openedURL: URL?
         let view = WindowChromeView(
