@@ -10,6 +10,11 @@ final class SidebarView: NSView {
     }
 
     var onWorkspaceSelected: ((WorkspaceID) -> Void)?
+    var onPaneSelected: ((WorkspaceID, PaneID) -> Void)?
+    var onCloseWorkspaceRequested: ((WorkspaceID, PaneID) -> Void)?
+    var onClosePaneRequested: ((WorkspaceID, PaneID) -> Void)?
+    var onSplitHorizontalRequested: ((WorkspaceID, PaneID) -> Void)?
+    var onSplitVerticalRequested: ((WorkspaceID, PaneID) -> Void)?
     var onNewWorkspaceRequested: (() -> Void)?
     var onResized: ((CGFloat) -> Void)?
     var onPointerEntered: (() -> Void)?
@@ -136,42 +141,85 @@ final class SidebarView: NSView {
         summaries: [WorkspaceSidebarSummary],
         theme: ZenttyTheme
     ) {
+        let previousActiveID = workspaceSummaries.first(where: \.isActive)?.workspaceID
         workspaceSummaries = summaries
-        apply(theme: theme, animated: true)
 
-        listStack.arrangedSubviews.forEach { view in
-            listStack.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-        workspaceButtons.removeAll(keepingCapacity: true)
+        let oldIDs = workspaceButtons.map(\.workspaceID)
+        let newIDs = summaries.map(\.workspaceID)
 
-        for summary in summaries {
-            let button = SidebarWorkspaceRowButton(workspaceID: summary.workspaceID)
-            button.target = self
-            button.action = #selector(handleWorkspaceButton(_:))
-            button.configure(
-                with: summary,
-                theme: currentTheme,
-                animated: false
-            )
-            workspaceButtons.append(button)
-            listStack.addArrangedSubview(button)
+        if oldIDs == newIDs {
+            apply(theme: theme, animated: true)
+        } else {
+            apply(theme: theme, animated: true)
+
+            listStack.arrangedSubviews.forEach { view in
+                listStack.removeArrangedSubview(view)
+                view.removeFromSuperview()
+            }
+            workspaceButtons.removeAll(keepingCapacity: true)
+
+            for summary in summaries {
+                let button = SidebarWorkspaceRowButton(workspaceID: summary.workspaceID)
+                button.target = self
+                button.action = #selector(handleWorkspaceButton(_:))
+
+                let workspaceID = summary.workspaceID
+                button.onPaneSelected = { [weak self] paneID in
+                    self?.onPaneSelected?(workspaceID, paneID)
+                }
+                button.onCloseWorkspaceRequested = { [weak self] paneID in
+                    self?.onCloseWorkspaceRequested?(workspaceID, paneID)
+                }
+                button.onClosePaneRequested = { [weak self] paneID in
+                    self?.onClosePaneRequested?(workspaceID, paneID)
+                }
+                button.onSplitHorizontalRequested = { [weak self] paneID in
+                    self?.onSplitHorizontalRequested?(workspaceID, paneID)
+                }
+                button.onSplitVerticalRequested = { [weak self] paneID in
+                    self?.onSplitVerticalRequested?(workspaceID, paneID)
+                }
+
+                button.configure(
+                    with: summary,
+                    theme: currentTheme,
+                    animated: false
+                )
+                workspaceButtons.append(button)
+                listStack.addArrangedSubview(button)
+                NSLayoutConstraint.activate([
+                    button.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
+                    button.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
+                ])
+            }
+
+            if let lastWorkspaceButton = workspaceButtons.last {
+                listStack.setCustomSpacing(8, after: lastWorkspaceButton)
+            }
+
+            addWorkspaceButton.configure(theme: currentTheme, animated: false)
+            listStack.addArrangedSubview(addWorkspaceButton)
             NSLayoutConstraint.activate([
-                button.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
-                button.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
+                addWorkspaceButton.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
+                addWorkspaceButton.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
             ])
         }
 
-        if let lastWorkspaceButton = workspaceButtons.last {
-            listStack.setCustomSpacing(8, after: lastWorkspaceButton)
+        let newActiveID = summaries.first(where: \.isActive)?.workspaceID
+        if newActiveID != previousActiveID, let newActiveID {
+            listStack.layoutSubtreeIfNeeded()
+            scrollToWorkspace(id: newActiveID)
         }
+    }
 
-        addWorkspaceButton.configure(theme: currentTheme, animated: false)
-        listStack.addArrangedSubview(addWorkspaceButton)
-        NSLayoutConstraint.activate([
-            addWorkspaceButton.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
-            addWorkspaceButton.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
-        ])
+    private func scrollToWorkspace(id: WorkspaceID) {
+        guard let index = workspaceSummaries.firstIndex(where: { $0.workspaceID == id }),
+              workspaceButtons.indices.contains(index) else {
+            return
+        }
+        let button = workspaceButtons[index]
+        let buttonFrame = listDocumentView.convert(button.bounds, from: button)
+        listScrollView.contentView.scrollToVisible(buttonFrame)
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {

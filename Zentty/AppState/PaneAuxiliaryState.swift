@@ -155,6 +155,8 @@ struct PaneRawState: Equatable, Sendable {
     var terminalProgress: TerminalProgressReport?
     var reviewState: WorkspaceReviewState?
     var gitContext: PaneGitContext?
+    var lastDesktopNotificationText: String?
+    var lastDesktopNotificationDate: Date?
 }
 
 enum PanePresentationNormalizer {
@@ -186,7 +188,9 @@ enum PanePresentationNormalizer {
         let statusText = visibleStatusText(
             for: runtimePhase,
             interactionKind: agentInteractionKind,
-            hasObservedRunning: raw.agentStatus?.hasObservedRunning == true
+            hasObservedRunning: raw.agentStatus?.hasObservedRunning == true,
+            notificationText: raw.lastDesktopNotificationText,
+            notificationDate: raw.lastDesktopNotificationDate
         )
         let interactionKind = PaneInteractionKind(agentInteractionKind)
         let interactionLabel = runtimePhase == .needsInput ? raw.agentStatus?.statusLabel : nil
@@ -305,6 +309,12 @@ enum PanePresentationNormalizer {
             }
         }
 
+        // Codex emits status words in the terminal title (via tui.terminal_title=["status",...]).
+        // Use these to infer runtime phase when no explicit agent status is available.
+        if let titlePhase = codexTitlePhase(from: raw.metadata, recognizedTool: recognizedTool) {
+            return titlePhase
+        }
+
         if recognizedTool == nil, raw.terminalProgress?.state.indicatesActivity == true {
             return .running
         }
@@ -312,14 +322,50 @@ enum PanePresentationNormalizer {
         return .idle
     }
 
+    private static func codexTitlePhase(
+        from metadata: TerminalMetadata?,
+        recognizedTool: AgentTool?
+    ) -> PanePresentationPhase? {
+        guard recognizedTool == .codex else {
+            return nil
+        }
+        guard let title = metadata?.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return nil
+        }
+
+        let firstWord = title.prefix(while: { $0.isLetter }).lowercased()
+        switch firstWord {
+        case "working", "thinking":
+            return .running
+        case "starting":
+            return .starting
+        case "ready":
+            return .idle
+        default:
+            return nil
+        }
+    }
+
+    private static let notificationVisibilityWindow: TimeInterval = 60
+
     private static func visibleStatusText(
         for phase: PanePresentationPhase,
         interactionKind: PaneAgentInteractionKind,
-        hasObservedRunning: Bool
+        hasObservedRunning: Bool,
+        notificationText: String? = nil,
+        notificationDate: Date? = nil,
+        now: Date = Date()
     ) -> String? {
         switch phase {
         case .idle:
-            return hasObservedRunning ? "Idle" : nil
+            if hasObservedRunning { return "Idle" }
+            // Show fresh notification text as informational status when no agent state is active.
+            if let notificationText, let notificationDate,
+               now.timeIntervalSince(notificationDate) < notificationVisibilityWindow {
+                return notificationText
+            }
+            return nil
         case .starting:
             return nil
         case .running:

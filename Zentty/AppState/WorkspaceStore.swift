@@ -568,6 +568,26 @@ final class WorkspaceStore {
         notify(.focusChanged(activeWorkspaceID))
     }
 
+    func selectWorkspaceAndFocusPane(workspaceID: WorkspaceID, paneID: PaneID) {
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else {
+            return
+        }
+
+        workspaces[index].paneStripState.focusPane(id: paneID)
+        activeWorkspaceID = workspaceID
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.activeWorkspaceChanged)
+    }
+
+    func closeActiveWorkspace() {
+        guard removeActiveWorkspaceIfPossible() else {
+            return
+        }
+
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.workspaceListChanged)
+    }
+
     func closePane(id: PaneID) {
         guard var workspace = activeWorkspace else {
             return

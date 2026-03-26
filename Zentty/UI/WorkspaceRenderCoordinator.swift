@@ -18,7 +18,7 @@ final class WorkspaceRenderCoordinator {
     let runtimeRegistry: PaneRuntimeRegistry
     let reviewStateResolver: WorkspaceReviewStateResolver
 
-    private let attentionNotificationCoordinator = WorkspaceAttentionNotificationCoordinator()
+    private let attentionNotificationCoordinator: WorkspaceAttentionNotificationCoordinator
 
     private var views: ViewBindings?
     private var currentPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] = []
@@ -34,11 +34,15 @@ final class WorkspaceRenderCoordinator {
     init(
         workspaceStore: WorkspaceStore,
         runtimeRegistry: PaneRuntimeRegistry,
+        notificationStore: NotificationStore,
         reviewStateResolver: WorkspaceReviewStateResolver = WorkspaceReviewStateResolver()
     ) {
         self.workspaceStore = workspaceStore
         self.runtimeRegistry = runtimeRegistry
         self.reviewStateResolver = reviewStateResolver
+        self.attentionNotificationCoordinator = WorkspaceAttentionNotificationCoordinator(
+            notificationStore: notificationStore
+        )
     }
 
     func bind(to views: ViewBindings) {

@@ -1,267 +1,5 @@
 import AppKit
 
-enum SettingsSection: String, CaseIterable, Equatable, Sendable {
-    case openWith
-    case paneLayout
-
-    var title: String {
-        switch self {
-        case .openWith:
-            "Open With"
-        case .paneLayout:
-            "Pane Layout"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .openWith:
-            "square.and.arrow.up.on.square"
-        case .paneLayout:
-            "rectangle.split.3x1"
-        }
-    }
-}
-
-@MainActor
-final class SettingsWindowController: NSWindowController {
-    private let settingsViewController: SettingsViewController
-
-    init(
-        configStore: AppConfigStore,
-        openWithService: OpenWithServing = OpenWithService(),
-        customAppPicker: @escaping () -> OpenWithCustomApp? = OpenWithSettingsSectionViewController.defaultCustomAppPicker,
-        initialSection: SettingsSection = .paneLayout
-    ) {
-        let settingsViewController = SettingsViewController(
-            configStore: configStore,
-            openWithService: openWithService,
-            customAppPicker: customAppPicker,
-            initialSection: initialSection
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Settings"
-        window.isReleasedWhenClosed = false
-        window.center()
-        window.contentViewController = settingsViewController
-
-        self.settingsViewController = settingsViewController
-        super.init(window: window)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func show(section: SettingsSection, sender: Any?) {
-        settingsViewController.select(section: section)
-        showWindow(sender)
-        window?.makeKeyAndOrderFront(sender)
-    }
-}
-
-@MainActor
-final class SettingsViewController: NSViewController {
-    private enum Layout {
-        static let sidebarWidth: CGFloat = 200
-        static let sidebarInset: CGFloat = 16
-        static let sectionSpacing: CGFloat = 10
-        static let contentInset: CGFloat = 28
-    }
-
-    private let configStore: AppConfigStore
-    private var configObserverID: UUID?
-    private let sidebarStackView = NSStackView()
-    private let contentContainerView = NSView()
-    private var buttonsBySection: [SettingsSection: NSButton] = [:]
-    private lazy var paneLayoutViewController = PaneLayoutSettingsSectionViewController()
-    private let openWithViewController: OpenWithSettingsSectionViewController
-
-    private(set) var selectedSection: SettingsSection
-    private(set) var currentSectionViewController: NSViewController?
-
-    init(
-        configStore: AppConfigStore,
-        openWithService: OpenWithServing,
-        customAppPicker: @escaping () -> OpenWithCustomApp?,
-        initialSection: SettingsSection
-    ) {
-        self.configStore = configStore
-        self.selectedSection = initialSection
-        self.openWithViewController = OpenWithSettingsSectionViewController(
-            configStore: configStore,
-            openWithService: openWithService,
-            customAppPicker: customAppPicker
-        )
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        if let configObserverID {
-            configStore.removeObserver(configObserverID)
-        }
-    }
-
-    override func loadView() {
-        let rootView = NSView()
-        rootView.wantsLayer = true
-        rootView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-
-        let sidebarBackgroundView = NSVisualEffectView()
-        sidebarBackgroundView.material = .sidebar
-        sidebarBackgroundView.blendingMode = .behindWindow
-        sidebarBackgroundView.state = .active
-        sidebarBackgroundView.translatesAutoresizingMaskIntoConstraints = false
-        rootView.addSubview(sidebarBackgroundView)
-
-        sidebarStackView.orientation = .vertical
-        sidebarStackView.alignment = .leading
-        sidebarStackView.spacing = 6
-        sidebarStackView.translatesAutoresizingMaskIntoConstraints = false
-        sidebarBackgroundView.addSubview(sidebarStackView)
-
-        SettingsSection.allCases.forEach { section in
-            let button = makeSidebarButton(for: section)
-            buttonsBySection[section] = button
-            sidebarStackView.addArrangedSubview(button)
-        }
-
-        contentContainerView.translatesAutoresizingMaskIntoConstraints = false
-        rootView.addSubview(contentContainerView)
-
-        NSLayoutConstraint.activate([
-            sidebarBackgroundView.topAnchor.constraint(equalTo: rootView.topAnchor),
-            sidebarBackgroundView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
-            sidebarBackgroundView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
-            sidebarBackgroundView.widthAnchor.constraint(equalToConstant: Layout.sidebarWidth),
-
-            sidebarStackView.topAnchor.constraint(equalTo: sidebarBackgroundView.topAnchor, constant: Layout.sidebarInset),
-            sidebarStackView.leadingAnchor.constraint(equalTo: sidebarBackgroundView.leadingAnchor, constant: Layout.sidebarInset),
-            sidebarStackView.trailingAnchor.constraint(equalTo: sidebarBackgroundView.trailingAnchor, constant: -Layout.sidebarInset),
-
-            contentContainerView.topAnchor.constraint(equalTo: rootView.topAnchor),
-            contentContainerView.leadingAnchor.constraint(equalTo: sidebarBackgroundView.trailingAnchor),
-            contentContainerView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
-            contentContainerView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
-        ])
-
-        view = rootView
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        configObserverID = configStore.addObserver { [weak self] config in
-            Task { @MainActor [weak self] in
-                self?.apply(config: config)
-            }
-        }
-        apply(config: configStore.current)
-        select(section: selectedSection)
-    }
-
-    var sectionTitles: [String] {
-        SettingsSection.allCases.map(\.title)
-    }
-
-    var contentSectionTitle: String {
-        selectedSection.title
-    }
-
-    func select(section: SettingsSection) {
-        loadViewIfNeeded()
-        selectedSection = section
-        updateSidebarSelection()
-        swapContentViewController(to: sectionViewController(for: section))
-        if section == .openWith {
-            openWithViewController.prepareForPresentation()
-        }
-    }
-
-    private func apply(config: AppConfig) {
-        paneLayoutViewController.apply(preferences: config.paneLayout)
-        openWithViewController.apply(preferences: config.openWith)
-    }
-
-    private func sectionViewController(for section: SettingsSection) -> NSViewController {
-        switch section {
-        case .openWith:
-            openWithViewController
-        case .paneLayout:
-            paneLayoutViewController
-        }
-    }
-
-    private func swapContentViewController(to nextViewController: NSViewController) {
-        guard currentSectionViewController !== nextViewController else {
-            return
-        }
-
-        currentSectionViewController?.view.removeFromSuperview()
-        currentSectionViewController?.removeFromParent()
-
-        addChild(nextViewController)
-        nextViewController.loadViewIfNeeded()
-        let nextView = nextViewController.view
-        nextView.translatesAutoresizingMaskIntoConstraints = false
-        contentContainerView.addSubview(nextView)
-        NSLayoutConstraint.activate([
-            nextView.topAnchor.constraint(equalTo: contentContainerView.topAnchor, constant: Layout.contentInset),
-            nextView.leadingAnchor.constraint(equalTo: contentContainerView.leadingAnchor, constant: Layout.contentInset),
-            nextView.trailingAnchor.constraint(equalTo: contentContainerView.trailingAnchor, constant: -Layout.contentInset),
-            nextView.bottomAnchor.constraint(lessThanOrEqualTo: contentContainerView.bottomAnchor, constant: -Layout.contentInset),
-        ])
-        currentSectionViewController = nextViewController
-    }
-
-    private func updateSidebarSelection() {
-        for (section, button) in buttonsBySection {
-            let isSelected = section == selectedSection
-            button.state = isSelected ? .on : .off
-            button.contentTintColor = isSelected ? .controlAccentColor : .labelColor
-        }
-    }
-
-    private func makeSidebarButton(for section: SettingsSection) -> NSButton {
-        let button = NSButton(
-            title: section.title,
-            target: self,
-            action: #selector(handleSidebarButton(_:))
-        )
-        button.setButtonType(.toggle)
-        button.bezelStyle = .rounded
-        button.image = NSImage(systemSymbolName: section.symbolName, accessibilityDescription: section.title)
-        button.imagePosition = .imageLeading
-        button.contentTintColor = .labelColor
-        button.font = .systemFont(ofSize: 13, weight: .medium)
-        button.alignment = .left
-        button.tag = SettingsSection.allCases.firstIndex(of: section) ?? 0
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: Layout.sidebarWidth - (Layout.sidebarInset * 2)).isActive = true
-        return button
-    }
-
-    @objc
-    private func handleSidebarButton(_ sender: NSButton) {
-        let sections = SettingsSection.allCases
-        guard sections.indices.contains(sender.tag) else {
-            return
-        }
-
-        select(section: sections[sender.tag])
-    }
-}
-
 @MainActor
 final class PaneLayoutSettingsSectionViewController: NSViewController {
     private var preferences: PaneLayoutPreferences = .default
@@ -273,14 +11,9 @@ final class PaneLayoutSettingsSectionViewController: NSViewController {
         let stackView = NSStackView()
         stackView.orientation = .vertical
         stackView.alignment = .leading
-        stackView.spacing = 18
+        stackView.spacing = 12
         stackView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stackView)
-
-        stackView.addArrangedSubview(makeLabel(
-            text: SettingsSection.paneLayout.title,
-            font: .systemFont(ofSize: 22, weight: .semibold)
-        ))
 
         let subtitleLabel = makeLabel(
             text: "Zentty uses explicit screen behavior presets so each split stays calm and predictable.",
@@ -290,7 +23,9 @@ final class PaneLayoutSettingsSectionViewController: NSViewController {
         stackView.addArrangedSubview(subtitleLabel)
 
         DisplayClass.allCases.forEach { displayClass in
-            stackView.addArrangedSubview(makeSection(for: displayClass))
+            let card = makeCardSection(for: displayClass)
+            stackView.addArrangedSubview(card)
+            card.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
         }
 
         NSLayoutConstraint.activate([
@@ -319,13 +54,16 @@ final class PaneLayoutSettingsSectionViewController: NSViewController {
         }
     }
 
-    private func makeSection(for displayClass: DisplayClass) -> NSView {
-        let container = NSStackView()
-        container.orientation = .vertical
-        container.alignment = .leading
-        container.spacing = 6
+    private func makeCardSection(for displayClass: DisplayClass) -> NSView {
+        let card = SettingsCardView()
 
-        container.addArrangedSubview(makeLabel(
+        let contentStack = NSStackView()
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 8
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+
+        contentStack.addArrangedSubview(makeLabel(
             text: displayClass.title,
             font: .systemFont(ofSize: 13, weight: .semibold)
         ))
@@ -335,7 +73,7 @@ final class PaneLayoutSettingsSectionViewController: NSViewController {
             font: .systemFont(ofSize: 11, weight: .regular)
         )
         descriptionLabel.textColor = .secondaryLabelColor
-        container.addArrangedSubview(descriptionLabel)
+        contentStack.addArrangedSubview(descriptionLabel)
 
         let presetSummary = makeLabel(
             text: behaviorSummary(for: displayClass),
@@ -343,9 +81,17 @@ final class PaneLayoutSettingsSectionViewController: NSViewController {
         )
         presetSummary.textColor = .secondaryLabelColor
         summaryLabelsByDisplayClass[displayClass] = presetSummary
-        container.addArrangedSubview(presetSummary)
+        contentStack.addArrangedSubview(presetSummary)
 
-        return container
+        card.addSubview(contentStack)
+        NSLayoutConstraint.activate([
+            contentStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            contentStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            contentStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            contentStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+        ])
+
+        return card
     }
 
     private func descriptionText(for displayClass: DisplayClass) -> String {
@@ -445,14 +191,9 @@ final class OpenWithSettingsSectionViewController: NSViewController {
         let stackView = NSStackView()
         stackView.orientation = .vertical
         stackView.alignment = .leading
-        stackView.spacing = 16
+        stackView.spacing = 12
         stackView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stackView)
-
-        stackView.addArrangedSubview(makeLabel(
-            text: SettingsSection.openWith.title,
-            font: .systemFont(ofSize: 22, weight: .semibold)
-        ))
 
         let subtitleLabel = makeLabel(
             text: "Choose which editors and file managers appear in the launcher, and set the default app.",
@@ -461,42 +202,80 @@ final class OpenWithSettingsSectionViewController: NSViewController {
         subtitleLabel.textColor = .secondaryLabelColor
         stackView.addArrangedSubview(subtitleLabel)
 
+        // Card 1: Default App
+        let defaultAppCard = SettingsCardView()
         let popupRow = NSStackView()
         popupRow.orientation = .horizontal
         popupRow.alignment = .centerY
         popupRow.spacing = 12
-        popupRow.addArrangedSubview(makeLabel(
+        popupRow.translatesAutoresizingMaskIntoConstraints = false
+        let defaultAppLabel = makeLabel(
             text: "Default app",
-            font: .systemFont(ofSize: 13, weight: .semibold)
-        ))
+            font: .systemFont(ofSize: 13, weight: .medium)
+        )
+        defaultAppLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        popupRow.addArrangedSubview(defaultAppLabel)
         primaryTargetPopupButton.target = self
         primaryTargetPopupButton.action = #selector(handlePrimaryTargetChanged(_:))
+        primaryTargetPopupButton.setContentHuggingPriority(.required, for: .horizontal)
         popupRow.addArrangedSubview(primaryTargetPopupButton)
-        stackView.addArrangedSubview(popupRow)
+        defaultAppCard.addSubview(popupRow)
+        NSLayoutConstraint.activate([
+            popupRow.topAnchor.constraint(equalTo: defaultAppCard.topAnchor, constant: 12),
+            popupRow.leadingAnchor.constraint(equalTo: defaultAppCard.leadingAnchor, constant: 16),
+            popupRow.trailingAnchor.constraint(equalTo: defaultAppCard.trailingAnchor, constant: -16),
+            popupRow.bottomAnchor.constraint(equalTo: defaultAppCard.bottomAnchor, constant: -12),
+        ])
+        stackView.addArrangedSubview(defaultAppCard)
+        defaultAppCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        // Card 2: Available Apps
+        let availableCard = SettingsCardView()
+        let availableStack = NSStackView()
+        availableStack.orientation = .vertical
+        availableStack.alignment = .leading
+        availableStack.spacing = 12
+        availableStack.translatesAutoresizingMaskIntoConstraints = false
 
         let availableHeaderRow = NSStackView()
         availableHeaderRow.orientation = .horizontal
         availableHeaderRow.alignment = .centerY
         availableHeaderRow.spacing = 12
-        availableHeaderRow.addArrangedSubview(makeLabel(
+        let availableLabel = makeLabel(
             text: "Available Apps",
             font: .systemFont(ofSize: 13, weight: .semibold)
-        ))
-        addCustomAppButton.title = "Add App…"
+        )
+        availableLabel.textColor = .secondaryLabelColor
+        availableLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        availableHeaderRow.addArrangedSubview(availableLabel)
+        addCustomAppButton.title = "Add App\u{2026}"
         addCustomAppButton.target = self
         addCustomAppButton.action = #selector(handleAddCustomApp(_:))
+        addCustomAppButton.setContentHuggingPriority(.required, for: .horizontal)
         availableHeaderRow.addArrangedSubview(addCustomAppButton)
-        stackView.addArrangedSubview(availableHeaderRow)
+        availableHeaderRow.translatesAutoresizingMaskIntoConstraints = false
+        availableStack.addArrangedSubview(availableHeaderRow)
+        availableHeaderRow.widthAnchor.constraint(equalTo: availableStack.widthAnchor).isActive = true
 
         availableTargetsStackView.orientation = .vertical
         availableTargetsStackView.alignment = .leading
         availableTargetsStackView.spacing = 10
-        stackView.addArrangedSubview(availableTargetsStackView)
+        availableStack.addArrangedSubview(availableTargetsStackView)
+
+        availableCard.addSubview(availableStack)
+        NSLayoutConstraint.activate([
+            availableStack.topAnchor.constraint(equalTo: availableCard.topAnchor, constant: 16),
+            availableStack.leadingAnchor.constraint(equalTo: availableCard.leadingAnchor, constant: 16),
+            availableStack.trailingAnchor.constraint(equalTo: availableCard.trailingAnchor, constant: -16),
+            availableStack.bottomAnchor.constraint(equalTo: availableCard.bottomAnchor, constant: -16),
+        ])
+        stackView.addArrangedSubview(availableCard)
+        availableCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: view.topAnchor),
             stackView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            stackView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stackView.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor),
         ])
     }
@@ -815,6 +594,36 @@ final class OpenWithSettingsSectionViewController: NSViewController {
         label.lineBreakMode = .byWordWrapping
         label.maximumNumberOfLines = 0
         return label
+    }
+}
+
+@MainActor
+final class SettingsCardView: NSVisualEffectView {
+    init() {
+        super.init(frame: .zero)
+        material = .hudWindow
+        blendingMode = .withinWindow
+        state = .active
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        layer?.cornerCurve = .continuous
+        layer?.borderWidth = 1
+        updateBorderColor()
+        translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateBorderColor()
+    }
+
+    private func updateBorderColor() {
+        layer?.borderColor = NSColor.separatorColor.cgColor
     }
 }
 

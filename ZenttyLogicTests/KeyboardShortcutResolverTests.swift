@@ -109,6 +109,22 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
     }
 
+    func test_resolves_copy_path_shortcut() {
+        let action = KeyboardShortcutResolver.resolve(
+            .init(key: .character("c"), modifiers: [.command, .shift])
+        )
+
+        XCTAssertEqual(action, .copyFocusedPanePath)
+    }
+
+    func test_resolves_jump_to_latest_notification_shortcut() {
+        let action = KeyboardShortcutResolver.resolve(
+            .init(key: .character("u"), modifiers: [.command, .shift])
+        )
+
+        XCTAssertEqual(action, .jumpToLatestNotification)
+    }
+
     func test_returns_nil_for_unhandled_shortcuts() {
         let action = KeyboardShortcutResolver.resolve(
             .init(key: .character("k"), modifiers: [.command])

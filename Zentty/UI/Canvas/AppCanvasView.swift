@@ -19,6 +19,8 @@ final class PaneBorderContextOverlayView: NSView {
         static let paneContextFontSize: CGFloat = 10
     }
 
+    var onPathClicked: ((PaneID) -> Void)?
+
     private var currentSnapshots: [PaneBorderChromeSnapshot] = []
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private let backingScaleFactorProvider: () -> CGFloat
@@ -39,7 +41,32 @@ final class PaneBorderContextOverlayView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+        guard onPathClicked != nil else { return nil }
+        let localPoint = convert(point, from: superview)
+        for (_, itemView) in itemViewsByPaneID where !itemView.isHidden {
+            if itemView.frame.contains(localPoint) {
+                return self
+            }
+        }
+        return nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        for (paneID, itemView) in itemViewsByPaneID where !itemView.isHidden {
+            if itemView.frame.contains(localPoint) {
+                onPathClicked?(paneID)
+                return
+            }
+        }
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard onPathClicked != nil else { return }
+        for (_, itemView) in itemViewsByPaneID where !itemView.isHidden {
+            addCursorRect(itemView.frame, cursor: .pointingHand)
+        }
     }
 
     func render(snapshots: [PaneBorderChromeSnapshot], theme: ZenttyTheme) {
@@ -159,6 +186,10 @@ final class PaneBorderContextOverlayView: NSView {
                 theme: currentTheme,
                 backingScaleFactor: backingScaleFactor
             )
+        }
+
+        if onPathClicked != nil {
+            window?.invalidateCursorRects(for: self)
         }
     }
 

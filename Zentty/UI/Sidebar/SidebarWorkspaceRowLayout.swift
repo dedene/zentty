@@ -27,6 +27,7 @@ struct WorkspaceRowLayoutMetrics: Equatable {
     let statusLineHeight: CGFloat
     let detailLineHeight: CGFloat
     let overflowLineHeight: CGFloat
+    let paneButtonVerticalPadding: CGFloat
 
     static let sidebar = WorkspaceRowLayoutMetrics(
         topInset: ShellMetrics.sidebarRowTopInset,
@@ -36,7 +37,8 @@ struct WorkspaceRowLayoutMetrics: Equatable {
         primaryLineHeight: ShellMetrics.sidebarPrimaryLineHeight,
         statusLineHeight: ShellMetrics.sidebarStatusLineHeight,
         detailLineHeight: ShellMetrics.sidebarDetailLineHeight,
-        overflowLineHeight: ShellMetrics.sidebarOverflowLineHeight
+        overflowLineHeight: ShellMetrics.sidebarOverflowLineHeight,
+        paneButtonVerticalPadding: ShellMetrics.sidebarPaneButtonVerticalInset * 2
     )
 
     var compactHeight: CGFloat {
@@ -89,6 +91,16 @@ struct WorkspaceRowLayoutMetrics: Equatable {
         if visibleRows.count > 1 {
             total += CGFloat(visibleRows.count - 1) * interlineSpacing
         }
+        var paneIndices = Set<Int>()
+        for row in visibleRows {
+            switch row {
+            case .panePrimary(let i), .paneDetail(let i), .paneStatus(let i):
+                paneIndices.insert(i)
+            default:
+                break
+            }
+        }
+        total += CGFloat(paneIndices.count) * paneButtonVerticalPadding
         return total
     }
 
@@ -131,7 +143,9 @@ struct SidebarWorkspaceRowLayout: Equatable {
         self.mode = mode
         self.visibleTextRows = visibleTextRows
         let computedHeight = metrics.height(for: visibleTextRows)
-        self.rowHeight = mode == .compact ? metrics.compactHeight : computedHeight
+        self.rowHeight = mode == .compact && summary.paneRows.isEmpty
+            ? metrics.compactHeight
+            : computedHeight
     }
 
     static func mode(for summary: WorkspaceSidebarSummary) -> WorkspaceRowMode {

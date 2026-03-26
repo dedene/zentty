@@ -345,7 +345,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
     func test_notification_coordinator_fires_once_per_attention_state_entry() {
         let recorder = WorkspaceAttentionNotificationRecorder()
-        let coordinator = WorkspaceAttentionNotificationCoordinator(center: recorder)
+        let coordinator = WorkspaceAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
         let paneID = PaneID("workspace-main-shell")
         let workspaceID = WorkspaceID("workspace-main")
 
@@ -1189,7 +1189,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
     func test_notification_coordinator_does_not_fire_for_unresolved_stop() {
         let recorder = WorkspaceAttentionNotificationRecorder()
-        let coordinator = WorkspaceAttentionNotificationCoordinator(center: recorder)
+        let coordinator = WorkspaceAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
         let paneID = PaneID("workspace-main-shell")
         let workspaceID = WorkspaceID("workspace-main")
 
@@ -1431,7 +1431,7 @@ private final class WorkspaceAttentionNotificationRecorder: WorkspaceAttentionUs
 
     func requestAuthorizationIfNeeded() {}
 
-    func add(identifier: String, title: String, body: String) {
+    func add(identifier: String, title: String, body: String, workspaceID: String, paneID: String) {
         requests.append(RequestRecord(identifier: identifier, title: title, body: body))
     }
 }

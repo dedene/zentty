@@ -11,6 +11,7 @@ extension WorkspaceStore {
         var workspace = workspaces[workspaceIndex]
         let previousMetadata = workspace.auxiliaryStateByPaneID[paneID]?.metadata
         workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
+        clearStaleDesktopNotificationIfNeeded(for: paneID, metadata: metadata, in: &workspace)
         if branchContextDidChange(previous: previousMetadata, next: metadata) {
             clearBranchDerivedState(for: paneID, in: &workspace)
         }
@@ -47,6 +48,30 @@ extension WorkspaceStore {
         if var status = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus, status.artifactLink?.kind == .pullRequest {
             status.artifactLink = nil
             workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = status
+        }
+    }
+
+    /// Clears stale desktop notification text when a Codex terminal title transitions to
+    /// an active state (Working/Thinking/Starting), preventing old notification text from
+    /// surfacing in the sidebar during a new work cycle.
+    private func clearStaleDesktopNotificationIfNeeded(
+        for paneID: PaneID,
+        metadata: TerminalMetadata,
+        in workspace: inout WorkspaceState
+    ) {
+        guard workspace.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationText != nil else {
+            return
+        }
+        let recognizedTool = workspace.auxiliaryStateByPaneID[paneID]?.raw.agentStatus?.tool
+            ?? AgentToolRecognizer.recognize(metadata: metadata)
+        guard recognizedTool == .codex else {
+            return
+        }
+        let title = metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let firstWord = title.prefix(while: { $0.isLetter }).lowercased()
+        if firstWord == "working" || firstWord == "thinking" || firstWord == "starting" {
+            workspace.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationText = nil
+            workspace.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationDate = nil
         }
     }
 

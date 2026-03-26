@@ -50,6 +50,18 @@ extension WorkspaceStore {
                 workspace.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
         case .desktopNotification(let notification):
+            let title = AgentInteractionClassifier.trimmed(notification.title)
+            let body = AgentInteractionClassifier.trimmed(notification.body)
+            let combined = [title, body].compactMap { $0 }.joined(separator: ": ")
+            let notificationText: String? = combined.isEmpty ? nil : combined
+
+            if let notificationText {
+                var auxiliaryState = workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
+                auxiliaryState.raw.lastDesktopNotificationText = notificationText
+                auxiliaryState.raw.lastDesktopNotificationDate = Date()
+                workspace.auxiliaryStateByPaneID[paneID] = auxiliaryState
+            }
+
             if let payload = terminalDesktopNotificationPayload(
                 paneID: paneID,
                 notification: notification,

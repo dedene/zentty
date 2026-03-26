@@ -73,9 +73,10 @@ _zentty_precmd() {
     _zentty_ensure_wrapper_path
     _zentty_apply_initial_working_directory
     # Reset kitty keyboard protocol if a program enabled it and exited
-    # without disabling it (e.g., Ctrl+C killing Claude Code). The pop
-    # is a no-op when the enhancement stack is already empty.
-    builtin printf '\e[<u'
+    # without disabling it (e.g., Ctrl+C killing an agent). Pop up to 99
+    # entries to clear multi-level stacks (e.g., Ink/React TUI layers).
+    # Extra pops beyond the stack depth are harmless no-ops.
+    builtin printf '\e[<99u'
     _zentty_agent_signal shell-state prompt
     _zentty_emit_pane_context
 }

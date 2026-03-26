@@ -65,6 +65,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.view.frame = NSRect(origin: .zero, size: initialFrame.size)
         rootViewController.view.autoresizingMask = [.width, .height]
         window.contentView = rootViewController.view
+        window.setFrameAutosaveName("MainWindow")
 
         self.rootViewController = rootViewController
         self.configStore = resolvedConfigStore
@@ -220,6 +221,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func copyFocusedPanePath(_ sender: Any?) {
+        handle(.copyFocusedPanePath)
+    }
+
+    @objc
     func splitRight(_ sender: Any?) {
         splitHorizontally(sender)
     }
@@ -241,6 +247,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     var settingsWindow: NSWindow? {
         settingsWindowController?.window
+    }
+
+    func navigateToPane(workspaceID: WorkspaceID, paneID: PaneID) {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        rootViewController.navigateToPane(workspaceID: workspaceID, paneID: paneID)
     }
 
     var workspaceTitles: [String] {

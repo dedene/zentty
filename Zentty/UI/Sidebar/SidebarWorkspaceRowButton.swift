@@ -27,18 +27,28 @@ final class SidebarWorkspaceRowButton: NSButton {
     private var panePrimaryRows: [SidebarPanePrimaryRowView] = []
     private var paneDetailLabels: [SidebarStaticLabel] = []
     private var paneStatusRows: [SidebarPaneTextRowView] = []
+    private var paneRowButtons: [SidebarPaneRowButton] = []
     private var currentSummary: WorkspaceSidebarSummary?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var currentStatusSymbolName = ""
     private var isHovered = false
+    private var isPaneRowHovered = false
     private var trackingArea: NSTrackingArea?
     private var heightConstraint: NSLayoutConstraint?
     private var isWorking = false
     private let reducedMotionProvider: () -> Bool
 
+    var onPaneSelected: ((PaneID) -> Void)?
+    var onCloseWorkspaceRequested: ((PaneID) -> Void)?
+    var onClosePaneRequested: ((PaneID) -> Void)?
+    var onSplitHorizontalRequested: ((PaneID) -> Void)?
+    var onSplitVerticalRequested: ((PaneID) -> Void)?
+
     init(
         workspaceID: WorkspaceID?,
-        reducedMotionProvider: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+        reducedMotionProvider: @escaping () -> Bool = {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
     ) {
         self.workspaceID = workspaceID
         self.reducedMotionProvider = reducedMotionProvider
@@ -124,8 +134,11 @@ final class SidebarWorkspaceRowButton: NSButton {
 
         NSLayoutConstraint.activate([
             primaryBaseLabel.topAnchor.constraint(equalTo: primaryTextContainer.topAnchor),
-            primaryBaseLabel.leadingAnchor.constraint(equalTo: primaryTextContainer.leadingAnchor, constant: Layout.primaryTextLeadingInset),
-            primaryBaseLabel.trailingAnchor.constraint(equalTo: primaryTextContainer.trailingAnchor),
+            primaryBaseLabel.leadingAnchor.constraint(
+                equalTo: primaryTextContainer.leadingAnchor,
+                constant: Layout.primaryTextLeadingInset),
+            primaryBaseLabel.trailingAnchor.constraint(
+                equalTo: primaryTextContainer.trailingAnchor),
             primaryBaseLabel.bottomAnchor.constraint(equalTo: primaryTextContainer.bottomAnchor),
             primaryLabel.topAnchor.constraint(equalTo: primaryTextContainer.topAnchor),
             primaryLabel.leadingAnchor.constraint(equalTo: primaryTextContainer.leadingAnchor),
@@ -150,19 +163,43 @@ final class SidebarWorkspaceRowButton: NSButton {
         textStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(textStack)
 
-        let heightConstraint = heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight)
+        let heightConstraint = heightAnchor.constraint(
+            equalToConstant: ShellMetrics.sidebarCompactRowHeight)
         self.heightConstraint = heightConstraint
 
         NSLayoutConstraint.activate([
             heightConstraint,
-            textStack.topAnchor.constraint(equalTo: topAnchor, constant: ShellMetrics.sidebarRowTopInset),
-            textStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset),
-            textStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.contentInset),
-            textStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -ShellMetrics.sidebarRowBottomInset),
-            primaryTextContainer.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarPrimaryLineHeight),
-            statusTextContainer.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarStatusLineHeight),
-            statusContentStack.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarStatusLineHeight),
+            textStack.topAnchor.constraint(
+                equalTo: topAnchor, constant: ShellMetrics.sidebarRowTopInset),
+            textStack.leadingAnchor.constraint(
+                equalTo: leadingAnchor, constant: Layout.contentInset),
+            textStack.trailingAnchor.constraint(
+                equalTo: trailingAnchor, constant: -Layout.contentInset),
+            textStack.bottomAnchor.constraint(
+                equalTo: bottomAnchor, constant: -ShellMetrics.sidebarRowBottomInset),
+            primaryTextContainer.heightAnchor.constraint(
+                equalToConstant: ShellMetrics.sidebarPrimaryLineHeight),
+            statusTextContainer.heightAnchor.constraint(
+                equalToConstant: ShellMetrics.sidebarStatusLineHeight),
+            statusContentStack.heightAnchor.constraint(
+                equalToConstant: ShellMetrics.sidebarStatusLineHeight),
         ])
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let activePaneCount = currentSummary?.paneRows.count ?? 0
+        for paneButton in paneRowButtons.prefix(activePaneCount) where paneButton.superview != nil {
+            let localPoint = paneButton.convert(point, from: self)
+            if paneButton.bounds.contains(localPoint) {
+                return paneButton
+            }
+        }
+        return super.hitTest(point)
+    }
+
+    func paneRowHoverChanged(isHovered: Bool) {
+        isPaneRowHovered = isHovered
+        applyCurrentAppearance(animated: true)
     }
 
     override func updateTrackingAreas() {
@@ -207,16 +244,19 @@ final class SidebarWorkspaceRowButton: NSButton {
         if summary.paneRows.isEmpty {
             primaryBaseLabel.stringValue = summary.primaryText
             primaryLabel.stringValue = summary.primaryText
-            let statusCopy = summary.statusText
+            let statusCopy =
+                summary.statusText
                 ?? summary.interactionLabel
                 ?? summary.interactionKind?.defaultLabel
                 ?? ""
             statusBaseLabel.stringValue = statusCopy
             statusLabel.stringValue = statusCopy
-            currentStatusSymbolName = summary.interactionSymbolName
+            currentStatusSymbolName =
+                summary.interactionSymbolName
                 ?? summary.interactionKind?.defaultSymbolName
                 ?? ""
-            statusIconView.image = currentStatusSymbolName.isEmpty
+            statusIconView.image =
+                currentStatusSymbolName.isEmpty
                 ? nil
                 : NSImage(systemSymbolName: currentStatusSymbolName, accessibilityDescription: nil)?
                     .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
@@ -234,9 +274,12 @@ final class SidebarWorkspaceRowButton: NSButton {
         }
 
         textStack.setViews(
-            layout.visibleTextRows.map(label(for:)),
+            groupedViews(for: layout),
             in: .top
         )
+        for button in paneRowButtons where button.superview == textStack {
+            button.widthAnchor.constraint(equalTo: textStack.widthAnchor).isActive = true
+        }
         heightConstraint?.constant = layout.rowHeight
 
         applyCurrentAppearance(animated: animated)
@@ -282,6 +325,11 @@ final class SidebarWorkspaceRowButton: NSButton {
             )
         }
 
+        while paneRowButtons.count < paneRows.count {
+            let button = SidebarPaneRowButton()
+            paneRowButtons.append(button)
+        }
+
         for (index, paneRow) in paneRows.enumerated() {
             panePrimaryRows[index].configure(
                 primaryText: paneRow.primaryText,
@@ -296,6 +344,29 @@ final class SidebarWorkspaceRowButton: NSButton {
                 symbolName: paneRow.interactionSymbolName
                     ?? paneRow.interactionKind?.defaultSymbolName
             )
+
+            let button = paneRowButtons[index]
+            button.paneID = paneRow.paneID
+            button.isLastPaneInWorkspace = paneRows.count == 1
+            button.setAccessibilityLabel(paneRow.primaryText)
+            button.onPaneClicked = { [weak self] paneID in
+                self?.onPaneSelected?(paneID)
+            }
+            button.onCloseWorkspace = { [weak self] paneID in
+                self?.onCloseWorkspaceRequested?(paneID)
+            }
+            button.onClosePane = { [weak self] paneID in
+                self?.onClosePaneRequested?(paneID)
+            }
+            button.onSplitHorizontal = { [weak self] paneID in
+                self?.onSplitHorizontalRequested?(paneID)
+            }
+            button.onSplitVertical = { [weak self] paneID in
+                self?.onSplitVerticalRequested?(paneID)
+            }
+            button.onHoverChanged = { [weak self] isHovered in
+                self?.paneRowHoverChanged(isHovered: isHovered)
+            }
         }
     }
 
@@ -315,7 +386,8 @@ final class SidebarWorkspaceRowButton: NSButton {
             activeTextColor: activeTextColor,
             inactiveTextColor: inactiveTextColor
         )
-        overflowLabel.textColor = summary.isActive
+        overflowLabel.textColor =
+            summary.isActive
             ? activeTextColor.withAlphaComponent(0.54)
             : currentTheme.tertiaryText
 
@@ -326,7 +398,8 @@ final class SidebarWorkspaceRowButton: NSButton {
                 inactiveTextColor: inactiveTextColor
             )
             statusBaseLabel.textColor = statusTextColor(for: summary)
-            statusIconView.contentTintColor = statusBaseLabel.textColor ?? currentTheme.secondaryText
+            statusIconView.contentTintColor =
+                statusBaseLabel.textColor ?? currentTheme.secondaryText
 
             for (index, detailLabel) in detailLabels.enumerated() {
                 guard summary.detailLines.indices.contains(index) else {
@@ -346,23 +419,31 @@ final class SidebarWorkspaceRowButton: NSButton {
             )
         }
 
+        let paneRowHoverColor = currentTheme.sidebarButtonHoverBackground.withAlphaComponent(0.5)
+        for button in paneRowButtons {
+            button.updateTheme(hoverColor: paneRowHoverColor)
+        }
+
         let activeBackground = currentTheme.sidebarButtonActiveBackground
         let hoverBackground = currentTheme.sidebarButtonHoverBackground
         let inactiveBackground = currentTheme.sidebarButtonInactiveBackground
         let activeBorder = currentTheme.sidebarButtonActiveBorder
-        let inactiveBorder = currentTheme.sidebarButtonInactiveBorder.withAlphaComponent(isHovered ? 0.16 : 0.10)
+        let inactiveBorder = currentTheme.sidebarButtonInactiveBorder.withAlphaComponent(
+            isHovered ? 0.16 : 0.10)
 
         performThemeAnimation(animated: animated) {
             self.layer?.zPosition = summary.isActive ? 10 : 0
-            self.layer?.backgroundColor = self.backgroundColor(
-                isActive: summary.isActive,
-                activeBackground: activeBackground,
-                hoverBackground: hoverBackground,
-                inactiveBackground: inactiveBackground
-            ).cgColor
+            self.layer?.backgroundColor =
+                self.backgroundColor(
+                    isActive: summary.isActive,
+                    activeBackground: activeBackground,
+                    hoverBackground: hoverBackground,
+                    inactiveBackground: inactiveBackground
+                ).cgColor
             self.layer?.borderColor = (summary.isActive ? activeBorder : inactiveBorder).cgColor
             self.layer?.borderWidth = summary.isActive ? 0.8 : 1
-            self.layer?.shadowColor = NSColor.black.withAlphaComponent(summary.isActive ? 0.08 : 0.02).cgColor
+            self.layer?.shadowColor =
+                NSColor.black.withAlphaComponent(summary.isActive ? 0.08 : 0.02).cgColor
             self.layer?.shadowOpacity = 1
             self.layer?.shadowRadius = summary.isActive ? 12 : 4
             self.layer?.shadowOffset = CGSize(width: 0, height: -1)
@@ -380,11 +461,12 @@ final class SidebarWorkspaceRowButton: NSButton {
                 return activeBackground
             }
 
-            return activeBackground
+            return
+                activeBackground
                 .mixed(towards: currentTheme.sidebarGradientStart.brightenedForLabel, amount: 0.12)
         }
 
-        if isHovered {
+        if isHovered && !isPaneRowHovered {
             return hoverBackground
         }
 
@@ -392,7 +474,8 @@ final class SidebarWorkspaceRowButton: NSButton {
             return inactiveBackground
         }
 
-        let base = inactiveBackground
+        let base =
+            inactiveBackground
             .mixed(towards: currentTheme.sidebarGradientStart, amount: 0.18)
         return base.withAlphaComponent(currentTheme.reducedTransparency ? 0.92 : 1)
     }
@@ -414,8 +497,9 @@ final class SidebarWorkspaceRowButton: NSButton {
             activeTextColor: activeTextColor,
             inactiveTextColor: inactiveTextColor
         )
-            .withAlphaComponent(shimmerHighlightAlpha(isActive: isActive))
-        let shimmersStatus = currentSummary?.attentionState == .running
+        .withAlphaComponent(shimmerHighlightAlpha(isActive: isActive))
+        let shimmersStatus =
+            currentSummary?.attentionState == .running
             && currentSummary?.statusText == "Running"
         statusLabel.isShimmering = shimmersStatus
         statusLabel.reducedMotion = reducedMotionProvider()
@@ -424,7 +508,7 @@ final class SidebarWorkspaceRowButton: NSButton {
             activeTextColor: activeTextColor,
             inactiveTextColor: inactiveTextColor
         )
-            .withAlphaComponent(shimmerHighlightAlpha(isActive: isActive))
+        .withAlphaComponent(shimmerHighlightAlpha(isActive: isActive))
     }
 
     private func primaryTextColor(
@@ -457,8 +541,9 @@ final class SidebarWorkspaceRowButton: NSButton {
     ) {
         for (index, paneRow) in paneRows.enumerated() {
             guard panePrimaryRows.indices.contains(index),
-                  paneDetailLabels.indices.contains(index),
-                  paneStatusRows.indices.contains(index) else {
+                paneDetailLabels.indices.contains(index),
+                paneStatusRows.indices.contains(index)
+            else {
                 continue
             }
 
@@ -514,7 +599,8 @@ final class SidebarWorkspaceRowButton: NSButton {
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
-        let focusedBaseColor = (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
+        let focusedBaseColor =
+            (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
         if paneRow.isWorking {
             let emphasis = focusedBaseColor.mixed(
                 towards: workingTextHighlightColor(
@@ -535,7 +621,8 @@ final class SidebarWorkspaceRowButton: NSButton {
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
-        let focusedBaseColor = (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
+        let focusedBaseColor =
+            (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
         if paneRow.isWorking {
             let emphasis = workingTextHighlightColor(
                 isActive: currentSummary?.isActive ?? false,
@@ -557,7 +644,8 @@ final class SidebarWorkspaceRowButton: NSButton {
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
-        let focusedBaseColor = (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
+        let focusedBaseColor =
+            (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
         if paneRow.isWorking {
             let emphasis = workingTextHighlightColor(
                 isActive: currentSummary?.isActive ?? false,
@@ -602,18 +690,18 @@ final class SidebarWorkspaceRowButton: NSButton {
         inactiveTextColor: NSColor
     ) -> NSColor {
         if isActive {
-            return activeTextColor.mixed(towards: .white, amount: 0.10)
+            return .white
         }
 
-        return inactiveTextColor.mixed(towards: currentTheme.sidebarWorkingTextHighlight, amount: 0.58)
+        return inactiveTextColor.mixed(towards: .white, amount: 0.72)
     }
 
     private func shimmerHighlightAlpha(isActive: Bool) -> CGFloat {
         if currentTheme.reducedTransparency {
-            return isActive ? 0.24 : 0.18
+            return isActive ? 1.0 : 0.60
         }
 
-        return isActive ? 0.38 : 0.28
+        return isActive ? 1.0 : 0.72
     }
 
     private func statusTextColor(for summary: WorkspaceSidebarSummary) -> NSColor {
@@ -638,16 +726,19 @@ final class SidebarWorkspaceRowButton: NSButton {
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
-        let focusedBaseColor = (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
+        let focusedBaseColor =
+            (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
         switch paneRow.attentionState {
         case .needsInput:
             return NSColor.systemBlue
         case .unresolvedStop:
             return NSColor.systemOrange
         case .running:
-            return paneRow.isFocused ? focusedBaseColor.withAlphaComponent(0.74) : currentTheme.secondaryText
+            return paneRow.isFocused
+                ? focusedBaseColor.withAlphaComponent(0.74) : currentTheme.secondaryText
         case nil:
-            return paneRow.isFocused ? focusedBaseColor.withAlphaComponent(0.74) : currentTheme.secondaryText
+            return paneRow.isFocused
+                ? focusedBaseColor.withAlphaComponent(0.74) : currentTheme.secondaryText
         }
     }
 
@@ -665,6 +756,40 @@ final class SidebarWorkspaceRowButton: NSButton {
                 ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.62)
                 : currentTheme.tertiaryText
         }
+    }
+
+    private func groupedViews(for layout: SidebarWorkspaceRowLayout) -> [NSView] {
+        var views: [NSView] = []
+        var currentPaneIndex: Int?
+
+        for row in layout.visibleTextRows {
+            switch row {
+            case .panePrimary(let index):
+                if index != currentPaneIndex {
+                    currentPaneIndex = index
+                    var subViews: [NSView] = [panePrimaryRows[index]]
+                    for next in layout.visibleTextRows {
+                        switch next {
+                        case .paneDetail(let i) where i == index:
+                            subViews.append(paneDetailLabels[i])
+                        case .paneStatus(let i) where i == index:
+                            subViews.append(paneStatusRows[i])
+                        default:
+                            break
+                        }
+                    }
+                    paneRowButtons[index].setContent(subViews)
+                    views.append(paneRowButtons[index])
+                }
+            case .paneDetail, .paneStatus:
+                break
+            default:
+                currentPaneIndex = nil
+                views.append(label(for: row))
+            }
+        }
+
+        return views
     }
 
     private func label(for row: WorkspaceRowTextRow) -> NSView {
@@ -692,7 +817,8 @@ final class SidebarWorkspaceRowButton: NSButton {
 
     var detailTextsForTesting: [String] {
         if currentSummary?.paneRows.isEmpty == false {
-            return paneDetailLabels
+            return
+                paneDetailLabels
                 .prefix(currentSummary?.paneRows.count ?? 0)
                 .map(\.stringValue)
                 .filter { $0.isEmpty == false }
@@ -747,11 +873,11 @@ final class SidebarWorkspaceRowButton: NSButton {
 
     var primaryRowIndexForTesting: Int? {
         if currentSummary?.paneRows.isEmpty == false {
-            guard let firstPanePrimaryRow = panePrimaryRows.first else {
+            guard let firstPaneButton = paneRowButtons.first else {
                 return nil
             }
 
-            return textStack.arrangedSubviews.firstIndex(of: firstPanePrimaryRow)
+            return textStack.arrangedSubviews.firstIndex(of: firstPaneButton)
         }
 
         return textStack.arrangedSubviews.firstIndex(of: primaryTextContainer)
@@ -804,8 +930,11 @@ final class SidebarWorkspaceRowButton: NSButton {
 @MainActor
 private final class SidebarShimmerTextView: NSView {
     private enum Animation {
-        static let duration: CFTimeInterval = 1.05
+        static let velocity: CGFloat = 130      // pts/sec — constant across all widths
+        static let bandWidth: CGFloat = 48
         static let frameInterval: TimeInterval = 1.0 / 30.0
+        static let pauseMin: CFTimeInterval = 3.5
+        static let pauseMax: CFTimeInterval = 5.5
     }
 
     private static let textLeadingInset: CGFloat = 0
@@ -870,8 +999,10 @@ private final class SidebarShimmerTextView: NSView {
     }
 
     private var shimmerTimer: Timer?
-    private var shimmerStartTime: CFTimeInterval?
+    private var shimmerCycleStart: CFTimeInterval = 0
+    private var shimmerPauseDuration: CFTimeInterval = 0
     private var shimmerProgress: CGFloat = 0
+    private var shimmerInSweep = false
     private var cachedWidth: CGFloat = -1
     private var cachedStringValue = ""
     private var cachedFont: NSFont?
@@ -924,6 +1055,13 @@ private final class SidebarShimmerTextView: NSView {
         shimmerTimer = nil
     }
 
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview != nil && isShimmering && !reducedMotion && shimmerTimer == nil {
+            restartTimer()
+        }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
@@ -934,7 +1072,7 @@ private final class SidebarShimmerTextView: NSView {
             return
         }
 
-        guard isShimmering else {
+        guard isShimmering, shimmerInSweep else {
             return
         }
 
@@ -950,7 +1088,7 @@ private final class SidebarShimmerTextView: NSView {
         layout: LayoutSnapshot
     ) {
         let availableWidth = max(0, bounds.width - Self.textLeadingInset)
-        let bandWidth = max(32, min(availableWidth * 0.7, max(layout.width * 0.9, 32)))
+        let bandWidth = Animation.bandWidth
         let originX: CGFloat
         if reducedMotion {
             originX = Self.textLeadingInset + (availableWidth / 2) - (bandWidth / 2)
@@ -959,15 +1097,17 @@ private final class SidebarShimmerTextView: NSView {
             originX = Self.textLeadingInset - bandWidth + (travel * shimmerProgress)
         }
 
-        guard let gradient = CGGradient(
-            colorsSpace: CGColorSpaceCreateDeviceRGB(),
-            colors: [
-                shimmerColor.withAlphaComponent(0).cgColor,
-                shimmerColor.cgColor,
-                shimmerColor.withAlphaComponent(0).cgColor,
-            ] as CFArray,
-            locations: [0, 0.5, 1]
-        ) else {
+        guard
+            let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: [
+                    shimmerColor.withAlphaComponent(0).cgColor,
+                    shimmerColor.cgColor,
+                    shimmerColor.withAlphaComponent(0).cgColor,
+                ] as CFArray,
+                locations: [0, 0.5, 1]
+            )
+        else {
             return
         }
 
@@ -982,8 +1122,7 @@ private final class SidebarShimmerTextView: NSView {
             return nil
         }
 
-        if
-            let cachedLayout,
+        if let cachedLayout,
             abs(cachedWidth - width) <= .ulpOfOne,
             cachedStringValue == stringValue,
             cachedFont == font,
@@ -993,12 +1132,13 @@ private final class SidebarShimmerTextView: NSView {
         }
 
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
+            .font: font
         ]
         let line = CTLineCreateWithAttributedString(
             NSAttributedString(string: stringValue, attributes: attributes)
         )
-        let drawLine = truncatedLine(from: line, attributes: attributes, availableWidth: availableWidth)
+        let drawLine = truncatedLine(
+            from: line, attributes: attributes, availableWidth: availableWidth)
 
         var ascent: CGFloat = 0
         var descent: CGFloat = 0
@@ -1087,11 +1227,18 @@ private final class SidebarShimmerTextView: NSView {
 
         guard isShimmering, reducedMotion == false else {
             shimmerProgress = 0.5
-            shimmerStartTime = nil
+            shimmerInSweep = false
+            shimmerCycleStart = 0
             return
         }
 
-        shimmerStartTime = CACurrentMediaTime()
+        shimmerCycleStart = CACurrentMediaTime()
+        shimmerPauseDuration = .random(in: Animation.pauseMin...Animation.pauseMax)
+        shimmerInSweep = true
+        restartTimer()
+    }
+
+    private func restartTimer() {
         let timer = Timer(timeInterval: Animation.frameInterval, repeats: true) { [weak self] _ in
             guard let self else {
                 return
@@ -1106,12 +1253,28 @@ private final class SidebarShimmerTextView: NSView {
     }
 
     private func handleShimmerTick() {
-        guard let shimmerStartTime else {
+        let now = CACurrentMediaTime()
+        let travelDistance = max(1, bounds.width) + Animation.bandWidth
+        let sweepDuration = CFTimeInterval(travelDistance / Animation.velocity)
+        let cycleDuration = sweepDuration + shimmerPauseDuration
+
+        let elapsed = now - shimmerCycleStart
+
+        if elapsed >= cycleDuration {
+            shimmerCycleStart = now
+            shimmerPauseDuration = .random(in: Animation.pauseMin...Animation.pauseMax)
+            shimmerProgress = 0
+            shimmerInSweep = true
+            needsDisplay = true
             return
         }
 
-        let elapsed = CACurrentMediaTime() - shimmerStartTime
-        shimmerProgress = CGFloat((elapsed / Animation.duration).truncatingRemainder(dividingBy: 1))
+        if elapsed < sweepDuration {
+            shimmerProgress = CGFloat(elapsed / sweepDuration)
+            shimmerInSweep = true
+        } else {
+            shimmerInSweep = false
+        }
         needsDisplay = true
     }
 
@@ -1243,7 +1406,9 @@ private final class SidebarPanePrimaryRowView: NSView {
     ) {
         self.primaryColor = primaryColor
         self.trailingColor = trailingColor
-        baseLabel.textColor = primaryColor
+        baseLabel.textColor = isShimmering
+            ? primaryColor.withAlphaComponent(primaryColor.alphaComponent * 0.90)
+            : primaryColor
         trailingLabelView.textColor = trailingColor
         shimmerLabel.isShimmering = isShimmering
         shimmerLabel.reducedMotion = reducedMotion
@@ -1343,10 +1508,204 @@ private final class SidebarPaneTextRowView: NSView {
         reducedMotion: Bool
     ) {
         self.textColor = textColor
-        baseLabel.textColor = textColor
-        iconView.contentTintColor = textColor
+        let dimmedColor = isShimmering
+            ? textColor.withAlphaComponent(textColor.alphaComponent * 0.90)
+            : textColor
+        baseLabel.textColor = dimmedColor
+        iconView.contentTintColor = dimmedColor
         shimmerLabel.isShimmering = isShimmering
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor
+    }
+}
+
+@MainActor
+private final class SidebarPaneRowButton: NSButton {
+    var paneID = PaneID("")
+    var isLastPaneInWorkspace = false
+    var onPaneClicked: ((PaneID) -> Void)?
+    var onHoverChanged: ((Bool) -> Void)?
+    var onCloseWorkspace: ((PaneID) -> Void)?
+    var onClosePane: ((PaneID) -> Void)?
+    var onSplitHorizontal: ((PaneID) -> Void)?
+    var onSplitVertical: ((PaneID) -> Void)?
+
+    private let contentStack = NSStackView()
+    private var isHovered = false
+    private var trackingArea: NSTrackingArea?
+    private var hoverBackgroundColor: NSColor = .clear
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var allowsVibrancy: Bool {
+        false
+    }
+
+    private func setup() {
+        isBordered = false
+        bezelStyle = .regularSquare
+        title = ""
+        image = nil
+        wantsLayer = true
+        layer?.cornerRadius = 4
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
+        translatesAutoresizingMaskIntoConstraints = false
+        setButtonType(.momentaryChange)
+
+        contentStack.orientation = .vertical
+        contentStack.spacing = ShellMetrics.sidebarRowInterlineSpacing
+        contentStack.alignment = .leading
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        addSubview(contentStack)
+
+        NSLayoutConstraint.activate([
+            contentStack.topAnchor.constraint(
+                equalTo: topAnchor, constant: ShellMetrics.sidebarPaneButtonVerticalInset),
+            contentStack.leadingAnchor.constraint(
+                equalTo: leadingAnchor, constant: ShellMetrics.sidebarPaneButtonHorizontalInset),
+            contentStack.trailingAnchor.constraint(
+                equalTo: trailingAnchor, constant: -ShellMetrics.sidebarPaneButtonHorizontalInset),
+            contentStack.bottomAnchor.constraint(
+                equalTo: bottomAnchor, constant: -ShellMetrics.sidebarPaneButtonVerticalInset),
+        ])
+
+        target = self
+        action = #selector(handleClick)
+    }
+
+    @objc private func handleClick() {
+        onPaneClicked?(paneID)
+    }
+
+    func setContent(_ views: [NSView]) {
+        contentStack.setViews(views, in: .top)
+    }
+
+    func updateTheme(hoverColor: NSColor) {
+        hoverBackgroundColor = hoverColor
+        updateHoverAppearance()
+    }
+
+    // MARK: - Cursor
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    // MARK: - Hover
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        updateHoverAppearance()
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        updateHoverAppearance()
+        onHoverChanged?(false)
+    }
+
+    override var isHighlighted: Bool {
+        didSet {
+            updateHoverAppearance()
+        }
+    }
+
+    private func updateHoverAppearance() {
+        let color: NSColor
+        if isHighlighted {
+            color = hoverBackgroundColor.withAlphaComponent(0.7)
+        } else if isHovered {
+            color = hoverBackgroundColor
+        } else {
+            color = .clear
+        }
+        layer?.backgroundColor = color.cgColor
+    }
+
+    // MARK: - Context Menu
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+
+        let closeWorkspaceItem = NSMenuItem(
+            title: "Close Workspace",
+            action: #selector(handleCloseWorkspace),
+            keyEquivalent: ""
+        )
+        closeWorkspaceItem.target = self
+        menu.addItem(closeWorkspaceItem)
+
+        if !isLastPaneInWorkspace {
+            let closePaneItem = NSMenuItem(
+                title: "Close Pane",
+                action: #selector(handleClosePane),
+                keyEquivalent: ""
+            )
+            closePaneItem.target = self
+            menu.addItem(closePaneItem)
+        }
+
+        menu.addItem(NSMenuItem.separator())
+
+        let splitHItem = NSMenuItem(
+            title: "Split Horizontal",
+            action: #selector(handleSplitHorizontal),
+            keyEquivalent: ""
+        )
+        splitHItem.target = self
+        menu.addItem(splitHItem)
+
+        let splitVItem = NSMenuItem(
+            title: "Split Vertical",
+            action: #selector(handleSplitVertical),
+            keyEquivalent: ""
+        )
+        splitVItem.target = self
+        menu.addItem(splitVItem)
+
+        return menu
+    }
+
+    @objc private func handleCloseWorkspace() {
+        onCloseWorkspace?(paneID)
+    }
+
+    @objc private func handleClosePane() {
+        onClosePane?(paneID)
+    }
+
+    @objc private func handleSplitHorizontal() {
+        onSplitHorizontal?(paneID)
+    }
+
+    @objc private func handleSplitVertical() {
+        onSplitVertical?(paneID)
     }
 }
