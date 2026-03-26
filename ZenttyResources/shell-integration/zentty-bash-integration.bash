@@ -89,6 +89,10 @@ _zentty_bash_original_prompt_command="${ZENTTY_BASH_ORIGINAL_PROMPT_COMMAND:-}"
 _zentty_bash_prompt_hook() {
     _zentty_ensure_wrapper_path
     _zentty_apply_initial_working_directory
+    # Reset kitty keyboard protocol if a program enabled it and exited
+    # without disabling it (e.g., Ctrl+C killing Claude Code). The pop
+    # is a no-op when the enhancement stack is already empty.
+    printf '\e[<u'
     _zentty_agent_signal shell-state prompt
     _zentty_emit_pane_context
     if [[ -n "$_zentty_bash_original_prompt_command" ]]; then
