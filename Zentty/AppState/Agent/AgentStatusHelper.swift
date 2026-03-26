@@ -4,8 +4,12 @@ import Foundation
 enum AgentStatusHelper {
     static func runIfNeeded(arguments: [String], environment: [String: String]) -> Int32? {
         let subcommand = arguments.dropFirst().first
-        guard subcommand == "agent-status" || subcommand == "agent-signal" else {
+        guard subcommand == "agent-status" || subcommand == "agent-signal" || subcommand == "codex-hook" else {
             return nil
+        }
+
+        if subcommand == "codex-hook" {
+            return CodexHookBridge.runIfNeeded(arguments: arguments, environment: environment)
         }
 
         do {
@@ -126,5 +130,169 @@ enum AgentStatusHelper {
         }
 
         return directoryURL.path
+    }
+}
+
+struct CodexHookInput {
+    let hookEventName: String
+    let sessionID: String?
+    let cwd: String?
+    let lastAssistantMessage: String?
+}
+
+enum CodexHookBridge {
+    static func runIfNeeded(arguments: [String], environment: [String: String]) -> Int32? {
+        guard arguments.dropFirst().first == "codex-hook" else {
+            return nil
+        }
+
+        let rawSubcommand = arguments.dropFirst(2).first
+        let defaultHookEventName = mappedHookEventName(from: rawSubcommand)
+
+        do {
+            let input = try parseInput(
+                readStandardInput(),
+                defaultHookEventName: defaultHookEventName
+            )
+            guard currentTargetIfAvailable(from: environment) != nil else {
+                print("{}")
+                return EXIT_SUCCESS
+            }
+
+            for payload in try makePayloads(from: input, environment: environment) {
+                AgentStatusHelper.post(payload)
+            }
+            print("{}")
+            return EXIT_SUCCESS
+        } catch {
+            AgentStatusHelper.writeError(error)
+            return EXIT_FAILURE
+        }
+    }
+
+    static func parseInput(
+        _ data: Data,
+        defaultHookEventName: String? = nil
+    ) throws -> CodexHookInput {
+        let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
+        let hookEventName = firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"])
+            ?? defaultHookEventName
+
+        guard let hookEventName else {
+            throw AgentStatusPayloadError.invalidHookPayload
+        }
+
+        return CodexHookInput(
+            hookEventName: hookEventName,
+            sessionID: firstString(in: jsonObject, keys: ["session_id", "sessionId"]),
+            cwd: firstString(in: jsonObject, keys: ["cwd", "current_working_directory", "currentWorkingDirectory"]),
+            lastAssistantMessage: firstString(
+                in: jsonObject,
+                keys: ["last_assistant_message", "lastAssistantMessage", "message", "body", "text"]
+            )
+        )
+    }
+
+    static func makePayloads(
+        from input: CodexHookInput,
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        let target = try currentTarget(from: environment)
+
+        switch input.hookEventName {
+        case "SessionStart":
+            return []
+        case "UserPromptSubmit":
+            return [
+                lifecyclePayload(
+                    workspaceID: target.workspaceID,
+                    paneID: target.paneID,
+                    state: .running,
+                    sessionID: input.sessionID
+                ),
+            ]
+        case "Stop":
+            return [
+                lifecyclePayload(
+                    workspaceID: target.workspaceID,
+                    paneID: target.paneID,
+                    state: .idle,
+                    sessionID: input.sessionID
+                ),
+            ]
+        default:
+            return []
+        }
+    }
+
+    private static func mappedHookEventName(from rawSubcommand: String?) -> String? {
+        switch rawSubcommand?.lowercased() {
+        case "session-start":
+            return "SessionStart"
+        case "prompt-submit":
+            return "UserPromptSubmit"
+        case "stop":
+            return "Stop"
+        default:
+            return nil
+        }
+    }
+
+    private static func currentTarget(from environment: [String: String]) throws -> (workspaceID: WorkspaceID, paneID: PaneID) {
+        guard let workspaceID = environment["ZENTTY_WORKSPACE_ID"] else {
+            throw AgentStatusPayloadError.missingWorkspaceID
+        }
+        guard let paneID = environment["ZENTTY_PANE_ID"] else {
+            throw AgentStatusPayloadError.missingPaneID
+        }
+        return (WorkspaceID(workspaceID), PaneID(paneID))
+    }
+
+    private static func currentTargetIfAvailable(from environment: [String: String]) -> (workspaceID: WorkspaceID, paneID: PaneID)? {
+        guard let workspaceID = environment["ZENTTY_WORKSPACE_ID"],
+              let paneID = environment["ZENTTY_PANE_ID"] else {
+            return nil
+        }
+        return (WorkspaceID(workspaceID), PaneID(paneID))
+    }
+
+    private static func lifecyclePayload(
+        workspaceID: WorkspaceID,
+        paneID: PaneID,
+        state: PaneAgentState,
+        sessionID: String?
+    ) -> AgentStatusPayload {
+        AgentStatusPayload(
+            workspaceID: workspaceID,
+            paneID: paneID,
+            signalKind: .lifecycle,
+            state: state,
+            origin: .explicitHook,
+            toolName: AgentTool.codex.displayName,
+            text: nil,
+            lifecycleEvent: .update,
+            confidence: .explicit,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+    }
+
+    private static func readStandardInput() -> Data {
+        FileHandle.standardInput.readDataToEndOfFile()
+    }
+
+    private static func firstString(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = object[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+
+        return nil
     }
 }

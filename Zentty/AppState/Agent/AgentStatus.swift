@@ -102,12 +102,98 @@ enum PaneInteractionState: String, Equatable, Sendable {
     case awaitingHuman = "awaiting-human"
 }
 
+enum PaneAgentInteractionKind: String, Equatable, Sendable {
+    case none
+    case approval
+    case question
+    case decision
+    case auth
+    case genericInput = "generic-input"
+
+    var requiresHumanAttention: Bool {
+        self != .none
+    }
+
+    var statusLabel: String {
+        switch self {
+        case .none:
+            return "Needs input"
+        case .approval:
+            return "Needs approval"
+        case .question:
+            return "Question"
+        case .decision:
+            return "Needs decision"
+        case .auth:
+            return "Needs sign-in"
+        case .genericInput:
+            return "Needs input"
+        }
+    }
+
+    var symbolName: String? {
+        switch self {
+        case .none:
+            return nil
+        case .approval:
+            return "checkmark.shield"
+        case .question:
+            return "questionmark.circle"
+        case .decision:
+            return "list.bullet"
+        case .auth:
+            return "key.fill"
+        case .genericInput:
+            return "ellipsis.circle"
+        }
+    }
+
+    var priority: Int {
+        switch self {
+        case .approval:
+            return 5
+        case .question:
+            return 4
+        case .decision:
+            return 3
+        case .auth:
+            return 2
+        case .genericInput:
+            return 1
+        case .none:
+            return 0
+        }
+    }
+}
+
+enum AgentSignalConfidence: String, Equatable, Sendable {
+    case weak
+    case strong
+    case explicit
+
+    var priority: Int {
+        switch self {
+        case .explicit:
+            return 2
+        case .strong:
+            return 1
+        case .weak:
+            return 0
+        }
+    }
+}
+
+enum AgentLifecycleEvent: String, Equatable, Sendable {
+    case update
+    case stopCandidate = "stop-candidate"
+}
+
 enum PaneAgentState: String, Equatable, Sendable {
     case starting = "starting"
     case running = "running"
     case needsInput = "needs-input"
     case unresolvedStop = "unresolved-stop"
-    case completed = "completed"
+    case idle = "idle"
 
     var defaultStatusText: String {
         switch self {
@@ -119,8 +205,8 @@ enum PaneAgentState: String, Equatable, Sendable {
             return "Needs input"
         case .unresolvedStop:
             return "Stopped early"
-        case .completed:
-            return "Completed"
+        case .idle:
+            return "Idle"
         }
     }
 
@@ -134,7 +220,7 @@ enum PaneAgentState: String, Equatable, Sendable {
             return 3
         case .running:
             return 2
-        case .completed:
+        case .idle:
             return 1
         }
     }
@@ -149,7 +235,6 @@ enum WorkspaceAttentionState: String, Equatable, Sendable {
     case needsInput
     case unresolvedStop
     case running
-    case completed
 }
 
 enum WorkspaceArtifactKind: String, Equatable, Sendable {
@@ -189,9 +274,14 @@ struct PaneAgentStatus: Equatable, Sendable {
     var source: PaneAgentStatusSource
     var origin: AgentSignalOrigin
     var interactionState: PaneInteractionState
+    var interactionKind: PaneAgentInteractionKind
+    var confidence: AgentSignalConfidence
     var shellActivityState: PaneShellActivityState
     var trackedPID: Int32?
     var workingDirectory: String?
+    var hasObservedRunning: Bool
+    var sessionID: String?
+    var parentSessionID: String?
 
     init(
         tool: AgentTool,
@@ -202,9 +292,14 @@ struct PaneAgentStatus: Equatable, Sendable {
         source: PaneAgentStatusSource = .explicit,
         origin: AgentSignalOrigin = .compatibility,
         interactionState: PaneInteractionState? = nil,
+        interactionKind: PaneAgentInteractionKind? = nil,
+        confidence: AgentSignalConfidence? = nil,
         shellActivityState: PaneShellActivityState = .unknown,
         trackedPID: Int32? = nil,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        hasObservedRunning: Bool? = nil,
+        sessionID: String? = nil,
+        parentSessionID: String? = nil
     ) {
         self.tool = tool
         self.state = state
@@ -213,10 +308,16 @@ struct PaneAgentStatus: Equatable, Sendable {
         self.updatedAt = updatedAt
         self.source = source
         self.origin = origin
-        self.interactionState = interactionState ?? (state == .needsInput ? .awaitingHuman : .none)
+        let resolvedInteractionKind = interactionKind ?? (state == .needsInput ? .genericInput : .none)
+        self.interactionKind = resolvedInteractionKind
+        self.interactionState = interactionState ?? (resolvedInteractionKind.requiresHumanAttention ? .awaitingHuman : .none)
+        self.confidence = confidence ?? Self.defaultConfidence(for: origin)
         self.shellActivityState = shellActivityState
         self.trackedPID = trackedPID
         self.workingDirectory = workingDirectory
+        self.hasObservedRunning = hasObservedRunning ?? Self.defaultHasObservedRunning(for: state)
+        self.sessionID = sessionID
+        self.parentSessionID = parentSessionID
     }
 
     init(
@@ -245,6 +346,42 @@ struct PaneAgentStatus: Equatable, Sendable {
     var requiresHumanAttention: Bool {
         interactionState == .awaitingHuman
     }
+
+    var statusLabel: String {
+        if state == .needsInput {
+            return interactionKind.statusLabel
+        }
+
+        return state.defaultStatusText
+    }
+
+    var statusSymbolName: String? {
+        if state == .needsInput {
+            return interactionKind.symbolName
+        }
+
+        return nil
+    }
+
+    private static func defaultConfidence(for origin: AgentSignalOrigin) -> AgentSignalConfidence {
+        switch origin {
+        case .explicitHook, .explicitAPI:
+            return .explicit
+        case .heuristic, .compatibility:
+            return .strong
+        case .shell, .inferred:
+            return .weak
+        }
+    }
+
+    private static func defaultHasObservedRunning(for state: PaneAgentState) -> Bool {
+        switch state {
+        case .running, .needsInput, .unresolvedStop:
+            return true
+        case .starting, .idle:
+            return false
+        }
+    }
 }
 
 extension PaneAgentState {
@@ -258,8 +395,8 @@ extension PaneAgentState {
             return .unresolvedStop
         case .running:
             return .running
-        case .completed:
-            return .completed
+        case .idle:
+            return nil
         }
     }
 }
@@ -268,17 +405,46 @@ struct WorkspaceAttentionSummary: Equatable, Sendable {
     let paneID: PaneID
     let tool: AgentTool
     let state: WorkspaceAttentionState
+    let interactionKind: PaneInteractionKind?
+    let interactionLabel: String?
     let primaryText: String
     let statusText: String
     let contextText: String
     let artifactLink: WorkspaceArtifactLink?
+    let interactionSymbolName: String?
     let updatedAt: Date
+
+    init(
+        paneID: PaneID,
+        tool: AgentTool,
+        state: WorkspaceAttentionState,
+        interactionKind: PaneInteractionKind? = nil,
+        interactionLabel: String? = nil,
+        primaryText: String,
+        statusText: String,
+        contextText: String,
+        artifactLink: WorkspaceArtifactLink?,
+        interactionSymbolName: String? = nil,
+        updatedAt: Date
+    ) {
+        self.paneID = paneID
+        self.tool = tool
+        self.state = state
+        self.interactionKind = interactionKind
+        self.interactionLabel = interactionLabel
+        self.primaryText = primaryText
+        self.statusText = statusText
+        self.contextText = contextText
+        self.artifactLink = artifactLink
+        self.interactionSymbolName = interactionSymbolName
+        self.updatedAt = updatedAt
+    }
 
     var requiresHumanAttention: Bool {
         switch state {
         case .needsInput, .unresolvedStop:
             return true
-        case .running, .completed:
+        case .running:
             return false
         }
     }

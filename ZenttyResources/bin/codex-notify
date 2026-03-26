@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+set -u
+
+read_payload() {
+    local payload="${1:-}"
+
+    if [[ -n "$payload" ]]; then
+        printf '%s' "$payload"
+        return
+    fi
+
+    if [[ ! -t 0 ]]; then
+        cat
+    fi
+}
+
+extract_session_id() {
+    local payload="${1:-}"
+
+    /usr/bin/python3 - "$payload" <<'PY'
+import json
+import sys
+
+try:
+    payload = json.loads(sys.argv[1] or "{}")
+except Exception:
+    sys.exit(0)
+
+for key in ("session_id", "sessionId"):
+    value = payload.get(key)
+    if isinstance(value, str) and value.strip():
+        print(value.strip())
+        break
+PY
+}
+
+notify_agent() {
+    local payload
+    local session_id
+    payload="$(read_payload "${1:-}")"
+    [[ "${ZENTTY_SHELL_INTEGRATION:-1}" != "0" ]] || return 0
+    [[ "$payload" == *"agent-turn-complete"* ]] || return 0
+    [[ -n "${ZENTTY_AGENT_BIN:-}" ]] || return 0
+    [[ -x "${ZENTTY_AGENT_BIN}" ]] || return 0
+    [[ -n "${ZENTTY_WORKSPACE_ID:-}" ]] || return 0
+    [[ -n "${ZENTTY_PANE_ID:-}" ]] || return 0
+
+    session_id="$(extract_session_id "$payload")"
+
+    local -a command=(
+        "$ZENTTY_AGENT_BIN"
+        agent-signal
+        lifecycle
+        idle
+        --origin
+        explicit-api
+        --tool
+        Codex
+    )
+    if [[ -n "$session_id" ]]; then
+        command+=(--session-id "$session_id")
+    fi
+
+    "${command[@]}" >/dev/null 2>&1 || true
+}
+
+notify_agent "${1:-}"

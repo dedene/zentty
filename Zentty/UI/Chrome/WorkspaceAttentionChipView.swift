@@ -1,14 +1,46 @@
 import AppKit
 
+struct WorkspaceAttentionChipPresentation: Equatable {
+    var statusText: String?
+    var toolText: String
+    var artifactLabel: String?
+    var artifactURL: URL?
+    var interactionKind: PaneInteractionKind?
+    var interactionLabel: String?
+    var interactionSymbolName: String?
+
+    init(
+        statusText: String?,
+        toolText: String,
+        artifactLabel: String?,
+        artifactURL: URL?,
+        interactionKind: PaneInteractionKind? = nil,
+        interactionLabel: String? = nil,
+        interactionSymbolName: String? = nil
+    ) {
+        self.statusText = statusText
+        self.toolText = toolText
+        self.artifactLabel = artifactLabel
+        self.artifactURL = artifactURL
+        self.interactionKind = interactionKind
+        self.interactionLabel = interactionLabel
+        self.interactionSymbolName = interactionSymbolName
+    }
+}
+
 @MainActor
 final class WorkspaceAttentionChipView: NSView {
     private static let horizontalPadding: CGFloat = 10
+    private static let symbolPointSize: CGFloat = 11
+
+    private let stateIconView = NSImageView()
     private let stateLabel = NSTextField(labelWithString: "")
     private let toolLabel = NSTextField(labelWithString: "")
     private let artifactButton = NSButton(title: "", target: nil, action: nil)
     private let stackView = NSStackView()
     private var artifactURL: URL?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var currentStateSymbolName = ""
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -25,6 +57,11 @@ final class WorkspaceAttentionChipView: NSView {
         layer?.cornerRadius = ChromeGeometry.pillRadius
         layer?.cornerCurve = .continuous
         layer?.borderWidth = 1
+
+        stateIconView.translatesAutoresizingMaskIntoConstraints = false
+        stateIconView.imageScaling = .scaleProportionallyDown
+        stateIconView.setContentHuggingPriority(.required, for: .horizontal)
+        stateIconView.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         stateLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         toolLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
@@ -62,28 +99,66 @@ final class WorkspaceAttentionChipView: NSView {
         ])
 
         apply(theme: currentTheme, animated: false)
-        render(attention: nil)
+        render(presentation: nil)
     }
 
     func render(attention: WorkspaceAttentionSummary?) {
         guard let attention else {
+            render(presentation: nil)
+            return
+        }
+
+        guard attention.requiresHumanAttention else {
             isHidden = true
             return
         }
 
-        isHidden = !attention.requiresHumanAttention
-        guard !isHidden else {
+        render(
+            presentation: WorkspaceAttentionChipPresentation(
+                statusText: attention.statusText,
+                toolText: attention.primaryText,
+                artifactLabel: attention.artifactLink?.label,
+                artifactURL: attention.artifactLink?.url,
+                interactionKind: attention.interactionKind,
+                interactionLabel: attention.interactionLabel,
+                interactionSymbolName: attention.interactionSymbolName
+            )
+        )
+    }
+
+    func render(presentation: WorkspaceAttentionChipPresentation?) {
+        guard let presentation else {
+            isHidden = true
+            artifactURL = nil
+            currentStateSymbolName = ""
+            stateLabel.stringValue = ""
+            toolLabel.stringValue = ""
+            artifactButton.title = ""
+            artifactButton.isHidden = true
+            stateIconView.image = nil
+            stateIconView.isHidden = true
+            stackView.setViews([], in: .leading)
             return
         }
 
-        stateLabel.stringValue = attention.statusText
-        toolLabel.stringValue = attention.primaryText
-        artifactURL = attention.artifactLink?.url
-        artifactButton.title = attention.artifactLink?.label ?? ""
-        artifactButton.isHidden = attention.artifactLink == nil
+        isHidden = false
+        stateLabel.stringValue = WorkspaceContextFormatter.trimmed(presentation.statusText)
+            ?? presentation.interactionLabel
+            ?? presentation.interactionKind?.defaultLabel
+            ?? ""
+        toolLabel.stringValue = presentation.toolText
+        artifactURL = presentation.artifactURL
+        artifactButton.title = presentation.artifactLabel ?? ""
+        artifactButton.isHidden = presentation.artifactLabel == nil
+
+        let symbolName = presentation.interactionSymbolName
+            ?? presentation.interactionKind?.defaultSymbolName
+        currentStateSymbolName = symbolName ?? ""
+        stateIconView.image = symbolName.flatMap { symbolImage(for: $0) }
+        stateIconView.isHidden = stateIconView.image == nil
 
         stackView.setViews(
-            [stateLabel, toolLabel, artifactButton].filter { !$0.isHidden },
+            [stateIconView, stateLabel, toolLabel, artifactButton].filter { !$0.isHidden },
             in: .leading
         )
     }
@@ -92,6 +167,7 @@ final class WorkspaceAttentionChipView: NSView {
         currentTheme = theme
         stateLabel.textColor = theme.primaryText
         toolLabel.textColor = theme.secondaryText
+        stateIconView.contentTintColor = theme.primaryText
         artifactButton.contentTintColor = theme.primaryText
 
         let border = theme.contextStripBorder
@@ -114,17 +190,24 @@ final class WorkspaceAttentionChipView: NSView {
     }
 
     var stateTextForTesting: String { stateLabel.stringValue }
+    var stateSymbolNameForTesting: String { currentStateSymbolName }
+    var toolTextForTesting: String { toolLabel.stringValue }
     var artifactTextForTesting: String { artifactButton.title }
     var preferredWidthForCurrentContent: CGFloat {
         guard !isHidden else {
             return 0
         }
 
-        let visibleWidths = [stateLabel, toolLabel, artifactButton]
+        let visibleWidths = [stateIconView, stateLabel, toolLabel, artifactButton]
             .filter { !$0.isHidden }
             .map(\.intrinsicContentSize.width)
         let contentWidth = visibleWidths.reduce(CGFloat.zero, +)
         let spacing = CGFloat(max(0, visibleWidths.count - 1)) * stackView.spacing
         return ceil(contentWidth + spacing + (Self.horizontalPadding * 2))
+    }
+
+    private func symbolImage(for symbolName: String) -> NSImage? {
+        NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: Self.symbolPointSize, weight: .semibold))
     }
 }

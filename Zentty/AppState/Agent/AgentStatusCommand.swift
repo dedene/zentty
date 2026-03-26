@@ -21,8 +21,8 @@ struct AgentStatusCommand {
             state = .running
         case PaneAgentState.needsInput.rawValue:
             state = .needsInput
-        case PaneAgentState.completed.rawValue:
-            state = .completed
+        case PaneAgentState.idle.rawValue, "completed":
+            state = .idle
         case "clear":
             state = nil
         default:
@@ -46,6 +46,8 @@ struct AgentStatusCommand {
                 origin: .compatibility,
                 toolName: options["tool"],
                 text: options["text"],
+                sessionID: options["session-id"],
+                parentSessionID: options["parent-session-id"],
                 artifactKind: options["artifact-kind"].flatMap(WorkspaceArtifactKind.init(rawValue:)),
                 artifactLabel: options["artifact-label"],
                 artifactURL: try parseArtifactURL(from: options["artifact-url"])
@@ -123,8 +125,8 @@ struct AgentSignalCommand {
                 state = .running
             case PaneAgentState.needsInput.rawValue:
                 state = .needsInput
-            case PaneAgentState.completed.rawValue:
-                state = .completed
+            case PaneAgentState.idle.rawValue, "completed":
+                state = .idle
             case "clear":
                 state = nil
             default:
@@ -140,6 +142,8 @@ struct AgentSignalCommand {
                     origin: origin,
                     toolName: options["tool"],
                     text: options["text"],
+                    sessionID: options["session-id"],
+                    parentSessionID: options["parent-session-id"],
                     artifactKind: options["artifact-kind"].flatMap(WorkspaceArtifactKind.init(rawValue:)),
                     artifactLabel: options["artifact-label"],
                     artifactURL: try AgentStatusCommand.parseArtifactURL(from: options["artifact-url"])
@@ -172,6 +176,8 @@ struct AgentSignalCommand {
                     origin: origin,
                     toolName: options["tool"],
                     text: nil,
+                    sessionID: options["session-id"],
+                    parentSessionID: options["parent-session-id"],
                     artifactKind: nil,
                     artifactLabel: nil,
                     artifactURL: nil
@@ -207,6 +213,8 @@ struct AgentSignalCommand {
                     origin: origin,
                     toolName: options["tool"],
                     text: nil,
+                    sessionID: options["session-id"],
+                    parentSessionID: options["parent-session-id"],
                     artifactKind: nil,
                     artifactLabel: nil,
                     artifactURL: nil
@@ -256,6 +264,8 @@ struct AgentSignalCommand {
                     origin: origin,
                     toolName: nil,
                     text: nil,
+                    sessionID: options["session-id"],
+                    parentSessionID: options["parent-session-id"],
                     artifactKind: nil,
                     artifactLabel: nil,
                     artifactURL: nil

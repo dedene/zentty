@@ -3,6 +3,41 @@ import XCTest
 @testable import Zentty
 
 final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
+    func test_summary_ignores_idle_phase() {
+        let paneID = PaneID("pane-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.presentation = PanePresentationState(
+            cwd: "/tmp/project",
+            repoRoot: "/tmp/project",
+            branch: "main",
+            branchDisplayText: "main",
+            lookupBranch: "main",
+            identityText: "Codex",
+            contextText: "main · /tmp/project",
+            rememberedTitle: "Codex",
+            recognizedTool: .codex,
+            runtimePhase: .idle,
+            statusText: "Idle",
+            pullRequest: nil,
+            reviewChips: [],
+            attentionArtifactLink: nil,
+            updatedAt: Date(timeIntervalSince1970: 42),
+            isWorking: false
+        )
+
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        XCTAssertNil(WorkspaceAttentionSummaryBuilder.summary(for: workspace))
+    }
+
     func test_summary_uses_canonical_presentation_state_instead_of_raw_agent_fallbacks() {
         let paneID = PaneID("pane-shell")
         let expectedArtifact = WorkspaceArtifactLink(
@@ -15,8 +50,8 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
         var auxiliaryState = PaneAuxiliaryState()
         auxiliaryState.agentStatus = PaneAgentStatus(
             tool: .claudeCode,
-            state: .completed,
-            text: "Completed",
+            state: .idle,
+            text: "Idle",
             artifactLink: WorkspaceArtifactLink(
                 kind: .session,
                 label: "Old session",
@@ -42,7 +77,10 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
             reviewChips: [],
             attentionArtifactLink: expectedArtifact,
             updatedAt: Date(timeIntervalSince1970: 42),
-            isWorking: false
+            isWorking: false,
+            interactionKind: .question,
+            interactionLabel: "Question",
+            interactionSymbolName: "questionmark.circle"
         )
 
         let workspace = WorkspaceState(
@@ -60,10 +98,13 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary?.paneID, paneID)
         XCTAssertEqual(summary?.tool, .codex)
         XCTAssertEqual(summary?.state, .needsInput)
+        XCTAssertEqual(summary?.interactionKind, .question)
+        XCTAssertEqual(summary?.interactionLabel, "Question")
         XCTAssertEqual(summary?.primaryText, "Test session setup")
         XCTAssertEqual(summary?.statusText, "Needs input")
         XCTAssertEqual(summary?.contextText, "main · /tmp/project")
         XCTAssertEqual(summary?.artifactLink, expectedArtifact)
+        XCTAssertEqual(summary?.interactionSymbolName, "questionmark.circle")
         XCTAssertEqual(summary?.updatedAt, Date(timeIntervalSince1970: 42))
     }
 
@@ -90,6 +131,41 @@ final class WorkspaceAttentionSummaryBuilderTests: XCTestCase {
                 url: URL(string: "https://example.com/share")!,
                 isExplicit: true
             ),
+            updatedAt: Date(timeIntervalSince1970: 99),
+            isWorking: false
+        )
+
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        XCTAssertNil(WorkspaceAttentionSummaryBuilder.summary(for: workspace))
+    }
+
+    func test_summary_returns_nil_for_idle_phase() {
+        let paneID = PaneID("pane-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.presentation = PanePresentationState(
+            cwd: "/tmp/project",
+            repoRoot: "/tmp/project",
+            branch: "main",
+            branchDisplayText: "main",
+            lookupBranch: "main",
+            identityText: "Investigate flaky test",
+            contextText: "main · /tmp/project",
+            rememberedTitle: nil,
+            recognizedTool: .codex,
+            runtimePhase: .idle,
+            statusText: "Idle",
+            pullRequest: nil,
+            reviewChips: [],
+            attentionArtifactLink: nil,
             updatedAt: Date(timeIntervalSince1970: 99),
             isWorking: false
         )

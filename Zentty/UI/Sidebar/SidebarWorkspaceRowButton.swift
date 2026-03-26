@@ -15,9 +15,11 @@ final class SidebarWorkspaceRowButton: NSButton {
     private let primaryTextContainer = SidebarPrimaryTextContainerView()
     private let primaryBaseLabel = SidebarStaticLabel()
     private let primaryLabel = SidebarShimmerTextView()
+    private let statusIconView = NSImageView()
     private let statusTextContainer = SidebarPrimaryTextContainerView()
     private let statusBaseLabel = SidebarStaticLabel()
     private let statusLabel = SidebarShimmerTextView()
+    private let statusContentStack = NSStackView()
     private let overflowLabel = SidebarStaticLabel()
     private let textStack = NSStackView()
 
@@ -27,6 +29,7 @@ final class SidebarWorkspaceRowButton: NSButton {
     private var paneStatusRows: [SidebarPaneTextRowView] = []
     private var currentSummary: WorkspaceSidebarSummary?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var currentStatusSymbolName = ""
     private var isHovered = false
     private var trackingArea: NSTrackingArea?
     private var heightConstraint: NSLayoutConstraint?
@@ -90,6 +93,10 @@ final class SidebarWorkspaceRowButton: NSButton {
             font: ShellMetrics.sidebarStatusFont(),
             lineBreakMode: .byTruncatingTail
         )
+        statusIconView.translatesAutoresizingMaskIntoConstraints = false
+        statusIconView.imageScaling = .scaleProportionallyDown
+        statusIconView.setContentHuggingPriority(.required, for: .horizontal)
+        statusIconView.setContentCompressionResistancePriority(.required, for: .horizontal)
         statusLabel.font = ShellMetrics.sidebarStatusFont()
         statusLabel.lineHeight = ShellMetrics.sidebarStatusLineHeight
         statusLabel.lineBreakMode = .byTruncatingTail
@@ -101,6 +108,14 @@ final class SidebarWorkspaceRowButton: NSButton {
         statusTextContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         statusTextContainer.addSubview(statusBaseLabel)
         statusTextContainer.addSubview(statusLabel)
+        statusContentStack.orientation = .horizontal
+        statusContentStack.alignment = .centerY
+        statusContentStack.spacing = 4
+        statusContentStack.translatesAutoresizingMaskIntoConstraints = false
+        statusContentStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        statusContentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        statusContentStack.addArrangedSubview(statusIconView)
+        statusContentStack.addArrangedSubview(statusTextContainer)
         configureLabel(
             overflowLabel,
             font: ShellMetrics.sidebarOverflowFont(),
@@ -124,6 +139,8 @@ final class SidebarWorkspaceRowButton: NSButton {
             statusLabel.leadingAnchor.constraint(equalTo: statusTextContainer.leadingAnchor),
             statusLabel.trailingAnchor.constraint(equalTo: statusTextContainer.trailingAnchor),
             statusLabel.bottomAnchor.constraint(equalTo: statusTextContainer.bottomAnchor),
+            statusIconView.widthAnchor.constraint(equalToConstant: 11),
+            statusIconView.heightAnchor.constraint(equalToConstant: 11),
         ])
 
         textStack.orientation = .vertical
@@ -144,6 +161,7 @@ final class SidebarWorkspaceRowButton: NSButton {
             textStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -ShellMetrics.sidebarRowBottomInset),
             primaryTextContainer.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarPrimaryLineHeight),
             statusTextContainer.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarStatusLineHeight),
+            statusContentStack.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarStatusLineHeight),
         ])
     }
 
@@ -189,14 +207,29 @@ final class SidebarWorkspaceRowButton: NSButton {
         if summary.paneRows.isEmpty {
             primaryBaseLabel.stringValue = summary.primaryText
             primaryLabel.stringValue = summary.primaryText
-            statusBaseLabel.stringValue = summary.statusText ?? ""
-            statusLabel.stringValue = summary.statusText ?? ""
+            let statusCopy = summary.statusText
+                ?? summary.interactionLabel
+                ?? summary.interactionKind?.defaultLabel
+                ?? ""
+            statusBaseLabel.stringValue = statusCopy
+            statusLabel.stringValue = statusCopy
+            currentStatusSymbolName = summary.interactionSymbolName
+                ?? summary.interactionKind?.defaultSymbolName
+                ?? ""
+            statusIconView.image = currentStatusSymbolName.isEmpty
+                ? nil
+                : NSImage(systemSymbolName: currentStatusSymbolName, accessibilityDescription: nil)?
+                    .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+            statusIconView.isHidden = statusIconView.image == nil
             configureDetailLabels(for: summary.detailLines)
         } else {
             primaryBaseLabel.stringValue = ""
             primaryLabel.stringValue = ""
             statusBaseLabel.stringValue = ""
             statusLabel.stringValue = ""
+            currentStatusSymbolName = ""
+            statusIconView.image = nil
+            statusIconView.isHidden = true
             configurePaneRows(for: summary.paneRows)
         }
 
@@ -255,7 +288,14 @@ final class SidebarWorkspaceRowButton: NSButton {
                 trailingText: paneRow.trailingText
             )
             paneDetailLabels[index].stringValue = paneRow.detailText ?? ""
-            paneStatusRows[index].configure(text: paneRow.statusText ?? "")
+            paneStatusRows[index].configure(
+                text: paneRow.statusText
+                    ?? paneRow.interactionLabel
+                    ?? paneRow.interactionKind?.defaultLabel
+                    ?? "",
+                symbolName: paneRow.interactionSymbolName
+                    ?? paneRow.interactionKind?.defaultSymbolName
+            )
         }
     }
 
@@ -286,6 +326,7 @@ final class SidebarWorkspaceRowButton: NSButton {
                 inactiveTextColor: inactiveTextColor
             )
             statusBaseLabel.textColor = statusTextColor(for: summary)
+            statusIconView.contentTintColor = statusBaseLabel.textColor ?? currentTheme.secondaryText
 
             for (index, detailLabel) in detailLabels.enumerated() {
                 guard summary.detailLines.indices.contains(index) else {
@@ -585,10 +626,6 @@ final class SidebarWorkspaceRowButton: NSButton {
             return summary.isActive
                 ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.74)
                 : currentTheme.secondaryText
-        case .completed:
-            return summary.isActive
-                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.62)
-                : currentTheme.tertiaryText
         case nil:
             return summary.isActive
                 ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.74)
@@ -609,8 +646,6 @@ final class SidebarWorkspaceRowButton: NSButton {
             return NSColor.systemOrange
         case .running:
             return paneRow.isFocused ? focusedBaseColor.withAlphaComponent(0.74) : currentTheme.secondaryText
-        case .completed:
-            return paneRow.isFocused ? focusedBaseColor.withAlphaComponent(0.62) : currentTheme.tertiaryText
         case nil:
             return paneRow.isFocused ? focusedBaseColor.withAlphaComponent(0.74) : currentTheme.secondaryText
         }
@@ -639,7 +674,7 @@ final class SidebarWorkspaceRowButton: NSButton {
         case .primary:
             primaryTextContainer
         case .status:
-            statusTextContainer
+            statusContentStack
         case .panePrimary(let index):
             panePrimaryRows[index]
         case .paneDetail(let index):
@@ -676,6 +711,14 @@ final class SidebarWorkspaceRowButton: NSButton {
         }
 
         return statusBaseLabel.stringValue
+    }
+
+    var statusSymbolNameForTesting: String {
+        if currentSummary?.paneRows.isEmpty == false {
+            return paneStatusRows.first?.symbolName ?? ""
+        }
+
+        return currentStatusSymbolName
     }
 
     var topLabelColorForTesting: NSColor {
@@ -725,6 +768,12 @@ final class SidebarWorkspaceRowButton: NSButton {
     var paneStatusTextsForTesting: [String] {
         paneStatusRows.prefix(currentSummary?.paneRows.count ?? 0)
             .map(\.text)
+            .filter { $0.isEmpty == false }
+    }
+
+    var paneStatusSymbolNamesForTesting: [String] {
+        paneStatusRows.prefix(currentSummary?.paneRows.count ?? 0)
+            .map(\.symbolName)
             .filter { $0.isEmpty == false }
     }
 
@@ -1204,11 +1253,16 @@ private final class SidebarPanePrimaryRowView: NSView {
 
 @MainActor
 private final class SidebarPaneTextRowView: NSView {
+    private static let symbolPointSize: CGFloat = 11
+
+    private let iconView = NSImageView()
     private let textContainer = SidebarPrimaryTextContainerView()
     private let baseLabel = SidebarStaticLabel()
     private let shimmerLabel = SidebarShimmerTextView()
+    private let contentStack = NSStackView()
 
     private(set) var text: String = ""
+    private(set) var symbolName: String = ""
     private(set) var textColor: NSColor = .secondaryLabelColor
 
     init(font: NSFont, lineHeight: CGFloat) {
@@ -1223,10 +1277,24 @@ private final class SidebarPaneTextRowView: NSView {
 
     private func setup(font: NSFont, lineHeight: CGFloat) {
         translatesAutoresizingMaskIntoConstraints = false
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.setContentHuggingPriority(.required, for: .horizontal)
+        iconView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         textContainer.translatesAutoresizingMaskIntoConstraints = false
+        textContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         textContainer.addSubview(baseLabel)
         textContainer.addSubview(shimmerLabel)
-        addSubview(textContainer)
+        contentStack.orientation = .horizontal
+        contentStack.alignment = .centerY
+        contentStack.spacing = 4
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        contentStack.addArrangedSubview(iconView)
+        contentStack.addArrangedSubview(textContainer)
+        addSubview(contentStack)
 
         baseLabel.font = font
         baseLabel.lineBreakMode = .byTruncatingTail
@@ -1238,6 +1306,8 @@ private final class SidebarPaneTextRowView: NSView {
         shimmerLabel.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
+            iconView.widthAnchor.constraint(equalToConstant: Self.symbolPointSize),
+            iconView.heightAnchor.constraint(equalToConstant: Self.symbolPointSize),
             baseLabel.topAnchor.constraint(equalTo: textContainer.topAnchor),
             baseLabel.leadingAnchor.constraint(equalTo: textContainer.leadingAnchor),
             baseLabel.trailingAnchor.constraint(equalTo: textContainer.trailingAnchor),
@@ -1246,18 +1316,24 @@ private final class SidebarPaneTextRowView: NSView {
             shimmerLabel.leadingAnchor.constraint(equalTo: textContainer.leadingAnchor),
             shimmerLabel.trailingAnchor.constraint(equalTo: textContainer.trailingAnchor),
             shimmerLabel.bottomAnchor.constraint(equalTo: textContainer.bottomAnchor),
-            textContainer.topAnchor.constraint(equalTo: topAnchor),
-            textContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
-            textContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
-            textContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+            contentStack.topAnchor.constraint(equalTo: topAnchor),
+            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
             heightAnchor.constraint(equalToConstant: lineHeight),
         ])
     }
 
-    func configure(text: String) {
+    func configure(text: String, symbolName: String?) {
         self.text = text
+        self.symbolName = symbolName ?? ""
         baseLabel.stringValue = text
         shimmerLabel.stringValue = text
+        iconView.image = symbolName.flatMap {
+            NSImage(systemSymbolName: $0, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: Self.symbolPointSize, weight: .semibold))
+        }
+        iconView.isHidden = iconView.image == nil
     }
 
     func applyColors(
@@ -1268,6 +1344,7 @@ private final class SidebarPaneTextRowView: NSView {
     ) {
         self.textColor = textColor
         baseLabel.textColor = textColor
+        iconView.contentTintColor = textColor
         shimmerLabel.isShimmering = isShimmering
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor

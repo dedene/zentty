@@ -367,7 +367,7 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary.focusedLabel, "/tmp/project")
     }
 
-    func test_summary_keeps_meaningful_session_title_for_completed_agent_panes() {
+    func test_summary_keeps_meaningful_session_title_for_idle_agent_panes() {
         let paneID = PaneID("pane-shell")
         let workspace = makeWorkspace(
             paneID: paneID,
@@ -379,7 +379,7 @@ final class WorkspaceHeaderSummaryBuilderTests: XCTestCase {
             ),
             agentStatus: PaneAgentStatus(
                 tool: .codex,
-                state: .completed,
+                state: .idle,
                 text: nil,
                 artifactLink: nil,
                 updatedAt: Date(timeIntervalSince1970: 42)

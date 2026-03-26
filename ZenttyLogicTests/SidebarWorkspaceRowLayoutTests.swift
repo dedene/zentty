@@ -67,8 +67,8 @@ final class SidebarWorkspaceRowLayoutTests: XCTestCase {
                     primaryText: "General coding assistance session",
                     trailingText: "main",
                     detailText: "…/nimbu",
-                    statusText: "╰ Completed",
-                    attentionState: .completed,
+                    statusText: "╰ Idle",
+                    attentionState: nil,
                     isFocused: true,
                     isWorking: false
                 ),

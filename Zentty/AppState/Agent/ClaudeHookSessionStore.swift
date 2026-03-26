@@ -57,7 +57,8 @@ final class ClaudeHookSessionStore {
         paneID: PaneID,
         cwd: String?,
         pid: Int32?,
-        lastHumanMessage: String? = nil
+        lastHumanMessage: String? = nil,
+        lastInteractionKind: PaneAgentInteractionKind? = nil
     ) throws {
         let normalizedSessionID = normalized(sessionID)
         guard !normalizedSessionID.isEmpty else {
@@ -73,6 +74,11 @@ final class ClaudeHookSessionStore {
                 cwd: nil,
                 pid: nil,
                 lastHumanMessage: nil,
+                lastInteractionKindRawValue: nil,
+                lastStructuredInteractionText: nil,
+                lastStructuredInteractionKindRawValue: nil,
+                lastStructuredInteractionConfidenceRawValue: nil,
+                lastNotificationText: nil,
                 updatedAt: now
             )
             record.workspaceIDRawValue = workspaceID.rawValue
@@ -84,14 +90,65 @@ final class ClaudeHookSessionStore {
                 record.pid = pid
             }
             if let lastHumanMessage = normalizedOptional(lastHumanMessage) {
-                record.lastHumanMessage = lastHumanMessage
+                record.structuredInteractionText = lastHumanMessage
+            }
+            if let lastInteractionKind {
+                record.structuredInteractionKind = lastInteractionKind
             }
             record.updatedAt = now
             state.sessions[normalizedSessionID] = record
         }
     }
 
-    func clearLastHumanMessage(sessionID: String) throws {
+    func rememberStructuredInteraction(
+        sessionID: String,
+        workspaceID: WorkspaceID,
+        paneID: PaneID,
+        cwd: String?,
+        pid: Int32?,
+        text: String,
+        kind: PaneAgentInteractionKind,
+        confidence: AgentSignalConfidence
+    ) throws {
+        let normalizedSessionID = normalized(sessionID)
+        guard !normalizedSessionID.isEmpty else {
+            return
+        }
+
+        try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var record = state.sessions[normalizedSessionID] ?? ClaudeHookSessionRecord(
+                sessionID: normalizedSessionID,
+                workspaceIDRawValue: workspaceID.rawValue,
+                paneIDRawValue: paneID.rawValue,
+                cwd: nil,
+                pid: nil,
+                lastHumanMessage: nil,
+                lastInteractionKindRawValue: nil,
+                lastStructuredInteractionText: nil,
+                lastStructuredInteractionKindRawValue: nil,
+                lastStructuredInteractionConfidenceRawValue: nil,
+                lastNotificationText: nil,
+                updatedAt: now
+            )
+            record.workspaceIDRawValue = workspaceID.rawValue
+            record.paneIDRawValue = paneID.rawValue
+            if let cwd = normalizedOptional(cwd) {
+                record.cwd = cwd
+            }
+            if let pid {
+                record.pid = pid
+            }
+            record.structuredInteractionText = normalizedOptional(text)
+            record.structuredInteractionKind = kind
+            record.structuredInteractionConfidence = confidence
+            record.lastNotificationText = nil
+            record.updatedAt = now
+            state.sessions[normalizedSessionID] = record
+        }
+    }
+
+    func recordNotificationText(sessionID: String, text: String) throws {
         let normalizedSessionID = normalized(sessionID)
         guard !normalizedSessionID.isEmpty else {
             return
@@ -101,10 +158,33 @@ final class ClaudeHookSessionStore {
             guard var record = state.sessions[normalizedSessionID] else {
                 return
             }
-            record.lastHumanMessage = nil
+            record.lastNotificationText = normalizedOptional(text)
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalizedSessionID] = record
         }
+    }
+
+    func clearInteractionContext(sessionID: String) throws {
+        let normalizedSessionID = normalized(sessionID)
+        guard !normalizedSessionID.isEmpty else {
+            return
+        }
+
+        try withLockedState { state in
+            guard var record = state.sessions[normalizedSessionID] else {
+                return
+            }
+            record.structuredInteractionText = nil
+            record.structuredInteractionKind = nil
+            record.structuredInteractionConfidence = nil
+            record.lastNotificationText = nil
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalizedSessionID] = record
+        }
+    }
+
+    func clearLastHumanMessage(sessionID: String) throws {
+        try clearInteractionContext(sessionID: sessionID)
     }
 
     @discardableResult
@@ -113,7 +193,7 @@ final class ClaudeHookSessionStore {
         fallbackWorkspaceID: WorkspaceID?,
         fallbackPaneID: PaneID?
     ) throws -> ClaudeHookSessionRecord? {
-        try withLockedState { state in
+        try withLockedState { state -> ClaudeHookSessionRecord? in
             if let sessionID = normalizedOptional(sessionID),
                let record = state.sessions.removeValue(forKey: sessionID) {
                 return record
@@ -123,10 +203,14 @@ final class ClaudeHookSessionStore {
                 return nil
             }
 
-            guard let key = state.sessions.first(where: { _, record in
-                record.workspaceIDRawValue == fallbackWorkspaceID.rawValue
-                    && record.paneIDRawValue == fallbackPaneID.rawValue
-            })?.key else {
+            let matchingKeys = state.sessions
+                .filter { _, record in
+                    record.workspaceIDRawValue == fallbackWorkspaceID.rawValue
+                        && record.paneIDRawValue == fallbackPaneID.rawValue
+                }
+                .map(\.key)
+
+            guard matchingKeys.count == 1, let key = matchingKeys.first else {
                 return nil
             }
 

@@ -80,6 +80,7 @@
 		8D16DCB2D9A5CBFD25CBC5D1 /* LibghosttySurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EEF748059F59CD2590E1C2C /* LibghosttySurface.swift */; };
 		8E0796EA041134058F72C2D1 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4006842B9BBF4DF8426EE5F3 /* AppTheme.swift */; };
 		8E2852FEAFC265DC3EC050BF /* AgentInteractionClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290AC219C812A96036CA9061 /* AgentInteractionClassifier.swift */; };
+		8E847756B23CB6F02E3897BD /* PaneAgentReducerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E316EB04A90576B80F838D9 /* PaneAgentReducerTests.swift */; };
 		8EC0BEECF0B373F8EB2689E9 /* WorkspaceAttentionSummaryBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEC6392B8F0DAA70B35EA99B /* WorkspaceAttentionSummaryBuilderTests.swift */; };
 		9305DFB3157057C5F774497D /* PaneContainerViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37F4631D0A8465D807F16977 /* PaneContainerViewTests.swift */; };
 		961ADDCEBB2BBB78B2820F67 /* PaneStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEFFC2CAEA605772B62E73E5 /* PaneStripView.swift */; };
@@ -100,6 +101,7 @@
 		C384A9FA26C72AC1B662D7A4 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3CFC2B870895651B043DF45 /* AppDelegate.swift */; };
 		C7E03A7F4908AC8B2713A19B /* SidebarVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163D5C0FE862CC71E8B354E2 /* SidebarVisibilityController.swift */; };
 		C901A081809E9A1625D997DE /* WorkspaceAttentionSummaryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11CCB35B6B709D47E3838B95 /* WorkspaceAttentionSummaryBuilder.swift */; };
+		C93043964F6A50BBB62A868D /* WorkspaceAttentionChipViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CE434538AE32B76DD2A883 /* WorkspaceAttentionChipViewTests.swift */; };
 		C9940E2AC5DA4EC65555C4C0 /* WorkspaceStoreGitContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFF845BEE5B989D3B3F5E8FF /* WorkspaceStoreGitContextTests.swift */; };
 		D9E8C4A64E2C124B001E4B91 /* WorkspaceStoreOpenWithTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E8C4A54E2C124B001E4B91 /* WorkspaceStoreOpenWithTests.swift */; };
 		D58A19DD4038B6D8E127DA5D /* TerminalPaneHostViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE8E85EADB93A2FE0E71BEA6 /* TerminalPaneHostViewTests.swift */; };
@@ -111,6 +113,7 @@
 		EA26FAD62B5C3CE90789F5E0 /* WorkspaceStore+Metadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C28736E4D07F0610C33AAB2 /* WorkspaceStore+Metadata.swift */; };
 		ED86A6329D7754EA3ADAE6EB /* WorkspaceGitContextResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39B05DD005B59A7F662CFDEE /* WorkspaceGitContextResolverTests.swift */; };
 		ED97F9FB42E05ECE3179E60D /* PaneStripState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D36706DB3DF677FA13DC722 /* PaneStripState.swift */; };
+		96C8DAEB457704BB7D4DEC7D /* PaneAgentReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB869749410CBF86B97FA142 /* PaneAgentReducer.swift */; };
 		EDF799E6005B1597EEA1314D /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63590216920018B71F1ACB7A /* AppDelegateTests.swift */; };
 		EE970D14373E2C135E45C480 /* ThemeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73931D75238B5C4F1427B708 /* ThemeCoordinator.swift */; };
 		F0FF1DAC11BDA07A28868FE4 /* TrackpadPanGestureDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25EF5AC625776DA85911237 /* TrackpadPanGestureDriver.swift */; };
@@ -185,6 +188,7 @@
 		9D11A6534B69B29D10228001 /* OpenWithPopoverContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWithPopoverContentView.swift; sourceTree = "<group>"; };
 		9D11A6554B69B29D10228001 /* OpenWithPopoverButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWithPopoverButtons.swift; sourceTree = "<group>"; };
 		58C0293DF0B4BA096A6646CC /* AgentStatusCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusCenter.swift; sourceTree = "<group>"; };
+		5E316EB04A90576B80F838D9 /* PaneAgentReducerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneAgentReducerTests.swift; sourceTree = "<group>"; };
 		5E538FD3113F73580976CC7F /* WorkspaceHeaderSummaryBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceHeaderSummaryBuilderTests.swift; sourceTree = "<group>"; };
 		5E8B2580EB7F0B2DE369502F /* WorkspaceRenderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRenderCoordinator.swift; sourceTree = "<group>"; };
 		5EEF748059F59CD2590E1C2C /* LibghosttySurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttySurface.swift; sourceTree = "<group>"; };
@@ -232,6 +236,7 @@
 		C491850BAA79B14AE9C4FF56 /* AppConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigStore.swift; sourceTree = "<group>"; };
 		C50002F61829616FFF47B943 /* ZenttyLogicTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZenttyLogicTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C917E13A98AEBA7EDD90654E /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		C1CE434538AE32B76DD2A883 /* WorkspaceAttentionChipViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAttentionChipViewTests.swift; sourceTree = "<group>"; };
 		CA3810175E866C6CB11A8C87 /* SidebarMotionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMotionCoordinatorTests.swift; sourceTree = "<group>"; };
 		CA40FC14CFDB525CB2065ECC /* ScrollSwitchGestureHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollSwitchGestureHandlerTests.swift; sourceTree = "<group>"; };
 		CBF4079FD49C87B216061EB3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -252,6 +257,7 @@
 		E469BF2F5A021DBF256E8D20 /* PaneStripStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripStateTests.swift; sourceTree = "<group>"; };
 		E5BDEE21BACB5E0E7AB95AE0 /* ZenttyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZenttyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA608346157BAE8D62A040C0 /* WorkspaceContextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContextFormatter.swift; sourceTree = "<group>"; };
+		EB869749410CBF86B97FA142 /* PaneAgentReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneAgentReducer.swift; sourceTree = "<group>"; };
 		ECBF42F4F7C6419804A6596F /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		ED4764B4017D1DF1354C6FFB /* SidebarWidthPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWidthPreference.swift; sourceTree = "<group>"; };
 		EDB71268537F60FF02894F12 /* WindowChromeViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeViewTests.swift; sourceTree = "<group>"; };
@@ -402,6 +408,7 @@
 				A1B2C3D4E5F60718293A4B5C /* ProcessCWDResolver.swift */,
 				873301C3643C70777575BF64 /* ClaudeHookBridge.swift */,
 				C344F4EE24498B605D2794B3 /* ClaudeHookSessionStore.swift */,
+				EB869749410CBF86B97FA142 /* PaneAgentReducer.swift */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -539,6 +546,7 @@
 				2B076EBD34D3A673A0937579 /* KeyboardShortcutResolverTests.swift */,
 				C2671C2153DB1DFA70522E94 /* LibghosttyAdapterTests.swift */,
 				1B7D9F684E2C11A8001E4B91 /* OpenWithCatalogTests.swift */,
+				5E316EB04A90576B80F838D9 /* PaneAgentReducerTests.swift */,
 				37F4631D0A8465D807F16977 /* PaneContainerViewTests.swift */,
 				DAA052B6DDCA1EE9D9F58BC0 /* PaneLayoutPreferencesTests.swift */,
 				017D80D8C20309A5F3A34381 /* PanePresentationStateTests.swift */,
@@ -556,6 +564,7 @@
 				5144655F178B621FFCE38EDF /* SidebarWorkspaceRowLayoutTests.swift */,
 				86917D1F9201725F12438AD5 /* WindowChromeRowLayoutPlannerTests.swift */,
 				EDB71268537F60FF02894F12 /* WindowChromeViewTests.swift */,
+				C1CE434538AE32B76DD2A883 /* WorkspaceAttentionChipViewTests.swift */,
 				EEC6392B8F0DAA70B35EA99B /* WorkspaceAttentionSummaryBuilderTests.swift */,
 				0AB7D25628313D541820A119 /* WorkspaceContextFormatterTests.swift */,
 				39B05DD005B59A7F662CFDEE /* WorkspaceGitContextResolverTests.swift */,
@@ -737,6 +746,7 @@
 				5DC7AC548DD0073978E02681 /* KeyboardShortcutResolverTests.swift in Sources */,
 				0ED2C234E696C111255B212A /* LibghosttyAdapterTests.swift in Sources */,
 				1B7D9F6A4E2C11A8001E4B91 /* OpenWithCatalogTests.swift in Sources */,
+				8E847756B23CB6F02E3897BD /* PaneAgentReducerTests.swift in Sources */,
 				9305DFB3157057C5F774497D /* PaneContainerViewTests.swift in Sources */,
 				4FE322E96C1A232404A28D38 /* PaneLayoutPreferencesTests.swift in Sources */,
 				1041B5CDF3EA5C978F3580BC /* PanePresentationStateTests.swift in Sources */,
@@ -754,6 +764,7 @@
 				97B14DE69BD7962A75E993F9 /* SidebarWorkspaceRowLayoutTests.swift in Sources */,
 				738453B16B8499ADFB4722CB /* WindowChromeRowLayoutPlannerTests.swift in Sources */,
 				16E1DE875672D6743DF1B86D /* WindowChromeViewTests.swift in Sources */,
+				C93043964F6A50BBB62A868D /* WorkspaceAttentionChipViewTests.swift in Sources */,
 				8EC0BEECF0B373F8EB2689E9 /* WorkspaceAttentionSummaryBuilderTests.swift in Sources */,
 				13AD6B773B110A9935CD8011 /* WorkspaceContextFormatterTests.swift in Sources */,
 				ED86A6329D7754EA3ADAE6EB /* WorkspaceGitContextResolverTests.swift in Sources */,
@@ -798,6 +809,7 @@
 				196932893F690C070D526631 /* MockTerminalAdapter.swift in Sources */,
 				1F2A3B4C5D6E7F8091A2B3C4 /* OpenWithCatalog.swift in Sources */,
 				2A7C91E54D1B44BFA0332211 /* OpenWithService.swift in Sources */,
+				96C8DAEB457704BB7D4DEC7D /* PaneAgentReducer.swift in Sources */,
 				840FDF34FA89D7BA5649AF0C /* PaneAuxiliaryState.swift in Sources */,
 				4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */,
 				3F270AD6399CAA5729853F2D /* PaneContainerView.swift in Sources */,

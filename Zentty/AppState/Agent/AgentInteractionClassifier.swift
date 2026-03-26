@@ -41,11 +41,30 @@ enum AgentInteractionClassifier {
             return false
         }
 
-        return [
-            "claude needs your input",
-            "claude is waiting for your input",
-            "claude needs your attention",
-        ].contains(message)
+        return hasAnyPrefix(
+            message,
+            prefixes: [
+                "claude needs your input",
+                "claude is waiting for your input",
+                "claude needs your attention",
+            ]
+        )
+    }
+
+    static func isGenericApprovalMessage(_ message: String?) -> Bool {
+        guard let message = normalized(message) else {
+            return false
+        }
+
+        return hasAnyPrefix(
+            message,
+            prefixes: [
+                "claude needs your approval",
+                "claude needs your permission",
+                "approval needed",
+                "permission required",
+            ]
+        )
     }
 
     static func specificity(forWaitingMessage message: String?) -> WaitingMessageSpecificity? {
@@ -57,14 +76,7 @@ enum AgentInteractionClassifier {
             return .generic
         }
 
-        let approvalMarkers = [
-            "permission",
-            "approve",
-            "approval",
-            "allow ",
-            "grant access",
-        ]
-        if approvalMarkers.contains(where: normalized.contains) {
+        if isGenericApprovalMessage(normalized) {
             return .approval
         }
 
@@ -108,5 +120,9 @@ enum AgentInteractionClassifier {
             return nil
         }
         return message.lowercased()
+    }
+
+    private static func hasAnyPrefix(_ message: String, prefixes: [String]) -> Bool {
+        prefixes.contains { message.hasPrefix($0) }
     }
 }
