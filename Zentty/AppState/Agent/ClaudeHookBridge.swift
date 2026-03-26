@@ -166,12 +166,14 @@ enum ClaudeHookBridge {
             if let sessionID = input.sessionID {
                 try sessionStore.clearLastHumanMessage(sessionID: sessionID)
             }
+            let preToolExisting = try lookupRecord(for: input, sessionStore: sessionStore)
             return [
                 lifecyclePayload(
                     workspaceID: target.workspaceID,
                     paneID: target.paneID,
                     state: .running,
-                    text: nil
+                    text: nil,
+                    cwd: input.cwd ?? preToolExisting?.cwd
                 ),
             ]
 
@@ -180,12 +182,14 @@ enum ClaudeHookBridge {
             if let sessionID = input.sessionID {
                 try sessionStore.clearLastHumanMessage(sessionID: sessionID)
             }
+            let promptExisting = try lookupRecord(for: input, sessionStore: sessionStore)
             return [
                 lifecyclePayload(
                     workspaceID: target.workspaceID,
                     paneID: target.paneID,
                     state: .running,
-                    text: nil
+                    text: nil,
+                    cwd: input.cwd ?? promptExisting?.cwd
                 ),
             ]
 
@@ -288,7 +292,8 @@ enum ClaudeHookBridge {
         workspaceID: WorkspaceID,
         paneID: PaneID,
         state: PaneAgentState?,
-        text: String?
+        text: String?,
+        cwd: String? = nil
     ) -> AgentStatusPayload {
         AgentStatusPayload(
             workspaceID: workspaceID,
@@ -300,7 +305,8 @@ enum ClaudeHookBridge {
             text: text,
             artifactKind: nil,
             artifactLabel: nil,
-            artifactURL: nil
+            artifactURL: nil,
+            agentWorkingDirectory: cwd
         )
     }
 

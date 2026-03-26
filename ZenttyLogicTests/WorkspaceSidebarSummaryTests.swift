@@ -1087,15 +1087,15 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first { $0.paneID == buildPaneID })
 
-        XCTAssertEqual(paneRow.primaryText, "npm test")
+        XCTAssertEqual(paneRow.primaryText, "npm test · …/project")
         XCTAssertNil(paneRow.trailingText)
-        XCTAssertEqual(paneRow.detailText, "…/project")
+        XCTAssertNil(paneRow.detailText)
         XCTAssertEqual(paneRow.statusText, "╰ Running")
         XCTAssertEqual(paneRow.attentionState, .running)
         XCTAssertTrue(paneRow.isWorking)
     }
 
-    func test_builder_keeps_cwd_detail_for_multi_pane_agent_rows_with_meaningful_titles() {
+    func test_builder_folds_cwd_into_primary_for_multi_pane_agent_rows_with_meaningful_titles() {
         let shellPaneID = PaneID("workspace-main-shell")
         let agentPaneID = PaneID("workspace-main-agent")
         let workspace = WorkspaceState(
@@ -1136,9 +1136,9 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first { $0.paneID == agentPaneID })
 
-        XCTAssertEqual(paneRow.primaryText, "Test session setup")
+        XCTAssertEqual(paneRow.primaryText, "Test session setup · …/nimbu")
         XCTAssertEqual(paneRow.trailingText, "feature/sidebar")
-        XCTAssertEqual(paneRow.detailText, "…/nimbu")
+        XCTAssertNil(paneRow.detailText)
         XCTAssertEqual(paneRow.statusText, "╰ Completed")
     }
 }

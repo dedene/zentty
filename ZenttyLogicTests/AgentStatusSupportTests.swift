@@ -997,6 +997,49 @@ final class AgentStatusSupportTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
         return rootURL
     }
+
+    func test_agent_status_payload_round_trips_agent_working_directory() throws {
+        let payload = AgentStatusPayload(
+            workspaceID: WorkspaceID("workspace-main"),
+            paneID: PaneID("workspace-main-shell"),
+            signalKind: .lifecycle,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Claude Code",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil,
+            agentWorkingDirectory: "/Users/peter/Development/my-project"
+        )
+
+        let userInfo = try XCTUnwrap(payload.notificationUserInfo)
+        let decoded = try AgentStatusPayload(userInfo: userInfo)
+
+        XCTAssertEqual(decoded.agentWorkingDirectory, "/Users/peter/Development/my-project")
+        XCTAssertEqual(decoded, payload)
+    }
+
+    func test_agent_status_payload_round_trips_nil_agent_working_directory() throws {
+        let payload = AgentStatusPayload(
+            workspaceID: WorkspaceID("workspace-main"),
+            paneID: PaneID("workspace-main-shell"),
+            signalKind: .lifecycle,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Claude Code",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+
+        let userInfo = try XCTUnwrap(payload.notificationUserInfo)
+        let decoded = try AgentStatusPayload(userInfo: userInfo)
+
+        XCTAssertNil(decoded.agentWorkingDirectory)
+        XCTAssertEqual(decoded, payload)
+    }
 }
 
 private final class WorkspaceAttentionNotificationRecorder: WorkspaceAttentionUserNotificationCenter {

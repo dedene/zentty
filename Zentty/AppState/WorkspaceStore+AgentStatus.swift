@@ -89,11 +89,16 @@ extension WorkspaceStore {
                 return
             }
 
-            workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = Self.makeLifecycleStatus(
+            let previousAgentCwd = existingStatus?.workingDirectory
+            let newStatus = Self.makeLifecycleStatus(
                 tool: tool,
                 payload: payload,
                 existingStatus: existingStatus
             )
+            workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = newStatus
+            if newStatus.workingDirectory != previousAgentCwd, newStatus.workingDirectory != nil {
+                invalidateGitContextIfNeeded(for: payload.paneID, in: &workspace)
+            }
         case .shellState:
             guard let shellActivityState = payload.shellActivityState else {
                 return
@@ -146,7 +151,8 @@ extension WorkspaceStore {
                             origin: $0.origin.priority >= payload.origin.priority ? $0.origin : payload.origin,
                             interactionState: $0.interactionState,
                             shellActivityState: $0.shellActivityState,
-                            trackedPID: $0.trackedPID
+                            trackedPID: $0.trackedPID,
+                            workingDirectory: $0.workingDirectory
                         )
                     }
                     ?? PaneAgentStatus(
@@ -202,7 +208,7 @@ extension WorkspaceStore {
         workspaces[workspaceIndex] = workspace
         refreshLastFocusedLocalWorkingDirectoryIfNeeded(workspace: workspace, paneID: payload.paneID)
         notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
-        if payload.signalKind == .paneContext {
+        if payload.signalKind == .paneContext || payload.agentWorkingDirectory != nil {
             refreshGitContextIfNeeded(for: PaneReference(workspaceID: workspace.id, paneID: payload.paneID))
         }
     }
@@ -254,20 +260,33 @@ extension WorkspaceStore {
                 guard let status = aux.agentStatus else {
                     continue
                 }
-                guard let trackedPID = status.trackedPID, !Self.isProcessAlive(pid: trackedPID) else {
+                guard let trackedPID = status.trackedPID else {
                     continue
                 }
 
-                didChange = true
-                if status.state == .starting || status.state == .running || status.requiresHumanAttention {
-                    workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
-                    workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
-                } else {
-                    var nextStatus = status
-                    nextStatus.trackedPID = nil
-                    workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nextStatus
+                guard Self.isProcessAlive(pid: trackedPID) else {
+                    didChange = true
+                    if status.state == .starting || status.state == .running || status.requiresHumanAttention {
+                        workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
+                        workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
+                    } else {
+                        var nextStatus = status
+                        nextStatus.trackedPID = nil
+                        workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = nextStatus
+                    }
+                    recomputePresentation(for: paneID, in: &workspace)
+                    continue
                 }
-                recomputePresentation(for: paneID, in: &workspace)
+
+                if (status.state == .starting || status.state == .running),
+                   status.workingDirectory == nil,
+                   let processCwd = ProcessCWDResolver.workingDirectory(for: trackedPID),
+                   WorkspaceContextFormatter.trimmed(processCwd) != nil {
+                    didChange = true
+                    workspace.auxiliaryStateByPaneID[paneID]?.agentStatus?.workingDirectory = processCwd
+                    invalidateGitContextIfNeeded(for: paneID, in: &workspace)
+                    recomputePresentation(for: paneID, in: &workspace)
+                }
             }
 
             workspaces[workspaceIndex] = workspace
@@ -314,6 +333,8 @@ extension WorkspaceStore {
             text = nil
         }
 
+        let workingDirectory = payload.agentWorkingDirectory ?? existingStatus?.workingDirectory
+
         return PaneAgentStatus(
             tool: tool,
             state: state,
@@ -324,7 +345,8 @@ extension WorkspaceStore {
             origin: payload.origin,
             interactionState: state == .needsInput ? .awaitingHuman : .none,
             shellActivityState: existingStatus?.shellActivityState ?? .unknown,
-            trackedPID: state == .completed ? nil : existingStatus?.trackedPID
+            trackedPID: state == .completed ? nil : existingStatus?.trackedPID,
+            workingDirectory: state == .completed ? nil : workingDirectory
         )
     }
 

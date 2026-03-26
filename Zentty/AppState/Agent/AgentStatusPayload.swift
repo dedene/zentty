@@ -38,6 +38,7 @@ struct AgentStatusPayload: Equatable, Sendable {
     let artifactKind: WorkspaceArtifactKind?
     let artifactLabel: String?
     let artifactURL: URL?
+    let agentWorkingDirectory: String?
 
     var clearsStatus: Bool {
         signalKind == .lifecycle && state == nil
@@ -99,6 +100,9 @@ struct AgentStatusPayload: Equatable, Sendable {
         if let artifactURL {
             userInfo["artifactURL"] = artifactURL.absoluteString
         }
+        if let agentWorkingDirectory {
+            userInfo["agentWorkingDirectory"] = agentWorkingDirectory
+        }
         return userInfo
     }
 
@@ -116,7 +120,8 @@ struct AgentStatusPayload: Equatable, Sendable {
         text: String?,
         artifactKind: WorkspaceArtifactKind?,
         artifactLabel: String?,
-        artifactURL: URL?
+        artifactURL: URL?,
+        agentWorkingDirectory: String? = nil
     ) {
         self.workspaceID = workspaceID
         self.paneID = paneID
@@ -132,6 +137,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         self.artifactKind = artifactKind
         self.artifactLabel = artifactLabel
         self.artifactURL = artifactURL
+        self.agentWorkingDirectory = agentWorkingDirectory
     }
 
     init(userInfo: [AnyHashable: Any]) throws {
@@ -176,7 +182,8 @@ struct AgentStatusPayload: Equatable, Sendable {
             text: userInfo["text"] as? String,
             artifactKind: (userInfo["artifactKind"] as? String).flatMap(WorkspaceArtifactKind.init(rawValue:)),
             artifactLabel: userInfo["artifactLabel"] as? String,
-            artifactURL: artifactURL
+            artifactURL: artifactURL,
+            agentWorkingDirectory: userInfo["agentWorkingDirectory"] as? String
         )
     }
 }
