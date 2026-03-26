@@ -1,4 +1,162 @@
 #!/usr/bin/env bash
 
+set -u
+
+json_escape() {
+    local value="${1//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    printf '%s' "$value"
+}
+
+write_zentty_hooks_json() {
+    local destination="$1"
+    cat >"$destination" <<EOF
+{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"$(json_escape "$(codex_hook_command "session-start")")","timeout":10}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$(json_escape "$(codex_hook_command "prompt-submit")")","timeout":10}]}],"Stop":[{"hooks":[{"type":"command","command":"$(json_escape "$(codex_hook_command "stop")")","timeout":10}]}]}}
+EOF
+}
+
+merge_codex_hooks_json() {
+    local source_path="$1"
+    local destination_path="$2"
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        return 1
+    fi
+
+    python3 - "$source_path" "$destination_path" "$(codex_hook_command "session-start")" "$(codex_hook_command "prompt-submit")" "$(codex_hook_command "stop")" <<'PY'
+import json
+import sys
+
+source_path, destination_path, session_start_cmd, prompt_submit_cmd, stop_cmd = sys.argv[1:]
+
+with open(source_path, "r", encoding="utf-8") as fh:
+    existing = json.load(fh)
+
+if not isinstance(existing, dict):
+    raise SystemExit(1)
+
+hooks = existing.get("hooks")
+if hooks is None:
+    hooks = {}
+    existing["hooks"] = hooks
+elif not isinstance(hooks, dict):
+    hooks = None
+
+def append_command(event_name: str, command: str) -> None:
+    if hooks is None:
+        return
+
+    entries = hooks.get(event_name)
+    if entries is None:
+        entries = []
+        hooks[event_name] = entries
+    elif not isinstance(entries, list):
+        return
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        nested_hooks = entry.get("hooks")
+        if not isinstance(nested_hooks, list):
+            continue
+        for nested in nested_hooks:
+            if isinstance(nested, dict) and nested.get("type") == "command" and nested.get("command") == command:
+                return
+
+    entries.append({
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            "timeout": 10,
+        }]
+    })
+
+append_command("SessionStart", session_start_cmd)
+append_command("UserPromptSubmit", prompt_submit_cmd)
+append_command("Stop", stop_cmd)
+
+with open(destination_path, "w", encoding="utf-8") as fh:
+    json.dump(existing, fh, separators=(",", ":"))
+PY
+}
+
+has_notify_override() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            *notify=*)
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+integration_is_available() {
+    [[ -n "${ZENTTY_AGENT_BIN:-}" ]] || return 1
+    [[ -x "${ZENTTY_AGENT_BIN}" ]] || return 1
+    [[ -n "${ZENTTY_WORKSPACE_ID:-}" ]] || return 1
+    [[ -n "${ZENTTY_PANE_ID:-}" ]] || return 1
+}
+
+codex_notify_helper() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    printf '%s\n' "${self_dir}/codex-notify"
+}
+
+codex_hook_command() {
+    local event="$1"
+    local command
+    command="\"${ZENTTY_AGENT_BIN}\" codex-hook ${event} || echo '{}'"
+    printf '%s' "$command"
+}
+
+install_codex_hooks_overlay() {
+    local source_home="${CODEX_HOME:-${HOME}/.codex}"
+    local overlay_home
+    local source_hooks_path
+    local overlay_hooks_path
+    overlay_home="$(mktemp -d "${TMPDIR:-/tmp}/zentty-codex-home.XXXXXX")" || return 1
+    source_hooks_path="$source_home/hooks.json"
+    overlay_hooks_path="$overlay_home/hooks.json"
+
+    if [[ -d "$source_home" ]]; then
+        local entry
+        local base_name
+        shopt -s dotglob nullglob
+        for entry in "$source_home"/*; do
+            base_name="$(basename "$entry")"
+            [[ "$base_name" == "hooks.json" ]] && continue
+            ln -s "$entry" "$overlay_home/$base_name" 2>/dev/null || true
+        done
+        shopt -u dotglob nullglob
+    fi
+
+    if [[ -f "$source_hooks_path" ]]; then
+        if ! merge_codex_hooks_json "$source_hooks_path" "$overlay_hooks_path"; then
+            cp "$source_hooks_path" "$overlay_hooks_path"
+        fi
+    else
+        write_zentty_hooks_json "$overlay_hooks_path"
+    fi
+
+    export CODEX_HOME="$overlay_home"
+}
+
+if integration_is_available; then
+    install_codex_hooks_overlay || true
+fi
+
+if [[ "${ZENTTY_CODEX_NOTIFY_DISABLED:-0}" != "1" ]] \
+    && integration_is_available \
+    && ! has_notify_override "$@"; then
+    notify_helper="$(codex_notify_helper)"
+    if [[ -x "$notify_helper" ]]; then
+        notify_json="[\"$(json_escape "$notify_helper")\"]"
+        set -- -c "notify=${notify_json}" "$@"
+    fi
+fi
+
 export ZENTTY_AGENT_TOOL="codex"
 exec "$(cd "$(dirname "$0")" && pwd)/zentty-agent-wrapper" "$@"

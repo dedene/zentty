@@ -51,6 +51,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     private var currentCursor: NSCursor = .iBeam
     private var mouseTrackingArea: NSTrackingArea?
     var onFocusDidChange: ((Bool) -> Void)?
+    var onLocalEventDidOccur: ((TerminalEvent) -> Void)?
 
     override var acceptsFirstResponder: Bool {
         true
@@ -219,6 +220,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let shouldEmitUserSubmittedInput = Self.shouldEmitUserSubmittedInput(for: event)
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
             let controlText = event.charactersIgnoringModifiers ?? event.characters
             let handled = surfaceController.sendKey(
@@ -228,6 +230,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
                 composing: false
             )
             if handled {
+                if shouldEmitUserSubmittedInput {
+                    onLocalEventDidOccur?(.userSubmittedInput)
+                }
                 return
             }
         }
@@ -241,6 +246,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
             text: keyText,
             composing: hasMarkedText()
         )
+        if shouldEmitUserSubmittedInput {
+            onLocalEventDidOccur?(.userSubmittedInput)
+        }
         keyTextAccumulator = ""
     }
 
@@ -278,6 +286,24 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
 
     @IBAction func copy(_ sender: Any?) {
         _ = surfaceController?.performBindingAction(BindingAction.copyToClipboard)
+    }
+
+    private static func shouldEmitUserSubmittedInput(for event: NSEvent) -> Bool {
+        guard event.type == .keyDown, !event.isARepeat else {
+            return false
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) || flags.contains(.control) || flags.contains(.option) || flags.contains(.shift) || flags.contains(.function) {
+            return false
+        }
+
+        if event.keyCode == 36 || event.keyCode == 76 {
+            return true
+        }
+
+        let characters = event.charactersIgnoringModifiers ?? event.characters
+        return characters == "\r" || characters == "\n" || characters == "\u{3}"
     }
 
     @IBAction func paste(_ sender: Any?) {

@@ -363,6 +363,92 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         )
     }
 
+    func test_builder_carries_split_interaction_metadata_into_pane_rows() {
+        let paneID = PaneID("workspace-main-agent")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.presentation = PanePresentationState(
+            cwd: "/tmp/project",
+            repoRoot: "/tmp/project",
+            branch: "main",
+            branchDisplayText: "main",
+            lookupBranch: "main",
+            identityText: "Claude Code",
+            contextText: "main · /tmp/project",
+            rememberedTitle: "Claude Code",
+            recognizedTool: .claudeCode,
+            runtimePhase: .needsInput,
+            statusText: "Needs input",
+            pullRequest: nil,
+            reviewChips: [],
+            attentionArtifactLink: nil,
+            updatedAt: Date(timeIntervalSince1970: 42),
+            isWorking: false,
+            interactionKind: .question,
+            interactionLabel: "Question",
+            interactionSymbolName: "questionmark.circle"
+        )
+
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.attentionState, .needsInput)
+        XCTAssertEqual(paneRow.statusText, "╰ Needs input")
+        XCTAssertEqual(paneRow.interactionKind, .question)
+        XCTAssertEqual(paneRow.interactionLabel, "Question")
+        XCTAssertEqual(paneRow.interactionSymbolName, "questionmark.circle")
+    }
+
+    func test_builder_uses_default_interaction_label_and_symbol_for_kind_only_metadata() {
+        let paneID = PaneID("workspace-main-agent")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.presentation = PanePresentationState(
+            cwd: "/tmp/project",
+            repoRoot: "/tmp/project",
+            branch: "main",
+            branchDisplayText: "main",
+            lookupBranch: "main",
+            identityText: "Claude Code",
+            contextText: "main · /tmp/project",
+            rememberedTitle: "Claude Code",
+            recognizedTool: .claudeCode,
+            runtimePhase: .needsInput,
+            statusText: "Needs input",
+            pullRequest: nil,
+            reviewChips: [],
+            attentionArtifactLink: nil,
+            updatedAt: Date(timeIntervalSince1970: 42),
+            isWorking: false,
+            interactionKind: .auth
+        )
+
+        let workspace = WorkspaceState(
+            id: WorkspaceID("workspace-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.interactionKind, .auth)
+        XCTAssertEqual(paneRow.interactionLabel, "Needs sign-in")
+        XCTAssertEqual(paneRow.interactionSymbolName, "key.fill")
+    }
+
     func test_builder_keeps_meaningful_custom_workspace_title_as_quiet_top_label() {
         let paneID = PaneID("workspace-docs-shell")
         let workspace = WorkspaceState(
@@ -935,7 +1021,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertTrue(paneRow.isWorking)
     }
 
-    func test_builder_uses_stable_branch_and_cwd_for_completed_single_pane_agent_row() {
+    func test_builder_uses_stable_branch_and_cwd_for_idle_single_pane_agent_row() {
         let paneID = PaneID("workspace-main-agent")
         let workspace = WorkspaceState(
             id: WorkspaceID("workspace-main"),
@@ -955,10 +1041,11 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             agentStatusByPaneID: [
                 paneID: PaneAgentStatus(
                     tool: .codex,
-                    state: .completed,
+                    state: .idle,
                     text: nil,
                     artifactLink: nil,
-                    updatedAt: Date(timeIntervalSince1970: 42)
+                    updatedAt: Date(timeIntervalSince1970: 42),
+                    hasObservedRunning: true
                 )
             ]
         )
@@ -971,8 +1058,8 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.primaryText, "General coding assistance session · main · …/nimbu")
         XCTAssertNil(paneRow.trailingText)
         XCTAssertNil(paneRow.detailText)
-        XCTAssertEqual(paneRow.statusText, "╰ Completed")
-        XCTAssertEqual(paneRow.attentionState, .completed)
+        XCTAssertEqual(paneRow.statusText, "╰ Idle")
+        XCTAssertNil(paneRow.attentionState)
         XCTAssertFalse(paneRow.isWorking)
     }
 
@@ -1015,7 +1102,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertFalse(paneRow.isWorking)
     }
 
-    func test_builder_does_not_surface_path_like_title_for_completed_single_pane_agent_row() {
+    func test_builder_does_not_surface_path_like_title_for_idle_single_pane_agent_row() {
         let paneID = PaneID("workspace-main-agent-path")
         let workspace = WorkspaceState(
             id: WorkspaceID("workspace-main-path"),
@@ -1035,10 +1122,11 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             agentStatusByPaneID: [
                 paneID: PaneAgentStatus(
                     tool: .claudeCode,
-                    state: .completed,
+                    state: .idle,
                     text: nil,
                     artifactLink: nil,
-                    updatedAt: Date(timeIntervalSince1970: 42)
+                    updatedAt: Date(timeIntervalSince1970: 42),
+                    hasObservedRunning: true
                 )
             ]
         )
@@ -1049,7 +1137,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.primaryText, "main · …/nimbu")
         XCTAssertNil(paneRow.trailingText)
         XCTAssertNil(paneRow.detailText)
-        XCTAssertEqual(paneRow.statusText, "╰ Completed")
+        XCTAssertEqual(paneRow.statusText, "╰ Idle")
     }
 
     func test_builder_attaches_terminal_progress_status_to_own_non_agent_pane_row() {
@@ -1095,7 +1183,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertTrue(paneRow.isWorking)
     }
 
-    func test_builder_folds_cwd_into_primary_for_multi_pane_agent_rows_with_meaningful_titles() {
+    func test_builder_keeps_cwd_detail_for_multi_pane_agent_rows_with_meaningful_titles() {
         let shellPaneID = PaneID("workspace-main-shell")
         let agentPaneID = PaneID("workspace-main-agent")
         let workspace = WorkspaceState(
@@ -1125,10 +1213,11 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
             agentStatusByPaneID: [
                 agentPaneID: PaneAgentStatus(
                     tool: .claudeCode,
-                    state: .completed,
+                    state: .idle,
                     text: nil,
                     artifactLink: nil,
-                    updatedAt: Date(timeIntervalSince1970: 42)
+                    updatedAt: Date(timeIntervalSince1970: 42),
+                    hasObservedRunning: true
                 )
             ]
         )
@@ -1139,6 +1228,6 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.primaryText, "Test session setup · …/nimbu")
         XCTAssertEqual(paneRow.trailingText, "feature/sidebar")
         XCTAssertNil(paneRow.detailText)
-        XCTAssertEqual(paneRow.statusText, "╰ Completed")
+        XCTAssertEqual(paneRow.statusText, "╰ Idle")
     }
 }

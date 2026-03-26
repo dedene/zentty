@@ -35,6 +35,11 @@ struct AgentStatusPayload: Equatable, Sendable {
     let origin: AgentSignalOrigin
     let toolName: String?
     let text: String?
+    let lifecycleEvent: AgentLifecycleEvent?
+    let interactionKind: PaneAgentInteractionKind?
+    let confidence: AgentSignalConfidence?
+    let sessionID: String?
+    let parentSessionID: String?
     let artifactKind: WorkspaceArtifactKind?
     let artifactLabel: String?
     let artifactURL: URL?
@@ -91,6 +96,21 @@ struct AgentStatusPayload: Equatable, Sendable {
         if let text {
             userInfo["text"] = text
         }
+        if let lifecycleEvent {
+            userInfo["lifecycleEvent"] = lifecycleEvent.rawValue
+        }
+        if let interactionKind {
+            userInfo["interactionKind"] = interactionKind.rawValue
+        }
+        if let confidence {
+            userInfo["confidence"] = confidence.rawValue
+        }
+        if let sessionID {
+            userInfo["sessionID"] = sessionID
+        }
+        if let parentSessionID {
+            userInfo["parentSessionID"] = parentSessionID
+        }
         if let artifactKind {
             userInfo["artifactKind"] = artifactKind.rawValue
         }
@@ -118,6 +138,11 @@ struct AgentStatusPayload: Equatable, Sendable {
         origin: AgentSignalOrigin = .compatibility,
         toolName: String?,
         text: String?,
+        lifecycleEvent: AgentLifecycleEvent? = nil,
+        interactionKind: PaneAgentInteractionKind? = nil,
+        confidence: AgentSignalConfidence? = nil,
+        sessionID: String? = nil,
+        parentSessionID: String? = nil,
         artifactKind: WorkspaceArtifactKind?,
         artifactLabel: String?,
         artifactURL: URL?,
@@ -134,6 +159,11 @@ struct AgentStatusPayload: Equatable, Sendable {
         self.origin = origin
         self.toolName = toolName
         self.text = text
+        self.lifecycleEvent = lifecycleEvent
+        self.interactionKind = interactionKind
+        self.confidence = confidence
+        self.sessionID = sessionID
+        self.parentSessionID = parentSessionID
         self.artifactKind = artifactKind
         self.artifactLabel = artifactLabel
         self.artifactURL = artifactURL
@@ -149,7 +179,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         }
 
         let signalKind = (userInfo["kind"] as? String).flatMap(AgentSignalKind.init(rawValue:)) ?? .lifecycle
-        let state = (userInfo["state"] as? String).flatMap(PaneAgentState.init(rawValue:))
+        let state = (userInfo["state"] as? String).flatMap(PaneAgentState.transportValue(_:))
         let shellActivityState = (userInfo["shellActivityState"] as? String)
             .flatMap(PaneShellActivityState.init(rawValue:))
         let pid = (userInfo["pid"] as? NSNumber)?.int32Value
@@ -180,6 +210,11 @@ struct AgentStatusPayload: Equatable, Sendable {
             origin: (userInfo["origin"] as? String).flatMap(AgentSignalOrigin.init(rawValue:)) ?? .compatibility,
             toolName: userInfo["toolName"] as? String,
             text: userInfo["text"] as? String,
+            lifecycleEvent: (userInfo["lifecycleEvent"] as? String).flatMap(AgentLifecycleEvent.init(rawValue:)),
+            interactionKind: (userInfo["interactionKind"] as? String).flatMap(PaneAgentInteractionKind.init(rawValue:)),
+            confidence: (userInfo["confidence"] as? String).flatMap(AgentSignalConfidence.init(rawValue:)),
+            sessionID: userInfo["sessionID"] as? String,
+            parentSessionID: userInfo["parentSessionID"] as? String,
             artifactKind: (userInfo["artifactKind"] as? String).flatMap(WorkspaceArtifactKind.init(rawValue:)),
             artifactLabel: userInfo["artifactLabel"] as? String,
             artifactURL: artifactURL,
@@ -190,4 +225,15 @@ struct AgentStatusPayload: Equatable, Sendable {
 
 enum AgentStatusTransport {
     static let notificationName = Notification.Name("com.peterdedene.zentty.agent-status")
+}
+
+private extension PaneAgentState {
+    static func transportValue(_ rawValue: String) -> PaneAgentState? {
+        switch rawValue {
+        case "completed", "idle":
+            return .idle
+        default:
+            return PaneAgentState(rawValue: rawValue)
+        }
+    }
 }

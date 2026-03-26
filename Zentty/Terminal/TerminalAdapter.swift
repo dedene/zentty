@@ -70,9 +70,16 @@ struct TerminalProgressReport: Equatable, Sendable {
     var progress: UInt8?
 }
 
+struct TerminalDesktopNotification: Equatable, Sendable {
+    var title: String?
+    var body: String?
+}
+
 enum TerminalEvent: Equatable, Sendable {
     case progressReport(TerminalProgressReport)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
+    case desktopNotification(TerminalDesktopNotification)
+    case userSubmittedInput
 }
 
 @MainActor
