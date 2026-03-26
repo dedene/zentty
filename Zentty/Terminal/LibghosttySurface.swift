@@ -265,6 +265,8 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             eventDidOccur(.progressReport(report))
         case .commandFinished(let exitCode, let durationNanoseconds):
             eventDidOccur(.commandFinished(exitCode: exitCode, durationNanoseconds: durationNanoseconds))
+        case .desktopNotification(let notification):
+            eventDidOccur(.desktopNotification(notification))
         case .scrollbar(let total, let len):
             hasScrollback = total > len
         }

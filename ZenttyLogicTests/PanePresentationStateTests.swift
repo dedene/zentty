@@ -42,7 +42,7 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertTrue(presentation.isWorking)
     }
 
-    func test_normalize_preserves_remembered_title_across_completion_and_metadata_loss() {
+    func test_normalize_preserves_remembered_title_across_idle_and_metadata_loss() {
         var previous = PanePresentationState()
         previous.cwd = "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu"
         previous.repoRoot = "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu"
@@ -66,10 +66,11 @@ final class PanePresentationStateTests: XCTestCase {
             shellContext: nil,
             agentStatus: PaneAgentStatus(
                 tool: .claudeCode,
-                state: .completed,
+                state: .idle,
                 text: nil,
                 artifactLink: nil,
-                updatedAt: Date(timeIntervalSince1970: 20)
+                updatedAt: Date(timeIntervalSince1970: 20),
+                hasObservedRunning: true
             ),
             terminalProgress: nil,
             reviewState: nil,
@@ -89,8 +90,8 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.identityText, "Test session setup")
         XCTAssertEqual(presentation.rememberedTitle, "Test session setup")
         XCTAssertEqual(presentation.contextText, "main · …/nimbu")
-        XCTAssertEqual(presentation.runtimePhase, PanePresentationPhase.completed)
-        XCTAssertEqual(presentation.statusText, "Completed")
+        XCTAssertEqual(presentation.runtimePhase, PanePresentationPhase.idle)
+        XCTAssertEqual(presentation.statusText, "Idle")
         XCTAssertFalse(presentation.isWorking)
     }
 
@@ -133,6 +134,41 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertFalse(presentation.isWorking)
     }
 
+    func test_normalize_hides_idle_when_session_was_never_observed_running() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "shell",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 35)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertNil(presentation.statusText)
+    }
+
     func test_normalize_ignores_stale_review_facts_when_canonical_git_context_is_missing() {
         let raw = PaneRawState(
             metadata: TerminalMetadata(
@@ -144,10 +180,11 @@ final class PanePresentationStateTests: XCTestCase {
             shellContext: nil,
             agentStatus: PaneAgentStatus(
                 tool: .claudeCode,
-                state: .completed,
+                state: .idle,
                 text: nil,
                 artifactLink: nil,
-                updatedAt: Date(timeIntervalSince1970: 40)
+                updatedAt: Date(timeIntervalSince1970: 40),
+                hasObservedRunning: true
             ),
             terminalProgress: nil,
             reviewState: WorkspaceReviewState(
@@ -190,10 +227,11 @@ final class PanePresentationStateTests: XCTestCase {
             ),
             agentStatus: PaneAgentStatus(
                 tool: .claudeCode,
-                state: .completed,
+                state: .idle,
                 text: nil,
                 artifactLink: nil,
-                updatedAt: Date(timeIntervalSince1970: 50)
+                updatedAt: Date(timeIntervalSince1970: 50),
+                hasObservedRunning: true
             ),
             terminalProgress: nil,
             reviewState: WorkspaceReviewState(
@@ -220,6 +258,35 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertNil(presentation.pullRequest)
         XCTAssertEqual(presentation.reviewChips, [])
         XCTAssertEqual(presentation.contextText, "feature/review-band · /tmp/project")
+    }
+
+    func test_normalize_keeps_non_agent_pane_without_visible_idle_status() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "shell",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "zsh",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertNil(presentation.statusText)
     }
 
     func test_normalize_preserves_non_pull_request_attention_artifact_and_timestamp() {
@@ -263,6 +330,45 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.attentionArtifactLink?.kind, .session)
         XCTAssertEqual(presentation.attentionArtifactLink?.url, sessionURL)
         XCTAssertEqual(presentation.updatedAt, updatedAt)
+    }
+
+    func test_normalize_keeps_broad_status_text_while_exposing_split_question_metadata() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Review deployment",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .needsInput,
+                text: "Ship this?\n[Yes] [No]",
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 60),
+                interactionKind: .question
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.statusText, "Needs input")
+        XCTAssertEqual(presentation.interactionKind, .question)
+        XCTAssertEqual(presentation.interactionLabel, "Question")
+        XCTAssertEqual(presentation.interactionSymbolName, "questionmark.circle")
     }
 
     func test_normalize_does_not_expose_pull_request_artifacts_through_attention_channel() {

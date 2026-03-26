@@ -1299,6 +1299,268 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.terminalProgress)
     }
 
+    func test_progress_report_activity_clears_blocked_agent_state_into_running() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Claude Code",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: "Ship this?\n[Yes] [No]",
+                interactionKind: .decision,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .progressReport(TerminalProgressReport(state: .indeterminate, progress: nil))
+        )
+
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(
+            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            .some(.none)
+        )
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+    }
+
+    func test_submit_input_event_clears_blocked_claude_state_into_running() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Claude Code",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: "Ship this?\n[Yes] [No]",
+                interactionKind: .decision,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .userSubmittedInput
+        )
+
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(
+            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            .some(.none)
+        )
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+    }
+
+    func test_desktop_notification_event_surfaces_generic_needs_input_for_codex() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Codex",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(title: "Codex", body: "Waiting for your input")
+            )
+        )
+
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(
+            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            .some(.genericInput)
+        )
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Needs input")
+    }
+
+    func test_desktop_notification_event_promotes_running_codex_session_to_needs_input() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(title: "Codex", body: "Waiting for your input")
+            )
+        )
+
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(
+            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            .some(.genericInput)
+        )
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.sessionID, "session-1")
+    }
+
+    func test_submit_input_event_clears_blocked_codex_state_into_running() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Codex",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .needsInput,
+                origin: .heuristic,
+                toolName: "Codex",
+                text: "Waiting for your input",
+                interactionKind: .genericInput,
+                confidence: .strong,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .userSubmittedInput
+        )
+
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(
+            store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            .some(.none)
+        )
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.sessionID, "session-1")
+    }
+
+    func test_desktop_notification_event_ignores_non_actionable_copy_for_codex() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Codex",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(title: "Codex", body: "Turn complete")
+            )
+        )
+
+        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+    }
+
+    func test_session_scoped_idle_signal_retires_running_codex_session() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        let idleCommand = try AgentSignalCommand.parse(
+            arguments: [
+                "agent-signal",
+                "lifecycle",
+                "idle",
+                "--origin", "explicit-api",
+                "--tool", "Codex",
+                "--session-id", "session-1",
+            ],
+            environment: [
+                "ZENTTY_WORKSPACE_ID": "workspace-main",
+                "ZENTTY_PANE_ID": paneID.rawValue,
+            ]
+        )
+        store.applyAgentStatusPayload(idleCommand.payload)
+
+        let status = store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus
+        XCTAssertEqual(status?.state, .idle)
+        XCTAssertEqual(status?.sessionID, "session-1")
+        XCTAssertTrue(status?.hasObservedRunning ?? false)
+    }
+
     func test_command_finished_clears_active_terminal_progress() throws {
         let store = WorkspaceStore()
         let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
@@ -1413,6 +1675,44 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+    }
+
+    func test_prompt_idle_retires_running_claude_session_into_idle() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                workspaceID: WorkspaceID("workspace-main"),
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .promptIdle,
+                origin: .shell,
+                toolName: "Claude Code",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Idle")
     }
 
     func test_shell_command_running_alone_does_not_create_running_agent_status() throws {
@@ -1818,7 +2118,64 @@ final class PaneStripStoreTests: XCTestCase {
         process.waitUntilExit()
         store.clearStaleAgentSessions()
 
-        XCTAssertNil(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertEqual(store.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .unresolvedStop)
+    }
+
+    func test_clear_stale_agent_sessions_persists_reducer_cleanup_even_when_visible_status_is_unchanged() throws {
+        let store = WorkspaceStore()
+        let paneID = try XCTUnwrap(store.activeWorkspace?.paneStripState.focusedPaneID)
+        let now = Date()
+
+        var reducerState = PaneAgentReducerState()
+        reducerState.sessionsByID["session-running"] = PaneAgentSessionState(
+            sessionID: "session-running",
+            parentSessionID: nil,
+            tool: .claudeCode,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: now,
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: nil,
+            hasObservedRunning: true,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: nil,
+            unresolvedStopVisibleUntil: nil
+        )
+        reducerState.sessionsByID["session-completed"] = PaneAgentSessionState(
+            sessionID: "session-completed",
+            parentSessionID: nil,
+            tool: .claudeCode,
+            state: .idle,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: now.addingTimeInterval(-PaneAgentReducerState.idleVisibilityWindow - 5),
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: nil,
+            hasObservedRunning: true,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: now.addingTimeInterval(-1),
+            unresolvedStopVisibleUntil: nil
+        )
+
+        var workspace = try XCTUnwrap(store.activeWorkspace)
+        workspace.auxiliaryStateByPaneID[paneID]?.agentReducerState = reducerState
+        workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = reducerState.reducedStatus(now: now)
+        store.activeWorkspace = workspace
+
+        store.clearStaleAgentSessions()
+
+        let aux = try XCTUnwrap(store.activeWorkspace?.auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(aux.agentStatus?.state, .running)
+        XCTAssertEqual(aux.agentReducerState.sessionsByID.keys.sorted(), ["session-running"])
     }
 
     func test_pane_context_signal_stores_local_context_and_formats_home_relative_display() throws {

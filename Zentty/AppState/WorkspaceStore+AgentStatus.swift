@@ -16,27 +16,53 @@ extension WorkspaceStore {
                 workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
             } else {
                 workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].terminalProgress = report
+                if report.state.indicatesActivity {
+                    resumeBlockedAgentStateIfWorkResumed(
+                        paneID: paneID,
+                        now: Date(),
+                        in: &workspace
+                    )
+                }
             }
+        case .userSubmittedInput:
+            resumeBlockedAgentStateIfWorkResumed(
+                paneID: paneID,
+                now: Date(),
+                in: &workspace
+            )
         case .commandFinished:
             workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
             let existingStatus = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus
-            if existingStatus?.state != .completed,
+            if existingStatus?.state != .idle,
                existingStatus?.state != .needsInput,
                existingStatus?.state != .starting,
-               existingStatus?.source == .explicit,
-               let tool = existingStatus?.tool {
-                workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].agentStatus = PaneAgentStatus(
-                    tool: tool,
-                    state: .unresolvedStop,
-                    text: nil,
-                    artifactLink: existingStatus?.artifactLink,
-                    updatedAt: Date(),
-                    source: .inferred,
-                    origin: .inferred,
-                    interactionState: PaneInteractionState.none,
-                    shellActivityState: existingStatus?.shellActivityState ?? .unknown,
-                    trackedPID: nil
+               existingStatus?.source == .explicit {
+                var auxiliaryState = workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
+                auxiliaryState.agentReducerState = Self.seededReducerState(
+                    auxiliaryState.agentReducerState,
+                    from: existingStatus
                 )
+                auxiliaryState.agentReducerState.markUnresolvedStop(
+                    sessionID: existingStatus?.sessionID,
+                    now: Date()
+                )
+                auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
+                workspace.auxiliaryStateByPaneID[paneID] = auxiliaryState
+            }
+        case .desktopNotification(let notification):
+            if let payload = terminalDesktopNotificationPayload(
+                paneID: paneID,
+                notification: notification,
+                in: workspace
+            ) {
+                var auxiliaryState = workspace.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
+                auxiliaryState.agentReducerState = Self.seededReducerState(
+                    auxiliaryState.agentReducerState,
+                    from: auxiliaryState.agentStatus
+                )
+                auxiliaryState.agentReducerState.apply(payload)
+                auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
+                workspace.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
         }
 
@@ -56,8 +82,12 @@ extension WorkspaceStore {
         var workspace = workspaces[workspaceIndex]
 
         if payload.clearsStatus {
-            workspace.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
-            workspace.auxiliaryStateByPaneID[payload.paneID]?.terminalProgress = nil
+            var auxiliaryState = workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
+            auxiliaryState.agentReducerState = Self.seededReducerState(auxiliaryState.agentReducerState, from: auxiliaryState.agentStatus)
+            auxiliaryState.agentReducerState.apply(payload)
+            auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
+            auxiliaryState.terminalProgress = nil
+            workspace.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             recomputePresentation(for: payload.paneID, in: &workspace)
             workspaces[workspaceIndex] = workspace
             notify(.auxiliaryStateUpdated(workspace.id, payload.paneID))
@@ -79,21 +109,39 @@ extension WorkspaceStore {
         let tool = AgentTool.resolve(named: payload.toolName)
             ?? existingStatus?.tool
             ?? AgentToolRecognizer.recognize(metadata: workspace.auxiliaryStateByPaneID[payload.paneID]?.metadata)
+        var auxiliaryState = workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
+        auxiliaryState.agentReducerState = Self.seededReducerState(auxiliaryState.agentReducerState, from: existingStatus)
 
         switch payload.signalKind {
         case .lifecycle:
             guard payload.state != nil, let tool else {
                 return
             }
-            guard shouldApplyLifecycleSignal(payload, over: existingStatus) else {
-                return
-            }
-
-            workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = Self.makeLifecycleStatus(
-                tool: tool,
-                payload: payload,
-                existingStatus: existingStatus
+            auxiliaryState.agentReducerState.apply(
+                AgentStatusPayload(
+                    workspaceID: payload.workspaceID,
+                    paneID: payload.paneID,
+                    signalKind: payload.signalKind,
+                    state: payload.state,
+                    shellActivityState: payload.shellActivityState,
+                    pid: payload.pid,
+                    pidEvent: payload.pidEvent,
+                    paneContext: payload.paneContext,
+                    origin: payload.origin,
+                    toolName: tool.displayName,
+                    text: payload.text,
+                    lifecycleEvent: payload.lifecycleEvent,
+                    interactionKind: payload.interactionKind,
+                    confidence: payload.confidence,
+                    sessionID: payload.sessionID,
+                    parentSessionID: payload.parentSessionID,
+                    artifactKind: payload.artifactKind,
+                    artifactLabel: payload.artifactLabel,
+                    artifactURL: payload.artifactURL
+                )
             )
+            auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
+            workspace.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
         case .shellState:
             guard let shellActivityState = payload.shellActivityState else {
                 return
@@ -119,7 +167,10 @@ extension WorkspaceStore {
                     }
                 }
 
-                workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = existingStatus
+                auxiliaryState.agentStatus = existingStatus
+                auxiliaryState.agentReducerState.apply(payload)
+                auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus() ?? existingStatus
+                workspace.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             } else {
                 return
             }
@@ -133,45 +184,38 @@ extension WorkspaceStore {
                 guard let tool, let pid = payload.pid else {
                     return
                 }
-
-                var status = existingStatus
-                    .map {
-                        PaneAgentStatus(
-                            tool: tool,
-                            state: ($0.state == .completed || $0.state == .unresolvedStop) ? .starting : $0.state,
-                            text: $0.text,
-                            artifactLink: $0.artifactLink,
-                            updatedAt: Date(),
-                            source: $0.source,
-                            origin: $0.origin.priority >= payload.origin.priority ? $0.origin : payload.origin,
-                            interactionState: $0.interactionState,
-                            shellActivityState: $0.shellActivityState,
-                            trackedPID: $0.trackedPID
-                        )
-                    }
-                    ?? PaneAgentStatus(
-                        tool: tool,
-                        state: .starting,
-                        text: nil,
-                        artifactLink: nil,
-                        updatedAt: Date(),
-                        source: .explicit,
+                auxiliaryState.agentReducerState.apply(
+                    AgentStatusPayload(
+                        workspaceID: payload.workspaceID,
+                        paneID: payload.paneID,
+                        signalKind: .pid,
+                        state: nil,
+                        pid: pid,
+                        pidEvent: .attach,
                         origin: payload.origin,
-                        interactionState: PaneInteractionState.none
+                        toolName: tool.displayName,
+                        text: nil,
+                        confidence: payload.confidence,
+                        sessionID: payload.sessionID,
+                        parentSessionID: payload.parentSessionID,
+                        artifactKind: nil,
+                        artifactLabel: nil,
+                        artifactURL: nil
                     )
-                status.trackedPID = pid
-                status.updatedAt = Date()
+                )
+                let status = auxiliaryState.agentReducerState.reducedStatus()
                 if existingStatus?.trackedPID != pid {
-                    workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].presentation.rememberedTitle = nil
+                    auxiliaryState.presentation.rememberedTitle = nil
                 }
-                workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = status
+                auxiliaryState.agentStatus = status
+                workspace.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             case .clear:
-                guard var status = existingStatus else {
+                guard existingStatus != nil else {
                     return
                 }
-                status.trackedPID = nil
-                status.updatedAt = Date()
-                workspace.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].agentStatus = status
+                auxiliaryState.agentReducerState.apply(payload)
+                auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
+                workspace.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             }
         case .paneContext:
             guard let paneContext = payload.paneContext else {
@@ -251,9 +295,26 @@ extension WorkspaceStore {
             var workspace = workspaces[workspaceIndex]
 
             for (paneID, aux) in workspace.auxiliaryStateByPaneID {
+                if !aux.agentReducerState.sessionsByID.isEmpty {
+                    var reducerState = aux.agentReducerState
+                    reducerState.sweep(now: Date(), isProcessAlive: Self.isProcessAlive(pid:))
+                    let reducedStatus = reducerState.reducedStatus()
+                    if reducerState != aux.agentReducerState || reducedStatus != aux.agentStatus {
+                        didChange = true
+                        workspace.auxiliaryStateByPaneID[paneID]?.agentReducerState = reducerState
+                        workspace.auxiliaryStateByPaneID[paneID]?.agentStatus = reducedStatus
+                        if reducedStatus == nil {
+                            workspace.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
+                        }
+                        recomputePresentation(for: paneID, in: &workspace)
+                    }
+                    continue
+                }
+
                 guard let status = aux.agentStatus else {
                     continue
                 }
+
                 guard let trackedPID = status.trackedPID, !Self.isProcessAlive(pid: trackedPID) else {
                     continue
                 }
@@ -278,71 +339,102 @@ extension WorkspaceStore {
         }
     }
 
-    private func shouldApplyLifecycleSignal(
-        _ payload: AgentStatusPayload,
-        over existingStatus: PaneAgentStatus?
-    ) -> Bool {
-        guard let existingStatus else {
-            return true
+    private static func seededReducerState(
+        _ reducerState: PaneAgentReducerState,
+        from existingStatus: PaneAgentStatus?
+    ) -> PaneAgentReducerState {
+        guard reducerState.sessionsByID.isEmpty, let existingStatus else {
+            return reducerState
         }
 
-        if payload.origin.priority >= existingStatus.origin.priority {
-            return true
-        }
-
-        return payload.state == existingStatus.state
-    }
-
-    private static func makeLifecycleStatus(
-        tool: AgentTool,
-        payload: AgentStatusPayload,
-        existingStatus: PaneAgentStatus?
-    ) -> PaneAgentStatus {
-        let artifactLink = explicitArtifactLink(from: payload) ?? existingStatus?.artifactLink
-        let state = payload.state ?? .running
-        let payloadText = AgentInteractionClassifier.trimmed(payload.text)
-        let existingText = AgentInteractionClassifier.trimmed(existingStatus?.text)
-        let text: String?
-        if state == .needsInput, existingStatus?.state == .needsInput {
-            text = AgentInteractionClassifier.preferredWaitingMessage(
-                existing: existingText,
-                candidate: payloadText
-            )
-        } else if state == .needsInput {
-            text = payloadText ?? existingText
-        } else {
-            text = nil
-        }
-
-        return PaneAgentStatus(
-            tool: tool,
-            state: state,
-            text: text,
-            artifactLink: artifactLink,
-            updatedAt: Date(),
-            source: payload.origin == .inferred ? .inferred : .explicit,
-            origin: payload.origin,
-            interactionState: state == .needsInput ? .awaitingHuman : .none,
-            shellActivityState: existingStatus?.shellActivityState ?? .unknown,
-            trackedPID: state == .completed ? nil : existingStatus?.trackedPID
+        var seededReducerState = reducerState
+        let sessionID = existingStatus.sessionID ?? "pane-\(existingStatus.tool.displayName.lowercased())"
+        seededReducerState.sessionsByID[sessionID] = PaneAgentSessionState(
+            sessionID: sessionID,
+            parentSessionID: existingStatus.parentSessionID,
+            tool: existingStatus.tool,
+            state: existingStatus.state,
+            text: existingStatus.text,
+            artifactLink: existingStatus.artifactLink,
+            updatedAt: existingStatus.updatedAt,
+            source: existingStatus.source,
+            origin: existingStatus.origin,
+            interactionKind: existingStatus.interactionKind,
+            confidence: existingStatus.confidence,
+            shellActivityState: existingStatus.shellActivityState,
+            trackedPID: existingStatus.trackedPID,
+            hasObservedRunning: existingStatus.hasObservedRunning,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: existingStatus.state == .idle
+                ? existingStatus.updatedAt.addingTimeInterval(PaneAgentReducerState.idleVisibilityWindow)
+                : nil,
+            unresolvedStopVisibleUntil: existingStatus.state == .unresolvedStop
+                ? existingStatus.updatedAt.addingTimeInterval(PaneAgentReducerState.unresolvedStopVisibilityWindow)
+                : nil
         )
+        return seededReducerState
     }
 
-    private static func explicitArtifactLink(from payload: AgentStatusPayload) -> WorkspaceArtifactLink? {
-        guard
-            let kind = payload.artifactKind,
-            let label = payload.artifactLabel,
-            let url = payload.artifactURL
-        else {
+    private func terminalDesktopNotificationPayload(
+        paneID: PaneID,
+        notification: TerminalDesktopNotification,
+        in workspace: WorkspaceState
+    ) -> AgentStatusPayload? {
+        let title = AgentInteractionClassifier.trimmed(notification.title)
+        let body = AgentInteractionClassifier.trimmed(notification.body)
+        let combinedParts = [title, body].compactMap { $0 }
+        let combinedMessage = combinedParts.isEmpty ? nil : combinedParts.joined(separator: "\n")
+
+        guard AgentInteractionClassifier.requiresHumanInput(message: combinedMessage) else {
             return nil
         }
 
-        return WorkspaceArtifactLink(
-            kind: kind,
-            label: label,
-            url: url,
-            isExplicit: true
+        let existingStatus = workspace.auxiliaryStateByPaneID[paneID]?.agentStatus
+        let tool = existingStatus?.tool
+            ?? AgentToolRecognizer.recognize(metadata: workspace.auxiliaryStateByPaneID[paneID]?.metadata)
+        guard let tool else {
+            return nil
+        }
+
+        return AgentStatusPayload(
+            workspaceID: workspace.id,
+            paneID: paneID,
+            signalKind: .lifecycle,
+            state: .needsInput,
+            origin: .heuristic,
+            toolName: tool.displayName,
+            text: body ?? combinedMessage,
+            interactionKind: .genericInput,
+            confidence: .strong,
+            sessionID: existingStatus?.sessionID,
+            parentSessionID: existingStatus?.parentSessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
         )
+    }
+
+    private func resumeBlockedAgentStateIfWorkResumed(
+        paneID: PaneID,
+        now: Date,
+        in workspace: inout WorkspaceState
+    ) {
+        guard var auxiliaryState = workspace.auxiliaryStateByPaneID[paneID],
+              auxiliaryState.agentStatus?.state == .needsInput
+        else {
+            return
+        }
+
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            auxiliaryState.agentReducerState,
+            from: auxiliaryState.agentStatus
+        )
+        guard auxiliaryState.agentReducerState.resumeBlockedSessionFromActivity(now: now) else {
+            return
+        }
+
+        auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus(now: now)
+        workspace.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
 
     private static func isProcessAlive(pid: Int32) -> Bool {

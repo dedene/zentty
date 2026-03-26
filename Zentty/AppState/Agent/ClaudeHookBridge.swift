@@ -17,6 +17,11 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     var cwd: String?
     var pid: Int32?
     var lastHumanMessage: String?
+    var lastInteractionKindRawValue: String?
+    var lastStructuredInteractionText: String?
+    var lastStructuredInteractionKindRawValue: String?
+    var lastStructuredInteractionConfidenceRawValue: String?
+    var lastNotificationText: String?
     var updatedAt: TimeInterval
 
     var workspaceID: WorkspaceID {
@@ -25,6 +30,36 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
 
     var paneID: PaneID {
         PaneID(paneIDRawValue)
+    }
+
+    var lastInteractionKind: PaneAgentInteractionKind? {
+        get { lastInteractionKindRawValue.flatMap(PaneAgentInteractionKind.init(rawValue:)) }
+        set { lastInteractionKindRawValue = newValue?.rawValue }
+    }
+
+    var structuredInteractionText: String? {
+        get { lastStructuredInteractionText ?? lastHumanMessage }
+        set {
+            lastStructuredInteractionText = newValue
+            lastHumanMessage = newValue
+        }
+    }
+
+    var structuredInteractionKind: PaneAgentInteractionKind? {
+        get {
+            lastStructuredInteractionKindRawValue
+                .flatMap(PaneAgentInteractionKind.init(rawValue:))
+                ?? lastInteractionKind
+        }
+        set {
+            lastStructuredInteractionKindRawValue = newValue?.rawValue
+            lastInteractionKind = newValue
+        }
+    }
+
+    var structuredInteractionConfidence: AgentSignalConfidence? {
+        get { lastStructuredInteractionConfidenceRawValue.flatMap(AgentSignalConfidence.init(rawValue:)) }
+        set { lastStructuredInteractionConfidenceRawValue = newValue?.rawValue }
     }
 }
 
@@ -90,7 +125,8 @@ enum ClaudeHookBridge {
                     workspaceID: target.workspaceID,
                     paneID: target.paneID,
                     pid: pid,
-                    event: .attach
+                    event: .attach,
+                    sessionID: input.sessionID
                 ),
             ]
 
@@ -98,21 +134,69 @@ enum ClaudeHookBridge {
             let target = try resolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             let sessionRecord = try lookupRecord(for: input, sessionStore: sessionStore)
             let originalMessage = AgentInteractionClassifier.trimmed(input.message)
-            let shouldUseSavedMessage = sessionRecord?.lastHumanMessage != nil
-                && AgentInteractionClassifier.isGenericNeedsInputMessage(originalMessage)
-            guard AgentInteractionClassifier.requiresHumanInput(message: originalMessage) || shouldUseSavedMessage else {
+            let hasExplicitStructuredInteraction = sessionRecord?.structuredInteractionKind?.requiresHumanAttention == true
+            let isGenericMessage = AgentInteractionClassifier.isGenericNeedsInputMessage(originalMessage)
+            let requiresAttention = AgentInteractionClassifier.requiresHumanInput(message: originalMessage)
+
+            guard requiresAttention || (hasExplicitStructuredInteraction && isGenericMessage) else {
                 return []
             }
-            let message = AgentInteractionClassifier.preferredWaitingMessage(
-                existing: sessionRecord?.lastHumanMessage,
-                candidate: originalMessage
-            ) ?? "Claude is waiting for your input"
+
+            if let sessionID = input.sessionID, let originalMessage {
+                try sessionStore.recordNotificationText(sessionID: sessionID, text: originalMessage)
+            }
+
+            if let structuredKind = sessionRecord?.structuredInteractionKind,
+               let structuredConfidence = sessionRecord?.structuredInteractionConfidence ?? sessionRecord.map({ _ in .explicit }),
+               structuredKind.requiresHumanAttention {
+                let message: String
+                if let originalMessage,
+                   shouldReplaceStructuredInteractionText(
+                    with: originalMessage,
+                    structuredKind: structuredKind
+                   ) {
+                    message = originalMessage
+                } else {
+                    message = sessionRecord?.structuredInteractionText
+                        ?? AgentInteractionClassifier.preferredWaitingMessage(
+                            existing: sessionRecord?.lastNotificationText,
+                            candidate: originalMessage
+                        )
+                        ?? "Claude is waiting for your input"
+                }
+
+                return [
+                    lifecyclePayload(
+                        workspaceID: target.workspaceID,
+                        paneID: target.paneID,
+                        state: .needsInput,
+                        text: message,
+                        interactionKind: structuredKind,
+                        confidence: structuredConfidence,
+                        sessionID: input.sessionID
+                    ),
+                ]
+            }
+
+            let message: String
+            if let originalMessage, !AgentInteractionClassifier.isGenericNeedsInputMessage(originalMessage) {
+                message = originalMessage
+            } else {
+                message = AgentInteractionClassifier.preferredWaitingMessage(
+                    existing: sessionRecord?.lastNotificationText,
+                    candidate: originalMessage
+                ) ?? "Claude is waiting for your input"
+            }
+
             return [
                 lifecyclePayload(
                     workspaceID: target.workspaceID,
                     paneID: target.paneID,
                     state: .needsInput,
-                    text: message
+                    text: message,
+                    interactionKind: .genericInput,
+                    confidence: .strong,
+                    sessionID: input.sessionID
                 ),
             ]
 
@@ -120,18 +204,22 @@ enum ClaudeHookBridge {
             let target = try resolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             let existing = try lookupRecord(for: input, sessionStore: sessionStore)
             let candidateMessage = AgentInteractionClassifier.trimmed(input.message) ?? "Claude needs your approval"
-            let message = AgentInteractionClassifier.preferredWaitingMessage(
-                existing: existing?.lastHumanMessage,
-                candidate: candidateMessage
-            ) ?? candidateMessage
+            let message = preferredStructuredInteractionText(
+                existingText: existing?.structuredInteractionText,
+                existingKind: existing?.structuredInteractionKind,
+                candidateText: candidateMessage,
+                candidateKind: .approval
+            )
             if let sessionID = input.sessionID {
-                try sessionStore.upsert(
+                try sessionStore.rememberStructuredInteraction(
                     sessionID: sessionID,
                     workspaceID: existing?.workspaceID ?? target.workspaceID,
                     paneID: existing?.paneID ?? target.paneID,
                     cwd: input.cwd ?? existing?.cwd,
                     pid: existing?.pid,
-                    lastHumanMessage: message
+                    text: message,
+                    kind: .approval,
+                    confidence: .explicit
                 )
             }
             return [
@@ -139,7 +227,10 @@ enum ClaudeHookBridge {
                     workspaceID: target.workspaceID,
                     paneID: target.paneID,
                     state: .needsInput,
-                    text: message
+                    text: message,
+                    interactionKind: .approval,
+                    confidence: .explicit,
+                    sessionID: input.sessionID
                 ),
             ]
 
@@ -147,56 +238,93 @@ enum ClaudeHookBridge {
             let target = try resolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             if input.toolName == "AskUserQuestion",
                let sessionID = input.sessionID,
-               let question = describeAskUserQuestion(toolInput: input.toolInput) {
+               let prompt = describeAskUserQuestion(toolInput: input.toolInput) {
                 let existing = try lookupRecord(for: input, sessionStore: sessionStore)
-                let message = AgentInteractionClassifier.preferredWaitingMessage(
-                    existing: existing?.lastHumanMessage,
-                    candidate: question
+                let message = preferredStructuredInteractionText(
+                    existingText: existing?.structuredInteractionText,
+                    existingKind: existing?.structuredInteractionKind,
+                    candidateText: prompt.text,
+                    candidateKind: prompt.interactionKind
                 )
-                try sessionStore.upsert(
+                try sessionStore.rememberStructuredInteraction(
                     sessionID: sessionID,
                     workspaceID: existing?.workspaceID ?? target.workspaceID,
                     paneID: existing?.paneID ?? target.paneID,
                     cwd: input.cwd ?? existing?.cwd,
                     pid: existing?.pid,
-                    lastHumanMessage: message
+                    text: message ?? prompt.text,
+                    kind: prompt.interactionKind,
+                    confidence: .explicit
                 )
-                return []
+                return [
+                    lifecyclePayload(
+                        workspaceID: target.workspaceID,
+                        paneID: target.paneID,
+                        state: .needsInput,
+                        text: message,
+                        interactionKind: prompt.interactionKind,
+                        confidence: .explicit,
+                        sessionID: input.sessionID
+                    ),
+                ]
             }
             if let sessionID = input.sessionID {
-                try sessionStore.clearLastHumanMessage(sessionID: sessionID)
+                try sessionStore.clearInteractionContext(sessionID: sessionID)
             }
             return [
                 lifecyclePayload(
                     workspaceID: target.workspaceID,
                     paneID: target.paneID,
                     state: .running,
-                    text: nil
+                    text: nil,
+                    interactionKind: .none,
+                    confidence: .explicit,
+                    sessionID: input.sessionID
                 ),
             ]
 
         case "UserPromptSubmit", "SubagentStart":
             let target = try resolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             if let sessionID = input.sessionID {
-                try sessionStore.clearLastHumanMessage(sessionID: sessionID)
+                try sessionStore.clearInteractionContext(sessionID: sessionID)
             }
             return [
                 lifecyclePayload(
                     workspaceID: target.workspaceID,
                     paneID: target.paneID,
                     state: .running,
-                    text: nil
+                    text: nil,
+                    interactionKind: .none,
+                    confidence: .explicit,
+                    sessionID: input.sessionID
                 ),
             ]
 
-        case "Stop", "SubagentStop":
+        case "Stop":
             let target = try resolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             return [
                 lifecyclePayload(
                     workspaceID: target.workspaceID,
                     paneID: target.paneID,
-                    state: .completed,
-                    text: nil
+                    state: .idle,
+                    text: nil,
+                    lifecycleEvent: .stopCandidate,
+                    confidence: .explicit,
+                    sessionID: input.sessionID
+                ),
+            ]
+
+        case "SubagentStop":
+            let target = try resolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            return [
+                lifecyclePayload(
+                    workspaceID: target.workspaceID,
+                    paneID: target.paneID,
+                    state: .idle,
+                    text: nil,
+                    lifecycleEvent: .update,
+                    confidence: .explicit,
+                    sessionID: input.sessionID
                 ),
             ]
 
@@ -219,6 +347,7 @@ enum ClaudeHookBridge {
                     origin: .explicitHook,
                     toolName: AgentTool.claudeCode.displayName,
                     text: nil,
+                    sessionID: record.sessionID,
                     artifactKind: nil,
                     artifactLabel: nil,
                     artifactURL: nil
@@ -227,7 +356,8 @@ enum ClaudeHookBridge {
                     workspaceID: record.workspaceID,
                     paneID: record.paneID,
                     pid: nil,
-                    event: .clear
+                    event: .clear,
+                    sessionID: record.sessionID
                 ),
             ]
 
@@ -288,7 +418,11 @@ enum ClaudeHookBridge {
         workspaceID: WorkspaceID,
         paneID: PaneID,
         state: PaneAgentState?,
-        text: String?
+        text: String?,
+        lifecycleEvent: AgentLifecycleEvent? = .update,
+        interactionKind: PaneAgentInteractionKind? = nil,
+        confidence: AgentSignalConfidence? = nil,
+        sessionID: String? = nil
     ) -> AgentStatusPayload {
         AgentStatusPayload(
             workspaceID: workspaceID,
@@ -298,6 +432,10 @@ enum ClaudeHookBridge {
             origin: .explicitHook,
             toolName: AgentTool.claudeCode.displayName,
             text: text,
+            lifecycleEvent: lifecycleEvent,
+            interactionKind: interactionKind,
+            confidence: confidence,
+            sessionID: sessionID,
             artifactKind: nil,
             artifactLabel: nil,
             artifactURL: nil
@@ -308,7 +446,8 @@ enum ClaudeHookBridge {
         workspaceID: WorkspaceID,
         paneID: PaneID,
         pid: Int32?,
-        event: AgentPIDSignalEvent
+        event: AgentPIDSignalEvent,
+        sessionID: String? = nil
     ) -> AgentStatusPayload {
         AgentStatusPayload(
             workspaceID: workspaceID,
@@ -320,17 +459,51 @@ enum ClaudeHookBridge {
             origin: .explicitHook,
             toolName: AgentTool.claudeCode.displayName,
             text: nil,
+            sessionID: sessionID,
             artifactKind: nil,
             artifactLabel: nil,
             artifactURL: nil
         )
     }
 
+    private static func preferredStructuredInteractionText(
+        existingText: String?,
+        existingKind: PaneAgentInteractionKind?,
+        candidateText: String,
+        candidateKind: PaneAgentInteractionKind
+    ) -> String {
+        guard existingKind == candidateKind else {
+            return candidateText
+        }
+
+        return AgentInteractionClassifier.preferredWaitingMessage(
+            existing: existingText,
+            candidate: candidateText
+        ) ?? candidateText
+    }
+
+    private static func shouldReplaceStructuredInteractionText(
+        with notificationText: String,
+        structuredKind: PaneAgentInteractionKind
+    ) -> Bool {
+        if AgentInteractionClassifier.isGenericNeedsInputMessage(notificationText)
+            || AgentInteractionClassifier.isGenericApprovalMessage(notificationText) {
+            return false
+        }
+
+        switch structuredKind {
+        case .approval, .auth, .genericInput:
+            return AgentInteractionClassifier.requiresHumanInput(message: notificationText)
+        case .question, .decision, .none:
+            return false
+        }
+    }
+
     private static func readStandardInput() -> Data {
         FileHandle.standardInput.readDataToEndOfFile()
     }
 
-    private static func describeAskUserQuestion(toolInput: [String: Any]) -> String? {
+    private static func describeAskUserQuestion(toolInput: [String: Any]) -> (text: String, interactionKind: PaneAgentInteractionKind)? {
         guard let questions = toolInput["questions"] as? [[String: Any]],
               let first = questions.first else {
             return nil
@@ -343,7 +516,8 @@ enum ClaudeHookBridge {
             lines.append(header)
         }
 
-        if let options = first["options"] as? [[String: Any]] {
+        let options = first["options"] as? [[String: Any]]
+        if let options {
             let labels = options.compactMap { $0["label"] as? String }
             if !labels.isEmpty {
                 lines.append(labels.map { "[\($0)]" }.joined(separator: " "))
@@ -353,7 +527,10 @@ enum ClaudeHookBridge {
         guard !lines.isEmpty else {
             return nil
         }
-        return lines.joined(separator: "\n")
+        return (
+            text: lines.joined(separator: "\n"),
+            interactionKind: (options?.isEmpty == false) ? .decision : .question
+        )
     }
 
     private static func extractCurrentWorkingDirectory(from object: [String: Any]) -> String? {

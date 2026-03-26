@@ -30,10 +30,13 @@ enum WorkspaceAttentionSummaryBuilder {
             paneID: pane.id,
             tool: tool,
             state: attentionState,
+            interactionKind: presentation.interactionKind,
+            interactionLabel: presentation.interactionLabel ?? presentation.interactionKind?.defaultLabel,
             primaryText: presentation.visibleIdentityText ?? "Shell",
             statusText: presentation.statusText ?? "",
             contextText: presentation.contextText ?? "",
             artifactLink: presentation.attentionArtifactLink,
+            interactionSymbolName: presentation.interactionSymbolName ?? presentation.interactionKind?.defaultSymbolName,
             updatedAt: presentation.updatedAt
         )
     }
@@ -46,8 +49,6 @@ enum WorkspaceAttentionSummaryBuilder {
             return .running
         case .needsInput:
             return .needsInput
-        case .completed:
-            return .completed
         case .unresolvedStop:
             return .unresolvedStop
         }
@@ -71,8 +72,6 @@ private extension WorkspaceAttentionState {
             return 3
         case .running:
             return 2
-        case .completed:
-            return 1
         }
     }
 }
