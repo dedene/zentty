@@ -1,4 +1,5 @@
 import AppKit
+import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -20,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppMenuBuilder.installIfNeeded(on: NSApp)
+        UNUserNotificationCenter.current().delegate = self
 
         guard shouldOpenMainWindow else { return }
 
@@ -37,9 +39,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController?.showSettingsWindow(sender)
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        NSApp.dockTile.badgeLabel = nil
+    }
+
     #if DEBUG
     var settingsWindow: NSWindow? {
         windowController?.settingsWindow
     }
     #endif
+}
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let userInfo = response.notification.request.content.userInfo
+        let actionIdentifier = response.actionIdentifier
+        guard let workspaceRaw = userInfo["workspaceID"] as? String,
+              let paneRaw = userInfo["paneID"] as? String else {
+            return
+        }
+        let shouldJump = actionIdentifier == UNNotificationDefaultActionIdentifier
+            || actionIdentifier == "JUMP"
+
+        await MainActor.run {
+            if shouldJump {
+                self.windowController?.navigateToPane(
+                    workspaceID: WorkspaceID(workspaceRaw),
+                    paneID: PaneID(paneRaw)
+                )
+            }
+        }
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
 }

@@ -1,5 +1,7 @@
 enum AppAction: Equatable, Sendable {
     case newWorkspace
+    case copyFocusedPanePath
+    case jumpToLatestNotification
     case pane(PaneCommand)
 }
 
@@ -8,6 +10,10 @@ enum KeyboardShortcutResolver {
         switch (shortcut.key, shortcut.modifiers) {
         case (.character("t"), [.command]):
             return .newWorkspace
+        case (.character("c"), [.command, .shift]):
+            return .copyFocusedPanePath
+        case (.character("u"), [.command, .shift]):
+            return .jumpToLatestNotification
         case (.character("d"), [.command]):
             return .pane(.splitHorizontally)
         case (.character("d"), [.command, .shift]):

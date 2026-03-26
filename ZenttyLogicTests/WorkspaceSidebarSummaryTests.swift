@@ -359,7 +359,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertNil(summary.attentionState)
         XCTAssertEqual(
             summary.paneRows.first(where: { $0.paneID == agentPaneID })?.statusText,
-            "╰ Needs input"
+            "Needs input"
         )
     }
 
@@ -402,7 +402,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
         XCTAssertEqual(paneRow.attentionState, .needsInput)
-        XCTAssertEqual(paneRow.statusText, "╰ Needs input")
+        XCTAssertEqual(paneRow.statusText, "Needs input")
         XCTAssertEqual(paneRow.interactionKind, .question)
         XCTAssertEqual(paneRow.interactionLabel, "Question")
         XCTAssertEqual(paneRow.interactionSymbolName, "questionmark.circle")
@@ -561,7 +561,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         let summary = WorkspaceSidebarSummaryBuilder.summary(for: workspace, isActive: true)
 
         XCTAssertNil(summary.statusText)
-        XCTAssertEqual(summary.paneRows.first?.statusText, "╰ Needs input")
+        XCTAssertEqual(summary.paneRows.first?.statusText, "Needs input")
     }
 
     func test_builder_uses_pane_specific_detail_lines_for_multi_pane_workspaces() {
@@ -1016,7 +1016,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.primaryText, "Test session setup · main · …/nimbu")
         XCTAssertNil(paneRow.trailingText)
         XCTAssertNil(paneRow.detailText)
-        XCTAssertEqual(paneRow.statusText, "╰ Running")
+        XCTAssertEqual(paneRow.statusText, "Running")
         XCTAssertEqual(paneRow.attentionState, .running)
         XCTAssertTrue(paneRow.isWorking)
     }
@@ -1058,7 +1058,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.primaryText, "General coding assistance session · main · …/nimbu")
         XCTAssertNil(paneRow.trailingText)
         XCTAssertNil(paneRow.detailText)
-        XCTAssertEqual(paneRow.statusText, "╰ Idle")
+        XCTAssertEqual(paneRow.statusText, "Idle")
         XCTAssertNil(paneRow.attentionState)
         XCTAssertFalse(paneRow.isWorking)
     }
@@ -1137,7 +1137,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.primaryText, "main · …/nimbu")
         XCTAssertNil(paneRow.trailingText)
         XCTAssertNil(paneRow.detailText)
-        XCTAssertEqual(paneRow.statusText, "╰ Idle")
+        XCTAssertEqual(paneRow.statusText, "Idle")
     }
 
     func test_builder_attaches_terminal_progress_status_to_own_non_agent_pane_row() {
@@ -1178,7 +1178,7 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.primaryText, "npm test · …/project")
         XCTAssertNil(paneRow.trailingText)
         XCTAssertNil(paneRow.detailText)
-        XCTAssertEqual(paneRow.statusText, "╰ Running")
+        XCTAssertEqual(paneRow.statusText, "Running")
         XCTAssertEqual(paneRow.attentionState, .running)
         XCTAssertTrue(paneRow.isWorking)
     }
@@ -1228,6 +1228,6 @@ final class WorkspaceSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.primaryText, "Test session setup · …/nimbu")
         XCTAssertEqual(paneRow.trailingText, "feature/sidebar")
         XCTAssertNil(paneRow.detailText)
-        XCTAssertEqual(paneRow.statusText, "╰ Idle")
+        XCTAssertEqual(paneRow.statusText, "Idle")
     }
 }

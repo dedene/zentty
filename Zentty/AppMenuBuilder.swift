@@ -60,6 +60,12 @@ enum AppMenuBuilder {
             action: #selector(NSText.copy(_:)),
             keyEquivalent: "c"
         ))
+        editMenu.addItem(makeMenuActionItem(
+            title: "Copy Path",
+            action: #selector(MainWindowController.copyFocusedPanePath(_:)),
+            keyEquivalent: "c",
+            modifiers: [.command, .shift]
+        ))
         editMenu.addItem(makeEditMenuActionItem(
             title: "Paste",
             action: #selector(NSText.paste(_:)),
@@ -225,10 +231,11 @@ enum AppMenuBuilder {
             ("New Workspace", #selector(MainWindowController.newWorkspace(_:)), "t", [.command]),
         ]
         let requiredEditItems: [(String, Selector, String, NSEvent.ModifierFlags)] = [
-            ("Copy", #selector(NSText.copy(_:)), "c"),
-            ("Paste", #selector(NSText.paste(_:)), "v"),
-            ("Select All", #selector(NSResponder.selectAll(_:)), "a"),
-        ].map { ($0.0, $0.1, $0.2, [.command]) }
+            ("Copy", #selector(NSText.copy(_:)), "c", [.command]),
+            ("Copy Path", #selector(MainWindowController.copyFocusedPanePath(_:)), "c", [.command, .shift]),
+            ("Paste", #selector(NSText.paste(_:)), "v", [.command]),
+            ("Select All", #selector(NSResponder.selectAll(_:)), "a", [.command]),
+        ]
         let requiredViewItems: [(String?, Selector?, String, NSEvent.ModifierFlags)] = [
             ("Split Horizontally", #selector(MainWindowController.splitHorizontally(_:)), "d", [.command]),
             ("Split Vertically", #selector(MainWindowController.splitVertically(_:)), "d", [.command, .shift]),

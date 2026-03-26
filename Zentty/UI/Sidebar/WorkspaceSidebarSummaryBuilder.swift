@@ -148,7 +148,9 @@ enum WorkspaceSidebarSummaryBuilder {
                 attentionState: attention.state,
                 interactionKind: attention.interactionKind,
                 interactionLabel: attention.interactionLabel ?? attention.interactionKind?.defaultLabel,
-                interactionSymbolName: attention.interactionSymbolName ?? attention.interactionKind?.defaultSymbolName
+                interactionSymbolName: attention.interactionSymbolName
+                    ?? attention.interactionKind?.defaultSymbolName
+                    ?? defaultSymbolName(for: attention.state)
             )
         }
 
@@ -158,7 +160,7 @@ enum WorkspaceSidebarSummaryBuilder {
                 attentionState: .running,
                 interactionKind: nil,
                 interactionLabel: nil,
-                interactionSymbolName: nil
+                interactionSymbolName: defaultSymbolName(for: .running)
             )
         }
 
@@ -434,7 +436,7 @@ enum WorkspaceSidebarSummaryBuilder {
     private static func paneSidebarStatusPresentation(
         for presentation: PanePresentationState
     ) -> PaneSidebarStatusPresentation {
-        let statusText = presentation.statusText.map { "╰ \($0)" }
+        let statusText = presentation.statusText
         let attentionState = attentionState(for: presentation.runtimePhase)
         guard statusText != nil
             || attentionState != nil
@@ -456,7 +458,9 @@ enum WorkspaceSidebarSummaryBuilder {
             attentionState: attentionState,
             interactionKind: presentation.interactionKind,
             interactionLabel: presentation.interactionLabel ?? presentation.interactionKind?.defaultLabel,
-            interactionSymbolName: presentation.interactionSymbolName ?? presentation.interactionKind?.defaultSymbolName,
+            interactionSymbolName: presentation.interactionSymbolName
+                ?? presentation.interactionKind?.defaultSymbolName
+                ?? attentionState.map(defaultSymbolName(for:)),
             isWorking: presentation.isWorking
         )
     }
@@ -810,6 +814,17 @@ enum WorkspaceSidebarSummaryBuilder {
                 isWorking: summary.isWorking,
                 isActive: summary.isActive
             )
+        }
+    }
+
+    private static func defaultSymbolName(for state: WorkspaceAttentionState) -> String {
+        switch state {
+        case .running:
+            return "bolt.fill"
+        case .needsInput:
+            return "ellipsis.circle"
+        case .unresolvedStop:
+            return "exclamationmark.circle"
         }
     }
 

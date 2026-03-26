@@ -148,6 +148,17 @@ if integration_is_available; then
     install_codex_hooks_overlay || true
 fi
 
+if integration_is_available; then
+    # Force OSC 9 notifications so Ghostty can intercept them for sidebar display.
+    # Without this, Codex's "auto" method may use native macOS notifications
+    # that bypass the terminal.
+    set -- -c "tui.notification_method=osc9" "$@"
+
+    # Include status in the terminal title so Zentty can detect Codex state
+    # (Working/Thinking/Ready/Starting) from title changes without hooks.
+    set -- -c 'tui.terminal_title=["status","spinner","project"]' "$@"
+fi
+
 if [[ "${ZENTTY_CODEX_NOTIFY_DISABLED:-0}" != "1" ]] \
     && integration_is_available \
     && ! has_notify_override "$@"; then

@@ -23,6 +23,7 @@ final class RootViewController: NSViewController {
     private let agentStatusCenter = AgentStatusCenter()
     private let sidebarMotionCoordinator: SidebarMotionCoordinator
     private let themeCoordinator: ThemeCoordinator
+    private let notificationStore = NotificationStore()
     private let renderCoordinator: WorkspaceRenderCoordinator
     private var staleAgentSweepTimer: Timer?
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
@@ -37,6 +38,9 @@ final class RootViewController: NSViewController {
     private var toggleLeadingConstraint: NSLayoutConstraint?
     private var toggleTopConstraint: NSLayoutConstraint?
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
+    private var pathCopiedToastView: PathCopiedToastView?
+    private let notificationBellButton = NotificationBellButton()
+    private var notificationPanelView: NotificationPanelView?
 
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
     var onWindowChromeNeedsUpdate: (() -> Void)?
@@ -67,6 +71,7 @@ final class RootViewController: NSViewController {
         self.renderCoordinator = WorkspaceRenderCoordinator(
             workspaceStore: workspaceStore,
             runtimeRegistry: runtimeRegistry,
+            notificationStore: notificationStore,
             reviewStateResolver: reviewStateResolver
         )
         super.init(nibName: nil, bundle: nil)
@@ -132,12 +137,14 @@ final class RootViewController: NSViewController {
         sidebarView.translatesAutoresizingMaskIntoConstraints = false
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
         sidebarToggleButton.translatesAutoresizingMaskIntoConstraints = false
+        notificationBellButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appCanvasView)
         view.addSubview(paneBorderContextOverlayView)
         view.addSubview(windowChromeView)
         view.addSubview(sidebarHoverRailView)
         view.addSubview(sidebarView)
         view.addSubview(sidebarToggleButton)
+        view.addSubview(notificationBellButton)
 
         let sidebarWidthConstraint = sidebarView.widthAnchor.constraint(
             equalToConstant: sidebarMotionCoordinator.currentSidebarWidth
@@ -199,6 +206,11 @@ final class RootViewController: NSViewController {
             toggleVerticalConstraint,
             sidebarToggleButton.widthAnchor.constraint(equalToConstant: SidebarToggleButton.buttonSize),
             sidebarToggleButton.heightAnchor.constraint(equalToConstant: SidebarToggleButton.buttonSize),
+
+            notificationBellButton.leadingAnchor.constraint(equalTo: sidebarToggleButton.trailingAnchor, constant: 8),
+            notificationBellButton.centerYAnchor.constraint(equalTo: sidebarToggleButton.centerYAnchor),
+            notificationBellButton.widthAnchor.constraint(equalToConstant: NotificationBellButton.buttonSize),
+            notificationBellButton.heightAnchor.constraint(equalToConstant: NotificationBellButton.buttonSize),
         ])
 
         renderCoordinator.bind(to: WorkspaceRenderCoordinator.ViewBindings(
@@ -235,6 +247,23 @@ final class RootViewController: NSViewController {
             }
         }
 
+        notificationBellButton.onClick = { [weak self] in
+            self?.toggleNotificationPanel()
+        }
+        notificationBellButton.update(count: 0, theme: currentTheme)
+        notificationBellButton.configure(theme: currentTheme, animated: false)
+        notificationStore.onChange = { [weak self] in
+            guard let self else { return }
+            self.notificationBellButton.update(count: self.notificationStore.unresolvedCount, theme: self.currentTheme)
+            self.notificationPanelView?.update(notifications: self.notificationStore.notifications, theme: self.currentTheme)
+            let count = self.notificationStore.unresolvedCount
+            NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
+        }
+
+        paneBorderContextOverlayView.onPathClicked = { [weak self] paneID in
+            self?.copyPath(forPaneID: paneID)
+        }
+
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.workspaceStore.focusPane(id: paneID)
         }
@@ -269,6 +298,28 @@ final class RootViewController: NSViewController {
         }
         sidebarView.onWorkspaceSelected = { [weak self] id in
             self?.workspaceStore.selectWorkspace(id: id)
+        }
+        sidebarView.onPaneSelected = { [weak self] workspaceID, paneID in
+            self?.workspaceStore.selectWorkspaceAndFocusPane(
+                workspaceID: workspaceID,
+                paneID: paneID
+            )
+        }
+        sidebarView.onCloseWorkspaceRequested = { [weak self] workspaceID, paneID in
+            self?.workspaceStore.selectWorkspaceAndFocusPane(workspaceID: workspaceID, paneID: paneID)
+            self?.workspaceStore.closeActiveWorkspace()
+        }
+        sidebarView.onClosePaneRequested = { [weak self] workspaceID, paneID in
+            self?.workspaceStore.selectWorkspaceAndFocusPane(workspaceID: workspaceID, paneID: paneID)
+            self?.workspaceStore.closePane(id: paneID)
+        }
+        sidebarView.onSplitHorizontalRequested = { [weak self] workspaceID, paneID in
+            self?.workspaceStore.selectWorkspaceAndFocusPane(workspaceID: workspaceID, paneID: paneID)
+            self?.workspaceStore.send(.splitHorizontally)
+        }
+        sidebarView.onSplitVerticalRequested = { [weak self] workspaceID, paneID in
+            self?.workspaceStore.selectWorkspaceAndFocusPane(workspaceID: workspaceID, paneID: paneID)
+            self?.workspaceStore.send(.splitVertically)
         }
         sidebarView.onNewWorkspaceRequested = { [weak self] in
             self?.handle(.newWorkspace)
@@ -409,6 +460,10 @@ final class RootViewController: NSViewController {
         switch action {
         case .newWorkspace:
             workspaceStore.createWorkspace()
+        case .copyFocusedPanePath:
+            copyFocusedPanePath()
+        case .jumpToLatestNotification:
+            jumpToLatestNotification()
         case .pane(let command):
             handlePaneCommand(command)
         }
@@ -449,6 +504,83 @@ final class RootViewController: NSViewController {
         default:
             workspaceStore.send(command)
         }
+    }
+
+    private func jumpToLatestNotification() {
+        guard let notification = notificationStore.mostUrgentUnresolved() else { return }
+        closeNotificationPanel()
+        navigateToPane(workspaceID: notification.workspaceID, paneID: notification.paneID)
+    }
+
+    private func toggleNotificationPanel() {
+        if notificationPanelView != nil {
+            closeNotificationPanel()
+        } else {
+            showNotificationPanel()
+        }
+    }
+
+    private func showNotificationPanel() {
+        guard notificationPanelView == nil else { return }
+        let panel = NotificationPanelView()
+        panel.onJumpToLatest = { [weak self] in
+            self?.jumpToLatestNotification()
+        }
+        panel.onClearAll = { [weak self] in
+            self?.notificationStore.clearAll()
+        }
+        panel.onDismissNotification = { [weak self] id in
+            self?.notificationStore.dismiss(id: id)
+        }
+        panel.onJumpToNotification = { [weak self] notification in
+            self?.closeNotificationPanel()
+            self?.navigateToPane(workspaceID: notification.workspaceID, paneID: notification.paneID)
+        }
+        panel.onClosePanel = { [weak self] in
+            self?.closeNotificationPanel()
+        }
+        notificationPanelView = panel
+        panel.show(below: notificationBellButton, in: view, theme: currentTheme)
+        panel.update(notifications: notificationStore.notifications, theme: currentTheme)
+    }
+
+    private func closeNotificationPanel() {
+        notificationPanelView?.close()
+        notificationPanelView = nil
+    }
+
+    func navigateToPane(workspaceID: WorkspaceID, paneID: PaneID) {
+        workspaceStore.selectWorkspaceAndFocusPane(workspaceID: workspaceID, paneID: paneID)
+        notificationStore.resolve(workspaceID: workspaceID, paneID: paneID)
+    }
+
+    private func copyFocusedPanePath() {
+        guard
+            let focusedPaneID = workspaceStore.activeWorkspace?.paneStripState.focusedPaneID
+        else {
+            return
+        }
+        copyPath(forPaneID: focusedPaneID)
+    }
+
+    private func copyPath(forPaneID paneID: PaneID) {
+        guard
+            let path = workspaceStore.activeWorkspace?.auxiliaryStateByPaneID[paneID]?.shellContext?.path,
+            !path.isEmpty
+        else {
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(path, forType: .string)
+        showPathCopiedToast()
+    }
+
+    private func showPathCopiedToast() {
+        pathCopiedToastView?.removeFromSuperview()
+        let toast = PathCopiedToastView()
+        pathCopiedToastView = toast
+        toast.show(in: view, theme: currentTheme)
     }
 
     private func keyboardResizeStep(for axis: PaneResizeAxis) -> CGFloat {

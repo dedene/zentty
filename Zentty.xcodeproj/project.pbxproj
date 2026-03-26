@@ -7,6 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1B1C1D1E1F10001A1B1C1D1 /* NotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B1C1D1E1F10002A1B1C1D1 /* NotificationStore.swift */; };
+		A1B1C1D1E1F10003A1B1C1D1 /* NotificationBellButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B1C1D1E1F10004A1B1C1D1 /* NotificationBellButton.swift */; };
+		A1B1C1D1E1F10005A1B1C1D1 /* NotificationStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B1C1D1E1F10006A1B1C1D1 /* NotificationStoreTests.swift */; };
+		A1B1C1D1E1F10007A1B1C1D1 /* PathCopiedToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B1C1D1E1F10008A1B1C1D1 /* PathCopiedToastView.swift */; };
+		A1B1C1D1E1F10009A1B1C1D1 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B1C1D1E1F1000AA1B1C1D1 /* SettingsWindowController.swift */; };
+		A1B1C1D1E1F1000BA1B1C1D1 /* SettingsSectionViewControllers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B1C1D1E1F1000CA1B1C1D1 /* SettingsSectionViewControllers.swift */; };
+		A1B1C1D1E1F1000EA1B1C1D1 /* NotificationPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B1C1D1E1F1000FA1B1C1D1 /* NotificationPanelView.swift */; };
 		039A651343EA7A91CA374AB3 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 70234FD008E68026E8248FF5 /* AppIcon.icon */; };
 		04F27F3F3AE18FF0B4F78B44 /* AgentStatusPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79972CCAB3361277D4E949C /* AgentStatusPayload.swift */; };
 		064942C21BFD943CB5C8D46F /* LibghosttyAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDF1EF89E46D6EEECB8A320 /* LibghosttyAdapter.swift */; };
@@ -94,7 +101,7 @@
 		AE15A3294DF80781A48DF69F /* TerminalMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D46D74C2BFDAC52C678BDB1 /* TerminalMetadata.swift */; };
 		AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */; };
 		B2F734E62886962BE7FDBFEE /* WorkspaceContextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA608346157BAE8D62A040C0 /* WorkspaceContextFormatter.swift */; };
-		BE6EAD5D790B664C18EF082A /* PaneLayoutSettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE5E3F546E3753078DA6BF42 /* PaneLayoutSettingsWindowController.swift */; };
+
 		C01A739643B858C0F3A69C88 /* PaneStripMotionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD6261C82AADF1EDAAA09BC9 /* PaneStripMotionController.swift */; };
 		C1E6E40E7FEAE93149414E37 /* PaneStripStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E469BF2F5A021DBF256E8D20 /* PaneStripStateTests.swift */; };
 		C34632753C7F7CF13DB71196 /* WorkspaceSidebarSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 489C32A2F39FD781A5882283 /* WorkspaceSidebarSummaryTests.swift */; };
@@ -144,6 +151,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A1B1C1D1E1F10002A1B1C1D1 /* NotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStore.swift; sourceTree = "<group>"; };
+		A1B1C1D1E1F10004A1B1C1D1 /* NotificationBellButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationBellButton.swift; sourceTree = "<group>"; };
+		A1B1C1D1E1F10006A1B1C1D1 /* NotificationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStoreTests.swift; sourceTree = "<group>"; };
+		A1B1C1D1E1F10008A1B1C1D1 /* PathCopiedToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathCopiedToastView.swift; sourceTree = "<group>"; };
+		A1B1C1D1E1F1000AA1B1C1D1 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		A1B1C1D1E1F1000CA1B1C1D1 /* SettingsSectionViewControllers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSectionViewControllers.swift; sourceTree = "<group>"; };
+		A1B1C1D1E1F1000FA1B1C1D1 /* NotificationPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPanelView.swift; sourceTree = "<group>"; };
 		003771A9512A8005B0DCF7DE /* AgentStatusSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusSupportTests.swift; sourceTree = "<group>"; };
 		017D80D8C20309A5F3A34381 /* PanePresentationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanePresentationStateTests.swift; sourceTree = "<group>"; };
 		041FEB5F657A57B5668D9BFD /* LibghosttyRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyRuntime.swift; sourceTree = "<group>"; };
@@ -251,7 +265,7 @@
 		D25EF5AC625776DA85911237 /* TrackpadPanGestureDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackpadPanGestureDriver.swift; sourceTree = "<group>"; };
 		DAA052B6DDCA1EE9D9F58BC0 /* PaneLayoutPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutPreferencesTests.swift; sourceTree = "<group>"; };
 		DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
-		DE5E3F546E3753078DA6BF42 /* PaneLayoutSettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutSettingsWindowController.swift; sourceTree = "<group>"; };
+
 		E101FFDD49FF6625AC16DDED /* PaneAuxiliaryState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneAuxiliaryState.swift; sourceTree = "<group>"; };
 		E2CB877AA1685B897411B467 /* WorkspaceStore+AgentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceStore+AgentStatus.swift"; sourceTree = "<group>"; };
 		E469BF2F5A021DBF256E8D20 /* PaneStripStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripStateTests.swift; sourceTree = "<group>"; };
@@ -300,6 +314,7 @@
 		1C0506CDB868054B09C5CA8D /* AppState */ = {
 			isa = PBXGroup;
 			children = (
+				A1B1C1D1E1F10002A1B1C1D1 /* NotificationStore.swift */,
 				E101FFDD49FF6625AC16DDED /* PaneAuxiliaryState.swift */,
 				BFE28087CB8A8A0F579745CA /* PaneShellContext.swift */,
 				5F668C5A47A3DF347AA3AEB6 /* WorkspaceAttentionNotificationCoordinator.swift */,
@@ -477,6 +492,8 @@
 		C6FE1D6C93ADCAF5A6AD1364 /* Chrome */ = {
 			isa = PBXGroup;
 			children = (
+				A1B1C1D1E1F10004A1B1C1D1 /* NotificationBellButton.swift */,
+				A1B1C1D1E1F1000FA1B1C1D1 /* NotificationPanelView.swift */,
 				35C0E504B38BD3778920B0BD /* OpenWithPopoverController.swift */,
 				9D11A6534B69B29D10228001 /* OpenWithPopoverContentView.swift */,
 				9D11A6554B69B29D10228001 /* OpenWithPopoverButtons.swift */,
@@ -490,7 +507,8 @@
 		C91803792E050C61DDC543B3 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
-				DE5E3F546E3753078DA6BF42 /* PaneLayoutSettingsWindowController.swift */,
+				A1B1C1D1E1F1000CA1B1C1D1 /* SettingsSectionViewControllers.swift */,
+				A1B1C1D1E1F1000AA1B1C1D1 /* SettingsWindowController.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -522,6 +540,7 @@
 				C91803792E050C61DDC543B3 /* Settings */,
 				D32CC59A6D1E3B98F23280A0 /* Sidebar */,
 				92B122208C4253AF9DC49550 /* Theme */,
+				A1B1C1D1E1F1000DA1B1C1D1 /* Toast */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -538,6 +557,7 @@
 		F8EF7D8196919BB1A50B1819 /* ZenttyLogicTests */ = {
 			isa = PBXGroup;
 			children = (
+				A1B1C1D1E1F10006A1B1C1D1 /* NotificationStoreTests.swift */,
 				003771A9512A8005B0DCF7DE /* AgentStatusSupportTests.swift */,
 				768B2F414D9DCDC035D32626 /* AgentWrapperTests.swift */,
 				3F4FEACEEB990E8008700659 /* AppConfigStoreTests.swift */,
@@ -576,6 +596,14 @@
 				D9E8C4A54E2C124B001E4B91 /* WorkspaceStoreOpenWithTests.swift */,
 			);
 			path = ZenttyLogicTests;
+			sourceTree = "<group>";
+		};
+		A1B1C1D1E1F1000DA1B1C1D1 /* Toast */ = {
+			isa = PBXGroup;
+			children = (
+				A1B1C1D1E1F10008A1B1C1D1 /* PathCopiedToastView.swift */,
+			);
+			path = Toast;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -739,6 +767,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B1C1D1E1F10005A1B1C1D1 /* NotificationStoreTests.swift in Sources */,
 				55C1CC506BD2F0613AD94835 /* AgentStatusSupportTests.swift in Sources */,
 				1D4BC844610BEFF7A6AA0605 /* AgentWrapperTests.swift in Sources */,
 				1AC994B38934FF453310224A /* AppConfigStoreTests.swift in Sources */,
@@ -781,6 +810,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B1C1D1E1F10001A1B1C1D1 /* NotificationStore.swift in Sources */,
+				A1B1C1D1E1F10003A1B1C1D1 /* NotificationBellButton.swift in Sources */,
+				A1B1C1D1E1F10007A1B1C1D1 /* PathCopiedToastView.swift in Sources */,
+				A1B1C1D1E1F10009A1B1C1D1 /* SettingsWindowController.swift in Sources */,
+				A1B1C1D1E1F1000BA1B1C1D1 /* SettingsSectionViewControllers.swift in Sources */,
+				A1B1C1D1E1F1000EA1B1C1D1 /* NotificationPanelView.swift in Sources */,
 				8E2852FEAFC265DC3EC050BF /* AgentInteractionClassifier.swift in Sources */,
 				E6D0CAB78E81B81367E2F583 /* AgentStatus.swift in Sources */,
 				8553A4E49623C76F26D166F5 /* AgentStatusCenter.swift in Sources */,
@@ -814,7 +849,7 @@
 				4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */,
 				3F270AD6399CAA5729853F2D /* PaneContainerView.swift in Sources */,
 				6407E321D23E068FFB2B995B /* PaneLayoutPreferences.swift in Sources */,
-				BE6EAD5D790B664C18EF082A /* PaneLayoutSettingsWindowController.swift in Sources */,
+
 				8000FFBB2A9BB2606A89CD92 /* PaneLayoutSizing.swift in Sources */,
 				13A456B3644AB1AA586D10E9 /* PaneShellContext.swift in Sources */,
 				C01A739643B858C0F3A69C88 /* PaneStripMotionController.swift in Sources */,

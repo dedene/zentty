@@ -18,8 +18,16 @@ enum AgentInteractionClassifier {
 
         let markers = [
             "waiting for your input",
+            "waiting for input",
             "needs your input",
+            "needs input",
             "needs your attention",
+            "input-requested",
+            "input requested",
+            "approval-requested",
+            "approval requested",
+            "question requested",
+            "plan-mode-prompt",
             "permission",
             "approve",
             "approval",
