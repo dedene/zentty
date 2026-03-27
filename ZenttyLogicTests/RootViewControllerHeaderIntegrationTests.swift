@@ -267,7 +267,17 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
             ),
         ])
 
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        let reviewLoaded = expectation(description: "review state loaded from title-derived cwd")
+        Task { @MainActor in
+            for _ in 0..<50 {
+                if controller.chromeView.pullRequestText == "PR #1413" {
+                    reviewLoaded.fulfill()
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 20_000_000)
+            }
+        }
+        await fulfillment(of: [reviewLoaded], timeout: 1.2)
 
         let chrome = controller.chromeView
         XCTAssertEqual(chrome.focusedLabelText, "…/scaleway-transactional-mails")
@@ -544,6 +554,57 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let chrome = controller.chromeView
         XCTAssertEqual(chrome.focusedLabelText, "/tmp/project")
         XCTAssertEqual(chrome.branchText, "")
+    }
+
+    func test_render_coordinator_retargets_review_polling_when_lookup_branch_changes() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "zsh",
+                gitBranch: nil
+            )
+        )
+        store.updateGitContext(
+            paneID: paneID,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() })
+        let coordinator = WorklaneRenderCoordinator(
+            worklaneStore: store,
+            runtimeRegistry: runtimeRegistry,
+            notificationStore: NotificationStore()
+        )
+        coordinator.windowStateProvider = { (isVisible: true, isKeyWindow: true) }
+        coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
+            sidebarView: SidebarView(),
+            windowChromeView: WindowChromeView(),
+            appCanvasView: AppCanvasView(runtimeRegistry: runtimeRegistry),
+            paneBorderContextOverlayView: PaneBorderContextOverlayView()
+        ))
+        coordinator.startObserving()
+        coordinator.render()
+
+        XCTAssertEqual(coordinator.reviewPollingTargetForTesting?.branch, "main")
+
+        store.updateGitContext(
+            paneID: paneID,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("feature/review-band")
+            )
+        )
+
+        XCTAssertEqual(coordinator.reviewPollingTargetForTesting?.branch, "feature/review-band")
     }
 
     private func makeController(

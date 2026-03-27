@@ -169,6 +169,39 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertNil(presentation.statusText)
     }
 
+    func test_normalize_treats_codex_spinner_title_variants_as_same_running_identity() {
+        let spinnerFrames = ["Working ⠋ zentty", "Working ⠙ zentty"]
+
+        let presentations = spinnerFrames.map { title in
+            PanePresentationNormalizer.normalize(
+                paneTitle: "shell",
+                raw: PaneRawState(
+                    metadata: TerminalMetadata(
+                        title: title,
+                        currentWorkingDirectory: "/tmp/project",
+                        processName: "codex",
+                        gitBranch: "main"
+                    ),
+                    shellContext: nil,
+                    agentStatus: nil,
+                    terminalProgress: nil,
+                    reviewState: nil,
+                    gitContext: PaneGitContext(
+                        workingDirectory: "/tmp/project",
+                        repositoryRoot: "/tmp/project",
+                        reference: .branch("main")
+                    )
+                ),
+                previous: nil
+            )
+        }
+
+        XCTAssertEqual(presentations.map(\.runtimePhase), [.running, .running])
+        XCTAssertEqual(presentations.map(\.statusText), ["Running", "Running"])
+        XCTAssertEqual(presentations[0].identityText, presentations[1].identityText)
+        XCTAssertEqual(presentations[0].rememberedTitle, presentations[1].rememberedTitle)
+    }
+
     func test_normalize_ignores_stale_review_facts_when_canonical_git_context_is_missing() {
         let raw = PaneRawState(
             metadata: TerminalMetadata(

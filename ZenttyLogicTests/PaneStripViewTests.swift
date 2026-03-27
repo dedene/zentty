@@ -1347,7 +1347,7 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 30, phase: .changed, precise: true))
         paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 0, phase: .ended, precise: true))
 
-        XCTAssertEqual(settledPaneIDs, [PaneID("logs")])
+        XCTAssertEqual(settledPaneIDs, [PaneID("tests")])
     }
 
     @MainActor
@@ -1380,7 +1380,7 @@ final class PaneStripViewTests: XCTestCase {
             modifierFlags: [.shift]
         ))
 
-        XCTAssertEqual(settledPaneID, PaneID("tests"))
+        XCTAssertEqual(settledPaneID, PaneID("logs"))
     }
 
     @MainActor
@@ -1400,7 +1400,7 @@ final class PaneStripViewTests: XCTestCase {
     @MainActor
     func test_scroll_switching_clamps_at_strip_edges() throws {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 980, height: 680))
-        paneStripView.render(makeScrollTestState(focusedPaneID: PaneID("logs")))
+        paneStripView.render(makeScrollTestState(focusedPaneID: PaneID("tests")))
         paneStripView.layoutSubtreeIfNeeded()
 
         var settledPaneIDs: [PaneID] = []

@@ -981,7 +981,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.detailLines.map { $0.text }, [])
     }
 
-    func test_builder_uses_inline_process_branch_and_cwd_for_running_single_pane_agent_row() {
+    func test_builder_keeps_running_single_pane_agent_title_primary_and_branch_trailing() {
         let paneID = PaneID("worklane-main-agent-running")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-running"),
@@ -1013,15 +1013,15 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
         XCTAssertEqual(summary.paneRows.count, 1)
-        XCTAssertEqual(paneRow.primaryText, "Test session setup · main · …/nimbu")
-        XCTAssertNil(paneRow.trailingText)
+        XCTAssertEqual(paneRow.primaryText, "Test session setup")
+        XCTAssertEqual(paneRow.trailingText, "main")
         XCTAssertNil(paneRow.detailText)
         XCTAssertEqual(paneRow.statusText, "Running")
         XCTAssertEqual(paneRow.attentionState, .running)
         XCTAssertTrue(paneRow.isWorking)
     }
 
-    func test_builder_uses_stable_branch_and_cwd_for_idle_single_pane_agent_row() {
+    func test_builder_keeps_idle_single_pane_agent_title_primary_and_branch_trailing() {
         let paneID = PaneID("worklane-main-agent")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
@@ -1055,15 +1055,57 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         XCTAssertEqual(summary.paneRows.count, 1)
         XCTAssertEqual(paneRow.paneID, paneID)
-        XCTAssertEqual(paneRow.primaryText, "General coding assistance session · main · …/nimbu")
-        XCTAssertNil(paneRow.trailingText)
+        XCTAssertEqual(paneRow.primaryText, "General coding assistance session")
+        XCTAssertEqual(paneRow.trailingText, "main")
         XCTAssertNil(paneRow.detailText)
         XCTAssertEqual(paneRow.statusText, "Idle")
         XCTAssertNil(paneRow.attentionState)
         XCTAssertFalse(paneRow.isWorking)
     }
 
-    func test_builder_uses_stable_branch_and_cwd_for_starting_single_pane_recognized_agent() {
+    func test_builder_surfaces_agent_ready_for_completed_single_pane_agent_row() {
+        let paneID = PaneID("worklane-main-agent-ready")
+        var auxiliaryState = PaneAuxiliaryState(
+            metadata: TerminalMetadata(
+                title: "General coding assistance session",
+                currentWorkingDirectory: "/Users/peter/Development/Zenjoy/Internal/nimbu",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true
+            )
+        )
+        auxiliaryState.raw.lastDesktopNotificationText = "Agent run complete"
+        auxiliaryState.raw.lastDesktopNotificationDate = Date(timeIntervalSince1970: 42)
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "agent",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.statusText, "Agent ready")
+    }
+
+    func test_builder_keeps_starting_single_pane_agent_title_primary_and_branch_trailing() {
         let paneID = PaneID("worklane-main-agent-starting")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-starting"),
@@ -1094,8 +1136,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
-        XCTAssertEqual(paneRow.primaryText, "Test session setup · main · …/nimbu")
-        XCTAssertNil(paneRow.trailingText)
+        XCTAssertEqual(paneRow.primaryText, "Test session setup")
+        XCTAssertEqual(paneRow.trailingText, "main")
         XCTAssertNil(paneRow.detailText)
         XCTAssertNil(paneRow.statusText)
         XCTAssertNil(paneRow.attentionState)

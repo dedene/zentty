@@ -12,6 +12,7 @@
 		04F27F3F3AE18FF0B4F78B44 /* AgentStatusPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79972CCAB3361277D4E949C /* AgentStatusPayload.swift */; };
 		064942C21BFD943CB5C8D46F /* LibghosttyAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDF1EF89E46D6EEECB8A320 /* LibghosttyAdapter.swift */; };
 		0ED2C234E696C111255B212A /* LibghosttyAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2671C2153DB1DFA70522E94 /* LibghosttyAdapterTests.swift */; };
+		0F4A7B5C77A34B7D8B7F0A21 /* LibghosttySurfaceActionCoalescerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F4A7B5C77A34B7D8B7F0A20 /* LibghosttySurfaceActionCoalescerTests.swift */; };
 		1041B5CDF3EA5C978F3580BC /* PanePresentationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 017D80D8C20309A5F3A34381 /* PanePresentationStateTests.swift */; };
 		1139F5A8823B615631F1616C /* LibghosttyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50D5CEB5E915AE3FBE158512 /* LibghosttyView.swift */; };
 		13A456B3644AB1AA586D10E9 /* PaneShellContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE28087CB8A8A0F579745CA /* PaneShellContext.swift */; };
@@ -152,6 +153,7 @@
 /* Begin PBXFileReference section */
 		003771A9512A8005B0DCF7DE /* AgentStatusSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusSupportTests.swift; sourceTree = "<group>"; };
 		017D80D8C20309A5F3A34381 /* PanePresentationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanePresentationStateTests.swift; sourceTree = "<group>"; };
+		0F4A7B5C77A34B7D8B7F0A20 /* LibghosttySurfaceActionCoalescerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttySurfaceActionCoalescerTests.swift; sourceTree = "<group>"; };
 		041FEB5F657A57B5668D9BFD /* LibghosttyRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyRuntime.swift; sourceTree = "<group>"; };
 		10C70E68528914C7BDC3B755 /* AgentStatusHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusHelper.swift; sourceTree = "<group>"; };
 		162C940D9CBDBBB47552AA86 /* SidebarMotionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMotionCoordinator.swift; sourceTree = "<group>"; };
@@ -570,6 +572,7 @@
 				9760F3B7EDC0087FA89778B9 /* Info.plist */,
 				2B076EBD34D3A673A0937579 /* KeyboardShortcutResolverTests.swift */,
 				C2671C2153DB1DFA70522E94 /* LibghosttyAdapterTests.swift */,
+				0F4A7B5C77A34B7D8B7F0A20 /* LibghosttySurfaceActionCoalescerTests.swift */,
 				859E02462A30A35800CA0123 /* NotificationStoreTests.swift */,
 				572BB2FACCFA8A236D880F28 /* OpenWithCatalogTests.swift */,
 				5E316EB04A90576B80F838D9 /* PaneAgentReducerTests.swift */,
@@ -796,6 +799,7 @@
 				655A01CFDA23B38776180998 /* WorklaneContextFormatterTests.swift in Sources */,
 				C70B8C533AEC49BA2A439F9C /* WorklaneGitContextResolverTests.swift in Sources */,
 				AF7C9145D694372F680B0624 /* WorklaneHeaderSummaryBuilderTests.swift in Sources */,
+				0F4A7B5C77A34B7D8B7F0A21 /* LibghosttySurfaceActionCoalescerTests.swift in Sources */,
 				6582FD0B7BCB91F3713E13CD /* WorklaneReviewStateResolverTests.swift in Sources */,
 				95A3A7116CE13BB739E4C940 /* WorklaneSidebarSummaryTests.swift in Sources */,
 				63EE5118B588FB5B28430AAF /* WorklaneState+Testing.swift in Sources */,

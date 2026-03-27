@@ -24,6 +24,7 @@ final class WorklaneRenderCoordinator {
     private var currentPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] = []
     private var reviewPollingTimer: Timer?
     private var reviewPollingTarget: (worklaneID: WorklaneID, paneID: PaneID, repoRoot: String, branch: String)?
+    private var hasBootstrappedReviewState = false
 
     var onNeedsSidebarSync: (() -> Void)?
     var themeProvider: (() -> ZenttyTheme)?
@@ -88,6 +89,12 @@ final class WorklaneRenderCoordinator {
         renderPaneBorderContextOverlay()
     }
 
+    #if DEBUG
+    var reviewPollingTargetForTesting: (worklaneID: WorklaneID, paneID: PaneID, repoRoot: String, branch: String)? {
+        reviewPollingTarget
+    }
+    #endif
+
     // MARK: - Internal
 
     private var currentTheme: ZenttyTheme {
@@ -98,8 +105,13 @@ final class WorklaneRenderCoordinator {
         switch change {
         case .paneStructure, .focusChanged:
             renderCurrentWorklane(animated: true)
-        case .layoutResized, .auxiliaryStateUpdated, .worklaneListChanged, .activeWorklaneChanged:
+        case .layoutResized:
             renderCurrentWorklane(animated: false)
+        case .worklaneListChanged, .activeWorklaneChanged:
+            renderCurrentWorklane(animated: false)
+            bootstrapReviewRefresh(force: true)
+        case .auxiliaryStateUpdated(let worklaneID, let paneID, let impacts):
+            handleAuxiliaryStateUpdate(worklaneID: worklaneID, paneID: paneID, impacts: impacts)
         }
     }
 
@@ -110,9 +122,6 @@ final class WorklaneRenderCoordinator {
 
         worklaneStore.batchUpdate { [self] in
             runtimeRegistry.synchronize(with: worklaneStore.worklanes)
-            reviewStateResolver.refresh(for: worklaneStore.worklanes) { [weak self] paneID, resolution in
-                self?.worklaneStore.updateReviewResolution(paneID: paneID, resolution: resolution)
-            }
             views.sidebarView.render(
                 summaries: WorklaneSidebarSummaryBuilder.summaries(
                     for: worklaneStore.worklanes,
@@ -145,6 +154,7 @@ final class WorklaneRenderCoordinator {
             updateReviewPolling()
             updateRuntimeSurfaceActivities()
         }
+        bootstrapReviewRefresh(force: false)
     }
 
     private func renderCanvasForCurrentWorklane(
@@ -267,11 +277,108 @@ final class WorklaneRenderCoordinator {
             return
         }
 
-        reviewStateResolver.refreshFocusedPane(
+        reviewStateResolver.refreshPane(
             repoRoot: target.repoRoot,
             branch: target.branch,
             paneID: target.paneID,
             forceReload: forceReload
+        ) { [weak self] paneID, resolution in
+            self?.worklaneStore.updateReviewResolution(paneID: paneID, resolution: resolution)
+        }
+    }
+
+    private func handleAuxiliaryStateUpdate(
+        worklaneID: WorklaneID,
+        paneID: PaneID,
+        impacts: WorklaneAuxiliaryInvalidation
+    ) {
+        guard let views else {
+            return
+        }
+
+        if impacts.contains(.sidebar) {
+            views.sidebarView.render(
+                summaries: WorklaneSidebarSummaryBuilder.summaries(
+                    for: worklaneStore.worklanes,
+                    activeWorklaneID: worklaneStore.activeWorklaneID
+                ),
+                theme: currentTheme
+            )
+            onNeedsSidebarSync?()
+        }
+
+        if impacts.contains(.header) {
+            renderHeader()
+        }
+
+        if impacts.contains(.canvas),
+           worklaneID == worklaneStore.activeWorklaneID {
+            renderCanvasForCurrentWorklane(animated: false)
+        }
+
+        if impacts.contains(.attention) {
+            let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
+            attentionNotificationCoordinator.update(
+                worklanes: worklaneStore.worklanes,
+                activeWorklaneID: worklaneStore.activeWorklaneID,
+                windowIsKey: windowState.isKeyWindow
+            )
+        }
+
+        if impacts.contains(.reviewRefresh) {
+            updateReviewPolling()
+            refreshReviewState(for: worklaneID, paneID: paneID)
+        }
+
+        if impacts.contains(.surfaceActivities) {
+            updateRuntimeSurfaceActivities()
+        }
+    }
+
+    private func renderHeader() {
+        guard let views else {
+            return
+        }
+
+        guard let worklane = worklaneStore.activeWorklane else {
+            views.windowChromeView.render(summary: WorklaneChromeSummary(
+                attention: nil,
+                focusedLabel: nil,
+                branch: nil,
+                pullRequest: nil,
+                reviewChips: []
+            ))
+            return
+        }
+
+        views.windowChromeView.render(summary: WorklaneHeaderSummaryBuilder.summary(for: worklane))
+    }
+
+    private func bootstrapReviewRefresh(force: Bool) {
+        guard force || !hasBootstrappedReviewState else {
+            return
+        }
+
+        hasBootstrappedReviewState = true
+        reviewStateResolver.refresh(for: worklaneStore.worklanes) { [weak self] paneID, resolution in
+            self?.worklaneStore.updateReviewResolution(paneID: paneID, resolution: resolution)
+        }
+    }
+
+    private func refreshReviewState(for worklaneID: WorklaneID, paneID: PaneID) {
+        guard
+            let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }),
+            let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+            let repoRoot = auxiliaryState.presentation.repoRoot,
+            let branch = auxiliaryState.presentation.lookupBranch
+        else {
+            return
+        }
+
+        reviewStateResolver.refreshPane(
+            repoRoot: repoRoot,
+            branch: branch,
+            paneID: paneID
         ) { [weak self] paneID, resolution in
             self?.worklaneStore.updateReviewResolution(paneID: paneID, resolution: resolution)
         }

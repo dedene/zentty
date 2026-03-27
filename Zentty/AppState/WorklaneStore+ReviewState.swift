@@ -9,6 +9,7 @@ extension WorklaneStore {
         }
 
         var worklane = worklanes[worklaneIndex]
+        let previousWorklane = worklane
         let previousState = worklane.auxiliaryStateByPaneID[paneID]?.reviewState
         if resolution.updatePolicy == .preserveExistingOnEmpty,
            resolution.reviewState == nil {
@@ -26,7 +27,10 @@ extension WorklaneStore {
 
         recomputePresentation(for: paneID, in: &worklane)
         worklanes[worklaneIndex] = worklane
-        notify(.auxiliaryStateUpdated(worklane.id, paneID))
+        let impacts = auxiliaryInvalidation(for: paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+        if !impacts.isEmpty {
+            notify(.auxiliaryStateUpdated(worklane.id, paneID, impacts))
+        }
     }
 
     func updateReviewState(paneID: PaneID, reviewState: WorklaneReviewState?) {
@@ -37,6 +41,7 @@ extension WorklaneStore {
         }
 
         var worklane = worklanes[worklaneIndex]
+        let previousWorklane = worklane
         let previousState = worklane.auxiliaryStateByPaneID[paneID]?.reviewState
         guard previousState != reviewState else {
             return
@@ -50,6 +55,9 @@ extension WorklaneStore {
 
         recomputePresentation(for: paneID, in: &worklane)
         worklanes[worklaneIndex] = worklane
-        notify(.auxiliaryStateUpdated(worklane.id, paneID))
+        let impacts = auxiliaryInvalidation(for: paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+        if !impacts.isEmpty {
+            notify(.auxiliaryStateUpdated(worklane.id, paneID, impacts))
+        }
     }
 }

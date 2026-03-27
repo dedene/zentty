@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class SidebarWorklaneRowButtonTests: XCTestCase {
-    func test_working_worklane_row_starts_shimmer_animation() {
+    func test_working_worklane_row_does_not_animate_until_it_is_hosted_in_a_visible_sidebar() {
         let row = makeRow()
 
         row.configure(
@@ -22,11 +22,11 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         )
 
         XCTAssertTrue(row.isWorkingForTesting)
-        XCTAssertTrue(row.shimmerIsAnimatingForTesting)
-        XCTAssertTrue(row.statusShimmerIsAnimatingForTesting)
+        XCTAssertFalse(row.shimmerIsAnimatingForTesting)
+        XCTAssertFalse(row.statusShimmerIsAnimatingForTesting)
     }
 
-    func test_idle_worklane_row_stops_existing_shimmer_animation() {
+    func test_idle_worklane_row_stays_static_when_it_is_not_hosted_in_a_visible_sidebar() {
         let row = makeRow()
 
         row.configure(
@@ -39,8 +39,8 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             theme: ZenttyTheme.fallback(for: nil),
             animated: false
         )
-        XCTAssertTrue(row.shimmerIsAnimatingForTesting)
-        XCTAssertTrue(row.statusShimmerIsAnimatingForTesting)
+        XCTAssertFalse(row.shimmerIsAnimatingForTesting)
+        XCTAssertFalse(row.statusShimmerIsAnimatingForTesting)
 
         row.configure(
             with: makeSummary(primaryText: "project"),
@@ -79,7 +79,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
 
         XCTAssertGreaterThan(abs(idleBackground.redComponent - workingBackground.redComponent), 0.001)
         XCTAssertGreaterThan(abs(idleBackground.greenComponent - workingBackground.greenComponent), 0.001)
-        XCTAssertTrue(row.shimmerIsAnimatingForTesting)
+        XCTAssertFalse(row.shimmerIsAnimatingForTesting)
     }
 
     func test_worklane_row_exposes_plain_status_copy() {
@@ -179,6 +179,217 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
 
         XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Needs input"])
         XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["questionmark.circle"])
+    }
+
+    func test_worklane_row_renders_agent_ready_with_success_icon_from_sidebar_summary() {
+        let row = makeRow(width: 320, height: 110)
+        let paneID = PaneID("worklane-main-agent-ready")
+        var auxiliaryState = PaneAuxiliaryState(
+            metadata: TerminalMetadata(
+                title: "General coding assistance session",
+                currentWorkingDirectory: "/Users/peter/Development/Zenjoy/Internal/nimbu",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true
+            )
+        )
+        auxiliaryState.raw.lastDesktopNotificationText = "Agent run complete"
+        auxiliaryState.raw.lastDesktopNotificationDate = Date(timeIntervalSince1970: 42)
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "agent",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        row.configure(
+            with: WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.paneStatusTextsForTesting, ["Agent ready"])
+        XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["checkmark.circle.fill"])
+    }
+
+    func test_worklane_row_keeps_short_branch_trailing_for_single_pane_agent_rows() {
+        let row = makeRow(width: 320, height: 110)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "General coding assistance session",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "General coding assistance session",
+                        trailingText: "main",
+                        detailText: nil,
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.primaryTextsForTesting, ["General coding assistance session"])
+        XCTAssertEqual(row.primaryTrailingTextsForTesting, ["main"])
+        XCTAssertEqual(row.detailTextsForTesting, [])
+    }
+
+    func test_worklane_row_spills_long_branch_into_detail_line_when_width_is_tight() {
+        let row = makeRow(width: 220, height: 110)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Fix zsh startup",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Fix zsh startup",
+                        trailingText: "feature/autoresearch/zsh-startup-2026-03-22",
+                        detailText: nil,
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.primaryTextsForTesting, ["Fix zsh startup"])
+        XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
+        XCTAssertEqual(row.detailTextsForTesting, ["feature/autoresearch/zsh-startup-2026-03-22"])
+    }
+
+    func test_worklane_row_restores_long_branch_to_trailing_slot_after_growing_wider() {
+        let row = makeRow(width: 220, height: 110)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Fix zsh startup",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Fix zsh startup",
+                        trailingText: "feature/autoresearch/zsh-startup-2026-03-22",
+                        detailText: nil,
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
+        XCTAssertEqual(row.detailTextsForTesting, ["feature/autoresearch/zsh-startup-2026-03-22"])
+
+        row.frame.size.width = 720
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            row.primaryTrailingTextsForTesting,
+            ["feature/autoresearch/zsh-startup-2026-03-22"]
+        )
+        XCTAssertEqual(row.detailTextsForTesting, [])
+    }
+
+    func test_worklane_row_does_not_accumulate_duplicate_width_constraints_across_resizes() {
+        let row = makeRow(width: 220, height: 110)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Fix zsh startup",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Fix zsh startup",
+                        trailingText: "feature/autoresearch/zsh-startup-2026-03-22",
+                        detailText: nil,
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
+
+        row.frame.size.width = 260
+        row.layoutSubtreeIfNeeded()
+        XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
+
+        row.frame.size.width = 720
+        row.layoutSubtreeIfNeeded()
+        XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
+    }
+
+    func test_worklane_row_deactivates_pane_width_constraints_when_switching_to_single_summary_layout() {
+        let row = makeRow(width: 220, height: 110)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Fix zsh startup",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Fix zsh startup",
+                        trailingText: "feature/autoresearch/zsh-startup-2026-03-22",
+                        detailText: nil,
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Running",
+                attentionState: .running,
+                isWorking: true
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 0)
     }
 
     func test_worklane_row_moves_primary_view_to_focused_pane_position() {
@@ -311,6 +522,81 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(row.statusTextForTesting, "Needs input")
     }
 
+    func test_sidebar_view_uses_a_single_shared_shimmer_driver_for_visible_working_rows() throws {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 220))
+        let window = makeVisibleWindow(containing: sidebarView)
+
+        sidebarView.render(
+            summaries: [
+                makeSidebarSummary(worklaneID: WorklaneID("worklane-api"), primaryText: "API"),
+                makeSidebarSummary(
+                    worklaneID: WorklaneID("worklane-web"),
+                    primaryText: "Web",
+                    isActive: false
+                ),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        sidebarView.layoutSubtreeIfNeeded()
+        sidebarView.updateShimmerVisibilityForTesting()
+
+        let buttons = try sidebarWorklaneButtons(in: sidebarView)
+        XCTAssertEqual(buttons.count, 2)
+        XCTAssertEqual(
+            buttons[0].shimmerCoordinatorIdentifierForTesting,
+            buttons[1].shimmerCoordinatorIdentifierForTesting
+        )
+        XCTAssertTrue(sidebarView.shimmerDriverIsRunningForTesting)
+        XCTAssertTrue(buttons.allSatisfy(\.shimmerIsAnimatingForTesting))
+        XCTAssertTrue(window.isVisible)
+    }
+
+    func test_sidebar_view_keeps_offscreen_working_rows_static() throws {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 140))
+        _ = makeVisibleWindow(containing: sidebarView)
+
+        sidebarView.render(
+            summaries: [
+                makeSidebarSummary(worklaneID: WorklaneID("worklane-api"), primaryText: "API"),
+                makeSidebarSummary(worklaneID: WorklaneID("worklane-web"), primaryText: "Web"),
+                makeSidebarSummary(worklaneID: WorklaneID("worklane-cli"), primaryText: "CLI"),
+                makeSidebarSummary(worklaneID: WorklaneID("worklane-docs"), primaryText: "Docs"),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        sidebarView.layoutSubtreeIfNeeded()
+        sidebarView.updateShimmerVisibilityForTesting()
+
+        let buttons = try sidebarWorklaneButtons(in: sidebarView)
+        XCTAssertEqual(buttons.count, 4)
+        XCTAssertTrue(buttons[0].shimmerIsAnimatingForTesting)
+        XCTAssertFalse(buttons.last?.shimmerIsAnimatingForTesting ?? true)
+        XCTAssertTrue(sidebarView.shimmerDriverIsRunningForTesting)
+    }
+
+    func test_sidebar_view_pauses_shared_shimmer_driver_when_window_is_hidden() throws {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 220))
+        let window = makeVisibleWindow(containing: sidebarView)
+
+        sidebarView.render(
+            summaries: [
+                makeSidebarSummary(worklaneID: WorklaneID("worklane-api"), primaryText: "API"),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        sidebarView.layoutSubtreeIfNeeded()
+        sidebarView.updateShimmerVisibilityForTesting()
+
+        XCTAssertTrue(sidebarView.shimmerDriverIsRunningForTesting)
+
+        window.orderOut(nil)
+        sidebarView.updateShimmerVisibilityForTesting()
+
+        let buttons = try sidebarWorklaneButtons(in: sidebarView)
+        XCTAssertFalse(sidebarView.shimmerDriverIsRunningForTesting)
+        XCTAssertFalse(buttons.first?.shimmerIsAnimatingForTesting ?? true)
+    }
+
     private func makeRow(width: CGFloat = 280, height: CGFloat = 72) -> SidebarWorklaneRowButton {
         let row = SidebarWorklaneRowButton(
             worklaneID: WorklaneID("worklane-main"),
@@ -351,6 +637,43 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             isWorking: isWorking,
             isActive: isActive
         )
+    }
+
+    private func makeSidebarSummary(
+        worklaneID: WorklaneID,
+        primaryText: String,
+        isActive: Bool = false
+    ) -> WorklaneSidebarSummary {
+        WorklaneSidebarSummary(
+            worklaneID: worklaneID,
+            badgeText: "1",
+            topLabel: nil,
+            primaryText: primaryText,
+            statusText: "Running",
+            detailLines: [],
+            attentionState: .running,
+            isWorking: true,
+            isActive: isActive
+        )
+    }
+
+    private func makeVisibleWindow(containing sidebarView: SidebarView) -> NSWindow {
+        let window = NSWindow(
+            contentRect: sidebarView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = sidebarView
+        window.orderFrontRegardless()
+        return window
+    }
+
+    private func sidebarWorklaneButtons(in sidebarView: SidebarView) throws -> [SidebarWorklaneRowButton] {
+        try sidebarView.worklaneButtonsForTesting.map { button in
+            try XCTUnwrap(button as? SidebarWorklaneRowButton)
+        }
     }
 
     private func darkTheme(foreground: String) -> ZenttyTheme {

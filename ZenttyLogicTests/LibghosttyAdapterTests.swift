@@ -107,6 +107,23 @@ final class LibghosttyAdapterTests: XCTestCase {
         XCTAssertEqual(receivedEvent, .progressReport(report))
     }
 
+    func test_repeated_surface_activity_does_not_resend_focus_or_refresh() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
+        let focusValuesAfterFirstUpdate = surfaceController.focusValues
+        let refreshCallCountAfterFirstUpdate = surfaceController.refreshCallCount
+
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
+
+        XCTAssertEqual(surfaceController.focusValues, focusValuesAfterFirstUpdate)
+        XCTAssertEqual(surfaceController.refreshCallCount, refreshCallCountAfterFirstUpdate)
+    }
+
     func test_return_key_emits_user_submitted_input_event() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)

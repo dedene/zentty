@@ -35,7 +35,14 @@ enum WorklaneHeaderSummaryBuilder {
 
     private static func visibleFallbackLabel(from presentation: PanePresentationState) -> String? {
         if let cwd = WorklaneContextFormatter.trimmed(presentation.cwd) {
-            return WorklaneContextFormatter.formattedWorkingDirectory(cwd, branch: nil)
+            let formattedWorkingDirectory = WorklaneContextFormatter.formattedWorkingDirectory(cwd, branch: nil)
+            if presentation.lookupBranch != nil,
+               formattedWorkingDirectory?.hasPrefix("~/󰲋") == true,
+               let compactRepositoryPath = WorklaneContextFormatter.compactRepositorySidebarPath(cwd) {
+                return compactRepositoryPath
+            }
+
+            return formattedWorkingDirectory
         }
 
         return WorklaneContextFormatter.trimmed(presentation.visibleIdentityText)

@@ -10,6 +10,7 @@ extension WorklaneStore {
         }
 
         var worklane = worklanes[worklaneIndex]
+        let previousWorklane = worklane
         switch event {
         case .progressReport(let report):
             if report.state == .remove {
@@ -17,6 +18,7 @@ extension WorklaneStore {
             } else {
                 worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].terminalProgress = report
                 if report.state.indicatesActivity {
+                    clearReadyStatusIfNeeded(for: paneID, in: &worklane)
                     resumeBlockedAgentStateIfWorkResumed(
                         paneID: paneID,
                         now: Date(),
@@ -25,6 +27,7 @@ extension WorklaneStore {
                 }
             }
         case .userSubmittedInput:
+            clearReadyStatusIfNeeded(for: paneID, in: &worklane)
             resumeBlockedAgentStateIfWorkResumed(
                 paneID: paneID,
                 now: Date(),
@@ -59,6 +62,9 @@ extension WorklaneStore {
                 var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
                 auxiliaryState.raw.lastDesktopNotificationText = notificationText
                 auxiliaryState.raw.lastDesktopNotificationDate = Date()
+                if completionNotificationIndicatesReady(notificationText) {
+                    auxiliaryState.raw.showsReadyStatus = true
+                }
                 worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
 
@@ -80,7 +86,10 @@ extension WorklaneStore {
 
         recomputePresentation(for: paneID, in: &worklane)
         worklanes[worklaneIndex] = worklane
-        notify(.auxiliaryStateUpdated(worklane.id, paneID))
+        let impacts = auxiliaryInvalidation(for: paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+        if !impacts.isEmpty {
+            notify(.auxiliaryStateUpdated(worklane.id, paneID, impacts))
+        }
     }
 
     func applyAgentStatusPayload(_ payload: AgentStatusPayload) {
@@ -92,17 +101,22 @@ extension WorklaneStore {
         }
 
         var worklane = worklanes[worklaneIndex]
+        let previousWorklane = worklane
 
         if payload.clearsStatus {
             var auxiliaryState = worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
             auxiliaryState.agentReducerState = Self.seededReducerState(auxiliaryState.agentReducerState, from: auxiliaryState.agentStatus)
             auxiliaryState.agentReducerState.apply(payload)
             auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
+            auxiliaryState.raw.showsReadyStatus = false
             auxiliaryState.terminalProgress = nil
             worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             recomputePresentation(for: payload.paneID, in: &worklane)
             worklanes[worklaneIndex] = worklane
-            notify(.auxiliaryStateUpdated(worklane.id, payload.paneID))
+            let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+            if !impacts.isEmpty {
+                notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, impacts))
+            }
             return
         }
 
@@ -112,8 +126,13 @@ extension WorklaneStore {
             recomputePresentation(for: payload.paneID, in: &worklane)
             worklanes[worklaneIndex] = worklane
             refreshLastFocusedLocalWorkingDirectoryIfNeeded(worklane: worklane, paneID: payload.paneID)
-            notify(.auxiliaryStateUpdated(worklane.id, payload.paneID))
-            refreshGitContextIfNeeded(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
+            let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+            if !impacts.isEmpty {
+                notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, impacts))
+            }
+            if auxiliaryUpdateRequiresGitContextRefresh(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane) {
+                refreshGitContextIfNeeded(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
+            }
             return
         }
 
@@ -158,6 +177,11 @@ extension WorklaneStore {
                 existingStatus: existingStatus,
                 payloadWorkingDirectory: payload.agentWorkingDirectory
             )
+            reconcileReadyStatus(
+                existingStatus: existingStatus,
+                payload: payload,
+                auxiliaryState: &auxiliaryState
+            )
             worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
         case .shellState:
             guard let shellActivityState = payload.shellActivityState else {
@@ -177,7 +201,10 @@ extension WorklaneStore {
                         worklane.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
                         recomputePresentation(for: payload.paneID, in: &worklane)
                         worklanes[worklaneIndex] = worklane
-                        notify(.auxiliaryStateUpdated(worklane.id, payload.paneID))
+                        let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+                        if !impacts.isEmpty {
+                            notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, impacts))
+                        }
                         return
                     case .unknown:
                         break
@@ -190,6 +217,11 @@ extension WorklaneStore {
                     auxiliaryState.agentReducerState.reducedStatus() ?? existingStatus,
                     existingStatus: existingStatus,
                     payloadWorkingDirectory: payload.agentWorkingDirectory
+                )
+                reconcileReadyStatus(
+                    existingStatus: existingStatus,
+                    payload: payload,
+                    auxiliaryState: &auxiliaryState
                 )
                 worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             } else {
@@ -239,6 +271,11 @@ extension WorklaneStore {
                     auxiliaryState.presentation.rememberedTitle = nil
                 }
                 auxiliaryState.agentStatus = status
+                reconcileReadyStatus(
+                    existingStatus: existingStatus,
+                    payload: payload,
+                    auxiliaryState: &auxiliaryState
+                )
                 worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             case .clear:
                 guard existingStatus != nil else {
@@ -249,6 +286,11 @@ extension WorklaneStore {
                     auxiliaryState.agentReducerState.reducedStatus(),
                     existingStatus: existingStatus,
                     payloadWorkingDirectory: payload.agentWorkingDirectory
+                )
+                reconcileReadyStatus(
+                    existingStatus: existingStatus,
+                    payload: payload,
+                    auxiliaryState: &auxiliaryState
                 )
                 worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             }
@@ -280,8 +322,12 @@ extension WorklaneStore {
         recomputePresentation(for: payload.paneID, in: &worklane)
         worklanes[worklaneIndex] = worklane
         refreshLastFocusedLocalWorkingDirectoryIfNeeded(worklane: worklane, paneID: payload.paneID)
-        notify(.auxiliaryStateUpdated(worklane.id, payload.paneID))
-        if payload.signalKind == .paneContext || payload.agentWorkingDirectory != nil {
+        let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+        if !impacts.isEmpty {
+            notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, impacts))
+        }
+        if auxiliaryUpdateRequiresGitContextRefresh(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+            || payload.agentWorkingDirectory != nil {
             refreshGitContextIfNeeded(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
         }
     }
@@ -314,7 +360,71 @@ extension WorklaneStore {
         return previousBranchDisplay != nextBranchDisplay
     }
 
-    private func invalidateCachedGitContext(path: String?) {
+    private func reconcileReadyStatus(
+        existingStatus: PaneAgentStatus?,
+        payload: AgentStatusPayload,
+        auxiliaryState: inout PaneAuxiliaryState
+    ) {
+        let nextStatus = auxiliaryState.agentStatus
+
+        if shouldEnterReadyStatus(from: existingStatus, to: nextStatus) {
+            auxiliaryState.raw.showsReadyStatus = true
+            return
+        }
+
+        if shouldClearReadyStatus(for: nextStatus, payload: payload) {
+            auxiliaryState.raw.showsReadyStatus = false
+        }
+    }
+
+    private func shouldEnterReadyStatus(
+        from existingStatus: PaneAgentStatus?,
+        to nextStatus: PaneAgentStatus?
+    ) -> Bool {
+        guard let nextStatus,
+              nextStatus.state == .idle,
+              nextStatus.hasObservedRunning,
+              let existingStatus,
+              existingStatus.state != .idle else {
+            return false
+        }
+
+        return true
+    }
+
+    private func shouldClearReadyStatus(
+        for nextStatus: PaneAgentStatus?,
+        payload: AgentStatusPayload
+    ) -> Bool {
+        if payload.clearsStatus {
+            return true
+        }
+
+        guard let nextStatus else {
+            return false
+        }
+
+        return nextStatus.state != .idle
+    }
+
+    private func clearReadyStatusIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
+        guard worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true else {
+            return
+        }
+
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus = false
+    }
+
+    private func completionNotificationIndicatesReady(_ notificationText: String?) -> Bool {
+        guard let notificationText = AgentInteractionClassifier.trimmed(notificationText)?.lowercased() else {
+            return false
+        }
+
+        return notificationText.contains("agent run complete")
+            || notificationText.contains("agent ready")
+    }
+
+    func invalidateCachedGitContext(path: String?) {
         guard let path = WorklaneContextFormatter.trimmed(path) else {
             return
         }

@@ -112,8 +112,10 @@ private func libghosttyActionCallback(
         return false
     }
 
-    DispatchQueue.main.async {
-        owner.handle(payload: payload)
+    if owner.enqueue(payload: payload) {
+        DispatchQueue.main.async { [weak owner] in
+            owner?.drainCoalescedActions()
+        }
     }
 
     return true

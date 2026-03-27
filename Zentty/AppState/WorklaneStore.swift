@@ -52,6 +52,20 @@ struct PaneBorderContextDisplayModel: Equatable, Sendable {
     let text: String
 }
 
+struct WorklaneAuxiliaryInvalidation: OptionSet, Equatable, Sendable {
+    let rawValue: Int
+
+    static let sidebar = WorklaneAuxiliaryInvalidation(rawValue: 1 << 0)
+    static let header = WorklaneAuxiliaryInvalidation(rawValue: 1 << 1)
+    static let canvas = WorklaneAuxiliaryInvalidation(rawValue: 1 << 2)
+    static let attention = WorklaneAuxiliaryInvalidation(rawValue: 1 << 3)
+    static let openWith = WorklaneAuxiliaryInvalidation(rawValue: 1 << 4)
+    static let reviewRefresh = WorklaneAuxiliaryInvalidation(rawValue: 1 << 5)
+    static let surfaceActivities = WorklaneAuxiliaryInvalidation(rawValue: 1 << 6)
+
+    static let presentationChrome: WorklaneAuxiliaryInvalidation = [.sidebar, .header, .attention]
+}
+
 extension WorklaneState {
     var focusedPaneContext: WorklanePaneContext? {
         paneContext(for: paneStripState.focusedPaneID)
@@ -153,7 +167,7 @@ enum WorklaneChange: Equatable, Sendable {
     case paneStructure(WorklaneID)
     case focusChanged(WorklaneID)
     case layoutResized(WorklaneID)
-    case auxiliaryStateUpdated(WorklaneID, PaneID)
+    case auxiliaryStateUpdated(WorklaneID, PaneID, WorklaneAuxiliaryInvalidation)
     case activeWorklaneChanged
     case worklaneListChanged
 }
@@ -186,6 +200,7 @@ final class WorklaneStore {
     var knownNonRepositoryPaths: Set<String> = []
     var pendingGitContextPaths: Set<String> = []
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
+    private let processEnvironment: [String: String]
 
     private(set) var activeWorklaneID: WorklaneID
 
@@ -218,11 +233,18 @@ final class WorklaneStore {
         worklanes: [WorklaneState] = [],
         layoutContext: PaneLayoutContext = .fallback,
         activeWorklaneID: WorklaneID? = nil,
-        gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver()
+        gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.gitContextResolver = gitContextResolver
         self.layoutContext = layoutContext
-        let initialWorklanes = worklanes.isEmpty ? WorklaneStore.defaultWorklanes(layoutContext: layoutContext) : worklanes
+        self.processEnvironment = processEnvironment
+        let initialWorklanes = worklanes.isEmpty
+            ? WorklaneStore.defaultWorklanes(
+                layoutContext: layoutContext,
+                processEnvironment: processEnvironment
+            )
+            : worklanes
         let requestedActiveWorklaneID = activeWorklaneID ?? initialWorklanes.first?.id ?? WorklaneID("worklane-main")
         let resolvedActiveWorklaneID = initialWorklanes.contains(where: { $0.id == requestedActiveWorklaneID })
             ? requestedActiveWorklaneID
@@ -248,21 +270,11 @@ final class WorklaneStore {
     }
 
     var focusedOpenWithContext: WorklaneOpenWithContext? {
-        guard
-            let worklane = activeWorklane,
-            let focusedPaneID = worklane.paneStripState.focusedPaneID,
-            let launchContext = resolveLaunchContext(for: focusedPaneID, in: worklane),
-            canTreatLaunchContextAsLocal(launchContext, for: focusedPaneID, in: worklane)
-        else {
+        guard let worklane = activeWorklane else {
             return nil
         }
 
-        return WorklaneOpenWithContext(
-            worklaneID: worklane.id,
-            paneID: focusedPaneID,
-            workingDirectory: launchContext.path,
-            scope: .local
-        )
+        return focusedOpenWithContext(in: worklane)
     }
 
     var state: PaneStripState {
@@ -339,21 +351,27 @@ final class WorklaneStore {
             changeType = .paneStructure(activeWorklaneID)
         case .focusLeft:
             worklane.paneStripState.moveFocusLeft()
+            clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
         case .focusRight:
             worklane.paneStripState.moveFocusRight()
+            clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
         case .focusUp:
             worklane.paneStripState.moveFocusUp()
+            clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
         case .focusDown:
             worklane.paneStripState.moveFocusDown()
+            clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
         case .focusFirst, .focusFirstColumn:
             worklane.paneStripState.moveFocusToFirstColumn()
+            clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
         case .focusLast, .focusLastColumn:
             worklane.paneStripState.moveFocusToLastColumn()
+            clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
         case .resizeLeft, .resizeRight, .resizeUp, .resizeDown, .resetLayout:
             activeWorklane = worklane
@@ -526,10 +544,11 @@ final class WorklaneStore {
     }
 
     func selectWorklane(id: WorklaneID) {
-        guard worklanes.contains(where: { $0.id == id }) else {
+        guard let index = worklanes.firstIndex(where: { $0.id == id }) else {
             return
         }
 
+        clearReadyStatusForFocusedPane(in: &worklanes[index])
         activeWorklaneID = id
         refreshLastFocusedLocalWorkingDirectory()
         notify(.activeWorklaneChanged)
@@ -569,7 +588,8 @@ final class WorklaneStore {
                 layoutContext: layoutContext,
                 workingDirectory: workingDirectory,
                 surfaceContext: .tab,
-                configInheritanceSourcePaneID: configInheritanceSourcePaneID
+                configInheritanceSourcePaneID: configInheritanceSourcePaneID,
+                processEnvironment: processEnvironment
             )
         )
         activeWorklaneID = id
@@ -582,10 +602,25 @@ final class WorklaneStore {
             return
         }
 
+        let previousWorklane = worklane
+        let wasFocusedPaneID = worklane.paneStripState.focusedPaneID
+        let hadReadyStatus = worklane.auxiliaryStateByPaneID[id]?.raw.showsReadyStatus == true
+        if wasFocusedPaneID == id, !hadReadyStatus {
+            return
+        }
+
         worklane.paneStripState.focusPane(id: id)
+        clearReadyStatusIfNeeded(for: id, in: &worklane)
         activeWorklane = worklane
         refreshLastFocusedLocalWorkingDirectory()
-        notify(.focusChanged(activeWorklaneID))
+        if wasFocusedPaneID == id {
+            let impacts = auxiliaryInvalidation(for: id, previousWorklane: previousWorklane, nextWorklane: worklane)
+            if !impacts.isEmpty {
+                notify(.auxiliaryStateUpdated(activeWorklaneID, id, impacts))
+            }
+        } else {
+            notify(.focusChanged(activeWorklaneID))
+        }
     }
 
     func selectWorklaneAndFocusPane(worklaneID: WorklaneID, paneID: PaneID) {
@@ -594,6 +629,7 @@ final class WorklaneStore {
         }
 
         worklanes[index].paneStripState.focusPane(id: paneID)
+        clearReadyStatusIfNeeded(for: paneID, in: &worklanes[index])
         activeWorklaneID = worklaneID
         refreshLastFocusedLocalWorkingDirectory()
         notify(.activeWorklaneChanged)
@@ -667,7 +703,7 @@ final class WorklaneStore {
                 inheritFromPaneID: inheritFromPaneID,
                 configInheritanceSourcePaneID: configInheritanceSourcePaneID,
                 surfaceContext: .split,
-                environmentVariables: Self.sessionEnvironment(
+                environmentVariables: sessionEnvironment(
                     worklaneID: worklane.id,
                     paneID: paneID,
                     initialWorkingDirectory: inheritFromPaneID == nil ? workingDirectory : nil
@@ -677,14 +713,18 @@ final class WorklaneStore {
         )
     }
 
-    private static func defaultWorklanes(layoutContext: PaneLayoutContext) -> [WorklaneState] {
+    private static func defaultWorklanes(
+        layoutContext: PaneLayoutContext,
+        processEnvironment: [String: String]
+    ) -> [WorklaneState] {
         [
             makeDefaultWorklane(
                 id: WorklaneID("worklane-main"),
                 title: "MAIN",
                 layoutContext: layoutContext,
                 workingDirectory: Self.defaultWorkingDirectory(),
-                surfaceContext: .window
+                surfaceContext: .window,
+                processEnvironment: processEnvironment
             ),
         ]
     }
@@ -695,7 +735,8 @@ final class WorklaneStore {
         layoutContext: PaneLayoutContext,
         workingDirectory: String,
         surfaceContext: TerminalSurfaceContext,
-        configInheritanceSourcePaneID: PaneID? = nil
+        configInheritanceSourcePaneID: PaneID? = nil,
+        processEnvironment: [String: String]
     ) -> WorklaneState {
         let shellPaneID = PaneID("\(id.rawValue)-shell")
         return WorklaneState(
@@ -713,7 +754,8 @@ final class WorklaneStore {
                             environmentVariables: Self.sessionEnvironment(
                                 worklaneID: id,
                                 paneID: shellPaneID,
-                                initialWorkingDirectory: workingDirectory
+                                initialWorkingDirectory: workingDirectory,
+                                processEnvironment: processEnvironment
                             )
                         ),
                         width: layoutContext.singlePaneWidth
@@ -740,10 +782,24 @@ final class WorklaneStore {
         }
     }
 
-    private static func sessionEnvironment(
+    private func sessionEnvironment(
         worklaneID: WorklaneID,
         paneID: PaneID,
         initialWorkingDirectory: String? = nil
+    ) -> [String: String] {
+        Self.sessionEnvironment(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            initialWorkingDirectory: initialWorkingDirectory,
+            processEnvironment: processEnvironment
+        )
+    }
+
+    private static func sessionEnvironment(
+        worklaneID: WorklaneID,
+        paneID: PaneID,
+        initialWorkingDirectory: String? = nil,
+        processEnvironment: [String: String]
     ) -> [String: String] {
         var environment: [String: String] = [
             "ZENTTY_WORKLANE_ID": worklaneID.rawValue,
@@ -763,20 +819,25 @@ final class WorklaneStore {
         }
         if let wrapperBinPath = AgentStatusHelper.wrapperBinPath() {
             environment["ZENTTY_WRAPPER_BIN_DIR"] = wrapperBinPath
-            let currentPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            let currentPath = processEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
             environment["PATH"] = "\(wrapperBinPath):\(currentPath)"
         }
         if let shellIntegrationDirectory = AgentStatusHelper.shellIntegrationDirectoryPath() {
             environment["ZENTTY_SHELL_INTEGRATION_DIR"] = shellIntegrationDirectory
             environment["ZENTTY_SHELL_INTEGRATION"] = "1"
             environment["ZDOTDIR"] = shellIntegrationDirectory
-            if let currentZDOTDIR = ProcessInfo.processInfo.environment["ZDOTDIR"], !currentZDOTDIR.isEmpty {
+            if let currentZDOTDIR = processEnvironment["ZDOTDIR"], !currentZDOTDIR.isEmpty {
                 environment["ZENTTY_ORIGINAL_ZDOTDIR"] = currentZDOTDIR
             }
-            if let currentPromptCommand = ProcessInfo.processInfo.environment["PROMPT_COMMAND"], !currentPromptCommand.isEmpty {
+            if let currentPromptCommand = processEnvironment["PROMPT_COMMAND"], !currentPromptCommand.isEmpty {
                 environment["ZENTTY_BASH_ORIGINAL_PROMPT_COMMAND"] = currentPromptCommand
             }
             environment["PROMPT_COMMAND"] = ". \"\(shellIntegrationDirectory)/zentty-bash-integration.bash\""
+        }
+        if let ghosttyLog = processEnvironment["GHOSTTY_LOG"], !ghosttyLog.isEmpty {
+            environment["GHOSTTY_LOG"] = ghosttyLog
+        } else {
+            environment["GHOSTTY_LOG"] = "macos,no-stderr"
         }
         return environment
     }
@@ -837,6 +898,23 @@ final class WorklaneStore {
 
         return (metadataWorkingDirectory ?? requestWorkingDirectory)
             .map { PaneLaunchContext(path: $0, scope: nil) }
+    }
+
+    func focusedOpenWithContext(in worklane: WorklaneState) -> WorklaneOpenWithContext? {
+        guard
+            let focusedPaneID = worklane.paneStripState.focusedPaneID,
+            let launchContext = resolveLaunchContext(for: focusedPaneID, in: worklane),
+            canTreatLaunchContextAsLocal(launchContext, for: focusedPaneID, in: worklane)
+        else {
+            return nil
+        }
+
+        return WorklaneOpenWithContext(
+            worklaneID: worklane.id,
+            paneID: focusedPaneID,
+            workingDirectory: launchContext.path,
+            scope: .local
+        )
     }
 
     private func canTreatLaunchContextAsLocal(
@@ -904,6 +982,23 @@ final class WorklaneStore {
             lastFocusedLocalPaneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
             lastFocusedLocalWorkingDirectory = nonInheritedSessionWorkingDirectory
         }
+    }
+
+    private func clearReadyStatusForFocusedPane(in worklane: inout WorklaneState) {
+        guard let focusedPaneID = worklane.paneStripState.focusedPaneID else {
+            return
+        }
+
+        clearReadyStatusIfNeeded(for: focusedPaneID, in: &worklane)
+    }
+
+    private func clearReadyStatusIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
+        guard worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true else {
+            return
+        }
+
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus = false
+        recomputePresentation(for: paneID, in: &worklane)
     }
 
     private func resolveWorkingDirectoryForNewWorklane() -> String {

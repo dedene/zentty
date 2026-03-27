@@ -126,6 +126,7 @@ struct PanePresentationState: Equatable, Sendable {
     var attentionArtifactLink: WorklaneArtifactLink?
     var updatedAt: Date = .distantPast
     var isWorking = false
+    var statusSymbolName: String?
     var interactionKind: PaneInteractionKind?
     var interactionLabel: String?
     var interactionSymbolName: String?
@@ -155,6 +156,7 @@ struct PaneRawState: Equatable, Sendable {
     var terminalProgress: TerminalProgressReport?
     var reviewState: WorklaneReviewState?
     var gitContext: PaneGitContext?
+    var showsReadyStatus = false
     var lastDesktopNotificationText: String?
     var lastDesktopNotificationDate: Date?
 }
@@ -185,15 +187,22 @@ enum PanePresentationNormalizer {
         let rememberedTitle = latestMeaningfulTitle ?? previous?.rememberedTitle
         let runtimePhase = normalizedRuntimePhase(from: raw, recognizedTool: recognizedTool)
         let agentInteractionKind = raw.agentStatus?.interactionKind ?? .none
+        let showsReadyStatus = raw.showsReadyStatus
+            || completionNotificationIndicatesReady(raw.lastDesktopNotificationText)
         let statusText = visibleStatusText(
             for: runtimePhase,
             interactionKind: agentInteractionKind,
             hasObservedRunning: raw.agentStatus?.hasObservedRunning == true,
+            showsReadyStatus: showsReadyStatus,
             notificationText: raw.lastDesktopNotificationText,
             notificationDate: raw.lastDesktopNotificationDate
         )
         let interactionKind = PaneInteractionKind(agentInteractionKind)
         let interactionLabel = runtimePhase == .needsInput ? raw.agentStatus?.statusLabel : nil
+        let statusSymbolName = statusSymbolName(
+            for: runtimePhase,
+            showsReadyStatus: showsReadyStatus
+        )
         let interactionSymbolName = runtimePhase == .needsInput ? raw.agentStatus?.statusSymbolName : nil
         let pullRequest = derivePullRequest(
             from: raw,
@@ -236,6 +245,7 @@ enum PanePresentationNormalizer {
             attentionArtifactLink: attentionArtifactLink,
             updatedAt: updatedAt,
             isWorking: runtimePhase == .running,
+            statusSymbolName: statusSymbolName,
             interactionKind: interactionKind,
             interactionLabel: interactionLabel,
             interactionSymbolName: interactionSymbolName
@@ -349,16 +359,27 @@ enum PanePresentationNormalizer {
 
     private static let notificationVisibilityWindow: TimeInterval = 60
 
+    private static func completionNotificationIndicatesReady(_ notificationText: String?) -> Bool {
+        guard let notificationText = WorklaneContextFormatter.trimmed(notificationText)?.lowercased() else {
+            return false
+        }
+
+        return notificationText.contains("agent run complete")
+            || notificationText.contains("agent ready")
+    }
+
     private static func visibleStatusText(
         for phase: PanePresentationPhase,
         interactionKind: PaneAgentInteractionKind,
         hasObservedRunning: Bool,
+        showsReadyStatus: Bool,
         notificationText: String? = nil,
         notificationDate: Date? = nil,
         now: Date = Date()
     ) -> String? {
         switch phase {
         case .idle:
+            if showsReadyStatus { return "Agent ready" }
             if hasObservedRunning { return "Idle" }
             // Show fresh notification text as informational status when no agent state is active.
             if let notificationText, let notificationDate,
@@ -377,6 +398,17 @@ enum PanePresentationNormalizer {
         }
     }
 
+    private static func statusSymbolName(
+        for phase: PanePresentationPhase,
+        showsReadyStatus: Bool
+    ) -> String? {
+        guard phase == .idle, showsReadyStatus else {
+            return nil
+        }
+
+        return "checkmark.circle.fill"
+    }
+
     private static func meaningfulTitle(
         metadata: TerminalMetadata?,
         fallbackTitle: String?,
@@ -391,23 +423,26 @@ enum PanePresentationNormalizer {
             guard let candidate else {
                 continue
             }
+            guard volatileAgentStatusTitle(candidate, recognizedTool: recognizedTool) == false else {
+                continue
+            }
             guard rawShellLabelLooksMeaningful(candidate) else {
                 continue
             }
-            guard WorklaneContextFormatter.displayMeaningfulTerminalIdentity(
+            guard let displayIdentity = WorklaneContextFormatter.displayMeaningfulTerminalIdentity(
                 for: TerminalMetadata(
                     title: candidate,
                     currentWorkingDirectory: nil,
                     processName: nil,
                     gitBranch: nil
                 )
-            ) != nil else {
+            ) else {
                 continue
             }
             if matchesRecognizedTool(candidate, tool: recognizedTool) {
                 continue
             }
-            return candidate
+            return displayIdentity
         }
 
         let normalizedFallbackTitle = WorklaneContextFormatter.normalizeDisplayIdentity(fallbackTitle)
@@ -418,6 +453,28 @@ enum PanePresentationNormalizer {
         }
 
         return nil
+    }
+
+    private static func volatileAgentStatusTitle(
+        _ value: String,
+        recognizedTool: AgentTool?
+    ) -> Bool {
+        guard recognizedTool == .codex else {
+            return false
+        }
+
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.localizedCaseInsensitiveContains("zentty") else {
+            return false
+        }
+
+        let firstWord = normalized.prefix(while: { $0.isLetter }).lowercased()
+        switch firstWord {
+        case "working", "thinking", "starting", "ready":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func rawShellLabelLooksMeaningful(_ value: String) -> Bool {

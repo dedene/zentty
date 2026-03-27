@@ -76,7 +76,7 @@ final class ScrollSwitchGestureHandler {
 
         if abs(accumulatedScrollSwitchDelta) >= threshold {
             hasTriggeredScrollSwitchInGesture = true
-            result = accumulatedScrollSwitchDelta > 0 ? .switchLeft : .switchRight
+            result = accumulatedScrollSwitchDelta > 0 ? .switchRight : .switchLeft
         }
 
         if shouldEndGesture(for: event) || !eventHasGesturePhases(event) {

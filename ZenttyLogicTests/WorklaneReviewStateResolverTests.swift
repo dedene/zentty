@@ -737,6 +737,40 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         XCTAssertTrue(call6.arguments.contains("--repo"))
     }
 
+    func test_refresh_pane_uses_cached_resolution_for_same_repo_and_branch() async {
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("main\n")],
+            prViewResults: [
+                .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":false,"state":"OPEN"}"#),
+            ],
+            prChecksResults: [
+                .json(#"[{"bucket":"pass","state":"SUCCESS","name":"unit-tests"}]"#),
+            ]
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        let initialResolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+        XCTAssertEqual(initialResolution.reviewState?.pullRequest?.number, 128)
+
+        var refreshedResolution: WorklaneReviewResolution?
+        let refreshExpectation = expectation(description: "cached refresh update")
+        resolver.refreshPane(
+            repoRoot: "/tmp/project",
+            branch: "main",
+            paneID: PaneID("pane-main"),
+            forceReload: false
+        ) { _, resolution in
+            refreshedResolution = resolution
+            refreshExpectation.fulfill()
+        }
+        await fulfillment(of: [refreshExpectation], timeout: 1.0)
+
+        XCTAssertEqual(refreshedResolution?.reviewState?.pullRequest?.number, 128)
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls.count, 5)
+    }
+
     func test_refresh_focused_pane_force_reload_preserves_cached_resolution_when_gh_view_fails() async {
         let runner = StubGHRunner(
             gitBranchResults: [.stdout("main\n")],

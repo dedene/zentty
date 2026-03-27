@@ -29,9 +29,8 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
         XCTAssertEqual(result, .none)
     }
 
-    func test_large_horizontal_scroll_right_returns_switchLeft() {
-        // Positive deltaX with natural scrolling (inverted) = negative accumulated -> switchRight
-        // But here we use non-inverted: positive deltaX -> positive accumulated -> switchLeft
+    func test_large_horizontal_scroll_right_returns_switchRight() {
+        // Positive horizontal scroll should reveal the pane on the right.
         let event = MockScrollEvent(
             scrollingDeltaX: 50,
             scrollingDeltaY: 0,
@@ -44,10 +43,10 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
 
         let result = handler.handle(scrollEvent: event.asNSEvent)
 
-        XCTAssertEqual(result, .switchLeft)
+        XCTAssertEqual(result, .switchRight)
     }
 
-    func test_large_horizontal_scroll_left_returns_switchRight() {
+    func test_large_horizontal_scroll_left_returns_switchLeft() {
         let event = MockScrollEvent(
             scrollingDeltaX: -50,
             scrollingDeltaY: 0,
@@ -60,7 +59,7 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
 
         let result = handler.handle(scrollEvent: event.asNSEvent)
 
-        XCTAssertEqual(result, .switchRight)
+        XCTAssertEqual(result, .switchLeft)
     }
 
     func test_wheel_threshold_is_lower() {
@@ -77,7 +76,7 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
 
         let result = handler.handle(scrollEvent: event.asNSEvent)
 
-        XCTAssertEqual(result, .switchLeft)
+        XCTAssertEqual(result, .switchRight)
     }
 
     func test_reset_clears_accumulated_state() {
@@ -116,8 +115,8 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
         XCTAssertEqual(result, .none)
     }
 
-    func test_negative_delta_returns_switchRight() {
-        // Negative accumulated delta means switch right (next column)
+    func test_negative_delta_returns_switchLeft() {
+        // Negative accumulated delta means reveal the pane on the left.
         let event = MockScrollEvent(
             scrollingDeltaX: -50,
             scrollingDeltaY: 0,
@@ -130,7 +129,7 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
 
         let result = handler.handle(scrollEvent: event.asNSEvent)
 
-        XCTAssertEqual(result, .switchRight)
+        XCTAssertEqual(result, .switchLeft)
     }
 
     func test_began_phase_resets_gesture() {

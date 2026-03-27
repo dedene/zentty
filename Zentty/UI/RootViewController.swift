@@ -241,9 +241,20 @@ final class RootViewController: NSViewController {
             self?.syncSidebarVisibilityControls(animated: false)
         }
         renderCoordinator.startObserving()
-        _ = worklaneStore.subscribe { [weak self] _ in
+        _ = worklaneStore.subscribe { [weak self] change in
             Task { @MainActor [weak self] in
-                self?.updateOpenWithChromeState()
+                guard let self else {
+                    return
+                }
+
+                switch change {
+                case .paneStructure, .focusChanged, .activeWorklaneChanged:
+                    self.updateOpenWithChromeState()
+                case .auxiliaryStateUpdated(_, _, let impacts) where impacts.contains(.openWith):
+                    self.updateOpenWithChromeState()
+                default:
+                    break
+                }
             }
         }
 

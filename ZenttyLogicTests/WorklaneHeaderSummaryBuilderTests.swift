@@ -171,6 +171,39 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary.branch, "main")
     }
 
+    func test_summary_uses_branch_to_compact_worktree_focused_label_without_local_git_probe() {
+        let paneID = PaneID("pane-shell")
+        let branch = "feature/scaleway-transactional-mails"
+        let worktreePath = "\(NSHomeDirectory())/Development/Zenjoy/Nimbu/Rails/worktrees/\(branch)"
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/\(branch)",
+                    currentWorkingDirectory: nil,
+                    processName: "zsh"
+                )
+            ],
+            gitContextByPaneID: [
+                paneID: PaneGitContext(
+                    workingDirectory: worktreePath,
+                    repositoryRoot: worktreePath,
+                    reference: .branch(branch)
+                )
+            ]
+        )
+
+        let summary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
+
+        XCTAssertEqual(summary.focusedLabel, "…/scaleway-transactional-mails")
+        XCTAssertEqual(summary.branch, branch)
+    }
+
     func test_summary_hides_detached_branch_chip_when_focused_label_already_contains_detached_reference() {
         let paneID = PaneID("pane-shell")
         let worklane = WorklaneState(

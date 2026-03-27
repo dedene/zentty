@@ -3,6 +3,7 @@ import AppKit
 enum WorklaneSidebarSummaryBuilder {
     private struct SidebarStatusPresentation {
         let statusText: String?
+        let statusSymbolName: String?
         let attentionState: WorklaneAttentionState?
         let interactionKind: PaneInteractionKind?
         let interactionLabel: String?
@@ -11,6 +12,7 @@ enum WorklaneSidebarSummaryBuilder {
 
     private struct PaneSidebarStatusPresentation {
         let statusText: String?
+        let statusSymbolName: String?
         let attentionState: WorklaneAttentionState?
         let interactionKind: PaneInteractionKind?
         let interactionLabel: String?
@@ -112,6 +114,7 @@ enum WorklaneSidebarSummaryBuilder {
             )
             : SidebarStatusPresentation(
                 statusText: nil,
+                statusSymbolName: nil,
                 attentionState: nil,
                 interactionKind: nil,
                 interactionLabel: nil,
@@ -125,6 +128,7 @@ enum WorklaneSidebarSummaryBuilder {
             primaryText: primaryText,
             focusedPaneLineIndex: focusedPaneLineIndex,
             statusText: statusPresentation.statusText,
+            statusSymbolName: statusPresentation.statusSymbolName,
             detailLines: sidebarDetailLines,
             paneRows: paneRows,
             overflowText: nil,
@@ -145,6 +149,7 @@ enum WorklaneSidebarSummaryBuilder {
         if let attention {
             return SidebarStatusPresentation(
                 statusText: plainStatusText(for: attention.state),
+                statusSymbolName: nil,
                 attentionState: attention.state,
                 interactionKind: attention.interactionKind,
                 interactionLabel: attention.interactionLabel ?? attention.interactionKind?.defaultLabel,
@@ -157,6 +162,7 @@ enum WorklaneSidebarSummaryBuilder {
         if isWorking {
             return SidebarStatusPresentation(
                 statusText: plainStatusText(for: .running),
+                statusSymbolName: nil,
                 attentionState: .running,
                 interactionKind: nil,
                 interactionLabel: nil,
@@ -167,6 +173,7 @@ enum WorklaneSidebarSummaryBuilder {
         if worklaneAgentTool(for: worklane) != nil {
             return SidebarStatusPresentation(
                 statusText: nil,
+                statusSymbolName: nil,
                 attentionState: nil,
                 interactionKind: nil,
                 interactionLabel: nil,
@@ -176,6 +183,7 @@ enum WorklaneSidebarSummaryBuilder {
 
         return SidebarStatusPresentation(
             statusText: nil,
+            statusSymbolName: nil,
             attentionState: nil,
             interactionKind: nil,
             interactionLabel: nil,
@@ -204,6 +212,7 @@ enum WorklaneSidebarSummaryBuilder {
                 trailingText: paneIdentity.trailingText,
                 detailText: paneIdentity.detailText,
                 statusText: statusPresentation.statusText,
+                statusSymbolName: statusPresentation.statusSymbolName,
                 attentionState: statusPresentation.attentionState,
                 interactionKind: statusPresentation.interactionKind,
                 interactionLabel: statusPresentation.interactionLabel,
@@ -380,15 +389,9 @@ enum WorklaneSidebarSummaryBuilder {
 
         if let rememberedTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle) {
             if isSinglePane {
-                let contextComponents = [branch, workingDirectory]
-                    .compactMap(WorklaneContextFormatter.trimmed)
-                let contextText = contextComponents.isEmpty ? nil : contextComponents.joined(separator: " · ")
-
                 return PaneSidebarIdentity(
-                    primaryText: [rememberedTitle, contextText]
-                        .compactMap(WorklaneContextFormatter.trimmed)
-                        .joined(separator: " · "),
-                    trailingText: nil,
+                    primaryText: rememberedTitle,
+                    trailingText: branch,
                     detailText: nil
                 )
             }
@@ -445,6 +448,7 @@ enum WorklaneSidebarSummaryBuilder {
             || presentation.interactionSymbolName != nil else {
             return PaneSidebarStatusPresentation(
                 statusText: nil,
+                statusSymbolName: nil,
                 attentionState: nil,
                 interactionKind: nil,
                 interactionLabel: nil,
@@ -455,6 +459,7 @@ enum WorklaneSidebarSummaryBuilder {
 
         return PaneSidebarStatusPresentation(
             statusText: statusText,
+            statusSymbolName: presentation.statusSymbolName,
             attentionState: attentionState,
             interactionKind: presentation.interactionKind,
             interactionLabel: presentation.interactionLabel ?? presentation.interactionKind?.defaultLabel,
@@ -785,6 +790,7 @@ enum WorklaneSidebarSummaryBuilder {
                     trailingText: paneRow.trailingText,
                     detailText: paneRow.detailText,
                     statusText: paneRow.statusText,
+                    statusSymbolName: paneRow.statusSymbolName,
                     attentionState: paneRow.attentionState,
                     interactionKind: paneRow.interactionKind,
                     interactionLabel: paneRow.interactionLabel,
@@ -804,6 +810,7 @@ enum WorklaneSidebarSummaryBuilder {
                 primaryText: disambiguatedPrimaryText,
                 focusedPaneLineIndex: summary.focusedPaneLineIndex,
                 statusText: summary.statusText,
+                statusSymbolName: summary.statusSymbolName,
                 detailLines: summary.detailLines,
                 paneRows: paneRows,
                 overflowText: summary.overflowText,

@@ -59,6 +59,7 @@ final class LibghosttyAdapter: TerminalAdapter {
     private let hostView = LibghosttyView()
     private var surfaceController: (any LibghosttySurfaceControlling)?
     private var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: false, isFocused: false)
+    private var hasAppliedSurfaceActivity = false
     private var inheritedConfigTemplate: ghostty_surface_config_s?
 
     var hasScrollback: Bool { surfaceController?.hasScrollback ?? false }
@@ -97,20 +98,32 @@ final class LibghosttyAdapter: TerminalAdapter {
 
         hostView.bind(surfaceController: surfaceController)
         self.surfaceController = surfaceController
+        hasAppliedSurfaceActivity = false
         setSurfaceActivity(lastSurfaceActivity)
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
-        let wasVisible = lastSurfaceActivity.isVisible
+        let isFirstApplication = !hasAppliedSurfaceActivity
+        let previouslyAppliedActivity = isFirstApplication
+            ? TerminalSurfaceActivity(isVisible: false, isFocused: false)
+            : lastSurfaceActivity
         lastSurfaceActivity = activity
 
         guard let surfaceController else {
             return
         }
 
-        surfaceController.setFocused(activity.isFocused)
+        if !isFirstApplication, previouslyAppliedActivity == activity {
+            return
+        }
 
-        if !wasVisible && activity.isVisible {
+        hasAppliedSurfaceActivity = true
+
+        if isFirstApplication || previouslyAppliedActivity.isFocused != activity.isFocused {
+            surfaceController.setFocused(activity.isFocused)
+        }
+
+        if !previouslyAppliedActivity.isVisible && activity.isVisible {
             hostView.needsLayout = true
             hostView.layoutSubtreeIfNeeded()
             surfaceController.refresh()
