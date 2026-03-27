@@ -1358,7 +1358,7 @@ final class AgentStatusSupportTests: XCTestCase {
         <plist version="1.0">
         <dict>
             <key>CFBundleIdentifier</key>
-            <string>com.peterdedene.zentty.tests.\(name)</string>
+            <string>be.zenjoy.zentty.tests.\(name)</string>
             <key>CFBundleExecutable</key>
             <string>\(name)</string>
             <key>CFBundleName</key>

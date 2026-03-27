@@ -357,7 +357,7 @@ private extension NSPasteboard.PasteboardType {
 
 private extension NSPasteboard {
     static var zenttySelection: NSPasteboard {
-        NSPasteboard(name: .init("com.peterdedene.zentty.selection"))
+        NSPasteboard(name: .init("be.zenjoy.zentty.selection"))
     }
 
     static func ghostty(_ clipboard: ghostty_clipboard_e) -> NSPasteboard? {

@@ -1060,7 +1060,7 @@
 					"$(inherited)",
 					"$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty.debug.dylib",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = be.zentty.ZenttyLogicTests;
+				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyLogicTests;
 				PRODUCT_NAME = ZenttyLogicTests;
 				SDKROOT = macosx;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
@@ -1078,7 +1078,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.peterdedene.zenttyTests;
+				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyTests;
 				PRODUCT_NAME = ZenttyTests;
 				SDKROOT = macosx;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
@@ -1096,7 +1096,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = be.zentty.ZenttyLogicTests;
+				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyLogicTests;
 				PRODUCT_NAME = ZenttyLogicTests;
 				SDKROOT = macosx;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
@@ -1131,7 +1131,7 @@
 					"-framework",
 					Carbon,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.peterdedene.zentty;
+				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zentty;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
@@ -1165,7 +1165,7 @@
 					"-framework",
 					Carbon,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.peterdedene.zentty;
+				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zentty;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
@@ -1182,7 +1182,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.peterdedene.zenttyTests;
+				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyTests;
 				PRODUCT_NAME = ZenttyTests;
 				SDKROOT = macosx;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";

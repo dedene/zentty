@@ -104,7 +104,7 @@ struct PaneRuntimeSnapshot: Equatable {
     var hasReceivedMetadata: Bool
 }
 
-private let terminalLogger = Logger(subsystem: "be.zentty", category: "Terminal")
+private let terminalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "Terminal")
 
 @MainActor
 final class PaneRuntime {

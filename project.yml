@@ -1,6 +1,6 @@
 name: Zentty
 options:
-  bundleIdPrefix: com.peterdedene
+  bundleIdPrefix: be.zenjoy
   deploymentTarget:
     macOS: "14.0"
 settings:
@@ -68,7 +68,7 @@ targets:
         basedOnDependencyAnalysis: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.peterdedene.zentty
+        PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty
         INFOPLIST_FILE: Zentty/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
@@ -95,7 +95,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: ZenttyTests
-        PRODUCT_BUNDLE_IDENTIFIER: com.peterdedene.zenttyTests
+        PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zenttyTests
         INFOPLIST_FILE: ZenttyTests/Info.plist
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty"
         BUNDLE_LOADER: "$(TEST_HOST)"
@@ -111,7 +111,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: ZenttyLogicTests
-        PRODUCT_BUNDLE_IDENTIFIER: be.zentty.ZenttyLogicTests
+        PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zenttyLogicTests
         INFOPLIST_FILE: ZenttyLogicTests/Info.plist
         BUNDLE_LOADER: "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty"
       configs:

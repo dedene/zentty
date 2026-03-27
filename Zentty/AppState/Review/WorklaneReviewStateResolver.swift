@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let reviewLogger = Logger(subsystem: "be.zentty", category: "ReviewState")
+private let reviewLogger = Logger(subsystem: "be.zenjoy.zentty", category: "ReviewState")
 
 struct WorklaneReviewResolution: Equatable, Sendable {
     enum UpdatePolicy: Equatable, Sendable {

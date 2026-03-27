@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-private let appConfigLogger = Logger(subsystem: "be.zentty", category: "Config")
+private let appConfigLogger = Logger(subsystem: "be.zenjoy.zentty", category: "Config")
 
 final class AppConfigStore: @unchecked Sendable {
     typealias ChangeHandler = @Sendable (AppConfig) -> Void

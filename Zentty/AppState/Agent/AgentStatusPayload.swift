@@ -224,7 +224,7 @@ struct AgentStatusPayload: Equatable, Sendable {
 }
 
 enum AgentStatusTransport {
-    static let notificationName = Notification.Name("com.peterdedene.zentty.agent-status")
+    static let notificationName = Notification.Name("be.zenjoy.zentty.agent-status")
 }
 
 private extension PaneAgentState {

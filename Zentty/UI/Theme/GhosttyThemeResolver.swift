@@ -7,7 +7,7 @@ struct GhosttyThemeResolution {
     let watchedURLs: [URL]
 }
 
-private let themeLogger = Logger(subsystem: "be.zentty", category: "Theme")
+private let themeLogger = Logger(subsystem: "be.zenjoy.zentty", category: "Theme")
 
 final class GhosttyThemeResolver {
     private struct ParsedConfig {

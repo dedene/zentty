@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let agentStatusLogger = Logger(subsystem: "be.zentty", category: "AgentStatus")
+private let agentStatusLogger = Logger(subsystem: "be.zenjoy.zentty", category: "AgentStatus")
 
 @MainActor
 final class AgentStatusCenter: NSObject {
