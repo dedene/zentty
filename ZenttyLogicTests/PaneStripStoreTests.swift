@@ -1712,6 +1712,149 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+    }
+
+    func test_idle_transition_surfaces_agent_ready_after_running_agent_completes() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+    }
+
+    func test_focusing_completed_agent_pane_clears_agent_ready_back_to_idle() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+
+        store.focusPane(id: paneID)
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Idle")
+    }
+
+    func test_refocusing_already_focused_pane_without_ready_state_is_noop() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        var changes: [WorklaneChange] = []
+        store.subscribe { changes.append($0) }
+
+        store.focusPane(id: paneID)
+
+        XCTAssertTrue(changes.isEmpty)
+    }
+
+    func test_user_input_after_completion_clears_agent_ready_back_to_idle() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .userSubmittedInput
+        )
+
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Idle")
     }
 
@@ -1819,6 +1962,15 @@ final class PaneStripStoreTests: XCTestCase {
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         var notificationCount = 0
 
+        store.updateGitContext(
+            paneID: paneID,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/review-band",
+                repositoryRoot: "/tmp/review-band",
+                reference: .branch("feature/review-band")
+            )
+        )
+
         store.onChange = { _ in
             notificationCount += 1
         }
@@ -1880,6 +2032,152 @@ final class PaneStripStoreTests: XCTestCase {
 
         XCTAssertEqual(notificationCount, 0)
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState, existingResolution.reviewState)
+    }
+
+    func test_repeated_progress_report_with_same_state_does_not_notify_again() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        var auxiliaryStateUpdateCount = 0
+
+        let subscription = store.subscribe { change in
+            guard case .auxiliaryStateUpdated(_, let changedPaneID, _) = change, changedPaneID == paneID else {
+                return
+            }
+            auxiliaryStateUpdateCount += 1
+        }
+        addTeardownBlock {
+            store.unsubscribe(subscription)
+        }
+
+        let report = TerminalProgressReport(state: .set, progress: 40)
+        store.handleTerminalEvent(paneID: paneID, event: .progressReport(report))
+        auxiliaryStateUpdateCount = 0
+
+        store.handleTerminalEvent(paneID: paneID, event: .progressReport(report))
+
+        XCTAssertEqual(auxiliaryStateUpdateCount, 0)
+    }
+
+    func test_local_pane_context_for_focused_pane_notifies_canvas_and_open_with_impacts() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        var recordedImpacts: [WorklaneAuxiliaryInvalidation] = []
+
+        let subscription = store.subscribe { change in
+            guard case .auxiliaryStateUpdated(_, let changedPaneID, let impacts) = change, changedPaneID == paneID else {
+                return
+            }
+            recordedImpacts.append(impacts)
+        }
+        addTeardownBlock {
+            store.unsubscribe(subscription)
+        }
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/local-project",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: "mbp"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        let impacts = try XCTUnwrap(recordedImpacts.last)
+        XCTAssertTrue(impacts.contains(.canvas))
+        XCTAssertTrue(impacts.contains(.openWith))
+    }
+
+    func test_updating_git_context_notifies_sidebar_header_and_review_refresh_impacts() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "zsh",
+                gitBranch: nil
+            )
+        )
+
+        var recordedImpacts: [WorklaneAuxiliaryInvalidation] = []
+        let subscription = store.subscribe { change in
+            guard case .auxiliaryStateUpdated(_, let changedPaneID, let impacts) = change, changedPaneID == paneID else {
+                return
+            }
+            recordedImpacts.append(impacts)
+        }
+        addTeardownBlock {
+            store.unsubscribe(subscription)
+        }
+
+        store.updateGitContext(
+            paneID: paneID,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let impacts = try XCTUnwrap(recordedImpacts.last)
+        XCTAssertTrue(impacts.contains(.sidebar))
+        XCTAssertTrue(impacts.contains(.header))
+        XCTAssertTrue(impacts.contains(.reviewRefresh))
+        XCTAssertFalse(impacts.contains(.canvas))
+        XCTAssertFalse(impacts.contains(.openWith))
+    }
+
+    func test_updating_non_focused_pane_metadata_notifies_sidebar_without_header_or_attention() throws {
+        let store = WorklaneStore()
+        store.send(.splitHorizontally)
+
+        let activeWorklane = try XCTUnwrap(store.activeWorklane)
+        let focusedPaneID = try XCTUnwrap(activeWorklane.paneStripState.focusedPaneID)
+        let backgroundPaneID = try XCTUnwrap(
+            activeWorklane.paneStripState.panes.map(\.id).first(where: { $0 != focusedPaneID })
+        )
+
+        var recordedImpacts: [WorklaneAuxiliaryInvalidation] = []
+        let subscription = store.subscribe { change in
+            guard case .auxiliaryStateUpdated(_, let changedPaneID, let impacts) = change,
+                  changedPaneID == backgroundPaneID else {
+                return
+            }
+            recordedImpacts.append(impacts)
+        }
+        addTeardownBlock {
+            store.unsubscribe(subscription)
+        }
+
+        store.updateMetadata(
+            paneID: backgroundPaneID,
+            metadata: TerminalMetadata(
+                title: "build logs",
+                currentWorkingDirectory: nil,
+                processName: "zsh",
+                gitBranch: nil
+            )
+        )
+
+        let impacts = try XCTUnwrap(recordedImpacts.first)
+        XCTAssertTrue(impacts.contains(.sidebar))
+        XCTAssertFalse(impacts.contains(.header))
+        XCTAssertFalse(impacts.contains(.attention))
+        XCTAssertFalse(impacts.contains(.canvas))
     }
 
     func test_clearing_agent_status_keeps_review_state_for_that_pane() throws {
@@ -2506,6 +2804,72 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState)
+    }
+
+    func test_updating_spinner_title_variant_keeps_raw_metadata_without_notifying_again() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        var auxiliaryStateUpdateCount = 0
+        let subscription = store.subscribe { change in
+            guard case .auxiliaryStateUpdated(_, let changedPaneID, _) = change, changedPaneID == paneID else {
+                return
+            }
+            auxiliaryStateUpdateCount += 1
+        }
+        defer { store.unsubscribe(subscription) }
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        auxiliaryStateUpdateCount = 0
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠙ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(auxiliaryStateUpdateCount, 0)
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.metadata?.title,
+            "Working ⠙ zentty"
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Running"
+        )
+    }
+
+    func test_default_worklane_disables_ghostty_stderr_logging_when_unset() throws {
+        let store = WorklaneStore(processEnvironment: ["PATH": "/usr/bin:/bin"])
+
+        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
+
+        XCTAssertEqual(request.environmentVariables["GHOSTTY_LOG"], "macos,no-stderr")
+    }
+
+    func test_default_worklane_preserves_explicit_ghostty_log_override() throws {
+        let store = WorklaneStore(
+            processEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "GHOSTTY_LOG": "stderr"
+            ]
+        )
+
+        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
+
+        XCTAssertEqual(request.environmentVariables["GHOSTTY_LOG"], "stderr")
     }
 
 }

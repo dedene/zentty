@@ -26,6 +26,7 @@ final class SidebarView: NSView {
     private let listStack = NSStackView()
     private let addWorklaneButton = SidebarFooterButton()
     private let resizeHandleView = SidebarResizeHandleView()
+    private let shimmerCoordinator = SidebarShimmerCoordinator()
 
     private var worklaneButtons: [SidebarWorklaneRowButton] = []
     private var worklaneSummaries: [WorklaneSidebarSummary] = []
@@ -63,6 +64,13 @@ final class SidebarView: NSView {
         listDocumentView.translatesAutoresizingMaskIntoConstraints = false
         listDocumentView.addSubview(listStack)
         listScrollView.documentView = listDocumentView
+        listScrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScrollBoundsDidChange(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: listScrollView.contentView
+        )
 
         addWorklaneButton.translatesAutoresizingMaskIntoConstraints = false
         addWorklaneButton.target = self
@@ -104,6 +112,10 @@ final class SidebarView: NSView {
         apply(theme: currentTheme, animated: false)
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
 
@@ -127,6 +139,17 @@ final class SidebarView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         onPointerExited?()
+    }
+
+    override func layout() {
+        super.layout()
+        syncShimmerVisibility()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateWindowVisibilityObservation()
+        syncShimmerVisibility()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -180,6 +203,7 @@ final class SidebarView: NSView {
                     self?.onSplitVerticalRequested?(worklaneID, paneID)
                 }
 
+                button.setShimmerCoordinator(shimmerCoordinator)
                 button.configure(
                     with: summary,
                     theme: currentTheme,
@@ -204,6 +228,9 @@ final class SidebarView: NSView {
                 addWorklaneButton.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
             ])
         }
+
+        worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
+        syncShimmerVisibility()
 
         let newActiveID = summaries.first(where: \.isActive)?.worklaneID
         if newActiveID != previousActiveID, let newActiveID {
@@ -247,6 +274,9 @@ final class SidebarView: NSView {
                 animated: animated
             )
         }
+
+        worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
+        syncShimmerVisibility()
     }
 
     func setResizeEnabled(_ isEnabled: Bool) {
@@ -266,6 +296,14 @@ final class SidebarView: NSView {
     @objc
     private func handleCreateWorklane() {
         onNewWorklaneRequested?()
+    }
+
+    @objc
+    private func handleScrollBoundsDidChange(_ notification: Notification) {
+        _ = notification
+        Task { @MainActor [weak self] in
+            self?.syncShimmerVisibility()
+        }
     }
 
     private func handleResizePan(_ recognizer: NSPanGestureRecognizer) {
@@ -408,6 +446,75 @@ final class SidebarView: NSView {
 
     var appearanceMatchForTesting: NSAppearance.Name? {
         appearance?.bestMatch(from: [.darkAqua, .aqua])
+    }
+
+    var shimmerDriverIsRunningForTesting: Bool {
+        shimmerCoordinator.isRunningForTesting
+    }
+
+    func updateShimmerVisibilityForTesting() {
+        syncShimmerVisibility()
+    }
+}
+
+private extension SidebarView {
+    static let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+
+    func updateWindowVisibilityObservation() {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.didChangeOcclusionStateNotification,
+            object: nil
+        )
+        guard let window else {
+            shimmerCoordinator.setWindowIsRenderable(false)
+            return
+        }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWindowVisibilityDidChange(_:)),
+            name: NSWindow.didChangeOcclusionStateNotification,
+            object: window
+        )
+    }
+
+    func syncShimmerVisibility() {
+        let windowRenderable: Bool
+        if let window {
+            let isOccluded: Bool
+            if Self.isRunningTests {
+                isOccluded = false
+            } else {
+                let occlusionState = window.occlusionState
+                isOccluded = !occlusionState.isEmpty && !occlusionState.contains(.visible)
+            }
+            windowRenderable = window.isVisible && !window.isMiniaturized && !isOccluded
+        } else {
+            windowRenderable = false
+        }
+        shimmerCoordinator.setWindowIsRenderable(windowRenderable)
+
+        guard windowRenderable else {
+            worklaneButtons.forEach { $0.setShimmerVisibility(false) }
+            return
+        }
+
+        let visibleRect = listScrollView.documentVisibleRect
+        worklaneButtons.forEach { button in
+            let buttonFrame = button.convert(button.bounds, to: listDocumentView)
+            button.setShimmerVisibility(visibleRect.intersects(buttonFrame))
+        }
+    }
+}
+
+private extension SidebarView {
+    @objc
+    func handleWindowVisibilityDidChange(_ notification: Notification) {
+        _ = notification
+        Task { @MainActor [weak self] in
+            self?.syncShimmerVisibility()
+        }
     }
 }
 

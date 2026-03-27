@@ -7,6 +7,8 @@ final class SidebarWorklaneRowButton: NSButton {
     private enum Layout {
         static let contentInset = ShellMetrics.sidebarRowHorizontalInset
         static let primaryTextLeadingInset: CGFloat = 0
+        static let panePrimaryTrailingSpacing: CGFloat = 6
+        static let trailingSpillThresholdRatio: CGFloat = 0.5
     }
 
     let worklaneID: WorklaneID?
@@ -28,6 +30,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private var paneDetailLabels: [SidebarStaticLabel] = []
     private var paneStatusRows: [SidebarPaneTextRowView] = []
     private var paneRowButtons: [SidebarPaneRowButton] = []
+    private var paneRowWidthConstraints: [NSLayoutConstraint] = []
     private var currentSummary: WorklaneSidebarSummary?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var currentStatusSymbolName = ""
@@ -36,6 +39,8 @@ final class SidebarWorklaneRowButton: NSButton {
     private var trackingArea: NSTrackingArea?
     private var heightConstraint: NSLayoutConstraint?
     private var isWorking = false
+    private var isApplyingResolvedSummary = false
+    private var shimmerCoordinator: SidebarShimmerCoordinator?
     private let reducedMotionProvider: () -> Bool
 
     var onPaneSelected: ((PaneID) -> Void)?
@@ -63,6 +68,17 @@ final class SidebarWorklaneRowButton: NSButton {
 
     override var allowsVibrancy: Bool {
         false
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let previousWidth = frame.size.width
+        super.setFrameSize(newSize)
+
+        guard abs(previousWidth - newSize.width) > .ulpOfOne else {
+            return
+        }
+
+        applyResolvedSummary(animated: false)
     }
 
     private func setup() {
@@ -202,6 +218,21 @@ final class SidebarWorklaneRowButton: NSButton {
         applyCurrentAppearance(animated: true)
     }
 
+    func setShimmerCoordinator(_ coordinator: SidebarShimmerCoordinator?) {
+        shimmerCoordinator = coordinator
+        primaryLabel.shimmerCoordinator = coordinator
+        statusLabel.shimmerCoordinator = coordinator
+        panePrimaryRows.forEach { $0.setShimmerCoordinator(coordinator) }
+        paneStatusRows.forEach { $0.setShimmerCoordinator(coordinator) }
+    }
+
+    func setShimmerVisibility(_ isVisible: Bool) {
+        primaryLabel.isVisibleForSharedAnimation = isVisible
+        statusLabel.isVisibleForSharedAnimation = isVisible
+        panePrimaryRows.forEach { $0.setShimmerVisibility(isVisible) }
+        paneStatusRows.forEach { $0.setShimmerVisibility(isVisible) }
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
 
@@ -237,23 +268,36 @@ final class SidebarWorklaneRowButton: NSButton {
         currentSummary = summary
         currentTheme = theme
         isWorking = summary.isWorking
-        let layout = SidebarWorklaneRowLayout(summary: summary)
+        applyResolvedSummary(animated: animated)
+    }
 
-        topLabel.stringValue = summary.topLabel ?? ""
-        overflowLabel.stringValue = summary.overflowText ?? ""
-        if summary.paneRows.isEmpty {
-            primaryBaseLabel.stringValue = summary.primaryText
-            primaryLabel.stringValue = summary.primaryText
+    private func applyResolvedSummary(animated: Bool) {
+        guard let summary = currentSummary, isApplyingResolvedSummary == false else {
+            return
+        }
+
+        isApplyingResolvedSummary = true
+        defer { isApplyingResolvedSummary = false }
+
+        let resolvedSummary = resolvedSummary(for: summary)
+        let layout = SidebarWorklaneRowLayout(summary: resolvedSummary)
+
+        topLabel.stringValue = resolvedSummary.topLabel ?? ""
+        overflowLabel.stringValue = resolvedSummary.overflowText ?? ""
+        if resolvedSummary.paneRows.isEmpty {
+            primaryBaseLabel.stringValue = resolvedSummary.primaryText
+            primaryLabel.stringValue = resolvedSummary.primaryText
             let statusCopy =
-                summary.statusText
-                ?? summary.interactionLabel
-                ?? summary.interactionKind?.defaultLabel
+                resolvedSummary.statusText
+                ?? resolvedSummary.interactionLabel
+                ?? resolvedSummary.interactionKind?.defaultLabel
                 ?? ""
             statusBaseLabel.stringValue = statusCopy
             statusLabel.stringValue = statusCopy
             currentStatusSymbolName =
-                summary.interactionSymbolName
-                ?? summary.interactionKind?.defaultSymbolName
+                resolvedSummary.statusSymbolName
+                ?? resolvedSummary.interactionSymbolName
+                ?? resolvedSummary.interactionKind?.defaultSymbolName
                 ?? ""
             statusIconView.image =
                 currentStatusSymbolName.isEmpty
@@ -261,7 +305,7 @@ final class SidebarWorklaneRowButton: NSButton {
                 : NSImage(systemSymbolName: currentStatusSymbolName, accessibilityDescription: nil)?
                     .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
             statusIconView.isHidden = statusIconView.image == nil
-            configureDetailLabels(for: summary.detailLines)
+            configureDetailLabels(for: resolvedSummary.detailLines)
         } else {
             primaryBaseLabel.stringValue = ""
             primaryLabel.stringValue = ""
@@ -270,19 +314,107 @@ final class SidebarWorklaneRowButton: NSButton {
             currentStatusSymbolName = ""
             statusIconView.image = nil
             statusIconView.isHidden = true
-            configurePaneRows(for: summary.paneRows)
+            configurePaneRows(for: resolvedSummary.paneRows)
         }
 
         textStack.setViews(
             groupedViews(for: layout),
             in: .top
         )
-        for button in paneRowButtons where button.superview == textStack {
-            button.widthAnchor.constraint(equalTo: textStack.widthAnchor).isActive = true
+        paneRowWidthConstraints.forEach { $0.isActive = false }
+        for (index, button) in paneRowButtons.enumerated() where button.superview == textStack {
+            guard paneRowWidthConstraints.indices.contains(index) else {
+                continue
+            }
+
+            paneRowWidthConstraints[index].isActive = true
         }
         heightConstraint?.constant = layout.rowHeight
 
         applyCurrentAppearance(animated: animated)
+    }
+
+    private func resolvedSummary(for summary: WorklaneSidebarSummary) -> WorklaneSidebarSummary {
+        guard summary.paneRows.count == 1 else {
+            return summary
+        }
+
+        let resolvedPaneRows = summary.paneRows.map(resolvedPaneRow(_:))
+        guard resolvedPaneRows != summary.paneRows else {
+            return summary
+        }
+
+        return WorklaneSidebarSummary(
+            worklaneID: summary.worklaneID,
+            badgeText: summary.badgeText,
+            topLabel: summary.topLabel,
+            primaryText: summary.primaryText,
+            focusedPaneLineIndex: summary.focusedPaneLineIndex,
+            statusText: summary.statusText,
+            statusSymbolName: summary.statusSymbolName,
+            detailLines: summary.detailLines,
+            paneRows: resolvedPaneRows,
+            overflowText: summary.overflowText,
+            attentionState: summary.attentionState,
+            interactionKind: summary.interactionKind,
+            interactionLabel: summary.interactionLabel,
+            interactionSymbolName: summary.interactionSymbolName,
+            isWorking: summary.isWorking,
+            isActive: summary.isActive
+        )
+    }
+
+    private func resolvedPaneRow(_ paneRow: WorklaneSidebarPaneRow) -> WorklaneSidebarPaneRow {
+        guard let trailingText = WorklaneContextFormatter.trimmed(paneRow.trailingText),
+              WorklaneContextFormatter.trimmed(paneRow.detailText) == nil,
+              shouldSpillTrailingText(trailingText) else {
+            return paneRow
+        }
+
+        return WorklaneSidebarPaneRow(
+            paneID: paneRow.paneID,
+            primaryText: paneRow.primaryText,
+            trailingText: nil,
+            detailText: trailingText,
+            statusText: paneRow.statusText,
+            statusSymbolName: paneRow.statusSymbolName,
+            attentionState: paneRow.attentionState,
+            interactionKind: paneRow.interactionKind,
+            interactionLabel: paneRow.interactionLabel,
+            interactionSymbolName: paneRow.interactionSymbolName,
+            isFocused: paneRow.isFocused,
+            isWorking: paneRow.isWorking
+        )
+    }
+
+    private func shouldSpillTrailingText(_ trailingText: String) -> Bool {
+        let availableWidth =
+            bounds.width
+            - (Layout.contentInset * 2)
+            - (ShellMetrics.sidebarPaneButtonHorizontalInset * 2)
+        guard availableWidth > 0 else {
+            return false
+        }
+
+        let maxTrailingWidth =
+            (availableWidth * Layout.trailingSpillThresholdRatio)
+            - Layout.panePrimaryTrailingSpacing
+        guard maxTrailingWidth > 0 else {
+            return true
+        }
+
+        return measuredWidth(
+            for: trailingText,
+            font: ShellMetrics.sidebarDetailFont()
+        ) > maxTrailingWidth
+    }
+
+    private func measuredWidth(for text: String, font: NSFont) -> CGFloat {
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let line = CTLineCreateWithAttributedString(
+            NSAttributedString(string: text, attributes: attributes)
+        )
+        return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
     }
 
     private func configureDetailLabels(for detailLines: [WorklaneSidebarDetailLine]) {
@@ -328,6 +460,9 @@ final class SidebarWorklaneRowButton: NSButton {
         while paneRowButtons.count < paneRows.count {
             let button = SidebarPaneRowButton()
             paneRowButtons.append(button)
+            paneRowWidthConstraints.append(
+                button.widthAnchor.constraint(equalTo: textStack.widthAnchor)
+            )
         }
 
         for (index, paneRow) in paneRows.enumerated() {
@@ -341,7 +476,8 @@ final class SidebarWorklaneRowButton: NSButton {
                     ?? paneRow.interactionLabel
                     ?? paneRow.interactionKind?.defaultLabel
                     ?? "",
-                symbolName: paneRow.interactionSymbolName
+                symbolName: paneRow.statusSymbolName
+                    ?? paneRow.interactionSymbolName
                     ?? paneRow.interactionKind?.defaultSymbolName
             )
 
@@ -863,6 +999,10 @@ final class SidebarWorklaneRowButton: NSButton {
         statusLabel.shimmerIsAnimating
     }
 
+    var shimmerCoordinatorIdentifierForTesting: ObjectIdentifier? {
+        shimmerCoordinator.map(ObjectIdentifier.init)
+    }
+
     var shimmerColorForTesting: NSColor {
         primaryLabel.shimmerColor
     }
@@ -903,6 +1043,10 @@ final class SidebarWorklaneRowButton: NSButton {
             .filter { $0.isEmpty == false }
     }
 
+    var paneRowWidthConstraintCountForTesting: Int {
+        paneRowWidthConstraints.filter(\.isActive).count
+    }
+
     var backgroundColorForTesting: NSColor? {
         layer?.backgroundColor.flatMap(NSColor.init(cgColor:))
     }
@@ -929,7 +1073,7 @@ final class SidebarWorklaneRowButton: NSButton {
 
 @MainActor
 private final class SidebarShimmerTextView: NSView {
-    private enum Animation {
+    fileprivate enum Animation {
         static let velocity: CGFloat = 130      // pts/sec — constant across all widths
         static let bandWidth: CGFloat = 48
         static let frameInterval: TimeInterval = 1.0 / 30.0
@@ -985,7 +1129,7 @@ private final class SidebarShimmerTextView: NSView {
     var isShimmering: Bool = false {
         didSet {
             guard oldValue != isShimmering else { return }
-            updateAnimationState()
+            refreshSharedShimmerParticipation()
             needsDisplay = true
         }
     }
@@ -993,16 +1137,32 @@ private final class SidebarShimmerTextView: NSView {
     var reducedMotion: Bool = false {
         didSet {
             guard oldValue != reducedMotion else { return }
-            updateAnimationState()
+            refreshSharedShimmerParticipation()
             needsDisplay = true
         }
     }
 
-    private var shimmerTimer: Timer?
-    private var shimmerCycleStart: CFTimeInterval = 0
-    private var shimmerPauseDuration: CFTimeInterval = 0
-    private var shimmerProgress: CGFloat = 0
-    private var shimmerInSweep = false
+    var isVisibleForSharedAnimation: Bool = false {
+        didSet {
+            guard oldValue != isVisibleForSharedAnimation else { return }
+            refreshSharedShimmerParticipation()
+        }
+    }
+
+    weak var shimmerCoordinator: SidebarShimmerCoordinator? {
+        didSet {
+            guard oldValue !== shimmerCoordinator else {
+                return
+            }
+
+            oldValue?.unregister(self)
+            shimmerCoordinator?.register(self)
+            refreshSharedShimmerParticipation()
+        }
+    }
+
+    private var sharedShimmerPhase: CGFloat = 0.5
+    private var sharedShimmerInSweep = false
     private var cachedWidth: CGFloat = -1
     private var cachedStringValue = ""
     private var cachedFont: NSFont?
@@ -1022,7 +1182,7 @@ private final class SidebarShimmerTextView: NSView {
     }
 
     var shimmerIsAnimating: Bool {
-        shimmerTimer != nil
+        canAnimateSharedShimmer && sharedShimmerInSweep
     }
 
     private var preferredTextWidth: CGFloat {
@@ -1047,19 +1207,15 @@ private final class SidebarShimmerTextView: NSView {
 
     override func viewWillMove(toSuperview newSuperview: NSView?) {
         super.viewWillMove(toSuperview: newSuperview)
-        guard newSuperview == nil else {
-            return
+        if newSuperview == nil {
+            isVisibleForSharedAnimation = false
         }
-
-        shimmerTimer?.invalidate()
-        shimmerTimer = nil
+        refreshSharedShimmerParticipation()
     }
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
-        if superview != nil && isShimmering && !reducedMotion && shimmerTimer == nil {
-            restartTimer()
-        }
+        refreshSharedShimmerParticipation()
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -1072,7 +1228,7 @@ private final class SidebarShimmerTextView: NSView {
             return
         }
 
-        guard isShimmering, shimmerInSweep else {
+        guard canAnimateSharedShimmer, sharedShimmerInSweep else {
             return
         }
 
@@ -1094,7 +1250,7 @@ private final class SidebarShimmerTextView: NSView {
             originX = Self.textLeadingInset + (availableWidth / 2) - (bandWidth / 2)
         } else {
             let travel = availableWidth + bandWidth
-            originX = Self.textLeadingInset - bandWidth + (travel * shimmerProgress)
+            originX = Self.textLeadingInset - bandWidth + (travel * sharedShimmerPhase)
         }
 
         guard
@@ -1210,7 +1366,7 @@ private final class SidebarShimmerTextView: NSView {
                     continue
                 }
 
-                var transform = CGAffineTransform(
+                let transform = CGAffineTransform(
                     translationX: lineOrigin.x + positions[index].x,
                     y: lineOrigin.y + positions[index].y
                 )
@@ -1221,61 +1377,34 @@ private final class SidebarShimmerTextView: NSView {
         return glyphPath
     }
 
-    private func updateAnimationState() {
-        shimmerTimer?.invalidate()
-        shimmerTimer = nil
-
-        guard isShimmering, reducedMotion == false else {
-            shimmerProgress = 0.5
-            shimmerInSweep = false
-            shimmerCycleStart = 0
-            return
-        }
-
-        shimmerCycleStart = CACurrentMediaTime()
-        shimmerPauseDuration = .random(in: Animation.pauseMin...Animation.pauseMax)
-        shimmerInSweep = true
-        restartTimer()
-    }
-
-    private func restartTimer() {
-        let timer = Timer(timeInterval: Animation.frameInterval, repeats: true) { [weak self] _ in
-            guard let self else {
-                return
-            }
-
-            Task { @MainActor in
-                self.handleShimmerTick()
-            }
-        }
-        shimmerTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
-
-    private func handleShimmerTick() {
-        let now = CACurrentMediaTime()
-        let travelDistance = max(1, bounds.width) + Animation.bandWidth
-        let sweepDuration = CFTimeInterval(travelDistance / Animation.velocity)
-        let cycleDuration = sweepDuration + shimmerPauseDuration
-
-        let elapsed = now - shimmerCycleStart
-
-        if elapsed >= cycleDuration {
-            shimmerCycleStart = now
-            shimmerPauseDuration = .random(in: Animation.pauseMin...Animation.pauseMax)
-            shimmerProgress = 0
-            shimmerInSweep = true
-            needsDisplay = true
-            return
-        }
-
-        if elapsed < sweepDuration {
-            shimmerProgress = CGFloat(elapsed / sweepDuration)
-            shimmerInSweep = true
-        } else {
-            shimmerInSweep = false
-        }
+    func applySharedShimmerState(phase: CGFloat, inSweep: Bool) {
+        sharedShimmerPhase = phase
+        sharedShimmerInSweep = inSweep
         needsDisplay = true
+    }
+
+    func resetSharedShimmerState() {
+        sharedShimmerPhase = 0.5
+        sharedShimmerInSweep = false
+        needsDisplay = true
+    }
+
+    fileprivate var canAnimateSharedShimmer: Bool {
+        isShimmering && isVisibleForSharedAnimation && reducedMotion == false
+    }
+
+    private func refreshSharedShimmerParticipation() {
+        guard let shimmerCoordinator else {
+            resetSharedShimmerState()
+            return
+        }
+
+        shimmerCoordinator.labelStateDidChange()
+        if canAnimateSharedShimmer {
+            needsDisplay = true
+        } else {
+            resetSharedShimmerState()
+        }
     }
 
     private func invalidateLayout() {
@@ -1286,6 +1415,137 @@ private final class SidebarShimmerTextView: NSView {
         cachedLayout = nil
         invalidateIntrinsicContentSize()
         needsDisplay = true
+    }
+}
+
+@MainActor
+final class SidebarShimmerCoordinator {
+    private var labels: NSHashTable<SidebarShimmerTextView> = .weakObjects()
+    private var timer: Timer?
+    private var windowIsRenderable = false
+    private var currentPhase: CGFloat = 0.5
+    private var inSweep = false
+    private var cycleStart: CFTimeInterval = 0
+    private var pauseDuration: CFTimeInterval = 0
+
+    var isRunningForTesting: Bool {
+        timer != nil
+    }
+
+    fileprivate func register(_ label: SidebarShimmerTextView) {
+        labels.add(label)
+        label.applySharedShimmerState(phase: currentPhase, inSweep: inSweep)
+        refreshAnimationState()
+    }
+
+    fileprivate func unregister(_ label: SidebarShimmerTextView) {
+        labels.remove(label)
+        refreshAnimationState()
+    }
+
+    func setWindowIsRenderable(_ isRenderable: Bool) {
+        guard windowIsRenderable != isRenderable else {
+            return
+        }
+
+        windowIsRenderable = isRenderable
+        refreshAnimationState()
+    }
+
+    func labelStateDidChange() {
+        refreshAnimationState()
+    }
+
+    private var activeLabels: [SidebarShimmerTextView] {
+        labels.allObjects.filter { $0.canAnimateSharedShimmer }
+    }
+
+    private func refreshAnimationState() {
+        let labels = activeLabels
+        guard windowIsRenderable, labels.isEmpty == false else {
+            stopTimer()
+            currentPhase = 0.5
+            inSweep = false
+            labelsForDisplay().forEach { $0.resetSharedShimmerState() }
+            return
+        }
+
+        if timer == nil {
+            startTimer()
+        }
+
+        applyCurrentState(to: labels)
+    }
+
+    private func labelsForDisplay() -> [SidebarShimmerTextView] {
+        labels.allObjects
+    }
+
+    private func startTimer() {
+        cycleStart = CACurrentMediaTime()
+        pauseDuration = .random(
+            in: SidebarShimmerTextView.Animation.pauseMin...SidebarShimmerTextView.Animation.pauseMax
+        )
+        inSweep = true
+        currentPhase = 0
+
+        let timer = Timer(
+            timeInterval: SidebarShimmerTextView.Animation.frameInterval,
+            repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.tick()
+            }
+        }
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func tick() {
+        guard windowIsRenderable else {
+            stopTimer()
+            inSweep = false
+            currentPhase = 0.5
+            labelsForDisplay().forEach { $0.resetSharedShimmerState() }
+            return
+        }
+
+        let labels = activeLabels
+        guard labels.isEmpty == false else {
+            stopTimer()
+            inSweep = false
+            currentPhase = 0.5
+            labelsForDisplay().forEach { $0.resetSharedShimmerState() }
+            return
+        }
+
+        let travelDistance = max(1, labels.map(\.bounds.width).max() ?? 1) + SidebarShimmerTextView.Animation.bandWidth
+        let sweepDuration = CFTimeInterval(travelDistance / SidebarShimmerTextView.Animation.velocity)
+        let cycleDuration = sweepDuration + pauseDuration
+        let elapsed = CACurrentMediaTime() - cycleStart
+
+        if elapsed >= cycleDuration {
+            cycleStart = CACurrentMediaTime()
+            pauseDuration = .random(in: SidebarShimmerTextView.Animation.pauseMin...SidebarShimmerTextView.Animation.pauseMax)
+            currentPhase = 0
+            inSweep = true
+        } else if elapsed < sweepDuration {
+            currentPhase = CGFloat(elapsed / sweepDuration)
+            inSweep = true
+        } else {
+            inSweep = false
+        }
+
+        applyCurrentState(to: labels)
+    }
+
+    private func applyCurrentState(to labels: [SidebarShimmerTextView]) {
+        labels.forEach { $0.applySharedShimmerState(phase: currentPhase, inSweep: inSweep) }
     }
 }
 
@@ -1414,6 +1674,14 @@ private final class SidebarPanePrimaryRowView: NSView {
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor
     }
+
+    func setShimmerCoordinator(_ coordinator: SidebarShimmerCoordinator?) {
+        shimmerLabel.shimmerCoordinator = coordinator
+    }
+
+    func setShimmerVisibility(_ isVisible: Bool) {
+        shimmerLabel.isVisibleForSharedAnimation = isVisible
+    }
 }
 
 @MainActor
@@ -1516,6 +1784,14 @@ private final class SidebarPaneTextRowView: NSView {
         shimmerLabel.isShimmering = isShimmering
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor
+    }
+
+    func setShimmerCoordinator(_ coordinator: SidebarShimmerCoordinator?) {
+        shimmerLabel.shimmerCoordinator = coordinator
+    }
+
+    func setShimmerVisibility(_ isVisible: Bool) {
+        shimmerLabel.isVisibleForSharedAnimation = isVisible
     }
 }
 

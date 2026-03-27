@@ -1,9 +1,125 @@
 import AppKit
 import GhosttyKit
 
+struct LibghosttySurfaceScrollbarUpdate: Equatable, Sendable {
+    let total: UInt64
+    let len: UInt64
+}
+
+enum LibghosttySurfaceCoalescedValue<Value> {
+    case absent
+    case present(Value)
+
+    var value: Value? {
+        switch self {
+        case .absent:
+            return nil
+        case .present(let value):
+            return value
+        }
+    }
+}
+
+enum LibghosttySurfaceActionQueueEntry: Equatable {
+    case title
+    case pwd
+    case progressReport
+    case scrollbar
+    case mouseShape
+    case ordered(LibghosttySurfaceActionPayload)
+}
+
+struct LibghosttySurfaceActionDrainBatch {
+    var title: LibghosttySurfaceCoalescedValue<String?> = .absent
+    var pwd: LibghosttySurfaceCoalescedValue<String?> = .absent
+    var progressReport: LibghosttySurfaceCoalescedValue<TerminalProgressReport> = .absent
+    var scrollbar: LibghosttySurfaceCoalescedValue<LibghosttySurfaceScrollbarUpdate> = .absent
+    var mouseShape: LibghosttySurfaceCoalescedValue<ghostty_action_mouse_shape_e> = .absent
+    var sequence: [LibghosttySurfaceActionQueueEntry] = []
+
+    var isEmpty: Bool {
+        sequence.isEmpty
+    }
+}
+
+final class LibghosttySurfaceActionCoalescer {
+    private struct State {
+        var pendingDrain = false
+        var title: LibghosttySurfaceCoalescedValue<String?> = .absent
+        var pwd: LibghosttySurfaceCoalescedValue<String?> = .absent
+        var progressReport: LibghosttySurfaceCoalescedValue<TerminalProgressReport> = .absent
+        var scrollbar: LibghosttySurfaceCoalescedValue<LibghosttySurfaceScrollbarUpdate> = .absent
+        var mouseShape: LibghosttySurfaceCoalescedValue<ghostty_action_mouse_shape_e> = .absent
+        var sequence: [LibghosttySurfaceActionQueueEntry] = []
+
+        mutating func record(_ entry: LibghosttySurfaceActionQueueEntry) {
+            sequence.removeAll { $0 == entry }
+            sequence.append(entry)
+        }
+    }
+
+    private let lock = NSLock()
+    private var state = State()
+
+    func enqueue(_ payload: LibghosttySurfaceActionPayload) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        switch payload {
+        case .setTitle(let title):
+            state.title = .present(title)
+            state.record(.title)
+        case .pwd(let pwd):
+            state.pwd = .present(pwd)
+            state.record(.pwd)
+        case .progressReport(let report):
+            state.progressReport = .present(report)
+            state.record(.progressReport)
+        case .scrollbar(let total, let len):
+            state.scrollbar = .present(LibghosttySurfaceScrollbarUpdate(total: total, len: len))
+            state.record(.scrollbar)
+        case .mouseShape(let shape):
+            state.mouseShape = .present(shape)
+            state.record(.mouseShape)
+        case .commandFinished, .desktopNotification, .openURL:
+            state.sequence.append(.ordered(payload))
+        }
+
+        guard !state.pendingDrain else {
+            return false
+        }
+
+        state.pendingDrain = true
+        return true
+    }
+
+    func drain() -> LibghosttySurfaceActionDrainBatch {
+        lock.lock()
+        defer { lock.unlock() }
+
+        state.pendingDrain = false
+        let batch = LibghosttySurfaceActionDrainBatch(
+            title: state.title,
+            pwd: state.pwd,
+            progressReport: state.progressReport,
+            scrollbar: state.scrollbar,
+            mouseShape: state.mouseShape,
+            sequence: state.sequence
+        )
+        state.title = .absent
+        state.pwd = .absent
+        state.progressReport = .absent
+        state.scrollbar = .absent
+        state.mouseShape = .absent
+        state.sequence.removeAll(keepingCapacity: true)
+        return batch
+    }
+}
+
 @MainActor
 final class LibghosttySurface: LibghosttySurfaceControlling {
     nonisolated(unsafe) var surface: ghostty_surface_t?
+    nonisolated(unsafe) private let actionCoalescer = LibghosttySurfaceActionCoalescer()
     private var metadata = TerminalMetadata()
     private let metadataDidChange: (TerminalMetadata) -> Void
     private let eventDidOccur: (TerminalEvent) -> Void
@@ -256,6 +372,77 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     }
 
     func handle(payload: LibghosttySurfaceActionPayload) {
+        apply(payload: payload)
+    }
+
+    nonisolated func enqueue(payload: LibghosttySurfaceActionPayload) -> Bool {
+        actionCoalescer.enqueue(payload)
+    }
+
+    @MainActor
+    func drainCoalescedActions() {
+        let batch = actionCoalescer.drain()
+        guard batch.isEmpty == false else {
+            return
+        }
+
+        var metadataChanged = false
+
+        func flushMetadataIfNeeded() {
+            guard metadataChanged else {
+                return
+            }
+
+            publishMetadata()
+            metadataChanged = false
+        }
+
+        for entry in batch.sequence {
+            switch entry {
+            case .title:
+                guard let title = batch.title.value else {
+                    continue
+                }
+                if metadata.title != title {
+                    metadata.title = title
+                    metadataChanged = true
+                }
+            case .pwd:
+                guard let pwd = batch.pwd.value else {
+                    continue
+                }
+                if metadata.currentWorkingDirectory != pwd {
+                    metadata.currentWorkingDirectory = pwd
+                    metadataChanged = true
+                }
+            case .progressReport:
+                flushMetadataIfNeeded()
+                guard let progressReport = batch.progressReport.value else {
+                    continue
+                }
+                eventDidOccur(.progressReport(progressReport))
+            case .scrollbar:
+                flushMetadataIfNeeded()
+                guard let scrollbar = batch.scrollbar.value else {
+                    continue
+                }
+                hasScrollback = scrollbar.total > scrollbar.len
+            case .mouseShape:
+                flushMetadataIfNeeded()
+                guard let mouseShape = batch.mouseShape.value else {
+                    continue
+                }
+                hostView?.setMouseCursorShape(mouseShape)
+            case .ordered(let payload):
+                flushMetadataIfNeeded()
+                apply(payload: payload)
+            }
+        }
+
+        flushMetadataIfNeeded()
+    }
+
+    private func apply(payload: LibghosttySurfaceActionPayload) {
         switch payload {
         case .setTitle(let title):
             metadata.title = title

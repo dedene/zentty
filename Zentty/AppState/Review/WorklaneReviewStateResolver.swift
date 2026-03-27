@@ -284,6 +284,22 @@ final class WorklaneReviewStateResolver {
         forceReload: Bool = false,
         update: @escaping (PaneID, WorklaneReviewResolution) -> Void
     ) {
+        refreshPane(
+            repoRoot: repoRoot,
+            branch: branch,
+            paneID: paneID,
+            forceReload: forceReload,
+            update: update
+        )
+    }
+
+    func refreshPane(
+        repoRoot: String,
+        branch: String,
+        paneID: PaneID,
+        forceReload: Bool = false,
+        update: @escaping (PaneID, WorklaneReviewResolution) -> Void
+    ) {
         guard let sanitizedBranch = preferredBranch(from: branch) else {
             return
         }

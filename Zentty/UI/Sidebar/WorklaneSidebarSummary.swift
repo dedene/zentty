@@ -16,6 +16,7 @@ struct WorklaneSidebarPaneRow: Equatable {
     let trailingText: String?
     let detailText: String?
     let statusText: String?
+    let statusSymbolName: String?
     let attentionState: WorklaneAttentionState?
     let interactionKind: PaneInteractionKind?
     let interactionLabel: String?
@@ -29,6 +30,7 @@ struct WorklaneSidebarPaneRow: Equatable {
         trailingText: String?,
         detailText: String?,
         statusText: String?,
+        statusSymbolName: String? = nil,
         attentionState: WorklaneAttentionState?,
         interactionKind: PaneInteractionKind? = nil,
         interactionLabel: String? = nil,
@@ -41,6 +43,7 @@ struct WorklaneSidebarPaneRow: Equatable {
         self.trailingText = trailingText
         self.detailText = detailText
         self.statusText = statusText
+        self.statusSymbolName = statusSymbolName
         self.attentionState = attentionState
         self.interactionKind = interactionKind
         self.interactionLabel = interactionLabel
@@ -57,6 +60,7 @@ struct WorklaneSidebarSummary: Equatable {
     let primaryText: String
     let focusedPaneLineIndex: Int
     let statusText: String?
+    let statusSymbolName: String?
     let detailLines: [WorklaneSidebarDetailLine]
     let paneRows: [WorklaneSidebarPaneRow]
     let overflowText: String?
@@ -86,6 +90,7 @@ struct WorklaneSidebarSummary: Equatable {
         primaryText: String,
         focusedPaneLineIndex: Int = 0,
         statusText: String? = nil,
+        statusSymbolName: String? = nil,
         detailLines: [WorklaneSidebarDetailLine] = [],
         paneRows: [WorklaneSidebarPaneRow] = [],
         overflowText: String? = nil,
@@ -102,6 +107,7 @@ struct WorklaneSidebarSummary: Equatable {
         self.primaryText = primaryText
         self.focusedPaneLineIndex = focusedPaneLineIndex
         self.statusText = statusText
+        self.statusSymbolName = statusSymbolName
         self.detailLines = detailLines
         self.paneRows = paneRows
         self.overflowText = overflowText

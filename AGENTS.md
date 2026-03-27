@@ -19,6 +19,11 @@ Guidelines:
 - Use XCTest expectations instead of `RunLoop.current.run(until:)`.
 - The app host runs inert during tests (no main window, `.prohibited` activation policy) via `XCTestConfigurationFilePath` detection in `main.swift`.
 
+## Design Docs
+
+- Do not add design docs, specs, or plans to git unless Peter explicitly asks.
+- It is fine to create them locally for discussion or planning, but keep them untracked and ignored by default.
+
 ## Error Handling
 
 Two-tier strategy based on execution context:
