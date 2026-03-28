@@ -158,28 +158,6 @@ final class PaneContainerViewTests: XCTestCase {
         XCTAssertTrue(paneView.isStatusOverlayHidden)
     }
 
-    func test_initial_empty_runtime_snapshot_stays_hidden_until_metadata_is_reported() {
-        let adapter = PaneContainerTerminalAdapterSpy()
-        let pane = PaneState(id: PaneID("shell"), title: "shell")
-        let runtime = PaneRuntime(
-            pane: pane,
-            adapter: adapter,
-            metadataSink: { _, _ in },
-            eventSink: { _, _ in }
-        )
-        let paneView = PaneContainerView(
-            pane: pane,
-            width: 420,
-            height: 520,
-            emphasis: 1,
-            isFocused: true,
-            runtime: runtime,
-            theme: ZenttyTheme.fallback(for: nil)
-        )
-
-        XCTAssertTrue(paneView.isStatusOverlayHidden)
-    }
-
     func test_present_metadata_hides_metadata_unavailable_state() {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")

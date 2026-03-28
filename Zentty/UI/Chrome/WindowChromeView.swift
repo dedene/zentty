@@ -12,6 +12,7 @@ final class WindowChromeView: NSView {
     static let preferredHeight: CGFloat = ChromeGeometry.headerHeight
     private static let minimumBootstrapLaneWidth: CGFloat = 160
     private static let minimumRowHeight: CGFloat = 22
+    private static let proxyIconSize = NSSize(width: 14, height: 14)
     private static let openWithControlWidth: CGFloat = 66
     private static let openWithControlHeight: CGFloat = 30
     private static let openWithPrimaryWidth: CGFloat = 40
@@ -39,6 +40,7 @@ final class WindowChromeView: NSView {
 
     private let attentionChipView = WorklaneAttentionChipView()
     private let rowContainerView = NSView()
+    private let focusedProxyIconView = WindowChromeProxyIconView()
     private let openWithContainerView = NSView()
     private let openWithPrimaryBackgroundView = NSView()
     private let openWithMenuBackgroundView = NSView()
@@ -54,11 +56,14 @@ final class WindowChromeView: NSView {
     private let branchLabel = WindowChromeBranchLabel()
     private let pullRequestButton = WindowChromePullRequestButton(title: "", target: nil, action: nil)
     private let urlOpener: (URL) -> Void
+    private let pathRevealer: (URL) -> Void
+    private let computerLocationOpener: (URL) -> Void
 
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var currentSummary = WorklaneChromeSummary(
         attention: nil,
         focusedLabel: nil,
+        cwdPath: nil,
         branch: nil,
         branchURL: nil,
         pullRequest: nil,
@@ -80,15 +85,28 @@ final class WindowChromeView: NSView {
 
     init(
         frame frameRect: NSRect,
-        urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }
+        urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
+        pathRevealer: @escaping (URL) -> Void = { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: $0.path) },
+        computerLocationOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }
     ) {
         self.urlOpener = urlOpener
+        self.pathRevealer = pathRevealer
+        self.computerLocationOpener = computerLocationOpener
         super.init(frame: frameRect)
         setup()
     }
 
-    convenience init(urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }) {
-        self.init(frame: .zero, urlOpener: urlOpener)
+    convenience init(
+        urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
+        pathRevealer: @escaping (URL) -> Void = { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: $0.path) },
+        computerLocationOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }
+    ) {
+        self.init(
+            frame: .zero,
+            urlOpener: urlOpener,
+            pathRevealer: pathRevealer,
+            computerLocationOpener: computerLocationOpener
+        )
     }
 
     @available(*, unavailable)
@@ -107,6 +125,10 @@ final class WindowChromeView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
 
+        focusedProxyIconView.isHidden = true
+        focusedProxyIconView.alphaValue = 0
+        focusedProxyIconView.revealPath = pathRevealer
+        focusedProxyIconView.openComputerLocation = computerLocationOpener
         focusedLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         focusedLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         branchLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
@@ -176,7 +198,7 @@ final class WindowChromeView: NSView {
         openWithContainerView.addSubview(openWithDividerView)
         openWithContainerView.addSubview(openWithPrimaryButton)
         openWithContainerView.addSubview(openWithMenuButton)
-        [attentionChipView, focusedLabel, branchLabel, pullRequestButton].forEach {
+        [attentionChipView, focusedProxyIconView, focusedLabel, branchLabel, pullRequestButton].forEach {
             rowContainerView.addSubview($0)
         }
 
@@ -209,6 +231,7 @@ final class WindowChromeView: NSView {
         let focusedText = summary.focusedLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         focusedLabel.stringValue = focusedText
         focusedLabel.isHidden = focusedText.isEmpty
+        renderFocusedProxyIcon()
 
         let branchText = summary.branch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         branchLabel.stringValue = branchText
@@ -232,6 +255,7 @@ final class WindowChromeView: NSView {
         attentionChipView.apply(theme: theme, animated: animated)
 
         focusedLabel.textColor = theme.secondaryText
+        renderFocusedProxyIcon()
         updateBranchAppearance(animated: animated)
         updatePullRequestAppearance(animated: animated)
         reviewChipViews.forEach { $0.apply(theme: theme, animated: animated) }
@@ -634,6 +658,8 @@ final class WindowChromeView: NSView {
         switch view {
         case let attentionChip as WorklaneAttentionChipView where attentionChip === attentionChipView:
             return .attention
+        case let imageView as WindowChromeProxyIconView where imageView === focusedProxyIconView:
+            return .proxyIcon
         case let label as NSTextField where label === focusedLabel:
             return .focusedLabel
         case let label as WindowChromeBranchLabel where label === branchLabel:
@@ -651,6 +677,8 @@ final class WindowChromeView: NSView {
         kind: WindowChromeRowLayoutPlanner.Kind
     ) -> CGFloat {
         switch kind {
+        case .proxyIcon:
+            return preferredWidth
         case .branch:
             return min(preferredWidth, Self.readableBranchWidth)
         case .pullRequest:
@@ -717,6 +745,8 @@ final class WindowChromeView: NSView {
         and nextKind: WindowChromeRowLayoutPlanner.Kind
     ) -> CGFloat {
         switch (previousKind, nextKind) {
+        case (.proxyIcon, .focusedLabel), (.focusedLabel, .proxyIcon):
+            return 4
         case (.reviewChip, .reviewChip):
             return Self.reviewChipSpacing
         case (.reviewChip, _), (_, .reviewChip):
@@ -757,8 +787,16 @@ final class WindowChromeView: NSView {
     }
 
     private func visibleLeadingViews() -> [NSView] {
-        [attentionChipView, focusedLabel, branchLabel, pullRequestButton]
+        [attentionChipView, focusedProxyIconView, focusedLabel, branchLabel, pullRequestButton]
             .filter { !$0.isHidden }
+    }
+
+    private func renderFocusedProxyIcon() {
+        focusedProxyIconView.render(
+            cwdPath: WorklaneContextFormatter.trimmed(currentSummary.cwdPath),
+            tintColor: currentTheme.secondaryText,
+            size: Self.proxyIconSize
+        )
     }
 
     private func intrinsicWidth(for view: NSView) -> CGFloat {
@@ -826,7 +864,15 @@ final class WindowChromeView: NSView {
     var isAttentionHidden: Bool { attentionChipView.isHidden }
     var attentionText: String { attentionChipView.stateTextForTesting }
     var attentionArtifactText: String { attentionChipView.artifactTextForTesting }
+    var isFocusedProxyIconHidden: Bool { focusedProxyIconView.isHidden }
+    var focusedProxyIconCwdPath: String? { focusedProxyIconView.cwdPath }
+    var focusedProxyIconAlphaValue: CGFloat { focusedProxyIconView.alphaValue }
+    var focusedProxyIconTintTokenForTesting: String { focusedProxyIconView.contentTintColor?.themeToken ?? "" }
+    var isFocusedProxyIconTemplate: Bool { focusedProxyIconView.image?.isTemplate == true }
+    var isFocusedProxyIconUsingPopupMenu: Bool { focusedProxyIconView.usesPopupMenuForTesting }
+    var focusedProxyIconFrame: NSRect { focusedProxyIconView.frame }
     var focusedLabelText: String { focusedLabel.stringValue }
+    var focusedLabelFrame: NSRect { focusedLabel.frame }
     var branchText: String { branchLabel.stringValue }
     var isBranchInteractive: Bool { branchLabel.isInteractive }
     var branchToolTip: String { branchLabel.toolTip ?? "" }
@@ -903,6 +949,523 @@ final class WindowChromeView: NSView {
 
     func performOpenWithMenuClickForTesting() {
         openWithMenuButton.performClick(openWithMenuButton)
+    }
+
+    func focusedProxyIconContextMenuPathsForTesting() -> [String] {
+        focusedProxyIconView.contextMenuPathsForTesting()
+    }
+
+    func focusedProxyIconContextMenuTitlesForTesting() -> [String] {
+        focusedProxyIconView.contextMenuTitlesForTesting()
+    }
+
+    func focusedLabelContextMenuPathsForTesting() -> [String] {
+        guard let event = Self.contextMenuEventForTesting() else {
+            return []
+        }
+
+        return focusedLabel.menu(for: event)?.items.compactMap { ($0.representedObject as? URL)?.path } ?? []
+    }
+
+    func performFocusedProxyIconMenuSelectionForTesting(path: String) {
+        focusedProxyIconView.performMenuSelectionForTesting(path: path)
+    }
+
+    func performFocusedProxyIconComputerMenuSelectionForTesting() {
+        focusedProxyIconView.performComputerMenuSelectionForTesting()
+    }
+
+    func performFocusedProxyIconDoubleClickForTesting() {
+        focusedProxyIconView.performDoubleClickForTesting()
+    }
+
+    func focusedProxyIconDragFileURLForTesting() -> URL? {
+        focusedProxyIconView.dragFileURLForTesting()
+    }
+
+    func focusedProxyIconDragPasteboardWriterTypeForTesting() -> String {
+        focusedProxyIconView.dragPasteboardWriterTypeForTesting()
+    }
+
+    func focusedProxyIconCapturesHitPointForTesting(_ localPoint: NSPoint) -> Bool {
+        guard let superview = focusedProxyIconView.superview else { return false }
+        let superviewPoint = focusedProxyIconView.convert(localPoint, to: superview)
+        return focusedProxyIconView.hitTest(superviewPoint) === focusedProxyIconView
+    }
+
+    func focusedProxyIconLeadingPaddingPointInWindowForTesting() -> NSPoint? {
+        guard focusedProxyIconView.isHidden == false, focusedProxyIconView.alphaValue > 0 else {
+            return nil
+        }
+
+        let point = NSPoint(x: 2, y: floor(focusedProxyIconView.bounds.height / 2))
+        return focusedProxyIconView.convert(point, to: nil)
+    }
+
+    func containsFocusedProxyIconPointInWindow(_ point: NSPoint) -> Bool {
+        guard focusedProxyIconView.isHidden == false, focusedProxyIconView.alphaValue > 0 else {
+            return false
+        }
+
+        let localPoint = focusedProxyIconView.convert(point, from: nil)
+        return focusedProxyIconView.bounds.contains(localPoint)
+    }
+
+    func deliverFocusedProxyMouseDown(with event: NSEvent) {
+        focusedProxyIconView.mouseDown(with: event)
+    }
+
+    func focusedProxyIconCapturesWindowHitPointForTesting(_ windowPoint: NSPoint) -> Bool {
+        guard focusedProxyIconView.isHidden == false, focusedProxyIconView.alphaValue > 0 else {
+            return false
+        }
+        guard let superview = focusedProxyIconView.superview else { return false }
+        let superviewPoint = superview.convert(windowPoint, from: nil)
+        return focusedProxyIconView.hitTest(superviewPoint) === focusedProxyIconView
+    }
+
+    var isFocusedProxyIconWindowDragSuppressedForTesting: Bool {
+        focusedProxyIconView.isWindowDragSuppressedForTesting
+    }
+
+    func seedFocusedProxyIconWindowDragSuppressionForTesting(window: NSWindow) {
+        focusedProxyIconView.seedWindowDragSuppressionForTesting(window: window)
+    }
+
+    func setFocusedProxyIconDragSessionActiveForTesting(_ active: Bool) {
+        focusedProxyIconView.setDragSessionActiveForTesting(active)
+    }
+
+    private static func contextMenuEventForTesting() -> NSEvent? {
+        NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 0
+        )
+    }
+}
+
+private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
+    private static let accessibilityDescription = "Focused working directory"
+    private static let menuIconSize = NSSize(width: 16, height: 16)
+    private static let minimumHitTargetSize = NSSize(width: 30, height: 22)
+    fileprivate static let rootVolumeFallbackTitle = "Macintosh HD"
+
+    private let iconView = WindowChromePassiveImageView()
+    private(set) var cwdPath: String?
+    private var currentDirectoryURL: URL?
+    private var iconSize: NSSize = .zero
+    private(set) var contentTintColor: NSColor?
+    private var suppressedWindow: NSWindow?
+    private var previousWindowMovableState: Bool?
+    private var isDragSessionActive = false
+    private var didArmWindowDragSuppression = false
+    private var lastHandledMouseDownTimestamp: TimeInterval = -1
+    var revealPath: (URL) -> Void = { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: $0.path) }
+    var openComputerLocation: (URL) -> Void = { NSWorkspace.shared.open($0) }
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard
+            isHidden == false,
+            alphaValue > 0,
+            currentDirectoryURL != nil,
+            frame.contains(point)
+        else {
+            return nil
+        }
+
+        maybeDisableWindowDraggingEarly()
+        return self
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let baseSize = iconSize == .zero ? NSSize(width: 14, height: 14) : iconSize
+        return NSSize(
+            width: max(baseSize.width, Self.minimumHitTargetSize.width),
+            height: max(baseSize.height, Self.minimumHitTargetSize.height)
+        )
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        guard currentDirectoryURL != nil else { return }
+        let expanded = bounds.insetBy(dx: -8, dy: -8)
+        let area = NSTrackingArea(
+            rect: expanded,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow],
+            owner: self
+        )
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard currentDirectoryURL != nil, let window, window.isMovable else { return }
+        previousWindowMovableState = window.isMovable
+        suppressedWindow = window
+        window.isMovable = false
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard !isDragSessionActive else { return }
+        restoreWindowDraggingIfNeeded()
+    }
+
+    override func layout() {
+        super.layout()
+
+        let iconOrigin = NSPoint(
+            x: max(0, floor(bounds.width - iconSize.width)),
+            y: floor((bounds.height - iconSize.height) / 2)
+        )
+        iconView.frame = NSRect(origin: iconOrigin, size: iconSize)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.timestamp != lastHandledMouseDownTimestamp else { return }
+        lastHandledMouseDownTimestamp = event.timestamp
+
+        guard let currentDirectoryURL else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        if event.clickCount == 2 {
+            revealCurrentDirectoryInFinder()
+            return
+        }
+
+        suppressWindowDraggingIfNeeded()
+        beginDragSession(with: currentDirectoryURL, event: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        guard isDragSessionActive == false else {
+            return
+        }
+
+        restoreWindowDraggingIfNeeded()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard currentDirectoryURL != nil else {
+            super.rightMouseDown(with: event)
+            return
+        }
+
+        presentPathMenu(with: event)
+    }
+
+    func render(cwdPath: String?, tintColor: NSColor, size: NSSize) {
+        iconSize = size
+        invalidateIntrinsicContentSize()
+        self.cwdPath = cwdPath
+        contentTintColor = nil
+        needsLayout = true
+
+        guard let trimmedPath = WorklaneContextFormatter.trimmed(cwdPath) else {
+            iconView.image = nil
+            currentDirectoryURL = nil
+            isHidden = true
+            alphaValue = 0
+            if isDragSessionActive == false {
+                restoreWindowDraggingIfNeeded()
+            }
+            return
+        }
+
+        let image = NSWorkspace.shared.icon(forFile: trimmedPath)
+        image.size = size
+
+        iconView.image = image
+        iconView.contentTintColor = nil
+        currentDirectoryURL = URL(fileURLWithPath: trimmedPath, isDirectory: true)
+        isHidden = false
+        alphaValue = 1
+    }
+
+    var image: NSImage? { iconView.image }
+
+    func contextMenuPathsForTesting() -> [String] {
+        pathMenuItems().map(\.url.path)
+    }
+
+    func contextMenuTitlesForTesting() -> [String] {
+        pathMenuItems().map(\.title) + [Self.computerName]
+    }
+
+    func performMenuSelectionForTesting(path: String) {
+        revealPath(URL(fileURLWithPath: path, isDirectory: true))
+    }
+
+    func performComputerMenuSelectionForTesting() {
+        handleComputerMenuSelection(NSMenuItem())
+    }
+
+    func performDoubleClickForTesting() {
+        revealCurrentDirectoryInFinder()
+    }
+
+    func dragFileURLForTesting() -> URL? {
+        currentDirectoryURL
+    }
+
+    func dragPasteboardWriterTypeForTesting() -> String {
+        currentDirectoryURL == nil ? "" : String(describing: NSURL.self)
+    }
+
+    var usesPopupMenuForTesting: Bool { true }
+
+    private func setup() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        iconView.imageScaling = .scaleProportionallyDown
+        addSubview(iconView)
+        setAccessibilityLabel(Self.accessibilityDescription)
+    }
+
+    private func presentPathMenu(with event: NSEvent) {
+        guard let menu = makePathMenu() else {
+            return
+        }
+
+        let menuLocation = NSPoint(x: 0, y: bounds.height)
+        menu.popUp(positioning: nil, at: menuLocation, in: self)
+    }
+
+    private func makePathMenu() -> NSMenu? {
+        let items = pathMenuItems()
+        guard items.isEmpty == false else {
+            return nil
+        }
+
+        let menu = NSMenu(title: "")
+        for item in items {
+            let menuItem = NSMenuItem(title: item.title, action: #selector(handlePathMenuSelection(_:)), keyEquivalent: "")
+            menuItem.target = self
+            menuItem.representedObject = item.url
+            menuItem.image = Self.menuIcon(for: item.url)
+            menu.addItem(menuItem)
+        }
+
+        let computerItem = NSMenuItem(title: Self.computerName, action: #selector(handleComputerMenuSelection(_:)), keyEquivalent: "")
+        computerItem.target = self
+        computerItem.image = Self.computerIcon()
+        menu.addItem(computerItem)
+        return menu
+    }
+
+    @objc
+    private func handlePathMenuSelection(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else {
+            return
+        }
+
+        revealPath(url)
+    }
+
+    @objc
+    private func handleComputerMenuSelection(_: NSMenuItem) {
+        openComputerLocation(URL(fileURLWithPath: "/", isDirectory: true))
+    }
+
+    private func pathMenuItems() -> [WindowChromeProxyIconPathMenuItem] {
+        WindowChromeProxyIconPathHierarchy.items(for: cwdPath)
+    }
+
+    private func beginDragSession(with currentDirectoryURL: URL, event: NSEvent) {
+        let draggingItem = NSDraggingItem(pasteboardWriter: currentDirectoryURL as NSURL)
+        let dragImage = NSWorkspace.shared.icon(forFile: currentDirectoryURL.path)
+        dragImage.size = iconSize
+        draggingItem.setDraggingFrame(iconView.frame, contents: dragImage)
+        beginDraggingSession(with: [draggingItem], event: event, source: self)
+    }
+
+    private func suppressWindowDraggingIfNeeded() {
+        guard suppressedWindow == nil, let window else {
+            return
+        }
+        guard (window as? ProxyWindowDragSuppressionControlling)?.isProxyWindowDragSuppressionActive != true else {
+            return
+        }
+
+        suppressedWindow = window
+        previousWindowMovableState = window.isMovable
+        if window.isMovable {
+            window.isMovable = false
+        }
+    }
+
+    private func maybeDisableWindowDraggingEarly() {
+        guard !didArmWindowDragSuppression else {
+            return
+        }
+        guard let eventType = NSApp.currentEvent?.type,
+              eventType == .leftMouseDown || eventType == .leftMouseDragged else {
+            return
+        }
+
+        didArmWindowDragSuppression = true
+        suppressWindowDraggingIfNeeded()
+    }
+
+    func armWindowDragSuppressionIfNeeded() {
+        maybeDisableWindowDraggingEarly()
+    }
+
+    private func restoreWindowDraggingIfNeeded() {
+        guard let suppressedWindow else {
+            didArmWindowDragSuppression = false
+            return
+        }
+
+        if let previousWindowMovableState, suppressedWindow.isMovable != previousWindowMovableState {
+            suppressedWindow.isMovable = previousWindowMovableState
+        }
+
+        self.suppressedWindow = nil
+        previousWindowMovableState = nil
+        didArmWindowDragSuppression = false
+    }
+
+    func restoreWindowDragSuppressionIfNeeded() {
+        restoreWindowDraggingIfNeeded()
+    }
+
+    private static func menuIcon(for url: URL) -> NSImage {
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        icon.size = menuIconSize
+        return icon
+    }
+
+    private func revealCurrentDirectoryInFinder() {
+        guard let currentDirectoryURL else {
+            return
+        }
+
+        revealPath(currentDirectoryURL)
+    }
+
+    private static var computerName: String {
+        Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+    }
+
+    private static func computerIcon() -> NSImage {
+        let icon = NSImage(named: NSImage.computerName) ?? NSImage()
+        icon.size = menuIconSize
+        return icon
+    }
+
+    func draggingSession(
+        _: NSDraggingSession,
+        willBeginAt _: NSPoint
+    ) {
+        isDragSessionActive = true
+    }
+
+    func draggingSession(
+        _: NSDraggingSession,
+        sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
+        context == .outsideApplication ? [.copy, .link] : .copy
+    }
+
+    func draggingSession(
+        _: NSDraggingSession,
+        endedAt _: NSPoint,
+        operation _: NSDragOperation
+    ) {
+        isDragSessionActive = false
+        restoreWindowDraggingIfNeeded()
+        (window as? ProxyWindowDragSuppressionControlling)?.restoreProxySuppression()
+    }
+
+    func ignoreModifierKeys(for _: NSDraggingSession) -> Bool {
+        true
+    }
+
+    var isWindowDragSuppressedForTesting: Bool { suppressedWindow != nil }
+
+    func seedWindowDragSuppressionForTesting(window: NSWindow) {
+        suppressedWindow = window
+        previousWindowMovableState = true
+        if window.isMovable {
+            window.isMovable = false
+        }
+    }
+
+    func setDragSessionActiveForTesting(_ active: Bool) {
+        isDragSessionActive = active
+    }
+
+    func armWindowDragSuppressionForTesting(window: NSWindow) {
+        didArmWindowDragSuppression = true
+        seedWindowDragSuppressionForTesting(window: window)
+    }
+}
+
+private final class WindowChromePassiveImageView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+private struct WindowChromeProxyIconPathMenuItem: Equatable {
+    let url: URL
+
+    var title: String {
+        guard url.path == "/" else {
+            return FileManager.default.displayName(atPath: url.path)
+        }
+
+        if let volumeName = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName {
+            return volumeName
+        }
+        return WindowChromeProxyIconView.rootVolumeFallbackTitle
+    }
+}
+
+private enum WindowChromeProxyIconPathHierarchy {
+    static func items(for cwdPath: String?) -> [WindowChromeProxyIconPathMenuItem] {
+        guard let trimmedPath = WorklaneContextFormatter.trimmed(cwdPath), !trimmedPath.isEmpty else {
+            return []
+        }
+
+        var currentURL = URL(fileURLWithPath: trimmedPath, isDirectory: true).standardizedFileURL
+        var urls: [URL] = []
+
+        while true {
+            urls.append(currentURL)
+            guard currentURL.path != "/" else {
+                break
+            }
+            currentURL = currentURL.deletingLastPathComponent()
+        }
+
+        return urls.map(WindowChromeProxyIconPathMenuItem.init(url:))
     }
 }
 

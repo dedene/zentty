@@ -425,6 +425,31 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary.branch, "main")
     }
 
+    func test_summary_preserves_raw_cwd_when_visible_label_uses_meaningful_session_title() {
+        let paneID = PaneID("pane-shell")
+        let worklane = makeWorklane(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "General coding assistance session",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42)
+            )
+        )
+
+        let summary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
+
+        XCTAssertEqual(summary.focusedLabel, "General coding assistance session")
+        XCTAssertEqual(summary.cwdPath, "/tmp/project")
+    }
+
     func test_summary_splits_branch_out_of_terminal_title_when_present() {
         let paneID = PaneID("pane-shell")
         let branch = "feature/scaleway-transactional-mails"

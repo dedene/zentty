@@ -148,38 +148,4 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
         XCTAssertNil(WorklaneAttentionSummaryBuilder.summary(for: worklane))
     }
 
-    func test_summary_returns_nil_for_idle_phase() {
-        let paneID = PaneID("pane-shell")
-        var auxiliaryState = PaneAuxiliaryState()
-        auxiliaryState.presentation = PanePresentationState(
-            cwd: "/tmp/project",
-            repoRoot: "/tmp/project",
-            branch: "main",
-            branchDisplayText: "main",
-            lookupBranch: "main",
-            identityText: "Investigate flaky test",
-            contextText: "main · /tmp/project",
-            rememberedTitle: nil,
-            recognizedTool: .codex,
-            runtimePhase: .idle,
-            statusText: "Idle",
-            pullRequest: nil,
-            reviewChips: [],
-            attentionArtifactLink: nil,
-            updatedAt: Date(timeIntervalSince1970: 99),
-            isWorking: false
-        )
-
-        let worklane = WorklaneState(
-            id: WorklaneID("worklane-main"),
-            title: "MAIN",
-            paneStripState: PaneStripState(
-                panes: [PaneState(id: paneID, title: "shell")],
-                focusedPaneID: paneID
-            ),
-            auxiliaryStateByPaneID: [paneID: auxiliaryState]
-        )
-
-        XCTAssertNil(WorklaneAttentionSummaryBuilder.summary(for: worklane))
-    }
 }

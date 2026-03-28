@@ -49,6 +49,279 @@ final class WindowChromeViewTests: XCTestCase {
         XCTAssertEqual(view.reviewChipTexts, [])
     }
 
+    func test_window_chrome_shows_proxy_icon_for_underlying_cwd_when_visible_label_is_non_path_title() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "General coding assistance session",
+            cwdPath: "/tmp/project",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(view.isFocusedProxyIconHidden)
+        XCTAssertTrue(view.isFocusedProxyIconUsingPopupMenu)
+        XCTAssertEqual(view.focusedProxyIconCwdPath, "/tmp/project")
+        XCTAssertGreaterThanOrEqual(view.focusedProxyIconFrame.width, 30)
+        XCTAssertGreaterThanOrEqual(view.focusedProxyIconFrame.height, 22)
+        XCTAssertLessThanOrEqual(view.focusedProxyIconFrame.maxX, view.focusedLabelFrame.minX)
+        XCTAssertTrue(
+            view.focusedProxyIconCapturesHitPointForTesting(
+                NSPoint(x: 2, y: floor(view.focusedProxyIconFrame.height / 2))
+            )
+        )
+    }
+
+    func test_window_chrome_hides_proxy_icon_when_summary_has_no_cwd() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "General coding assistance session",
+            cwdPath: nil,
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(view.isFocusedProxyIconHidden)
+        XCTAssertEqual(view.focusedProxyIconAlphaValue, 0, accuracy: 0.01)
+    }
+
+    func test_window_chrome_uses_standard_folder_icon_for_proxy_image() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "General coding assistance session",
+            cwdPath: "/tmp/project",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+
+        XCTAssertFalse(view.isFocusedProxyIconTemplate)
+    }
+
+    func test_proxy_icon_context_menu_contains_current_directory_and_all_parents_to_root() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Session",
+            cwdPath: "/tmp/project/subdir",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            view.focusedProxyIconContextMenuPathsForTesting(),
+            ["/tmp/project/subdir", "/tmp/project", "/tmp", "/"]
+        )
+        XCTAssertEqual(view.focusedProxyIconContextMenuTitlesForTesting().first, "subdir")
+        let lastTitle = view.focusedProxyIconContextMenuTitlesForTesting().last
+        XCTAssertNotNil(lastTitle)
+        XCTAssertFalse(lastTitle?.isEmpty ?? true, "last context menu item should be the machine name")
+        let rootTitle = (try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName)
+            ?? "Macintosh HD"
+        XCTAssertEqual(
+            view.focusedProxyIconContextMenuTitlesForTesting().dropLast().last,
+            rootTitle
+        )
+    }
+
+    func test_proxy_icon_context_menu_is_not_exposed_from_focused_label() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "General coding assistance session",
+            cwdPath: "/tmp/project",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.focusedProxyIconContextMenuPathsForTesting(), ["/tmp/project", "/tmp", "/"])
+        XCTAssertTrue(view.focusedLabelContextMenuPathsForTesting().isEmpty)
+    }
+
+    func test_path_menu_preserves_exact_special_character_paths() {
+        var openedURLs: [URL] = []
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight),
+            pathRevealer: { openedURLs.append($0) }
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Session",
+            cwdPath: "/tmp/naïve folder/子目录",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            view.focusedProxyIconContextMenuPathsForTesting(),
+            ["/tmp/naïve folder/子目录", "/tmp/naïve folder", "/tmp", "/"]
+        )
+
+        view.performFocusedProxyIconMenuSelectionForTesting(path: "/tmp/naïve folder/子目录")
+
+        XCTAssertEqual(openedURLs.map(\.path), ["/tmp/naïve folder/子目录"])
+    }
+
+    func test_proxy_icon_double_click_reveals_current_directory() {
+        var revealedURLs: [URL] = []
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight),
+            pathRevealer: { revealedURLs.append($0) }
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Session",
+            cwdPath: "/tmp/project",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        view.performFocusedProxyIconDoubleClickForTesting()
+
+        XCTAssertEqual(revealedURLs.map(\.path), ["/tmp/project"])
+    }
+
+    func test_proxy_icon_computer_menu_selection_opens_root_location() {
+        var openedComputerURLs: [URL] = []
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight),
+            computerLocationOpener: { openedComputerURLs.append($0) }
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Session",
+            cwdPath: "/tmp/project",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        view.performFocusedProxyIconComputerMenuSelectionForTesting()
+
+        XCTAssertEqual(openedComputerURLs.map(\.path), ["/"])
+    }
+
+    func test_proxy_icon_drag_uses_file_url_for_current_cwd() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Session",
+            cwdPath: "/tmp/project",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.focusedProxyIconDragFileURLForTesting()?.path, "/tmp/project")
+        XCTAssertEqual(view.focusedProxyIconDragFileURLForTesting()?.isFileURL, true)
+        XCTAssertEqual(view.focusedProxyIconDragPasteboardWriterTypeForTesting(), "NSURL")
+    }
+
+    func test_proxy_icon_drag_preserves_paths_with_spaces_or_non_ascii_characters() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Session",
+            cwdPath: "/tmp/naïve folder/子目录",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.focusedProxyIconDragFileURLForTesting()?.path, "/tmp/naïve folder/子目录")
+    }
+
+    func test_proxy_icon_hiding_during_active_drag_keeps_window_drag_suppressed_until_drag_ends() {
+        let suppressionWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 120),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        suppressionWindow.isReleasedWhenClosed = false
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+        addTeardownBlock { suppressionWindow.close() }
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Session",
+            cwdPath: "/tmp/project",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.seedFocusedProxyIconWindowDragSuppressionForTesting(window: suppressionWindow)
+        view.setFocusedProxyIconDragSessionActiveForTesting(true)
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Session",
+            cwdPath: nil,
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+
+        XCTAssertTrue(view.isFocusedProxyIconWindowDragSuppressedForTesting)
+        XCTAssertFalse(suppressionWindow.isMovable)
+
+        view.setFocusedProxyIconDragSessionActiveForTesting(false)
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Session",
+            cwdPath: nil,
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+
+        XCTAssertFalse(view.isFocusedProxyIconWindowDragSuppressedForTesting)
+        XCTAssertTrue(suppressionWindow.isMovable)
+    }
+
     func test_window_chrome_renders_non_git_summary_with_only_focused_label() {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)

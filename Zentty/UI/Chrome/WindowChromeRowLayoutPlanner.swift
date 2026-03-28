@@ -3,6 +3,7 @@ import CoreGraphics
 enum WindowChromeRowLayoutPlanner {
     enum Kind {
         case attention
+        case proxyIcon
         case focusedLabel
         case branch
         case pullRequest
@@ -36,6 +37,7 @@ enum WindowChromeRowLayoutPlanner {
         .reviewChip,
         .attention,
         .focusedLabel,
+        .proxyIcon,
         .branch,
         .pullRequest,
     ]
@@ -78,7 +80,7 @@ enum WindowChromeRowLayoutPlanner {
                 &plannedItems,
                 availableWidth: availableWidth,
                 floorResolver: { $0.minimumWidth },
-                compressionOrder: [.attention, .focusedLabel, .pullRequest, .branch]
+                compressionOrder: [.attention, .focusedLabel, .proxyIcon, .pullRequest, .branch]
             )
         }
 
@@ -174,6 +176,8 @@ enum WindowChromeRowLayoutPlanner {
 
     private static func spacing(between previousKind: Kind, and nextKind: Kind) -> CGFloat {
         switch (previousKind, nextKind) {
+        case (.proxyIcon, .focusedLabel), (.focusedLabel, .proxyIcon):
+            return 4
         case (.reviewChip, .reviewChip):
             return 8
         case (.reviewChip, _), (_, .reviewChip):

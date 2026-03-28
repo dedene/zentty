@@ -132,18 +132,21 @@ final class WorklaneRenderCoordinator {
             onNeedsSidebarSync?()
 
             guard let worklane = worklaneStore.activeWorklane else {
-                views.windowChromeView.render(summary: WorklaneChromeSummary(
+                renderWindowChrome(
+                    WorklaneChromeSummary(
                     attention: nil,
                     focusedLabel: nil,
                     branch: nil,
                     pullRequest: nil,
                     reviewChips: []
-                ))
+                    ),
+                    in: views
+                )
                 return
             }
 
             let headerSummary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
-            views.windowChromeView.render(summary: headerSummary)
+            renderWindowChrome(headerSummary, in: views)
             renderCanvasForCurrentWorklane(animated: animated)
             let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
             attentionNotificationCoordinator.update(
@@ -341,17 +344,24 @@ final class WorklaneRenderCoordinator {
         }
 
         guard let worklane = worklaneStore.activeWorklane else {
-            views.windowChromeView.render(summary: WorklaneChromeSummary(
+            renderWindowChrome(
+                WorklaneChromeSummary(
                 attention: nil,
                 focusedLabel: nil,
                 branch: nil,
                 pullRequest: nil,
                 reviewChips: []
-            ))
+                ),
+                in: views
+            )
             return
         }
 
-        views.windowChromeView.render(summary: WorklaneHeaderSummaryBuilder.summary(for: worklane))
+        renderWindowChrome(WorklaneHeaderSummaryBuilder.summary(for: worklane), in: views)
+    }
+
+    private func renderWindowChrome(_ summary: WorklaneChromeSummary, in views: ViewBindings) {
+        views.windowChromeView.render(summary: summary)
     }
 
     private func bootstrapReviewRefresh(force: Bool) {

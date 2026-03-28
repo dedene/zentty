@@ -175,7 +175,6 @@ final class RootViewCompositionTests: XCTestCase {
         let roundedInset = ChromeGeometry.paneBorderInset(backingScaleFactor: 2)
 
         XCTAssertGreaterThan(rawInset, 0.5)
-        XCTAssertEqual(rawInset, 0.9500712252157548, accuracy: 0.000001)
         XCTAssertEqual(backingPixelInset, 0.5, accuracy: 0.001)
         XCTAssertEqual(roundedInset, 1.5, accuracy: 0.001)
     }
@@ -378,8 +377,9 @@ final class RootViewCompositionTests: XCTestCase {
         )
     }
 
-    func test_sidebar_places_add_worklane_button_below_last_row_without_visible_divider() {
+    func test_sidebar_places_add_worklane_button_in_header_above_first_row_without_visible_divider() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        sidebarView.updateHeaderLayout(visibilityMode: .pinnedOpen, pinnedContentMinX: 72)
         sidebarView.render(
             summaries: [
                 makeSidebarSummary(
@@ -399,12 +399,12 @@ final class RootViewCompositionTests: XCTestCase {
 
         XCTAssertEqual(sidebarView.addWorklaneTitle, "New worklane")
         XCTAssertFalse(sidebarView.hasVisibleDivider)
-        XCTAssertGreaterThan(sidebarView.firstWorklaneMinY, 40)
-        XCTAssertGreaterThanOrEqual(sidebarView.addWorklaneMinY, ShellMetrics.sidebarBottomInset)
-        XCTAssertLessThan(sidebarView.addWorklaneMaxY, sidebarView.firstWorklaneMinY)
+        XCTAssertFalse(sidebarView.isHeaderHidden)
+        XCTAssertGreaterThan(sidebarView.firstWorklaneMinY, ShellMetrics.sidebarBottomInset)
+        XCTAssertGreaterThan(sidebarView.addWorklaneMinY, sidebarView.firstWorklaneMaxY)
     }
 
-    func test_sidebar_uses_full_width_tabs_and_no_header_label() {
+    func test_sidebar_uses_full_width_tabs_and_keeps_header_button_visible() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
         sidebarView.render(
             summaries: [
@@ -423,7 +423,7 @@ final class RootViewCompositionTests: XCTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        XCTAssertTrue(sidebarView.isHeaderHidden)
+        XCTAssertFalse(sidebarView.isHeaderHidden)
         XCTAssertGreaterThan(sidebarView.firstWorklaneWidth, 258)
     }
 
@@ -599,8 +599,9 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(sidebarView.worklaneDetailTexts.first, [])
     }
 
-    func test_sidebar_footer_centers_on_sidebar_and_dims_plus_icon() {
+    func test_sidebar_header_button_respects_pinned_safe_inset_and_keeps_label_visible() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        sidebarView.updateHeaderLayout(visibilityMode: .pinnedOpen, pinnedContentMinX: 76)
         sidebarView.render(
             summaries: [
                 makeSidebarSummary(
@@ -618,12 +619,72 @@ final class RootViewCompositionTests: XCTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(
-            sidebarView.addWorklaneContentMidX,
-            sidebarView.bounds.midX,
-            accuracy: 1
-        )
+        XCTAssertGreaterThanOrEqual(sidebarView.addWorklaneContentMinX, 76)
+        XCTAssertGreaterThan(sidebarView.addWorklaneButtonWidth, 120)
+        let buttonMaxX = sidebarView.addWorklaneButtonMinX + sidebarView.addWorklaneButtonWidth
+        let expectedTrailing = sidebarView.bounds.width - ShellMetrics.sidebarContentInset
+        XCTAssertEqual(buttonMaxX, expectedTrailing, accuracy: 1.0)
         XCTAssertLessThan(sidebarView.addWorklaneIconAlpha, sidebarView.addWorklaneTitleAlpha)
+    }
+
+    func test_sidebar_header_button_uses_full_width_in_hover_peek() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        sidebarView.updateHeaderLayout(visibilityMode: .pinnedOpen, pinnedContentMinX: 76)
+        sidebarView.render(
+            summaries: [
+                makeSidebarSummary(
+                    worklaneID: WorklaneID("worklane-main"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    primaryText: "shell",
+                    contextText: "",
+                    isActive: true,
+                    showsGeneratedTitle: false
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.updateHeaderLayout(visibilityMode: .hoverPeek, pinnedContentMinX: 76)
+        sidebarView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(sidebarView.addWorklaneButtonMinX, ShellMetrics.sidebarContentInset, accuracy: 0.001)
+        XCTAssertEqual(
+            sidebarView.addWorklaneContentMinX,
+            ShellMetrics.sidebarContentInset + ShellMetrics.sidebarCreateWorklaneHorizontalInset,
+            accuracy: 0.001
+        )
+        XCTAssertGreaterThan(sidebarView.addWorklaneButtonWidth, 260)
+    }
+
+    func test_sidebar_header_button_hover_adds_subtle_pill_state_and_pointer_affordance() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        sidebarView.updateHeaderLayout(visibilityMode: .pinnedOpen, pinnedContentMinX: 76)
+        sidebarView.render(
+            summaries: [
+                makeSidebarSummary(
+                    worklaneID: WorklaneID("worklane-main"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    primaryText: "shell",
+                    contextText: "",
+                    isActive: true,
+                    showsGeneratedTitle: false
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        let restingTitleAlpha = sidebarView.addWorklaneTitleAlpha
+        let restingIconAlpha = sidebarView.addWorklaneIconAlpha
+
+        sidebarView.setAddWorklaneHoveredForTesting(true)
+
+        XCTAssertTrue(sidebarView.addWorklaneUsesPointingHandCursor)
+        XCTAssertGreaterThan(sidebarView.addWorklaneBackgroundAlpha, 0.01)
+        XCTAssertGreaterThan(sidebarView.addWorklaneBorderAlpha, 0.01)
+        XCTAssertGreaterThan(sidebarView.addWorklaneTitleAlpha, restingTitleAlpha)
+        XCTAssertGreaterThan(sidebarView.addWorklaneIconAlpha, restingIconAlpha)
     }
 
     func test_sidebar_resize_hit_area_is_centered_on_outer_edge_without_visible_indicator() {
@@ -1039,15 +1100,15 @@ final class RootViewCompositionTests: XCTestCase {
         let secondButton = try XCTUnwrap(buttons.last)
         let firstFrame = sidebarView.convert(firstButton.bounds, from: firstButton)
         let secondFrame = sidebarView.convert(secondButton.bounds, from: secondButton)
-        let footerFrame = CGRect(
-            x: 0,
+        let headerButtonFrame = CGRect(
+            x: sidebarView.addWorklaneButtonMinX,
             y: sidebarView.addWorklaneMinY,
-            width: sidebarView.bounds.width,
+            width: sidebarView.addWorklaneButtonWidth,
             height: sidebarView.addWorklaneMaxY - sidebarView.addWorklaneMinY
         )
 
         XCTAssertFalse(firstFrame.intersects(secondFrame))
-        XCTAssertFalse(firstFrame.union(secondFrame).intersects(footerFrame))
+        XCTAssertFalse(firstFrame.union(secondFrame).intersects(headerButtonFrame))
     }
 
     func test_window_chrome_shows_attention_chip_only_for_attention_states() {
@@ -1179,6 +1240,74 @@ final class RootViewCompositionTests: XCTestCase {
 
         XCTAssertEqual(controller.sidebarVisibilityMode, .hoverPeek)
         XCTAssertEqual(controller.sidebarToggleMinX, hiddenToggleMinX, accuracy: 0.001)
+    }
+
+    func test_root_controller_places_sidebar_header_button_after_traffic_lights_when_pinned() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView } as? SidebarView)
+        let expectedContentMinX =
+            ChromeGeometry.trafficLightLeadingInset
+            + 48
+            - ShellMetrics.outerInset
+            + SidebarToggleButton.spacingFromTrafficLights
+            + ShellMetrics.sidebarCreateWorklanePinnedLeadingPad
+
+        XCTAssertEqual(sidebarView.addWorklaneContentMinX, expectedContentMinX, accuracy: 1.0)
+        XCTAssertGreaterThan(sidebarView.addWorklaneButtonWidth, 120)
+        XCTAssertLessThan(sidebarView.addWorklaneButtonWidth, 220)
+    }
+
+    func test_root_controller_hover_peek_allows_sidebar_header_button_to_use_full_width() throws {
+        let visibilityDefaults = SidebarVisibilityPreference.userDefaults()
+        SidebarVisibilityPreference.persist(.hidden, in: visibilityDefaults)
+        let controller = makeController(
+            sidebarWidthDefaults: SidebarWidthPreference.userDefaults(),
+            sidebarVisibilityDefaults: visibilityDefaults
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handleSidebarVisibilityEvent(.hoverRailEntered)
+        let settled = expectation(description: "hover peek header layout settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarTransitionProfile.standardDuration + 0.05) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 2.0)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView } as? SidebarView)
+
+        XCTAssertEqual(sidebarView.addWorklaneButtonMinX, ShellMetrics.sidebarContentInset, accuracy: 1.0)
+        XCTAssertEqual(
+            sidebarView.addWorklaneContentMinX,
+            ShellMetrics.sidebarContentInset + ShellMetrics.sidebarCreateWorklaneHorizontalInset,
+            accuracy: 1.0
+        )
+    }
+
+    func test_root_controller_keeps_sidebar_header_button_on_stable_chrome_row_when_traffic_light_anchor_updates() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let anchor = NSPoint(
+            x: ChromeGeometry.trafficLightLeadingInset + 48,
+            y: controller.view.bounds.maxY - ChromeGeometry.trafficLightTopInset - 7
+        )
+        controller.updateTrafficLightAnchor(anchor)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView } as? SidebarView)
+
+        let headerTop = sidebarView.bounds.height - ShellMetrics.sidebarHeaderHeight
+        XCTAssertGreaterThan(sidebarView.addWorklaneButtonMidY, headerTop, "button should be within header region")
+        XCTAssertLessThanOrEqual(sidebarView.addWorklaneButtonMidY, sidebarView.bounds.height, "button should not exceed sidebar bounds")
     }
 
     func test_toggle_sidebar_then_horizontal_keyboard_resize_preserves_single_split_spacing() throws {

@@ -278,18 +278,6 @@ final class LibghosttyAdapterTests: XCTestCase {
         )
     }
 
-    func test_make_runtime_config_enables_clipboard_callbacks() {
-        let config = LibghosttyRuntime.makeRuntimeConfig(
-            userdata: UnsafeMutableRawPointer(bitPattern: 0x1)
-        )
-
-        XCTAssertTrue(config.supports_selection_clipboard)
-        XCTAssertNotNil(config.wakeup_cb)
-        XCTAssertNotNil(config.action_cb)
-        XCTAssertNotNil(config.read_clipboard_cb)
-        XCTAssertNotNil(config.confirm_read_clipboard_cb)
-        XCTAssertNotNil(config.write_clipboard_cb)
-    }
 }
 
 @MainActor

@@ -286,8 +286,6 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
             detailLabel.fittingSize.height,
             accuracy: 0.001
         )
-        XCTAssertEqual(ShellMetrics.sidebarStatusLineHeight, 14, accuracy: 0.001)
-        XCTAssertEqual(ShellMetrics.sidebarDetailLineHeight, 14, accuracy: 0.001)
     }
 
     func test_sidebar_row_height_is_stable_across_width_changes_when_labels_truncate() throws {

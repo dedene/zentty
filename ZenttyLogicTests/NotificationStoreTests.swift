@@ -7,7 +7,7 @@ final class NotificationStoreTests: XCTestCase {
     // MARK: - Helpers
 
     private func makeStore() -> NotificationStore {
-        NotificationStore()
+        NotificationStore(debounceInterval: 0.01)
     }
 
     private let worklaneA = WorklaneID("worklane-a")
@@ -68,6 +68,10 @@ final class NotificationStoreTests: XCTestCase {
     func test_resolve_before_debounce_suppresses_notification() async {
         let store = makeStore()
 
+        let notCommitted = XCTestExpectation(description: "should not commit")
+        notCommitted.isInverted = true
+        store.onChange = { notCommitted.fulfill() }
+
         store.add(
             worklaneID: worklaneA,
             paneID: paneA,
@@ -80,8 +84,8 @@ final class NotificationStoreTests: XCTestCase {
 
         store.resolve(worklaneID: worklaneA, paneID: paneA)
 
-        // Wait longer than the debounce window to confirm the notification was suppressed.
-        try? await Task.sleep(nanoseconds: 4_000_000_000)
+        // Wait longer than the 0.01s debounce to confirm suppression.
+        await fulfillment(of: [notCommitted], timeout: 0.1)
 
         XCTAssertTrue(store.notifications.isEmpty, "notification resolved within debounce window should be suppressed")
     }

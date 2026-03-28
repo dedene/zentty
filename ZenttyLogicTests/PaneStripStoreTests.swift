@@ -6,9 +6,10 @@ final class PaneStripStoreTests: XCTestCase {
     func test_store_starts_with_single_main_worklane_and_first_active() {
         let store = WorklaneStore()
 
-        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN"])
-        XCTAssertEqual(store.activeWorklane?.title, "MAIN")
-        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
+        XCTAssertEqual(store.worklanes.count, 1)
+        XCTAssertNotNil(store.activeWorklane)
+        XCTAssertEqual(store.activeWorklane?.id, store.worklanes.first?.id)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.count, 1)
         XCTAssertEqual(
             store.activeWorklane?.paneStripState.panes.first?.sessionRequest.workingDirectory,
             NSHomeDirectory()

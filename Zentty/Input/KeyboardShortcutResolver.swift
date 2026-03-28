@@ -366,6 +366,57 @@ enum AppCommandRegistry {
     }
 }
 
+extension AppCommandDefinition {
+    var detailDescription: String {
+        switch id {
+        case .toggleSidebar:
+            "Show or hide the sidebar so you can focus on the canvas or quickly jump between worklanes."
+        case .newWorklane:
+            "Create a new worklane immediately, keeping your current context intact while opening a fresh lane for new work."
+        case .nextWorklane:
+            "Move focus to the next worklane in sequence without leaving the keyboard."
+        case .previousWorklane:
+            "Move focus to the previous worklane so you can cycle backward through your active lanes."
+        case .copyFocusedPanePath:
+            "Copy the working path from the focused pane so you can paste it into another app or command."
+        case .jumpToLatestNotification:
+            "Jump directly to the latest in-app notification so you can review recent activity without scanning manually."
+        case .splitHorizontally:
+            "Split the focused pane horizontally to create another pane in the same column."
+        case .splitVertically:
+            "Split the focused pane vertically to create a new adjacent column."
+        case .closeFocusedPane:
+            "Close the currently focused pane while keeping the rest of the layout intact."
+        case .focusLeftPane:
+            "Move focus to the pane immediately to the left of the current pane."
+        case .focusRightPane:
+            "Move focus to the pane immediately to the right of the current pane."
+        case .focusUpInColumn:
+            "Move focus to the pane above the current one within the same column."
+        case .focusDownInColumn:
+            "Move focus to the pane below the current one within the same column."
+        case .focusFirstColumn:
+            "Jump focus to the first column in the current pane layout."
+        case .focusLastColumn:
+            "Jump focus to the last column in the current pane layout."
+        case .resizePaneLeft:
+            "Make the focused pane wider by pulling its left boundary outward."
+        case .resizePaneRight:
+            "Make the focused pane wider by pushing its right boundary outward."
+        case .resizePaneUp:
+            "Increase the height of the focused pane by moving its upper split."
+        case .resizePaneDown:
+            "Increase the height of the focused pane by moving its lower split."
+        case .resetPaneLayout:
+            "Restore the current pane layout to its default proportions."
+        }
+    }
+
+    var searchText: String {
+        [title, detailDescription].joined(separator: " ").lowercased()
+    }
+}
+
 struct ShortcutConflict: Equatable {
     let commandID: AppCommandID
     let shortcut: KeyboardShortcut

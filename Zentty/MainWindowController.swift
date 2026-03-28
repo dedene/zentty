@@ -1,6 +1,104 @@
 import AppKit
 
 @MainActor
+protocol ProxyWindowDragSuppressionControlling: AnyObject {
+    var isProxyWindowDragSuppressionActive: Bool { get }
+    func restoreProxySuppression()
+}
+
+@MainActor
+private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionControlling {
+    var shouldSuppressWindowDragAtPoint: ((NSPoint, NSEvent.EventType) -> Bool)?
+    var proxyMouseDownHandler: ((NSEvent) -> Void)?
+    var isProxyWindowDragSuppressionActive: Bool { didArmProxySuppression }
+
+    private var previousMovableState: Bool?
+    private var didArmProxySuppression = false
+
+    override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged:
+            maybeSuppressWindowDragging(for: event)
+        case .leftMouseUp:
+            break
+        default:
+            break
+        }
+
+        super.sendEvent(event)
+
+        switch event.type {
+        case .leftMouseDown:
+            if didArmProxySuppression, let handler = proxyMouseDownHandler {
+                handler(event)
+            }
+        case .leftMouseUp:
+            restoreWindowDraggingIfNeeded()
+        default:
+            break
+        }
+    }
+
+    func restoreProxySuppression() {
+        restoreWindowDraggingIfNeeded()
+    }
+
+    private func maybeSuppressWindowDragging(for event: NSEvent) {
+        guard !didArmProxySuppression else {
+            return
+        }
+        guard shouldSuppressWindowDragAtPoint?(event.locationInWindow, event.type) == true else {
+            return
+        }
+
+        didArmProxySuppression = true
+        previousMovableState = isMovable
+        if isMovable {
+            isMovable = false
+        }
+    }
+
+    private func restoreWindowDraggingIfNeeded() {
+        defer {
+            previousMovableState = nil
+            didArmProxySuppression = false
+        }
+
+        guard let previousMovableState else {
+            return
+        }
+        if isMovable != previousMovableState {
+            isMovable = previousMovableState
+        }
+    }
+
+    func handleProxySuppressionEventForTesting(location: NSPoint, eventType: NSEvent.EventType) {
+        let event = NSEvent.mouseEvent(
+            with: eventType,
+            location: location,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 0
+        )
+
+        switch eventType {
+        case .leftMouseDown, .leftMouseDragged:
+            if let event {
+                maybeSuppressWindowDragging(for: event)
+            }
+        case .leftMouseUp:
+            restoreWindowDraggingIfNeeded()
+        default:
+            break
+        }
+    }
+}
+
+@MainActor
 final class MainWindowController: NSObject, NSWindowDelegate {
     private enum Layout {
         static let initialMinimumSize = NSSize(width: 960, height: 600)
@@ -48,7 +146,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             initialLayoutContext: initialLayoutContext
         )
         rootViewController.loadViewIfNeeded()
-        let window = NSWindow(
+        let window = ProxyAwareWindow(
             contentRect: initialFrame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
@@ -89,6 +187,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         rootViewController.onOpenWithMenuRequested = { [weak self] in
             self?.showOpenWithMenu()
+        }
+        window.shouldSuppressWindowDragAtPoint = { [weak rootViewController] point, eventType in
+            rootViewController?.shouldSuppressWindowDrag(at: point, eventType: eventType) == true
+        }
+        window.proxyMouseDownHandler = { [weak rootViewController] event in
+            rootViewController?.deliverProxyMouseDown(event)
         }
         NotificationCenter.default.addObserver(
             self,
@@ -133,7 +237,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func showSettingsWindow(_ sender: Any?) {
-        showSettingsWindow(section: .paneLayout, sender: sender)
+        showSettingsWindow(section: .shortcuts, sender: sender)
     }
 
     func showSettingsWindow(section: SettingsSection, sender: Any?) {
@@ -444,9 +548,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     private func refreshTrafficLightAppearanceAfterFocusChange() {
-        updateTrafficLightAppearance()
+        layoutTrafficLights()
         DispatchQueue.main.async { [weak self] in
-            self?.updateTrafficLightAppearance()
+            self?.layoutTrafficLights()
         }
     }
 
@@ -458,15 +562,15 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                 sidebarVisibilityMode: rootViewController.sidebarVisibilityMode
             )
 
-        [
-            window.standardWindowButton(.closeButton),
-            window.standardWindowButton(.miniaturizeButton),
-            window.standardWindowButton(.zoomButton),
-        ].forEach { button in
-            guard let button else {
-                return
-            }
+        guard
+            let closeButton = window.standardWindowButton(.closeButton),
+            let miniButton = window.standardWindowButton(.miniaturizeButton),
+            let zoomButton = window.standardWindowButton(.zoomButton)
+        else {
+            return
+        }
 
+        [closeButton, miniButton, zoomButton].forEach { button in
             button.wantsLayer = true
             button.layer?.masksToBounds = true
             button.layer?.cornerRadius = button.bounds.height / 2
@@ -476,6 +580,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             button.bezelColor = nil
             button.needsDisplay = true
         }
+
+        syncInactiveTrafficLightOverlayFrames(
+            for: [
+                (closeButton, closeTrafficLightOverlay),
+                (miniButton, miniTrafficLightOverlay),
+                (zoomButton, zoomTrafficLightOverlay),
+            ]
+        )
 
         [closeTrafficLightOverlay, miniTrafficLightOverlay, zoomTrafficLightOverlay].forEach {
             $0.apply(fillColor: inactiveFillColor)
@@ -598,6 +710,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     var openWithPopoverHighlightedStableIDForTesting: String? {
         openWithPopoverController.highlightedStableIDForTesting
+    }
+
+    func shouldSuppressWindowDragForTesting(at point: NSPoint, eventType: NSEvent.EventType) -> Bool {
+        rootViewController.shouldSuppressWindowDrag(at: point, eventType: eventType)
+    }
+
+    func handleProxySuppressionEventForTesting(location: NSPoint, eventType: NSEvent.EventType) {
+        (window as? ProxyAwareWindow)?.handleProxySuppressionEventForTesting(location: location, eventType: eventType)
+    }
+
+    var isWindowMovableForTesting: Bool {
+        window.isMovable
     }
 
     func dismissOpenWithPopoverWithEscapeForTesting() {
