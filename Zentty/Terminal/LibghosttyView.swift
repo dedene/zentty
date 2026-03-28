@@ -62,6 +62,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         layerContentsRedrawPolicy = .duringViewResize
+        registerForDraggedTypes([.fileURL, .URL, .string])
     }
 
     @available(*, unavailable)
@@ -552,5 +553,43 @@ extension LibghosttyView: NSTextInputClient {
 
     nonisolated func characterIndex(for point: NSPoint) -> Int {
         0
+    }
+}
+
+// MARK: - NSDraggingDestination
+
+extension LibghosttyView {
+    private static let acceptedDropTypes: Set<NSPasteboard.PasteboardType> = [
+        .fileURL, .URL, .string,
+    ]
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard let types = sender.draggingPasteboard.types,
+              !Set(types).isDisjoint(with: Self.acceptedDropTypes) else {
+            return []
+        }
+        return .copy
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let pasteboard = sender.draggingPasteboard
+
+        let content: String?
+        if let url = pasteboard.string(forType: .URL) {
+            content = ShellEscaping.escapePath(url)
+        } else if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+                  !urls.isEmpty {
+            content = urls
+                .map { ShellEscaping.escapePath($0.path) }
+                .joined(separator: " ")
+        } else if let string = pasteboard.string(forType: .string) {
+            content = string
+        } else {
+            content = nil
+        }
+
+        guard let content else { return false }
+        surfaceController?.sendText(content)
+        return true
     }
 }
