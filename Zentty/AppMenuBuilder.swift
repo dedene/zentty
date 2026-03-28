@@ -4,16 +4,19 @@ import AppKit
 enum AppMenuBuilder {
     static func installIfNeeded(
         on application: NSApplication,
+        config: AppConfig = .default,
         appName: String = resolvedAppName()
     ) {
         guard hasRequiredMenuItems(in: application.mainMenu, appName: appName) == false else {
+            applyConfiguredShortcuts(to: application.mainMenu, config: config)
             return
         }
 
-        application.mainMenu = makeMainMenu(appName: appName)
+        application.mainMenu = makeMainMenu(appName: appName, config: config)
     }
 
-    static func makeMainMenu(appName: String) -> NSMenu {
+    static func makeMainMenu(appName: String, config: AppConfig = .default) -> NSMenu {
+        let shortcutManager = ShortcutManager(shortcuts: config.shortcuts)
         let mainMenu = NSMenu(title: "Main Menu")
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu(title: appName)
@@ -35,9 +38,9 @@ enum AppMenuBuilder {
         appMenu.addItem(quitItem)
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
-        mainMenu.addItem(makeFileMenuItem())
-        mainMenu.addItem(makeEditMenuItem())
-        mainMenu.addItem(makeViewMenuItem())
+        mainMenu.addItem(makeFileMenuItem(shortcutManager: shortcutManager))
+        mainMenu.addItem(makeEditMenuItem(shortcutManager: shortcutManager))
+        mainMenu.addItem(makeViewMenuItem(shortcutManager: shortcutManager))
 
         return mainMenu
     }
@@ -51,27 +54,36 @@ enum AppMenuBuilder {
         return ProcessInfo.processInfo.processName
     }
 
-    private static func makeEditMenuItem() -> NSMenuItem {
+    static func applyConfiguredShortcuts(to mainMenu: NSMenu?, config: AppConfig) {
+        let shortcutManager = ShortcutManager(shortcuts: config.shortcuts)
+
+        for definition in AppCommandRegistry.definitions {
+            guard let menuDefinition = definition.menuItem,
+                  let item = menuItem(for: menuDefinition.selector, in: mainMenu) else {
+                continue
+            }
+
+            item.title = menuDefinition.title
+            apply(shortcutManager.shortcut(for: definition.id), to: item)
+        }
+    }
+
+    private static func makeEditMenuItem(shortcutManager: ShortcutManager) -> NSMenuItem {
         let editMenuItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
 
-        editMenu.addItem(makeEditMenuActionItem(
+        editMenu.addItem(makeStandardMenuActionItem(
             title: "Copy",
             action: #selector(NSText.copy(_:)),
             keyEquivalent: "c"
         ))
-        editMenu.addItem(makeMenuActionItem(
-            title: "Copy Path",
-            action: #selector(MainWindowController.copyFocusedPanePath(_:)),
-            keyEquivalent: "c",
-            modifiers: [.command, .shift]
-        ))
-        editMenu.addItem(makeEditMenuActionItem(
+        editMenu.addItem(makeCommandMenuItem(commandID: .copyFocusedPanePath, shortcutManager: shortcutManager))
+        editMenu.addItem(makeStandardMenuActionItem(
             title: "Paste",
             action: #selector(NSText.paste(_:)),
             keyEquivalent: "v"
         ))
-        editMenu.addItem(makeEditMenuActionItem(
+        editMenu.addItem(makeStandardMenuActionItem(
             title: "Select All",
             action: #selector(NSResponder.selectAll(_:)),
             keyEquivalent: "a"
@@ -81,138 +93,67 @@ enum AppMenuBuilder {
         return editMenuItem
     }
 
-    private static func makeFileMenuItem() -> NSMenuItem {
+    private static func makeFileMenuItem(shortcutManager: ShortcutManager) -> NSMenuItem {
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
 
-        fileMenu.addItem(makeMenuActionItem(
-            title: "New Worklane",
-            action: #selector(MainWindowController.newWorklane(_:)),
-            keyEquivalent: "t"
-        ))
-        fileMenu.addItem(makeMenuActionItem(
-            title: "Next Worklane",
-            action: #selector(MainWindowController.nextWorklane(_:)),
-            keyEquivalent: "\t",
-            modifiers: [.control]
-        ))
-        fileMenu.addItem(makeMenuActionItem(
-            title: "Previous Worklane",
-            action: #selector(MainWindowController.previousWorklane(_:)),
-            keyEquivalent: "\t",
-            modifiers: [.control, .shift]
-        ))
+        for entry in AppCommandRegistry.menuEntriesBySection[.file] ?? [] {
+            switch entry {
+            case .separator:
+                fileMenu.addItem(makeSeparatorItem())
+            case .command(let commandID):
+                fileMenu.addItem(makeCommandMenuItem(commandID: commandID, shortcutManager: shortcutManager))
+            }
+        }
 
         fileMenuItem.submenu = fileMenu
         return fileMenuItem
     }
 
-    private static func makeViewMenuItem() -> NSMenuItem {
+    private static func makeViewMenuItem(shortcutManager: ShortcutManager) -> NSMenuItem {
         let viewMenuItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
 
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Split Horizontally",
-            action: #selector(MainWindowController.splitHorizontally(_:)),
-            keyEquivalent: "d"
-        ))
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Split Vertically",
-            action: #selector(MainWindowController.splitVertically(_:)),
-            keyEquivalent: "d",
-            modifiers: [.command, .shift]
-        ))
-        viewMenu.addItem(makeSeparatorItem())
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Focus Left Pane",
-            action: #selector(MainWindowController.focusLeftPane(_:)),
-            keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
-            modifiers: [.command, .option]
-        ))
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Focus Right Pane",
-            action: #selector(MainWindowController.focusRightPane(_:)),
-            keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!),
-            modifiers: [.command, .option]
-        ))
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Focus Up In Column",
-            action: #selector(MainWindowController.focusUpInColumn(_:)),
-            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!),
-            modifiers: [.command, .option]
-        ))
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Focus Down In Column",
-            action: #selector(MainWindowController.focusDownInColumn(_:)),
-            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!),
-            modifiers: [.command, .option]
-        ))
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Focus First Column",
-            action: #selector(MainWindowController.focusFirstColumn(_:)),
-            keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
-            modifiers: [.command, .option, .shift]
-        ))
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Focus Last Column",
-            action: #selector(MainWindowController.focusLastColumn(_:)),
-            keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!),
-            modifiers: [.command, .option, .shift]
-        ))
-        viewMenu.addItem(makeSeparatorItem())
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Resize Pane Left",
-            action: #selector(MainWindowController.resizePaneLeft(_:)),
-            keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
-            modifiers: [.command, .control, .option]
-        ))
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Resize Pane Right",
-            action: #selector(MainWindowController.resizePaneRight(_:)),
-            keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!),
-            modifiers: [.command, .control, .option]
-        ))
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Resize Pane Up",
-            action: #selector(MainWindowController.resizePaneUp(_:)),
-            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!),
-            modifiers: [.command, .control, .option]
-        ))
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Resize Pane Down",
-            action: #selector(MainWindowController.resizePaneDown(_:)),
-            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!),
-            modifiers: [.command, .control, .option]
-        ))
-        viewMenu.addItem(makeSeparatorItem())
-        viewMenu.addItem(makeMenuActionItem(
-            title: "Reset Pane Layout",
-            action: #selector(MainWindowController.resetPaneLayout(_:)),
-            keyEquivalent: "0",
-            modifiers: [.command, .control, .option]
-        ))
+        for entry in AppCommandRegistry.menuEntriesBySection[.view] ?? [] {
+            switch entry {
+            case .separator:
+                viewMenu.addItem(makeSeparatorItem())
+            case .command(let commandID):
+                viewMenu.addItem(makeCommandMenuItem(commandID: commandID, shortcutManager: shortcutManager))
+            }
+        }
 
         viewMenuItem.submenu = viewMenu
         return viewMenuItem
     }
 
-    private static func makeEditMenuActionItem(
+    private static func makeStandardMenuActionItem(
         title: String,
         action: Selector,
         keyEquivalent: String
     ) -> NSMenuItem {
-        makeMenuActionItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        item.keyEquivalentModifierMask = [.command]
+        return item
     }
 
-    private static func makeMenuActionItem(
-        title: String,
-        action: Selector,
-        keyEquivalent: String,
-        modifiers: NSEvent.ModifierFlags = [.command]
+    private static func makeCommandMenuItem(
+        commandID: AppCommandID,
+        shortcutManager: ShortcutManager
     ) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
-        item.keyEquivalentModifierMask = modifiers
+        let definition = AppCommandRegistry.definition(for: commandID)
+        guard let menuDefinition = definition.menuItem else {
+            fatalError("Missing menu definition for command \(commandID.rawValue)")
+        }
+
+        let item = NSMenuItem(title: menuDefinition.title, action: menuDefinition.selector, keyEquivalent: "")
+        apply(shortcutManager.shortcut(for: commandID), to: item)
         return item
+    }
+
+    private static func apply(_ shortcut: KeyboardShortcut?, to item: NSMenuItem) {
+        item.keyEquivalent = shortcut?.menuKeyEquivalent ?? ""
+        item.keyEquivalentModifierMask = shortcut?.menuModifierFlags ?? []
     }
 
     private static func makeSeparatorItem() -> NSMenuItem {
@@ -228,52 +169,52 @@ enum AppMenuBuilder {
 
         let hasQuitItem = appMenu.items.contains(where: {
             $0.action == #selector(NSApplication.terminate(_:)) &&
-            $0.keyEquivalent == "q" &&
             $0.title == "Quit \(appName)"
         })
         let hasSettingsItem = appMenu.items.contains(where: {
             $0.action == #selector(AppDelegate.showSettingsWindow(_:)) &&
-            $0.keyEquivalent == "," &&
             $0.title == "Settings…"
         })
-        let fileMenu = menu(named: "File", in: mainMenu)
-        let editMenu = menu(named: "Edit", in: mainMenu)
-        let viewMenu = menu(named: "View", in: mainMenu)
-        let requiredFileItems: [(String, Selector, String, NSEvent.ModifierFlags)] = [
-            ("New Worklane", #selector(MainWindowController.newWorklane(_:)), "t", [.command]),
-            ("Next Worklane", #selector(MainWindowController.nextWorklane(_:)), "\t", [.control]),
-            ("Previous Worklane", #selector(MainWindowController.previousWorklane(_:)), "\t", [.control, .shift]),
+        let fileMenu = menu(named: AppMenuSection.file.rawValue, in: mainMenu)
+        let editMenu = menu(named: AppMenuSection.edit.rawValue, in: mainMenu)
+        let viewMenu = menu(named: AppMenuSection.view.rawValue, in: mainMenu)
+        let requiredFileItems: [(String, Selector)] = [
+            ("New Worklane", #selector(MainWindowController.newWorklane(_:))),
+            ("Next Worklane", #selector(MainWindowController.nextWorklane(_:))),
+            ("Previous Worklane", #selector(MainWindowController.previousWorklane(_:))),
         ]
-        let requiredEditItems: [(String, Selector, String, NSEvent.ModifierFlags)] = [
-            ("Copy", #selector(NSText.copy(_:)), "c", [.command]),
-            ("Copy Path", #selector(MainWindowController.copyFocusedPanePath(_:)), "c", [.command, .shift]),
-            ("Paste", #selector(NSText.paste(_:)), "v", [.command]),
-            ("Select All", #selector(NSResponder.selectAll(_:)), "a", [.command]),
+        let requiredEditItems: [(String, Selector)] = [
+            ("Copy", #selector(NSText.copy(_:))),
+            ("Copy Path", #selector(MainWindowController.copyFocusedPanePath(_:))),
+            ("Paste", #selector(NSText.paste(_:))),
+            ("Select All", #selector(NSResponder.selectAll(_:))),
         ]
-        let requiredViewItems: [(String?, Selector?, String, NSEvent.ModifierFlags)] = [
-            ("Split Horizontally", #selector(MainWindowController.splitHorizontally(_:)), "d", [.command]),
-            ("Split Vertically", #selector(MainWindowController.splitVertically(_:)), "d", [.command, .shift]),
-            (nil, nil, "", []),
-            ("Focus Left Pane", #selector(MainWindowController.focusLeftPane(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option]),
-            ("Focus Right Pane", #selector(MainWindowController.focusRightPane(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option]),
-            ("Focus Up In Column", #selector(MainWindowController.focusUpInColumn(_:)), String(UnicodeScalar(NSUpArrowFunctionKey)!), [.command, .option]),
-            ("Focus Down In Column", #selector(MainWindowController.focusDownInColumn(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), [.command, .option]),
-            ("Focus First Column", #selector(MainWindowController.focusFirstColumn(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option, .shift]),
-            ("Focus Last Column", #selector(MainWindowController.focusLastColumn(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option, .shift]),
-            (nil, nil, "", []),
-            ("Resize Pane Left", #selector(MainWindowController.resizePaneLeft(_:)), String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .control, .option]),
-            ("Resize Pane Right", #selector(MainWindowController.resizePaneRight(_:)), String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .control, .option]),
-            ("Resize Pane Up", #selector(MainWindowController.resizePaneUp(_:)), String(UnicodeScalar(NSUpArrowFunctionKey)!), [.command, .control, .option]),
-            ("Resize Pane Down", #selector(MainWindowController.resizePaneDown(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), [.command, .control, .option]),
-            (nil, nil, "", []),
-            ("Reset Pane Layout", #selector(MainWindowController.resetPaneLayout(_:)), "0", [.command, .control, .option]),
+        let requiredViewItems: [(String?, Selector?)] = [
+            ("Toggle Sidebar", #selector(MainWindowController.toggleSidebar(_:))),
+            (nil, nil),
+            ("Split Horizontally", #selector(MainWindowController.splitHorizontally(_:))),
+            ("Split Vertically", #selector(MainWindowController.splitVertically(_:))),
+            (nil, nil),
+            ("Focus Left Pane", #selector(MainWindowController.focusLeftPane(_:))),
+            ("Focus Right Pane", #selector(MainWindowController.focusRightPane(_:))),
+            ("Focus Up In Column", #selector(MainWindowController.focusUpInColumn(_:))),
+            ("Focus Down In Column", #selector(MainWindowController.focusDownInColumn(_:))),
+            ("Focus First Column", #selector(MainWindowController.focusFirstColumn(_:))),
+            ("Focus Last Column", #selector(MainWindowController.focusLastColumn(_:))),
+            (nil, nil),
+            ("Resize Pane Left", #selector(MainWindowController.resizePaneLeft(_:))),
+            ("Resize Pane Right", #selector(MainWindowController.resizePaneRight(_:))),
+            ("Resize Pane Up", #selector(MainWindowController.resizePaneUp(_:))),
+            ("Resize Pane Down", #selector(MainWindowController.resizePaneDown(_:))),
+            (nil, nil),
+            ("Reset Pane Layout", #selector(MainWindowController.resetPaneLayout(_:))),
         ]
         let hasFileItems = hasRequiredItems(requiredFileItems, in: fileMenu)
         let hasEditItems =
-            editMenu?.title == "Edit" &&
+            editMenu?.title == AppMenuSection.edit.rawValue &&
             hasRequiredItems(requiredEditItems, in: editMenu)
         let hasViewItems =
-            viewMenu?.title == "View" &&
+            viewMenu?.title == AppMenuSection.view.rawValue &&
             hasRequiredItems(requiredViewItems, in: viewMenu)
 
         return hasSettingsItem && hasQuitItem && hasFileItems && hasEditItems && hasViewItems
@@ -283,8 +224,18 @@ enum AppMenuBuilder {
         mainMenu?.items.first(where: { $0.submenu?.title == title })?.submenu
     }
 
+    private static func menuItem(for action: Selector, in mainMenu: NSMenu?) -> NSMenuItem? {
+        for rootItem in mainMenu?.items ?? [] {
+            if let found = rootItem.submenu?.items.first(where: { $0.action == action }) {
+                return found
+            }
+        }
+
+        return nil
+    }
+
     private static func hasRequiredItems(
-        _ requiredItems: [(String, Selector, String, NSEvent.ModifierFlags)],
+        _ requiredItems: [(String, Selector)],
         in menu: NSMenu?
     ) -> Bool {
         guard let menu, menu.items.count >= requiredItems.count else {
@@ -293,14 +244,12 @@ enum AppMenuBuilder {
 
         return zip(menu.items.prefix(requiredItems.count), requiredItems).allSatisfy { item, expected in
             item.title == expected.0 &&
-            item.action == expected.1 &&
-            item.keyEquivalent == expected.2 &&
-            item.keyEquivalentModifierMask == expected.3
+            item.action == expected.1
         }
     }
 
     private static func hasRequiredItems(
-        _ requiredItems: [(String?, Selector?, String, NSEvent.ModifierFlags)],
+        _ requiredItems: [(String?, Selector?)],
         in menu: NSMenu?
     ) -> Bool {
         guard let menu, menu.items.count >= requiredItems.count else {
@@ -309,16 +258,10 @@ enum AppMenuBuilder {
 
         return zip(menu.items.prefix(requiredItems.count), requiredItems).allSatisfy { item, expected in
             if let expectedTitle = expected.0 {
-                return item.title == expectedTitle &&
-                item.action == expected.1 &&
-                item.keyEquivalent == expected.2 &&
-                item.keyEquivalentModifierMask == expected.3
+                return item.title == expectedTitle && item.action == expected.1
             }
 
-            return item.isSeparatorItem &&
-            item.action == expected.1 &&
-            item.keyEquivalent == expected.2 &&
-            item.keyEquivalentModifierMask == expected.3
+            return item.isSeparatorItem && item.action == expected.1
         }
     }
 }

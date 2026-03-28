@@ -101,7 +101,7 @@ final class PaneStripMotionControllerTests: XCTestCase {
         XCTAssertLessThan(insetPresentation.targetOffset, baselinePresentation.targetOffset)
         XCTAssertEqual(
             insetPresentation.targetOffset,
-            state.layoutSizing.horizontalInset - sidebarInset,
+            -sidebarInset,
             accuracy: 0.001
         )
     }
@@ -126,7 +126,7 @@ final class PaneStripMotionControllerTests: XCTestCase {
 
         XCTAssertEqual(
             presentation.targetOffset,
-            state.layoutSizing.horizontalInset - sidebarInset,
+            -sidebarInset,
             accuracy: 0.001
         )
     }
@@ -149,7 +149,7 @@ final class PaneStripMotionControllerTests: XCTestCase {
 
         let firstPane = try XCTUnwrap(presentation.panes.first)
 
-        XCTAssertEqual(firstPane.frame.minX, state.layoutSizing.horizontalInset, accuracy: 0.001)
+        XCTAssertEqual(firstPane.frame.minX, 0, accuracy: 0.001)
     }
 
     @MainActor
@@ -491,6 +491,54 @@ final class PaneStripMotionControllerTests: XCTestCase {
 
         XCTAssertLessThan(resizedRightPane.minX, initialRightPane.minX)
         XCTAssertGreaterThanOrEqual(resizedPresentation.contentWidth, viewportSize.width)
+    }
+
+    @MainActor
+    func test_focusing_second_pane_with_sidebar_visible_keeps_strip_flush_with_visible_lane() {
+        let controller = PaneStripMotionController()
+        let viewportSize = CGSize(width: 1200, height: 680)
+        let backingScaleFactor: CGFloat = 2
+        let visibleBorderInset = ChromeGeometry.paneBorderInset(backingScaleFactor: backingScaleFactor)
+        let state = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("left"),
+                    panes: [PaneState(id: PaneID("left"), title: "left")],
+                    width: 520,
+                    focusedPaneID: PaneID("left"),
+                    lastFocusedPaneID: PaneID("left")
+                ),
+                PaneColumnState(
+                    id: PaneColumnID("right"),
+                    panes: [PaneState(id: PaneID("right"), title: "right")],
+                    width: 404,
+                    focusedPaneID: PaneID("right"),
+                    lastFocusedPaneID: PaneID("right")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("right")
+        )
+
+        let presentation = controller.presentation(
+            for: state,
+            in: viewportSize,
+            leadingVisibleInset: sidebarInset,
+            backingScaleFactor: backingScaleFactor
+        )
+        let visiblePanes = presentation.panes
+            .map { $0.frame.offsetBy(dx: -presentation.targetOffset, dy: 0) }
+            .sorted { $0.minX < $1.minX }
+
+        XCTAssertEqual(visiblePanes.count, 2)
+        XCTAssertLessThanOrEqual(
+            visiblePanes[0].minX + visibleBorderInset,
+            sidebarInset + visibleBorderInset + 0.001
+        )
+        XCTAssertEqual(
+            visiblePanes[1].maxX - visibleBorderInset,
+            viewportSize.width - visibleBorderInset,
+            accuracy: 0.001
+        )
     }
 
     private func assertRetinaAligned(_ value: CGFloat, file: StaticString = #filePath, line: UInt = #line) {

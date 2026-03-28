@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class SettingsWindowControllerTests: XCTestCase {
-    func test_settings_window_shows_icon_sidebar_and_defaults_to_pane_layout() throws {
+    func test_settings_window_uses_toolbar_tab_shell_and_defaults_to_pane_layout() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -20,10 +20,16 @@ final class SettingsWindowControllerTests: XCTestCase {
             controller.window?.contentViewController as? SettingsViewController
         )
         contentController.loadViewIfNeeded()
+        waitForLayout()
 
-        XCTAssertEqual(contentController.sectionTitles, ["Open With", "Pane Layout"])
+        let tabController = try XCTUnwrap(controller.window?.contentViewController as? NSTabViewController)
+
+        XCTAssertEqual(tabController.tabStyle, .toolbar)
+        XCTAssertNotNil(controller.window?.toolbar)
+        XCTAssertFalse(controller.window?.styleMask.contains(.resizable) == true)
+        XCTAssertEqual(contentController.sectionTitles, ["Shortcuts", "Open With", "Pane Layout"])
         XCTAssertEqual(contentController.selectedSection, .paneLayout)
-        XCTAssertEqual(contentController.contentSectionTitle, "Pane Layout")
+        XCTAssertEqual(controller.window?.title, "Pane Layout")
 
         let paneLayoutController = try XCTUnwrap(
             contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
@@ -34,6 +40,187 @@ final class SettingsWindowControllerTests: XCTestCase {
             "Large Display behavior: preserve the active pane with slightly denser columns.",
             "Ultrawide Hybrid behavior: first split is 50/50, then keep horizontal scrolling.",
         ])
+    }
+
+    func test_settings_window_can_switch_to_shortcuts_section_and_read_effective_bindings() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        try store.update { config in
+            config.shortcuts.bindings = [
+                ShortcutBindingOverride(
+                    commandID: .toggleSidebar,
+                    shortcut: .init(key: .character("b"), modifiers: [.command])
+                ),
+                ShortcutBindingOverride(
+                    commandID: .copyFocusedPanePath,
+                    shortcut: nil
+                ),
+            ]
+        }
+
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        XCTAssertEqual(contentController.selectedSection, .shortcuts)
+        XCTAssertEqual(controller.window?.title, "Shortcuts")
+
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+        XCTAssertNotNil(shortcutsController.view.firstDescendantScrollView())
+        XCTAssertEqual(shortcutsController.visibleCategoryTitles, ["General", "Worklanes", "Panes", "Notifications"])
+        XCTAssertEqual(shortcutsController.displayString(for: .toggleSidebar), "⌘B")
+        XCTAssertEqual(shortcutsController.displayString(for: .copyFocusedPanePath), "Unassigned")
+    }
+
+    func test_settings_window_auto_sizes_height_for_selected_pane_without_exceeding_screen_cap() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .paneLayout, sender: nil)
+        waitForLayout()
+
+        let initialFrame = try XCTUnwrap(controller.window?.frame)
+        let maxAllowedHeight = ((controller.window?.screen?.visibleFrame.height ?? NSScreen.main?.visibleFrame.height) ?? 0) * (2.0 / 3.0)
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout("shortcuts settled", delay: 0.2)
+
+        let shortcutsFrame = try XCTUnwrap(controller.window?.frame)
+
+        XCTAssertEqual(shortcutsFrame.width, initialFrame.width, accuracy: 1.0)
+        XCTAssertGreaterThan(shortcutsFrame.height, initialFrame.height)
+        XCTAssertLessThanOrEqual(shortcutsFrame.height, maxAllowedHeight + 2.0)
+    }
+
+    func test_shortcuts_pane_scrolls_when_content_exceeds_window_height_cap() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+        let scrollView = try XCTUnwrap(shortcutsController.view.firstDescendantScrollView())
+        let documentHeight = scrollView.documentView?.fittingSize.height ?? 0
+
+        XCTAssertGreaterThan(documentHeight, scrollView.contentSize.height)
+        XCTAssertTrue(scrollView.hasVerticalScroller)
+    }
+
+    @objc
+    func test_shortcuts_pane_opens_scrolled_to_top() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+        let scrollView = try XCTUnwrap(shortcutsController.view.firstDescendantScrollView())
+
+        XCTAssertEqual(scrollView.contentView.bounds.minY, 0, accuracy: 1.0)
+    }
+
+    @objc
+    func test_switching_back_to_shortcuts_resets_scroll_position_to_top() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+        let scrollView = try XCTUnwrap(shortcutsController.view.firstDescendantScrollView())
+        let documentHeight = scrollView.documentView?.frame.height ?? 0
+        let viewportHeight = scrollView.contentSize.height
+        let bottomOffset = max(0, documentHeight - viewportHeight)
+
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: bottomOffset))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        XCTAssertGreaterThan(scrollView.contentView.bounds.minY, 1.0)
+
+        controller.show(section: .paneLayout, sender: nil)
+        waitForLayout("pane layout settled")
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout("shortcuts restored", delay: 0.2)
+
+        XCTAssertEqual(scrollView.contentView.bounds.minY, 0, accuracy: 1.0)
+    }
+
+    @objc
+    func test_settings_window_uses_slide_and_fade_transition_between_sections() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let usesHorizontalSlide = contentController.transitionOptions.contains(.slideLeft)
+            || contentController.transitionOptions.contains(.slideRight)
+
+        XCTAssertTrue(contentController.transitionOptions.contains(.crossfade))
+        XCTAssertTrue(usesHorizontalSlide)
     }
 
     func test_settings_window_can_switch_to_open_with_section_and_read_config() throws {
@@ -91,9 +278,10 @@ final class SettingsWindowControllerTests: XCTestCase {
             controller.window?.contentViewController as? SettingsViewController
         )
         contentController.loadViewIfNeeded()
+        waitForLayout()
 
         XCTAssertEqual(contentController.selectedSection, .openWith)
-        XCTAssertEqual(contentController.contentSectionTitle, "Open With")
+        XCTAssertEqual(controller.window?.title, "Open With")
 
         let openWithController = try XCTUnwrap(
             contentController.currentSectionViewController as? OpenWithSettingsSectionViewController
@@ -349,6 +537,31 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(controller.selectedPrimaryTargetStableID, "cursor")
         XCTAssertEqual(store.current.openWith.enabledTargetIDs, ["cursor"])
         XCTAssertEqual(store.current.openWith.primaryTargetID, "cursor")
+    }
+}
+
+@MainActor
+private extension SettingsWindowControllerTests {
+    func waitForLayout(_ description: String = "layout settled", delay: TimeInterval = 0.1) {
+        let settled = expectation(description: description)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { settled.fulfill() }
+        wait(for: [settled], timeout: 2.0)
+    }
+}
+
+private extension NSView {
+    func firstDescendantScrollView() -> NSScrollView? {
+        if let scrollView = self as? NSScrollView {
+            return scrollView
+        }
+
+        for subview in subviews {
+            if let scrollView = subview.firstDescendantScrollView() {
+                return scrollView
+            }
+        }
+
+        return nil
     }
 }
 

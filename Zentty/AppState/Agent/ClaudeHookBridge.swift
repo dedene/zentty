@@ -5,6 +5,7 @@ struct ClaudeHookInput {
     let hookEventName: String
     let sessionID: String?
     let message: String?
+    let notificationType: String?
     let cwd: String?
     let toolName: String?
     let toolInput: [String: Any]
@@ -93,6 +94,7 @@ enum ClaudeHookBridge {
             hookEventName: hookEventName,
             sessionID: firstString(in: json, keys: ["session_id", "sessionId"]),
             message: firstString(in: json, keys: ["message", "body", "text", "prompt", "error", "description"]),
+            notificationType: firstString(in: json, keys: ["notification_type", "notificationType"]),
             cwd: extractCurrentWorkingDirectory(from: json),
             toolName: firstString(in: json, keys: ["tool_name", "toolName"]),
             toolInput: (json["tool_input"] as? [String: Any]) ?? [:]
@@ -131,6 +133,9 @@ enum ClaudeHookBridge {
             ]
 
         case "Notification":
+            if input.notificationType == "idle_prompt" {
+                return []
+            }
             let target = try resolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             let sessionRecord = try lookupRecord(for: input, sessionStore: sessionStore)
             let originalMessage = AgentInteractionClassifier.trimmed(input.message)

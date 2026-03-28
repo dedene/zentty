@@ -285,9 +285,9 @@ final class WorklaneStore {
         let previousLayoutContext = self.layoutContext
         self.layoutContext = layoutContext
         var didUpdateWorklaneState = false
-        let viewportScaleFactor = Self.viewportScaleFactor(
-            from: previousLayoutContext.viewportWidth,
-            to: layoutContext.viewportWidth
+        let readableWidthScaleFactor = Self.readableWidthScaleFactor(
+            from: previousLayoutContext,
+            to: layoutContext
         )
 
         for index in worklanes.indices {
@@ -295,13 +295,13 @@ final class WorklaneStore {
                 didUpdateWorklaneState = true
             }
 
-            if worklanes[index].paneStripState.updateSinglePaneWidth(layoutContext.singlePaneWidth) {
+            if worklanes[index].paneStripState.updateSingleColumnWidth(layoutContext.singlePaneWidth) {
                 didUpdateWorklaneState = true
                 continue
             }
 
-            if let viewportScaleFactor,
-               worklanes[index].paneStripState.scalePaneWidths(by: viewportScaleFactor) {
+            if let readableWidthScaleFactor,
+               worklanes[index].paneStripState.scalePaneWidths(by: readableWidthScaleFactor) {
                 didUpdateWorklaneState = true
             }
         }
@@ -419,6 +419,7 @@ final class WorklaneStore {
         _ target: PaneResizeTarget,
         delta: CGFloat,
         availableSize: CGSize,
+        leadingVisibleInset: CGFloat = 0,
         minimumSizeByPaneID: [PaneID: PaneMinimumSize]
     ) {
         guard var worklane = activeWorklane else {
@@ -429,6 +430,7 @@ final class WorklaneStore {
             target,
             delta: delta,
             availableSize: availableSize,
+            leadingVisibleInset: leadingVisibleInset,
             minimumSizeByPaneID: minimumSizeByPaneID
         ) else {
             return
@@ -454,27 +456,31 @@ final class WorklaneStore {
         notify(.layoutResized(activeWorklaneID))
     }
 
+    @discardableResult
     func resizeFocusedPane(
         in axis: PaneResizeAxis,
         delta: CGFloat,
         availableSize: CGSize,
+        leadingVisibleInset: CGFloat = 0,
         minimumSizeByPaneID: [PaneID: PaneMinimumSize]
-    ) {
+    ) -> Bool {
         guard var worklane = activeWorklane else {
-            return
+            return false
         }
 
         guard worklane.paneStripState.resizeFocusedPane(
             in: axis,
             delta: delta,
             availableSize: availableSize,
+            leadingVisibleInset: leadingVisibleInset,
             minimumSizeByPaneID: minimumSizeByPaneID
         ) else {
-            return
+            return false
         }
 
         activeWorklane = worklane
         notify(.layoutResized(activeWorklaneID))
+        return true
     }
 
     func restorePaneLayout(_ paneStripState: PaneStripState) {
@@ -1067,15 +1073,23 @@ final class WorklaneStore {
         return workingDirectory
     }
 
-    private static func viewportScaleFactor(
-        from previousViewportWidth: CGFloat,
-        to nextViewportWidth: CGFloat
+    private static func readableWidthScaleFactor(
+        from previousLayoutContext: PaneLayoutContext,
+        to nextLayoutContext: PaneLayoutContext
     ) -> CGFloat? {
-        guard previousViewportWidth > 0, nextViewportWidth > 0 else {
+        let previousReadableWidth = previousLayoutContext.sizing.readableWidth(
+            for: previousLayoutContext.viewportWidth,
+            leadingVisibleInset: previousLayoutContext.leadingVisibleInset
+        )
+        let nextReadableWidth = nextLayoutContext.sizing.readableWidth(
+            for: nextLayoutContext.viewportWidth,
+            leadingVisibleInset: nextLayoutContext.leadingVisibleInset
+        )
+        guard previousReadableWidth > 0, nextReadableWidth > 0 else {
             return nil
         }
 
-        return nextViewportWidth / previousViewportWidth
+        return nextReadableWidth / previousReadableWidth
     }
 
     @discardableResult

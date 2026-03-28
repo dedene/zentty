@@ -47,6 +47,7 @@ final class PaneContainerView: NSView {
     private let statusMessageLabel = NSTextField(wrappingLabelWithString: "")
     private let retryButton = NSButton(title: "Retry", target: nil, action: nil)
     private let closeButton = NSButton(title: "Close", target: nil, action: nil)
+    private var statusOverlayConstraints: [NSLayoutConstraint] = []
     private(set) var paneID: PaneID
     private var titleTextStorage: String
     private var statusState: StatusState = .hidden
@@ -529,7 +530,7 @@ final class PaneContainerView: NSView {
         statusOverlayView.addSubview(retryButton)
         statusOverlayView.addSubview(closeButton)
 
-        NSLayoutConstraint.activate([
+        statusOverlayConstraints = [
             statusTitleLabel.topAnchor.constraint(
                 equalTo: statusOverlayView.topAnchor, constant: Layout.overlayInset),
             statusTitleLabel.leadingAnchor.constraint(
@@ -554,7 +555,7 @@ final class PaneContainerView: NSView {
             closeButton.centerYAnchor.constraint(equalTo: retryButton.centerYAnchor),
             closeButton.leadingAnchor.constraint(equalTo: retryButton.trailingAnchor, constant: 10),
             closeButton.heightAnchor.constraint(equalToConstant: Layout.overlayButtonHeight),
-        ])
+        ]
     }
 
     private func handleMetadataDidChange(_ metadata: TerminalMetadata) {
@@ -585,12 +586,14 @@ final class PaneContainerView: NSView {
 
         switch state {
         case .hidden:
+            NSLayoutConstraint.deactivate(statusOverlayConstraints)
             statusOverlayView.isHidden = true
             statusTitleLabel.stringValue = ""
             statusMessageLabel.stringValue = ""
             retryButton.isHidden = true
             closeButton.isHidden = true
         case .startupFailure(let message):
+            NSLayoutConstraint.activate(statusOverlayConstraints)
             statusOverlayView.isHidden = false
             statusTitleLabel.stringValue = "Pane failed to start"
             statusMessageLabel.stringValue = message

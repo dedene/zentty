@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let runtimeRegistry: PaneRuntimeRegistry
     private let configStore: AppConfigStore
     private var windowController: MainWindowController?
+    private var configObserverID: UUID?
 
     init(
         shouldOpenMainWindow: Bool = true,
@@ -20,7 +21,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        AppMenuBuilder.installIfNeeded(on: NSApp)
+        AppMenuBuilder.installIfNeeded(on: NSApp, config: configStore.current)
+        configObserverID = configStore.addObserver { config in
+            Task { @MainActor in
+                AppMenuBuilder.installIfNeeded(on: NSApp, config: config)
+            }
+        }
         UNUserNotificationCenter.current().delegate = self
 
         guard shouldOpenMainWindow else { return }
@@ -40,6 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let configObserverID {
+            configStore.removeObserver(configObserverID)
+        }
         NSApp.dockTile.badgeLabel = nil
     }
 

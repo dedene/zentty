@@ -1,12 +1,20 @@
 import Foundation
 
 enum AppConfigTOML {
+    private struct DecodedShortcutBinding {
+        var commandID: AppCommandID?
+        var shortcut: KeyboardShortcut?
+        var hasShortcutValue = false
+    }
+
     private enum Section: Equatable {
         case root
         case sidebar
         case paneLayout
         case openWith
         case customApp(Int)
+        case shortcuts
+        case shortcutBinding(Int)
     }
 
     static func encode(_ config: AppConfig) -> String {
@@ -40,6 +48,20 @@ enum AppConfigTOML {
             }
         }
 
+        if !config.shortcuts.bindings.isEmpty {
+            lines.append("")
+            for binding in config.shortcuts.bindings {
+                lines.append("[[shortcuts.bindings]]")
+                lines.append("command_id = \(encode(string: binding.commandID.rawValue))")
+                lines.append("shortcut = \(encode(string: binding.shortcut?.storageString ?? ""))")
+                lines.append("")
+            }
+
+            while lines.last?.isEmpty == true {
+                lines.removeLast()
+            }
+        }
+
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -47,6 +69,7 @@ enum AppConfigTOML {
         var config = AppConfig.default
         var section = Section.root
         var customApps: [OpenWithCustomApp] = []
+        var decodedShortcutBindings: [DecodedShortcutBinding] = []
 
         for rawLine in source.components(separatedBy: .newlines) {
             let line = stripComment(from: rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -69,6 +92,15 @@ enum AppConfigTOML {
             if line == "[[open_with.custom_apps]]" {
                 customApps.append(OpenWithCustomApp(id: "", name: "", appPath: ""))
                 section = .customApp(customApps.count - 1)
+                continue
+            }
+            if line == "[shortcuts]" {
+                section = .shortcuts
+                continue
+            }
+            if line == "[[shortcuts.bindings]]" {
+                decodedShortcutBindings.append(DecodedShortcutBinding())
+                section = .shortcutBinding(decodedShortcutBindings.count - 1)
                 continue
             }
 
@@ -96,6 +128,15 @@ enum AppConfigTOML {
                 guard decodeCustomAppAssignment(assignment, into: &customApps[index]) else {
                     return nil
                 }
+            case .shortcutBinding(let index):
+                guard decodedShortcutBindings.indices.contains(index) else {
+                    return nil
+                }
+                guard decodeShortcutAssignment(assignment, into: &decodedShortcutBindings[index]) else {
+                    return nil
+                }
+            case .shortcuts:
+                continue
             case .root:
                 return nil
             }
@@ -104,7 +145,18 @@ enum AppConfigTOML {
         guard customApps.allSatisfy({ !$0.id.isEmpty && !$0.name.isEmpty && !$0.appPath.isEmpty }) else {
             return nil
         }
+        let shortcuts = decodedShortcutBindings.compactMap { binding -> ShortcutBindingOverride? in
+            guard let commandID = binding.commandID, binding.hasShortcutValue else {
+                return nil
+            }
+
+            return ShortcutBindingOverride(commandID: commandID, shortcut: binding.shortcut)
+        }
+        guard shortcuts.count == decodedShortcutBindings.count else {
+            return nil
+        }
         config.openWith.customApps = customApps
+        config.shortcuts.bindings = shortcuts
         return config
     }
 
@@ -191,6 +243,39 @@ enum AppConfigTOML {
             app.name = decoded
         case "path":
             app.appPath = decoded
+        default:
+            return true
+        }
+
+        return true
+    }
+
+    private static func decodeShortcutAssignment(
+        _ assignment: (key: String, value: String),
+        into binding: inout DecodedShortcutBinding
+    ) -> Bool {
+        switch assignment.key {
+        case "command_id":
+            guard let raw = decodeString(assignment.value),
+                  let commandID = AppCommandID(rawValue: raw) else {
+                return false
+            }
+
+            binding.commandID = commandID
+        case "shortcut":
+            guard let raw = decodeString(assignment.value) else {
+                return false
+            }
+
+            binding.hasShortcutValue = true
+            if raw.isEmpty {
+                binding.shortcut = nil
+            } else {
+                guard let shortcut = KeyboardShortcut(storageString: raw) else {
+                    return false
+                }
+                binding.shortcut = shortcut
+            }
         default:
             return true
         }

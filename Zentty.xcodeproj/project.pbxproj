@@ -102,6 +102,7 @@
 		C41A9DA1C5F846F4F63F7D95 /* SidebarWorklaneRowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 916D215502518D8BAF3C3921 /* SidebarWorklaneRowLayout.swift */; };
 		C70B8C533AEC49BA2A439F9C /* WorklaneGitContextResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA09FC678684229963B9BA40 /* WorklaneGitContextResolverTests.swift */; };
 		C749B84F3DFA56E1241551D1 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A00B46795D7A242D2C9107 /* SettingsWindowController.swift */; };
+		C83D1D0C0E0A4E6C8C71A001 /* ShortcutsSettingsSectionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C83D1D0C0E0A4E6C8C71A000 /* ShortcutsSettingsSectionViewController.swift */; };
 		C7E03A7F4908AC8B2713A19B /* SidebarVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163D5C0FE862CC71E8B354E2 /* SidebarVisibilityController.swift */; };
 		C81F06F705D6F4A67A3DAE8F /* WorklaneSidebarSummaryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A594231C8131296490BB8E76 /* WorklaneSidebarSummaryBuilder.swift */; };
 		D0C44C284C252D950CB890FA /* WorklaneAttentionChipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9B72357CA80C59A161F7BE2 /* WorklaneAttentionChipView.swift */; };
@@ -225,6 +226,7 @@
 		916D215502518D8BAF3C3921 /* SidebarWorklaneRowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowLayout.swift; sourceTree = "<group>"; };
 		94042661C850159F74FC9F69 /* PaneStripViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripViewTests.swift; sourceTree = "<group>"; };
 		96A00B46795D7A242D2C9107 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		C83D1D0C0E0A4E6C8C71A000 /* ShortcutsSettingsSectionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsSectionViewController.swift; sourceTree = "<group>"; };
 		9760F3B7EDC0087FA89778B9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		9D4020F350259F84864071D9 /* PathCopiedToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathCopiedToastView.swift; sourceTree = "<group>"; };
 		9E06B6AF9A2D4A3F2872F62E /* NotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStore.swift; sourceTree = "<group>"; };
@@ -516,6 +518,7 @@
 			isa = PBXGroup;
 			children = (
 				BDDCADD851AB62CAFFF43AF3 /* SettingsSectionViewControllers.swift */,
+				C83D1D0C0E0A4E6C8C71A000 /* ShortcutsSettingsSectionViewController.swift */,
 				96A00B46795D7A242D2C9107 /* SettingsWindowController.swift */,
 			);
 			path = Settings;
@@ -838,6 +841,7 @@
 				AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */,
 				196932893F690C070D526631 /* MockTerminalAdapter.swift in Sources */,
 				02D777CF5546342EC50E6E32 /* NotificationBellButton.swift in Sources */,
+				C83D1D0C0E0A4E6C8C71A001 /* ShortcutsSettingsSectionViewController.swift in Sources */,
 				AC60EE09544BBC10EFB386EA /* NotificationPanelView.swift in Sources */,
 				AF800D9AC1461F47A82F6214 /* NotificationStore.swift in Sources */,
 				E6DB3D37929BDB0F6583E0E5 /* OpenWithCatalog.swift in Sources */,

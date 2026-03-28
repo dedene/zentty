@@ -89,6 +89,12 @@ struct ZenttyTheme: Equatable {
     let openWithPopoverRowSelectedBackground: NSColor
     let openWithPopoverRowSelectedBorder: NSColor
     let openWithPopoverFooterSeparator: NSColor
+    let notificationPanelBackground: NSColor
+    let notificationPanelBorder: NSColor
+    let notificationPanelShadow: NSColor
+    let notificationPanelSeparator: NSColor
+    let notificationPanelRowHoverBackground: NSColor
+    let notificationPanelRowSelectedBackground: NSColor
     let underlapShadow: NSColor
     let sidebarGlassAppearance: ThemeChromeAppearance
     let reducedTransparency: Bool
@@ -113,6 +119,9 @@ struct ZenttyTheme: Equatable {
             lhs.openWithPopoverSecondaryText, lhs.openWithPopoverRowHoverBackground,
             lhs.openWithPopoverRowSelectedBackground, lhs.openWithPopoverRowSelectedBorder,
             lhs.openWithPopoverFooterSeparator,
+            lhs.notificationPanelBackground, lhs.notificationPanelBorder, lhs.notificationPanelShadow,
+            lhs.notificationPanelSeparator, lhs.notificationPanelRowHoverBackground,
+            lhs.notificationPanelRowSelectedBackground,
             lhs.underlapShadow,
         ].map(\.themeToken) == [
             rhs.windowBackground, rhs.sidebarBackground, rhs.sidebarBorder, rhs.sidebarShadow,
@@ -131,6 +140,9 @@ struct ZenttyTheme: Equatable {
             rhs.openWithPopoverSecondaryText, rhs.openWithPopoverRowHoverBackground,
             rhs.openWithPopoverRowSelectedBackground, rhs.openWithPopoverRowSelectedBorder,
             rhs.openWithPopoverFooterSeparator,
+            rhs.notificationPanelBackground, rhs.notificationPanelBorder, rhs.notificationPanelShadow,
+            rhs.notificationPanelSeparator, rhs.notificationPanelRowHoverBackground,
+            rhs.notificationPanelRowSelectedBackground,
             rhs.underlapShadow,
         ].map(\.themeToken)
             && lhs.sidebarGlassAppearance == rhs.sidebarGlassAppearance
@@ -172,21 +184,28 @@ struct ZenttyTheme: Equatable {
             .mixed(towards: startupSurfaceBase, amount: background.isDarkThemeColor ? 0.92 : 0.95)
         let openWithPopoverBase = baseSidebar
             .mixed(towards: startupSurfaceBase, amount: background.isDarkThemeColor ? 0.14 : 0.32)
+        let notificationPanelBase = background.isDarkThemeColor
+            ? openWithPopoverBase
+                .mixed(towards: NSColor.black, amount: 0.18)
+                .mixed(towards: startupSurfaceBase, amount: 0.04)
+            : openWithPopoverBase
+                .mixed(towards: foreground, amount: 0.06)
+                .mixed(towards: startupSurfaceBase, amount: 0.10)
 
         self.reducedTransparency = reduceTransparency
         sidebarGlassAppearance = background.isDarkThemeColor ? .dark : .light
         startupSurface = startupSurfaceBase
-        windowBackground = startupSurface
+        windowBackground = startupSurfaceBase
         sidebarBackground = baseSidebar.withAlphaComponent(reduceTransparency ? 0.92 : (background.isDarkThemeColor ? 0.42 : 0.74))
         sidebarBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.10)
         sidebarShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.05)
-        canvasBackground = startupSurface
-        topChromeBackground = canvasBackground
+        canvasBackground = startupSurfaceBase
+        topChromeBackground = startupSurfaceBase
         topChromeBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.06 : 0.08)
         canvasBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.14)
         canvasShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 + softnessHint : 0.06 + (softnessHint * 0.35))
         contextStripBackground = accent
-            .mixed(towards: startupSurface, amount: background.isDarkThemeColor ? 0.88 : 0.92)
+            .mixed(towards: startupSurfaceBase, amount: background.isDarkThemeColor ? 0.88 : 0.92)
             .withAlphaComponent(reduceTransparency ? 0.94 : 0.74)
         contextStripBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.10 : 0.12)
         worklaneChipBackground = accent
@@ -254,6 +273,18 @@ struct ZenttyTheme: Equatable {
             .withAlphaComponent(reduceTransparency ? 0.92 : (background.isDarkThemeColor ? 0.56 : 0.72))
         openWithPopoverRowSelectedBorder = accent.withAlphaComponent(background.isDarkThemeColor ? 0.22 : 0.18)
         openWithPopoverFooterSeparator = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.06 : 0.08)
+        notificationPanelBackground = notificationPanelBase.withAlphaComponent(
+            reduceTransparency ? 0.98 : (background.isDarkThemeColor ? 0.84 : 0.92)
+        )
+        notificationPanelBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.11 : 0.13)
+        notificationPanelShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.30 : 0.15)
+        notificationPanelSeparator = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.09 : 0.10)
+        notificationPanelRowHoverBackground = notificationPanelBase
+            .mixed(towards: readableForeground, amount: background.isDarkThemeColor ? 0.10 : 0.16)
+            .withAlphaComponent(reduceTransparency ? 0.20 : (background.isDarkThemeColor ? 0.20 : 0.26))
+        notificationPanelRowSelectedBackground = accent
+            .mixed(towards: notificationPanelBase, amount: background.isDarkThemeColor ? 0.66 : 0.76)
+            .withAlphaComponent(reduceTransparency ? 0.94 : (background.isDarkThemeColor ? 0.68 : 0.78))
         underlapShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.06)
     }
 

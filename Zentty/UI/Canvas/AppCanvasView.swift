@@ -543,6 +543,18 @@ final class AppCanvasView: NSView {
         paneStripView.focusCurrentPaneIfNeeded()
     }
 
+    func settlePaneStripPresentationNow() {
+        paneStripView.settlePresentationNow()
+    }
+
+    func centerFocusedInteriorPaneOnNextRender() {
+        paneStripView.centerFocusedInteriorPaneOnNextRender()
+    }
+
+    func clearPendingPaneStripTargetOffsetOverride() {
+        paneStripView.clearPendingTargetOffsetOverride()
+    }
+
     func setLeadingVisibleInset(
         _ leadingVisibleInset: CGFloat,
         animated: Bool,

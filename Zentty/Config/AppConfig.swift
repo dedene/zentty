@@ -19,9 +19,16 @@ struct AppConfig: Equatable, Sendable {
         )
     }
 
+    struct Shortcuts: Equatable, Sendable {
+        var bindings: [ShortcutBindingOverride]
+
+        static let `default` = Shortcuts(bindings: [])
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var openWith: OpenWith
+    var shortcuts: Shortcuts
 
     static let `default` = AppConfig(
         sidebar: Sidebar(
@@ -29,7 +36,8 @@ struct AppConfig: Equatable, Sendable {
             visibility: .pinnedOpen
         ),
         paneLayout: .default,
-        openWith: .default
+        openWith: .default,
+        shortcuts: .default
     )
 
     static func migrated(
@@ -43,13 +51,15 @@ struct AppConfig: Equatable, Sendable {
                 visibility: SidebarVisibilityPreference.restoredVisibility(from: sidebarVisibilityDefaults)
             ),
             paneLayout: PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults),
-            openWith: .default
+            openWith: .default,
+            shortcuts: .default
         )
     }
 
     func normalized() -> AppConfig {
         var normalized = self
         normalized.openWith = normalized.openWith.normalized()
+        normalized.shortcuts = normalized.shortcuts.normalized()
         return normalized
     }
 }
@@ -113,6 +123,22 @@ extension AppConfig.OpenWith {
             primaryTargetID: normalizedPrimaryTargetID,
             enabledTargetIDs: normalizedEnabledTargetIDs,
             customApps: canonicalApps
+        )
+    }
+}
+
+extension AppConfig.Shortcuts {
+    func normalized() -> AppConfig.Shortcuts {
+        AppConfig.Shortcuts(bindings: ShortcutManager.sanitizedBindings(bindings))
+    }
+
+    func updating(commandID: AppCommandID, shortcut: KeyboardShortcut?) -> AppConfig.Shortcuts {
+        AppConfig.Shortcuts(
+            bindings: ShortcutManager.updatedBindings(
+                from: bindings,
+                commandID: commandID,
+                shortcut: shortcut
+            )
         )
     }
 }

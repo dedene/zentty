@@ -239,6 +239,46 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_horizontal_drag_retargets_non_adjacent_divider_to_the_focused_split() throws {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1400, height: 680))
+        let grabbedDivider = PaneDivider.column(afterColumnID: PaneColumnID("left"))
+        let activeDivider = PaneDivider.column(afterColumnID: PaneColumnID("middle-left"))
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("middle-left", paneIDs: ["middle-left"], width: 360),
+                makeColumn("focused", paneIDs: ["focused"], width: 420),
+                makeColumn("right", paneIDs: ["right"], width: 520),
+            ],
+            focusedColumnID: PaneColumnID("focused")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let target = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                grabbedDivider,
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+
+        XCTAssertEqual(
+            target,
+            .horizontalEdge(
+                PaneHorizontalResizeTarget(
+                    columnID: PaneColumnID("focused"),
+                    edge: .left,
+                    divider: activeDivider
+                )
+            )
+        )
+        XCTAssertEqual(paneStripView.dividerHighlightStateForTesting(grabbedDivider)?.active, false)
+        XCTAssertEqual(paneStripView.dividerHighlightStateForTesting(activeDivider)?.active, true)
+        paneStripView.endDividerDragForTesting()
+    }
+
+    @MainActor
     func test_render_publishes_border_chrome_snapshots_for_visible_panes() throws {
         let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
         let state = PaneStripState(
@@ -578,7 +618,9 @@ final class PaneStripViewTests: XCTestCase {
         insetStripView.render(state)
         insetStripView.layoutSubtreeIfNeeded()
 
-        XCTAssertGreaterThanOrEqual(insetStripView.descendantPaneViews()[0].frame.minX, 289.999)
+        let visibleBorderFrame = insetStripView.descendantPaneViews()[0].visibleInsetBorderFrameForTesting
+        let expectedLaneMinX = 290 + insetStripView.descendantPaneViews()[0].insetBorderInset
+        XCTAssertGreaterThanOrEqual(visibleBorderFrame.minX, expectedLaneMinX - 0.001)
     }
 
     @MainActor
@@ -600,9 +642,11 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.render(firstFocused)
         paneStripView.layoutSubtreeIfNeeded()
 
+        let visibleBorderFrame = paneStripView.descendantPaneViews()[0].visibleInsetBorderFrameForTesting
+        let expectedLaneMinX = sidebarInset + paneStripView.descendantPaneViews()[0].insetBorderInset
         XCTAssertGreaterThanOrEqual(
-            paneStripView.descendantPaneViews()[0].frame.minX,
-            sidebarInset - 0.001
+            visibleBorderFrame.minX,
+            expectedLaneMinX - 0.001
         )
     }
 
@@ -664,6 +708,42 @@ final class PaneStripViewTests: XCTestCase {
             .map { $0.frame.width }
 
         XCTAssertEqual(firstFocusedWidths, lastFocusedWidths)
+    }
+
+    @MainActor
+    func test_centering_hint_recenters_focused_middle_pane_on_next_render() {
+        let paneStripView = PaneStripView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        paneStripView.leadingVisibleInset = sidebarInset
+
+        let leftFocusedState = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 420),
+                makeColumn("middle", paneIDs: ["middle"], width: 420),
+                makeColumn("right", paneIDs: ["right"], width: 420),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+        let resizedMiddleState = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 420),
+                makeColumn("middle", paneIDs: ["middle"], width: 360),
+                makeColumn("right", paneIDs: ["right"], width: 420),
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+
+        paneStripView.render(leftFocusedState)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.centerFocusedInteriorPaneOnNextRender()
+        paneStripView.render(resizedMiddleState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let paneViews = paneStripView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        XCTAssertEqual(paneViews.count, 3)
+        let middleVisibleFrame = paneViews[1].visibleInsetBorderFrameForTesting
+        let visibleLaneMidX = (sidebarInset + paneViews[1].insetBorderInset + (paneStripView.bounds.width - paneViews[1].insetBorderInset)) / 2
+
+        XCTAssertEqual(middleVisibleFrame.midX, visibleLaneMidX, accuracy: 0.001)
     }
 
     @MainActor
@@ -1415,6 +1495,20 @@ final class PaneStripViewTests: XCTestCase {
         PaneState(id: PaneID(title), title: title)
     }
 
+    private func makeColumn(
+        _ rawID: String,
+        paneIDs: [String],
+        width: CGFloat
+    ) -> PaneColumnState {
+        PaneColumnState(
+            id: PaneColumnID(rawID),
+            panes: paneIDs.map { PaneState(id: PaneID($0), title: $0) },
+            width: width,
+            focusedPaneID: paneIDs.first.map(PaneID.init),
+            lastFocusedPaneID: paneIDs.first.map(PaneID.init)
+        )
+    }
+
     private func makeScrollTestState(focusedPaneID: PaneID) -> PaneStripState {
         PaneStripState(
             panes: [
@@ -1499,6 +1593,12 @@ private extension NSView {
 
         walk(self)
         return paneViews
+    }
+}
+
+private extension PaneContainerView {
+    var visibleInsetBorderFrameForTesting: CGRect {
+        insetBorderFrame.offsetBy(dx: frame.minX, dy: frame.minY)
     }
 }
 

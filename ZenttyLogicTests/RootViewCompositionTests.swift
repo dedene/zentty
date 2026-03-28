@@ -278,7 +278,7 @@ final class RootViewCompositionTests: XCTestCase {
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
-        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView })
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
         let initialPaneView = try XCTUnwrap(appCanvasView.descendantPaneViews().first)
         let initialExpectedWidth = PaneLayoutSizing.edgeAligned.readableWidth(
             for: appCanvasView.bounds.width,
@@ -305,7 +305,7 @@ final class RootViewCompositionTests: XCTestCase {
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
-        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView })
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
         let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView })
         let paneView = try XCTUnwrap(appCanvasView.descendantPaneViews().first)
         let borderFrameInRoot = paneView.convert(paneView.insetBorderFrame, to: controller.view)
@@ -344,8 +344,11 @@ final class RootViewCompositionTests: XCTestCase {
         controller.handle(.pane(.splitAfterFocusedPane))
         controller.view.layoutSubtreeIfNeeded()
 
-        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView })
-        let initialCanvasWidth = appCanvasView.bounds.width
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        let initialReadableWidth = PaneLayoutSizing.edgeAligned.readableWidth(
+            for: appCanvasView.bounds.width,
+            leadingVisibleInset: appCanvasView.leadingVisibleInset
+        )
         let initialPaneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
         let initialWidths = initialPaneViews.map { $0.frame.width }
 
@@ -354,7 +357,10 @@ final class RootViewCompositionTests: XCTestCase {
 
         let resizedPaneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
         let resizedWidths = resizedPaneViews.map { $0.frame.width }
-        let expectedScaleFactor = appCanvasView.bounds.width / initialCanvasWidth
+        let expectedScaleFactor = PaneLayoutSizing.edgeAligned.readableWidth(
+            for: appCanvasView.bounds.width,
+            leadingVisibleInset: appCanvasView.leadingVisibleInset
+        ) / initialReadableWidth
 
         XCTAssertEqual(initialWidths.count, 2)
         XCTAssertEqual(resizedWidths.count, 2)
@@ -442,7 +448,7 @@ final class RootViewCompositionTests: XCTestCase {
 
         XCTAssertEqual(
             sidebarView.firstWorklanePrimaryMinX,
-            ShellMetrics.sidebarContentInset + 10,
+            ShellMetrics.sidebarContentInset + ShellMetrics.sidebarWorklaneTextHorizontalInset,
             accuracy: 0.5
         )
     }
@@ -625,11 +631,17 @@ final class RootViewCompositionTests: XCTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        XCTAssertLessThan(sidebarView.resizeHandleMinX, sidebarView.bounds.maxX)
+        XCTAssertEqual(sidebarView.resizeHandleWidthForTesting, 4, accuracy: 0.001)
+        XCTAssertEqual(
+            sidebarView.resizeHandleMinX,
+            sidebarView.bounds.maxX - sidebarView.resizeHandleWidthForTesting,
+            accuracy: 0.001
+        )
         XCTAssertEqual(sidebarView.resizeHandleMaxX, sidebarView.bounds.maxX, accuracy: 0.001)
         XCTAssertEqual(sidebarView.resizeHandleFillAlpha, 0, accuracy: 0.001)
         XCTAssertFalse(sidebarView.isResizeHandleHidden)
         XCTAssertTrue(sidebarView.trailingEdgeHitTargetsResizeHandle)
+        XCTAssertFalse(sidebarView.hitTargetsResizeHandle(atX: sidebarView.bounds.maxX - 5))
     }
 
     func test_sidebar_hides_resize_handle_when_resize_is_disabled() {
@@ -711,6 +723,146 @@ final class RootViewCompositionTests: XCTestCase {
             glassView.layer?.borderColor.flatMap(NSColor.init(cgColor:))?.themeToken,
             theme.openWithPopoverBorder.themeToken
         )
+    }
+
+    func test_notification_panel_embeds_shared_glass_surface() {
+        let panel = NotificationPanelView(frame: NSRect(x: 0, y: 0, width: 360, height: 220))
+
+        panel.update(notifications: [
+            AppNotification(
+                id: UUID(),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main"),
+                tool: .claudeCode,
+                interactionKind: .question,
+                interactionSymbolName: "questionmark.circle",
+                statusText: "Needs input",
+                primaryText: "Review the plan",
+                createdAt: Date(timeIntervalSince1970: 42)
+            )
+        ], theme: ZenttyTheme.fallback(for: nil))
+
+        XCTAssertTrue(panel.containsDescendant(ofType: GlassSurfaceView.self))
+    }
+
+    func test_notification_panel_glass_does_not_reuse_open_with_surface_recipe() throws {
+        let panel = NotificationPanelView(frame: NSRect(x: 0, y: 0, width: 360, height: 220))
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: false
+        )
+
+        panel.update(notifications: [
+            AppNotification(
+                id: UUID(),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main"),
+                tool: .claudeCode,
+                interactionKind: .question,
+                interactionSymbolName: "questionmark.circle",
+                statusText: "Needs input",
+                primaryText: "Review the plan",
+                createdAt: Date(timeIntervalSince1970: 42)
+            )
+        ], theme: theme)
+
+        let glassView = try XCTUnwrap(panel.firstDescendant(ofType: GlassSurfaceView.self))
+        let backgroundToken = glassView.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.themeToken
+
+        XCTAssertNotEqual(glassView.material, .menu)
+        XCTAssertNotEqual(backgroundToken, theme.openWithPopoverBackground.themeToken)
+    }
+
+    func test_notification_panel_clips_content_to_rounded_glass_shape() throws {
+        let panel = NotificationPanelView(frame: NSRect(x: 0, y: 0, width: 360, height: 220))
+
+        panel.update(notifications: [
+            AppNotification(
+                id: UUID(),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main"),
+                tool: .claudeCode,
+                interactionKind: .question,
+                interactionSymbolName: "questionmark.circle",
+                statusText: "Needs input",
+                primaryText: "Review the plan",
+                createdAt: Date(timeIntervalSince1970: 42)
+            )
+        ], theme: ZenttyTheme.fallback(for: nil))
+
+        let clipView = try XCTUnwrap(panel.firstDescendant { view in
+            guard let layer = view.layer else {
+                return false
+            }
+
+            return layer.masksToBounds && layer.cornerRadius == GlassSurfaceStyle.notificationPanel.cornerRadius
+        })
+        let clipLayer = try XCTUnwrap(clipView.layer)
+
+        XCTAssertTrue(clipLayer.masksToBounds)
+        XCTAssertEqual(clipLayer.cornerRadius, GlassSurfaceStyle.notificationPanel.cornerRadius)
+    }
+
+    func test_notification_panel_selected_row_does_not_reuse_open_with_selected_fill() throws {
+        let panel = NotificationPanelView(frame: NSRect(x: 0, y: 0, width: 360, height: 220))
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: false
+        )
+
+        panel.update(notifications: [
+            AppNotification(
+                id: UUID(),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main"),
+                tool: .claudeCode,
+                interactionKind: .question,
+                interactionSymbolName: "questionmark.circle",
+                statusText: "Needs input",
+                primaryText: "Review the plan",
+                createdAt: Date(timeIntervalSince1970: 42)
+            )
+        ], theme: theme)
+
+        let downArrow = String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: downArrow,
+                charactersIgnoringModifiers: downArrow,
+                isARepeat: false,
+                keyCode: 125
+            )
+        )
+        panel.keyDown(with: event)
+
+        let row = try XCTUnwrap(panel.firstDescendant(named: "NotificationItemView"))
+        let backgroundToken = row.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.themeToken
+
+        XCTAssertNotEqual(backgroundToken, theme.openWithPopoverRowSelectedBackground.themeToken)
     }
 
     func test_sidebar_content_tree_forces_dark_appearance_for_dark_themes() {
@@ -1029,6 +1181,247 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(controller.sidebarToggleMinX, hiddenToggleMinX, accuracy: 0.001)
     }
 
+    func test_toggle_sidebar_then_horizontal_keyboard_resize_preserves_single_split_spacing() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusFirstColumn))
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.toggleSidebar)
+        let hideSettled = expectation(description: "sidebar hidden")
+        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarTransitionProfile.standardDuration + 0.05) {
+            hideSettled.fulfill()
+        }
+        wait(for: [hideSettled], timeout: 2.0)
+
+        controller.handle(.toggleSidebar)
+        let showSettled = expectation(description: "sidebar shown")
+        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarTransitionProfile.standardDuration + 0.05) {
+            showSettled.fulfill()
+        }
+        wait(for: [showSettled], timeout: 2.0)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.resizeRight))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        var paneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        let readableWidth = PaneLayoutSizing.edgeAligned.readableWidth(
+            for: appCanvasView.bounds.width,
+            leadingVisibleInset: appCanvasView.leadingVisibleInset
+        )
+
+        XCTAssertEqual(paneViews.count, 2)
+        XCTAssertEqual(
+            paneViews[1].frame.minX - paneViews[0].frame.maxX,
+            PaneLayoutSizing.edgeAligned.interPaneSpacing,
+            accuracy: 0.001
+        )
+        XCTAssertLessThanOrEqual(paneViews[0].frame.width, readableWidth + 0.001)
+
+        controller.handle(.pane(.resizeLeft))
+        controller.view.layoutSubtreeIfNeeded()
+
+        paneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        XCTAssertEqual(paneViews.count, 2)
+        XCTAssertEqual(
+            paneViews[1].frame.minX - paneViews[0].frame.maxX,
+            PaneLayoutSizing.edgeAligned.interPaneSpacing,
+            accuracy: 0.001
+        )
+        let expectedLaneMinX = appCanvasView.leadingVisibleInset
+            + paneViews[0].insetBorderInset
+        XCTAssertGreaterThanOrEqual(
+            paneViews[0].visibleInsetBorderFrameForTesting.minX,
+            expectedLaneMinX - 0.001
+        )
+    }
+
+    func test_immediate_horizontal_keyboard_resize_after_sidebar_reopen_preserves_single_split_spacing() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusFirstColumn))
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.toggleSidebar)
+        let hideSettled = expectation(description: "sidebar hidden")
+        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarTransitionProfile.standardDuration + 0.05) {
+            hideSettled.fulfill()
+        }
+        wait(for: [hideSettled], timeout: 2.0)
+
+        controller.handle(.toggleSidebar)
+        controller.handle(.pane(.resizeRight))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.resizeLeft))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        let paneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+
+        XCTAssertEqual(paneViews.count, 2)
+        XCTAssertEqual(
+            paneViews[1].frame.minX - paneViews[0].frame.maxX,
+            PaneLayoutSizing.edgeAligned.interPaneSpacing,
+            accuracy: 0.001
+        )
+        let expectedLaneMinX = appCanvasView.leadingVisibleInset
+            + paneViews[0].insetBorderInset
+        XCTAssertGreaterThanOrEqual(
+            paneViews[0].visibleInsetBorderFrameForTesting.minX,
+            expectedLaneMinX - 0.001
+        )
+    }
+
+    func test_focus_shift_to_second_pane_keeps_strip_flush_with_visible_lane() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusFirstColumn))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.resizeRight))
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.focusLastColumn))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        let paneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+
+        XCTAssertEqual(paneViews.count, 2)
+        let expectedLeadingEdge = appCanvasView.leadingVisibleInset
+            + paneViews[0].insetBorderInset
+        let expectedTrailingEdge = appCanvasView.bounds.width
+            - paneViews[1].insetBorderInset
+        XCTAssertLessThanOrEqual(
+            paneViews[0].visibleInsetBorderFrameForTesting.minX,
+            expectedLeadingEdge + 0.001
+        )
+        XCTAssertEqual(
+            paneViews[1].visibleInsetBorderFrameForTesting.maxX,
+            expectedTrailingEdge,
+            accuracy: 0.001
+        )
+    }
+
+    func test_focus_shift_pans_only_enough_to_fully_reveal_newly_focused_pane() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusFirstColumn))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.resizeRight))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        let beforeFrames = appCanvasView.descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+        let beforeVisibleFrames = beforeFrames.map(\.visibleInsetBorderFrameForTesting)
+        let expectedTrailingEdge = appCanvasView.bounds.width
+            - beforeFrames[1].insetBorderInset
+        let expectedShift = max(0, beforeVisibleFrames[1].maxX - expectedTrailingEdge)
+
+        XCTAssertGreaterThan(expectedShift, 0.001)
+
+        controller.handle(.pane(.focusLastColumn))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let afterFrames = appCanvasView.descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+        let afterVisibleFrames = afterFrames.map(\.visibleInsetBorderFrameForTesting)
+
+        XCTAssertEqual(beforeFrames.count, 2)
+        XCTAssertEqual(afterFrames.count, 2)
+        XCTAssertEqual(afterVisibleFrames[0].minX, beforeVisibleFrames[0].minX - expectedShift, accuracy: 0.001)
+        XCTAssertEqual(afterVisibleFrames[0].maxX, beforeVisibleFrames[0].maxX - expectedShift, accuracy: 0.001)
+        XCTAssertEqual(afterVisibleFrames[1].minX, beforeVisibleFrames[1].minX - expectedShift, accuracy: 0.001)
+        XCTAssertEqual(afterVisibleFrames[1].maxX, beforeVisibleFrames[1].maxX - expectedShift, accuracy: 0.001)
+        XCTAssertEqual(afterVisibleFrames[1].maxX, expectedTrailingEdge, accuracy: 0.001)
+    }
+
+    func test_focus_shift_does_not_scroll_fully_visible_two_pane_strip_after_both_panes_hit_minimum_width() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.focusLastColumn))
+        for _ in 0..<80 {
+            controller.handle(.pane(.resizeRight))
+        }
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.focusFirstColumn))
+        for _ in 0..<80 {
+            controller.handle(.pane(.resizeLeft))
+        }
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        let beforeFocusShiftFrames = appCanvasView.descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+            .map(\.visibleInsetBorderFrameForTesting)
+
+        controller.handle(.pane(.resizeLeft))
+        controller.view.layoutSubtreeIfNeeded()
+        let afterExtraLeftResizeFrames = appCanvasView.descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+            .map(\.visibleInsetBorderFrameForTesting)
+
+        controller.handle(.pane(.focusLastColumn))
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.resizeRight))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let afterFocusLastFrames = appCanvasView.descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+            .map(\.visibleInsetBorderFrameForTesting)
+
+        controller.handle(.pane(.focusFirstColumn))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let afterFocusFirstFrames = appCanvasView.descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+            .map(\.visibleInsetBorderFrameForTesting)
+
+        XCTAssertEqual(beforeFocusShiftFrames.count, 2)
+        XCTAssertEqual(afterExtraLeftResizeFrames.count, 2)
+        XCTAssertEqual(afterFocusLastFrames.count, 2)
+        XCTAssertEqual(afterFocusFirstFrames.count, 2)
+
+        for index in beforeFocusShiftFrames.indices {
+            XCTAssertEqual(afterExtraLeftResizeFrames[index].minX, beforeFocusShiftFrames[index].minX, accuracy: 0.001)
+            XCTAssertEqual(afterExtraLeftResizeFrames[index].maxX, beforeFocusShiftFrames[index].maxX, accuracy: 0.001)
+            XCTAssertEqual(afterFocusLastFrames[index].minX, beforeFocusShiftFrames[index].minX, accuracy: 0.001)
+            XCTAssertEqual(afterFocusLastFrames[index].maxX, beforeFocusShiftFrames[index].maxX, accuracy: 0.001)
+            XCTAssertEqual(afterFocusFirstFrames[index].minX, beforeFocusShiftFrames[index].minX, accuracy: 0.001)
+            XCTAssertEqual(afterFocusFirstFrames[index].maxX, beforeFocusShiftFrames[index].maxX, accuracy: 0.001)
+        }
+    }
+
     func test_navigate_back_to_first_pane_clears_sidebar_with_three_panes() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
@@ -1050,7 +1443,45 @@ final class RootViewCompositionTests: XCTestCase {
         let sidebarInset = controller.currentSidebarWidth + ShellMetrics.canvasSidebarGap
 
         XCTAssertEqual(paneViews.count, 3)
-        XCTAssertGreaterThanOrEqual(paneViews[0].frame.minX, sidebarInset - 0.001)
+        let expectedLaneMinX = sidebarInset
+            + paneViews[0].insetBorderInset
+        XCTAssertGreaterThanOrEqual(
+            paneViews[0].visibleInsetBorderFrameForTesting.minX,
+            expectedLaneMinX - 0.001
+        )
+    }
+
+    func test_middle_pane_horizontal_keyboard_resize_recenters_it_in_visible_lane() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusLastColumn))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusLeft))
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.resizeLeft))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        let paneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        XCTAssertEqual(paneViews.count, 3)
+
+        let middleVisibleFrame = paneViews[1].visibleInsetBorderFrameForTesting
+        let visibleLaneMidX = (
+            controller.currentSidebarWidth
+            + ShellMetrics.canvasSidebarGap
+            + paneViews[1].insetBorderInset
+            + (appCanvasView.bounds.width - paneViews[1].insetBorderInset)
+        ) / 2
+
+        XCTAssertEqual(middleVisibleFrame.midX, visibleLaneMidX, accuracy: 0.001)
     }
 }
 
@@ -1154,10 +1585,52 @@ private extension NSView {
         }
     }
 
+    func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+        for subview in subviews {
+            if let match = subview as? T {
+                return match
+            }
+            if let match = subview.firstDescendant(ofType: type) {
+                return match
+            }
+        }
+        return nil
+    }
+
     func containsDescendant(named className: String) -> Bool {
         subviews.contains { subview in
             String(describing: type(of: subview)) == className || subview.containsDescendant(named: className)
         }
+    }
+
+    func firstDescendant(named className: String) -> NSView? {
+        for subview in subviews {
+            if String(describing: type(of: subview)) == className {
+                return subview
+            }
+            if let match = subview.firstDescendant(named: className) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    func firstDescendant(where predicate: (NSView) -> Bool) -> NSView? {
+        for subview in subviews {
+            if predicate(subview) {
+                return subview
+            }
+            if let match = subview.firstDescendant(where: predicate) {
+                return match
+            }
+        }
+        return nil
+    }
+}
+
+private extension PaneContainerView {
+    var visibleInsetBorderFrameForTesting: CGRect {
+        insetBorderFrame.offsetBy(dx: frame.minX, dy: frame.minY)
     }
 }
 

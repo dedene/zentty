@@ -100,6 +100,8 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(
             viewMenu?.items.map(\.title),
             [
+                "Toggle Sidebar",
+                "",
                 "Split Horizontally",
                 "Split Vertically",
                 "",
@@ -121,6 +123,8 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(
             viewMenu?.items.map(\.action),
             [
+                #selector(MainWindowController.toggleSidebar(_:)),
+                nil,
                 #selector(MainWindowController.splitHorizontally(_:)),
                 #selector(MainWindowController.splitVertically(_:)),
                 nil,
@@ -142,6 +146,8 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(
             viewMenu?.items.map(\.keyEquivalent),
             [
+                "s",
+                "",
                 "d",
                 "d",
                 "",
@@ -164,6 +170,8 @@ final class AppDelegateTests: XCTestCase {
             viewMenu?.items.map(\.keyEquivalentModifierMask),
             [
                 [.command],
+                [],
+                [.command],
                 [.command, .shift],
                 [],
                 [.command, .option],
@@ -181,6 +189,34 @@ final class AppDelegateTests: XCTestCase {
                 [.command, .control, .option],
             ]
         )
+    }
+
+    func test_application_launch_applies_configured_shortcuts_to_menu_items() throws {
+        NSApp.mainMenu = nil
+
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.AppDelegate.Shortcuts")
+        )
+        try configStore.update { config in
+            config.shortcuts.bindings = [
+                ShortcutBindingOverride(
+                    commandID: .toggleSidebar,
+                    shortcut: .init(key: .character("b"), modifiers: [.command])
+                )
+            ]
+        }
+
+        let delegate = AppDelegate(
+            shouldOpenMainWindow: false,
+            configStore: configStore
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+
+        let viewMenu = menu(named: "View")
+        let toggleSidebarItem = viewMenu?.items.first(where: { $0.action == #selector(MainWindowController.toggleSidebar(_:)) })
+
+        XCTAssertEqual(toggleSidebarItem?.keyEquivalent, "b")
+        XCTAssertEqual(toggleSidebarItem?.keyEquivalentModifierMask, [.command])
     }
 
     @objc func test_application_launch_preserves_main_menu_when_required_items_already_exist() {
@@ -205,7 +241,7 @@ final class AppDelegateTests: XCTestCase {
 
         let settingsWindow = try XCTUnwrap(delegate.settingsWindow)
         XCTAssertTrue(settingsWindow.isVisible)
-        XCTAssertEqual(settingsWindow.title, "Settings")
+        XCTAssertEqual(settingsWindow.title, "Pane Layout")
     }
 
     func test_application_launch_places_sidebar_toggle_beside_traffic_lights_without_resize() throws {

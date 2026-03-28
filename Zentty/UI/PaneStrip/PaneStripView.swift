@@ -74,12 +74,16 @@ final class PaneStripView: NSView {
     private var dividerDragSession: DividerDragSession?
     private var dividerDragEscapeMonitor: Any?
     private var dividerDragSuspendedPaneIDs: Set<PaneID> = []
+    private var pendingTargetOffsetOverride: PendingTargetOffsetOverride?
 
     private struct DividerDragSession {
-        let divider: PaneDivider
         let target: PaneResizeTarget
         let initialState: PaneStripState
         var lastTranslation: CGFloat
+    }
+
+    private enum PendingTargetOffsetOverride {
+        case usePresentationTargetOffset
     }
 
     var leadingVisibleInset: CGFloat {
@@ -226,6 +230,21 @@ final class PaneStripView: NSView {
         syncFocusedTerminal(with: currentState?.focusedPaneID, force: true)
     }
 
+    func settlePresentationNow() {
+        viewportView.layer?.removeAllAnimations()
+        paneViews.values.forEach {
+            $0.layer?.removeAllAnimations()
+            $0.syncInsetBorderNow()
+        }
+        dividerViews.values.forEach { $0.layer?.removeAllAnimations() }
+
+        guard let currentState, bounds.size != .zero else {
+            return
+        }
+
+        renderCurrentState(currentState, animated: false)
+    }
+
     func setLeadingVisibleInset(
         _ leadingVisibleInset: CGFloat,
         animated: Bool,
@@ -268,6 +287,14 @@ final class PaneStripView: NSView {
         renderGuard.renderCount
     }
 
+    func centerFocusedInteriorPaneOnNextRender() {
+        pendingTargetOffsetOverride = .usePresentationTargetOffset
+    }
+
+    func clearPendingTargetOffsetOverride() {
+        pendingTargetOffsetOverride = nil
+    }
+
     private func renderCurrentState(
         _ state: PaneStripState,
         animated: Bool,
@@ -277,6 +304,8 @@ final class PaneStripView: NSView {
         let settleGeneration = renderGuard.advanceGeneration()
         let previousPresentation = currentPresentation
         let previousOffset = currentOffset
+        let targetOffsetOverride = pendingTargetOffsetOverride
+        pendingTargetOffsetOverride = nil
         let presentation = motionController.presentation(
             for: state,
             in: bounds.size,
@@ -290,9 +319,10 @@ final class PaneStripView: NSView {
         )
         lastInsertionTransition = insertionTransition
         currentPresentation = presentation
-        let targetOffset = motionController.snappedOffset(
-            presentation.targetOffset,
-            backingScaleFactor: currentBackingScaleFactor
+        let targetOffset = preferredTargetOffset(
+            for: presentation,
+            previousOffset: previousOffset,
+            targetOffsetOverride: targetOffsetOverride
         )
         let isResizeSuppressedRender = animated
             && sharesAnyPane(with: state, previousPresentation: previousPresentation)
@@ -708,23 +738,14 @@ final class PaneStripView: NSView {
         switch recognizer.state {
         case .began:
             guard let currentState,
-                  let target = resizeTarget(
+                  beginDividerDragSession(
                     for: divider,
                     locationInDividerView: locationInDividerView,
-                    state: currentState
-                  ) else {
+                    state: currentState,
+                    notifyInteraction: true
+                  ) != nil else {
                 return
             }
-            dividerDragSession = DividerDragSession(
-                divider: divider,
-                target: target,
-                initialState: currentState,
-                lastTranslation: 0
-            )
-            activeDivider = divider
-            hoveredDivider = divider
-            onDividerInteraction?(divider)
-            beginDividerDrag()
         case .changed, .ended:
             guard var dividerDragSession else {
                 return
@@ -759,6 +780,35 @@ final class PaneStripView: NSView {
         refreshHoveredDividerFromPointer()
     }
 
+    @discardableResult
+    private func beginDividerDragSession(
+        for divider: PaneDivider,
+        locationInDividerView: CGPoint,
+        state: PaneStripState,
+        notifyInteraction: Bool
+    ) -> PaneResizeTarget? {
+        guard let target = resizeTarget(
+            for: divider,
+            locationInDividerView: locationInDividerView,
+            state: state
+        ) else {
+            return nil
+        }
+
+        dividerDragSession = DividerDragSession(
+            target: target,
+            initialState: state,
+            lastTranslation: 0
+        )
+        activeDivider = resolvedActiveDivider(for: target)
+        hoveredDivider = resolvedActiveDivider(for: target)
+        if notifyInteraction, let activeDivider {
+            onDividerInteraction?(activeDivider)
+        }
+        beginDividerDrag()
+        return target
+    }
+
     private func resizeTarget(
         for divider: PaneDivider,
         locationInDividerView: CGPoint,
@@ -768,18 +818,19 @@ final class PaneStripView: NSView {
         case .pane:
             return .divider(divider)
         case .column:
-            guard let dividerView = dividerViews[divider] else {
-                return nil
-            }
-            let width = max(1, dividerView.bounds.width)
-            let grabOffsetRatio = locationInDividerView.x / width
-            guard let target = state.horizontalResizeTarget(
-                for: divider,
-                grabOffsetRatio: grabOffsetRatio
-            ) else {
+            guard let target = state.horizontalResizeTarget(for: divider) else {
                 return nil
             }
             return .horizontalEdge(target)
+        }
+    }
+
+    private func resolvedActiveDivider(for target: PaneResizeTarget) -> PaneDivider {
+        switch target {
+        case .divider(let divider):
+            divider
+        case .horizontalEdge(let horizontalTarget):
+            horizontalTarget.divider
         }
     }
 
@@ -899,6 +950,26 @@ final class PaneStripView: NSView {
     func simulateDividerDoubleClickForTesting(_ divider: PaneDivider) {
         handleDividerDoubleClick(divider)
     }
+
+    func beginDividerDragForTesting(
+        _ divider: PaneDivider,
+        locationInDividerView: CGPoint
+    ) -> PaneResizeTarget? {
+        guard let currentState else {
+            return nil
+        }
+
+        return beginDividerDragSession(
+            for: divider,
+            locationInDividerView: locationInDividerView,
+            state: currentState,
+            notifyInteraction: false
+        )
+    }
+
+    func endDividerDragForTesting() {
+        endDividerDrag()
+    }
     #endif
 
     private func updateDividerHighlightStates() {
@@ -979,6 +1050,75 @@ final class PaneStripView: NSView {
     private func resolvedOffset(_ offset: CGFloat) -> CGFloat {
         motionController.snappedOffset(
             offset,
+            backingScaleFactor: currentBackingScaleFactor
+        )
+    }
+
+    private func preferredTargetOffset(
+        for presentation: StripPresentation,
+        previousOffset: CGFloat,
+        targetOffsetOverride: PendingTargetOffsetOverride? = nil
+    ) -> CGFloat {
+        if targetOffsetOverride == .usePresentationTargetOffset {
+            let clampedTargetOffset = motionController.clampedOffset(
+                presentation.targetOffset,
+                contentWidth: presentation.contentWidth,
+                viewportWidth: bounds.width,
+                leadingVisibleInset: resolvedLeadingVisibleInset
+            )
+
+            return motionController.snappedOffset(
+                clampedTargetOffset,
+                backingScaleFactor: currentBackingScaleFactor
+            )
+        }
+
+        let visibleBorderInset = ChromeGeometry.paneBorderInset(
+            backingScaleFactor: currentBackingScaleFactor
+        )
+        let visibleLaneMinX = resolvedLeadingVisibleInset + visibleBorderInset
+        let visibleLaneMaxX = bounds.width - visibleBorderInset
+        let clampedPreviousOffset = motionController.clampedOffset(
+            previousOffset,
+            contentWidth: presentation.contentWidth,
+            viewportWidth: bounds.width,
+            leadingVisibleInset: resolvedLeadingVisibleInset
+        )
+        let snappedPreviousOffset = motionController.snappedOffset(
+            clampedPreviousOffset,
+            backingScaleFactor: currentBackingScaleFactor
+        )
+
+        guard let focusedPane = presentation.focusedPane else {
+            return motionController.snappedOffset(
+                presentation.targetOffset,
+                backingScaleFactor: currentBackingScaleFactor
+            )
+        }
+
+        let visibleFocusedMinX = focusedPane.frame.minX + visibleBorderInset - snappedPreviousOffset
+        let visibleFocusedMaxX = focusedPane.frame.maxX - visibleBorderInset - snappedPreviousOffset
+        if visibleFocusedMinX >= visibleLaneMinX - 0.001,
+           visibleFocusedMaxX <= visibleLaneMaxX + 0.001 {
+            return snappedPreviousOffset
+        }
+
+        var proposedOffset = snappedPreviousOffset
+        if visibleFocusedMinX < visibleLaneMinX {
+            proposedOffset += visibleFocusedMinX - visibleLaneMinX
+        } else if visibleFocusedMaxX > visibleLaneMaxX {
+            proposedOffset += visibleFocusedMaxX - visibleLaneMaxX
+        }
+
+        let clampedProposedOffset = motionController.clampedOffset(
+            proposedOffset,
+            contentWidth: presentation.contentWidth,
+            viewportWidth: bounds.width,
+            leadingVisibleInset: resolvedLeadingVisibleInset
+        )
+
+        return motionController.snappedOffset(
+            clampedProposedOffset,
             backingScaleFactor: currentBackingScaleFactor
         )
     }

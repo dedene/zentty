@@ -144,11 +144,141 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             theme: ZenttyTheme.fallback(for: nil),
             animated: false
         )
+        row.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(row.primaryTextsForTesting, ["General coding assistance session"])
         XCTAssertEqual(row.primaryTrailingTextsForTesting, ["main"])
         XCTAssertEqual(row.detailTextsForTesting, ["…/nimbu"])
         XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Idle"])
+
+        let paneRowMinX = try! XCTUnwrap(row.firstPaneRowMinXForTesting)
+        let paneRowMaxTrailingInset = try! XCTUnwrap(row.firstPaneRowMaxTrailingInsetForTesting)
+        let paneRowContentMinX = try! XCTUnwrap(row.firstPaneRowContentMinXForTesting)
+        let paneRowContentMaxTrailingInset = try! XCTUnwrap(
+            row.firstPaneRowContentMaxTrailingInsetForTesting
+        )
+        let paneRowMinY = try! XCTUnwrap(row.firstPaneRowMinYForTesting)
+        let paneRowMaxTopInset = try! XCTUnwrap(row.firstPaneRowMaxTopInsetForTesting)
+        let paneRowContentMinY = try! XCTUnwrap(row.firstPaneRowContentMinYForTesting)
+        let paneRowContentMaxTopInset = try! XCTUnwrap(
+            row.firstPaneRowContentMaxTopInsetForTesting
+        )
+        let paneRowCornerRadius = try! XCTUnwrap(row.firstPaneRowCornerRadiusForTesting)
+
+        XCTAssertEqual(
+            paneRowMinX,
+            ShellMetrics.sidebarPaneRowHorizontalInset,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            paneRowMaxTrailingInset,
+            ShellMetrics.sidebarPaneRowHorizontalInset,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            paneRowContentMinX,
+            ShellMetrics.sidebarPaneButtonHorizontalInset,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            paneRowContentMaxTrailingInset,
+            ShellMetrics.sidebarPaneButtonHorizontalInset,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            paneRowMinY,
+            ShellMetrics.sidebarPaneRowVerticalInset,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            paneRowMaxTopInset,
+            ShellMetrics.sidebarPaneRowVerticalInset,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            paneRowContentMinY,
+            ShellMetrics.sidebarPaneButtonVerticalInset,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            paneRowContentMaxTopInset,
+            ShellMetrics.sidebarPaneButtonVerticalInset,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(ShellMetrics.sidebarPaneRowHorizontalInset, 6)
+        XCTAssertEqual(ShellMetrics.sidebarPaneRowVerticalInset, 6)
+        XCTAssertEqual(ShellMetrics.sidebarPaneButtonHorizontalInset, 6)
+        XCTAssertEqual(ShellMetrics.sidebarPaneButtonVerticalInset, 3.5, accuracy: 0.001)
+        XCTAssertEqual(
+            paneRowCornerRadius,
+            ChromeGeometry.innerRadius(
+                outerRadius: ShellMetrics.sidebarRowCornerRadius,
+                inset: ShellMetrics.sidebarPaneRowHorizontalInset
+            ),
+            accuracy: 0.001
+        )
+    }
+
+    func test_worklane_row_uses_tighter_main_text_inset() {
+        let row = makeRow(width: 320, height: 88)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Running",
+                detailLines: [
+                    WorklaneSidebarDetailLine(text: "feature/sidebar", emphasis: .primary),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        let primaryTextMinX = try! XCTUnwrap(row.primaryTextMinXForTesting)
+        let primaryTextMaxTrailingInset = try! XCTUnwrap(row.primaryTextMaxTrailingInsetForTesting)
+
+        XCTAssertEqual(
+            primaryTextMinX,
+            ShellMetrics.sidebarWorklaneTextHorizontalInset,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            primaryTextMaxTrailingInset,
+            ShellMetrics.sidebarWorklaneTextHorizontalInset,
+            accuracy: 0.5
+        )
+    }
+
+    func test_single_pane_layout_uses_exact_pane_geometry_height() {
+        let summary = makeSummary(
+            primaryText: "General coding assistance session",
+            paneRows: [
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-agent"),
+                    primaryText: "General coding assistance session",
+                    trailingText: "main",
+                    detailText: "…/nimbu",
+                    statusText: "╰ Idle",
+                    attentionState: nil,
+                    isFocused: true,
+                    isWorking: false
+                ),
+            ]
+        )
+
+        let layout = SidebarWorklaneRowLayout(summary: summary)
+
+        XCTAssertEqual(
+            layout.rowHeight,
+            (ShellMetrics.sidebarPaneRowVerticalInset * 2)
+                + (ShellMetrics.sidebarPaneButtonVerticalInset * 2)
+                + ShellMetrics.sidebarPrimaryLineHeight
+                + ShellMetrics.sidebarDetailLineHeight
+                + ShellMetrics.sidebarStatusLineHeight
+                + (ShellMetrics.sidebarRowInterlineSpacing * 2),
+            accuracy: 0.5
+        )
     }
 
     func test_worklane_row_keeps_pane_broad_status_text_and_interaction_icon() {

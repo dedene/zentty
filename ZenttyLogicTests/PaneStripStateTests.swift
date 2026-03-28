@@ -154,7 +154,7 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.columns[1].width, 680, accuracy: 0.001)
     }
 
-    func test_horizontal_resize_target_uses_left_half_for_leading_column_right_edge() {
+    func test_horizontal_resize_target_uses_focused_right_edge_for_adjacent_right_divider() {
         let state = PaneStripState(
             panes: [
                 PaneState(id: PaneID("left"), title: "left", width: 500),
@@ -163,10 +163,7 @@ final class PaneStripStateTests: XCTestCase {
             focusedPaneID: PaneID("left")
         )
 
-        let target = state.horizontalResizeTarget(
-            for: .column(afterColumnID: PaneColumnID("column-left")),
-            grabOffsetRatio: 0.25
-        )
+        let target = state.horizontalResizeTarget(for: .column(afterColumnID: PaneColumnID("column-left")))
 
         XCTAssertEqual(
             target,
@@ -178,26 +175,25 @@ final class PaneStripStateTests: XCTestCase {
         )
     }
 
-    func test_horizontal_resize_target_uses_right_half_for_trailing_column_left_edge() {
+    func test_horizontal_resize_target_retargets_non_adjacent_left_divider_to_focused_left_edge() {
         let state = PaneStripState(
-            panes: [
-                PaneState(id: PaneID("left"), title: "left", width: 500),
-                PaneState(id: PaneID("right"), title: "right", width: 500),
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("middle-left", paneIDs: ["middle-left"], width: 360),
+                makeColumn("focused", paneIDs: ["focused"], width: 420),
+                makeColumn("right", paneIDs: ["right"], width: 520),
             ],
-            focusedPaneID: PaneID("right")
+            focusedColumnID: PaneColumnID("focused")
         )
 
-        let target = state.horizontalResizeTarget(
-            for: .column(afterColumnID: PaneColumnID("column-left")),
-            grabOffsetRatio: 0.75
-        )
+        let target = state.horizontalResizeTarget(for: .column(afterColumnID: PaneColumnID("left")))
 
         XCTAssertEqual(
             target,
             PaneHorizontalResizeTarget(
-                columnID: PaneColumnID("column-right"),
+                columnID: PaneColumnID("focused"),
                 edge: .left,
-                divider: .column(afterColumnID: PaneColumnID("column-left"))
+                divider: .column(afterColumnID: PaneColumnID("middle-left"))
             )
         )
     }
@@ -266,6 +262,37 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.columns[1].width, 500, accuracy: 0.001)
     }
 
+    func test_resize_horizontal_edge_clamps_target_column_to_visible_width_when_sidebar_is_visible() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 500),
+                makeColumn("right", paneIDs: ["right"], width: 500),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        let didResize = state.resize(
+            .horizontalEdge(
+                PaneHorizontalResizeTarget(
+                    columnID: PaneColumnID("left"),
+                    edge: .right,
+                    divider: .column(afterColumnID: PaneColumnID("left"))
+                )
+            ),
+            delta: 600,
+            availableSize: CGSize(width: 800, height: 700),
+            leadingVisibleInset: 200,
+            minimumSizeByPaneID: [
+                PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        XCTAssertTrue(didResize)
+        XCTAssertEqual(state.columns[0].width, 600, accuracy: 0.001)
+        XCTAssertEqual(state.columns[1].width, 500, accuracy: 0.001)
+    }
+
     func test_resize_horizontal_edge_stops_at_total_strip_width_floor() {
         var state = PaneStripState(
             columns: [
@@ -331,6 +358,42 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.columns[1].width, 600, accuracy: 0.001)
     }
 
+    func test_resize_horizontal_edge_uses_visible_width_floor_when_sidebar_is_visible() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 400),
+                makeColumn("right", paneIDs: ["right"], width: 400),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        let didResize = state.resize(
+            .horizontalEdge(
+                PaneHorizontalResizeTarget(
+                    columnID: PaneColumnID("left"),
+                    edge: .right,
+                    divider: .column(afterColumnID: PaneColumnID("left"))
+                )
+            ),
+            delta: -100,
+            availableSize: CGSize(width: 1000, height: 700),
+            leadingVisibleInset: 200,
+            minimumSizeByPaneID: [
+                PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        XCTAssertTrue(didResize)
+        XCTAssertEqual(state.columns[0].width, 394, accuracy: 0.001)
+        XCTAssertEqual(state.columns[1].width, 400, accuracy: 0.001)
+        XCTAssertEqual(
+            state.columns.reduce(0) { $0 + $1.width } + state.layoutSizing.interPaneSpacing,
+            800,
+            accuracy: 0.001
+        )
+    }
+
     func test_equalize_vertical_divider_only_equalizes_the_adjacent_pair() {
         var state = PaneStripState(
             columns: [
@@ -389,11 +452,11 @@ final class PaneStripStateTests: XCTestCase {
         )
     }
 
-    func test_resize_focused_pane_right_is_refused_for_last_column() {
+    func test_resize_focused_pane_right_shrinks_last_column_without_resizing_neighbors() {
         var state = PaneStripState(
             panes: [
-                PaneState(id: PaneID("left"), title: "left", width: 500),
-                PaneState(id: PaneID("right"), title: "right", width: 500),
+                PaneState(id: PaneID("left"), title: "left", width: 600),
+                PaneState(id: PaneID("right"), title: "right", width: 600),
             ],
             focusedPaneID: PaneID("right")
         )
@@ -408,15 +471,16 @@ final class PaneStripStateTests: XCTestCase {
             ]
         )
 
-        XCTAssertFalse(didResize)
-        XCTAssertEqual(state.columns[0].width, 500, accuracy: 0.001)
-        XCTAssertEqual(state.columns[1].width, 500, accuracy: 0.001)
+        XCTAssertTrue(didResize)
+        XCTAssertEqual(state.columns[0].width, 600, accuracy: 0.001)
+        XCTAssertEqual(state.columns[1].width, 594, accuracy: 0.001)
+        XCTAssertEqual(state.lastInteractedDivider, .column(afterColumnID: PaneColumnID("column-left")))
     }
 
-    func test_resize_focused_pane_left_grows_middle_column_without_resizing_neighbors() {
+    func test_resize_focused_pane_left_shrinks_middle_column_without_resizing_neighbors() {
         var state = PaneStripState(
             columns: [
-                makeColumn("left", paneIDs: ["left"], width: 300),
+                makeColumn("left", paneIDs: ["left"], width: 400),
                 makeColumn("middle", paneIDs: ["middle"], width: 400),
                 makeColumn("right", paneIDs: ["right"], width: 500),
             ],
@@ -435,9 +499,134 @@ final class PaneStripStateTests: XCTestCase {
         )
 
         XCTAssertTrue(didResize)
-        XCTAssertEqual(state.columns[0].width, 300, accuracy: 0.001)
+        XCTAssertEqual(state.columns[0].width, 400, accuracy: 0.001)
+        XCTAssertEqual(state.columns[1].width, 350, accuracy: 0.001)
+        XCTAssertEqual(state.columns[2].width, 500, accuracy: 0.001)
+        XCTAssertEqual(state.lastInteractedDivider, .column(afterColumnID: PaneColumnID("left")))
+    }
+
+    func test_resize_focused_pane_right_grows_middle_column_without_resizing_neighbors() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 400),
+                makeColumn("middle", paneIDs: ["middle"], width: 400),
+                makeColumn("right", paneIDs: ["right"], width: 500),
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+
+        let didResize = state.resizeFocusedPane(
+            in: .horizontal,
+            delta: 50,
+            availableSize: CGSize(width: 1200, height: 700),
+            minimumSizeByPaneID: [
+                PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        XCTAssertTrue(didResize)
+        XCTAssertEqual(state.columns[0].width, 400, accuracy: 0.001)
         XCTAssertEqual(state.columns[1].width, 450, accuracy: 0.001)
         XCTAssertEqual(state.columns[2].width, 500, accuracy: 0.001)
+        XCTAssertEqual(state.lastInteractedDivider, .column(afterColumnID: PaneColumnID("middle")))
+    }
+
+    func test_resize_focused_pane_left_shrinks_first_column_without_resizing_neighbors() {
+        var state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("left"), title: "left", width: 600),
+                PaneState(id: PaneID("right"), title: "right", width: 600),
+            ],
+            focusedPaneID: PaneID("left")
+        )
+
+        let didResize = state.resizeFocusedPane(
+            in: .horizontal,
+            delta: -40,
+            availableSize: CGSize(width: 1200, height: 700),
+            minimumSizeByPaneID: [
+                PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        XCTAssertTrue(didResize)
+        XCTAssertEqual(state.columns[0].width, 594, accuracy: 0.001)
+        XCTAssertEqual(state.columns[1].width, 600, accuracy: 0.001)
+        XCTAssertEqual(state.lastInteractedDivider, .column(afterColumnID: PaneColumnID("column-left")))
+    }
+
+    func test_resize_focused_pane_right_grows_first_column_using_the_only_adjacent_split() {
+        var state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("left"), title: "left", width: 500),
+                PaneState(id: PaneID("right"), title: "right", width: 500),
+            ],
+            focusedPaneID: PaneID("left")
+        )
+
+        let didResize = state.resizeFocusedPane(
+            in: .horizontal,
+            delta: 40,
+            availableSize: CGSize(width: 1200, height: 700),
+            minimumSizeByPaneID: [
+                PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        XCTAssertTrue(didResize)
+        XCTAssertEqual(state.columns[0].width, 540, accuracy: 0.001)
+        XCTAssertEqual(state.columns[1].width, 500, accuracy: 0.001)
+        XCTAssertEqual(state.lastInteractedDivider, .column(afterColumnID: PaneColumnID("column-left")))
+    }
+
+    func test_resize_focused_pane_left_grows_last_column_using_the_only_adjacent_split() {
+        var state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("left"), title: "left", width: 500),
+                PaneState(id: PaneID("right"), title: "right", width: 500),
+            ],
+            focusedPaneID: PaneID("right")
+        )
+
+        let didResize = state.resizeFocusedPane(
+            in: .horizontal,
+            delta: -40,
+            availableSize: CGSize(width: 1200, height: 700),
+            minimumSizeByPaneID: [
+                PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        XCTAssertTrue(didResize)
+        XCTAssertEqual(state.columns[0].width, 500, accuracy: 0.001)
+        XCTAssertEqual(state.columns[1].width, 540, accuracy: 0.001)
+        XCTAssertEqual(state.lastInteractedDivider, .column(afterColumnID: PaneColumnID("column-left")))
+    }
+
+    func test_resize_focused_pane_is_refused_when_only_one_column_exists() {
+        var state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("solo"), title: "solo", width: 500),
+            ],
+            focusedPaneID: PaneID("solo")
+        )
+
+        let didResize = state.resizeFocusedPane(
+            in: .horizontal,
+            delta: 40,
+            availableSize: CGSize(width: 1200, height: 700),
+            minimumSizeByPaneID: [
+                PaneID("solo"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        XCTAssertFalse(didResize)
+        XCTAssertEqual(state.columns[0].width, 500, accuracy: 0.001)
     }
 
     func test_resize_focused_pane_down_shrinks_bottom_pane_when_bottom_is_focused() {

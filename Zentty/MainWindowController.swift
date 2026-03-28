@@ -65,7 +65,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.view.frame = NSRect(origin: .zero, size: initialFrame.size)
         rootViewController.view.autoresizingMask = [.width, .height]
         window.contentView = rootViewController.view
-        window.setFrameAutosaveName("MainWindow")
+        if !CommandLine.arguments.contains("-ApplePersistenceIgnoreState") {
+            window.setFrameAutosaveName("MainWindow")
+        }
 
         self.rootViewController = rootViewController
         self.configStore = resolvedConfigStore
@@ -114,6 +116,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowDidResize(_ notification: Notification) {
+        rootViewController.handleWindowDidResize()
         layoutTrafficLights()
     }
 
@@ -163,6 +166,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @objc
     func previousWorklane(_ sender: Any?) {
         handle(.previousWorklane)
+    }
+
+    @objc
+    func toggleSidebar(_ sender: Any?) {
+        handle(.toggleSidebar)
     }
 
     @objc

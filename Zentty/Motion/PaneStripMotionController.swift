@@ -125,7 +125,7 @@ final class PaneStripMotionController {
 
         let trailingSpacing = columnPresentations.isEmpty ? 0 : sizing.interPaneSpacing
         let rawContentWidth = max(
-            viewportSize.width,
+            1,
             cursorX - trailingSpacing + sizing.horizontalInset
         )
         let contentWidth = snapped(
@@ -186,7 +186,7 @@ final class PaneStripMotionController {
             roundingRule: .down
         )
         let maxOffset = snapped(
-            max(0, contentWidth - viewportWidth),
+            max(minOffset, contentWidth - viewportWidth),
             backingScaleFactor: scale,
             roundingRule: .down
         )
@@ -201,7 +201,7 @@ final class PaneStripMotionController {
         leadingVisibleInset: CGFloat = 0
     ) -> CGFloat {
         let minOffset = -max(0, leadingVisibleInset)
-        let maxOffset = max(0, contentWidth - viewportWidth)
+        let maxOffset = max(minOffset, contentWidth - viewportWidth)
         return min(max(minOffset, proposedOffset), maxOffset)
     }
 

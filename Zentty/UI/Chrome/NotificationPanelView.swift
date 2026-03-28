@@ -7,14 +7,15 @@ final class NotificationPanelView: NSView {
         static let width: CGFloat = 360
         static let maxHeightRatio: CGFloat = 0.70
         static let maxHeightCap: CGFloat = 500
-        static let cornerRadius: CGFloat = 12
-        static let borderWidth: CGFloat = 0.5
+        static let surfaceCornerRadius = GlassSurfaceStyle.notificationPanel.cornerRadius
         static let headerHeight: CGFloat = 40
         static let headerInset: CGFloat = 14
         static let itemHeight: CGFloat = 60
         static let fadeDuration: TimeInterval = 0.15
     }
 
+    private let surfaceView = GlassSurfaceView(style: .notificationPanel)
+    private let contentClipView = NSView()
     private let titleLabel = NSTextField(labelWithString: "Notifications")
     private let jumpButton = NSButton(title: "Jump to Latest  \u{21E7}\u{2318}U", target: nil, action: nil)
     private let clearAllButton = NSButton(title: "Clear All", target: nil, action: nil)
@@ -56,18 +57,20 @@ final class NotificationPanelView: NSView {
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
         alphaValue = 0
-        layer?.cornerRadius = Layout.cornerRadius
-        layer?.cornerCurve = .continuous
-        layer?.borderWidth = Layout.borderWidth
-        layer?.masksToBounds = false
-        layer?.shadowOpacity = 0.18
-        layer?.shadowRadius = 12
-        layer?.shadowOffset = CGSize(width: 0, height: -4)
+        layer?.backgroundColor = NSColor.clear.cgColor
+
+        addSubview(surfaceView)
+        contentClipView.translatesAutoresizingMaskIntoConstraints = false
+        contentClipView.wantsLayer = true
+        contentClipView.layer?.cornerRadius = Layout.surfaceCornerRadius
+        contentClipView.layer?.cornerCurve = .continuous
+        contentClipView.layer?.masksToBounds = true
+        surfaceView.addSubview(contentClipView)
 
         // Header
         headerView.translatesAutoresizingMaskIntoConstraints = false
         headerView.wantsLayer = true
-        addSubview(headerView)
+        contentClipView.addSubview(headerView)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 13, weight: .bold)
@@ -90,7 +93,7 @@ final class NotificationPanelView: NSView {
 
         headerSeparator.translatesAutoresizingMaskIntoConstraints = false
         headerSeparator.wantsLayer = true
-        addSubview(headerSeparator)
+        contentClipView.addSubview(headerSeparator)
 
         // Scroll area
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -99,7 +102,7 @@ final class NotificationPanelView: NSView {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
-        addSubview(scrollView)
+        contentClipView.addSubview(scrollView)
 
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.orientation = .vertical
@@ -114,13 +117,21 @@ final class NotificationPanelView: NSView {
         emptyLabel.font = .systemFont(ofSize: 13, weight: .regular)
         emptyLabel.alignment = .center
         emptyLabel.isHidden = true
-        addSubview(emptyLabel)
+        contentClipView.addSubview(emptyLabel)
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Layout.width),
-            headerView.topAnchor.constraint(equalTo: topAnchor),
-            headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            headerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            surfaceView.topAnchor.constraint(equalTo: topAnchor),
+            surfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            surfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            contentClipView.topAnchor.constraint(equalTo: surfaceView.topAnchor),
+            contentClipView.leadingAnchor.constraint(equalTo: surfaceView.leadingAnchor),
+            contentClipView.trailingAnchor.constraint(equalTo: surfaceView.trailingAnchor),
+            contentClipView.bottomAnchor.constraint(equalTo: surfaceView.bottomAnchor),
+            headerView.topAnchor.constraint(equalTo: contentClipView.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: contentClipView.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: contentClipView.trailingAnchor),
             headerView.heightAnchor.constraint(equalToConstant: Layout.headerHeight),
             titleLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: Layout.headerInset),
             titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
@@ -129,13 +140,13 @@ final class NotificationPanelView: NSView {
             clearAllButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -Layout.headerInset),
             clearAllButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
             headerSeparator.topAnchor.constraint(equalTo: headerView.bottomAnchor),
-            headerSeparator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            headerSeparator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            headerSeparator.leadingAnchor.constraint(equalTo: contentClipView.leadingAnchor),
+            headerSeparator.trailingAnchor.constraint(equalTo: contentClipView.trailingAnchor),
             headerSeparator.heightAnchor.constraint(equalToConstant: 0.5),
             scrollView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: contentClipView.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: contentClipView.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: contentClipView.bottomAnchor),
             stackView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
             stackView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
@@ -250,16 +261,12 @@ final class NotificationPanelView: NSView {
 
     private func applyTheme(_ theme: ZenttyTheme) {
         currentTheme = theme
-        performThemeAnimation(animated: false) {
-            self.layer?.backgroundColor = theme.openWithPopoverBackground.cgColor
-            self.layer?.borderColor = theme.openWithPopoverBorder.cgColor
-            self.layer?.shadowColor = theme.openWithPopoverShadow.cgColor
-        }
+        surfaceView.apply(theme: theme, animated: false)
         titleLabel.textColor = theme.primaryText
         jumpButton.contentTintColor = theme.secondaryText
         clearAllButton.contentTintColor = theme.secondaryText
         emptyLabel.textColor = theme.tertiaryText
-        headerSeparator.layer?.backgroundColor = theme.openWithPopoverFooterSeparator.cgColor
+        headerSeparator.layer?.backgroundColor = theme.notificationPanelSeparator.cgColor
     }
 
     // MARK: - List
@@ -289,7 +296,7 @@ final class NotificationPanelView: NSView {
                 let sep = NSView()
                 sep.translatesAutoresizingMaskIntoConstraints = false
                 sep.wantsLayer = true
-                sep.layer?.backgroundColor = theme.openWithPopoverFooterSeparator.cgColor
+                sep.layer?.backgroundColor = theme.notificationPanelSeparator.cgColor
                 stackView.addArrangedSubview(sep)
                 sep.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
                 sep.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
@@ -361,6 +368,8 @@ private final class NotificationItemView: NSView {
     private let accentBar = NSView()
     private let textStack = NSStackView()
     private var trackingArea: NSTrackingArea?
+    private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var isHovered = false
 
     init(notification: AppNotification) {
         self.notification = notification
@@ -377,6 +386,9 @@ private final class NotificationItemView: NSView {
     // MARK: - Build
 
     private func buildSubviews() {
+        layer?.cornerRadius = 10
+        layer?.cornerCurve = .continuous
+
         // Accent bar
         accentBar.translatesAutoresizingMaskIntoConstraints = false
         accentBar.wantsLayer = true
@@ -464,6 +476,7 @@ private final class NotificationItemView: NSView {
     }
 
     func applyTheme(_ theme: ZenttyTheme) {
+        currentTheme = theme
         toolLabel.textColor = theme.primaryText
         statusLabel.textColor = theme.secondaryText
         primaryLabel.textColor = theme.tertiaryText
@@ -471,9 +484,7 @@ private final class NotificationItemView: NSView {
         dismissButton.contentTintColor = theme.tertiaryText
         iconView.contentTintColor = notification.isResolved ? theme.tertiaryText : theme.secondaryText
         accentBar.layer?.backgroundColor = NSColor.systemCyan.cgColor
-        layer?.backgroundColor = isSelected
-            ? theme.openWithPopoverRowSelectedBackground.cgColor
-            : NSColor.clear.cgColor
+        updateBackground()
     }
 
     // MARK: - Hover
@@ -482,17 +493,41 @@ private final class NotificationItemView: NSView {
         super.updateTrackingAreas()
         if let existing = trackingArea { removeTrackingArea(existing) }
         trackingArea = NSTrackingArea(
-            rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp],
+            rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
             owner: self, userInfo: nil
         )
         addTrackingArea(trackingArea!)
     }
 
-    override func mouseEntered(with event: NSEvent) { dismissButton.isHidden = false }
-    override func mouseExited(with event: NSEvent) { dismissButton.isHidden = true }
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        isHovered = true
+        dismissButton.isHidden = false
+        updateBackground()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        isHovered = false
+        dismissButton.isHidden = true
+        updateBackground()
+    }
 
     @objc private func handleDismiss() { onDismiss?(notification.id) }
     @objc private func handleJump() { onJump?(notification) }
+
+    private func updateBackground() {
+        let backgroundColor: NSColor
+        if isSelected {
+            backgroundColor = currentTheme.notificationPanelRowSelectedBackground
+        } else if isHovered {
+            backgroundColor = currentTheme.notificationPanelRowHoverBackground
+        } else {
+            backgroundColor = .clear
+        }
+
+        layer?.backgroundColor = backgroundColor.cgColor
+    }
 
     private func relativeTimestamp(_ date: Date) -> String {
         let s = Int(-date.timeIntervalSinceNow)

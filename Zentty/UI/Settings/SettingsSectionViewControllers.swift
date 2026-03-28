@@ -1,19 +1,138 @@
 import AppKit
+import UniformTypeIdentifiers
 
 @MainActor
-final class PaneLayoutSettingsSectionViewController: NSViewController {
+protocol SettingsPresentingSection: AnyObject {
+    func prepareForPresentation()
+}
+
+@MainActor
+private final class SettingsDocumentView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+@MainActor
+class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMeasuring, SettingsPresentingSection {
+    fileprivate enum Layout {
+        static let topInset: CGFloat = 22
+        static let horizontalInset: CGFloat = 28
+        static let bottomInset: CGFloat = 28
+        static let minimumContentWidth: CGFloat = 280
+        static let scrollerAllowance: CGFloat = 18
+    }
+
+    let scrollView = NSScrollView()
+    let contentView = NSView()
+    private let documentView = SettingsDocumentView()
+    private var contentWidthConstraint: NSLayoutConstraint?
+
+    final override func loadView() {
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.autohidesScrollers = true
+        scrollView.hasVerticalScroller = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        documentView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: SettingsViewController.preferredContentWidth,
+            height: 1
+        )
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        documentView.addSubview(contentView)
+        contentWidthConstraint = contentView.widthAnchor.constraint(
+            equalToConstant: SettingsViewController.preferredContentWidth
+                - (Layout.horizontalInset * 2)
+                - Layout.scrollerAllowance
+        )
+
+        NSLayoutConstraint.activate([
+            contentView.topAnchor.constraint(equalTo: documentView.topAnchor, constant: Layout.topInset),
+            contentView.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: Layout.horizontalInset),
+            contentView.bottomAnchor.constraint(equalTo: documentView.bottomAnchor, constant: -Layout.bottomInset),
+            contentWidthConstraint!,
+        ])
+
+        view = scrollView
+        assembleContent(in: contentView)
+        contentView.layoutSubtreeIfNeeded()
+        let initialContentHeight = contentView.fittingSize.height + Layout.topInset + Layout.bottomInset
+        documentView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: SettingsViewController.preferredContentWidth,
+            height: max(initialContentHeight, 1)
+        )
+        scrollView.documentView = documentView
+        updateDocumentLayout(
+            viewportWidth: SettingsViewController.preferredContentWidth,
+            viewportHeight: 1
+        )
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        updateDocumentLayout(viewportWidth: view.bounds.width, viewportHeight: view.bounds.height)
+    }
+
+    func preferredViewportHeight(for width: CGFloat) -> CGFloat {
+        loadViewIfNeeded()
+        updateDocumentLayout(viewportWidth: width, viewportHeight: 0)
+        return documentView.frame.height
+    }
+
+    func prepareForPresentation() {
+        loadViewIfNeeded()
+        updateDocumentLayout(
+            viewportWidth: max(view.bounds.width, SettingsViewController.preferredContentWidth),
+            viewportHeight: max(view.bounds.height, 1)
+        )
+        // Force immediate layout before resetting scroll position
+        view.layoutSubtreeIfNeeded()
+        scrollToTop()
+    }
+
+    func assembleContent(in contentView: NSView) {
+        fatalError("Subclasses must override assembleContent(in:)")
+    }
+
+    func scrollToTop() {
+        let clipView = scrollView.contentView
+        clipView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(clipView)
+    }
+
+    private func updateDocumentLayout(viewportWidth: CGFloat, viewportHeight: CGFloat) {
+        let contentWidth = max(
+            viewportWidth - (Layout.horizontalInset * 2) - Layout.scrollerAllowance,
+            Layout.minimumContentWidth
+        )
+        contentWidthConstraint?.constant = contentWidth
+        contentView.layoutSubtreeIfNeeded()
+
+        let contentHeight = contentView.fittingSize.height + Layout.topInset + Layout.bottomInset
+        documentView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: max(viewportWidth, contentWidth + (Layout.horizontalInset * 2)),
+            height: max(contentHeight, viewportHeight, 1)
+        )
+    }
+}
+
+@MainActor
+final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionViewController {
     private var preferences: PaneLayoutPreferences = .default
     private var summaryLabelsByDisplayClass: [DisplayClass: NSTextField] = [:]
 
-    override func loadView() {
-        view = NSView()
-
+    override func assembleContent(in contentView: NSView) {
         let stackView = NSStackView()
         stackView.orientation = .vertical
         stackView.alignment = .leading
-        stackView.spacing = 12
+        stackView.spacing = 16
         stackView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(stackView)
+        contentView.addSubview(stackView)
 
         let subtitleLabel = makeLabel(
             text: "Zentty uses explicit screen behavior presets so each split stays calm and predictable.",
@@ -21,6 +140,7 @@ final class PaneLayoutSettingsSectionViewController: NSViewController {
         )
         subtitleLabel.textColor = .secondaryLabelColor
         stackView.addArrangedSubview(subtitleLabel)
+        subtitleLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         DisplayClass.allCases.forEach { displayClass in
             let card = makeCardSection(for: displayClass)
@@ -29,10 +149,10 @@ final class PaneLayoutSettingsSectionViewController: NSViewController {
         }
 
         NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: view.topAnchor),
-            stackView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            stackView.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor),
+            stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stackView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
         ])
 
         apply(preferences: preferences)
@@ -126,7 +246,7 @@ final class PaneLayoutSettingsSectionViewController: NSViewController {
 }
 
 @MainActor
-final class OpenWithSettingsSectionViewController: NSViewController {
+final class OpenWithSettingsSectionViewController: SettingsScrollableSectionViewController {
     private struct VisibleTarget {
         let stableID: String
         let title: String
@@ -156,7 +276,7 @@ final class OpenWithSettingsSectionViewController: NSViewController {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.allowedFileTypes = ["app"]
+        panel.allowedContentTypes = [.applicationBundle]
 
         guard panel.runModal() == .OK, let appURL = panel.url else {
             return nil
@@ -185,15 +305,13 @@ final class OpenWithSettingsSectionViewController: NSViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func loadView() {
-        view = NSView()
-
+    override func assembleContent(in contentView: NSView) {
         let stackView = NSStackView()
         stackView.orientation = .vertical
         stackView.alignment = .leading
-        stackView.spacing = 12
+        stackView.spacing = 16
         stackView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(stackView)
+        contentView.addSubview(stackView)
 
         let subtitleLabel = makeLabel(
             text: "Choose which editors and file managers appear in the launcher, and set the default app.",
@@ -201,6 +319,7 @@ final class OpenWithSettingsSectionViewController: NSViewController {
         )
         subtitleLabel.textColor = .secondaryLabelColor
         stackView.addArrangedSubview(subtitleLabel)
+        subtitleLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         // Card 1: Default App
         let defaultAppCard = SettingsCardView()
@@ -261,6 +380,7 @@ final class OpenWithSettingsSectionViewController: NSViewController {
         availableTargetsStackView.alignment = .leading
         availableTargetsStackView.spacing = 10
         availableStack.addArrangedSubview(availableTargetsStackView)
+        availableTargetsStackView.widthAnchor.constraint(equalTo: availableStack.widthAnchor).isActive = true
 
         availableCard.addSubview(availableStack)
         NSLayoutConstraint.activate([
@@ -273,10 +393,10 @@ final class OpenWithSettingsSectionViewController: NSViewController {
         availableCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: view.topAnchor),
-            stackView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            stackView.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor),
+            stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stackView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
         ])
     }
 
@@ -301,7 +421,7 @@ final class OpenWithSettingsSectionViewController: NSViewController {
         }
     }
 
-    func prepareForPresentation() {
+    override func prepareForPresentation() {
         let sanitizedPreferences = sanitizedPreferencesForPresentation(currentPreferences)
         if sanitizedPreferences != configStore.current.openWith {
             try? configStore.update { config in
@@ -311,6 +431,7 @@ final class OpenWithSettingsSectionViewController: NSViewController {
         } else {
             apply(preferences: currentPreferences)
         }
+        super.prepareForPresentation()
     }
 
     private func renderCurrentState() {
@@ -598,17 +719,14 @@ final class OpenWithSettingsSectionViewController: NSViewController {
 }
 
 @MainActor
-final class SettingsCardView: NSVisualEffectView {
+final class SettingsCardView: NSView {
     init() {
         super.init(frame: .zero)
-        material = .hudWindow
-        blendingMode = .withinWindow
-        state = .active
         wantsLayer = true
-        layer?.cornerRadius = 12
+        layer?.cornerRadius = 10
         layer?.cornerCurve = .continuous
         layer?.borderWidth = 1
-        updateBorderColor()
+        updateColors()
         translatesAutoresizingMaskIntoConstraints = false
     }
 
@@ -619,11 +737,26 @@ final class SettingsCardView: NSVisualEffectView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        updateBorderColor()
+        updateColors()
     }
 
-    private func updateBorderColor() {
-        layer?.borderColor = NSColor.separatorColor.cgColor
+    private func updateColors() {
+        let isDarkMode = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        layer?.backgroundColor = fillColor.cgColor
+        layer?.borderColor = isDarkMode
+            ? NSColor.white.withAlphaComponent(0.08).cgColor
+            : NSColor.black.withAlphaComponent(0.12).cgColor
+        layer?.shadowColor = isDarkMode ? nil : NSColor.black.withAlphaComponent(0.04).cgColor
+        layer?.shadowOffset = CGSize(width: 0, height: 1)
+        layer?.shadowRadius = 2
+    }
+
+    private var fillColor: NSColor {
+        let isDarkMode = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        if isDarkMode {
+            return NSColor.white.withAlphaComponent(0.04)
+        }
+        return NSColor.white.withAlphaComponent(0.72)
     }
 }
 

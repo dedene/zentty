@@ -5,7 +5,13 @@ import QuartzCore
 @MainActor
 final class SidebarWorklaneRowButton: NSButton {
     private enum Layout {
-        static let contentInset = ShellMetrics.sidebarRowHorizontalInset
+        static let contentInset = min(
+            ShellMetrics.sidebarPaneRowHorizontalInset,
+            ShellMetrics.sidebarWorklaneTextHorizontalInset
+        )
+        static let textContentInset = ShellMetrics.sidebarWorklaneTextHorizontalInset
+        static let textWrapperInset = max(0, textContentInset - contentInset)
+        static let paneWrapperInset = max(0, ShellMetrics.sidebarPaneRowHorizontalInset - contentInset)
         static let primaryTextLeadingInset: CGFloat = 0
         static let panePrimaryTrailingSpacing: CGFloat = 6
         static let trailingSpillThresholdRatio: CGFloat = 0.5
@@ -30,7 +36,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private var paneDetailLabels: [SidebarStaticLabel] = []
     private var paneStatusRows: [SidebarPaneTextRowView] = []
     private var paneRowButtons: [SidebarPaneRowButton] = []
-    private var paneRowWidthConstraints: [NSLayoutConstraint] = []
+    private var paneRowContainers: [SidebarInsetContainerView] = []
     private var currentSummary: WorklaneSidebarSummary?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var currentStatusSymbolName = ""
@@ -38,6 +44,8 @@ final class SidebarWorklaneRowButton: NSButton {
     private var isPaneRowHovered = false
     private var trackingArea: NSTrackingArea?
     private var heightConstraint: NSLayoutConstraint?
+    private var textStackTopConstraint: NSLayoutConstraint?
+    private var textStackBottomConstraint: NSLayoutConstraint?
     private var isWorking = false
     private var isApplyingResolvedSummary = false
     private var shimmerCoordinator: SidebarShimmerCoordinator?
@@ -182,17 +190,25 @@ final class SidebarWorklaneRowButton: NSButton {
         let heightConstraint = heightAnchor.constraint(
             equalToConstant: ShellMetrics.sidebarCompactRowHeight)
         self.heightConstraint = heightConstraint
+        let textStackTopConstraint = textStack.topAnchor.constraint(
+            equalTo: topAnchor,
+            constant: ShellMetrics.sidebarRowTopInset
+        )
+        self.textStackTopConstraint = textStackTopConstraint
+        let textStackBottomConstraint = textStack.bottomAnchor.constraint(
+            equalTo: bottomAnchor,
+            constant: -ShellMetrics.sidebarRowBottomInset
+        )
+        self.textStackBottomConstraint = textStackBottomConstraint
 
         NSLayoutConstraint.activate([
             heightConstraint,
-            textStack.topAnchor.constraint(
-                equalTo: topAnchor, constant: ShellMetrics.sidebarRowTopInset),
+            textStackTopConstraint,
             textStack.leadingAnchor.constraint(
                 equalTo: leadingAnchor, constant: Layout.contentInset),
             textStack.trailingAnchor.constraint(
                 equalTo: trailingAnchor, constant: -Layout.contentInset),
-            textStack.bottomAnchor.constraint(
-                equalTo: bottomAnchor, constant: -ShellMetrics.sidebarRowBottomInset),
+            textStackBottomConstraint,
             primaryTextContainer.heightAnchor.constraint(
                 equalToConstant: ShellMetrics.sidebarPrimaryLineHeight),
             statusTextContainer.heightAnchor.constraint(
@@ -281,6 +297,7 @@ final class SidebarWorklaneRowButton: NSButton {
 
         let resolvedSummary = resolvedSummary(for: summary)
         let layout = SidebarWorklaneRowLayout(summary: resolvedSummary)
+        applyTextStackVerticalInsets(hasPaneRows: resolvedSummary.paneRows.isEmpty == false)
 
         topLabel.stringValue = resolvedSummary.topLabel ?? ""
         overflowLabel.stringValue = resolvedSummary.overflowText ?? ""
@@ -321,17 +338,18 @@ final class SidebarWorklaneRowButton: NSButton {
             groupedViews(for: layout),
             in: .top
         )
-        paneRowWidthConstraints.forEach { $0.isActive = false }
-        for (index, button) in paneRowButtons.enumerated() where button.superview == textStack {
-            guard paneRowWidthConstraints.indices.contains(index) else {
-                continue
-            }
-
-            paneRowWidthConstraints[index].isActive = true
-        }
         heightConstraint?.constant = layout.rowHeight
 
         applyCurrentAppearance(animated: animated)
+    }
+
+    private func applyTextStackVerticalInsets(hasPaneRows: Bool) {
+        textStackTopConstraint?.constant = hasPaneRows
+            ? ShellMetrics.sidebarPaneRowVerticalInset
+            : ShellMetrics.sidebarRowTopInset
+        textStackBottomConstraint?.constant = hasPaneRows
+            ? -ShellMetrics.sidebarPaneRowVerticalInset
+            : -ShellMetrics.sidebarRowBottomInset
     }
 
     private func resolvedSummary(for summary: WorklaneSidebarSummary) -> WorklaneSidebarSummary {
@@ -390,7 +408,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private func shouldSpillTrailingText(_ trailingText: String) -> Bool {
         let availableWidth =
             bounds.width
-            - (Layout.contentInset * 2)
+            - (ShellMetrics.sidebarPaneRowHorizontalInset * 2)
             - (ShellMetrics.sidebarPaneButtonHorizontalInset * 2)
         guard availableWidth > 0 else {
             return false
@@ -460,8 +478,12 @@ final class SidebarWorklaneRowButton: NSButton {
         while paneRowButtons.count < paneRows.count {
             let button = SidebarPaneRowButton()
             paneRowButtons.append(button)
-            paneRowWidthConstraints.append(
-                button.widthAnchor.constraint(equalTo: textStack.widthAnchor)
+            paneRowContainers.append(
+                SidebarInsetContainerView(
+                    contentView: button,
+                    horizontalInset: Layout.paneWrapperInset,
+                    referenceWidthView: textStack
+                )
             )
         }
 
@@ -915,17 +937,25 @@ final class SidebarWorklaneRowButton: NSButton {
                         }
                     }
                     paneRowButtons[index].setContent(subViews)
-                    views.append(paneRowButtons[index])
+                    views.append(paneRowContainers[index])
                 }
             case .paneDetail, .paneStatus:
                 break
             default:
                 currentPaneIndex = nil
-                views.append(label(for: row))
+                views.append(insetWrappedView(for: label(for: row)))
             }
         }
 
         return views
+    }
+
+    private func insetWrappedView(for view: NSView) -> NSView {
+        return SidebarInsetContainerView(
+            contentView: view,
+            horizontalInset: Layout.textWrapperInset,
+            referenceWidthView: textStack
+        )
     }
 
     private func label(for row: WorklaneRowTextRow) -> NSView {
@@ -1020,7 +1050,9 @@ final class SidebarWorklaneRowButton: NSButton {
             return textStack.arrangedSubviews.firstIndex(of: firstPaneButton)
         }
 
-        return textStack.arrangedSubviews.firstIndex(of: primaryTextContainer)
+        return textStack.arrangedSubviews.firstIndex {
+            $0 === primaryTextContainer || $0.containsDescendant(primaryTextContainer)
+        }
     }
 
     var primaryTextsForTesting: [String] {
@@ -1044,7 +1076,62 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     var paneRowWidthConstraintCountForTesting: Int {
-        paneRowWidthConstraints.filter(\.isActive).count
+        paneRowContainers.filter(\.hasActiveWidthConstraintForTesting).count
+    }
+
+    var firstPaneRowMinXForTesting: CGFloat? {
+        paneRowButtons.first.map { convert($0.bounds, from: $0).minX }
+    }
+
+    var firstPaneRowMaxTrailingInsetForTesting: CGFloat? {
+        paneRowButtons.first.map { bounds.maxX - convert($0.bounds, from: $0).maxX }
+    }
+
+    var firstPaneRowContentMinXForTesting: CGFloat? {
+        paneRowButtons.first?.contentMinXForTesting
+    }
+
+    var firstPaneRowContentMaxTrailingInsetForTesting: CGFloat? {
+        paneRowButtons.first?.contentMaxTrailingInsetForTesting
+    }
+
+    var firstPaneRowMinYForTesting: CGFloat? {
+        paneRowButtons.first.map { convert($0.bounds, from: $0).minY }
+    }
+
+    var firstPaneRowMaxTopInsetForTesting: CGFloat? {
+        paneRowButtons.first.map { bounds.maxY - convert($0.bounds, from: $0).maxY }
+    }
+
+    var firstPaneRowContentMinYForTesting: CGFloat? {
+        paneRowButtons.first?.contentMinYForTesting
+    }
+
+    var firstPaneRowContentMaxTopInsetForTesting: CGFloat? {
+        paneRowButtons.first?.contentMaxTopInsetForTesting
+    }
+
+    var firstPaneRowCornerRadiusForTesting: CGFloat? {
+        paneRowButtons.first?.cornerRadiusForTesting
+    }
+
+    var primaryTextMinXForTesting: CGFloat? {
+        guard currentSummary?.paneRows.isEmpty != false,
+              let superview = primaryTextContainer.superview else {
+            return nil
+        }
+
+        return convert(primaryTextContainer.frame, from: superview).minX
+    }
+
+    var primaryTextMaxTrailingInsetForTesting: CGFloat? {
+        guard currentSummary?.paneRows.isEmpty != false,
+              let superview = primaryTextContainer.superview else {
+            return nil
+        }
+
+        let primaryTextFrame = convert(primaryTextContainer.frame, from: superview)
+        return bounds.maxX - primaryTextFrame.maxX
     }
 
     var backgroundColorForTesting: NSColor? {
@@ -1056,7 +1143,12 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     func primaryMinX(in view: NSView) -> CGFloat {
-        view.convert(primaryBaseLabel.bounds, from: primaryBaseLabel).minX
+        guard let superview = primaryTextContainer.superview else {
+            return view.convert(primaryBaseLabel.bounds, from: primaryBaseLabel).minX
+        }
+
+        let primaryTextFrame = convert(primaryTextContainer.frame, from: superview)
+        return view.convert(primaryTextFrame, from: self).minX
     }
 
     private func configureLabel(
@@ -1570,6 +1662,65 @@ private final class SidebarStaticLabel: NSTextField {
     }
 }
 
+private extension NSView {
+    func containsDescendant(_ candidate: NSView) -> Bool {
+        if self === candidate {
+            return true
+        }
+
+        return subviews.contains { $0.containsDescendant(candidate) }
+    }
+}
+
+private final class SidebarInsetContainerView: NSView {
+    private weak var referenceWidthView: NSView?
+    private var widthConstraint: NSLayoutConstraint?
+
+    init(contentView: NSView, horizontalInset: CGFloat, referenceWidthView: NSView) {
+        self.referenceWidthView = referenceWidthView
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.topAnchor.constraint(equalTo: topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: horizontalInset),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -horizontalInset),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var allowsVibrancy: Bool {
+        false
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+
+        widthConstraint?.isActive = false
+        widthConstraint = nil
+
+        guard superview != nil, let referenceWidthView else {
+            return
+        }
+
+        let widthConstraint = widthAnchor.constraint(equalTo: referenceWidthView.widthAnchor)
+        widthConstraint.isActive = true
+        self.widthConstraint = widthConstraint
+    }
+
+    var hasActiveWidthConstraintForTesting: Bool {
+        widthConstraint?.isActive == true
+    }
+}
+
 private final class SidebarPrimaryTextContainerView: NSView {
     override var allowsVibrancy: Bool {
         false
@@ -1831,7 +1982,7 @@ private final class SidebarPaneRowButton: NSButton {
         title = ""
         image = nil
         wantsLayer = true
-        layer?.cornerRadius = 4
+        layer?.cornerRadius = ShellMetrics.sidebarPaneButtonCornerRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         translatesAutoresizingMaskIntoConstraints = false
@@ -1870,6 +2021,26 @@ private final class SidebarPaneRowButton: NSButton {
     func updateTheme(hoverColor: NSColor) {
         hoverBackgroundColor = hoverColor
         updateHoverAppearance()
+    }
+
+    var contentMinXForTesting: CGFloat {
+        contentStack.frame.minX
+    }
+
+    var contentMaxTrailingInsetForTesting: CGFloat {
+        bounds.maxX - contentStack.frame.maxX
+    }
+
+    var contentMinYForTesting: CGFloat {
+        contentStack.frame.minY
+    }
+
+    var contentMaxTopInsetForTesting: CGFloat {
+        bounds.maxY - contentStack.frame.maxY
+    }
+
+    var cornerRadiusForTesting: CGFloat {
+        layer?.cornerRadius ?? 0
     }
 
     // MARK: - Cursor

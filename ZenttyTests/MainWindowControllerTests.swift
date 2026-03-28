@@ -76,6 +76,13 @@ final class MainWindowControllerTests: XCTestCase {
         wait(for: [settled], timeout: 2.0)
     }
 
+    private func readableWidth(for appCanvasView: AppCanvasView) -> CGFloat {
+        PaneLayoutSizing.edgeAligned.readableWidth(
+            for: appCanvasView.bounds.width,
+            leadingVisibleInset: appCanvasView.leadingVisibleInset
+        )
+    }
+
     private func makeRequestOnlyWorklane(
         workingDirectory: String,
         title: String = "shell"
@@ -401,7 +408,7 @@ final class MainWindowControllerTests: XCTestCase {
         let initialAppCanvasView = try XCTUnwrap(
             controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
         )
-        let initialCanvasWidth = initialAppCanvasView.bounds.width
+        let initialReadableWidth = readableWidth(for: initialAppCanvasView)
         let initialPaneViews = initialAppCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
         let initialWidths = initialPaneViews.map(\.frame.width)
 
@@ -416,7 +423,7 @@ final class MainWindowControllerTests: XCTestCase {
         )
         let resizedPaneViews = resizedAppCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
         let resizedWidths = resizedPaneViews.map(\.frame.width)
-        let expectedScaleFactor = resizedAppCanvasView.bounds.width / initialCanvasWidth
+        let expectedScaleFactor = readableWidth(for: resizedAppCanvasView) / initialReadableWidth
         let expectedTotalWidth = initialWidths.reduce(0, +) * expectedScaleFactor
         let paneWidthTolerance: CGFloat = 1.0
 
@@ -434,6 +441,94 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(resizedLeftWidth, initialLeftWidth * expectedScaleFactor, accuracy: paneWidthTolerance)
         XCTAssertEqual(resizedRightWidth, initialRightWidth * expectedScaleFactor, accuracy: paneWidthTolerance)
         XCTAssertEqual(resizedWidths.reduce(0, +), expectedTotalWidth, accuracy: paneWidthTolerance)
+        XCTAssertFalse(resizedAppCanvasView.lastPaneStripRenderWasAnimatedForTesting)
+    }
+
+    func test_programmatic_window_resize_relayouts_stacked_panes_to_new_width_without_inner_animation() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.splitVertically(nil)
+        waitForLayout("vertical split settled", delay: 0.05)
+
+        let initialAppCanvasView = try XCTUnwrap(
+            controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
+        )
+        let initialReadableWidth = readableWidth(for: initialAppCanvasView)
+        let initialPaneViews = initialAppCanvasView.descendantPaneViews().sorted { $0.frame.minY > $1.frame.minY }
+        let initialWidths = initialPaneViews.map(\.frame.width)
+        let initialHeights = initialPaneViews.map(\.frame.height)
+
+        let resizedFrame = NSRect(x: 120, y: 140, width: 1420, height: 880)
+        controller.window.setFrame(resizedFrame, display: false)
+        waitForLayout("stack resize settled", delay: 0.1)
+
+        let resizedAppCanvasView = try XCTUnwrap(
+            controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
+        )
+        let resizedReadableWidth = readableWidth(for: resizedAppCanvasView)
+        let resizedPaneViews = resizedAppCanvasView.descendantPaneViews().sorted { $0.frame.minY > $1.frame.minY }
+        let resizedWidths = resizedPaneViews.map(\.frame.width)
+        let resizedHeights = resizedPaneViews.map(\.frame.height)
+        let expectedWidthScaleFactor = resizedReadableWidth / initialReadableWidth
+
+        XCTAssertEqual(initialWidths.count, 2)
+        XCTAssertEqual(resizedWidths.count, 2)
+        XCTAssertEqual(resizedWidths[0], initialWidths[0] * expectedWidthScaleFactor, accuracy: 1.0)
+        XCTAssertEqual(resizedWidths[1], initialWidths[1] * expectedWidthScaleFactor, accuracy: 1.0)
+        XCTAssertGreaterThan(abs(resizedWidths[0] - initialWidths[0]), 10)
+        XCTAssertGreaterThan(abs(resizedWidths[1] - initialWidths[1]), 10)
+        XCTAssertGreaterThan(abs(resizedHeights[0] - initialHeights[0]), 10)
+        XCTAssertGreaterThan(abs(resizedHeights[1] - initialHeights[1]), 10)
+        XCTAssertEqual(resizedWidths[0], resizedWidths[1], accuracy: 1.0)
+        XCTAssertFalse(resizedAppCanvasView.lastPaneStripRenderWasAnimatedForTesting)
+    }
+
+    func test_programmatic_window_resize_relayouts_mixed_split_widths_and_heights_without_inner_animation() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.splitRight(nil)
+        waitForLayout("horizontal split settled", delay: 0.05)
+        controller.splitVertically(nil)
+        waitForLayout("mixed split settled", delay: 0.05)
+
+        let initialAppCanvasView = try XCTUnwrap(
+            controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
+        )
+        let initialReadableWidth = readableWidth(for: initialAppCanvasView)
+        let initialFramesByTitle = Dictionary(uniqueKeysWithValues: try initialAppCanvasView.descendantPaneViews().map {
+            (try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText), $0.frame)
+        })
+
+        let resizedFrame = NSRect(x: 120, y: 140, width: 1420, height: 880)
+        controller.window.setFrame(resizedFrame, display: false)
+        waitForLayout("mixed resize settled", delay: 0.1)
+
+        let resizedAppCanvasView = try XCTUnwrap(
+            controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
+        )
+        let resizedReadableWidth = readableWidth(for: resizedAppCanvasView)
+        let resizedFramesByTitle = Dictionary(uniqueKeysWithValues: try resizedAppCanvasView.descendantPaneViews().map {
+            (try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText), $0.frame)
+        })
+        let expectedScaleFactor = resizedReadableWidth / initialReadableWidth
+
+        let initialShellFrame = try XCTUnwrap(initialFramesByTitle["shell"])
+        let initialPane1Frame = try XCTUnwrap(initialFramesByTitle["pane 1"])
+        let initialPane2Frame = try XCTUnwrap(initialFramesByTitle["pane 2"])
+        let resizedShellFrame = try XCTUnwrap(resizedFramesByTitle["shell"])
+        let resizedPane1Frame = try XCTUnwrap(resizedFramesByTitle["pane 1"])
+        let resizedPane2Frame = try XCTUnwrap(resizedFramesByTitle["pane 2"])
+
+        XCTAssertEqual(resizedShellFrame.width, initialShellFrame.width * expectedScaleFactor, accuracy: 1.0)
+        XCTAssertEqual(resizedPane1Frame.width, initialPane1Frame.width * expectedScaleFactor, accuracy: 1.0)
+        XCTAssertEqual(resizedPane2Frame.width, initialPane2Frame.width * expectedScaleFactor, accuracy: 1.0)
+        XCTAssertGreaterThan(abs(resizedShellFrame.height - initialShellFrame.height), 20)
+        XCTAssertGreaterThan(abs(resizedPane1Frame.height - initialPane1Frame.height), 20)
+        XCTAssertGreaterThan(abs(resizedPane2Frame.height - initialPane2Frame.height), 20)
         XCTAssertFalse(resizedAppCanvasView.lastPaneStripRenderWasAnimatedForTesting)
     }
 

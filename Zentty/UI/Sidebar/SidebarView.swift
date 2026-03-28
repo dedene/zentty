@@ -6,7 +6,7 @@ final class SidebarView: NSView {
         static let contentInset: CGFloat = ShellMetrics.sidebarContentInset
         static let topInset: CGFloat = ShellMetrics.sidebarTopInset
         static let bottomInset: CGFloat = ShellMetrics.sidebarBottomInset
-        static let resizeHandleWidth: CGFloat = 12
+        static let resizeHandleWidth: CGFloat = 4
     }
 
     var onWorklaneSelected: ((WorklaneID) -> Void)?
@@ -436,12 +436,20 @@ final class SidebarView: NSView {
         resizeHandleView.fillAlpha
     }
 
+    var resizeHandleWidthForTesting: CGFloat {
+        resizeHandleView.frame.width
+    }
+
     var isResizeHandleHidden: Bool {
         resizeHandleView.isHidden
     }
 
     var trailingEdgeHitTargetsResizeHandle: Bool {
         hitTest(NSPoint(x: bounds.maxX - 1, y: bounds.midY)) === resizeHandleView
+    }
+
+    func hitTargetsResizeHandle(atX x: CGFloat) -> Bool {
+        hitTest(NSPoint(x: x, y: bounds.midY)) === resizeHandleView
     }
 
     var appearanceMatchForTesting: NSAppearance.Name? {

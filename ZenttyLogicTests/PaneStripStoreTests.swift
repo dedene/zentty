@@ -502,7 +502,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.paneStripState.columns.first?.width ?? 0, 1210, accuracy: 0.001)
     }
 
-    func test_updating_layout_context_scales_multi_pane_widths_proportionally_to_viewport() {
+    func test_updating_layout_context_scales_multi_pane_widths_proportionally_to_readable_width() {
         let initialContext = PaneLayoutPreferences.default.makeLayoutContext(
             displayClass: .laptop,
             viewportWidth: 1200,
@@ -515,10 +515,61 @@ final class PaneStripStoreTests: XCTestCase {
         )
         let store = WorklaneStore(layoutContext: initialContext)
         store.send(.splitAfterFocusedPane)
+        let initialWidths = store.activeWorklane?.paneStripState.columns.map(\.width) ?? []
+        let expectedScaleFactor = updatedContext.singlePaneWidth / initialContext.singlePaneWidth
 
         store.updateLayoutContext(updatedContext)
 
-        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [1137.5, 1137.5])
+        XCTAssertEqual(
+            store.activeWorklane?.paneStripState.columns.map(\.width),
+            initialWidths.map { $0 * expectedScaleFactor }
+        )
+    }
+
+    func test_updating_layout_context_reprojects_multi_pane_widths_when_only_sidebar_inset_changes() {
+        let initialContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .largeDisplay,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0
+        )
+        let updatedContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .largeDisplay,
+            viewportWidth: 1500,
+            leadingVisibleInset: 290
+        )
+        let store = WorklaneStore(layoutContext: initialContext)
+        store.send(.splitAfterFocusedPane)
+        let initialWidths = store.activeWorklane?.paneStripState.columns.map(\.width) ?? []
+        let expectedScaleFactor = updatedContext.singlePaneWidth / initialContext.singlePaneWidth
+
+        store.updateLayoutContext(updatedContext)
+
+        XCTAssertEqual(
+            store.activeWorklane?.paneStripState.columns.map(\.width),
+            initialWidths.map { $0 * expectedScaleFactor }
+        )
+    }
+
+    func test_updating_layout_context_updates_single_column_stack_width_to_latest_single_pane_width() {
+        let initialContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .laptop,
+            viewportWidth: 1200,
+            leadingVisibleInset: 290
+        )
+        let updatedContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .largeDisplay,
+            viewportWidth: 1500,
+            leadingVisibleInset: 290
+        )
+        let store = WorklaneStore(layoutContext: initialContext)
+        store.updatePaneViewportHeight(640)
+        store.send(.splitVertically)
+
+        store.updateLayoutContext(updatedContext)
+
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.count, 1)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.first?.panes.count, 2)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.first?.width ?? 0, 1210, accuracy: 0.001)
     }
 
     func test_updating_layout_context_reprojects_multi_pane_layout_sizing_even_when_widths_do_not_change() {
@@ -686,7 +737,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(heights?[2] ?? 0, 453.5555555555555, accuracy: 0.001)
     }
 
-    func test_resize_focused_pane_left_grows_only_the_focused_column() {
+    func test_resize_focused_pane_left_shrinks_only_the_focused_middle_column() {
         let store = WorklaneStore(
             worklanes: [
                 WorklaneState(
@@ -697,7 +748,7 @@ final class PaneStripStoreTests: XCTestCase {
                             PaneColumnState(
                                 id: PaneColumnID("left"),
                                 panes: [PaneState(id: PaneID("left"), title: "left")],
-                                width: 300,
+                                width: 400,
                                 focusedPaneID: PaneID("left"),
                                 lastFocusedPaneID: PaneID("left")
                             ),
@@ -735,12 +786,108 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         let columns = store.activeWorklane?.paneStripState.columns
-        XCTAssertEqual(columns?[0].width ?? 0, 300, accuracy: 0.001)
-        XCTAssertEqual(columns?[1].width ?? 0, 440, accuracy: 0.001)
+        XCTAssertEqual(columns?[0].width ?? 0, 400, accuracy: 0.001)
+        XCTAssertEqual(columns?[1].width ?? 0, 360, accuracy: 0.001)
         XCTAssertEqual(columns?[2].width ?? 0, 500, accuracy: 0.001)
         XCTAssertEqual(
             store.activeWorklane?.paneStripState.lastInteractedDivider,
             .column(afterColumnID: PaneColumnID("left"))
+        )
+    }
+
+    func test_resize_focused_pane_right_grows_only_the_focused_interior_column() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("left"), title: "left")],
+                                width: 400,
+                                focusedPaneID: PaneID("left"),
+                                lastFocusedPaneID: PaneID("left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("middle"),
+                                panes: [PaneState(id: PaneID("middle"), title: "middle")],
+                                width: 400,
+                                focusedPaneID: PaneID("middle"),
+                                lastFocusedPaneID: PaneID("middle")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [PaneState(id: PaneID("right"), title: "right")],
+                                width: 500,
+                                focusedPaneID: PaneID("right"),
+                                lastFocusedPaneID: PaneID("right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("middle")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.resizeFocusedPane(
+            in: .horizontal,
+            delta: 40,
+            availableSize: CGSize(width: 1200, height: 920),
+            minimumSizeByPaneID: [
+                PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        let columns = store.activeWorklane?.paneStripState.columns
+        XCTAssertEqual(columns?[0].width ?? 0, 400, accuracy: 0.001)
+        XCTAssertEqual(columns?[1].width ?? 0, 440, accuracy: 0.001)
+        XCTAssertEqual(columns?[2].width ?? 0, 500, accuracy: 0.001)
+        XCTAssertEqual(
+            store.activeWorklane?.paneStripState.lastInteractedDivider,
+            .column(afterColumnID: PaneColumnID("middle"))
+        )
+    }
+
+    func test_resize_focused_last_pane_right_shrinks_it_without_resizing_neighbors() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: PaneID("left"), title: "left", width: 600),
+                            PaneState(id: PaneID("right"), title: "right", width: 600),
+                        ],
+                        focusedPaneID: PaneID("right")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.resizeFocusedPane(
+            in: .horizontal,
+            delta: 40,
+            availableSize: CGSize(width: 1200, height: 920),
+            minimumSizeByPaneID: [
+                PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        let columns = store.activeWorklane?.paneStripState.columns
+        XCTAssertEqual(columns?[0].width ?? 0, 600, accuracy: 0.001)
+        XCTAssertEqual(columns?[1].width ?? 0, 594, accuracy: 0.001)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPaneID, PaneID("right"))
+        XCTAssertEqual(
+            store.activeWorklane?.paneStripState.lastInteractedDivider,
+            .column(afterColumnID: PaneColumnID("column-left"))
         )
     }
 

@@ -3,13 +3,52 @@ import QuartzCore
 
 @MainActor
 final class RootViewController: NSViewController {
+    private final class LocalEventMonitor {
+        private let token: Any
+
+        init(
+            matching mask: NSEvent.EventTypeMask,
+            handler: @escaping (NSEvent) -> NSEvent?
+        ) {
+            token = NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)
+        }
+
+        deinit {
+            NSEvent.removeMonitor(token)
+        }
+    }
+
+    private final class NotificationObserverBag {
+        private let center: NotificationCenter
+        private var tokens: [NSObjectProtocol] = []
+
+        init(center: NotificationCenter = .default) {
+            self.center = center
+        }
+
+        func addObserver(
+            forName name: Notification.Name,
+            object: AnyObject?,
+            using block: @escaping (Notification) -> Void
+        ) {
+            tokens.append(
+                center.addObserver(forName: name, object: object, queue: .main, using: block)
+            )
+        }
+
+        deinit {
+            tokens.forEach(center.removeObserver)
+        }
+    }
+
     private enum SidebarLayout {
         static let hoverRailWidth: CGFloat = 8
-        static let defaultTrafficLightAnchor = NSPoint(x: ChromeGeometry.trafficLightLeadingInset + 48, y: 0)
+        static let defaultTrafficLightAnchor = NSPoint(
+            x: ChromeGeometry.trafficLightLeadingInset + 48, y: 0)
     }
 
     private enum PaneResize {
-        static let minimumColumns: CGFloat = 40
+        static let minimumColumns: CGFloat = 20
         static let minimumRows: CGFloat = 8
     }
 
@@ -29,9 +68,10 @@ final class RootViewController: NSViewController {
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
     private let paneBorderContextOverlayView = PaneBorderContextOverlayView()
     private let windowChromeView = WindowChromeView()
-    private var hasInstalledKeyMonitor = false
-    private var hasInstalledWindowObservers = false
+    private var keyMonitor: LocalEventMonitor?
+    private var windowObserverBag: NotificationObserverBag?
     private var paneLayoutPreferences: PaneLayoutPreferences
+    private var shortcutManager: ShortcutManager
     private var currentPaneLayoutContext: PaneLayoutContext
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
@@ -59,6 +99,7 @@ final class RootViewController: NSViewController {
         self.configStore = configStore
         self.openWithService = openWithService
         self.paneLayoutPreferences = configStore.current.paneLayout
+        self.shortcutManager = ShortcutManager(shortcuts: configStore.current.shortcuts)
         self.currentPaneLayoutContext = initialLayoutContext
         self.sidebarMotionCoordinator = SidebarMotionCoordinator(
             configStore: configStore
@@ -94,12 +135,13 @@ final class RootViewController: NSViewController {
         initialLayoutContext: PaneLayoutContext = .fallback
     ) {
         self.init(
-            configStore: configStore ?? AppConfigStore(
-                fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.RootViewController"),
-                sidebarWidthDefaults: sidebarWidthDefaults,
-                sidebarVisibilityDefaults: sidebarVisibilityDefaults,
-                paneLayoutDefaults: paneLayoutDefaults
-            ),
+            configStore: configStore
+                ?? AppConfigStore(
+                    fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.RootViewController"),
+                    sidebarWidthDefaults: sidebarWidthDefaults,
+                    sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+                    paneLayoutDefaults: paneLayoutDefaults
+                ),
             openWithService: openWithService,
             runtimeRegistry: runtimeRegistry,
             reviewStateResolver: reviewStateResolver,
@@ -156,7 +198,8 @@ final class RootViewController: NSViewController {
         self.sidebarWidthConstraint = sidebarWidthConstraint
         self.sidebarLeadingConstraint = sidebarLeadingConstraint
 
-        let initialSidebarTrailing = ShellMetrics.outerInset + sidebarMotionCoordinator.currentSidebarWidth
+        let initialSidebarTrailing =
+            ShellMetrics.outerInset + sidebarMotionCoordinator.currentSidebarWidth
         let toggleLeadingConstraint = sidebarToggleButton.leadingAnchor.constraint(
             equalTo: view.leadingAnchor,
             constant: initialSidebarTrailing + ShellMetrics.shellGap
@@ -177,48 +220,65 @@ final class RootViewController: NSViewController {
         self.toggleTopConstraint = toggleVerticalConstraint
 
         NSLayoutConstraint.activate([
-            sidebarView.topAnchor.constraint(equalTo: view.topAnchor, constant: ShellMetrics.outerInset),
+            sidebarView.topAnchor.constraint(
+                equalTo: view.topAnchor, constant: ShellMetrics.outerInset),
             sidebarLeadingConstraint,
-            sidebarView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -ShellMetrics.outerInset),
+            sidebarView.bottomAnchor.constraint(
+                equalTo: view.bottomAnchor, constant: -ShellMetrics.outerInset),
             sidebarWidthConstraint,
 
             appCanvasView.topAnchor.constraint(equalTo: windowChromeView.bottomAnchor),
-            appCanvasView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: ShellMetrics.outerInset),
-            appCanvasView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -ShellMetrics.canvasOuterInset),
-            appCanvasView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -ShellMetrics.canvasOuterInset),
+            appCanvasView.leadingAnchor.constraint(
+                equalTo: view.leadingAnchor, constant: ShellMetrics.outerInset),
+            appCanvasView.trailingAnchor.constraint(
+                equalTo: view.trailingAnchor, constant: -ShellMetrics.canvasOuterInset),
+            appCanvasView.bottomAnchor.constraint(
+                equalTo: view.bottomAnchor, constant: -ShellMetrics.canvasOuterInset),
 
             paneBorderContextOverlayView.topAnchor.constraint(equalTo: view.topAnchor),
             paneBorderContextOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             paneBorderContextOverlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             paneBorderContextOverlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            windowChromeView.topAnchor.constraint(equalTo: view.topAnchor, constant: ShellMetrics.outerInset),
-            windowChromeView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: ShellMetrics.outerInset),
-            windowChromeView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -ShellMetrics.outerInset),
-            windowChromeView.heightAnchor.constraint(equalToConstant: WindowChromeView.preferredHeight),
+            windowChromeView.topAnchor.constraint(
+                equalTo: view.topAnchor, constant: ShellMetrics.outerInset),
+            windowChromeView.leadingAnchor.constraint(
+                equalTo: view.leadingAnchor, constant: ShellMetrics.outerInset),
+            windowChromeView.trailingAnchor.constraint(
+                equalTo: view.trailingAnchor, constant: -ShellMetrics.outerInset),
+            windowChromeView.heightAnchor.constraint(
+                equalToConstant: WindowChromeView.preferredHeight),
 
             sidebarHoverRailView.topAnchor.constraint(equalTo: view.topAnchor),
             sidebarHoverRailView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             sidebarHoverRailView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            sidebarHoverRailView.widthAnchor.constraint(equalToConstant: SidebarLayout.hoverRailWidth),
+            sidebarHoverRailView.widthAnchor.constraint(
+                equalToConstant: SidebarLayout.hoverRailWidth),
 
             toggleLeadingConstraint,
             toggleVerticalConstraint,
-            sidebarToggleButton.widthAnchor.constraint(equalToConstant: SidebarToggleButton.buttonSize),
-            sidebarToggleButton.heightAnchor.constraint(equalToConstant: SidebarToggleButton.buttonSize),
+            sidebarToggleButton.widthAnchor.constraint(
+                equalToConstant: SidebarToggleButton.buttonSize),
+            sidebarToggleButton.heightAnchor.constraint(
+                equalToConstant: SidebarToggleButton.buttonSize),
 
-            notificationBellButton.leadingAnchor.constraint(equalTo: sidebarToggleButton.trailingAnchor, constant: 8),
-            notificationBellButton.centerYAnchor.constraint(equalTo: sidebarToggleButton.centerYAnchor),
-            notificationBellButton.widthAnchor.constraint(equalToConstant: NotificationBellButton.buttonSize),
-            notificationBellButton.heightAnchor.constraint(equalToConstant: NotificationBellButton.buttonSize),
+            notificationBellButton.leadingAnchor.constraint(
+                equalTo: sidebarToggleButton.trailingAnchor, constant: 8),
+            notificationBellButton.centerYAnchor.constraint(
+                equalTo: sidebarToggleButton.centerYAnchor),
+            notificationBellButton.widthAnchor.constraint(
+                equalToConstant: NotificationBellButton.buttonSize),
+            notificationBellButton.heightAnchor.constraint(
+                equalToConstant: NotificationBellButton.buttonSize),
         ])
 
-        renderCoordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
-            sidebarView: sidebarView,
-            windowChromeView: windowChromeView,
-            appCanvasView: appCanvasView,
-            paneBorderContextOverlayView: paneBorderContextOverlayView
-        ))
+        renderCoordinator.bind(
+            to: WorklaneRenderCoordinator.ViewBindings(
+                sidebarView: sidebarView,
+                windowChromeView: windowChromeView,
+                appCanvasView: appCanvasView,
+                paneBorderContextOverlayView: paneBorderContextOverlayView
+            ))
         renderCoordinator.themeProvider = { [weak self] in
             self?.currentTheme ?? ZenttyTheme.fallback(for: nil)
         }
@@ -265,8 +325,10 @@ final class RootViewController: NSViewController {
         notificationBellButton.configure(theme: currentTheme, animated: false)
         notificationStore.onChange = { [weak self] in
             guard let self else { return }
-            self.notificationBellButton.update(count: self.notificationStore.unresolvedCount, theme: self.currentTheme)
-            self.notificationPanelView?.update(notifications: self.notificationStore.notifications, theme: self.currentTheme)
+            self.notificationBellButton.update(
+                count: self.notificationStore.unresolvedCount, theme: self.currentTheme)
+            self.notificationPanelView?.update(
+                notifications: self.notificationStore.notifications, theme: self.currentTheme)
             let count = self.notificationStore.unresolvedCount
             NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
         }
@@ -295,6 +357,7 @@ final class RootViewController: NSViewController {
                 target,
                 delta: delta,
                 availableSize: self.appCanvasView.bounds.size,
+                leadingVisibleInset: self.appCanvasView.leadingVisibleInset,
                 minimumSizeByPaneID: self.paneMinimumSizesByPaneID()
             )
         }
@@ -302,7 +365,8 @@ final class RootViewController: NSViewController {
             guard let self else {
                 return
             }
-            self.worklaneStore.equalizeDivider(divider, availableSize: self.appCanvasView.bounds.size)
+            self.worklaneStore.equalizeDivider(
+                divider, availableSize: self.appCanvasView.bounds.size)
         }
         appCanvasView.paneStripView.onPaneStripStateRestoreRequested = { [weak self] state in
             self?.worklaneStore.restorePaneLayout(state)
@@ -437,11 +501,11 @@ final class RootViewController: NSViewController {
     }
 
     private func installKeyboardMonitorIfNeeded() {
-        guard !hasInstalledKeyMonitor else {
+        guard keyMonitor == nil else {
             return
         }
 
-        _ = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyMonitor = LocalEventMonitor(matching: .keyDown) { [weak self] event in
             guard let self else {
                 return event
             }
@@ -451,14 +515,14 @@ final class RootViewController: NSViewController {
             }
 
             guard let shortcut = KeyboardShortcut(event: event),
-                  let action = KeyboardShortcutResolver.resolve(shortcut) else {
+                let commandID = shortcutManager.commandID(for: shortcut)
+            else {
                 return event
             }
 
-            self.handle(action)
+            self.handle(AppCommandRegistry.definition(for: commandID).action)
             return nil
         }
-        hasInstalledKeyMonitor = true
     }
 
     func handle(_ action: AppAction) {
@@ -469,6 +533,8 @@ final class RootViewController: NSViewController {
         syncFocusedPaneWithResponderIfNeeded(responder)
 
         switch action {
+        case .toggleSidebar:
+            handleToggleSidebar()
         case .newWorklane:
             worklaneStore.createWorklane()
         case .nextWorklane:
@@ -487,20 +553,39 @@ final class RootViewController: NSViewController {
     private func handlePaneCommand(_ command: PaneCommand) {
         switch command {
         case .resizeLeft:
-            worklaneStore.resizeFocusedPane(
+            appCanvasView.settlePaneStripPresentationNow()
+            let shouldCenterMiddlePane = shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize()
+            if shouldCenterMiddlePane {
+                appCanvasView.centerFocusedInteriorPaneOnNextRender()
+            }
+            let didResize = worklaneStore.resizeFocusedPane(
                 in: .horizontal,
                 delta: -keyboardResizeStep(for: .horizontal),
                 availableSize: appCanvasView.bounds.size,
+                leadingVisibleInset: appCanvasView.leadingVisibleInset,
                 minimumSizeByPaneID: paneMinimumSizesByPaneID()
             )
+            if shouldCenterMiddlePane, !didResize {
+                appCanvasView.clearPendingPaneStripTargetOffsetOverride()
+            }
         case .resizeRight:
-            worklaneStore.resizeFocusedPane(
+            appCanvasView.settlePaneStripPresentationNow()
+            let shouldCenterMiddlePane = shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize()
+            if shouldCenterMiddlePane {
+                appCanvasView.centerFocusedInteriorPaneOnNextRender()
+            }
+            let didResize = worklaneStore.resizeFocusedPane(
                 in: .horizontal,
                 delta: keyboardResizeStep(for: .horizontal),
                 availableSize: appCanvasView.bounds.size,
+                leadingVisibleInset: appCanvasView.leadingVisibleInset,
                 minimumSizeByPaneID: paneMinimumSizesByPaneID()
             )
+            if shouldCenterMiddlePane, !didResize {
+                appCanvasView.clearPendingPaneStripTargetOffsetOverride()
+            }
         case .resizeUp:
+            appCanvasView.settlePaneStripPresentationNow()
             worklaneStore.resizeFocusedPane(
                 in: .vertical,
                 delta: keyboardResizeStep(for: .vertical),
@@ -508,6 +593,7 @@ final class RootViewController: NSViewController {
                 minimumSizeByPaneID: paneMinimumSizesByPaneID()
             )
         case .resizeDown:
+            appCanvasView.settlePaneStripPresentationNow()
             worklaneStore.resizeFocusedPane(
                 in: .vertical,
                 delta: -keyboardResizeStep(for: .vertical),
@@ -519,6 +605,20 @@ final class RootViewController: NSViewController {
         default:
             worklaneStore.send(command)
         }
+    }
+
+    private func shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize() -> Bool {
+        guard
+            let state = worklaneStore.activeWorklane?.paneStripState,
+            let focusedColumnID = state.focusedColumnID,
+            let focusedColumnIndex = state.columns.firstIndex(where: { $0.id == focusedColumnID })
+        else {
+            return false
+        }
+
+        return state.columns.count > 2
+            && focusedColumnIndex > 0
+            && focusedColumnIndex + 1 < state.columns.count
     }
 
     private func jumpToLatestNotification() {
@@ -580,7 +680,8 @@ final class RootViewController: NSViewController {
 
     private func copyPath(forPaneID paneID: PaneID) {
         guard
-            let path = worklaneStore.activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path,
+            let path = worklaneStore.activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?
+                .path,
             !path.isEmpty
         else {
             return
@@ -601,7 +702,7 @@ final class RootViewController: NSViewController {
     private func keyboardResizeStep(for axis: PaneResizeAxis) -> CGFloat {
         let minimumSizesByPaneID = paneMinimumSizesByPaneID()
         guard let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
-              let minimumSize = minimumSizesByPaneID[focusedPaneID]
+            let minimumSize = minimumSizesByPaneID[focusedPaneID]
         else {
             switch axis {
             case .horizontal:
@@ -624,21 +725,29 @@ final class RootViewController: NSViewController {
             return [:]
         }
 
-        return Dictionary(uniqueKeysWithValues: worklane.paneStripState.panes.map { pane in
-            let runtime = runtimeRegistry.runtime(for: pane)
-            let minimumWidth = runtime.cellWidth > 0
-                ? max(PaneMinimumSize.fallback.width, runtime.cellWidth * PaneResize.minimumColumns)
-                : PaneMinimumSize.fallback.width
-            let minimumHeight = runtime.cellHeight > 0
-                ? max(PaneMinimumSize.fallback.height, runtime.cellHeight * PaneResize.minimumRows)
-                : PaneMinimumSize.fallback.height
-            return (pane.id, PaneMinimumSize(width: minimumWidth, height: minimumHeight))
-        })
+        return Dictionary(
+            uniqueKeysWithValues: worklane.paneStripState.panes.map { pane in
+                let runtime = runtimeRegistry.runtime(for: pane)
+                let minimumWidth =
+                    runtime.cellWidth > 0
+                    ? max(
+                        PaneMinimumSize.fallback.width,
+                        runtime.cellWidth * PaneResize.minimumColumns)
+                    : PaneMinimumSize.fallback.width
+                let minimumHeight =
+                    runtime.cellHeight > 0
+                    ? max(
+                        PaneMinimumSize.fallback.height, runtime.cellHeight * PaneResize.minimumRows
+                    )
+                    : PaneMinimumSize.fallback.height
+                return (pane.id, PaneMinimumSize(width: minimumWidth, height: minimumHeight))
+            })
     }
 
     private func syncFocusedPaneWithResponderIfNeeded(_ responder: NSResponder?) {
         guard let paneID = paneID(containing: responder),
-              worklaneStore.activeWorklane?.paneStripState.focusedPaneID != paneID else {
+            worklaneStore.activeWorklane?.paneStripState.focusedPaneID != paneID
+        else {
             return
         }
 
@@ -662,11 +771,11 @@ final class RootViewController: NSViewController {
     }
 
     private func installWindowObserversIfNeeded() {
-        guard !hasInstalledWindowObservers, let window = view.window else {
+        guard windowObserverBag == nil, let window = view.window else {
             return
         }
 
-        let notificationCenter = NotificationCenter.default
+        let observerBag = NotificationObserverBag()
         [
             NSWindow.didBecomeKeyNotification,
             NSWindow.didResignKeyNotification,
@@ -674,14 +783,11 @@ final class RootViewController: NSViewController {
             NSWindow.didDeminiaturizeNotification,
             NSWindow.didChangeScreenNotification,
         ].forEach { name in
-            notificationCenter.addObserver(
-                self,
-                selector: #selector(handleWindowStateDidChange),
-                name: name,
-                object: window
-            )
+            observerBag.addObserver(forName: name, object: window) { [weak self] _ in
+                self?.handleWindowStateDidChange()
+            }
         }
-        hasInstalledWindowObservers = true
+        windowObserverBag = observerBag
     }
 
     @objc
@@ -691,9 +797,19 @@ final class RootViewController: NSViewController {
         renderCoordinator.updateSurfaceActivities()
     }
 
+    func handleWindowDidResize() {
+        view.layoutSubtreeIfNeeded()
+        syncSidebarWidthToAvailableWidth(persist: false)
+        updatePaneLayoutContextIfNeeded(force: true)
+        updatePaneViewportHeight()
+        renderCoordinator.renderCanvas(animated: false)
+        renderCoordinator.renderBorderOverlay()
+    }
+
     private func installStaleAgentSweepTimer() {
         staleAgentSweepTimer?.invalidate()
-        staleAgentSweepTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        staleAgentSweepTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) {
+            [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.worklaneStore.clearStaleAgentSessions()
             }
@@ -723,7 +839,8 @@ final class RootViewController: NSViewController {
     }
 
     private func handleSidebarWidthChange(_ width: CGFloat) {
-        sidebarMotionCoordinator.setSidebarWidth(width, availableWidth: resolvedSidebarAvailableWidth(), persist: true)
+        sidebarMotionCoordinator.setSidebarWidth(
+            width, availableWidth: resolvedSidebarAvailableWidth(), persist: true)
         sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
         applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
     }
@@ -749,11 +866,13 @@ final class RootViewController: NSViewController {
         )
         let hiddenTravel = sidebarWidth + ShellMetrics.shellGap
         let reservedInset = hiddenTravel * motionState.reservedFraction
-        let leadingConstant = ShellMetrics.outerInset - ((1 - motionState.revealFraction) * hiddenTravel)
+        let leadingConstant =
+            ShellMetrics.outerInset - ((1 - motionState.revealFraction) * hiddenTravel)
         let floatingStrength = max(0, motionState.revealFraction - motionState.reservedFraction)
 
         let duration = SidebarTransitionProfile.resolvedDuration(reducedMotion: reducedMotion)
-        let timingFunction = SidebarTransitionProfile.resolvedTimingFunction(reducedMotion: reducedMotion)
+        let timingFunction = SidebarTransitionProfile.resolvedTimingFunction(
+            reducedMotion: reducedMotion)
 
         let previousLeadingInset = appCanvasView.leadingVisibleInset
         let previousWorklaneState = worklaneStore.state
@@ -761,7 +880,8 @@ final class RootViewController: NSViewController {
         worklaneStore.batchUpdate { [self] in
             updatePaneLayoutContextIfNeeded(force: true, leadingVisibleInsetOverride: reservedInset)
         }
-        let needsCanvasTransition = abs(previousLeadingInset - reservedInset) > 0.001
+        let needsCanvasTransition =
+            abs(previousLeadingInset - reservedInset) > 0.001
             || previousWorklaneState != worklaneStore.state
             || previousLayoutContext != currentPaneLayoutContext
         windowChromeView.leadingVisibleInset = reservedInset
@@ -782,7 +902,8 @@ final class RootViewController: NSViewController {
             closedToggleTarget,
             sidebarTrailingEdge + ShellMetrics.shellGap
         )
-        let toggleTarget = motionState.reservedFraction == 1
+        let toggleTarget =
+            motionState.reservedFraction == 1
             ? openToggleTarget
             : closedToggleTarget
 
@@ -887,31 +1008,32 @@ final class RootViewController: NSViewController {
     }
 
     #if DEBUG
-    func handleSidebarVisibilityEvent(_ event: SidebarVisibilityEvent) {
-        sidebarMotionCoordinator.handle(event)
-        syncSidebarVisibilityControls(animated: false)
-    }
+        func handleSidebarVisibilityEvent(_ event: SidebarVisibilityEvent) {
+            sidebarMotionCoordinator.handle(event)
+            syncSidebarVisibilityControls(animated: false)
+        }
 
-    func replaceWorklanes(_ worklanes: [WorklaneState], activeWorklaneID: WorklaneID? = nil) {
-        worklaneStore.replaceWorklanes(worklanes, activeWorklaneID: activeWorklaneID)
-        renderCoordinator.render()
-    }
+        func replaceWorklanes(_ worklanes: [WorklaneState], activeWorklaneID: WorklaneID? = nil) {
+            worklaneStore.replaceWorklanes(worklanes, activeWorklaneID: activeWorklaneID)
+            renderCoordinator.render()
+        }
 
-    func focusPaneDirectly(_ paneID: PaneID) {
-        worklaneStore.focusPane(id: paneID)
-        renderCoordinator.render()
-    }
+        func focusPaneDirectly(_ paneID: PaneID) {
+            worklaneStore.focusPane(id: paneID)
+            renderCoordinator.render()
+        }
 
-    func applyAgentStatusPayloadForTesting(_ payload: AgentStatusPayload) {
-        worklaneStore.applyAgentStatusPayload(payload)
-        renderCoordinator.render()
-    }
+        func applyAgentStatusPayloadForTesting(_ payload: AgentStatusPayload) {
+            worklaneStore.applyAgentStatusPayload(payload)
+            renderCoordinator.render()
+        }
 
-    func setSidebarWidth(_ width: CGFloat) {
-        sidebarMotionCoordinator.setSidebarWidth(width, availableWidth: resolvedSidebarAvailableWidth(), persist: false)
-        sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
-        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
-    }
+        func setSidebarWidth(_ width: CGFloat) {
+            sidebarMotionCoordinator.setSidebarWidth(
+                width, availableWidth: resolvedSidebarAvailableWidth(), persist: false)
+            sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
+            applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        }
     #endif
 
     private func resolvedSidebarAvailableWidth() -> CGFloat? {
@@ -934,8 +1056,10 @@ final class RootViewController: NSViewController {
     }
 
     private func updateCanvasLeadingInset(_ leadingVisibleInset: CGFloat? = nil) {
-        let leadingVisibleInset = leadingVisibleInset
-            ?? (sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth) + ShellMetrics.shellGap
+        let leadingVisibleInset =
+            leadingVisibleInset
+            ?? (sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth)
+            + ShellMetrics.shellGap
         appCanvasView.leadingVisibleInset = leadingVisibleInset
         windowChromeView.leadingVisibleInset = leadingVisibleInset
     }
@@ -951,6 +1075,7 @@ final class RootViewController: NSViewController {
 
     private func applyPersistedConfig(_ config: AppConfig) {
         paneLayoutPreferences = config.paneLayout
+        shortcutManager = ShortcutManager(shortcuts: config.shortcuts)
         sidebarMotionCoordinator.applyPersistedSidebarSettings(
             config.sidebar,
             availableWidth: resolvedSidebarAvailableWidth()
@@ -966,12 +1091,13 @@ final class RootViewController: NSViewController {
     private func updateOpenWithChromeState() {
         let primaryTarget = primaryOpenWithTarget
         let canOpenFocusedPane = focusedOpenWithContext != nil && primaryTarget != nil
-        windowChromeView.render(openWith: WindowChromeOpenWithState(
-            title: primaryTarget?.displayName ?? "Open With",
-            icon: primaryTarget.flatMap { openWithService.icon(for: $0) },
-            isPrimaryEnabled: canOpenFocusedPane,
-            isMenuEnabled: true
-        ))
+        windowChromeView.render(
+            openWith: WindowChromeOpenWithState(
+                title: primaryTarget?.displayName ?? "Open With",
+                icon: primaryTarget.flatMap { openWithService.icon(for: $0) },
+                isPrimaryEnabled: canOpenFocusedPane,
+                isMenuEnabled: true
+            ))
     }
 
     private func updatePaneLayoutContextIfNeeded(
@@ -1009,7 +1135,6 @@ final class RootViewController: NSViewController {
         )
     }
 }
-
 
 @MainActor
 private final class WindowContentView: NSView {

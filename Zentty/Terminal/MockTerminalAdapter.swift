@@ -82,10 +82,19 @@ final class TerminalSurfaceMockView: NSView, TerminalFocusReporting {
         contentLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentLabel)
 
+        let topConstraint = contentLabel.topAnchor.constraint(equalTo: topAnchor, constant: Layout.contentInset)
+        let leadingConstraint = contentLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset)
+        let trailingConstraint = contentLabel.trailingAnchor.constraint(
+            lessThanOrEqualTo: trailingAnchor,
+            constant: -Layout.contentInset
+        )
+        leadingConstraint.priority = .defaultHigh
+        trailingConstraint.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
-            contentLabel.topAnchor.constraint(equalTo: topAnchor, constant: Layout.contentInset),
-            contentLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset),
-            contentLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Layout.contentInset),
+            topConstraint,
+            leadingConstraint,
+            trailingConstraint,
         ])
     }
 

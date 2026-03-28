@@ -14,7 +14,7 @@ struct PaneLayoutSizing: Equatable, Sendable {
     )
 
     static let edgeAligned = PaneLayoutSizing(
-        horizontalInset: 0,
+        horizontalInset: balanced.horizontalInset,
         topInset: balanced.topInset,
         bottomInset: balanced.bottomInset,
         interPaneSpacing: balanced.interPaneSpacing

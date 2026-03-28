@@ -2,148 +2,113 @@ import XCTest
 @testable import Zentty
 
 final class KeyboardShortcutResolverTests: XCTestCase {
-    func test_resolves_new_worklane_shortcut() {
-        let action = KeyboardShortcutResolver.resolve(
-            .init(key: .character("t"), modifiers: [.command])
-        )
+    func test_registry_includes_toggle_sidebar_command_with_general_category_and_command_s_default() {
+        let definition = AppCommandRegistry.definition(for: .toggleSidebar)
 
-        XCTAssertEqual(action, .newWorklane)
-    }
-
-    func test_resolves_horizontal_split_shortcut() {
-        let action = KeyboardShortcutResolver.resolve(
-            .init(key: .character("d"), modifiers: [.command])
-        )
-
-        XCTAssertEqual(action, .pane(.splitHorizontally))
-    }
-
-    func test_resolves_vertical_split_shortcut() {
-        let action = KeyboardShortcutResolver.resolve(
-            .init(key: .character("d"), modifiers: [.command, .shift])
-        )
-
-        XCTAssertEqual(action, .pane(.splitVertically))
-    }
-
-    func test_resolves_close_shortcut() {
-        let action = KeyboardShortcutResolver.resolve(
-            .init(key: .character("w"), modifiers: [.command])
-        )
-
-        XCTAssertEqual(action, .pane(.closeFocusedPane))
-    }
-
-    func test_resolves_horizontal_focus_shortcuts() {
+        XCTAssertEqual(definition.title, "Toggle Sidebar")
+        XCTAssertEqual(definition.category, .general)
         XCTAssertEqual(
-            KeyboardShortcutResolver.resolve(
-                .init(key: .leftArrow, modifiers: [.command, .option])
-            ),
-            .pane(.focusLeft)
-        )
-
-        XCTAssertEqual(
-            KeyboardShortcutResolver.resolve(
-                .init(key: .rightArrow, modifiers: [.command, .option])
-            ),
-            .pane(.focusRight)
+            definition.defaultShortcut,
+            .init(key: .character("s"), modifiers: [.command])
         )
     }
 
-    func test_resolves_vertical_focus_shortcuts() {
+    func test_resolves_default_shortcuts_from_registry() {
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
-                .init(key: .upArrow, modifiers: [.command, .option])
+                .init(key: .character("t"), modifiers: [.command]),
+                shortcuts: .default
             ),
-            .pane(.focusUp)
+            .newWorklane
         )
 
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
-                .init(key: .downArrow, modifiers: [.command, .option])
+                .init(key: .character("s"), modifiers: [.command]),
+                shortcuts: .default
             ),
-            .pane(.focusDown)
+            .toggleSidebar
         )
     }
 
-    func test_resolves_jump_to_edge_shortcuts() {
-        XCTAssertEqual(
-            KeyboardShortcutResolver.resolve(
-                .init(key: .leftArrow, modifiers: [.command, .option, .shift])
-            ),
-            .pane(.focusFirstColumn)
+    func test_resolves_remapped_shortcuts_from_overrides() {
+        let shortcuts = AppConfig.Shortcuts(
+            bindings: [
+                ShortcutBindingOverride(
+                    commandID: .toggleSidebar,
+                    shortcut: .init(key: .character("b"), modifiers: [.command])
+                )
+            ]
         )
 
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
-                .init(key: .rightArrow, modifiers: [.command, .option, .shift])
+                .init(key: .character("b"), modifiers: [.command]),
+                shortcuts: shortcuts
             ),
-            .pane(.focusLastColumn)
+            .toggleSidebar
+        )
+        XCTAssertNil(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .character("s"), modifiers: [.command]),
+                shortcuts: shortcuts
+            )
         )
     }
 
-    func test_resolves_resize_shortcuts() {
-        XCTAssertEqual(
-            KeyboardShortcutResolver.resolve(
-                .init(key: .leftArrow, modifiers: [.command, .control, .option])
-            ),
-            .pane(.resizeLeft)
+    func test_unbound_commands_do_not_resolve() {
+        let shortcuts = AppConfig.Shortcuts(
+            bindings: [
+                ShortcutBindingOverride(commandID: .toggleSidebar, shortcut: nil)
+            ]
         )
-        XCTAssertEqual(
+
+        XCTAssertNil(
             KeyboardShortcutResolver.resolve(
-                .init(key: .rightArrow, modifiers: [.command, .control, .option])
-            ),
-            .pane(.resizeRight)
-        )
-        XCTAssertEqual(
-            KeyboardShortcutResolver.resolve(
-                .init(key: .upArrow, modifiers: [.command, .control, .option])
-            ),
-            .pane(.resizeUp)
-        )
-        XCTAssertEqual(
-            KeyboardShortcutResolver.resolve(
-                .init(key: .downArrow, modifiers: [.command, .control, .option])
-            ),
-            .pane(.resizeDown)
+                .init(key: .character("s"), modifiers: [.command]),
+                shortcuts: shortcuts
+            )
         )
     }
 
-    func test_resolves_copy_path_shortcut() {
-        let action = KeyboardShortcutResolver.resolve(
-            .init(key: .character("c"), modifiers: [.command, .shift])
+    func test_conflicting_shortcut_override_is_rejected_in_effective_bindings() {
+        let manager = ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(
+                        commandID: .toggleSidebar,
+                        shortcut: .init(key: .character("t"), modifiers: [.command])
+                    )
+                ]
+            )
         )
 
-        XCTAssertEqual(action, .copyFocusedPanePath)
+        XCTAssertEqual(manager.shortcut(for: .toggleSidebar), .init(key: .character("s"), modifiers: [.command]))
+        XCTAssertEqual(manager.commandID(for: .init(key: .character("t"), modifiers: [.command])), .newWorklane)
     }
 
-    func test_resolves_jump_to_latest_notification_shortcut() {
-        let action = KeyboardShortcutResolver.resolve(
-            .init(key: .character("u"), modifiers: [.command, .shift])
+    func test_bindings_without_command_control_or_option_are_rejected() {
+        let shortcuts = AppConfig.Shortcuts(
+            bindings: [
+                ShortcutBindingOverride(
+                    commandID: .toggleSidebar,
+                    shortcut: .init(key: .character("a"), modifiers: [])
+                )
+            ]
         )
 
-        XCTAssertEqual(action, .jumpToLatestNotification)
+        let manager = ShortcutManager(shortcuts: shortcuts)
+
+        XCTAssertEqual(manager.shortcut(for: .toggleSidebar), .init(key: .character("s"), modifiers: [.command]))
+        XCTAssertNil(manager.commandID(for: .init(key: .character("a"), modifiers: [])))
     }
 
     func test_returns_nil_for_unhandled_shortcuts() {
         let action = KeyboardShortcutResolver.resolve(
-            .init(key: .character("k"), modifiers: [.command])
+            .init(key: .character("k"), modifiers: [.command]),
+            shortcuts: .default
         )
 
         XCTAssertNil(action)
-    }
-
-    func test_returns_nil_for_terminal_owned_shortcuts() {
-        XCTAssertNil(
-            KeyboardShortcutResolver.resolve(
-                .init(key: .leftArrow, modifiers: [.option])
-            )
-        )
-
-        XCTAssertNil(
-            KeyboardShortcutResolver.resolve(
-                .init(key: .character("c"), modifiers: [])
-            )
-        )
     }
 }

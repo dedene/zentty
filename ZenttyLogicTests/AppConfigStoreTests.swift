@@ -175,6 +175,36 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.current.openWith.customApps.map(\.id), ["custom:bbedit"])
     }
 
+    func test_store_writes_shortcut_overrides_and_unbound_entries() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.shortcuts.bindings = [
+                ShortcutBindingOverride(
+                    commandID: .toggleSidebar,
+                    shortcut: .init(key: .character("b"), modifiers: [.command])
+                ),
+                ShortcutBindingOverride(
+                    commandID: .copyFocusedPanePath,
+                    shortcut: nil
+                ),
+            ]
+        }
+
+        let persisted = try String(contentsOf: fileURL)
+        XCTAssertTrue(persisted.contains("[[shortcuts.bindings]]"))
+        XCTAssertTrue(persisted.contains("command_id = \"sidebar.toggle\""))
+        XCTAssertTrue(persisted.contains("shortcut = \"command+b\""))
+        XCTAssertTrue(persisted.contains("command_id = \"pane.copy_path\""))
+        XCTAssertTrue(persisted.contains("shortcut = \"\""))
+    }
+
     func test_store_live_reloads_external_file_edits() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         let store = AppConfigStore(
@@ -327,6 +357,68 @@ final class AppConfigStoreTests: XCTestCase {
         ])
         XCTAssertEqual(store.current.openWith.enabledTargetIDs, ["finder", "custom:valid"])
         XCTAssertEqual(store.current.openWith.primaryTargetID, "custom:valid")
+    }
+
+    func test_store_normalizes_duplicate_and_conflicting_shortcut_overrides_from_config_file() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [sidebar]
+        width = 260
+        visibility = "pinnedOpen"
+
+        [pane_layout]
+        laptop = "balanced"
+        large_display = "balanced"
+        ultrawide = "balanced"
+
+        [open_with]
+        primary_target_id = "finder"
+        enabled_target_ids = ["finder", "cursor"]
+
+        [[shortcuts.bindings]]
+        command_id = "sidebar.toggle"
+        shortcut = "command+b"
+
+        [[shortcuts.bindings]]
+        command_id = "sidebar.toggle"
+        shortcut = "command+shift+b"
+
+        [[shortcuts.bindings]]
+        command_id = "pane.split.horizontal"
+        shortcut = "command+t"
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(store.current.shortcuts.bindings, [
+            ShortcutBindingOverride(
+                commandID: .toggleSidebar,
+                shortcut: .init(key: .character("b"), modifiers: [.command, .shift])
+            )
+        ])
+    }
+
+    func test_store_drops_shortcut_overrides_without_command_control_or_option() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [[shortcuts.bindings]]
+        command_id = "sidebar.toggle"
+        shortcut = "a"
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(store.current.shortcuts.bindings, [])
     }
 
     func test_store_notifies_multiple_observers_for_updates() throws {

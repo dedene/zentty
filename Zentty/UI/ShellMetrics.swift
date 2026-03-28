@@ -135,6 +135,7 @@ enum ShellMetrics {
     static let sidebarTopInset: CGFloat = 58
     static let sidebarBottomInset: CGFloat = 18
     static let sidebarRowHorizontalInset: CGFloat = 12
+    static let sidebarWorklaneTextHorizontalInset: CGFloat = 6
     static let sidebarRowTopInset: CGFloat = 8
     static let sidebarRowBottomInset: CGFloat = 8
     static let sidebarRowVerticalPadding: CGFloat = sidebarRowTopInset + sidebarRowBottomInset
@@ -156,8 +157,14 @@ enum ShellMetrics {
     static let sidebarRowCornerRadius: CGFloat = ChromeGeometry.rowRadius
     static let sidebarFooterIconSpacing: CGFloat = 12
     static let footerHeight: CGFloat = 24
+    static let sidebarPaneRowHorizontalInset: CGFloat = 6
+    static let sidebarPaneRowVerticalInset: CGFloat = 6
     static let sidebarPaneButtonHorizontalInset: CGFloat = 6
-    static let sidebarPaneButtonVerticalInset: CGFloat = 4
+    static let sidebarPaneButtonVerticalInset: CGFloat = 3.5
+    static let sidebarPaneButtonCornerRadius: CGFloat = ChromeGeometry.innerRadius(
+        outerRadius: sidebarRowCornerRadius,
+        inset: sidebarPaneRowHorizontalInset
+    )
     static let paneSubRowHeight: CGFloat = 24
     static let paneSubRowIndent: CGFloat = 16
 

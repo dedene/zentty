@@ -480,6 +480,46 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNotEqual(payload.interactionKind, .approval)
     }
 
+    func test_claude_hook_parse_input_reads_notification_type() throws {
+        let input = try ClaudeHookBridge.parseInput(
+            Data("""
+            {"hook_event_name":"Notification","session_id":"session-1","message":"Claude is waiting for your input","notification_type":"idle_prompt"}
+            """.utf8)
+        )
+
+        XCTAssertEqual(input.hookEventName, "Notification")
+        XCTAssertEqual(input.sessionID, "session-1")
+        XCTAssertEqual(input.message, "Claude is waiting for your input")
+        XCTAssertEqual(input.notificationType, "idle_prompt")
+    }
+
+    func test_claude_hook_idle_prompt_notification_is_ignored() throws {
+        let input = try ClaudeHookBridge.parseInput(
+            Data("""
+            {"hook_event_name":"Notification","session_id":"session-1","message":"Claude is waiting for your input","notification_type":"idle_prompt"}
+            """.utf8)
+        )
+        let store = try makeClaudeHookSessionStore()
+        try store.upsert(
+            sessionID: "session-1",
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            cwd: nil,
+            pid: nil
+        )
+
+        let payloads = try ClaudeHookBridge.makePayloads(
+            from: input,
+            environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ],
+            sessionStore: store
+        )
+
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
     func test_claude_hook_permission_request_maps_to_needs_input_payload() throws {
         let input = try ClaudeHookBridge.parseInput(
             Data("""

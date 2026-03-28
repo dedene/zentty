@@ -1,11 +1,14 @@
 import AppKit
 
 enum SettingsSection: String, CaseIterable, Equatable, Sendable {
+    case shortcuts
     case openWith
     case paneLayout
 
     var title: String {
         switch self {
+        case .shortcuts:
+            "Shortcuts"
         case .openWith:
             "Open With"
         case .paneLayout:
@@ -15,6 +18,8 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
 
     var symbolName: String {
         switch self {
+        case .shortcuts:
+            "keyboard"
         case .openWith:
             "square.and.arrow.up.on.square"
         case .paneLayout:
@@ -24,6 +29,8 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
 
     var badgeColor: NSColor {
         switch self {
+        case .shortcuts:
+            .systemIndigo
         case .openWith:
             .systemBlue
         case .paneLayout:
@@ -32,7 +39,39 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
     }
 }
 
-// MARK: - Window Controller
+enum SettingsNavigationPlacement: Equatable {
+    case topBar
+}
+
+enum SettingsTransitionProfile {
+    static let standardDuration: TimeInterval = 0.30
+    static let reducedMotionDuration: TimeInterval = 0.15
+    // Spring-like overshoot: controlPoint1.y > 1 creates natural overshoot
+    static let controlPoint1 = CGPoint(x: 0.34, y: 1.18)
+    static let controlPoint2 = CGPoint(x: 0.64, y: 1)
+    static let slideOffset: CGFloat = 16
+
+    static func resolvedDuration(reducedMotion: Bool) -> TimeInterval {
+        reducedMotion ? reducedMotionDuration : standardDuration
+    }
+
+    static func resolvedTimingFunction(reducedMotion: Bool) -> CAMediaTimingFunction {
+        if reducedMotion {
+            return CAMediaTimingFunction(name: .easeOut)
+        }
+        return CAMediaTimingFunction(
+            controlPoints: Float(controlPoint1.x),
+            Float(controlPoint1.y),
+            Float(controlPoint2.x),
+            Float(controlPoint2.y)
+        )
+    }
+}
+
+@MainActor
+protocol SettingsPaneMeasuring: AnyObject {
+    func preferredViewportHeight(for width: CGFloat) -> CGFloat
+}
 
 @MainActor
 final class SettingsWindowController: NSWindowController {
@@ -50,22 +89,27 @@ final class SettingsWindowController: NSWindowController {
             customAppPicker: customAppPicker,
             initialSection: initialSection
         )
+        let initialContentSize = NSSize(width: SettingsViewController.preferredContentWidth, height: 440)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: NSRect(origin: .zero, size: initialContentSize),
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Settings"
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
-        window.isOpaque = false
-        window.backgroundColor = .clear
+        window.title = initialSection.title
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.titlebarSeparatorStyle = .automatic
         window.isReleasedWhenClosed = false
-        window.isMovableByWindowBackground = true
+        window.backgroundColor = NSColor.windowBackgroundColor
         window.center()
+        if #available(macOS 13.0, *) {
+            window.toolbarStyle = .preference
+        }
         window.contentViewController = settingsViewController
+        settingsViewController.attach(to: window)
+        settingsViewController.loadViewIfNeeded()
+        settingsViewController.select(section: initialSection, animated: false)
 
         self.settingsViewController = settingsViewController
         super.init(window: window)
@@ -77,36 +121,44 @@ final class SettingsWindowController: NSWindowController {
     }
 
     func show(section: SettingsSection, sender: Any?) {
-        settingsViewController.select(section: section)
+        settingsViewController.select(
+            section: section,
+            animated: settingsViewController.selectedSection != section
+        )
         showWindow(sender)
         window?.makeKeyAndOrderFront(sender)
     }
 }
 
-// MARK: - Settings View Controller
-
 @MainActor
-final class SettingsViewController: NSViewController {
+final class SettingsViewController: NSTabViewController {
     private enum Layout {
-        static let sidebarWidth: CGFloat = 200
-        static let sidebarInset: CGFloat = 12
-        static let sidebarItemSpacing: CGFloat = 2
-        static let contentInset: CGFloat = 24
-        static let separatorWidth: CGFloat = 1
+        static let minimumContentHeight: CGFloat = 340
+        static let maximumScreenHeightFraction: CGFloat = 2.0 / 3.0
+    }
+
+    static let preferredContentWidth: CGFloat = 760
+
+    private struct SectionEntry {
+        let section: SettingsSection
+        let contentViewController: NSViewController
+        let tabViewItem: NSTabViewItem
     }
 
     private let configStore: AppConfigStore
     private var configObserverID: UUID?
-    private let sidebarStackView = NSStackView()
-    private let separatorView = NSBox()
-    private let contentTitleLabel = NSTextField(labelWithString: "")
-    private let contentContainerView = NSView()
-    private var itemsBySection: [SettingsSection: SettingsSidebarItemView] = [:]
+    private lazy var shortcutsViewController = ShortcutsSettingsSectionViewController(configStore: configStore)
     private lazy var paneLayoutViewController = PaneLayoutSettingsSectionViewController()
     private let openWithViewController: OpenWithSettingsSectionViewController
+    private var entriesBySection: [SettingsSection: SectionEntry] = [:]
+    private weak var hostWindow: NSWindow?
+    private var isSynchronizingSelection = false
 
     private(set) var selectedSection: SettingsSection
-    private(set) var currentSectionViewController: NSViewController?
+
+    var currentSectionViewController: NSViewController? {
+        entriesBySection[selectedSection]?.contentViewController
+    }
 
     init(
         configStore: AppConfigStore,
@@ -122,6 +174,7 @@ final class SettingsViewController: NSViewController {
             customAppPicker: customAppPicker
         )
         super.init(nibName: nil, bundle: nil)
+        tabStyle = .toolbar
     }
 
     @available(*, unavailable)
@@ -135,108 +188,29 @@ final class SettingsViewController: NSViewController {
         }
     }
 
-    override func loadView() {
-        let rootView = NSView()
-
-        let windowBackgroundView = NSVisualEffectView()
-        windowBackgroundView.material = .underWindowBackground
-        windowBackgroundView.blendingMode = .behindWindow
-        windowBackgroundView.state = .active
-        windowBackgroundView.translatesAutoresizingMaskIntoConstraints = false
-        rootView.addSubview(windowBackgroundView)
-
-        let sidebarBackgroundView = NSVisualEffectView()
-        sidebarBackgroundView.material = .sidebar
-        sidebarBackgroundView.blendingMode = .behindWindow
-        sidebarBackgroundView.state = .active
-        sidebarBackgroundView.translatesAutoresizingMaskIntoConstraints = false
-        rootView.addSubview(sidebarBackgroundView)
-
-        sidebarStackView.orientation = .vertical
-        sidebarStackView.alignment = .leading
-        sidebarStackView.spacing = Layout.sidebarItemSpacing
-        sidebarStackView.translatesAutoresizingMaskIntoConstraints = false
-        sidebarBackgroundView.addSubview(sidebarStackView)
-
-        SettingsSection.allCases.forEach { section in
-            let itemView = SettingsSidebarItemView(section: section) { [weak self] selected in
-                self?.select(section: selected)
-            }
-            itemsBySection[section] = itemView
-            sidebarStackView.addArrangedSubview(itemView)
-            itemView.widthAnchor.constraint(
-                equalToConstant: Layout.sidebarWidth - (Layout.sidebarInset * 2)
-            ).isActive = true
-        }
-
-        separatorView.boxType = .separator
-        separatorView.translatesAutoresizingMaskIntoConstraints = false
-        rootView.addSubview(separatorView)
-
-        contentTitleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
-        contentTitleLabel.textColor = .labelColor
-        contentTitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        rootView.addSubview(contentTitleLabel)
-
-        contentContainerView.translatesAutoresizingMaskIntoConstraints = false
-        rootView.addSubview(contentContainerView)
-
-        NSLayoutConstraint.activate([
-            windowBackgroundView.topAnchor.constraint(equalTo: rootView.topAnchor),
-            windowBackgroundView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
-            windowBackgroundView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
-            windowBackgroundView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
-
-            sidebarBackgroundView.topAnchor.constraint(equalTo: rootView.topAnchor),
-            sidebarBackgroundView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
-            sidebarBackgroundView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
-            sidebarBackgroundView.widthAnchor.constraint(equalToConstant: Layout.sidebarWidth),
-
-            sidebarStackView.topAnchor.constraint(
-                equalTo: sidebarBackgroundView.safeAreaLayoutGuide.topAnchor,
-                constant: 8
-            ),
-            sidebarStackView.leadingAnchor.constraint(
-                equalTo: sidebarBackgroundView.leadingAnchor,
-                constant: Layout.sidebarInset
-            ),
-            sidebarStackView.trailingAnchor.constraint(
-                equalTo: sidebarBackgroundView.trailingAnchor,
-                constant: -Layout.sidebarInset
-            ),
-
-            separatorView.topAnchor.constraint(equalTo: rootView.topAnchor),
-            separatorView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
-            separatorView.leadingAnchor.constraint(equalTo: sidebarBackgroundView.trailingAnchor),
-            separatorView.widthAnchor.constraint(equalToConstant: Layout.separatorWidth),
-
-            contentTitleLabel.topAnchor.constraint(
-                equalTo: rootView.safeAreaLayoutGuide.topAnchor, constant: 12
-            ),
-            contentTitleLabel.leadingAnchor.constraint(
-                equalTo: separatorView.trailingAnchor, constant: Layout.contentInset
-            ),
-
-            contentContainerView.topAnchor.constraint(
-                equalTo: contentTitleLabel.bottomAnchor, constant: 16
-            ),
-            contentContainerView.leadingAnchor.constraint(equalTo: separatorView.trailingAnchor),
-            contentContainerView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
-            contentContainerView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
-        ])
-
-        view = rootView
-    }
-
     override func viewDidLoad() {
         super.viewDidLoad()
+        tabStyle = .toolbar
+        transitionOptions = []
+        configureTabsIfNeeded()
+
         configObserverID = configStore.addObserver { [weak self] config in
             Task { @MainActor [weak self] in
                 self?.apply(config: config)
             }
         }
         apply(config: configStore.current)
-        select(section: selectedSection)
+        select(section: selectedSection, animated: false)
+    }
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        attach(to: view.window)
+        synchronizeWindow(animated: false)
+    }
+
+    var navigationPlacement: SettingsNavigationPlacement {
+        .topBar
     }
 
     var sectionTitles: [String] {
@@ -247,24 +221,121 @@ final class SettingsViewController: NSViewController {
         selectedSection.title
     }
 
+    func attach(to window: NSWindow?) {
+        hostWindow = window
+    }
+
     func select(section: SettingsSection) {
+        select(section: section, animated: hostWindow != nil && selectedSection != section)
+    }
+
+    func select(section: SettingsSection, animated: Bool) {
         loadViewIfNeeded()
-        selectedSection = section
-        contentTitleLabel.stringValue = section.title
-        updateSidebarSelection()
-        swapContentViewController(to: sectionViewController(for: section))
-        if section == .openWith {
-            openWithViewController.prepareForPresentation()
+        guard let entry = entriesBySection[section] else {
+            return
+        }
+
+        let isChangingSection = selectedSection != section
+        let shouldAnimate = animated && isChangingSection
+        let reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+
+        // Prepare the new section BEFORE the transition
+        if let presentingSection = entry.contentViewController as? SettingsPresentingSection {
+            presentingSection.prepareForPresentation()
+        }
+
+        if shouldAnimate {
+            let duration = SettingsTransitionProfile.resolvedDuration(reducedMotion: reducedMotion)
+            let timingFunction = SettingsTransitionProfile.resolvedTimingFunction(reducedMotion: reducedMotion)
+
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(duration)
+            CATransaction.setAnimationTimingFunction(timingFunction)
+        }
+
+        transitionOptions = makeTransitionOptions(
+            from: selectedSection,
+            to: section,
+            animated: shouldAnimate
+        )
+
+        if tabView.selectedTabViewItem !== entry.tabViewItem {
+            isSynchronizingSelection = true
+            tabView.selectTabViewItem(entry.tabViewItem)
+            isSynchronizingSelection = false
+        }
+
+        handleSelectionChange(to: section, animated: shouldAnimate)
+
+        if shouldAnimate {
+            CATransaction.commit()
+        }
+    }
+
+    override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        guard
+            isSynchronizingSelection == false,
+            let identifier = tabViewItem?.identifier as? String,
+            let section = SettingsSection(rawValue: identifier)
+        else {
+            return
+        }
+
+        handleSelectionChange(to: section, animated: hostWindow?.isVisible == true)
+    }
+
+    override func tabView(_ tabView: NSTabView, shouldSelect tabViewItem: NSTabViewItem?) -> Bool {
+        guard
+            isSynchronizingSelection == false,
+            let identifier = tabViewItem?.identifier as? String,
+            let section = SettingsSection(rawValue: identifier)
+        else {
+            return true
+        }
+
+        transitionOptions = makeTransitionOptions(
+            from: selectedSection,
+            to: section,
+            animated: hostWindow?.isVisible == true
+        )
+        return true
+    }
+
+    private func configureTabsIfNeeded() {
+        guard entriesBySection.isEmpty else {
+            return
+        }
+
+        for section in SettingsSection.allCases {
+            let contentViewController = sectionViewController(for: section)
+            let tabViewItem = NSTabViewItem(viewController: contentViewController)
+            tabViewItem.identifier = section.rawValue
+            tabViewItem.label = section.title
+            tabViewItem.image = NSImage(
+                systemSymbolName: section.symbolName,
+                accessibilityDescription: section.title
+            )
+
+            addTabViewItem(tabViewItem)
+            entriesBySection[section] = SectionEntry(
+                section: section,
+                contentViewController: contentViewController,
+                tabViewItem: tabViewItem
+            )
         }
     }
 
     private func apply(config: AppConfig) {
+        shortcutsViewController.apply(shortcuts: config.shortcuts)
         paneLayoutViewController.apply(preferences: config.paneLayout)
         openWithViewController.apply(preferences: config.openWith)
+        synchronizeWindow(animated: false)
     }
 
     private func sectionViewController(for section: SettingsSection) -> NSViewController {
         switch section {
+        case .shortcuts:
+            shortcutsViewController
         case .openWith:
             openWithViewController
         case .paneLayout:
@@ -272,209 +343,87 @@ final class SettingsViewController: NSViewController {
         }
     }
 
-    private func swapContentViewController(to nextViewController: NSViewController) {
-        guard currentSectionViewController !== nextViewController else {
+    private func handleSelectionChange(to section: SettingsSection, animated: Bool) {
+        selectedSection = section
+        synchronizeWindow(animated: animated)
+    }
+
+    private func makeTransitionOptions(
+        from source: SettingsSection,
+        to destination: SettingsSection,
+        animated: Bool
+    ) -> NSViewController.TransitionOptions {
+        guard animated, source != destination else {
+            return []
+        }
+
+        let sourceIndex = SettingsSection.allCases.firstIndex(of: source) ?? 0
+        let destinationIndex = SettingsSection.allCases.firstIndex(of: destination) ?? 0
+
+        // Vertical direction: slide down for forward navigation, up for backward
+        let directionalOption: NSViewController.TransitionOptions = destinationIndex > sourceIndex
+            ? .slideDown   // Incoming slides down from above
+            : .slideUp      // Incoming slides up from below
+
+        return [.crossfade, directionalOption]
+    }
+
+    private func synchronizeWindow(animated: Bool) {
+        guard let window = hostWindow ?? view.window else {
             return
         }
 
-        currentSectionViewController?.view.removeFromSuperview()
-        currentSectionViewController?.removeFromParent()
+        hostWindow = window
+        window.title = selectedSection.title
 
-        addChild(nextViewController)
-        nextViewController.loadViewIfNeeded()
-        let nextView = nextViewController.view
-        nextView.translatesAutoresizingMaskIntoConstraints = false
-        contentContainerView.addSubview(nextView)
-        NSLayoutConstraint.activate([
-            nextView.topAnchor.constraint(equalTo: contentContainerView.topAnchor, constant: Layout.contentInset),
-            nextView.leadingAnchor.constraint(equalTo: contentContainerView.leadingAnchor, constant: Layout.contentInset),
-            nextView.trailingAnchor.constraint(equalTo: contentContainerView.trailingAnchor, constant: -Layout.contentInset),
-            nextView.bottomAnchor.constraint(lessThanOrEqualTo: contentContainerView.bottomAnchor, constant: -Layout.contentInset),
-        ])
-        currentSectionViewController = nextViewController
-    }
-
-    private func updateSidebarSelection() {
-        for (section, itemView) in itemsBySection {
-            itemView.isSelected = section == selectedSection
+        guard let entry = entriesBySection[selectedSection] else {
+            return
         }
-    }
-}
 
-// MARK: - Sidebar Item View
-
-@MainActor
-private final class SettingsSidebarItemView: NSView {
-    private enum Layout {
-        static let height: CGFloat = 36
-        static let iconSize: CGFloat = 28
-        static let iconCornerRadius: CGFloat = 7
-        static let symbolPointSize: CGFloat = 14
-        static let horizontalPadding: CGFloat = 6
-        static let iconLabelSpacing: CGFloat = 8
-        static let cornerRadius: CGFloat = 8
-    }
-
-    let section: SettingsSection
-    private let onClick: (SettingsSection) -> Void
-    private let iconContainerView = NSView()
-    private let iconGradientLayer = CAGradientLayer()
-    private let iconImageView = NSImageView()
-    private let titleLabel: NSTextField
-    private var trackingArea: NSTrackingArea?
-    private var isHovered = false
-
-    var isSelected: Bool = false {
-        didSet { updateAppearance() }
-    }
-
-    init(section: SettingsSection, onClick: @escaping (SettingsSection) -> Void) {
-        self.section = section
-        self.onClick = onClick
-        self.titleLabel = NSTextField(labelWithString: section.title)
-        super.init(frame: .zero)
-
-        wantsLayer = true
-        layer?.cornerRadius = Layout.cornerRadius
-        layer?.cornerCurve = .continuous
-
-        setupIconBadge()
-        setupLabel()
-        setupConstraints()
-        setupAccessibility()
-        updateAppearance()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setupIconBadge() {
-        iconContainerView.wantsLayer = true
-        iconContainerView.layer?.cornerRadius = Layout.iconCornerRadius
-        iconContainerView.layer?.cornerCurve = .continuous
-        iconContainerView.layer?.masksToBounds = false
-
-        let color = section.badgeColor
-        iconGradientLayer.cornerRadius = Layout.iconCornerRadius
-        iconGradientLayer.cornerCurve = .continuous
-        iconGradientLayer.startPoint = CGPoint(x: 0, y: 0)
-        iconGradientLayer.endPoint = CGPoint(x: 1, y: 1)
-        iconGradientLayer.colors = [
-            (color.blended(withFraction: 0.15, of: .white) ?? color).cgColor,
-            (color.blended(withFraction: 0.1, of: .black) ?? color).cgColor,
-        ]
-        iconContainerView.layer?.addSublayer(iconGradientLayer)
-
-        iconContainerView.layer?.shadowColor = NSColor.black.cgColor
-        iconContainerView.layer?.shadowOpacity = 0.25
-        iconContainerView.layer?.shadowRadius = 0.5
-        iconContainerView.layer?.shadowOffset = CGSize(width: 0, height: -0.5)
-
-        iconContainerView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(iconContainerView)
-
-        let config = NSImage.SymbolConfiguration(pointSize: Layout.symbolPointSize, weight: .medium)
-        iconImageView.image = NSImage(
-            systemSymbolName: section.symbolName,
-            accessibilityDescription: section.title
-        )?.withSymbolConfiguration(config)
-        iconImageView.contentTintColor = .white
-        iconImageView.translatesAutoresizingMaskIntoConstraints = false
-        iconContainerView.addSubview(iconImageView)
-    }
-
-    private func setupLabel() {
-        titleLabel.font = .systemFont(ofSize: 13, weight: .regular)
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(titleLabel)
-    }
-
-    private func setupConstraints() {
-        translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: Layout.height),
-
-            iconContainerView.leadingAnchor.constraint(
-                equalTo: leadingAnchor, constant: Layout.horizontalPadding
-            ),
-            iconContainerView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconContainerView.widthAnchor.constraint(equalToConstant: Layout.iconSize),
-            iconContainerView.heightAnchor.constraint(equalToConstant: Layout.iconSize),
-
-            iconImageView.centerXAnchor.constraint(equalTo: iconContainerView.centerXAnchor),
-            iconImageView.centerYAnchor.constraint(equalTo: iconContainerView.centerYAnchor),
-
-            titleLabel.leadingAnchor.constraint(
-                equalTo: iconContainerView.trailingAnchor, constant: Layout.iconLabelSpacing
-            ),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: trailingAnchor, constant: -Layout.horizontalPadding
-            ),
-        ])
-    }
-
-    private func setupAccessibility() {
-        setAccessibilityRole(.button)
-        setAccessibilityLabel(section.title)
-    }
-
-    // MARK: - Layout
-
-    override func layout() {
-        super.layout()
-        iconGradientLayer.frame = iconContainerView.bounds
-    }
-
-    // MARK: - Interaction
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow],
-            owner: self,
-            userInfo: nil
+        let targetHeight = targetContentHeight(
+            for: entry.contentViewController,
+            window: window,
+            screen: window.screen ?? NSScreen.main
         )
-        addTrackingArea(area)
-        trackingArea = area
-    }
+        let targetSize = NSSize(width: Self.preferredContentWidth, height: targetHeight)
 
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        updateAppearance()
-    }
+        if animated {
+            let reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            let duration = SettingsTransitionProfile.resolvedDuration(reducedMotion: reducedMotion)
+            let timingFunction = SettingsTransitionProfile.resolvedTimingFunction(reducedMotion: reducedMotion)
 
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        updateAppearance()
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        let location = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(location) else { return }
-        onClick(section)
-    }
-
-    // MARK: - Appearance
-
-    private func updateAppearance() {
-        let bgColor: NSColor
-        if isSelected {
-            bgColor = NSColor.controlAccentColor.withAlphaComponent(0.15)
-        } else if isHovered {
-            bgColor = NSColor.labelColor.withAlphaComponent(0.04)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = duration
+                context.timingFunction = timingFunction
+                context.allowsImplicitAnimation = true
+                window.animator().setContentSize(targetSize)
+            }
         } else {
-            bgColor = .clear
+            window.setContentSize(targetSize)
         }
-        layer?.backgroundColor = bgColor.cgColor
+    }
 
-        titleLabel.textColor = isSelected ? .controlAccentColor : .labelColor
+    private func targetContentHeight(
+        for contentViewController: NSViewController,
+        window: NSWindow,
+        screen: NSScreen?
+    ) -> CGFloat {
+        let measuredHeight = (contentViewController as? SettingsPaneMeasuring)?
+            .preferredViewportHeight(for: Self.preferredContentWidth)
+            ?? Layout.minimumContentHeight
+        let maxFrameHeight = max(
+            Layout.minimumContentHeight,
+            floor((screen?.visibleFrame.height ?? 900) * Layout.maximumScreenHeightFraction)
+        )
+        let maxContentHeight = max(
+            Layout.minimumContentHeight,
+            window.contentRect(forFrameRect: NSRect(
+                x: 0,
+                y: 0,
+                width: Self.preferredContentWidth,
+                height: maxFrameHeight
+            )).height
+        )
+        return min(max(measuredHeight, Layout.minimumContentHeight), maxContentHeight)
     }
 }

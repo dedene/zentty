@@ -3,6 +3,16 @@ import AppKit
 enum GlassSurfaceStyle {
     case sidebar
     case openWithPopover
+    case notificationPanel
+
+    var cornerRadius: CGFloat {
+        switch self {
+        case .sidebar:
+            ChromeGeometry.sidebarRadius
+        case .openWithPopover, .notificationPanel:
+            16
+        }
+    }
 }
 
 @MainActor
@@ -32,7 +42,7 @@ final class GlassSurfaceView: NSVisualEffectView {
     override func layout() {
         super.layout()
         gradientLayer.frame = bounds
-        gradientLayer.cornerRadius = layer?.cornerRadius ?? ChromeGeometry.sidebarRadius
+        gradientLayer.cornerRadius = layer?.cornerRadius ?? style.cornerRadius
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {
@@ -41,6 +51,8 @@ final class GlassSurfaceView: NSVisualEffectView {
         let shadowColor: NSColor
         let cornerRadius: CGFloat
         let gradientColors: [CGColor]
+        let shadowRadius: CGFloat
+        let shadowOffset: CGSize
 
         switch style {
         case .sidebar:
@@ -49,18 +61,20 @@ final class GlassSurfaceView: NSVisualEffectView {
             backgroundColor = theme.sidebarBackground
             borderColor = theme.sidebarBorder
             shadowColor = theme.sidebarShadow
-            cornerRadius = ChromeGeometry.sidebarRadius
+            cornerRadius = style.cornerRadius
             gradientColors = [
                 theme.sidebarGradientStart.cgColor,
                 theme.sidebarGradientEnd.cgColor,
             ]
+            shadowRadius = 12
+            shadowOffset = CGSize(width: 0, height: 10)
         case .openWithPopover:
             material = .menu
             appearance = NSAppearance(named: theme.sidebarGlassAppearance.nsAppearanceName)
             backgroundColor = theme.openWithPopoverBackground
             borderColor = theme.openWithPopoverBorder
             shadowColor = theme.openWithPopoverShadow
-            cornerRadius = 16
+            cornerRadius = style.cornerRadius
             gradientColors = [
                 theme.openWithPopoverBackground
                     .mixed(towards: .white, amount: theme.sidebarGlassAppearance == .dark ? 0.03 : 0.10)
@@ -71,6 +85,27 @@ final class GlassSurfaceView: NSVisualEffectView {
                     .withAlphaComponent(theme.reducedTransparency ? 0.08 : 0.06)
                     .cgColor,
             ]
+            shadowRadius = 18
+            shadowOffset = CGSize(width: 0, height: 14)
+        case .notificationPanel:
+            material = theme.reducedTransparency ? .menu : .hudWindow
+            appearance = NSAppearance(named: theme.sidebarGlassAppearance.nsAppearanceName)
+            backgroundColor = theme.notificationPanelBackground
+            borderColor = theme.notificationPanelBorder
+            shadowColor = theme.notificationPanelShadow
+            cornerRadius = style.cornerRadius
+            gradientColors = [
+                theme.notificationPanelBackground
+                    .mixed(towards: .white, amount: theme.sidebarGlassAppearance == .dark ? 0.06 : 0.10)
+                    .withAlphaComponent(theme.reducedTransparency ? 0.18 : 0.14)
+                    .cgColor,
+                theme.notificationPanelBackground
+                    .mixed(towards: .black, amount: theme.sidebarGlassAppearance == .dark ? 0.10 : 0.04)
+                    .withAlphaComponent(theme.reducedTransparency ? 0.10 : 0.08)
+                    .cgColor,
+            ]
+            shadowRadius = 22
+            shadowOffset = CGSize(width: 0, height: 18)
         }
 
         performThemeAnimation(animated: animated) {
@@ -84,7 +119,7 @@ final class GlassSurfaceView: NSVisualEffectView {
         }
 
         layer?.shadowOpacity = 1
-        layer?.shadowRadius = style == .openWithPopover ? 18 : 12
-        layer?.shadowOffset = style == .openWithPopover ? CGSize(width: 0, height: 14) : CGSize(width: 0, height: 10)
+        layer?.shadowRadius = shadowRadius
+        layer?.shadowOffset = shadowOffset
     }
 }

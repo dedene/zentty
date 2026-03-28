@@ -21,6 +21,8 @@ enum WorklaneRowTextRow: Equatable {
 struct WorklaneRowLayoutMetrics: Equatable {
     let topInset: CGFloat
     let bottomInset: CGFloat
+    let paneTopInset: CGFloat
+    let paneBottomInset: CGFloat
     let interlineSpacing: CGFloat
     let titleLineHeight: CGFloat
     let primaryLineHeight: CGFloat
@@ -32,6 +34,8 @@ struct WorklaneRowLayoutMetrics: Equatable {
     static let sidebar = WorklaneRowLayoutMetrics(
         topInset: ShellMetrics.sidebarRowTopInset,
         bottomInset: ShellMetrics.sidebarRowBottomInset,
+        paneTopInset: ShellMetrics.sidebarPaneRowVerticalInset,
+        paneBottomInset: ShellMetrics.sidebarPaneRowVerticalInset,
         interlineSpacing: ShellMetrics.sidebarRowInterlineSpacing,
         titleLineHeight: ShellMetrics.sidebarTitleLineHeight,
         primaryLineHeight: ShellMetrics.sidebarPrimaryLineHeight,
@@ -56,6 +60,10 @@ struct WorklaneRowLayoutMetrics: Equatable {
 
     var verticalPadding: CGFloat {
         topInset + bottomInset
+    }
+
+    var paneVerticalPadding: CGFloat {
+        paneTopInset + paneBottomInset
     }
 
     var contextLineHeight: CGFloat {
@@ -84,13 +92,6 @@ struct WorklaneRowLayoutMetrics: Equatable {
     }
 
     func height(for visibleRows: [WorklaneRowTextRow]) -> CGFloat {
-        var total = verticalPadding
-        for row in visibleRows {
-            total += lineHeight(for: row)
-        }
-        if visibleRows.count > 1 {
-            total += CGFloat(visibleRows.count - 1) * interlineSpacing
-        }
         var paneIndices = Set<Int>()
         for row in visibleRows {
             switch row {
@@ -99,6 +100,14 @@ struct WorklaneRowLayoutMetrics: Equatable {
             default:
                 break
             }
+        }
+
+        var total = paneIndices.isEmpty ? verticalPadding : paneVerticalPadding
+        for row in visibleRows {
+            total += lineHeight(for: row)
+        }
+        if visibleRows.count > 1 {
+            total += CGFloat(visibleRows.count - 1) * interlineSpacing
         }
         total += CGFloat(paneIndices.count) * paneButtonVerticalPadding
         return total
