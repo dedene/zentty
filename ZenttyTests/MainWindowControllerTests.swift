@@ -255,7 +255,7 @@ final class MainWindowControllerTests: XCTestCase {
         )
     }
 
-    func test_show_settings_window_opens_settings_shell_on_shortcuts() throws {
+    func test_show_settings_window_opens_settings_shell_on_general() throws {
         let controller = makeController()
 
         controller.showSettingsWindow(nil)
@@ -266,8 +266,8 @@ final class MainWindowControllerTests: XCTestCase {
         )
         settingsViewController.loadViewIfNeeded()
 
-        XCTAssertEqual(settingsViewController.selectedSection, .shortcuts)
-        XCTAssertEqual(settingsViewController.contentSectionTitle, "Shortcuts")
+        XCTAssertEqual(settingsViewController.selectedSection, .general)
+        XCTAssertEqual(settingsViewController.contentSectionTitle, "General")
     }
 
     func test_show_settings_window_can_route_existing_window_to_open_with() throws {

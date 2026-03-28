@@ -84,6 +84,7 @@
 		96C8DAEB457704BB7D4DEC7D /* PaneAgentReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB869749410CBF86B97FA142 /* PaneAgentReducer.swift */; };
 		98F978A3B1153B5779E303B4 /* AgentStatusShellIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29BA6CB9ADE94B1F271FFDE7 /* AgentStatusShellIntegrationTests.swift */; };
 		A31E0FD93C75D6B6059E3809 /* SidebarMotionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 162C940D9CBDBBB47552AA86 /* SidebarMotionCoordinator.swift */; };
+		3TXQO18D8JLPG3TLOAMKB5I0 /* GeneralSettingsSectionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = J927PVLDRHNYI9PN199P6TOQ /* GeneralSettingsSectionViewController.swift */; };
 		A4F9BA4052B89971F4897D09 /* ShortcutsSettingsSectionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF02658BAF6F6B57713BBD05 /* ShortcutsSettingsSectionViewController.swift */; };
 		A524DA357EFACE58D38A111D /* WindowChromeRowLayoutPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7017B142217423B1126B8E2A /* WindowChromeRowLayoutPlanner.swift */; };
 		A76D2038F2CA59D8E99BB28D /* WorklaneAttentionSummaryBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B2B4CFEFDD5D5985609F1BA /* WorklaneAttentionSummaryBuilderTests.swift */; };
@@ -256,6 +257,7 @@
 		B79972CCAB3361277D4E949C /* AgentStatusPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusPayload.swift; sourceTree = "<group>"; };
 		B8D348923237491F345AB193 /* KeyboardShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcut.swift; sourceTree = "<group>"; };
 		BD913A7CC4DACE3AE5BF3685 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		J927PVLDRHNYI9PN199P6TOQ /* GeneralSettingsSectionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsSectionViewController.swift; sourceTree = "<group>"; };
 		BDDCADD851AB62CAFFF43AF3 /* SettingsSectionViewControllers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSectionViewControllers.swift; sourceTree = "<group>"; };
 		BF02658BAF6F6B57713BBD05 /* ShortcutsSettingsSectionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsSectionViewController.swift; sourceTree = "<group>"; };
 		BF6932CD53AF150CC4656051 /* WorklaneSidebarSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneSidebarSummaryTests.swift; sourceTree = "<group>"; };
@@ -545,6 +547,7 @@
 		C91803792E050C61DDC543B3 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				J927PVLDRHNYI9PN199P6TOQ /* GeneralSettingsSectionViewController.swift */,
 				BDDCADD851AB62CAFFF43AF3 /* SettingsSectionViewControllers.swift */,
 				96A00B46795D7A242D2C9107 /* SettingsWindowController.swift */,
 				BF02658BAF6F6B57713BBD05 /* ShortcutsSettingsSectionViewController.swift */,
@@ -918,6 +921,7 @@
 				C749B84F3DFA56E1241551D1 /* SettingsWindowController.swift in Sources */,
 				36DB4C0D9A73C37653285064 /* ShellEscaping.swift in Sources */,
 				17245348FB36801D95C10395 /* ShellMetrics.swift in Sources */,
+				3TXQO18D8JLPG3TLOAMKB5I0 /* GeneralSettingsSectionViewController.swift in Sources */,
 				A4F9BA4052B89971F4897D09 /* ShortcutsSettingsSectionViewController.swift in Sources */,
 				A31E0FD93C75D6B6059E3809 /* SidebarMotionCoordinator.swift in Sources */,
 				14192E7073143E85E7A14BE9 /* SidebarView.swift in Sources */,
