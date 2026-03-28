@@ -25,10 +25,18 @@ struct AppConfig: Equatable, Sendable {
         static let `default` = Shortcuts(bindings: [])
     }
 
+    struct Notifications: Equatable, Sendable {
+        /// Empty string means system default sound.
+        var soundName: String
+
+        static let `default` = Notifications(soundName: "")
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var openWith: OpenWith
     var shortcuts: Shortcuts
+    var notifications: Notifications
 
     static let `default` = AppConfig(
         sidebar: Sidebar(
@@ -37,7 +45,8 @@ struct AppConfig: Equatable, Sendable {
         ),
         paneLayout: .default,
         openWith: .default,
-        shortcuts: .default
+        shortcuts: .default,
+        notifications: .default
     )
 
     static func migrated(
@@ -52,7 +61,8 @@ struct AppConfig: Equatable, Sendable {
             ),
             paneLayout: PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults),
             openWith: .default,
-            shortcuts: .default
+            shortcuts: .default,
+            notifications: .default
         )
     }
 

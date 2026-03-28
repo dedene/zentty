@@ -15,6 +15,7 @@ enum AppConfigTOML {
         case customApp(Int)
         case shortcuts
         case shortcutBinding(Int)
+        case notifications
     }
 
     static func encode(_ config: AppConfig) -> String {
@@ -62,6 +63,10 @@ enum AppConfigTOML {
             }
         }
 
+        lines.append("")
+        lines.append("[notifications]")
+        lines.append("sound_name = \(encode(string: config.notifications.soundName))")
+
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -103,6 +108,10 @@ enum AppConfigTOML {
                 section = .shortcutBinding(decodedShortcutBindings.count - 1)
                 continue
             }
+            if line == "[notifications]" {
+                section = .notifications
+                continue
+            }
 
             guard let assignment = parseAssignment(line) else {
                 return nil
@@ -137,6 +146,10 @@ enum AppConfigTOML {
                 }
             case .shortcuts:
                 continue
+            case .notifications:
+                guard decodeNotificationsAssignment(assignment, into: &config) else {
+                    return nil
+                }
             case .root:
                 return nil
             }
@@ -276,6 +289,23 @@ enum AppConfigTOML {
                 }
                 binding.shortcut = shortcut
             }
+        default:
+            return true
+        }
+
+        return true
+    }
+
+    private static func decodeNotificationsAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "sound_name":
+            guard let value = decodeString(assignment.value) else {
+                return false
+            }
+            config.notifications.soundName = value
         default:
             return true
         }
