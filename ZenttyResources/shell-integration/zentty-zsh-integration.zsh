@@ -79,10 +79,14 @@ _zentty_precmd() {
     builtin printf '\e[<99u'
     _zentty_agent_signal shell-state prompt
     _zentty_emit_pane_context
+    # Reset terminal title to CWD after command completes
+    builtin printf '\e]2;%s\a' "${PWD/#$HOME/~}"
 }
 
 _zentty_preexec() {
     _zentty_agent_signal shell-state running
+    # Set terminal title to the running command (first line only)
+    builtin printf '\e]2;%s\a' "${1%%$'\n'*}"
 }
 
 autoload -Uz add-zsh-hook 2>/dev/null || true
