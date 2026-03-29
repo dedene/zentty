@@ -313,6 +313,10 @@ final class PaneRuntimeRegistry {
         }
     }
 
+    func destroyAll() {
+        runtimes.removeAll()
+    }
+
     func updateSurfaceActivities(
         worklanes: [WorklaneState],
         activeWorklaneID: WorklaneID,

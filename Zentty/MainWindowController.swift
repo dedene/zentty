@@ -109,6 +109,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     let window: NSWindow
     private let rootViewController: RootViewController
+    private let runtimeRegistry: PaneRuntimeRegistry
     private let configStore: AppConfigStore
     private let openWithService: OpenWithServing
     private let openWithPopoverController = OpenWithPopoverController()
@@ -168,6 +169,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
 
         self.rootViewController = rootViewController
+        self.runtimeRegistry = runtimeRegistry
         self.configStore = resolvedConfigStore
         self.openWithService = openWithService
         self.window = window
@@ -220,6 +222,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(sender)
         layoutTrafficLights()
         rootViewController.activateWindowBindingsIfNeeded()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // The main window is never re-opened after close — destroyAll is a one-way teardown.
+        runtimeRegistry.destroyAll()
     }
 
     func windowDidResize(_ notification: Notification) {
