@@ -831,29 +831,24 @@ private final class SidebarCreateWorklaneButton: NSButton {
             ? currentTheme.secondaryText.withAlphaComponent(0.92)
             : currentTheme.tertiaryText.withAlphaComponent(0.68)
         let backgroundColor: NSColor
-        let borderColor: NSColor
         if isEmphasized {
             let hoverMix: CGFloat = currentTheme.sidebarBackground.isDarkThemeColor ? 0.12 : 0.18
             backgroundColor = currentTheme.sidebarBackground
                 .mixed(towards: currentTheme.primaryText, amount: hoverMix)
                 .withAlphaComponent(min(1, currentTheme.sidebarBackground.alphaComponent + 0.10))
-            borderColor = currentTheme.sidebarBorder
-                .mixed(towards: currentTheme.primaryText, amount: hoverMix + 0.08)
-                .withAlphaComponent(min(1, currentTheme.sidebarBorder.alphaComponent + 0.22))
         } else {
             backgroundColor = .clear
-            borderColor = .clear
         }
 
         titleLabel.textColor = titleColor
         iconView.contentTintColor = iconColor
         backgroundColorForTesting = backgroundColor
-        borderColorForTesting = borderColor
+        borderColorForTesting = .clear
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = backgroundColor.cgColor
-            self.layer?.borderColor = borderColor.cgColor
-            self.layer?.borderWidth = isEmphasized ? 1 : 0
+            self.layer?.borderColor = NSColor.clear.cgColor
+            self.layer?.borderWidth = 0
         }
     }
 }
