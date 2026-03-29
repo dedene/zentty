@@ -1357,6 +1357,8 @@ private final class MetadataEmittingTerminalAdapter: TerminalAdapter {
         metadataDidChange?(TerminalMetadata(currentWorkingDirectory: request.workingDirectory))
     }
 
+    func close() {}
+
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         _ = activity
     }

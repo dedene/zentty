@@ -415,6 +415,10 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
         startSessionCallCount += 1
     }
 
+    func close() {
+        eventLog.append("close")
+    }
+
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         lastSurfaceActivity = activity
     }

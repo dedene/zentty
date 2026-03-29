@@ -50,6 +50,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
     func sendText(_ text: String)
     func performBindingAction(_ action: String) -> Bool
     func hasSelection() -> Bool
+    func close()
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s?
 }
 
@@ -100,6 +101,11 @@ final class LibghosttyAdapter: TerminalAdapter {
         self.surfaceController = surfaceController
         hasAppliedSurfaceActivity = false
         setSurfaceActivity(lastSurfaceActivity)
+    }
+
+    func close() {
+        surfaceController?.close()
+        surfaceController = nil
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {

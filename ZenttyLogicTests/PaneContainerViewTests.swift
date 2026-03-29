@@ -515,6 +515,8 @@ private final class PaneContainerTerminalAdapterSpy: TerminalAdapter {
         }
     }
 
+    func close() {}
+
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         lastSurfaceActivity = activity
     }

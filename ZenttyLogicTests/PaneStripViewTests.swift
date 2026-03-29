@@ -1548,6 +1548,8 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
         startSessionCallCount += 1
     }
 
+    func close() {}
+
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         lastSurfaceActivity = activity
     }

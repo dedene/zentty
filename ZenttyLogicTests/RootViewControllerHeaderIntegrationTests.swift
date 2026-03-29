@@ -695,6 +695,8 @@ private final class QuietTerminalAdapter: TerminalAdapter {
     func startSession(using request: TerminalSessionRequest) throws {
     }
 
+    func close() {}
+
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
     }
 }
