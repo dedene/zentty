@@ -61,6 +61,17 @@
                ReferencedContainer = "container:Zentty.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "606280D7EA6545D1E26F6820"
+               BuildableName = "ZenttyIntegrationTests.xctest"
+               BlueprintName = "ZenttyIntegrationTests"
+               ReferencedContainer = "container:Zentty.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>

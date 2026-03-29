@@ -4,9 +4,11 @@ import AppKit
 final class SidebarView: NSView {
     private enum Layout {
         static let contentInset: CGFloat = ShellMetrics.sidebarContentInset
-        static let topInset: CGFloat = ShellMetrics.sidebarTopInset
+        static let headerHeight: CGFloat = ShellMetrics.sidebarHeaderHeight
         static let bottomInset: CGFloat = ShellMetrics.sidebarBottomInset
         static let resizeHandleWidth: CGFloat = 4
+        static let defaultHeaderContentMinX: CGFloat =
+            ShellMetrics.sidebarContentInset + ShellMetrics.sidebarCreateWorklaneHorizontalInset
     }
 
     var onWorklaneSelected: ((WorklaneID) -> Void)?
@@ -21,16 +23,22 @@ final class SidebarView: NSView {
     var onPointerExited: (() -> Void)?
 
     private let backgroundView = GlassSurfaceView(style: .sidebar)
+    private let headerView = NSView()
     private let listScrollView = NSScrollView()
     private let listDocumentView = FlippedSidebarDocumentView()
     private let listStack = NSStackView()
-    private let addWorklaneButton = SidebarFooterButton()
+    private let addWorklaneButton = SidebarCreateWorklaneButton()
     private let resizeHandleView = SidebarResizeHandleView()
     private let shimmerCoordinator = SidebarShimmerCoordinator()
 
     private var worklaneButtons: [SidebarWorklaneRowButton] = []
     private var worklaneSummaries: [WorklaneSidebarSummary] = []
+    private var addWorklaneLeadingConstraint: NSLayoutConstraint?
+    private var addWorklaneWidthConstraint: NSLayoutConstraint?
+    private var addWorklaneCenterYConstraint: NSLayoutConstraint?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var headerPinnedContentMinX = Layout.defaultHeaderContentMinX
+    private var headerVisibilityMode: SidebarVisibilityMode = .pinnedOpen
     private var resizeStartWidth: CGFloat = SidebarWidthPreference.defaultWidth
     private var trackingArea: NSTrackingArea?
     private var isResizeEnabled = true
@@ -55,6 +63,8 @@ final class SidebarView: NSView {
         listStack.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         listStack.translatesAutoresizingMaskIntoConstraints = false
 
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+
         listScrollView.drawsBackground = false
         listScrollView.hasVerticalScroller = true
         listScrollView.autohidesScrollers = true
@@ -73,6 +83,8 @@ final class SidebarView: NSView {
         )
 
         addWorklaneButton.translatesAutoresizingMaskIntoConstraints = false
+        addWorklaneButton.setContentHuggingPriority(.required, for: .horizontal)
+        addWorklaneButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         addWorklaneButton.target = self
         addWorklaneButton.action = #selector(handleCreateWorklane)
 
@@ -82,8 +94,25 @@ final class SidebarView: NSView {
         }
 
         addSubview(backgroundView)
+        addSubview(headerView)
         addSubview(listScrollView)
         addSubview(resizeHandleView)
+
+        headerView.addSubview(addWorklaneButton)
+
+        let addWorklaneLeadingConstraint = addWorklaneButton.leadingAnchor.constraint(
+            equalTo: headerView.leadingAnchor,
+            constant: Layout.contentInset
+        )
+        self.addWorklaneLeadingConstraint = addWorklaneLeadingConstraint
+        let addWorklaneWidthConstraint = addWorklaneButton.widthAnchor.constraint(
+            equalToConstant: 0
+        )
+        self.addWorklaneWidthConstraint = addWorklaneWidthConstraint
+        let addWorklaneCenterYConstraint = addWorklaneButton.centerYAnchor.constraint(
+            equalTo: headerView.centerYAnchor
+        )
+        self.addWorklaneCenterYConstraint = addWorklaneCenterYConstraint
 
         NSLayoutConstraint.activate([
             backgroundView.topAnchor.constraint(equalTo: topAnchor),
@@ -91,7 +120,26 @@ final class SidebarView: NSView {
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
             backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            listScrollView.topAnchor.constraint(equalTo: topAnchor, constant: Layout.topInset),
+            headerView.topAnchor.constraint(equalTo: topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: Layout.headerHeight),
+
+            addWorklaneLeadingConstraint,
+            addWorklaneButton.trailingAnchor.constraint(
+                lessThanOrEqualTo: headerView.trailingAnchor,
+                constant: -Layout.contentInset
+            ),
+            addWorklaneWidthConstraint,
+            addWorklaneCenterYConstraint,
+            addWorklaneButton.topAnchor.constraint(
+                greaterThanOrEqualTo: headerView.topAnchor
+            ),
+            addWorklaneButton.bottomAnchor.constraint(
+                lessThanOrEqualTo: headerView.bottomAnchor
+            ),
+
+            listScrollView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             listScrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset),
             listScrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.contentInset),
             listScrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.bottomInset),
@@ -109,6 +157,7 @@ final class SidebarView: NSView {
             resizeHandleView.widthAnchor.constraint(equalToConstant: Layout.resizeHandleWidth),
         ])
 
+        updateHeaderLayoutConstraints()
         apply(theme: currentTheme, animated: false)
     }
 
@@ -143,6 +192,7 @@ final class SidebarView: NSView {
 
     override func layout() {
         super.layout()
+        updateHeaderLayoutConstraints()
         syncShimmerVisibility()
     }
 
@@ -216,17 +266,6 @@ final class SidebarView: NSView {
                     button.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
                 ])
             }
-
-            if let lastWorklaneButton = worklaneButtons.last {
-                listStack.setCustomSpacing(8, after: lastWorklaneButton)
-            }
-
-            addWorklaneButton.configure(theme: currentTheme, animated: false)
-            listStack.addArrangedSubview(addWorklaneButton)
-            NSLayoutConstraint.activate([
-                addWorklaneButton.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
-                addWorklaneButton.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
-            ])
         }
 
         worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
@@ -277,6 +316,16 @@ final class SidebarView: NSView {
 
         worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
         syncShimmerVisibility()
+    }
+
+    func updateHeaderLayout(
+        visibilityMode: SidebarVisibilityMode,
+        pinnedContentMinX: CGFloat
+    ) {
+        headerVisibilityMode = visibilityMode
+        headerPinnedContentMinX = pinnedContentMinX
+        updateHeaderLayoutConstraints()
+        needsLayout = true
     }
 
     func setResizeEnabled(_ isEnabled: Bool) {
@@ -358,7 +407,7 @@ final class SidebarView: NSView {
     }
 
     var isHeaderHidden: Bool {
-        true
+        headerView.isHidden
     }
 
     var hasVisibleDivider: Bool {
@@ -396,6 +445,18 @@ final class SidebarView: NSView {
 
     var addWorklaneMaxY: CGFloat {
         convert(addWorklaneButton.bounds, from: addWorklaneButton).maxY
+    }
+
+    var addWorklaneButtonMinX: CGFloat {
+        convert(addWorklaneButton.bounds, from: addWorklaneButton).minX
+    }
+
+    var addWorklaneButtonWidth: CGFloat {
+        convert(addWorklaneButton.bounds, from: addWorklaneButton).width
+    }
+
+    var addWorklaneButtonMidY: CGFloat {
+        convert(addWorklaneButton.bounds, from: addWorklaneButton).midY
     }
 
     var firstWorklaneWidth: CGFloat {
@@ -436,6 +497,22 @@ final class SidebarView: NSView {
 
     var addWorklaneTitleAlpha: CGFloat {
         addWorklaneButton.titleAlpha
+    }
+
+    var addWorklaneBackgroundAlpha: CGFloat {
+        addWorklaneButton.backgroundAlpha
+    }
+
+    var addWorklaneBorderAlpha: CGFloat {
+        addWorklaneButton.borderAlpha
+    }
+
+    var addWorklaneUsesPointingHandCursor: Bool {
+        addWorklaneButton.usesPointingHandCursorForTesting
+    }
+
+    func setAddWorklaneHoveredForTesting(_ isHovered: Bool) {
+        addWorklaneButton.setHoveredForTesting(isHovered)
     }
 
     var resizeHandleMinX: CGFloat {
@@ -480,6 +557,34 @@ final class SidebarView: NSView {
 }
 
 private extension SidebarView {
+    func updateHeaderLayoutConstraints() {
+        let desiredContentMinX: CGFloat
+        let usesPinnedLayout = headerVisibilityMode == .pinnedOpen
+        switch headerVisibilityMode {
+        case .pinnedOpen:
+            desiredContentMinX = max(Layout.defaultHeaderContentMinX, headerPinnedContentMinX)
+                + ShellMetrics.sidebarCreateWorklanePinnedLeadingPad
+        case .hidden, .hoverPeek:
+            desiredContentMinX = Layout.defaultHeaderContentMinX
+        }
+
+        let buttonLeading = max(
+            Layout.contentInset,
+            desiredContentMinX - ShellMetrics.sidebarCreateWorklaneHorizontalInset
+        )
+        addWorklaneLeadingConstraint?.constant = buttonLeading
+
+        let availableWidth = max(
+            addWorklaneButton.intrinsicContentSize.width,
+            bounds.width - buttonLeading - Layout.contentInset
+        )
+        addWorklaneWidthConstraint?.constant = availableWidth
+
+        addWorklaneCenterYConstraint?.constant = usesPinnedLayout
+            ? ShellMetrics.sidebarCreateWorklanePinnedVerticalOffset
+            : 0
+    }
+
     static let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     func updateWindowVisibilityObservation() {
@@ -544,10 +649,29 @@ private final class FlippedSidebarDocumentView: NSView {
     override var isFlipped: Bool { true }
 }
 
-private final class SidebarFooterButton: NSButton {
+private final class SidebarCreateWorklaneButton: NSButton {
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "New worklane")
     private let contentStack = NSStackView()
+    private var trackingArea: NSTrackingArea?
+    private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var backgroundColorForTesting = NSColor.clear
+    private var borderColorForTesting = NSColor.clear
+    private(set) var isHovered = false
+
+    override var isHighlighted: Bool {
+        didSet {
+            applyCurrentAppearance(animated: true)
+        }
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let contentSize = contentStack.fittingSize
+        return NSSize(
+            width: contentSize.width + (ShellMetrics.sidebarCreateWorklaneHorizontalInset * 2),
+            height: ShellMetrics.sidebarCreateWorklaneButtonHeight
+        )
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -572,7 +696,9 @@ private final class SidebarFooterButton: NSButton {
         layer?.masksToBounds = false
         setButtonType(.momentaryChange)
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: ShellMetrics.footerHeight).isActive = true
+        heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCreateWorklaneButtonHeight).isActive = true
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
 
         iconView.image = NSImage(
             systemSymbolName: "plus",
@@ -583,21 +709,31 @@ private final class SidebarFooterButton: NSButton {
         iconView.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        titleLabel.maximumNumberOfLines = 1
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.setContentHuggingPriority(.required, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         contentStack.orientation = .horizontal
         contentStack.alignment = .centerY
-        contentStack.spacing = ShellMetrics.sidebarFooterIconSpacing
+        contentStack.spacing = ShellMetrics.sidebarCreateWorklaneIconSpacing
         contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.setContentHuggingPriority(.required, for: .horizontal)
+        contentStack.setContentCompressionResistancePriority(.required, for: .horizontal)
         contentStack.addArrangedSubview(iconView)
         contentStack.addArrangedSubview(titleLabel)
         addSubview(contentStack)
 
         NSLayoutConstraint.activate([
-            contentStack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: ShellMetrics.sidebarRowHorizontalInset),
-            contentStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -ShellMetrics.sidebarRowHorizontalInset),
-            contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            contentStack.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: ShellMetrics.sidebarCreateWorklaneHorizontalInset
+            ),
+            contentStack.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -ShellMetrics.sidebarCreateWorklaneHorizontalInset
+            ),
             contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
@@ -609,18 +745,58 @@ private final class SidebarFooterButton: NSButton {
         }
     }
 
-    func configure(theme: ZenttyTheme, animated: Bool) {
-        let titleColor = theme.secondaryText.withAlphaComponent(0.90)
-        let iconColor = theme.tertiaryText.withAlphaComponent(0.68)
-        titleLabel.textColor = titleColor
-        titleLabel.stringValue = "New worklane"
-        iconView.contentTintColor = iconColor
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
 
-        performThemeAnimation(animated: animated) {
-            self.layer?.backgroundColor = NSColor.clear.cgColor
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
         }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        self.trackingArea = trackingArea
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        super.cursorUpdate(with: event)
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard !isHovered else {
+            return
+        }
+
+        isHovered = true
+        applyCurrentAppearance(animated: true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard isHovered else {
+            return
+        }
+
+        isHovered = false
+        applyCurrentAppearance(animated: true)
+    }
+
+    func configure(theme: ZenttyTheme, animated: Bool) {
+        currentTheme = theme
+        titleLabel.stringValue = "New worklane"
+        invalidateIntrinsicContentSize()
+        applyCurrentAppearance(animated: animated)
     }
 
     var titleText: String {
@@ -635,12 +811,64 @@ private final class SidebarFooterButton: NSButton {
         titleLabel.textColor?.alphaComponent ?? 0
     }
 
+    var backgroundAlpha: CGFloat {
+        backgroundColorForTesting.alphaComponent
+    }
+
+    var borderAlpha: CGFloat {
+        borderColorForTesting.alphaComponent
+    }
+
+    var usesPointingHandCursorForTesting: Bool {
+        true
+    }
+
     func contentMinX(in view: NSView) -> CGFloat {
         view.convert(contentStack.bounds, from: contentStack).minX
     }
 
     func contentMidX(in view: NSView) -> CGFloat {
         view.convert(contentStack.bounds, from: contentStack).midX
+    }
+
+    func setHoveredForTesting(_ isHovered: Bool) {
+        self.isHovered = isHovered
+        applyCurrentAppearance(animated: false)
+    }
+
+    private func applyCurrentAppearance(animated: Bool) {
+        let isEmphasized = isHovered || isHighlighted
+        let titleColor = isEmphasized
+            ? currentTheme.primaryText.withAlphaComponent(0.96)
+            : currentTheme.secondaryText.withAlphaComponent(0.90)
+        let iconColor = isEmphasized
+            ? currentTheme.secondaryText.withAlphaComponent(0.92)
+            : currentTheme.tertiaryText.withAlphaComponent(0.68)
+        let backgroundColor: NSColor
+        let borderColor: NSColor
+        if isEmphasized {
+            let hoverMix: CGFloat = currentTheme.sidebarBackground.isDarkThemeColor ? 0.12 : 0.18
+            backgroundColor = currentTheme.sidebarBackground
+                .mixed(towards: currentTheme.primaryText, amount: hoverMix)
+                .withAlphaComponent(min(1, currentTheme.sidebarBackground.alphaComponent + 0.10))
+            borderColor = currentTheme.sidebarBorder
+                .mixed(towards: currentTheme.primaryText, amount: hoverMix + 0.08)
+                .withAlphaComponent(min(1, currentTheme.sidebarBorder.alphaComponent + 0.22))
+        } else {
+            backgroundColor = .clear
+            borderColor = .clear
+        }
+
+        titleLabel.textColor = titleColor
+        iconView.contentTintColor = iconColor
+        backgroundColorForTesting = backgroundColor
+        borderColorForTesting = borderColor
+
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = backgroundColor.cgColor
+            self.layer?.borderColor = borderColor.cgColor
+            self.layer?.borderWidth = isEmphasized ? 1 : 0
+        }
     }
 }
 

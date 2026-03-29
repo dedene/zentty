@@ -5,22 +5,25 @@ import UserNotifications
 @MainActor
 protocol WorklaneAttentionUserNotificationCenter: AnyObject {
     func requestAuthorizationIfNeeded()
-    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String)
+    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String, soundName: String)
 }
 
 @MainActor
 final class WorklaneAttentionNotificationCoordinator {
     private let center: any WorklaneAttentionUserNotificationCenter
     private let notificationStore: NotificationStore
+    private let configStore: AppConfigStore?
     private var lastSeenStates: [WorklaneID: WorklaneAttentionState] = [:]
     private var lastSeenPaneIDs: [WorklaneID: PaneID] = [:]
 
     init(
         center: any WorklaneAttentionUserNotificationCenter = WorklaneAttentionUNCenter(),
-        notificationStore: NotificationStore
+        notificationStore: NotificationStore,
+        configStore: AppConfigStore? = nil
     ) {
         self.center = center
         self.notificationStore = notificationStore
+        self.configStore = configStore
         center.requestAuthorizationIfNeeded()
     }
 
@@ -83,7 +86,8 @@ final class WorklaneAttentionNotificationCoordinator {
                 title: attention.statusText,
                 body: attention.primaryText,
                 worklaneID: worklane.id.rawValue,
-                paneID: attention.paneID.rawValue
+                paneID: attention.paneID.rawValue,
+                soundName: configStore?.current.notifications.soundName ?? ""
             )
             if !windowIsKey {
                 NSApplication.shared.requestUserAttention(.informationalRequest)
@@ -164,13 +168,14 @@ final class WorklaneAttentionUNCenter: NSObject, WorklaneAttentionUserNotificati
         center.setNotificationCategories([category])
     }
 
-    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String) {
+    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String, soundName: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.categoryIdentifier = "agent-attention"
         content.threadIdentifier = worklaneID
         content.userInfo = ["worklaneID": worklaneID, "paneID": paneID]
+        content.sound = resolvedNotificationSound(for: soundName)
         let request = UNNotificationRequest(
             identifier: identifier,
             content: content,

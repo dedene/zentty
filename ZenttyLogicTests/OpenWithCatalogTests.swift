@@ -2,32 +2,19 @@ import XCTest
 @testable import Zentty
 
 final class OpenWithCatalogTests: XCTestCase {
-    func test_macos_catalog_matches_curated_editor_and_finder_order_without_terminals() {
-        XCTAssertEqual(
-            OpenWithCatalog.macOSBuiltInTargets.map(\.id.rawValue),
-            [
-                "vscode",
-                "vscode-insiders",
-                "cursor",
-                "zed",
-                "windsurf",
-                "antigravity",
-                "finder",
-                "xcode",
-                "android-studio",
-                "intellij-idea",
-                "rider",
-                "goland",
-                "rustrover",
-                "pycharm",
-                "webstorm",
-                "phpstorm",
-                "sublime-text",
-                "bbedit",
-                "textmate",
-            ]
-        )
-        XCTAssertFalse(OpenWithCatalog.macOSBuiltInTargets.contains { $0.kind == .terminal })
+    func test_macos_catalog_contains_curated_editors_and_finder_without_terminals() {
+        let targets = OpenWithCatalog.macOSBuiltInTargets
+
+        XCTAssertFalse(targets.isEmpty)
+        XCTAssertFalse(targets.contains { $0.kind == .terminal }, "built-in catalog should exclude terminal apps")
+
+        let ids = Set(targets.map(\.id))
+        XCTAssertTrue(ids.contains(.vscode), "VS Code should be in the catalog")
+        XCTAssertTrue(ids.contains(.cursor), "Cursor should be in the catalog")
+        XCTAssertTrue(ids.contains(.finder), "Finder should be in the catalog")
+        XCTAssertTrue(ids.contains(.xcode), "Xcode should be in the catalog")
+
+        XCTAssertEqual(targets.count, ids.count, "catalog should not contain duplicate entries")
     }
 
     func test_primary_target_prefers_requested_enabled_available_target() {

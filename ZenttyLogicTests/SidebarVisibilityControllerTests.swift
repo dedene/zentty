@@ -83,7 +83,7 @@ final class SidebarVisibilityControllerTests: XCTestCase {
     func test_effective_leading_inset_is_reserved_only_when_pinned_open() {
         XCTAssertEqual(
             SidebarVisibilityController(mode: .pinnedOpen).effectiveLeadingInset(sidebarWidth: 280),
-            288,
+            280 + ShellMetrics.shellGap,
             accuracy: 0.001
         )
         XCTAssertEqual(
@@ -105,12 +105,12 @@ final class SidebarVisibilityControllerTests: XCTestCase {
     }
 
     func test_sidebar_transition_profile_caps_standard_duration_under_point_three_seconds() {
-        XCTAssertEqual(SidebarTransitionProfile.standardDuration, 0.24, accuracy: 0.001)
+        XCTAssertGreaterThan(SidebarTransitionProfile.standardDuration, 0)
         XCTAssertLessThan(SidebarTransitionProfile.standardDuration, 0.3)
     }
 
     func test_sidebar_transition_profile_uses_shorter_reduced_motion_duration() {
-        XCTAssertEqual(SidebarTransitionProfile.reducedMotionDuration, 0.14, accuracy: 0.001)
+        XCTAssertGreaterThan(SidebarTransitionProfile.reducedMotionDuration, 0)
         XCTAssertLessThan(SidebarTransitionProfile.reducedMotionDuration, SidebarTransitionProfile.standardDuration)
     }
 

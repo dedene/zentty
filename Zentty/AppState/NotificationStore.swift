@@ -38,8 +38,12 @@ final class NotificationStore {
     private var pendingNotifications: [PaneKey: AppNotification] = [:]
     private var pendingTasks: [PaneKey: Task<Void, Never>] = [:]
 
-    private static let debounceInterval: TimeInterval = 3.0
+    private let debounceInterval: TimeInterval
     private static let maxItems = 50
+
+    init(debounceInterval: TimeInterval = 3.0) {
+        self.debounceInterval = debounceInterval
+    }
 
     // MARK: - Public API
 
@@ -71,8 +75,9 @@ final class NotificationStore {
 
         pendingNotifications[key] = notification
 
+        let interval = debounceInterval
         let task = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(Self.debounceInterval))
+            try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled else { return }
             self?.commitPending(for: key)
         }

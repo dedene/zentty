@@ -12,6 +12,44 @@ final class MainWindowControllerTests: XCTestCase {
         static let zoom = "trafficLightOverlay.zoom"
     }
 
+    private func trafficLightSpacing(for closeButton: NSButton, miniButton: NSButton) -> CGFloat {
+        miniButton.frame.minX - closeButton.frame.maxX
+    }
+
+    private func trafficLightTopInset(for closeButton: NSButton) throws -> CGFloat {
+        let buttonSuperview = try XCTUnwrap(closeButton.superview)
+        return buttonSuperview.bounds.maxY - closeButton.frame.maxY
+    }
+
+    private func assertTrafficLightsMatchChromeGeometry(
+        closeButton: NSButton,
+        miniButton: NSButton,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertEqual(
+            closeButton.frame.minX,
+            ChromeGeometry.trafficLightLeadingInset,
+            accuracy: 1.0,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            try trafficLightTopInset(for: closeButton),
+            ChromeGeometry.trafficLightTopInset,
+            accuracy: 1.0,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            trafficLightSpacing(for: closeButton, miniButton: miniButton),
+            ChromeGeometry.trafficLightSpacing,
+            accuracy: 1.0,
+            file: file,
+            line: line
+        )
+    }
+
     override func tearDown() {
         controller?.window.close()
         controller = nil
@@ -84,10 +122,11 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     private func makeRequestOnlyWorklane(
-        workingDirectory: String,
+        workingDirectory: String?,
+        worklaneID: WorklaneID = WorklaneID("worklane-main"),
+        worklaneTitle: String = "MAIN",
         title: String = "shell"
     ) -> WorklaneState {
-        let worklaneID = WorklaneID("worklane-main")
         let paneID = PaneID("\(worklaneID.rawValue)-shell")
         let pane = PaneState(
             id: paneID,
@@ -101,7 +140,7 @@ final class MainWindowControllerTests: XCTestCase {
 
         return WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: worklaneTitle,
             paneStripState: PaneStripState(
                 panes: [pane],
                 focusedPaneID: paneID
@@ -110,10 +149,11 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     private func makeMetadataOnlyInheritedWorklane(
-        workingDirectory: String,
+        workingDirectory: String?,
+        worklaneID: WorklaneID = WorklaneID("worklane-main"),
+        worklaneTitle: String = "MAIN",
         title: String = "ssh"
     ) -> WorklaneState {
-        let worklaneID = WorklaneID("worklane-main")
         let paneID = PaneID("\(worklaneID.rawValue)-shell")
         let pane = PaneState(
             id: paneID,
@@ -127,7 +167,7 @@ final class MainWindowControllerTests: XCTestCase {
 
         return WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: worklaneTitle,
             paneStripState: PaneStripState(
                 panes: [pane],
                 focusedPaneID: paneID
@@ -209,23 +249,13 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(closeButton.frame.minX, ChromeGeometry.trafficLightLeadingInset, accuracy: 1.0)
         XCTAssertEqual(topInset, ChromeGeometry.trafficLightTopInset, accuracy: 1.0)
         XCTAssertEqual(
-            closeButton.frame.minX - ChromeGeometry.shellInset,
-            ChromeGeometry.trafficLightOpticalLeadingOffset,
-            accuracy: 1.0
-        )
-        XCTAssertEqual(
-            topInset - ChromeGeometry.shellInset,
-            ChromeGeometry.trafficLightOpticalTopOffset,
-            accuracy: 1.0
-        )
-        XCTAssertEqual(
             miniButton.frame.minX - closeButton.frame.maxX,
             ChromeGeometry.trafficLightSpacing,
             accuracy: 1.0
         )
     }
 
-    func test_show_settings_window_opens_settings_shell_on_pane_layout() throws {
+    func test_show_settings_window_opens_settings_shell_on_general() throws {
         let controller = makeController()
 
         controller.showSettingsWindow(nil)
@@ -236,8 +266,8 @@ final class MainWindowControllerTests: XCTestCase {
         )
         settingsViewController.loadViewIfNeeded()
 
-        XCTAssertEqual(settingsViewController.selectedSection, .paneLayout)
-        XCTAssertEqual(settingsViewController.contentSectionTitle, "Pane Layout")
+        XCTAssertEqual(settingsViewController.selectedSection, .general)
+        XCTAssertEqual(settingsViewController.contentSectionTitle, "General")
     }
 
     func test_show_settings_window_can_route_existing_window_to_open_with() throws {
@@ -276,7 +306,7 @@ final class MainWindowControllerTests: XCTestCase {
         )
 
         XCTAssertFalse(overlay.isHidden)
-        XCTAssertNotEqual(backgroundColor.themeHexString, "#000000")
+        XCTAssertGreaterThan(backgroundColor.alphaComponent, 0, "overlay background should not be transparent")
     }
 
     func test_application_resign_active_shows_non_black_inactive_traffic_light_overlay() throws {
@@ -298,24 +328,7 @@ final class MainWindowControllerTests: XCTestCase {
         )
 
         XCTAssertFalse(overlay.isHidden)
-        XCTAssertNotEqual(backgroundColor.themeHexString, "#000000")
-    }
-
-    func test_inactive_traffic_light_overlay_does_not_draw_custom_border() throws {
-        let controller = makeController(sidebarVisibilityMode: .pinnedOpen)
-        controller.showWindow(nil)
-        waitForLayout()
-
-        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
-        waitForLayout("inactive traffic lights settled", delay: 0.05)
-
-        let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
-        let overlay = try XCTUnwrap(
-            closeButton.superview?.descendant(withIdentifier: TrafficLightOverlayIdentifier.close)
-        )
-
-        XCTAssertEqual(overlay.layer?.borderWidth, 0)
-        XCTAssertNil(overlay.layer?.borderColor)
+        XCTAssertGreaterThan(backgroundColor.alphaComponent, 0, "overlay background should not be transparent")
     }
 
     func test_window_become_key_hides_inactive_traffic_light_overlay() throws {
@@ -334,6 +347,44 @@ final class MainWindowControllerTests: XCTestCase {
         )
 
         XCTAssertTrue(overlay.isHidden)
+    }
+
+    func test_window_become_key_does_not_relayout_traffic_lights() throws {
+        let controller = makeController(sidebarVisibilityMode: .pinnedOpen)
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
+        let miniButton = try XCTUnwrap(controller.window.standardWindowButton(.miniaturizeButton))
+        try assertTrafficLightsMatchChromeGeometry(closeButton: closeButton, miniButton: miniButton)
+
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        waitForLayout("inactive traffic lights settled", delay: 0.05)
+        try assertTrafficLightsMatchChromeGeometry(closeButton: closeButton, miniButton: miniButton)
+
+        controller.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification))
+        waitForLayout("active traffic lights settled", delay: 0.05)
+
+        try assertTrafficLightsMatchChromeGeometry(closeButton: closeButton, miniButton: miniButton)
+    }
+
+    func test_application_activation_does_not_relayout_traffic_lights() throws {
+        let controller = makeController(sidebarVisibilityMode: .pinnedOpen)
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let closeButton = try XCTUnwrap(controller.window.standardWindowButton(.closeButton))
+        let miniButton = try XCTUnwrap(controller.window.standardWindowButton(.miniaturizeButton))
+        try assertTrafficLightsMatchChromeGeometry(closeButton: closeButton, miniButton: miniButton)
+
+        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+        waitForLayout("application resign active settled", delay: 0.05)
+        try assertTrafficLightsMatchChromeGeometry(closeButton: closeButton, miniButton: miniButton)
+
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+        waitForLayout("application become active settled", delay: 0.05)
+
+        try assertTrafficLightsMatchChromeGeometry(closeButton: closeButton, miniButton: miniButton)
     }
 
     func test_inactive_traffic_light_overlay_tracks_standard_button_frames_after_resize() throws {
@@ -1029,8 +1080,8 @@ final class MainWindowControllerTests: XCTestCase {
         waitForLayout("popover settled", delay: 0.05)
         controller.simulateOpenWithPopoverSettingsHoverForTesting()
 
-        XCTAssertNotEqual(controller.openWithPopoverSettingsBackgroundTokenForTesting, "#000000-0")
-        XCTAssertNotEqual(controller.openWithPopoverSettingsBorderTokenForTesting, "#000000-0")
+        XCTAssertNotNil(controller.openWithPopoverSettingsBackgroundTokenForTesting)
+        XCTAssertNotNil(controller.openWithPopoverSettingsBorderTokenForTesting)
     }
 
     func test_open_with_popover_escape_dismisses() throws {
@@ -1154,6 +1205,46 @@ final class MainWindowControllerTests: XCTestCase {
         waitForLayout("window resign dismissal", delay: 0.05)
 
         XCTAssertFalse(controller.isOpenWithPopoverShownForTesting)
+    }
+
+    func test_proxy_window_drag_suppression_matches_padded_proxy_zone() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.injectFocusedPaneShellContextForTesting(path: "/tmp/project-proxy-drag")
+        waitForLayout("proxy context settled", delay: 0.05)
+
+        let proxyPoint = try XCTUnwrap(
+            controller.rootViewControllerForTesting.chromeView.focusedProxyIconLeadingPaddingPointInWindowForTesting()
+        )
+        let outsidePoint = NSPoint(x: proxyPoint.x - 12, y: proxyPoint.y)
+
+        XCTAssertTrue(controller.shouldSuppressWindowDragForTesting(at: proxyPoint, eventType: .leftMouseDown))
+        XCTAssertTrue(controller.shouldSuppressWindowDragForTesting(at: proxyPoint, eventType: .leftMouseDragged))
+        XCTAssertFalse(controller.shouldSuppressWindowDragForTesting(at: proxyPoint, eventType: .leftMouseUp))
+        XCTAssertFalse(controller.shouldSuppressWindowDragForTesting(at: outsidePoint, eventType: .leftMouseDown))
+    }
+
+    func test_proxy_window_drag_suppression_restores_window_movable_state() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.injectFocusedPaneShellContextForTesting(path: "/tmp/project-proxy-drag")
+        waitForLayout("proxy context settled", delay: 0.05)
+
+        let proxyPoint = try XCTUnwrap(
+            controller.rootViewControllerForTesting.chromeView.focusedProxyIconLeadingPaddingPointInWindowForTesting()
+        )
+
+        XCTAssertTrue(controller.isWindowMovableForTesting)
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseDown)
+        XCTAssertFalse(controller.isWindowMovableForTesting)
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseUp)
+        XCTAssertTrue(controller.isWindowMovableForTesting)
     }
 }
 

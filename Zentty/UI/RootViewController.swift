@@ -81,7 +81,6 @@ final class RootViewController: NSViewController {
     private var pathCopiedToastView: PathCopiedToastView?
     private let notificationBellButton = NotificationBellButton()
     private var notificationPanelView: NotificationPanelView?
-
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
     var onWindowChromeNeedsUpdate: (() -> Void)?
     var onOpenWithPrimaryRequested: (() -> Void)?
@@ -113,6 +112,7 @@ final class RootViewController: NSViewController {
             worklaneStore: worklaneStore,
             runtimeRegistry: runtimeRegistry,
             notificationStore: notificationStore,
+            configStore: configStore,
             reviewStateResolver: reviewStateResolver
         )
         super.init(nibName: nil, bundle: nil)
@@ -526,6 +526,17 @@ final class RootViewController: NSViewController {
         syncSidebarWidthToAvailableWidth(persist: false)
         renderCoordinator.updateSurfaceActivities()
         appCanvasView.focusCurrentPaneIfNeeded()
+    }
+
+    func shouldSuppressWindowDrag(at point: NSPoint, eventType: NSEvent.EventType) -> Bool {
+        guard eventType == .leftMouseDown || eventType == .leftMouseDragged else {
+            return false
+        }
+        return windowChromeView.containsFocusedProxyIconPointInWindow(point)
+    }
+
+    func deliverProxyMouseDown(_ event: NSEvent) {
+        windowChromeView.deliverFocusedProxyMouseDown(with: event)
     }
 
     func updateTrafficLightAnchor(_ anchor: NSPoint) {
@@ -959,6 +970,14 @@ final class RootViewController: NSViewController {
             motionState.reservedFraction == 1
             ? openToggleTarget
             : closedToggleTarget
+        let pinnedHeaderContentMinX =
+            trafficLightAnchor.x
+            - leadingConstant
+            + SidebarToggleButton.spacingFromTrafficLights
+        sidebarView.updateHeaderLayout(
+            visibilityMode: sidebarMotionCoordinator.mode,
+            pinnedContentMinX: pinnedHeaderContentMinX
+        )
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
