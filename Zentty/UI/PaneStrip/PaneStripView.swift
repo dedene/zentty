@@ -395,20 +395,11 @@ final class PaneStripView: NSView {
                 )
                 self.reconcileDividerViews(with: presentation, offset: targetOffset)
                 self.paneViews.values.forEach { $0.syncInsetBorderNow() }
-                Task { @MainActor [weak self] in
-                    guard let self, self.renderGuard.generation == settleGeneration else {
-                        return
-                    }
-                    self.applyTerminalAnimationFreeze(to: [])
-                    self.viewportView.layoutSubtreeIfNeeded()
-                    self.applyViewportSyncSuspension(to: [])
-                }
+                self.completeRenderSettlement()
             }
         } else {
             updates()
-            applyTerminalAnimationFreeze(to: [])
-            viewportView.layoutSubtreeIfNeeded()
-            applyViewportSyncSuspension(to: [])
+            completeRenderSettlement()
         }
 
         currentOffset = targetOffset
@@ -418,6 +409,12 @@ final class PaneStripView: NSView {
         }
         onBorderChromeSnapshotsDidChange?(borderChromeSnapshots(for: presentation, offset: targetOffset))
         syncFocusedTerminal(with: state.focusedPaneID)
+    }
+
+    private func completeRenderSettlement() {
+        applyTerminalAnimationFreeze(to: [])
+        viewportView.layoutSubtreeIfNeeded()
+        applyViewportSyncSuspension(to: [])
     }
 
     private func sharesAnyPane(
