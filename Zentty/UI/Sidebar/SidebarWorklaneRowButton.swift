@@ -219,14 +219,23 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview else { return nil }
+
+        let pointInSelf = convert(point, from: superview)
+        guard bounds.contains(pointInSelf), !isHidden, alphaValue > 0 else {
+            return nil
+        }
+
         let activePaneCount = currentSummary?.paneRows.count ?? 0
-        for paneButton in paneRowButtons.prefix(activePaneCount) where paneButton.superview != nil {
-            let localPoint = paneButton.convert(point, from: self)
-            if paneButton.bounds.contains(localPoint) {
+        for paneButton in paneRowButtons.prefix(activePaneCount)
+        where paneButton.superview != nil && !paneButton.isHidden {
+            let pointInPane = paneButton.convert(point, from: superview)
+            if paneButton.bounds.contains(pointInPane) {
                 return paneButton
             }
         }
-        return super.hitTest(point)
+
+        return self
     }
 
     func paneRowHoverChanged(isHovered: Bool) {
@@ -2020,6 +2029,12 @@ private final class SidebarPaneRowButton: NSButton {
 
         target = self
         action = #selector(handleClick)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview else { return nil }
+        let pointInSelf = convert(point, from: superview)
+        return bounds.contains(pointInSelf) ? self : nil
     }
 
     @objc private func handleClick() {
