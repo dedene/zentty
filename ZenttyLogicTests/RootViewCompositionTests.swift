@@ -682,7 +682,7 @@ final class RootViewCompositionTests: XCTestCase {
 
         XCTAssertTrue(sidebarView.addWorklaneUsesPointingHandCursor)
         XCTAssertGreaterThan(sidebarView.addWorklaneBackgroundAlpha, 0.01)
-        XCTAssertGreaterThan(sidebarView.addWorklaneBorderAlpha, 0.01)
+        XCTAssertEqual(sidebarView.addWorklaneBorderAlpha, 0, accuracy: 0.001)
         XCTAssertGreaterThan(sidebarView.addWorklaneTitleAlpha, restingTitleAlpha)
         XCTAssertGreaterThan(sidebarView.addWorklaneIconAlpha, restingIconAlpha)
     }

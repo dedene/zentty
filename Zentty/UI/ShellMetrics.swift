@@ -63,6 +63,14 @@ enum ChromeGeometry {
         inset: pillInset
     )
 
+    static func iconButtonHoverBackground(theme: ZenttyTheme, isHovered: Bool) -> NSColor {
+        guard isHovered else { return .clear }
+        let mix: CGFloat = theme.topChromeBackground.isDarkThemeColor ? 0.12 : 0.18
+        return theme.topChromeBackground
+            .mixed(towards: theme.primaryText, amount: mix)
+            .withAlphaComponent(min(1, theme.topChromeBackground.alphaComponent + 0.10))
+    }
+
     static func paneBorderInset(backingScaleFactor: CGFloat) -> CGFloat {
         let clipSafeInset = clipSafeInnerBorderInset(
             parentRadius: contentShellRadius,
