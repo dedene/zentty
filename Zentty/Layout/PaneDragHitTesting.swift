@@ -4,6 +4,14 @@ struct ReorderGapHit: Equatable {
     let reducedIndex: Int
 }
 
+struct SplitZoneHit: Equatable {
+    let targetPaneID: PaneID
+    let targetColumnID: PaneColumnID
+    let axis: PaneSplitPreview.Axis
+    /// true = above (vertical) or leading/left (horizontal)
+    let leading: Bool
+}
+
 enum PaneDragHitTest {
 
     /// Resolve a reorder gap hit using gap zones around column boundaries.
@@ -93,6 +101,83 @@ enum PaneDragHitTest {
         ))
 
         return result
+    }
+
+    // MARK: - Split Zone Detection
+
+    /// Detect whether the cursor is in a split activation zone on any eligible pane.
+    /// Returns nil when cursor is in a pane's center dead zone, outside all panes,
+    /// or over a source-column pane.
+    static func splitZoneHit(
+        cursorInContent: CGPoint,
+        paneFramesByID: [PaneID: CGRect],
+        columnForPane: [PaneID: PaneColumnID],
+        sourceColumnID: PaneColumnID,
+        minimumPaneHeight: CGFloat
+    ) -> SplitZoneHit? {
+        // Find the pane whose frame contains the cursor, excluding source column panes
+        var hitPaneID: PaneID?
+        var hitFrame: CGRect = .zero
+
+        for (paneID, frame) in paneFramesByID {
+            guard columnForPane[paneID] != sourceColumnID else { continue }
+            guard frame.contains(cursorInContent) else { continue }
+            hitPaneID = paneID
+            hitFrame = frame
+            break
+        }
+
+        guard let targetPaneID = hitPaneID,
+              let targetColumnID = columnForPane[targetPaneID],
+              hitFrame.width > 0, hitFrame.height > 0 else {
+            return nil
+        }
+
+        // Normalize cursor position within pane (0..1)
+        let nx = (cursorInContent.x - hitFrame.minX) / hitFrame.width
+        let ny = (cursorInContent.y - hitFrame.minY) / hitFrame.height
+
+        // Edge zone threshold — outer 28% on each side
+        let edgeThreshold: CGFloat = 0.28
+        let minEdgeDist = min(nx, 1 - nx, ny, 1 - ny)
+        guard minEdgeDist <= edgeThreshold else {
+            return nil  // Center dead zone
+        }
+
+        // Nearest edge determines axis
+        let dLeft = nx
+        let dRight = 1 - nx
+        let dBottom = ny           // bottom-left coords: low Y = bottom
+        let dTop = 1 - ny         // high Y = top
+
+        let minHorizontal = min(dLeft, dRight)
+        let minVertical = min(dBottom, dTop)
+
+        let axis: PaneSplitPreview.Axis
+        let leading: Bool
+
+        if minHorizontal < minVertical {
+            // Closer to left or right edge → horizontal split
+            axis = .horizontal
+            leading = dLeft < dRight
+        } else {
+            // Closer to top or bottom edge → vertical split
+            axis = .vertical
+            // "above" in UI = higher Y in bottom-left coords = near top edge
+            leading = dTop < dBottom
+
+            // Enforce minimum pane height for vertical splits
+            if hitFrame.height / 2 < minimumPaneHeight {
+                return nil
+            }
+        }
+
+        return SplitZoneHit(
+            targetPaneID: targetPaneID,
+            targetColumnID: targetColumnID,
+            axis: axis,
+            leading: leading
+        )
     }
 
     /// Compute edge scroll velocity based on cursor proximity to the VISIBLE viewport edges.

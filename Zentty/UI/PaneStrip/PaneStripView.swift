@@ -181,6 +181,9 @@ final class PaneStripView: NSView {
         dragCoordinator.onReorder = { [weak self] paneID, columnIndex in
             self?.onPaneReorderRequested?(paneID, columnIndex)
         }
+        dragCoordinator.onSplitDrop = { [weak self] paneID, targetPaneID, axis, leading in
+            self?.onPaneSplitDropRequested?(paneID, targetPaneID, axis, leading)
+        }
         dragCoordinator.onDragActiveChanged = { [weak self] active in
             guard let self else { return }
             self.isDragActive = active

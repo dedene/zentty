@@ -870,15 +870,23 @@ struct PaneStripState: Equatable, Sendable {
             return false
         }
 
-        let targetHeight = columns[columnIndex].paneHeights.indices.contains(targetIndex)
-            ? columns[columnIndex].paneHeights[targetIndex] : 1
-
-        guard targetHeight / 2 >= minimumPaneHeight else {
+        // Resolve actual pixel heights to check minimum constraint
+        let column = columns[columnIndex]
+        let resolvedHeights = column.resolvedPaneHeights(
+            totalHeight: availableHeight,
+            spacing: layoutSizing.interPaneSpacing
+        )
+        let targetPixelHeight = resolvedHeights.indices.contains(targetIndex)
+            ? resolvedHeights[targetIndex] : availableHeight
+        guard targetPixelHeight / 2 >= minimumPaneHeight else {
             return false
         }
 
-        let insertedHeight = max(1, targetHeight / 2)
-        let retainedHeight = max(1, targetHeight - insertedHeight)
+        // Split the stored ratio in half
+        let targetRatio = column.paneHeights.indices.contains(targetIndex)
+            ? column.paneHeights[targetIndex] : 1
+        let insertedHeight = max(1, targetRatio / 2)
+        let retainedHeight = max(1, targetRatio - insertedHeight)
 
         columns[columnIndex].paneHeights[targetIndex] = retainedHeight
         let clampedPaneIndex = max(0, min(paneIndex, columns[columnIndex].panes.count))

@@ -7,6 +7,7 @@ final class PaneDragCoordinator {
     // MARK: - Callbacks
 
     var onReorder: ((PaneID, Int) -> Void)?
+    var onSplitDrop: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool) -> Void)?
     var onDragActiveChanged: ((Bool) -> Void)?
 
     // MARK: - Public State
@@ -46,11 +47,21 @@ final class PaneDragCoordinator {
     // MARK: - Visual Indicators
 
     private var insertionLine: PaneDragInsertionLineView?
+    private var splitOverlay: PaneDragSplitOverlayView?
+
+    // MARK: - Split Detection State
+
+    private var splitDwellTimer: Timer?
+    private var splitDwellPaneID: PaneID?
+    /// Once dwell is satisfied on any pane during a drag, switching panes is instant.
+    private var splitDwellSatisfied: Bool = false
+    private var currentSplitHit: SplitZoneHit?
 
     // MARK: - Constants
 
-    private static let popScale: CGFloat = 0.5
+    private static let popScale: CGFloat = 0.45
     private static let gapScreenPt: CGFloat = 20
+    private static let splitDwellDuration: TimeInterval = 0.25
 
     // MARK: - Shared Visual Layout
 
@@ -191,6 +202,9 @@ final class PaneDragCoordinator {
         paneView.layer?.shadowRadius = 24
         paneView.layer?.shadowOffset = CGSize(width: 0, height: -10)
 
+        // Semi-transparent so you can see what's underneath
+        paneView.alphaValue = 0.8
+
         viewportView.autoresizingMask = []
 
         // Signal drag active BEFORE layout
@@ -249,44 +263,86 @@ final class PaneDragCoordinator {
             previousReducedIndex: currentReducedIndex
         )
 
-        if gapHit?.reducedIndex != currentReducedIndex {
-            currentReducedIndex = gapHit?.reducedIndex
+        if gapHit != nil {
+            // Reorder gaps always win — clear any active split state
+            if currentSplitHit != nil {
+                clearSplitMode()
+            }
+            cancelSplitDwell()
 
-            if let reducedIdx = currentReducedIndex {
-                let insertionIndex = reducedIdx >= activeState.sourceColumnIndex
-                    ? reducedIdx + 1
-                    : reducedIdx
-                currentInsertionIndex = insertionIndex
-                activeState.currentDropTarget = .reorderGap(columnIndex: insertionIndex)
+            if gapHit?.reducedIndex != currentReducedIndex {
+                currentReducedIndex = gapHit?.reducedIndex
+
+                if let reducedIdx = currentReducedIndex {
+                    let insertionIndex = reducedIdx >= activeState.sourceColumnIndex
+                        ? reducedIdx + 1
+                        : reducedIdx
+                    currentInsertionIndex = insertionIndex
+                    activeState.currentDropTarget = .reorderGap(columnIndex: insertionIndex)
+                }
+
+                // Re-apply layout with gap opening
+                applyVisualLayout(
+                    activeReducedGapIndex: currentReducedIndex,
+                    animated: true,
+                    excludingPaneID: activeState.draggedPaneID
+                )
+
+                // Update insertion line
+                if let reducedIdx = currentReducedIndex {
+                    let openedLayout = makeDragVisualLayout(
+                        presentation: reducedPresentation,
+                        activeReducedGapIndex: reducedIdx,
+                        zoomScale: currentZoom
+                    )
+                    updateInsertionLine(layout: openedLayout, reducedIndex: reducedIdx, zoomScale: currentZoom)
+                } else {
+                    insertionLine?.isHidden = true
+                }
             }
 
-            // Re-apply layout with gap opening
-            applyVisualLayout(
-                activeReducedGapIndex: currentReducedIndex,
-                animated: true,
-                excludingPaneID: activeState.draggedPaneID
-            )
-
-            // Update insertion line
-            if let reducedIdx = currentReducedIndex {
-                let openedLayout = makeDragVisualLayout(
-                    presentation: reducedPresentation,
-                    activeReducedGapIndex: reducedIdx,
-                    zoomScale: currentZoom
+            // Update insertion line proximity-based opacity
+            if let line = insertionLine, !line.isHidden {
+                let lineXInStrip = viewportView.convert(
+                    CGPoint(x: line.frame.midX, y: 0), to: paneStripView
+                ).x
+                let distance = abs(cursorInStrip.x - lineXInStrip)
+                line.updateProximityOpacity(distance: distance)
+            }
+        } else {
+            // No gap hit — clear gap state if we were in one
+            if currentReducedIndex != nil {
+                currentReducedIndex = nil
+                currentInsertionIndex = nil
+                applyVisualLayout(
+                    activeReducedGapIndex: nil,
+                    animated: true,
+                    excludingPaneID: activeState.draggedPaneID
                 )
-                updateInsertionLine(layout: openedLayout, reducedIndex: reducedIdx, zoomScale: currentZoom)
-            } else {
                 insertionLine?.isHidden = true
             }
+
+            // Evaluate split target
+            evaluateSplitTarget(cursorInStrip: cursorInStrip)
         }
 
-        // Update insertion line proximity-based opacity
-        if let line = insertionLine, !line.isHidden {
-            let lineXInStrip = viewportView.convert(
-                CGPoint(x: line.frame.midX, y: 0), to: paneStripView
-            ).x
-            let distance = abs(cursorInStrip.x - lineXInStrip)
-            line.updateProximityOpacity(distance: distance)
+        // Sync activeState drop target with current split/reorder state
+        if let hit = currentSplitHit {
+            switch hit.axis {
+            case .vertical:
+                activeState.currentDropTarget = .verticalSplit(targetPaneID: hit.targetPaneID, above: hit.leading)
+            case .horizontal:
+                activeState.currentDropTarget = .horizontalSplit(targetPaneID: hit.targetPaneID, leading: hit.leading)
+            }
+            activeState.splitPreview = PaneSplitPreview(
+                targetPaneID: hit.targetPaneID,
+                targetColumnID: hit.targetColumnID,
+                axis: hit.axis,
+                fraction: 0.5
+            )
+        } else if currentReducedIndex == nil {
+            activeState.currentDropTarget = .none
+            activeState.splitPreview = nil
         }
 
         // Edge scroll — start timer when cursor is in an edge zone.
@@ -314,7 +370,9 @@ final class PaneDragCoordinator {
     func endDrag(at cursorInStrip: CGPoint) {
         guard case .active(let activeState) = phase else { return }
 
-        if let idx = currentInsertionIndex {
+        if let splitHit = currentSplitHit {
+            completeSplitDrop(splitHit: splitHit)
+        } else if let idx = currentInsertionIndex {
             completeDrop(columnIndex: idx)
         } else {
             cancelDrag()
@@ -332,6 +390,10 @@ final class PaneDragCoordinator {
         }
 
         let targetCenter = CGPoint(x: originalPaneFrame.midX, y: originalPaneFrame.midY)
+
+        // Clear split state before animating back
+        clearSplitMode()
+        cancelSplitDwell()
 
         // Restore original layout
         if let originalPresentation {
@@ -522,6 +584,82 @@ final class PaneDragCoordinator {
         CATransaction.commit()
     }
 
+    private func completeSplitDrop(splitHit: SplitZoneHit) {
+        guard let paneStripView else {
+            let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
+            onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading)
+            teardown()
+            return
+        }
+
+        // Target: center of the overlay (where the pane will land)
+        let targetCenter: CGPoint
+        if let overlay = splitOverlay {
+            targetCenter = CGPoint(x: overlay.frame.midX, y: overlay.frame.midY)
+        } else if let reducedPresentation {
+            let zoomScale = paneStripView.currentZoomScale()
+            let layout = makeDragVisualLayout(
+                presentation: reducedPresentation,
+                activeReducedGapIndex: nil,
+                zoomScale: zoomScale
+            )
+            let paneFrame = layout.paneFramesByID[splitHit.targetPaneID] ?? .zero
+            targetCenter = CGPoint(x: paneFrame.midX, y: paneFrame.midY)
+        } else {
+            targetCenter = originalPaneFrame.center
+        }
+
+        // Hide the split overlay immediately
+        splitOverlay?.removeFromSuperview()
+        splitOverlay = nil
+
+        // Spring animation — same feel as reorder drop
+        let posSpring = CASpringAnimation(keyPath: "position")
+        posSpring.toValue = NSValue(point: targetCenter)
+        posSpring.mass = 0.8
+        posSpring.stiffness = 400
+        posSpring.damping = 28
+        posSpring.initialVelocity = 0
+        posSpring.duration = posSpring.settlingDuration
+        posSpring.fillMode = .forwards
+        posSpring.isRemovedOnCompletion = false
+
+        let currentTransform = draggedPaneView?.layer?.transform ?? CATransform3DIdentity
+        let transformSpring = CASpringAnimation(keyPath: "transform")
+        transformSpring.fromValue = NSValue(caTransform3D: currentTransform)
+        transformSpring.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+        transformSpring.mass = 0.8
+        transformSpring.stiffness = 400
+        transformSpring.damping = 28
+        transformSpring.duration = transformSpring.settlingDuration
+        transformSpring.fillMode = .forwards
+        transformSpring.isRemovedOnCompletion = false
+
+        let shadowAnim = CABasicAnimation(keyPath: "shadowOpacity")
+        shadowAnim.toValue = 0
+        shadowAnim.duration = 0.15
+
+        let paneID = phase.activeState?.draggedPaneID
+        let stripView = paneStripView
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock {
+            MainActor.assumeIsolated {
+                self.draggedPaneView?.layer?.removeAllAnimations()
+                self.restoreDraggedPane()
+                self.teardown()
+                if let paneID {
+                    self.onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading)
+                }
+                stripView.endDragWithZoomIn()
+            }
+        }
+        draggedPaneView?.layer?.add(posSpring, forKey: "settlePosition")
+        draggedPaneView?.layer?.add(transformSpring, forKey: "settleTransform")
+        draggedPaneView?.layer?.add(shadowAnim, forKey: "settleShadow")
+        CATransaction.commit()
+    }
+
     // MARK: - Private — Restore
 
     private func restoreDraggedPane() {
@@ -538,6 +676,7 @@ final class PaneDragCoordinator {
 
         paneView.frame = originalPaneFrame
         paneView.shadow = nil
+        paneView.alphaValue = 1.0
     }
 
     // MARK: - Private — Insertion Line
@@ -567,6 +706,150 @@ final class PaneDragCoordinator {
             height: refFrame.height
         )
         line.startPulsing()
+    }
+
+    // MARK: - Private — Split Dwell Timer
+
+    private func startSplitDwell(for paneID: PaneID) {
+        guard splitDwellPaneID != paneID else { return }
+        cancelSplitDwell()
+        splitDwellPaneID = paneID
+        let timer = Timer(timeInterval: Self.splitDwellDuration, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.splitDwellSatisfied = true
+                if case .active(let activeState) = self.phase {
+                    self.evaluateSplitTarget(cursorInStrip: activeState.cursorPosition)
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        splitDwellTimer = timer
+    }
+
+    private func cancelSplitDwell() {
+        splitDwellTimer?.invalidate()
+        splitDwellTimer = nil
+        splitDwellPaneID = nil
+        // Do NOT reset splitDwellSatisfied — once satisfied, instant switching allowed
+    }
+
+    private func resetSplitState() {
+        cancelSplitDwell()
+        splitDwellSatisfied = false
+        currentSplitHit = nil
+        hideSplitOverlay()
+    }
+
+    // MARK: - Private — Split Target Evaluation
+
+    private func evaluateSplitTarget(cursorInStrip: CGPoint) {
+        guard case .active(let activeState) = phase,
+              let paneStripView, let viewportView,
+              let reducedPresentation else { return }
+
+        let currentZoom = paneStripView.currentZoomScale()
+        let layout = makeDragVisualLayout(
+            presentation: reducedPresentation,
+            activeReducedGapIndex: nil,
+            zoomScale: currentZoom
+        )
+
+        let cursorInContent = paneStripView.convert(cursorInStrip, to: viewportView)
+
+        var columnForPane: [PaneID: PaneColumnID] = [:]
+        for pane in reducedPresentation.panes {
+            columnForPane[pane.paneID] = pane.columnID
+        }
+
+        let splitHit = PaneDragHitTest.splitZoneHit(
+            cursorInContent: cursorInContent,
+            paneFramesByID: layout.paneFramesByID,
+            columnForPane: columnForPane,
+            sourceColumnID: activeState.sourceColumnID,
+            minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
+        )
+
+        guard let splitHit else {
+            if currentSplitHit != nil {
+                clearSplitMode()
+            }
+            cancelSplitDwell()
+            return
+        }
+
+        startSplitDwell(for: splitHit.targetPaneID)
+
+        if splitDwellSatisfied {
+            if splitHit != currentSplitHit {
+                currentSplitHit = splitHit
+                showSplitOverlay(for: splitHit, layout: layout)
+            }
+        }
+    }
+
+    // MARK: - Private — Split Overlay
+
+    private func showSplitOverlay(for hit: SplitZoneHit, layout: DragVisualLayout) {
+        guard let viewportView, let draggedPaneView else { return }
+
+        // Mutual exclusion: hide insertion line
+        insertionLine?.isHidden = true
+
+        let paneFrame = layout.paneFramesByID[hit.targetPaneID] ?? .zero
+        let overlayFrame: CGRect
+
+        switch hit.axis {
+        case .vertical:
+            let halfHeight = paneFrame.height / 2
+            if hit.leading {
+                // "above" = upper half (higher Y in bottom-left coords)
+                overlayFrame = CGRect(x: paneFrame.minX, y: paneFrame.midY,
+                                      width: paneFrame.width, height: halfHeight)
+            } else {
+                // "below" = lower half
+                overlayFrame = CGRect(x: paneFrame.minX, y: paneFrame.minY,
+                                      width: paneFrame.width, height: halfHeight)
+            }
+        case .horizontal:
+            let halfWidth = paneFrame.width / 2
+            if hit.leading {
+                overlayFrame = CGRect(x: paneFrame.minX, y: paneFrame.minY,
+                                      width: halfWidth, height: paneFrame.height)
+            } else {
+                overlayFrame = CGRect(x: paneFrame.midX, y: paneFrame.minY,
+                                      width: halfWidth, height: paneFrame.height)
+            }
+        }
+
+        if let existing = splitOverlay {
+            // Animate to new position (switching halves or panes)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                context.allowsImplicitAnimation = true
+                existing.frame = overlayFrame
+            }
+        } else {
+            let overlay = PaneDragSplitOverlayView(frame: overlayFrame)
+            viewportView.addSubview(overlay, positioned: .below, relativeTo: draggedPaneView)
+            splitOverlay = overlay
+            overlay.animateIn()
+        }
+    }
+
+    private func hideSplitOverlay() {
+        guard let overlay = splitOverlay else { return }
+        self.splitOverlay = nil
+        overlay.animateOut {
+            overlay.removeFromSuperview()
+        }
+    }
+
+    private func clearSplitMode() {
+        currentSplitHit = nil
+        hideSplitOverlay()
+        // Do NOT reset splitDwellSatisfied — allow instant re-entry
     }
 
     // MARK: - Private — Edge Scroll
@@ -680,6 +963,13 @@ final class PaneDragCoordinator {
 
         insertionLine?.removeFromSuperview()
         insertionLine = nil
+
+        // Remove overlay without animation during teardown
+        splitOverlay?.removeFromSuperview()
+        splitOverlay = nil
+        cancelSplitDwell()
+        splitDwellSatisfied = false
+        currentSplitHit = nil
 
         // Do NOT unfreeze terminals here — keep ALL panes frozen until
         // endDragWithZoomIn completes the zoom-in animation. Unfreezing
