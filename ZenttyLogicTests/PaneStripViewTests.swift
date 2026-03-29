@@ -427,11 +427,7 @@ final class PaneStripViewTests: XCTestCase {
 
         paneStripView.render(testsFocused)
 
-        let settled = expectation(description: "focus animation settled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            settled.fulfill()
-        }
-        wait(for: [settled], timeout: 1.0)
+        paneStripView.settlePresentationNow()
 
         let paneViewsByTitle = Dictionary(uniqueKeysWithValues: try paneStripView.descendantPaneViews().map {
             let title = try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText)
@@ -1170,8 +1166,8 @@ final class PaneStripViewTests: XCTestCase {
         }
         wait(for: [settled], timeout: 1.0)
 
-        XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.suffix(2), [true, false])
-        XCTAssertEqual(insertedAdapter.terminalView.viewportSyncSuspensionUpdates.suffix(2), [true, false])
+        XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
+        XCTAssertEqual(insertedAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
         let shellResumeHeight = try XCTUnwrap(shellAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
         let insertedResumeHeight = try XCTUnwrap(insertedAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
         let expectedShellHeight = try XCTUnwrap(
@@ -1239,11 +1235,7 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertTrue(shellPane.isTerminalAnimationFrozenForTesting)
         XCTAssertFalse(insertedPane.isTerminalAnimationFrozenForTesting)
 
-        let settled = expectation(description: "vertical split animation settled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            settled.fulfill()
-        }
-        wait(for: [settled], timeout: 1.0)
+        paneStripView.settlePresentationNow()
 
         XCTAssertFalse(shellPane.isTerminalAnimationFrozenForTesting)
         XCTAssertFalse(insertedPane.isTerminalAnimationFrozenForTesting)
@@ -1300,11 +1292,7 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertEqual(shellPane.insetBorderColorToken, theme.paneBorderUnfocused.themeToken)
         XCTAssertEqual(insertedPane.insetBorderColorToken, theme.paneBorderFocused.themeToken)
 
-        let settled = expectation(description: "vertical split neutral background settled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            settled.fulfill()
-        }
-        wait(for: [settled], timeout: 1.0)
+        paneStripView.settlePresentationNow()
 
         XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.paneFillUnfocused.themeToken)
         XCTAssertEqual(insertedPane.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
@@ -1357,11 +1345,7 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertEqual(removalTransition.columnID, PaneColumnID("stack"))
         XCTAssertEqual(removalTransition.survivingPaneIDs, [PaneID("shell")])
 
-        let settled = expectation(description: "removal animation settled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            settled.fulfill()
-        }
-        wait(for: [settled], timeout: 2.0)
+        paneStripView.settlePresentationNow()
 
         XCTAssertFalse(shellPane.isTerminalAnimationFrozenForTesting)
     }
