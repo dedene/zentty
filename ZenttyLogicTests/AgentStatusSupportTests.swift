@@ -898,9 +898,11 @@ final class AgentStatusSupportTests: XCTestCase {
 
     func test_agent_status_center_delivers_payloads_on_main_actor() {
         let center = AgentStatusCenter()
+        // Use test-only IDs to avoid leaking a real distributed notification
+        // into a running Zentty instance (which uses "worklane-main" by default).
         let payload = AgentStatusPayload(
-            worklaneID: WorklaneID("worklane-main"),
-            paneID: PaneID("worklane-main-shell"),
+            worklaneID: WorklaneID("test-status-center"),
+            paneID: PaneID("test-status-center-shell"),
             state: .needsInput,
             origin: .explicitHook,
             toolName: "Claude Code",
@@ -1345,7 +1347,7 @@ private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUser
 
     func requestAuthorizationIfNeeded() {}
 
-    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String) {
+    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String, soundName: String) {
         requests.append(RequestRecord(identifier: identifier, title: title, body: body))
     }
 }

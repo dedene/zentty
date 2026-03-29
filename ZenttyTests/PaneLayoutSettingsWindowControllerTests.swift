@@ -27,7 +27,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(tabController.tabStyle, .toolbar)
         XCTAssertNotNil(controller.window?.toolbar)
         XCTAssertFalse(controller.window?.styleMask.contains(.resizable) == true)
-        XCTAssertEqual(contentController.sectionTitles, ["Shortcuts", "Open With", "Pane Layout"])
+        XCTAssertEqual(contentController.sectionTitles, ["General", "Shortcuts", "Open With", "Pane Layout"])
         XCTAssertEqual(contentController.selectedSection, .paneLayout)
         XCTAssertEqual(controller.window?.title, "Pane Layout")
 
@@ -749,6 +749,64 @@ final class SettingsWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(store.current.openWith.customApps.map(\.id), ["custom:zed-preview"])
         XCTAssertEqual(store.current.openWith.enabledTargetIDs, ["finder", "custom:zed-preview"])
+    }
+
+    func test_settings_window_can_switch_to_general_section_and_shows_notification_controls() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        XCTAssertEqual(contentController.selectedSection, .general)
+        XCTAssertEqual(controller.window?.title, "General")
+
+        let generalController = try XCTUnwrap(
+            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        )
+        XCTAssertEqual(generalController.selectedSoundName, "")
+        XCTAssertTrue(generalController.availableSoundNames.contains(""))
+        XCTAssertTrue(generalController.availableSoundNames.contains("Glass"))
+        XCTAssertTrue(generalController.availableSoundNames.contains("Ping"))
+    }
+
+    func test_general_section_persists_sound_name_to_config() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        try store.update { config in
+            config.notifications.soundName = "Glass"
+        }
+
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let generalController = try XCTUnwrap(
+            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        )
+        XCTAssertEqual(generalController.selectedSoundName, "Glass")
     }
 
     func test_open_with_section_reconciles_unavailable_primary_target_to_available_fallback() throws {

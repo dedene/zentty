@@ -240,7 +240,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func showSettingsWindow(_ sender: Any?) {
-        showSettingsWindow(section: .shortcuts, sender: sender)
+        showSettingsWindow(section: .general, sender: sender)
     }
 
     func showSettingsWindow(section: SettingsSection, sender: Any?) {

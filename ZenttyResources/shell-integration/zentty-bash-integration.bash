@@ -85,8 +85,10 @@ _zentty_emit_pane_context() {
 }
 
 _zentty_bash_original_prompt_command="${ZENTTY_BASH_ORIGINAL_PROMPT_COMMAND:-}"
+_zentty_bash_in_prompt=0
 
 _zentty_bash_prompt_hook() {
+    _zentty_bash_in_prompt=1
     _zentty_ensure_wrapper_path
     _zentty_apply_initial_working_directory
     # Reset kitty keyboard protocol if a program enabled it and exited
@@ -99,11 +101,17 @@ _zentty_bash_prompt_hook() {
     if [[ -n "$_zentty_bash_original_prompt_command" ]]; then
         eval "$_zentty_bash_original_prompt_command"
     fi
+    # Reset terminal title to CWD after command completes
+    printf '\e]2;%s\a' "${PWD/#$HOME/\~}"
+    _zentty_bash_in_prompt=0
 }
 
 _zentty_bash_preexec_hook() {
     [[ -n "${COMP_LINE:-}" ]] && return 0
+    [[ "$_zentty_bash_in_prompt" == "1" ]] && return 0
     _zentty_agent_signal shell-state running
+    # Set terminal title to the running command (first line only)
+    printf '\e]2;%s\a' "${BASH_COMMAND%%$'\n'*}"
 }
 
 trap '_zentty_bash_preexec_hook' DEBUG

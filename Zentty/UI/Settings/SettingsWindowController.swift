@@ -1,12 +1,15 @@
 import AppKit
 
 enum SettingsSection: String, CaseIterable, Equatable, Sendable {
+    case general
     case shortcuts
     case openWith
     case paneLayout
 
     var title: String {
         switch self {
+        case .general:
+            "General"
         case .shortcuts:
             "Shortcuts"
         case .openWith:
@@ -18,6 +21,8 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
 
     var symbolName: String {
         switch self {
+        case .general:
+            "gearshape"
         case .shortcuts:
             "keyboard"
         case .openWith:
@@ -29,6 +34,8 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
 
     var badgeColor: NSColor {
         switch self {
+        case .general:
+            .systemGray
         case .shortcuts:
             .systemIndigo
         case .openWith:
@@ -153,6 +160,7 @@ final class SettingsViewController: NSTabViewController {
 
     private let configStore: AppConfigStore
     private var configObserverID: UUID?
+    private lazy var generalViewController = GeneralSettingsSectionViewController(configStore: configStore)
     private lazy var shortcutsViewController = ShortcutsSettingsSectionViewController(configStore: configStore)
     private lazy var paneLayoutViewController = PaneLayoutSettingsSectionViewController()
     private let openWithViewController: OpenWithSettingsSectionViewController
@@ -318,6 +326,7 @@ final class SettingsViewController: NSTabViewController {
     }
 
     private func apply(config: AppConfig) {
+        generalViewController.apply(notifications: config.notifications)
         shortcutsViewController.apply(shortcuts: config.shortcuts)
         paneLayoutViewController.apply(preferences: config.paneLayout)
         openWithViewController.apply(preferences: config.openWith)
@@ -326,6 +335,8 @@ final class SettingsViewController: NSTabViewController {
 
     private func sectionViewController(for section: SettingsSection) -> NSViewController {
         switch section {
+        case .general:
+            generalViewController
         case .shortcuts:
             shortcutsViewController
         case .openWith:

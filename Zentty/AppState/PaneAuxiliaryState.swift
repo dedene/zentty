@@ -184,7 +184,14 @@ enum PanePresentationNormalizer {
             fallbackTitle: paneTitle,
             recognizedTool: recognizedTool
         )
-        let rememberedTitle = latestMeaningfulTitle ?? previous?.rememberedTitle
+        let rememberedTitle: String?
+        if let latestMeaningfulTitle {
+            rememberedTitle = latestMeaningfulTitle
+        } else if recognizedTool != nil {
+            rememberedTitle = previous?.rememberedTitle
+        } else {
+            rememberedTitle = nil
+        }
         let runtimePhase = normalizedRuntimePhase(from: raw, recognizedTool: recognizedTool)
         let agentInteractionKind = raw.agentStatus?.interactionKind ?? .none
         let showsReadyStatus = raw.showsReadyStatus

@@ -114,6 +114,7 @@ final class RootViewController: NSViewController {
             worklaneStore: worklaneStore,
             runtimeRegistry: runtimeRegistry,
             notificationStore: notificationStore,
+            configStore: configStore,
             reviewStateResolver: reviewStateResolver
         )
         super.init(nibName: nil, bundle: nil)

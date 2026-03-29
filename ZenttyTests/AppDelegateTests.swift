@@ -169,7 +169,7 @@ final class AppDelegateTests: XCTestCase {
 
         let settingsWindow = try XCTUnwrap(delegate.settingsWindow)
         XCTAssertTrue(settingsWindow.isVisible)
-        XCTAssertEqual(settingsWindow.title, "Pane Layout")
+        XCTAssertEqual(settingsWindow.title, "General")
     }
 
     func test_application_launch_places_sidebar_toggle_beside_traffic_lights_without_resize() throws {

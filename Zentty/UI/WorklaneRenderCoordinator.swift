@@ -36,13 +36,15 @@ final class WorklaneRenderCoordinator {
         worklaneStore: WorklaneStore,
         runtimeRegistry: PaneRuntimeRegistry,
         notificationStore: NotificationStore,
+        configStore: AppConfigStore? = nil,
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver()
     ) {
         self.worklaneStore = worklaneStore
         self.runtimeRegistry = runtimeRegistry
         self.reviewStateResolver = reviewStateResolver
         self.attentionNotificationCoordinator = WorklaneAttentionNotificationCoordinator(
-            notificationStore: notificationStore
+            notificationStore: notificationStore,
+            configStore: configStore
         )
     }
 
