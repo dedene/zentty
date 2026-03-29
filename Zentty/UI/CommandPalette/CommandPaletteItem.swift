@@ -1,7 +1,12 @@
 import Foundation
 
+enum CommandPaletteItemID: Hashable {
+    case command(AppCommandID)
+    case openWith(stableID: String)
+}
+
 struct CommandPaletteItem: Identifiable, Equatable {
-    let id: AppCommandID
+    let id: CommandPaletteItemID
     let title: String
     let subtitle: String
     let shortcutDisplay: String?
@@ -24,12 +29,30 @@ enum CommandPaletteItemBuilder {
             let shortcut = shortcutManager.shortcut(for: definition.id)
 
             return CommandPaletteItem(
-                id: definition.id,
+                id: .command(definition.id),
                 title: definition.title,
                 subtitle: subtitle,
                 shortcutDisplay: shortcut?.displayString,
                 category: definition.category.title,
                 searchText: definition.searchText
+            )
+        }
+    }
+
+    static func buildOpenWithItems(
+        targets: [OpenWithResolvedTarget],
+        focusedPanePath: String?
+    ) -> [CommandPaletteItem] {
+        guard let path = focusedPanePath else { return [] }
+
+        return targets.map { target in
+            CommandPaletteItem(
+                id: .openWith(stableID: target.stableID),
+                title: "Open in \(target.displayName)",
+                subtitle: path,
+                shortcutDisplay: nil,
+                category: "Open With",
+                searchText: "open with \(target.displayName) editor \(target.kind.searchHint)".lowercased()
             )
         }
     }
@@ -47,6 +70,16 @@ enum CommandPaletteItemBuilder {
             return "Copy Path — \(path)"
         default:
             return definition.detailDescription
+        }
+    }
+}
+
+private extension OpenWithTargetKind {
+    var searchHint: String {
+        switch self {
+        case .editor: "code"
+        case .fileManager: "finder files"
+        case .terminal: "terminal"
         }
     }
 }

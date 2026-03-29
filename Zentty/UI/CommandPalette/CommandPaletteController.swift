@@ -12,7 +12,9 @@ final class CommandPaletteController {
     private weak var parentWindow: NSWindow?
     private var clickMonitor: Any?
     private var recentCommands = RecentCommandsTracker()
+    private var lastFocusedPanePath: String?
     var onExecute: ((AppAction) -> Void)?
+    var onOpenWith: ((_ stableID: String, _ workingDirectory: String) -> Void)?
 
     var isShown: Bool { panel != nil }
 
@@ -22,24 +24,33 @@ final class CommandPaletteController {
         shortcutManager: ShortcutManager,
         worklaneCount: Int,
         paneCount: Int,
-        focusedPanePath: String?
+        focusedPanePath: String?,
+        openWithTargets: [OpenWithResolvedTarget] = []
     ) {
         if isShown {
             close()
             return
         }
 
+        lastFocusedPanePath = focusedPanePath
+
         let availableIDs = CommandAvailabilityResolver.availableCommandIDs(
             worklaneCount: worklaneCount,
             paneCount: paneCount
         )
-        let allItems = CommandPaletteItemBuilder.buildItems(
+        let commandItems = CommandPaletteItemBuilder.buildItems(
             availableCommandIDs: availableIDs,
             shortcutManager: shortcutManager,
             focusedPanePath: focusedPanePath
         )
-        let recentItems = recentCommands.recentCommandIDs.compactMap { commandID in
-            allItems.first { $0.id == commandID }
+        let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: openWithTargets,
+            focusedPanePath: focusedPanePath
+        )
+        let allItems = commandItems + openWithItems
+
+        let recentItems = recentCommands.recentItemIDs.compactMap { itemID in
+            allItems.first { $0.id == itemID }
         }
         let paletteTheme = CommandPaletteTheme(zenttyTheme: theme)
 
@@ -47,8 +58,8 @@ final class CommandPaletteController {
             items: allItems,
             recentItems: recentItems,
             theme: paletteTheme,
-            onExecute: { [weak self] commandID in
-                self?.executeCommand(commandID)
+            onExecute: { [weak self] itemID in
+                self?.executeItem(itemID)
             },
             onDismiss: { [weak self] in
                 self?.close()
@@ -145,11 +156,18 @@ final class CommandPaletteController {
         glassSurface?.apply(theme: theme, animated: true)
     }
 
-    private func executeCommand(_ commandID: AppCommandID) {
-        recentCommands.record(commandID)
-        let action = AppCommandRegistry.definition(for: commandID).action
+    private func executeItem(_ itemID: CommandPaletteItemID) {
+        recentCommands.record(itemID)
         close()
-        onExecute?(action)
+
+        switch itemID {
+        case .command(let commandID):
+            let action = AppCommandRegistry.definition(for: commandID).action
+            onExecute?(action)
+        case .openWith(let stableID):
+            guard let path = lastFocusedPanePath else { return }
+            onOpenWith?(stableID, path)
+        }
     }
 
     private func installDismissMonitor() {
