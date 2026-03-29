@@ -477,6 +477,9 @@ final class RootViewController: NSViewController {
             commandPaletteController.onExecute = { [weak self] action in
                 self?.handle(action)
             }
+            commandPaletteController.onOpenWith = { [weak self] stableID, workingDirectory in
+                self?.openWithFromPalette(stableID: stableID, workingDirectory: workingDirectory)
+            }
         }
         syncSidebarWidthToAvailableWidth(persist: false)
         renderCoordinator.updateSurfaceActivities()
@@ -705,14 +708,26 @@ final class RootViewController: NSViewController {
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
         }()
 
+        let openWithTargets = focusedOpenWithContext != nil
+            ? availableOpenWithTargets
+            : []
+
         commandPaletteController.show(
             in: window,
             theme: currentTheme,
             shortcutManager: shortcutManager,
             worklaneCount: worklaneCount,
             paneCount: paneCount,
-            focusedPanePath: focusedPanePath
+            focusedPanePath: focusedPanePath,
+            openWithTargets: openWithTargets
         )
+    }
+
+    private func openWithFromPalette(stableID: String, workingDirectory: String) {
+        guard let target = availableOpenWithTargets.first(where: { $0.stableID == stableID }) else {
+            return
+        }
+        openWithService.open(target: target, workingDirectory: workingDirectory)
     }
 
     private func copyFocusedPanePath() {

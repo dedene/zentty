@@ -2,14 +2,14 @@ import Foundation
 
 struct RecentCommandsTracker {
     private static let maxRecent = 8
-    private(set) var recentCommandIDs: [AppCommandID] = []
+    private(set) var recentItemIDs: [CommandPaletteItemID] = []
 
-    /// Records a command execution. Moves it to the front if already present.
-    mutating func record(_ commandID: AppCommandID) {
-        recentCommandIDs.removeAll { $0 == commandID }
-        recentCommandIDs.insert(commandID, at: 0)
-        if recentCommandIDs.count > Self.maxRecent {
-            recentCommandIDs.removeLast(recentCommandIDs.count - Self.maxRecent)
+    /// Records an item execution. Moves it to the front if already present.
+    mutating func record(_ itemID: CommandPaletteItemID) {
+        recentItemIDs.removeAll { $0 == itemID }
+        recentItemIDs.insert(itemID, at: 0)
+        if recentItemIDs.count > Self.maxRecent {
+            recentItemIDs.removeLast(recentItemIDs.count - Self.maxRecent)
         }
     }
 }

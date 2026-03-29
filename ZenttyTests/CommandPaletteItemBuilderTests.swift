@@ -10,7 +10,7 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
             shortcutManager: shortcutManager
         )
         let ids = Set(items.map(\.id))
-        XCTAssertEqual(ids, [.toggleSidebar, .newWorklane])
+        XCTAssertEqual(ids, [.command(.toggleSidebar), .command(.newWorklane)])
     }
 
     func testItemTitlesMatchDefinitions() {
@@ -53,5 +53,48 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
             shortcutManager: shortcutManager
         )
         XCTAssertTrue(items.isEmpty)
+    }
+
+    // MARK: - Open With Items
+
+    func testOpenWithItemsGeneratedWithPath() {
+        let targets = [
+            OpenWithResolvedTarget(stableID: "vscode", kind: .editor, displayName: "VS Code", builtInID: .vscode, appPath: nil),
+            OpenWithResolvedTarget(stableID: "finder", kind: .fileManager, displayName: "Finder", builtInID: .finder, appPath: nil),
+        ]
+        let items = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: targets,
+            focusedPanePath: "/Users/peter/projects"
+        )
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items[0].title, "Open in VS Code")
+        XCTAssertEqual(items[1].title, "Open in Finder")
+        XCTAssertEqual(items[0].id, .openWith(stableID: "vscode"))
+        XCTAssertEqual(items[0].subtitle, "/Users/peter/projects")
+        XCTAssertEqual(items[0].category, "Open With")
+        XCTAssertNil(items[0].shortcutDisplay)
+    }
+
+    func testOpenWithItemsEmptyWithoutPath() {
+        let targets = [
+            OpenWithResolvedTarget(stableID: "vscode", kind: .editor, displayName: "VS Code", builtInID: .vscode, appPath: nil),
+        ]
+        let items = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: targets,
+            focusedPanePath: nil
+        )
+        XCTAssertTrue(items.isEmpty)
+    }
+
+    func testOpenWithItemsSearchable() {
+        let targets = [
+            OpenWithResolvedTarget(stableID: "cursor", kind: .editor, displayName: "Cursor", builtInID: .cursor, appPath: nil),
+        ]
+        let items = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: targets,
+            focusedPanePath: "/tmp"
+        )
+        XCTAssertTrue(items[0].searchText.contains("cursor"))
+        XCTAssertTrue(items[0].searchText.contains("open with"))
     }
 }

@@ -20,7 +20,7 @@ struct CommandPaletteView: View {
     let items: [CommandPaletteItem]
     let recentItems: [CommandPaletteItem]
     let theme: CommandPaletteTheme
-    let onExecute: (AppCommandID) -> Void
+    let onExecute: (CommandPaletteItemID) -> Void
     let onDismiss: () -> Void
 
     @State private var searchText = ""
