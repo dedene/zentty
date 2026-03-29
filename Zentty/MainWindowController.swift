@@ -188,6 +188,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onOpenWithMenuRequested = { [weak self] in
             self?.showOpenWithMenu()
         }
+        rootViewController.onShowSettingsRequested = { [weak self] in
+            self?.showSettingsWindow(section: .shortcuts, sender: nil)
+        }
         window.shouldSuppressWindowDragAtPoint = { [weak rootViewController] point, eventType in
             rootViewController?.shouldSuppressWindowDrag(at: point, eventType: eventType) == true
         }
@@ -278,6 +281,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func navigateBack(_ sender: Any?) {
+        handle(.navigateBack)
+    }
+
+    @objc
+    func navigateForward(_ sender: Any?) {
+        handle(.navigateForward)
+    }
+
+    @objc
     func splitHorizontally(_ sender: Any?) {
         handle(.pane(.splitHorizontally))
     }
@@ -350,6 +363,26 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @objc
     func copyFocusedPanePath(_ sender: Any?) {
         handle(.copyFocusedPanePath)
+    }
+
+    @objc
+    func showCommandPalette(_ sender: Any?) {
+        handle(.showCommandPalette)
+    }
+
+    @objc
+    func openSettings(_ sender: Any?) {
+        handle(.openSettings)
+    }
+
+    @objc
+    func closeCurrentWindow(_ sender: Any?) {
+        handle(.closeWindow)
+    }
+
+    @objc
+    func reloadConfig(_ sender: Any?) {
+        handle(.reloadConfig)
     }
 
     @objc

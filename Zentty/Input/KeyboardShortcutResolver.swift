@@ -42,6 +42,12 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case resizePaneDown = "pane.resize.down"
     case resetPaneLayout = "pane.reset_layout"
     case toggleZoomOut = "pane.toggle_zoom_out"
+    case navigateBack = "navigate.back"
+    case navigateForward = "navigate.forward"
+    case showCommandPalette = "command_palette.show"
+    case openSettings = "app.open_settings"
+    case closeWindow = "app.close_window"
+    case reloadConfig = "app.reload_config"
 }
 
 struct ShortcutBindingOverride: Equatable, Sendable {
@@ -57,6 +63,12 @@ enum AppAction: Equatable, Sendable {
     case copyFocusedPanePath
     case jumpToLatestNotification
     case pane(PaneCommand)
+    case navigateBack
+    case navigateForward
+    case showCommandPalette
+    case openSettings
+    case closeWindow
+    case reloadConfig
 }
 
 enum AppMenuSection: String, CaseIterable {
@@ -97,6 +109,30 @@ enum AppCommandRegistry {
                 section: .view,
                 title: "Toggle Sidebar",
                 selector: #selector(MainWindowController.toggleSidebar(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .navigateBack,
+            title: "Navigate Back",
+            category: .general,
+            defaultShortcut: .init(key: .character("["), modifiers: [.command]),
+            action: .navigateBack,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Navigate Back",
+                selector: #selector(MainWindowController.navigateBack(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .navigateForward,
+            title: "Navigate Forward",
+            category: .general,
+            defaultShortcut: .init(key: .character("]"), modifiers: [.command]),
+            action: .navigateForward,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Navigate Forward",
+                selector: #selector(MainWindowController.navigateForward(_:))
             )
         ),
         AppCommandDefinition(
@@ -331,6 +367,42 @@ enum AppCommandRegistry {
                 selector: #selector(MainWindowController.toggleZoomOut(_:))
             )
         ),
+        AppCommandDefinition(
+            id: .showCommandPalette,
+            title: "Command Palette",
+            category: .general,
+            defaultShortcut: .init(key: .character("p"), modifiers: [.command, .shift]),
+            action: .showCommandPalette,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Command Palette…",
+                selector: #selector(MainWindowController.showCommandPalette(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .openSettings,
+            title: "Open Settings",
+            category: .general,
+            defaultShortcut: nil,
+            action: .openSettings,
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .closeWindow,
+            title: "Close Window",
+            category: .general,
+            defaultShortcut: nil,
+            action: .closeWindow,
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .reloadConfig,
+            title: "Reload Configuration",
+            category: .general,
+            defaultShortcut: nil,
+            action: .reloadConfig,
+            menuItem: nil
+        ),
     ]
 
     static let menuEntriesBySection: [AppMenuSection: [AppMenuEntry]] = [
@@ -343,7 +415,12 @@ enum AppCommandRegistry {
             .command(.copyFocusedPanePath),
         ],
         .view: [
+            .command(.showCommandPalette),
+            .separator,
             .command(.toggleSidebar),
+            .separator,
+            .command(.navigateBack),
+            .command(.navigateForward),
             .separator,
             .command(.splitHorizontally),
             .command(.splitVertically),
@@ -386,6 +463,10 @@ extension AppCommandDefinition {
         switch id {
         case .toggleSidebar:
             "Show or hide the sidebar so you can focus on the canvas or quickly jump between worklanes."
+        case .navigateBack:
+            "Jump back to the previously focused pane, retracing your navigation history."
+        case .navigateForward:
+            "Jump forward to the pane you navigated away from after going back."
         case .newWorklane:
             "Create a new worklane immediately, keeping your current context intact while opening a fresh lane for new work."
         case .nextWorklane:
@@ -426,6 +507,14 @@ extension AppCommandDefinition {
             "Restore the current pane layout to its default proportions."
         case .toggleZoomOut:
             "Toggle zoomed-out view of all panes for drag reordering."
+        case .showCommandPalette:
+            "Open the command palette to quickly find and run any command."
+        case .openSettings:
+            "Open the settings window to customize shortcuts, appearance, and behavior."
+        case .closeWindow:
+            "Close the current window."
+        case .reloadConfig:
+            "Reload the configuration file from disk and apply any changes."
         }
     }
 

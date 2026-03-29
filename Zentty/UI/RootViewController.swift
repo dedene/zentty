@@ -79,12 +79,15 @@ final class RootViewController: NSViewController {
     private var toggleTopConstraint: NSLayoutConstraint?
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
     private var pathCopiedToastView: PathCopiedToastView?
+    private let paneNavigationButtons = PaneNavigationButtons()
     private let notificationBellButton = NotificationBellButton()
     private var notificationPanelView: NotificationPanelView?
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
+    private let commandPaletteController = CommandPaletteController()
     var onWindowChromeNeedsUpdate: (() -> Void)?
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
+    var onShowSettingsRequested: (() -> Void)?
 
     init(
         configStore: AppConfigStore,
@@ -179,6 +182,7 @@ final class RootViewController: NSViewController {
         sidebarView.translatesAutoresizingMaskIntoConstraints = false
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
         sidebarToggleButton.translatesAutoresizingMaskIntoConstraints = false
+        paneNavigationButtons.translatesAutoresizingMaskIntoConstraints = false
         notificationBellButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appCanvasView)
         view.addSubview(paneBorderContextOverlayView)
@@ -186,6 +190,7 @@ final class RootViewController: NSViewController {
         view.addSubview(sidebarHoverRailView)
         view.addSubview(sidebarView)
         view.addSubview(sidebarToggleButton)
+        view.addSubview(paneNavigationButtons)
         view.addSubview(notificationBellButton)
 
         let sidebarWidthConstraint = sidebarView.widthAnchor.constraint(
@@ -262,8 +267,17 @@ final class RootViewController: NSViewController {
             sidebarToggleButton.heightAnchor.constraint(
                 equalToConstant: SidebarToggleButton.buttonSize),
 
+            paneNavigationButtons.leadingAnchor.constraint(
+                equalTo: sidebarToggleButton.trailingAnchor, constant: 4),
+            paneNavigationButtons.centerYAnchor.constraint(
+                equalTo: sidebarToggleButton.centerYAnchor),
+            paneNavigationButtons.widthAnchor.constraint(
+                equalToConstant: PaneNavigationButtons.totalWidth),
+            paneNavigationButtons.heightAnchor.constraint(
+                equalToConstant: PaneNavigationButtons.buttonSize),
+
             notificationBellButton.leadingAnchor.constraint(
-                equalTo: sidebarToggleButton.trailingAnchor, constant: 8),
+                equalTo: paneNavigationButtons.trailingAnchor, constant: 8),
             notificationBellButton.centerYAnchor.constraint(
                 equalTo: sidebarToggleButton.centerYAnchor),
             notificationBellButton.widthAnchor.constraint(
@@ -308,8 +322,11 @@ final class RootViewController: NSViewController {
                 }
 
                 switch change {
-                case .paneStructure, .focusChanged, .activeWorklaneChanged:
+                case .paneStructure, .focusChanged, .activeWorklaneChanged, .worklaneListChanged:
                     self.updateOpenWithChromeState()
+                    self.updatePaneNavigationButtonState()
+                case .historyChanged:
+                    self.updatePaneNavigationButtonState()
                 case .auxiliaryStateUpdated(_, _, let impacts) where impacts.contains(.openWith):
                     self.updateOpenWithChromeState()
                 default:
@@ -317,6 +334,15 @@ final class RootViewController: NSViewController {
                 }
             }
         }
+
+        paneNavigationButtons.onBack = { [weak self] in
+            self?.worklaneStore.navigateBack()
+        }
+        paneNavigationButtons.onForward = { [weak self] in
+            self?.worklaneStore.navigateForward()
+        }
+        paneNavigationButtons.update(canGoBack: false, canGoForward: false, theme: currentTheme)
+        paneNavigationButtons.configure(theme: currentTheme, animated: false)
 
         notificationBellButton.onClick = { [weak self] in
             self?.toggleNotificationPanel()
@@ -523,6 +549,14 @@ final class RootViewController: NSViewController {
     func activateWindowBindingsIfNeeded() {
         installKeyboardMonitorIfNeeded()
         installWindowObserversIfNeeded()
+        if commandPaletteController.onExecute == nil {
+            commandPaletteController.onExecute = { [weak self] action in
+                self?.handle(action)
+            }
+            commandPaletteController.onOpenWith = { [weak self] stableID, workingDirectory in
+                self?.openWithFromPalette(stableID: stableID, workingDirectory: workingDirectory)
+            }
+        }
         syncSidebarWidthToAvailableWidth(persist: false)
         renderCoordinator.updateSurfaceActivities()
         appCanvasView.focusCurrentPaneIfNeeded()
@@ -609,6 +643,18 @@ final class RootViewController: NSViewController {
             jumpToLatestNotification()
         case .pane(let command):
             handlePaneCommand(command)
+        case .navigateBack:
+            worklaneStore.navigateBack()
+        case .navigateForward:
+            worklaneStore.navigateForward()
+        case .showCommandPalette:
+            showCommandPalette()
+        case .openSettings:
+            onShowSettingsRequested?()
+        case .closeWindow:
+            view.window?.close()
+        case .reloadConfig:
+            configStore.reloadFromDisk()
         }
     }
 
@@ -731,6 +777,39 @@ final class RootViewController: NSViewController {
     func navigateToPane(worklaneID: WorklaneID, paneID: PaneID) {
         worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
         notificationStore.resolve(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    private func showCommandPalette() {
+        guard let window = view.window else { return }
+
+        let activeWorklane = worklaneStore.activeWorklane
+        let worklaneCount = worklaneStore.worklanes.count
+        let paneCount = activeWorklane?.paneStripState.panes.count ?? 0
+        let focusedPanePath: String? = {
+            guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
+            return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
+        }()
+
+        let openWithTargets = focusedOpenWithContext != nil
+            ? availableOpenWithTargets
+            : []
+
+        commandPaletteController.show(
+            in: window,
+            theme: currentTheme,
+            shortcutManager: shortcutManager,
+            worklaneCount: worklaneCount,
+            paneCount: paneCount,
+            focusedPanePath: focusedPanePath,
+            openWithTargets: openWithTargets
+        )
+    }
+
+    private func openWithFromPalette(stableID: String, workingDirectory: String) {
+        guard let target = availableOpenWithTargets.first(where: { $0.stableID == stableID }) else {
+            return
+        }
+        openWithService.open(target: target, workingDirectory: workingDirectory)
     }
 
     private func copyFocusedPanePath() {
@@ -888,6 +967,8 @@ final class RootViewController: NSViewController {
             isActive: sidebarMotionCoordinator.mode == .pinnedOpen,
             animated: animated
         )
+        paneNavigationButtons.configure(theme: theme, animated: animated)
+        updatePaneNavigationButtonState()
         windowChromeView.apply(theme: theme, animated: animated)
         appCanvasView.apply(theme: theme, animated: animated)
         applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
@@ -1158,6 +1239,15 @@ final class RootViewController: NSViewController {
         updatePaneLayoutContextIfNeeded(force: true)
         renderCoordinator.render()
         updateOpenWithChromeState()
+    }
+
+    private func updatePaneNavigationButtonState() {
+        let controller = worklaneStore.focusHistoryController
+        paneNavigationButtons.update(
+            canGoBack: controller.history.canGoBack,
+            canGoForward: controller.history.canGoForward,
+            theme: currentTheme
+        )
     }
 
     private func updateOpenWithChromeState() {
