@@ -310,6 +310,46 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func arrangePaneWidthFull(_ sender: Any?) {
+        handle(.pane(.arrangeHorizontally(.fullWidth)))
+    }
+
+    @objc
+    func arrangePaneWidthHalves(_ sender: Any?) {
+        handle(.pane(.arrangeHorizontally(.halfWidth)))
+    }
+
+    @objc
+    func arrangePaneWidthThirds(_ sender: Any?) {
+        handle(.pane(.arrangeHorizontally(.thirds)))
+    }
+
+    @objc
+    func arrangePaneWidthQuarters(_ sender: Any?) {
+        handle(.pane(.arrangeHorizontally(.quarters)))
+    }
+
+    @objc
+    func arrangePaneHeightFull(_ sender: Any?) {
+        handle(.pane(.arrangeVertically(.fullHeight)))
+    }
+
+    @objc
+    func arrangePaneHeightTwoPerColumn(_ sender: Any?) {
+        handle(.pane(.arrangeVertically(.twoPerColumn)))
+    }
+
+    @objc
+    func arrangePaneHeightThreePerColumn(_ sender: Any?) {
+        handle(.pane(.arrangeVertically(.threePerColumn)))
+    }
+
+    @objc
+    func arrangePaneHeightFourPerColumn(_ sender: Any?) {
+        handle(.pane(.arrangeVertically(.fourPerColumn)))
+    }
+
+    @objc
     func focusLeftPane(_ sender: Any?) {
         handle(.pane(.focusLeft))
     }

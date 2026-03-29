@@ -3007,6 +3007,311 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(request.environmentVariables["GHOSTTY_LOG"], "macos,no-stderr")
     }
 
+    // MARK: - Cross-Worklane Vertical Navigation
+
+    func test_focusUp_at_top_pane_switches_to_previous_worklane() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("ws1"),
+                    title: "WS1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [
+                                    PaneState(id: PaneID("ws1-top"), title: "ws1-top"),
+                                    PaneState(id: PaneID("ws1-bottom"), title: "ws1-bottom"),
+                                ],
+                                width: 900,
+                                focusedPaneID: PaneID("ws1-top"),
+                                lastFocusedPaneID: PaneID("ws1-top")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+                WorklaneState(
+                    id: WorklaneID("ws2"),
+                    title: "WS2",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [PaneState(id: PaneID("ws2-pane"), title: "ws2-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-pane"),
+                                lastFocusedPaneID: PaneID("ws2-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("ws2")
+        )
+
+        store.send(.focusUp)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws1"))
+    }
+
+    func test_focusDown_at_bottom_pane_switches_to_next_worklane() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("ws1"),
+                    title: "WS1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [PaneState(id: PaneID("ws1-pane"), title: "ws1-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws1-pane"),
+                                lastFocusedPaneID: PaneID("ws1-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+                WorklaneState(
+                    id: WorklaneID("ws2"),
+                    title: "WS2",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [PaneState(id: PaneID("ws2-pane"), title: "ws2-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-pane"),
+                                lastFocusedPaneID: PaneID("ws2-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("ws1")
+        )
+
+        store.send(.focusDown)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws2"))
+    }
+
+    func test_focusUp_at_top_wraps_to_last_worklane() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("ws1"),
+                    title: "WS1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [PaneState(id: PaneID("ws1-pane"), title: "ws1-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws1-pane"),
+                                lastFocusedPaneID: PaneID("ws1-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+                WorklaneState(
+                    id: WorklaneID("ws2"),
+                    title: "WS2",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [PaneState(id: PaneID("ws2-pane"), title: "ws2-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-pane"),
+                                lastFocusedPaneID: PaneID("ws2-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("ws1")
+        )
+
+        store.send(.focusUp)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws2"))
+    }
+
+    func test_focusDown_at_bottom_wraps_to_first_worklane() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("ws1"),
+                    title: "WS1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [PaneState(id: PaneID("ws1-pane"), title: "ws1-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws1-pane"),
+                                lastFocusedPaneID: PaneID("ws1-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+                WorklaneState(
+                    id: WorklaneID("ws2"),
+                    title: "WS2",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [PaneState(id: PaneID("ws2-pane"), title: "ws2-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-pane"),
+                                lastFocusedPaneID: PaneID("ws2-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("ws2")
+        )
+
+        store.send(.focusDown)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws1"))
+    }
+
+    func test_focusUp_single_worklane_is_noop() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("only"),
+                    title: "ONLY",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [PaneState(id: PaneID("pane"), title: "pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("pane"),
+                                lastFocusedPaneID: PaneID("pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("only")
+        )
+
+        store.send(.focusUp)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("only"))
+
+        store.send(.focusDown)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("only"))
+    }
+
+    func test_focusUp_mid_column_stays_within_column() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("ws1"),
+                    title: "WS1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("middle"), title: "middle"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 900,
+                                focusedPaneID: PaneID("middle"),
+                                lastFocusedPaneID: PaneID("middle")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+                WorklaneState(
+                    id: WorklaneID("ws2"),
+                    title: "WS2",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [PaneState(id: PaneID("ws2-pane"), title: "ws2-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-pane"),
+                                lastFocusedPaneID: PaneID("ws2-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("ws1")
+        )
+
+        store.send(.focusUp)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws1"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "top")
+
+        store.send(.focusDown)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws1"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "middle")
+    }
+
+    func test_single_pane_worklane_both_directions_jump() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("ws1"),
+                    title: "WS1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [PaneState(id: PaneID("ws1-pane"), title: "ws1-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws1-pane"),
+                                lastFocusedPaneID: PaneID("ws1-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+                WorklaneState(
+                    id: WorklaneID("ws2"),
+                    title: "WS2",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("col"),
+                                panes: [PaneState(id: PaneID("ws2-pane"), title: "ws2-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-pane"),
+                                lastFocusedPaneID: PaneID("ws2-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("col")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("ws1")
+        )
+
+        store.send(.focusUp)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws2"))
+
+        store.send(.focusDown)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws1"))
+    }
+
     func test_default_worklane_preserves_explicit_ghostty_log_override() throws {
         let store = WorklaneStore(
             processEnvironment: [

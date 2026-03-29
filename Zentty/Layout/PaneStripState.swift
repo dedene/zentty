@@ -172,6 +172,14 @@ struct PaneColumnState: Equatable, Sendable {
         lastFocusedPaneID = id
     }
 
+    var isFocusedPaneAtTop: Bool {
+        focusedPaneIndex == 0
+    }
+
+    var isFocusedPaneAtBottom: Bool {
+        focusedPaneIndex == panes.count - 1
+    }
+
     mutating func moveFocusUp() {
         moveFocus(by: -1)
     }
@@ -588,6 +596,16 @@ struct PaneStripState: Equatable, Sendable {
         moveColumnFocus(by: 1)
     }
 
+    var isFocusedPaneAtTopOfColumn: Bool {
+        guard let focusedColumnIndex else { return true }
+        return columns[focusedColumnIndex].isFocusedPaneAtTop
+    }
+
+    var isFocusedPaneAtBottomOfColumn: Bool {
+        guard let focusedColumnIndex else { return true }
+        return columns[focusedColumnIndex].isFocusedPaneAtBottom
+    }
+
     mutating func moveFocusUp() {
         guard let focusedColumnIndex else {
             return
@@ -797,6 +815,116 @@ struct PaneStripState: Equatable, Sendable {
             columns[index].width = max(1, columns[index].width * resolvedFactor)
         }
 
+        return true
+    }
+
+    func arrangedColumnWidth(
+        for visibleColumnCount: Int,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0
+    ) -> CGFloat {
+        let resolvedVisibleColumnCount = max(1, visibleColumnCount)
+        let readableWidth = layoutSizing.readableWidth(
+            for: availableWidth,
+            leadingVisibleInset: leadingVisibleInset
+        )
+        let totalSpacing = layoutSizing.interPaneSpacing * CGFloat(max(0, resolvedVisibleColumnCount - 1))
+        let usableWidth = max(0, readableWidth - totalSpacing)
+        return max(1, usableWidth / CGFloat(resolvedVisibleColumnCount))
+    }
+
+    @discardableResult
+    mutating func arrangeHorizontally(
+        _ arrangement: PaneHorizontalArrangement,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0
+    ) -> Bool {
+        guard !columns.isEmpty else {
+            return false
+        }
+
+        let targetWidth = arrangedColumnWidth(
+            for: arrangement.visibleColumnCount,
+            availableWidth: availableWidth,
+            leadingVisibleInset: leadingVisibleInset
+        )
+        var didChange = false
+
+        for index in columns.indices {
+            if abs(columns[index].width - targetWidth) > 0.001 {
+                didChange = true
+            }
+            columns[index].width = targetWidth
+        }
+
+        return didChange
+    }
+
+    @discardableResult
+    mutating func arrangeVertically(_ arrangement: PaneVerticalArrangement) -> Bool {
+        let panesInReadingOrder = panes
+        guard !panesInReadingOrder.isEmpty else {
+            return false
+        }
+
+        let previousColumns = columns
+        let previousFocusedPaneID = focusedPaneID
+        let previousWidths = previousColumns.map(\.width)
+        let panesPerColumn = arrangement.panesPerColumn
+        var rebuiltColumns: [PaneColumnState] = []
+        rebuiltColumns.reserveCapacity(Int(ceil(Double(panesInReadingOrder.count) / Double(max(1, panesPerColumn)))))
+
+        for startIndex in stride(from: 0, to: panesInReadingOrder.count, by: panesPerColumn) {
+            let endIndex = min(startIndex + panesPerColumn, panesInReadingOrder.count)
+            let paneSlice = Array(panesInReadingOrder[startIndex..<endIndex])
+            guard let firstPane = paneSlice.first else {
+                continue
+            }
+
+            let rebuiltColumnIndex = rebuiltColumns.count
+            let inheritedWidth = previousWidths[min(rebuiltColumnIndex, previousWidths.count - 1)]
+            let paneIDs = Set(paneSlice.map(\.id))
+            let preservedFocusedPaneID = previousFocusedPaneID.flatMap { paneIDs.contains($0) ? $0 : nil }
+            let preservedLastFocusedPaneID = previousColumns
+                .compactMap(\.lastFocusedPaneID)
+                .first(where: { paneIDs.contains($0) })
+            let restoredPaneID = preservedFocusedPaneID ?? preservedLastFocusedPaneID ?? firstPane.id
+            let adjustedPanes = paneSlice.map { pane -> PaneState in
+                var pane = pane
+                pane.width = inheritedWidth
+                return pane
+            }
+            let columnID = rebuiltColumnIndex < previousColumns.count
+                ? previousColumns[rebuiltColumnIndex].id
+                : PaneColumnID("column-\(firstPane.id.rawValue)")
+
+            rebuiltColumns.append(
+                PaneColumnState(
+                    id: columnID,
+                    panes: adjustedPanes,
+                    width: inheritedWidth,
+                    focusedPaneID: restoredPaneID,
+                    lastFocusedPaneID: restoredPaneID
+                )
+            )
+        }
+
+        let rebuiltFocusedColumnID = previousFocusedPaneID.flatMap { paneID in
+            rebuiltColumns.first(where: { column in
+                column.panes.contains(where: { $0.id == paneID })
+            })?.id
+        } ?? rebuiltColumns.first?.id
+
+        let rebuiltState = PaneStripState(
+            columns: rebuiltColumns,
+            focusedColumnID: rebuiltFocusedColumnID,
+            layoutSizing: layoutSizing
+        )
+        guard rebuiltState != self else {
+            return false
+        }
+
+        self = rebuiltState
         return true
     }
 

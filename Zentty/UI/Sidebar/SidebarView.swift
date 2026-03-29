@@ -36,6 +36,7 @@ final class SidebarView: NSView {
     private var addWorklaneLeadingConstraint: NSLayoutConstraint?
     private var addWorklaneWidthConstraint: NSLayoutConstraint?
     private var addWorklaneCenterYConstraint: NSLayoutConstraint?
+    private var headerTopConstraint: NSLayoutConstraint?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var headerPinnedContentMinX = Layout.defaultHeaderContentMinX
     private var headerVisibilityMode: SidebarVisibilityMode = .pinnedOpen
@@ -114,13 +115,16 @@ final class SidebarView: NSView {
         )
         self.addWorklaneCenterYConstraint = addWorklaneCenterYConstraint
 
+        let headerTopConstraint = headerView.topAnchor.constraint(equalTo: topAnchor)
+        self.headerTopConstraint = headerTopConstraint
+
         NSLayoutConstraint.activate([
             backgroundView.topAnchor.constraint(equalTo: topAnchor),
             backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
             backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            headerView.topAnchor.constraint(equalTo: topAnchor),
+            headerTopConstraint,
             headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: trailingAnchor),
             headerView.heightAnchor.constraint(equalToConstant: Layout.headerHeight),
@@ -545,7 +549,6 @@ final class SidebarView: NSView {
 private extension SidebarView {
     func updateHeaderLayoutConstraints() {
         let desiredContentMinX: CGFloat
-        let usesPinnedLayout = headerVisibilityMode == .pinnedOpen
         switch headerVisibilityMode {
         case .pinnedOpen:
             desiredContentMinX = max(Layout.defaultHeaderContentMinX, headerPinnedContentMinX)
@@ -566,9 +569,15 @@ private extension SidebarView {
         )
         addWorklaneWidthConstraint?.constant = availableWidth
 
-        addWorklaneCenterYConstraint?.constant = usesPinnedLayout
-            ? ShellMetrics.sidebarCreateWorklanePinnedVerticalOffset
+        headerTopConstraint?.constant = headerVisibilityMode == .hoverPeek
+            ? ShellMetrics.sidebarHeaderPeekTopInset
             : 0
+
+        addWorklaneCenterYConstraint?.constant = switch headerVisibilityMode {
+        case .pinnedOpen: ShellMetrics.sidebarCreateWorklanePinnedVerticalOffset
+        case .hoverPeek: ShellMetrics.sidebarCreateWorklanePeekVerticalOffset
+        case .hidden: 0
+        }
     }
 
     static let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
