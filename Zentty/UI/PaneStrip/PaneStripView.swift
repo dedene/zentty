@@ -969,7 +969,7 @@ final class PaneStripView: NSView {
         let fh = viewportView.frame.height
         if let focusedID = currentState?.focusedPaneID,
            let focusedView = paneViews[focusedID] {
-            zoomAnchor = CGPoint(x: focusedView.frame.midX, y: focusedView.frame.midY)
+            zoomAnchor = CGPoint(x: focusedView.frame.midX, y: fh / 2)
         } else {
             zoomAnchor = CGPoint(x: fw / 2, y: fh / 2)
         }
