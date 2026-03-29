@@ -169,7 +169,6 @@ final class PaneStripView: NSView {
             return
         }
 
-        markResizeAnimationSuppressionPending()
         renderCurrentState(currentState, animated: false)
     }
 
