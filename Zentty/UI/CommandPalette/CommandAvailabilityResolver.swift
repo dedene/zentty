@@ -13,14 +13,24 @@ enum CommandAvailabilityResolver {
             available.remove(.closeFocusedPane)
             available.remove(.focusLeftPane)
             available.remove(.focusRightPane)
-            available.remove(.focusUpInColumn)
-            available.remove(.focusDownInColumn)
+            if worklaneCount <= 1 {
+                available.remove(.focusUpInColumn)
+                available.remove(.focusDownInColumn)
+            }
             available.remove(.focusFirstColumn)
             available.remove(.focusLastColumn)
             available.remove(.resizePaneLeft)
             available.remove(.resizePaneRight)
             available.remove(.resizePaneUp)
             available.remove(.resizePaneDown)
+            available.remove(.arrangeWidthFull)
+            available.remove(.arrangeWidthHalves)
+            available.remove(.arrangeWidthThirds)
+            available.remove(.arrangeWidthQuarters)
+            available.remove(.arrangeHeightFull)
+            available.remove(.arrangeHeightTwoPerColumn)
+            available.remove(.arrangeHeightThreePerColumn)
+            available.remove(.arrangeHeightFourPerColumn)
             available.remove(.resetPaneLayout)
         }
 

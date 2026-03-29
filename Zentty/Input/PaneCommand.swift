@@ -1,3 +1,21 @@
+enum PaneHorizontalArrangement: Int, CaseIterable, Equatable, Sendable {
+    case fullWidth = 1
+    case halfWidth = 2
+    case thirds = 3
+    case quarters = 4
+
+    var visibleColumnCount: Int { rawValue }
+}
+
+enum PaneVerticalArrangement: Int, CaseIterable, Equatable, Sendable {
+    case fullHeight = 1
+    case twoPerColumn = 2
+    case threePerColumn = 3
+    case fourPerColumn = 4
+
+    var panesPerColumn: Int { rawValue }
+}
+
 enum PaneCommand: Equatable, Sendable {
     case split
     case splitHorizontally
@@ -17,5 +35,7 @@ enum PaneCommand: Equatable, Sendable {
     case resizeRight
     case resizeUp
     case resizeDown
+    case arrangeHorizontally(PaneHorizontalArrangement)
+    case arrangeVertically(PaneVerticalArrangement)
     case resetLayout
 }

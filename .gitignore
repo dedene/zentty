@@ -9,3 +9,4 @@ FrameworksLocal/
 tmp/
 .claude
 build/
+.factory

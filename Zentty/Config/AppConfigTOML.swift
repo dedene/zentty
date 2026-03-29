@@ -16,6 +16,7 @@ enum AppConfigTOML {
         case shortcuts
         case shortcutBinding(Int)
         case notifications
+        case confirmations
     }
 
     static func encode(_ config: AppConfig) -> String {
@@ -67,6 +68,11 @@ enum AppConfigTOML {
         lines.append("[notifications]")
         lines.append("sound_name = \(encode(string: config.notifications.soundName))")
 
+        lines.append("")
+        lines.append("[confirmations]")
+        lines.append("confirm_before_closing_pane = \(config.confirmations.confirmBeforeClosingPane)")
+        lines.append("confirm_before_quitting = \(config.confirmations.confirmBeforeQuitting)")
+
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -112,6 +118,10 @@ enum AppConfigTOML {
                 section = .notifications
                 continue
             }
+            if line == "[confirmations]" {
+                section = .confirmations
+                continue
+            }
 
             guard let assignment = parseAssignment(line) else {
                 return nil
@@ -150,8 +160,12 @@ enum AppConfigTOML {
                 guard decodeNotificationsAssignment(assignment, into: &config) else {
                     return nil
                 }
+            case .confirmations:
+                guard decodeConfirmationsAssignment(assignment, into: &config) else {
+                    return nil
+                }
             case .root:
-                return nil
+                continue
             }
         }
 
@@ -311,6 +325,31 @@ enum AppConfigTOML {
         }
 
         return true
+    }
+
+    private static func decodeConfirmationsAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "confirm_before_closing_pane":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.confirmations.confirmBeforeClosingPane = value
+        case "confirm_before_quitting":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.confirmations.confirmBeforeQuitting = value
+        default:
+            return true
+        }
+        return true
+    }
+
+    private static func decodeBool(_ source: String) -> Bool? {
+        switch source {
+        case "true": return true
+        case "false": return false
+        default: return nil
+        }
     }
 
     private static func parseAssignment(_ line: String) -> (key: String, value: String)? {

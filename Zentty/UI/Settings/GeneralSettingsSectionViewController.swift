@@ -13,6 +13,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
     private let configStore: AppConfigStore
     private var currentNotifications: AppConfig.Notifications = .default
+    private var currentConfirmations: AppConfig.Confirmations = .default
 
     private let statusLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
@@ -20,6 +21,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let sendTestButton = NSButton(title: "Send Test", target: nil, action: nil)
     private let soundPopupButton = NSPopUpButton()
     private let playButton = NSButton()
+    private let closePaneSwitch = NSSwitch()
+    private let quitSwitch = NSSwitch()
 
     init(configStore: AppConfigStore) {
         self.configStore = configStore
@@ -35,10 +38,11 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         let stackView = NSStackView()
         stackView.orientation = .vertical
         stackView.alignment = .leading
-        stackView.spacing = 0
+        stackView.spacing = 16
         stackView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stackView)
 
+        // Notifications card
         let card = SettingsCardView()
         let cardStack = NSStackView()
         cardStack.orientation = .vertical
@@ -47,19 +51,16 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         cardStack.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(cardStack)
 
-        // Row 1: Desktop Notifications
         let notificationRow = makeNotificationRow()
         cardStack.addArrangedSubview(notificationRow)
         notificationRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
 
-        // Separator
         let separator = NSBox()
         separator.boxType = .separator
         separator.translatesAutoresizingMaskIntoConstraints = false
         cardStack.addArrangedSubview(separator)
         separator.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
 
-        // Row 2: Notification Sound
         let soundRow = makeSoundRow()
         cardStack.addArrangedSubview(soundRow)
         soundRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
@@ -74,6 +75,49 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         stackView.addArrangedSubview(card)
         card.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
+        // Confirmations card
+        let confirmCard = SettingsCardView()
+        let confirmStack = NSStackView()
+        confirmStack.orientation = .vertical
+        confirmStack.alignment = .leading
+        confirmStack.spacing = 0
+        confirmStack.translatesAutoresizingMaskIntoConstraints = false
+        confirmCard.addSubview(confirmStack)
+
+        let closePaneRow = makeSwitchRow(
+            title: "Confirm before closing",
+            subtitle: "Show a confirmation dialog when closing a pane.",
+            toggle: closePaneSwitch,
+            action: #selector(handleClosePaneSwitchChanged(_:))
+        )
+        confirmStack.addArrangedSubview(closePaneRow)
+        closePaneRow.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+
+        let confirmSeparator = NSBox()
+        confirmSeparator.boxType = .separator
+        confirmSeparator.translatesAutoresizingMaskIntoConstraints = false
+        confirmStack.addArrangedSubview(confirmSeparator)
+        confirmSeparator.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+
+        let quitRow = makeSwitchRow(
+            title: "Confirm before quitting",
+            subtitle: "Show a confirmation dialog when quitting Zentty.",
+            toggle: quitSwitch,
+            action: #selector(handleQuitSwitchChanged(_:))
+        )
+        confirmStack.addArrangedSubview(quitRow)
+        quitRow.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+
+        NSLayoutConstraint.activate([
+            confirmStack.topAnchor.constraint(equalTo: confirmCard.topAnchor),
+            confirmStack.leadingAnchor.constraint(equalTo: confirmCard.leadingAnchor),
+            confirmStack.trailingAnchor.constraint(equalTo: confirmCard.trailingAnchor),
+            confirmStack.bottomAnchor.constraint(equalTo: confirmCard.bottomAnchor),
+        ])
+
+        stackView.addArrangedSubview(confirmCard)
+        confirmCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
             stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -84,6 +128,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        closePaneSwitch.state = currentConfirmations.confirmBeforeClosingPane ? .on : .off
+        quitSwitch.state = currentConfirmations.confirmBeforeQuitting ? .on : .off
         refreshNotificationStatus()
     }
 
@@ -95,6 +141,13 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     func apply(notifications: AppConfig.Notifications) {
         currentNotifications = notifications
         selectSoundPopupItem(for: notifications.soundName)
+    }
+
+    func apply(confirmations: AppConfig.Confirmations) {
+        currentConfirmations = confirmations
+        guard isViewLoaded else { return }
+        closePaneSwitch.state = confirmations.confirmBeforeClosingPane ? .on : .off
+        quitSwitch.state = confirmations.confirmBeforeQuitting ? .on : .off
     }
 
     // MARK: - Notification Row
@@ -268,6 +321,22 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     }
 
     @objc
+    private func handleClosePaneSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.confirmations.confirmBeforeClosingPane = sender.state == .on
+        }
+        currentConfirmations = configStore.current.confirmations
+    }
+
+    @objc
+    private func handleQuitSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.confirmations.confirmBeforeQuitting = sender.state == .on
+        }
+        currentConfirmations = configStore.current.confirmations
+    }
+
+    @objc
     private func handlePlaySound(_ sender: Any?) {
         let soundName = currentNotifications.soundName
         if soundName.isEmpty {
@@ -327,6 +396,54 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         soundPopupButton.selectItem(at: index)
     }
 
+    private func makeSwitchRow(
+        title: String,
+        subtitle: String,
+        toggle: NSSwitch,
+        action: Selector
+    ) -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let leftStack = NSStackView()
+        leftStack.orientation = .vertical
+        leftStack.alignment = .leading
+        leftStack.spacing = 2
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = makeLabel(
+            text: title,
+            font: .systemFont(ofSize: 13, weight: .semibold)
+        )
+        leftStack.addArrangedSubview(titleLabel)
+
+        let subtitleLabel = makeLabel(
+            text: subtitle,
+            font: .systemFont(ofSize: 12, weight: .regular)
+        )
+        subtitleLabel.textColor = .secondaryLabelColor
+        leftStack.addArrangedSubview(subtitleLabel)
+
+        toggle.target = self
+        toggle.action = action
+
+        container.addSubview(leftStack)
+        container.addSubview(toggle)
+        toggle.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
+
+            toggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            toggle.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
+            toggle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+        ])
+
+        return container
+    }
+
     private func makeLabel(text: String, font: NSFont) -> NSTextField {
         let label = NSTextField(labelWithString: text)
         label.font = font
@@ -351,6 +468,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
     var availableSoundNames: [String] {
         soundPopupButton.itemArray.compactMap { $0.representedObject as? String }
+    }
+
+    var isClosePaneSwitchOn: Bool {
+        closePaneSwitch.state == .on
+    }
+
+    var isQuitSwitchOn: Bool {
+        quitSwitch.state == .on
     }
 }
 

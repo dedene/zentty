@@ -153,6 +153,108 @@ final class PaneNavigationButtons: NSView {
     }
 }
 
+@MainActor
+final class PaneLayoutMenuButton: NSButton {
+    static let buttonSize: CGFloat = 28
+    private static let iconSize: CGFloat = 13
+
+    private(set) var isHovered = false
+    private var trackingAreaValue: NSTrackingArea?
+    private var currentTheme: ZenttyTheme?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setup() {
+        title = ""
+        isBordered = false
+        bezelStyle = .regularSquare
+        setButtonType(.momentaryChange)
+        wantsLayer = true
+        layer?.cornerRadius = ChromeGeometry.pillRadius
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = false
+        imagePosition = .imageOnly
+        imageScaling = .scaleProportionallyDown
+        setAccessibilityLabel("Arrange panes")
+        toolTip = "Arrange Panes"
+
+        let config = NSImage.SymbolConfiguration(pointSize: Self.iconSize, weight: .medium)
+        if let image = NSImage(
+            systemSymbolName: "square.split.2x2",
+            accessibilityDescription: "Arrange panes"
+        )?.withSymbolConfiguration(config) {
+            image.isTemplate = true
+            self.image = image
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaValue {
+            removeTrackingArea(trackingAreaValue)
+        }
+        let trackingAreaValue = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingAreaValue)
+        self.trackingAreaValue = trackingAreaValue
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard !isHovered else { return }
+        isHovered = true
+        updateHoverAppearance()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard isHovered else { return }
+        isHovered = false
+        updateHoverAppearance()
+    }
+
+    func configure(theme: ZenttyTheme, animated: Bool) {
+        currentTheme = theme
+        contentTintColor = theme.primaryText.withAlphaComponent(isHovered ? 1.0 : 0.82)
+
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = ChromeGeometry.iconButtonHoverBackground(
+                theme: theme,
+                isHovered: self.isHovered
+            ).cgColor
+            self.layer?.borderColor = NSColor.clear.cgColor
+            self.layer?.borderWidth = 1.0
+            self.layer?.shadowColor = theme.underlapShadow.cgColor
+            self.layer?.shadowOpacity = 0.10
+            self.layer?.shadowRadius = 5
+            self.layer?.shadowOffset = CGSize(width: 0, height: -1)
+        }
+    }
+
+    private func updateHoverAppearance() {
+        guard let currentTheme else { return }
+        contentTintColor = currentTheme.primaryText.withAlphaComponent(isHovered ? 1.0 : 0.82)
+        performThemeAnimation(animated: true) {
+            self.layer?.backgroundColor = ChromeGeometry.iconButtonHoverBackground(
+                theme: currentTheme,
+                isHovered: self.isHovered
+            ).cgColor
+        }
+    }
+}
+
 // MARK: - HoverableIconButton
 
 private final class HoverableIconButton: NSButton {

@@ -29,6 +29,14 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case jumpToLatestNotification = "notifications.jump_latest"
     case splitHorizontally = "pane.split.horizontal"
     case splitVertically = "pane.split.vertical"
+    case arrangeWidthFull = "pane.arrange.width.full"
+    case arrangeWidthHalves = "pane.arrange.width.halves"
+    case arrangeWidthThirds = "pane.arrange.width.thirds"
+    case arrangeWidthQuarters = "pane.arrange.width.quarters"
+    case arrangeHeightFull = "pane.arrange.height.full"
+    case arrangeHeightTwoPerColumn = "pane.arrange.height.two_per_column"
+    case arrangeHeightThreePerColumn = "pane.arrange.height.three_per_column"
+    case arrangeHeightFourPerColumn = "pane.arrange.height.four_per_column"
     case closeFocusedPane = "pane.close_focused"
     case focusLeftPane = "pane.focus.left"
     case focusRightPane = "pane.focus.right"
@@ -212,6 +220,102 @@ enum AppCommandRegistry {
                 section: .view,
                 title: "Split Vertically",
                 selector: #selector(MainWindowController.splitVertically(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeWidthFull,
+            title: "Arrange Width: Full Width",
+            category: .panes,
+            defaultShortcut: .init(key: .character("1"), modifiers: [.command]),
+            action: .pane(.arrangeHorizontally(.fullWidth)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Width: Full Width",
+                selector: #selector(MainWindowController.arrangePaneWidthFull(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeWidthHalves,
+            title: "Arrange Width: Half Width",
+            category: .panes,
+            defaultShortcut: .init(key: .character("2"), modifiers: [.command]),
+            action: .pane(.arrangeHorizontally(.halfWidth)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Width: Half Width",
+                selector: #selector(MainWindowController.arrangePaneWidthHalves(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeWidthThirds,
+            title: "Arrange Width: Thirds",
+            category: .panes,
+            defaultShortcut: .init(key: .character("3"), modifiers: [.command]),
+            action: .pane(.arrangeHorizontally(.thirds)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Width: Thirds",
+                selector: #selector(MainWindowController.arrangePaneWidthThirds(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeWidthQuarters,
+            title: "Arrange Width: Quarters",
+            category: .panes,
+            defaultShortcut: .init(key: .character("4"), modifiers: [.command]),
+            action: .pane(.arrangeHorizontally(.quarters)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Width: Quarters",
+                selector: #selector(MainWindowController.arrangePaneWidthQuarters(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeHeightFull,
+            title: "Arrange Height: Full Height",
+            category: .panes,
+            defaultShortcut: .init(key: .character("1"), modifiers: [.command, .shift]),
+            action: .pane(.arrangeVertically(.fullHeight)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Height: Full Height",
+                selector: #selector(MainWindowController.arrangePaneHeightFull(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeHeightTwoPerColumn,
+            title: "Arrange Height: 2 Per Column",
+            category: .panes,
+            defaultShortcut: .init(key: .character("2"), modifiers: [.command, .shift]),
+            action: .pane(.arrangeVertically(.twoPerColumn)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Height: 2 Per Column",
+                selector: #selector(MainWindowController.arrangePaneHeightTwoPerColumn(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeHeightThreePerColumn,
+            title: "Arrange Height: 3 Per Column",
+            category: .panes,
+            defaultShortcut: .init(key: .character("3"), modifiers: [.command, .shift]),
+            action: .pane(.arrangeVertically(.threePerColumn)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Height: 3 Per Column",
+                selector: #selector(MainWindowController.arrangePaneHeightThreePerColumn(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeHeightFourPerColumn,
+            title: "Arrange Height: 4 Per Column",
+            category: .panes,
+            defaultShortcut: .init(key: .character("4"), modifiers: [.command, .shift]),
+            action: .pane(.arrangeVertically(.fourPerColumn)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Height: 4 Per Column",
+                selector: #selector(MainWindowController.arrangePaneHeightFourPerColumn(_:))
             )
         ),
         AppCommandDefinition(
@@ -412,6 +516,16 @@ enum AppCommandRegistry {
             .command(.splitHorizontally),
             .command(.splitVertically),
             .separator,
+            .command(.arrangeWidthFull),
+            .command(.arrangeWidthHalves),
+            .command(.arrangeWidthThirds),
+            .command(.arrangeWidthQuarters),
+            .separator,
+            .command(.arrangeHeightFull),
+            .command(.arrangeHeightTwoPerColumn),
+            .command(.arrangeHeightThreePerColumn),
+            .command(.arrangeHeightFourPerColumn),
+            .separator,
             .command(.focusLeftPane),
             .command(.focusRightPane),
             .command(.focusUpInColumn),
@@ -466,6 +580,22 @@ extension AppCommandDefinition {
             "Split the focused pane horizontally to create another pane in the same column."
         case .splitVertically:
             "Split the focused pane vertically to create a new adjacent column."
+        case .arrangeWidthFull:
+            "Make every existing column span the full readable window width, preserving each column's current vertical stack."
+        case .arrangeWidthHalves:
+            "Normalize every existing column to half the readable window width while preserving vertical stacks."
+        case .arrangeWidthThirds:
+            "Normalize every existing column to one third of the readable window width while preserving vertical stacks."
+        case .arrangeWidthQuarters:
+            "Normalize every existing column to one quarter of the readable window width while preserving vertical stacks."
+        case .arrangeHeightFull:
+            "Repack panes into one pane per column so each pane takes the full height of its column."
+        case .arrangeHeightTwoPerColumn:
+            "Repack panes into columns of two panes each, distributed top-to-bottom then left-to-right."
+        case .arrangeHeightThreePerColumn:
+            "Repack panes into columns of three panes each, distributing any partial final column evenly."
+        case .arrangeHeightFourPerColumn:
+            "Repack panes into columns of four panes each, distributing any partial final column evenly."
         case .closeFocusedPane:
             "Close the currently focused pane while keeping the rest of the layout intact."
         case .focusLeftPane:
@@ -473,9 +603,9 @@ extension AppCommandDefinition {
         case .focusRightPane:
             "Move focus to the pane immediately to the right of the current pane."
         case .focusUpInColumn:
-            "Move focus to the pane above the current one within the same column."
+            "Move focus up within the column, or to the previous worklane at the top."
         case .focusDownInColumn:
-            "Move focus to the pane below the current one within the same column."
+            "Move focus down within the column, or to the next worklane at the bottom."
         case .focusFirstColumn:
             "Jump focus to the first column in the current pane layout."
         case .focusLastColumn:
