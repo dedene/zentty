@@ -41,6 +41,10 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case resizePaneUp = "pane.resize.up"
     case resizePaneDown = "pane.resize.down"
     case resetPaneLayout = "pane.reset_layout"
+    case showCommandPalette = "command_palette.show"
+    case openSettings = "app.open_settings"
+    case closeWindow = "app.close_window"
+    case reloadConfig = "app.reload_config"
 }
 
 struct ShortcutBindingOverride: Equatable, Sendable {
@@ -56,6 +60,10 @@ enum AppAction: Equatable, Sendable {
     case copyFocusedPanePath
     case jumpToLatestNotification
     case pane(PaneCommand)
+    case showCommandPalette
+    case openSettings
+    case closeWindow
+    case reloadConfig
 }
 
 enum AppMenuSection: String, CaseIterable {
@@ -318,6 +326,42 @@ enum AppCommandRegistry {
                 selector: #selector(MainWindowController.resetPaneLayout(_:))
             )
         ),
+        AppCommandDefinition(
+            id: .showCommandPalette,
+            title: "Command Palette",
+            category: .general,
+            defaultShortcut: .init(key: .character("p"), modifiers: [.command, .shift]),
+            action: .showCommandPalette,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Command Palette…",
+                selector: #selector(MainWindowController.showCommandPalette(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .openSettings,
+            title: "Open Settings",
+            category: .general,
+            defaultShortcut: nil,
+            action: .openSettings,
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .closeWindow,
+            title: "Close Window",
+            category: .general,
+            defaultShortcut: nil,
+            action: .closeWindow,
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .reloadConfig,
+            title: "Reload Configuration",
+            category: .general,
+            defaultShortcut: nil,
+            action: .reloadConfig,
+            menuItem: nil
+        ),
     ]
 
     static let menuEntriesBySection: [AppMenuSection: [AppMenuEntry]] = [
@@ -330,6 +374,8 @@ enum AppCommandRegistry {
             .command(.copyFocusedPanePath),
         ],
         .view: [
+            .command(.showCommandPalette),
+            .separator,
             .command(.toggleSidebar),
             .separator,
             .command(.splitHorizontally),
@@ -409,6 +455,14 @@ extension AppCommandDefinition {
             "Increase the height of the focused pane by moving its lower split."
         case .resetPaneLayout:
             "Restore the current pane layout to its default proportions."
+        case .showCommandPalette:
+            "Open the command palette to quickly find and run any command."
+        case .openSettings:
+            "Open the settings window to customize shortcuts, appearance, and behavior."
+        case .closeWindow:
+            "Close the current window."
+        case .reloadConfig:
+            "Reload the configuration file from disk and apply any changes."
         }
     }
 

@@ -190,6 +190,8 @@ enum AppMenuBuilder {
             ("Select All", #selector(NSResponder.selectAll(_:))),
         ]
         let requiredViewItems: [(String?, Selector?)] = [
+            ("Command Palette\u{2026}", #selector(MainWindowController.showCommandPalette(_:))),
+            (nil, nil),
             ("Toggle Sidebar", #selector(MainWindowController.toggleSidebar(_:))),
             (nil, nil),
             ("Split Horizontally", #selector(MainWindowController.splitHorizontally(_:))),

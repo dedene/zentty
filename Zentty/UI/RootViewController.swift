@@ -82,9 +82,11 @@ final class RootViewController: NSViewController {
     private let notificationBellButton = NotificationBellButton()
     private var notificationPanelView: NotificationPanelView?
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
+    private let commandPaletteController = CommandPaletteController()
     var onWindowChromeNeedsUpdate: (() -> Void)?
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
+    var onShowSettingsRequested: (() -> Void)?
 
     init(
         configStore: AppConfigStore,
@@ -471,6 +473,11 @@ final class RootViewController: NSViewController {
     func activateWindowBindingsIfNeeded() {
         installKeyboardMonitorIfNeeded()
         installWindowObserversIfNeeded()
+        if commandPaletteController.onExecute == nil {
+            commandPaletteController.onExecute = { [weak self] action in
+                self?.handle(action)
+            }
+        }
         syncSidebarWidthToAvailableWidth(persist: false)
         renderCoordinator.updateSurfaceActivities()
         appCanvasView.focusCurrentPaneIfNeeded()
@@ -557,6 +564,14 @@ final class RootViewController: NSViewController {
             jumpToLatestNotification()
         case .pane(let command):
             handlePaneCommand(command)
+        case .showCommandPalette:
+            showCommandPalette()
+        case .openSettings:
+            onShowSettingsRequested?()
+        case .closeWindow:
+            view.window?.close()
+        case .reloadConfig:
+            configStore.reloadFromDisk()
         }
     }
 
@@ -677,6 +692,27 @@ final class RootViewController: NSViewController {
     func navigateToPane(worklaneID: WorklaneID, paneID: PaneID) {
         worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
         notificationStore.resolve(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    private func showCommandPalette() {
+        guard let window = view.window else { return }
+
+        let activeWorklane = worklaneStore.activeWorklane
+        let worklaneCount = worklaneStore.worklanes.count
+        let paneCount = activeWorklane?.paneStripState.panes.count ?? 0
+        let focusedPanePath: String? = {
+            guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
+            return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
+        }()
+
+        commandPaletteController.show(
+            in: window,
+            theme: currentTheme,
+            shortcutManager: shortcutManager,
+            worklaneCount: worklaneCount,
+            paneCount: paneCount,
+            focusedPanePath: focusedPanePath
+        )
     }
 
     private func copyFocusedPanePath() {

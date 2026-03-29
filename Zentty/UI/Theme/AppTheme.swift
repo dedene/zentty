@@ -95,6 +95,14 @@ struct ZenttyTheme: Equatable {
     let notificationPanelSeparator: NSColor
     let notificationPanelRowHoverBackground: NSColor
     let notificationPanelRowSelectedBackground: NSColor
+    let commandPaletteBackground: NSColor
+    let commandPaletteBorder: NSColor
+    let commandPaletteShadow: NSColor
+    let commandPaletteText: NSColor
+    let commandPaletteSecondaryText: NSColor
+    let commandPaletteRowHoverBackground: NSColor
+    let commandPaletteRowSelectedBackground: NSColor
+    let commandPaletteSeparator: NSColor
     let underlapShadow: NSColor
     let sidebarGlassAppearance: ThemeChromeAppearance
     let reducedTransparency: Bool
@@ -122,6 +130,10 @@ struct ZenttyTheme: Equatable {
             lhs.notificationPanelBackground, lhs.notificationPanelBorder, lhs.notificationPanelShadow,
             lhs.notificationPanelSeparator, lhs.notificationPanelRowHoverBackground,
             lhs.notificationPanelRowSelectedBackground,
+            lhs.commandPaletteBackground, lhs.commandPaletteBorder, lhs.commandPaletteShadow,
+            lhs.commandPaletteText, lhs.commandPaletteSecondaryText,
+            lhs.commandPaletteRowHoverBackground, lhs.commandPaletteRowSelectedBackground,
+            lhs.commandPaletteSeparator,
             lhs.underlapShadow,
         ].map(\.themeToken) == [
             rhs.windowBackground, rhs.sidebarBackground, rhs.sidebarBorder, rhs.sidebarShadow,
@@ -143,6 +155,10 @@ struct ZenttyTheme: Equatable {
             rhs.notificationPanelBackground, rhs.notificationPanelBorder, rhs.notificationPanelShadow,
             rhs.notificationPanelSeparator, rhs.notificationPanelRowHoverBackground,
             rhs.notificationPanelRowSelectedBackground,
+            rhs.commandPaletteBackground, rhs.commandPaletteBorder, rhs.commandPaletteShadow,
+            rhs.commandPaletteText, rhs.commandPaletteSecondaryText,
+            rhs.commandPaletteRowHoverBackground, rhs.commandPaletteRowSelectedBackground,
+            rhs.commandPaletteSeparator,
             rhs.underlapShadow,
         ].map(\.themeToken)
             && lhs.sidebarGlassAppearance == rhs.sidebarGlassAppearance
@@ -285,6 +301,22 @@ struct ZenttyTheme: Equatable {
         notificationPanelRowSelectedBackground = accent
             .mixed(towards: notificationPanelBase, amount: background.isDarkThemeColor ? 0.66 : 0.76)
             .withAlphaComponent(reduceTransparency ? 0.94 : (background.isDarkThemeColor ? 0.68 : 0.78))
+        let commandPaletteBase = baseSidebar
+            .mixed(towards: startupSurfaceBase, amount: background.isDarkThemeColor ? 0.18 : 0.36)
+        commandPaletteBackground = commandPaletteBase.withAlphaComponent(
+            reduceTransparency ? 0.98 : (background.isDarkThemeColor ? 0.78 : 0.88)
+        )
+        commandPaletteBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.10 : 0.12)
+        commandPaletteShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.28 : 0.14)
+        commandPaletteText = readableForeground.withAlphaComponent(0.96)
+        commandPaletteSecondaryText = readableForeground.withAlphaComponent(0.62)
+        commandPaletteRowHoverBackground = commandPaletteBase
+            .mixed(towards: readableForeground, amount: background.isDarkThemeColor ? 0.10 : 0.14)
+            .withAlphaComponent(reduceTransparency ? 0.22 : (background.isDarkThemeColor ? 0.22 : 0.28))
+        commandPaletteRowSelectedBackground = accent
+            .mixed(towards: commandPaletteBase, amount: background.isDarkThemeColor ? 0.62 : 0.72)
+            .withAlphaComponent(reduceTransparency ? 0.94 : (background.isDarkThemeColor ? 0.64 : 0.76))
+        commandPaletteSeparator = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.10)
         underlapShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.06)
     }
 

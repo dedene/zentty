@@ -169,6 +169,10 @@ final class AppConfigStore: @unchecked Sendable {
         }
     }
 
+    func reloadFromDisk() {
+        reloadFromDiskIfNeeded()
+    }
+
     private func reloadFromDiskIfNeeded() {
         switch Self.load(fileURL: fileURL) {
         case .loaded(let reloaded):

@@ -135,6 +135,18 @@
 		F42E958471B9D597F85A3894 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43EC896B9EA214B488CDCD09 /* GhosttyKit.xcframework */; };
 		F75C8D5EDC0772F56DE54C52 /* PaneStripStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFB4690A6E06FB3FC4C1909E /* PaneStripStoreTests.swift */; };
 		FB6421E478EA88F89ACE1603 /* RootViewControllerHeaderIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50181BE811AE835D0DAAF33 /* RootViewControllerHeaderIntegrationTests.swift */; };
+		DDFB54BA727BD190877D8C42 /* FuzzyMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 578267EA09858E687BC91DCD /* FuzzyMatcher.swift */; };
+		FD58D21AEF53FECE808D98BB /* RecentCommandsTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A16A41DDE8F5679915D2F5 /* RecentCommandsTracker.swift */; };
+		7110E226633F5827A63AC624 /* CommandAvailabilityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F24192816AF58338B612B2D /* CommandAvailabilityResolver.swift */; };
+		44FDB1270AA5C747C87B84AB /* CommandPaletteItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F30AA4CA397E262FDA3EB5 /* CommandPaletteItem.swift */; };
+		28321286CE3E19332182168A /* CommandPaletteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1762ED8738B7A9C1C0F3042B /* CommandPaletteView.swift */; };
+		9C0C41F123C76318BF9952C5 /* CommandPaletteResultRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2AC36AC57331515D0F4EC94 /* CommandPaletteResultRow.swift */; };
+		3F5DBD0D951AF387CECEA72F /* CommandPalettePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84DAD18AA534F18A0AA3F083 /* CommandPalettePanel.swift */; };
+		6F653A6D436A23B31BB0E423 /* CommandPaletteController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B741B301834B10F2FB6D380 /* CommandPaletteController.swift */; };
+		8E290873576735870AEEF7A1 /* FuzzyMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1502E2569E209340CD674A /* FuzzyMatcherTests.swift */; };
+		15CB4A5AC9632D3CB7744E57 /* RecentCommandsTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0DF073CD38719AC47DF6F13 /* RecentCommandsTrackerTests.swift */; };
+		E1646AD56C048DAFF3283E0E /* CommandAvailabilityResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D2F34DBA54FA993EE032117 /* CommandAvailabilityResolverTests.swift */; };
+		73072FF0A7C292B37347646F /* CommandPaletteItemBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98099CA8763B06FE8321DC56 /* CommandPaletteItemBuilderTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -298,6 +310,18 @@
 		FE8E85EADB93A2FE0E71BEA6 /* TerminalPaneHostViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostViewTests.swift; sourceTree = "<group>"; };
 		FEFFC2CAEA605772B62E73E5 /* PaneStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripView.swift; sourceTree = "<group>"; };
 		FFA39255E836211E35CAFF5F /* WorklaneState+Testing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorklaneState+Testing.swift"; sourceTree = "<group>"; };
+		578267EA09858E687BC91DCD /* FuzzyMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyMatcher.swift; sourceTree = "<group>"; };
+		79A16A41DDE8F5679915D2F5 /* RecentCommandsTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentCommandsTracker.swift; sourceTree = "<group>"; };
+		9F24192816AF58338B612B2D /* CommandAvailabilityResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandAvailabilityResolver.swift; sourceTree = "<group>"; };
+		A8F30AA4CA397E262FDA3EB5 /* CommandPaletteItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteItem.swift; sourceTree = "<group>"; };
+		1762ED8738B7A9C1C0F3042B /* CommandPaletteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteView.swift; sourceTree = "<group>"; };
+		F2AC36AC57331515D0F4EC94 /* CommandPaletteResultRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteResultRow.swift; sourceTree = "<group>"; };
+		84DAD18AA534F18A0AA3F083 /* CommandPalettePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalettePanel.swift; sourceTree = "<group>"; };
+		4B741B301834B10F2FB6D380 /* CommandPaletteController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteController.swift; sourceTree = "<group>"; };
+		7C1502E2569E209340CD674A /* FuzzyMatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyMatcherTests.swift; sourceTree = "<group>"; };
+		D0DF073CD38719AC47DF6F13 /* RecentCommandsTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentCommandsTrackerTests.swift; sourceTree = "<group>"; };
+		3D2F34DBA54FA993EE032117 /* CommandAvailabilityResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandAvailabilityResolverTests.swift; sourceTree = "<group>"; };
+		98099CA8763B06FE8321DC56 /* CommandPaletteItemBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteItemBuilderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -484,6 +508,10 @@
 				7120EEE7A0C06BD8315283B9 /* MainWindowControllerTests.swift */,
 				48F435FA119C97C5F497FBD9 /* PaneLayoutSettingsWindowControllerTests.swift */,
 				FE8E85EADB93A2FE0E71BEA6 /* TerminalPaneHostViewTests.swift */,
+				7C1502E2569E209340CD674A /* FuzzyMatcherTests.swift */,
+				D0DF073CD38719AC47DF6F13 /* RecentCommandsTrackerTests.swift */,
+				3D2F34DBA54FA993EE032117 /* CommandAvailabilityResolverTests.swift */,
+				98099CA8763B06FE8321DC56 /* CommandPaletteItemBuilderTests.swift */,
 				1CF5DDE2F06EB5CBE4C2E0B9 /* WorklaneState+Testing.swift */,
 			);
 			path = ZenttyTests;
@@ -574,6 +602,7 @@
 				16FEAF3CA4E96E1EB18692E8 /* ShellMetrics.swift */,
 				3E0AB398A3212751C553DAD6 /* WorklaneRenderCoordinator.swift */,
 				4A4B2BEA2DA770E96A563909 /* Canvas */,
+				E05FDD0A07A03E962437E41B /* CommandPalette */,
 				C6FE1D6C93ADCAF5A6AD1364 /* Chrome */,
 				C2E4B49720CCE21570420D3B /* PaneStrip */,
 				C91803792E050C61DDC543B3 /* Settings */,
@@ -636,6 +665,21 @@
 				E5BD40F90473F37867AB07AF /* WorklaneStoreOpenWithTests.swift */,
 			);
 			path = ZenttyLogicTests;
+			sourceTree = "<group>";
+		};
+		E05FDD0A07A03E962437E41B /* CommandPalette */ = {
+			isa = PBXGroup;
+			children = (
+				578267EA09858E687BC91DCD /* FuzzyMatcher.swift */,
+				79A16A41DDE8F5679915D2F5 /* RecentCommandsTracker.swift */,
+				9F24192816AF58338B612B2D /* CommandAvailabilityResolver.swift */,
+				A8F30AA4CA397E262FDA3EB5 /* CommandPaletteItem.swift */,
+				1762ED8738B7A9C1C0F3042B /* CommandPaletteView.swift */,
+				F2AC36AC57331515D0F4EC94 /* CommandPaletteResultRow.swift */,
+				84DAD18AA534F18A0AA3F083 /* CommandPalettePanel.swift */,
+				4B741B301834B10F2FB6D380 /* CommandPaletteController.swift */,
+			);
+			path = CommandPalette;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -866,6 +910,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DDFB54BA727BD190877D8C42 /* FuzzyMatcher.swift in Sources */,
+				FD58D21AEF53FECE808D98BB /* RecentCommandsTracker.swift in Sources */,
+				7110E226633F5827A63AC624 /* CommandAvailabilityResolver.swift in Sources */,
+				44FDB1270AA5C747C87B84AB /* CommandPaletteItem.swift in Sources */,
+				28321286CE3E19332182168A /* CommandPaletteView.swift in Sources */,
+				9C0C41F123C76318BF9952C5 /* CommandPaletteResultRow.swift in Sources */,
+				3F5DBD0D951AF387CECEA72F /* CommandPalettePanel.swift in Sources */,
+				6F653A6D436A23B31BB0E423 /* CommandPaletteController.swift in Sources */,
 				8E2852FEAFC265DC3EC050BF /* AgentInteractionClassifier.swift in Sources */,
 				E6D0CAB78E81B81367E2F583 /* AgentStatus.swift in Sources */,
 				8553A4E49623C76F26D166F5 /* AgentStatusCenter.swift in Sources */,
@@ -968,6 +1020,10 @@
 				ADDC80F33AD74B2D67F3A005 /* MainWindowControllerTests.swift in Sources */,
 				68542C40B0F24B31DDB1E9A2 /* PaneLayoutSettingsWindowControllerTests.swift in Sources */,
 				D58A19DD4038B6D8E127DA5D /* TerminalPaneHostViewTests.swift in Sources */,
+				8E290873576735870AEEF7A1 /* FuzzyMatcherTests.swift in Sources */,
+				15CB4A5AC9632D3CB7744E57 /* RecentCommandsTrackerTests.swift in Sources */,
+				E1646AD56C048DAFF3283E0E /* CommandAvailabilityResolverTests.swift in Sources */,
+				73072FF0A7C292B37347646F /* CommandPaletteItemBuilderTests.swift in Sources */,
 				F2DE6777CF96D61DF5BF4E32 /* WorklaneState+Testing.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
