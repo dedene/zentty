@@ -29,7 +29,9 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             ),
             .toggleSidebar
         )
+    }
 
+    func test_resolves_arrange_default_shortcuts_from_registry() {
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
                 .init(key: .character("2"), modifiers: [.command]),

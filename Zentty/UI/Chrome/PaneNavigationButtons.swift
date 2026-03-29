@@ -156,7 +156,7 @@ final class PaneNavigationButtons: NSView {
 @MainActor
 final class PaneLayoutMenuButton: NSButton {
     static let buttonSize: CGFloat = 28
-    private static let iconSize: CGFloat = 13
+    private static let iconSize: CGFloat = 15
 
     private(set) var isHovered = false
     private var trackingAreaValue: NSTrackingArea?
@@ -186,7 +186,7 @@ final class PaneLayoutMenuButton: NSButton {
         setAccessibilityLabel("Arrange panes")
         toolTip = "Arrange Panes"
 
-        let config = NSImage.SymbolConfiguration(pointSize: Self.iconSize, weight: .medium)
+        let config = NSImage.SymbolConfiguration(pointSize: Self.iconSize, weight: .semibold)
         if let image = NSImage(
             systemSymbolName: "square.split.2x2",
             accessibilityDescription: "Arrange panes"
