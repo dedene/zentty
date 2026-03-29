@@ -174,6 +174,10 @@ final class WorklaneRenderCoordinator {
             return
         }
 
+        guard !views.appCanvasView.paneStripView.isDragActive else {
+            return
+        }
+
         let sidebarWidth = sidebarWidthProvider?() ?? SidebarWidthPreference.defaultWidth
         let effectiveInset = leadingVisibleInsetOverride
             ?? leadingInsetProvider?(sidebarWidth)
@@ -226,7 +230,12 @@ final class WorklaneRenderCoordinator {
     }
 
     private func renderPaneBorderContextOverlay() {
-        views?.paneBorderContextOverlayView.render(
+        guard let views else { return }
+        if views.paneBorderContextOverlayView.isHidden,
+           !views.appCanvasView.paneStripView.isDragActive {
+            views.paneBorderContextOverlayView.isHidden = false
+        }
+        views.paneBorderContextOverlayView.render(
             snapshots: translatedPaneBorderChromeSnapshots,
             theme: currentTheme
         )

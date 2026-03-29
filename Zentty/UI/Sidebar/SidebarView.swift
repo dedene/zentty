@@ -337,6 +337,20 @@ final class SidebarView: NSView {
         resizeHandleView.setEnabled(isEnabled)
     }
 
+    func worklaneRowFrames(in targetView: NSView) -> [(WorklaneID, CGRect)] {
+        worklaneButtons.compactMap { button in
+            guard let worklaneID = button.worklaneID else { return nil }
+            let targetFrame = targetView.convert(button.bounds, from: button)
+            return (worklaneID, targetFrame)
+        }
+    }
+
+    func setHighlightedDropTargetWorklane(_ worklaneID: WorklaneID?) {
+        for button in worklaneButtons {
+            button.setDropTargetHighlighted(button.worklaneID == worklaneID)
+        }
+    }
+
     @objc
     private func handleWorklaneButton(_ sender: SidebarWorklaneRowButton) {
         guard let worklaneID = sender.worklaneID else {

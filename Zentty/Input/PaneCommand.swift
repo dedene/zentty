@@ -38,4 +38,5 @@ enum PaneCommand: Equatable, Sendable {
     case arrangeHorizontally(PaneHorizontalArrangement)
     case arrangeVertically(PaneVerticalArrangement)
     case resetLayout
+    case toggleZoomOut
 }

@@ -48,17 +48,32 @@ final class PaneStripView: NSView {
     var onDividerResizeRequested: ((PaneResizeTarget, CGFloat) -> Void)?
     var onDividerEqualizeRequested: ((PaneDivider) -> Void)?
     var onPaneStripStateRestoreRequested: ((PaneStripState) -> Void)?
+    var onPaneReorderRequested: ((PaneID, Int) -> Void)?
+    var onPaneSplitDropRequested: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool) -> Void)?
+    var onPaneCrossWorklaneDropRequested: ((PaneID, WorklaneID) -> Void)?
+    var sidebarWorklaneFrameProvider: (() -> [(WorklaneID, CGRect)])?
+    var onDragApproachingSidebarEdge: ((Bool) -> Void)?
+    var onHoveredSidebarWorklaneChanged: ((WorklaneID?) -> Void)?
+    var onDragActiveChanged: ((Bool) -> Void)?
+    var onLeadingInsetChangedDuringDrag: ((CGFloat) -> Void)?
+    var activeWorklaneIDProvider: (() -> WorklaneID?)?
+    private(set) var isDragActive = false
+    private(set) var isZoomedOut = false
+    static let zoomScale: CGFloat = 0.4
+    var dragZoomScale: CGFloat { Self.zoomScale }
 
     private let motionController = PaneStripMotionController()
     private let scrollSwitchHandler = ScrollSwitchGestureHandler()
     private let viewportView = NSView()
     private let runtimeRegistry: PaneRuntimeRegistry
     private let backingScaleFactorProvider: () -> CGFloat
+    private let dragCoordinator = PaneDragCoordinator()
 
     private var currentState: PaneStripState?
     private var currentPaneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:]
     private var currentPresentation: StripPresentation?
     private var paneViews: [PaneID: PaneContainerView] = [:]
+    private var dragZoneViews: [PaneID: PaneDragZoneView] = [:]
     private var dividerViews: [PaneDivider: PaneDividerHandleView] = [:]
     private var lastRenderedSize: CGSize = .zero
     private var currentOffset: CGFloat = 0
@@ -159,11 +174,41 @@ final class PaneStripView: NSView {
         viewportView.frame = bounds
         viewportView.autoresizingMask = [.width, .height]
         addSubview(viewportView)
+
+        setupDragCoordinator()
+    }
+
+    private func setupDragCoordinator() {
+        dragCoordinator.onReorder = { [weak self] paneID, columnIndex in
+            self?.onPaneReorderRequested?(paneID, columnIndex)
+        }
+        dragCoordinator.onSplitDrop = { [weak self] paneID, targetPaneID, axis, leading in
+            self?.onPaneSplitDropRequested?(paneID, targetPaneID, axis, leading)
+        }
+        dragCoordinator.onDragActiveChanged = { [weak self] active in
+            guard let self else { return }
+            self.isDragActive = active
+            if !active {
+                if let state = self.currentState {
+                    self.renderCurrentState(state, animated: false)
+                }
+            }
+            self.onDragActiveChanged?(active)
+        }
     }
 
     override func layout() {
         super.layout()
         viewportView.frame = bounds
+        if isZoomedOut && !isZoomAnimating {
+            if isDragActive {
+                // During drag, restore zoom + scroll without recomputing anchor
+                applyZoomScale(Self.zoomScale)
+            } else {
+                // Normal: recompute zoom bounds after frame change (e.g. window resize)
+                applyZoom(animated: false)
+            }
+        }
 
         guard let currentState, bounds.size != .zero, bounds.size != lastRenderedSize else {
             return
@@ -300,6 +345,7 @@ final class PaneStripView: NSView {
         animationDuration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         animationTimingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
+        guard !isDragActive else { return }
         let settleGeneration = renderGuard.advanceGeneration()
         let previousPresentation = currentPresentation
         let previousOffset = currentOffset
@@ -356,8 +402,10 @@ final class PaneStripView: NSView {
             insertionTransition: insertionTransition,
             suspendedPaneIDs: suspendedPaneIDs
         )
-        applyTerminalAnimationFreeze(to: frozenPaneIDs, insertionTransition: insertionTransition)
-        applyViewportSyncSuspension(to: suspendedPaneIDs)
+        if !isZoomedOut {
+            applyTerminalAnimationFreeze(to: frozenPaneIDs, insertionTransition: insertionTransition)
+            applyViewportSyncSuspension(to: suspendedPaneIDs)
+        }
 
         let updates = {
             let useNeutralPaneBackground = shouldAnimate && !frozenPaneIDs.isEmpty
@@ -395,11 +443,24 @@ final class PaneStripView: NSView {
                 )
                 self.reconcileDividerViews(with: presentation, offset: targetOffset)
                 self.paneViews.values.forEach { $0.syncInsetBorderNow() }
-                self.completeRenderSettlement()
+                Task { @MainActor [weak self] in
+                    guard let self, self.renderGuard.generation == settleGeneration else {
+                        return
+                    }
+                    if !self.isZoomedOut {
+                        self.applyTerminalAnimationFreeze(to: [])
+                        self.applyViewportSyncSuspension(to: [])
+                    }
+                    self.viewportView.layoutSubtreeIfNeeded()
+                }
             }
         } else {
             updates()
-            completeRenderSettlement()
+            if !isZoomedOut {
+                applyTerminalAnimationFreeze(to: [])
+                applyViewportSyncSuspension(to: [])
+            }
+            viewportView.layoutSubtreeIfNeeded()
         }
 
         currentOffset = targetOffset
@@ -409,12 +470,6 @@ final class PaneStripView: NSView {
         }
         onBorderChromeSnapshotsDidChange?(borderChromeSnapshots(for: presentation, offset: targetOffset))
         syncFocusedTerminal(with: state.focusedPaneID)
-    }
-
-    private func completeRenderSettlement() {
-        applyTerminalAnimationFreeze(to: [])
-        viewportView.layoutSubtreeIfNeeded()
-        applyViewportSyncSuspension(to: [])
     }
 
     private func sharesAnyPane(
@@ -493,6 +548,8 @@ final class PaneStripView: NSView {
         let obsoletePaneIDs = Set(paneViews.keys).subtracting(nextPaneIDs)
 
         for paneID in obsoletePaneIDs {
+            dragZoneViews[paneID]?.removeFromSuperview()
+            dragZoneViews.removeValue(forKey: paneID)
             paneViews[paneID]?.prepareForRemoval()
             paneViews[paneID]?.removeFromSuperview()
             paneViews.removeValue(forKey: paneID)
@@ -537,6 +594,39 @@ final class PaneStripView: NSView {
             paneViews[panePresentation.paneID] = paneView
             viewportView.addSubview(paneView)
             paneView.activateSessionIfNeeded()
+
+            let dragZone = PaneDragZoneView(paneID: pane.id)
+            let dragZoneHeight = PaneContainerView.dragZoneHeight
+            dragZone.frame = CGRect(
+                x: 0,
+                y: paneView.bounds.height - dragZoneHeight,
+                width: paneView.bounds.width,
+                height: dragZoneHeight
+            )
+            dragZone.autoresizingMask = [.width, .minYMargin]
+            // Coordinates arrive in dragZone's local space. Convert directly
+            // from dragZone to self (PaneStripView) to avoid going through
+            // PaneContainerView which may have a CATransform3D during drag.
+            dragZone.onDragActivated = { [weak self, weak dragZone] paneID, localPoint in
+                guard let self, let dragZone else { return }
+                let inStrip = dragZone.convert(localPoint, to: self)
+                self.handleDragActivated(paneID: paneID, origin: inStrip)
+            }
+            dragZone.onDragMoved = { [weak self, weak dragZone] localPoint in
+                guard let self, let dragZone else { return }
+                let inStrip = dragZone.convert(localPoint, to: self)
+                self.dragCoordinator.updateCursor(inStrip)
+            }
+            dragZone.onDragEnded = { [weak self, weak dragZone] localPoint in
+                guard let self, let dragZone else { return }
+                let inStrip = dragZone.convert(localPoint, to: self)
+                self.dragCoordinator.endDrag(at: inStrip)
+            }
+            dragZone.onDragCancelled = { [weak self] in
+                self?.dragCoordinator.cancelDrag()
+            }
+            paneView.addSubview(dragZone)
+            dragZoneViews[pane.id] = dragZone
         }
 
         lastFocusedPaneID = lastFocusedPaneID.flatMap { paneViews[$0] == nil ? nil : $0 }
@@ -830,6 +920,283 @@ final class PaneStripView: NSView {
         }
     }
 
+    // MARK: - Zoom
+
+    func toggleZoom(animated: Bool = true) {
+        guard !isDragActive else { return }
+        isZoomedOut.toggle()
+
+        if isZoomedOut {
+            // Freeze terminals so they don't re-render at the zoomed pixel size
+            for (_, paneView) in paneViews {
+                paneView.beginVerticalFreeze(gravity: .top)
+                paneView.setTerminalViewportSyncSuspended(true)
+            }
+            applyZoom(animated: animated)
+        } else {
+            // Zoom back first, then unfreeze after the animation completes
+            // so the terminal re-renders at the correct full-size backing
+            applyZoom(animated: animated)
+            let unfreezeDelay = animated ? 0.35 : 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
+                guard let self, !self.isZoomedOut else { return }
+                for (_, paneView) in self.paneViews {
+                    paneView.endVerticalFreeze()
+                    paneView.setTerminalViewportSyncSuspended(false)
+                }
+                // Force terminals to re-layout at correct backing size
+                for (_, paneView) in self.paneViews {
+                    paneView.needsLayout = true
+                    paneView.layoutSubtreeIfNeeded()
+                }
+            }
+        }
+    }
+
+    /// Whether a zoom animation is currently in progress.
+    var isZoomAnimating: Bool { zoomAnimationTimer != nil }
+    private var zoomAnimationTimer: Timer?
+    private var zoomAnimationStart: CFTimeInterval = 0
+    private var zoomAnimationFrom: CGFloat = 1
+    private var zoomAnimationTo: CGFloat = 1
+    private var zoomAnchor: CGPoint = .zero
+    private static let zoomAnimationDuration: CFTimeInterval = 0.35
+
+    private func applyZoom(animated: Bool) {
+        // Compute the anchor: focused pane center in content space
+        let fw = viewportView.frame.width
+        let fh = viewportView.frame.height
+        if let focusedID = currentState?.focusedPaneID,
+           let focusedView = paneViews[focusedID] {
+            zoomAnchor = CGPoint(x: focusedView.frame.midX, y: fh / 2)
+        } else {
+            zoomAnchor = CGPoint(x: fw / 2, y: fh / 2)
+        }
+
+        let targetScale = isZoomedOut ? Self.zoomScale : 1.0
+
+        if animated {
+            zoomAnimationFrom = currentZoomScale()
+            zoomAnimationTo = targetScale
+            zoomAnimationFromScrollX = dragScrollOffsetX
+            zoomAnimationToScrollX = dragScrollOffsetX
+            zoomAnimationStart = CACurrentMediaTime()
+            startZoomAnimation()
+        } else {
+            applyZoomScale(targetScale)
+        }
+    }
+
+    func currentZoomScale() -> CGFloat {
+        let fw = viewportView.frame.width
+        guard fw > 0 else { return 1 }
+        let bw = viewportView.bounds.width
+        guard bw > 0 else { return 1 }
+        return fw / bw
+    }
+
+    /// Extra horizontal scroll offset applied during drag (in content space).
+    var dragScrollOffsetX: CGFloat = 0
+    private var zoomAnimationFromScrollX: CGFloat = 0
+    private var zoomAnimationToScrollX: CGFloat = 0
+
+    private func composedBounds(scale: CGFloat, scrollX: CGFloat) -> CGRect {
+        let fw = viewportView.frame.width
+        let fh = viewportView.frame.height
+        guard fw > 0, fh > 0 else { return .zero }
+
+        let bw = fw / scale
+        let bh = fh / scale
+        let ox = zoomAnchor.x * (1 - 1 / scale) + scrollX
+        let oy = zoomAnchor.y * (1 - 1 / scale)
+
+        return CGRect(x: ox, y: oy, width: bw, height: bh)
+    }
+
+    private func applyZoomScale(_ scale: CGFloat) {
+        viewportView.bounds = composedBounds(scale: scale, scrollX: dragScrollOffsetX)
+    }
+
+    /// Re-apply the current zoom scale (with dragScrollOffsetX). Used by edge scroll.
+    func applyCurrentZoom() {
+        applyZoomScale(currentZoomScale())
+    }
+
+    private func startZoomAnimation() {
+        stopZoomAnimation()
+
+        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in
+            self?.zoomAnimationTick()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        zoomAnimationTimer = timer
+    }
+
+    private func stopZoomAnimation() {
+        zoomAnimationTimer?.invalidate()
+        zoomAnimationTimer = nil
+    }
+
+    private func zoomAnimationTick() {
+        let elapsed = CACurrentMediaTime() - zoomAnimationStart
+        let duration = Self.zoomAnimationDuration
+        let progress = min(1, elapsed / duration)
+
+        // Critically damped spring with initial kick: snappy, no overshoot
+        let omega: CGFloat = 10
+        let v0: CGFloat = 5
+        let raw = 1 + ((v0 - omega) * progress - 1) * exp(-omega * progress)
+        let norm = 1 + ((v0 - omega) - 1) * exp(-omega)
+        let eased = raw / norm
+
+        let currentScale = zoomAnimationFrom + (zoomAnimationTo - zoomAnimationFrom) * eased
+        let currentScrollX = zoomAnimationFromScrollX
+            + (zoomAnimationToScrollX - zoomAnimationFromScrollX) * eased
+        dragScrollOffsetX = currentScrollX
+        applyZoomScale(currentScale)
+
+        if isDragActive {
+            dragCoordinator.updateDraggedPanePosition(zoomScale: currentScale)
+        }
+
+        if progress >= 1 {
+            dragScrollOffsetX = zoomAnimationToScrollX
+            applyZoomScale(zoomAnimationTo)
+            // Stop animation BEFORE recheckEdgeScroll so isZoomAnimating is false
+            // when the edge scroll timer guard checks it.
+            stopZoomAnimation()
+            if isDragActive {
+                dragCoordinator.updateDraggedPanePosition(zoomScale: zoomAnimationTo)
+                dragCoordinator.recheckEdgeScroll()
+            }
+        }
+    }
+
+    // MARK: - Pane Drag
+
+    private func handleDragActivated(paneID: PaneID, origin: CGPoint) {
+        guard let state = currentState,
+              let presentation = currentPresentation else { return }
+
+        // Trigger zoom-out if not already zoomed
+        if !isZoomedOut {
+            isZoomedOut = true
+            // Freeze all non-dragged panes for zoom (dragged pane frozen by coordinator)
+            for (id, paneView) in paneViews where id != paneID {
+                paneView.setTerminalViewportSyncSuspended(true)
+            }
+            applyZoom(animated: true)
+        }
+
+        dragCoordinator.activateDrag(
+            paneID: paneID,
+            cursorInStrip: origin,
+            paneViews: paneViews,
+            viewportView: viewportView,
+            paneStripView: self,
+            state: state,
+            presentation: presentation,
+            motionController: motionController,
+            backingScaleFactor: currentBackingScaleFactor,
+            leadingVisibleInset: resolvedLeadingVisibleInset
+        )
+    }
+
+    /// Called by PaneDragCoordinator after drop/cancel to trigger zoom-in.
+    func endDragWithZoomIn() {
+        guard isZoomedOut else { return }
+        isZoomedOut = false
+        // Animate scroll back to 0 alongside the zoom-in
+        let targetScale: CGFloat = 1.0
+        zoomAnimationFrom = currentZoomScale()
+        zoomAnimationTo = targetScale
+        zoomAnimationFromScrollX = dragScrollOffsetX
+        zoomAnimationToScrollX = 0
+        zoomAnimationStart = CACurrentMediaTime()
+        startZoomAnimation()
+
+        let unfreezeDelay: TimeInterval = Self.zoomAnimationDuration + 0.05
+        DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
+            guard let self, !self.isZoomedOut else { return }
+
+            // Restore viewport autoresizing (was disabled by the drag coordinator)
+            self.viewportView.autoresizingMask = [.width, .height]
+
+            // Unfreeze and unsuspend all terminals
+            for (_, paneView) in self.paneViews {
+                paneView.endVerticalFreeze()
+                paneView.setTerminalViewportSyncSuspended(false)
+            }
+
+            // Re-render at correct layout
+            if let state = self.currentState {
+                self.renderCurrentState(state, animated: false)
+            }
+
+            // Force full display invalidation — layout alone doesn't
+            // mark layer-backed content dirty after bounds-based zoom.
+            for (_, paneView) in self.paneViews {
+                paneView.needsLayout = true
+                paneView.layoutSubtreeIfNeeded()
+                paneView.needsDisplay = true
+                paneView.displayIfNeeded()
+                // Also invalidate sublayers (terminal host)
+                paneView.subviews.forEach { sub in
+                    sub.needsDisplay = true
+                    sub.subviews.forEach { $0.needsDisplay = true }
+                }
+            }
+            self.viewportView.needsDisplay = true
+            self.viewportView.displayIfNeeded()
+        }
+    }
+
+    /// Apply drag layout with optional gap at an insertion point.
+    /// `gapAtReducedIndex` specifies where to open a visual gap (columns shift apart).
+    func applyDragLayout(
+        _ presentation: StripPresentation,
+        excluding paneID: PaneID,
+        gapAtReducedIndex: Int? = nil,
+        animated: Bool
+    ) {
+        let offset = presentation.targetOffset
+        let gapWidth: CGFloat = 40  // visual gap width in content space
+        let updates = {
+            for panePresentation in presentation.panes where panePresentation.paneID != paneID {
+                guard let paneView = self.paneViews[panePresentation.paneID] else { continue }
+
+                // Shift panes to create a gap at the insertion point
+                var dx: CGFloat = -self.resolvedOffset(offset)
+                if let gapIdx = gapAtReducedIndex {
+                    // Find this pane's column index in the presentation
+                    if let colIdx = presentation.columns.firstIndex(where: { $0.columnID == panePresentation.columnID }) {
+                        if colIdx >= gapIdx {
+                            dx += gapWidth / 2  // shift right
+                        } else {
+                            dx -= gapWidth / 2  // shift left
+                        }
+                    }
+                }
+
+                let targetFrame = panePresentation.frame.offsetBy(dx: dx, dy: 0)
+                paneView.frame = targetFrame
+            }
+        }
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                context.allowsImplicitAnimation = true
+                updates()
+                self.viewportView.layoutSubtreeIfNeeded()
+            }
+        } else {
+            updates()
+        }
+    }
+
+    // MARK: - Divider Drag
+
     private func beginDividerDrag() {
         dividerDragSuspendedPaneIDs = Set(currentState?.panes.map(\.id) ?? [])
         applyViewportSyncSuspension(to: [])
@@ -1041,6 +1408,11 @@ final class PaneStripView: NSView {
         DispatchQueue.main.async { [weak self] in
             self?.renderGuard.clearResizeSuppression(forGeneration: generation)
         }
+    }
+
+    /// Exposed for PaneDragCoordinator to align insertion line with drag layout.
+    func resolvedDragOffset(_ offset: CGFloat) -> CGFloat {
+        resolvedOffset(offset)
     }
 
     private func resolvedOffset(_ offset: CGFloat) -> CGFloat {

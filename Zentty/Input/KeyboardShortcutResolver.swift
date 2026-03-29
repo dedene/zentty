@@ -49,6 +49,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case resizePaneUp = "pane.resize.up"
     case resizePaneDown = "pane.resize.down"
     case resetPaneLayout = "pane.reset_layout"
+    case toggleZoomOut = "pane.toggle_zoom_out"
     case navigateBack = "navigate.back"
     case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
@@ -459,6 +460,18 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
+            id: .toggleZoomOut,
+            title: "Toggle Zoom Out",
+            category: .panes,
+            defaultShortcut: .init(key: .character("-"), modifiers: [.command, .shift]),
+            action: .pane(.toggleZoomOut),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Toggle Zoom Out",
+                selector: #selector(MainWindowController.toggleZoomOut(_:))
+            )
+        ),
+        AppCommandDefinition(
             id: .showCommandPalette,
             title: "Command Palette",
             category: .general,
@@ -539,6 +552,8 @@ enum AppCommandRegistry {
             .command(.resizePaneDown),
             .separator,
             .command(.resetPaneLayout),
+            .separator,
+            .command(.toggleZoomOut),
         ],
     ]
 
@@ -620,6 +635,8 @@ extension AppCommandDefinition {
             "Increase the height of the focused pane by moving its lower split."
         case .resetPaneLayout:
             "Restore the current pane layout to its default proportions."
+        case .toggleZoomOut:
+            "Toggle zoomed-out view of all panes for drag reordering."
         case .showCommandPalette:
             "Open the command palette to quickly find and run any command."
         case .openSettings:

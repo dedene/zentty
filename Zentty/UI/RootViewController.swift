@@ -482,6 +482,57 @@ final class RootViewController: NSViewController {
             self?.sidebarMotionCoordinator.handle(.hoverRailExited)
             self?.syncSidebarVisibilityControls(animated: true)
         }
+        appCanvasView.paneStripView.onPaneReorderRequested = { [weak self] paneID, columnIndex in
+            guard let self else { return }
+            self.worklaneStore.reorderPane(
+                paneID: paneID,
+                toColumnIndex: columnIndex,
+                singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+            )
+        }
+        appCanvasView.paneStripView.onPaneSplitDropRequested = { [weak self] paneID, targetID, axis, leading in
+            guard let self else { return }
+            self.worklaneStore.splitDropPane(
+                paneID: paneID,
+                ontoTargetPaneID: targetID,
+                axis: axis,
+                leading: leading,
+                availableHeight: self.appCanvasView.bounds.height,
+                singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+            )
+        }
+        appCanvasView.paneStripView.onPaneCrossWorklaneDropRequested = { [weak self] paneID, worklaneID in
+            guard let self else { return }
+            self.worklaneStore.transferPaneToWorklane(
+                paneID: paneID,
+                targetWorklaneID: worklaneID,
+                singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+            )
+        }
+        appCanvasView.paneStripView.sidebarWorklaneFrameProvider = { [weak self] in
+            guard let self else { return [] }
+            return self.sidebarView.worklaneRowFrames(in: self.appCanvasView)
+        }
+        appCanvasView.paneStripView.onDragApproachingSidebarEdge = { [weak self] approaching in
+            guard let self else { return }
+            self.sidebarMotionCoordinator.handle(approaching ? .hoverRailEntered : .hoverRailExited)
+            self.syncSidebarVisibilityControls(animated: true)
+        }
+        appCanvasView.paneStripView.onHoveredSidebarWorklaneChanged = { [weak self] worklaneID in
+            self?.sidebarView.setHighlightedDropTargetWorklane(worklaneID)
+        }
+        appCanvasView.paneStripView.onDragActiveChanged = { [weak self] active in
+            guard let self else { return }
+            if active {
+                self.paneBorderContextOverlayView.isHidden = true
+            } else {
+                self.sidebarMotionCoordinator.handle(.hoverRailExited)
+                self.syncSidebarVisibilityControls(animated: true)
+            }
+        }
+        appCanvasView.paneStripView.activeWorklaneIDProvider = { [weak self] in
+            self?.worklaneStore.activeWorklaneID
+        }
         sidebarToggleButton.target = self
         sidebarToggleButton.action = #selector(handleToggleSidebar)
         sidebarMotionCoordinator.onMotionStateDidChange = { [weak self] motionState, animated in
@@ -806,6 +857,8 @@ final class RootViewController: NSViewController {
             } else {
                 worklaneStore.send(command)
             }
+        case .toggleZoomOut:
+            appCanvasView.paneStripView.toggleZoom()
         default:
             worklaneStore.send(command)
         }

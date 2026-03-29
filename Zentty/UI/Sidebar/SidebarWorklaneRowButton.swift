@@ -219,14 +219,23 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview else { return nil }
+
+        let pointInSelf = convert(point, from: superview)
+        guard bounds.contains(pointInSelf), !isHidden, alphaValue > 0 else {
+            return nil
+        }
+
         let activePaneCount = currentSummary?.paneRows.count ?? 0
-        for paneButton in paneRowButtons.prefix(activePaneCount) where paneButton.superview != nil {
-            let localPoint = paneButton.convert(point, from: self)
-            if paneButton.bounds.contains(localPoint) {
+        for paneButton in paneRowButtons.prefix(activePaneCount)
+        where paneButton.superview != nil && !paneButton.isHidden {
+            let pointInPane = paneButton.convert(point, from: superview)
+            if paneButton.bounds.contains(pointInPane) {
                 return paneButton
             }
         }
-        return super.hitTest(point)
+
+        return self
     }
 
     func paneRowHoverChanged(isHovered: Bool) {
@@ -247,6 +256,18 @@ final class SidebarWorklaneRowButton: NSButton {
         statusLabel.isVisibleForSharedAnimation = isVisible
         panePrimaryRows.forEach { $0.setShimmerVisibility(isVisible) }
         paneStatusRows.forEach { $0.setShimmerVisibility(isVisible) }
+    }
+
+    func setDropTargetHighlighted(_ highlighted: Bool) {
+        guard wantsLayer, let layer else { return }
+        if highlighted {
+            layer.shadowColor = NSColor.controlAccentColor.cgColor
+            layer.shadowOpacity = 0.5
+            layer.shadowRadius = 6
+            layer.shadowOffset = .zero
+        } else {
+            layer.shadowOpacity = 0
+        }
     }
 
     override func updateTrackingAreas() {
@@ -2008,6 +2029,12 @@ private final class SidebarPaneRowButton: NSButton {
 
         target = self
         action = #selector(handleClick)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview else { return nil }
+        let pointInSelf = convert(point, from: superview)
+        return bounds.contains(pointInSelf) ? self : nil
     }
 
     @objc private func handleClick() {

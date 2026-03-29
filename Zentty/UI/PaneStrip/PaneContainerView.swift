@@ -72,7 +72,9 @@ final class PaneContainerView: NSView {
         isFocused: Bool,
         runtime: PaneRuntime,
         theme: ZenttyTheme,
-        backingScaleFactorProvider: @escaping () -> CGFloat = { NSScreen.main?.backingScaleFactor ?? 1 }
+        backingScaleFactorProvider: @escaping () -> CGFloat = {
+            NSScreen.main?.backingScaleFactor ?? 1
+        }
     ) {
         self.paneID = pane.id
         self.titleTextStorage = pane.title
@@ -285,6 +287,17 @@ final class PaneContainerView: NSView {
         terminalHostView.setViewportSyncSuspended(suspended)
     }
 
+    static let dragZoneHeight: CGFloat = 15
+
+    func snapshotImage() -> NSImage? {
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        guard let rep = bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        cacheDisplay(in: bounds, to: rep)
+        let image = NSImage(size: bounds.size)
+        image.addRepresentation(rep)
+        return image
+    }
+
     func beginVerticalFreeze(gravity: TerminalAnchorView.Gravity) {
         guard !isTerminalAnimationFrozen else {
             return
@@ -411,7 +424,8 @@ final class PaneContainerView: NSView {
     }
 
     var insetBorderColorToken: String? {
-        guard let cgColor = insetBorderLayer.borderColor, let color = NSColor(cgColor: cgColor) else {
+        guard let cgColor = insetBorderLayer.borderColor, let color = NSColor(cgColor: cgColor)
+        else {
             return nil
         }
 
@@ -439,7 +453,9 @@ final class PaneContainerView: NSView {
     }
 
     var contentClipBackgroundColorTokenForTesting: String? {
-        guard let cgColor = contentClipView.layer?.backgroundColor, let color = NSColor(cgColor: cgColor) else {
+        guard let cgColor = contentClipView.layer?.backgroundColor,
+            let color = NSColor(cgColor: cgColor)
+        else {
             return nil
         }
 
@@ -465,6 +481,34 @@ final class PaneContainerView: NSView {
         insetBorderLayer.zPosition = 10
         layer?.addSublayer(insetBorderLayer)
         updateInsetBorderLayer()
+    }
+
+    private var savedBorderColor: CGColor?
+
+    func applyZoomBorderCompensation(zoomScale: CGFloat) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        insetBorderLayer.borderWidth = Layout.borderWidth / max(0.1, zoomScale)
+
+        // Boost border opacity so it's clearly visible at small scale
+        savedBorderColor = insetBorderLayer.borderColor
+        if let current = insetBorderLayer.borderColor,
+            let nsColor = NSColor(cgColor: current)
+        {
+            insetBorderLayer.borderColor = nsColor.withAlphaComponent(0.4).cgColor
+        }
+        CATransaction.commit()
+    }
+
+    func resetZoomBorderCompensation() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        insetBorderLayer.borderWidth = Layout.borderWidth
+        if let saved = savedBorderColor {
+            insetBorderLayer.borderColor = saved
+            savedBorderColor = nil
+        }
+        CATransaction.commit()
     }
 
     private func updateInsetBorderLayer() {
@@ -606,13 +650,15 @@ final class PaneContainerView: NSView {
         let theme = currentTheme
         let emphasis = currentEmphasis
         let isFocused = currentIsFocused
-        let paneFillColor = useNeutralBackground
+        let paneFillColor =
+            useNeutralBackground
             ? theme.startupSurface
             : (isFocused ? theme.paneFillFocused : theme.paneFillUnfocused)
         let shadowOpacity = Float(max(0, emphasis - 0.88) * 2.2)
         let shadowRadius = 6 + max(0, emphasis - 0.92) * 24
         performThemeAnimation(animated: animated) {
-            let borderColor = (isFocused
+            let borderColor =
+                (isFocused
                 ? theme.paneBorderFocused
                 : theme.paneBorderUnfocused).cgColor
             self.insetBorderLayer.borderColor = borderColor
