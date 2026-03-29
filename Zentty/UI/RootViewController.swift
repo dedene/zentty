@@ -370,7 +370,15 @@ final class RootViewController: NSViewController {
             self?.worklaneStore.focusPane(id: paneID)
         }
         appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
-            self?.worklaneStore.closePane(id: paneID)
+            guard let self else { return }
+            if self.configStore.current.confirmations.confirmBeforeClosingPane,
+               let reason = self.worklaneStore.paneCloseConfirmationReason(paneID) {
+                self.showClosePaneConfirmation(reason: reason) {
+                    self.worklaneStore.closePane(id: paneID)
+                }
+            } else {
+                self.worklaneStore.closePane(id: paneID)
+            }
         }
         appCanvasView.paneStripView.onDividerInteraction = { [weak self] divider in
             self?.worklaneStore.markDividerInteraction(divider)
@@ -411,8 +419,17 @@ final class RootViewController: NSViewController {
             self?.worklaneStore.closeActiveWorklane()
         }
         sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
-            self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
-            self?.worklaneStore.closePane(id: paneID)
+            guard let self else { return }
+            if self.configStore.current.confirmations.confirmBeforeClosingPane,
+               let reason = self.worklaneStore.paneCloseConfirmationReason(paneID) {
+                self.showClosePaneConfirmation(reason: reason) {
+                    self.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+                    self.worklaneStore.closePane(id: paneID)
+                }
+            } else {
+                self.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+                self.worklaneStore.closePane(id: paneID)
+            }
         }
         sidebarView.onSplitHorizontalRequested = { [weak self] worklaneID, paneID in
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
@@ -659,8 +676,58 @@ final class RootViewController: NSViewController {
             )
         case .resetLayout:
             worklaneStore.resetActiveWorklaneLayout()
+        case .closeFocusedPane:
+            let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+            if configStore.current.confirmations.confirmBeforeClosingPane,
+               let focusedPaneID,
+               let reason = worklaneStore.paneCloseConfirmationReason(focusedPaneID) {
+                showClosePaneConfirmation(reason: reason) { [weak self] in
+                    self?.worklaneStore.send(command)
+                }
+            } else {
+                worklaneStore.send(command)
+            }
         default:
             worklaneStore.send(command)
+        }
+    }
+
+    private var isShowingClosePaneConfirmation = false
+
+    private func showClosePaneConfirmation(
+        reason: WorklaneStore.PaneCloseReason,
+        onConfirm: @escaping () -> Void
+    ) {
+        guard !isShowingClosePaneConfirmation else { return }
+        isShowingClosePaneConfirmation = true
+
+        let alert = NSAlert()
+        alert.messageText = "Close this pane?"
+        switch reason {
+        case .runningProcess:
+            alert.informativeText = "The running process in this pane will be terminated."
+        case .sessionHistory:
+            alert.informativeText = "This pane's session history will be lost."
+        }
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Close Pane")
+        alert.addButton(withTitle: "Cancel")
+        let isDark = currentTheme.windowBackground.isDarkThemeColor
+        alert.window.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+
+        guard let window = view.window else {
+            isShowingClosePaneConfirmation = false
+            if alert.runModal() == .alertFirstButtonReturn {
+                onConfirm()
+            }
+            return
+        }
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            self?.isShowingClosePaneConfirmation = false
+            if response == .alertFirstButtonReturn {
+                onConfirm()
+            }
         }
     }
 
@@ -1006,6 +1073,7 @@ final class RootViewController: NSViewController {
             visibilityMode: sidebarMotionCoordinator.mode,
             pinnedContentMinX: pinnedHeaderContentMinX
         )
+        sidebarView.layoutSubtreeIfNeeded()
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
@@ -1065,6 +1133,10 @@ final class RootViewController: NSViewController {
 
     var currentWindowTheme: ZenttyTheme {
         currentTheme
+    }
+
+    var anyPaneRequiresQuitConfirmation: Bool {
+        worklaneStore.anyPaneRequiresQuitConfirmation
     }
 
     var worklaneTitles: [String] {

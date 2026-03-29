@@ -182,6 +182,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             self?.handleOpenWithSettingsMenuItem(nil)
         }
         rootViewController.onWindowChromeNeedsUpdate = { [weak self] in
+            self?.syncWindowAppearance()
             self?.updateTrafficLightAppearance()
         }
         rootViewController.onOpenWithPrimaryRequested = { [weak self] in
@@ -220,6 +221,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func showWindow(_ sender: Any?) {
         isWindowKey = true
         window.makeKeyAndOrderFront(sender)
+        syncWindowAppearance()
         layoutTrafficLights()
         rootViewController.activateWindowBindingsIfNeeded()
     }
@@ -415,6 +417,20 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         rootViewController.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    var anyPaneRequiresQuitConfirmation: Bool {
+        rootViewController.anyPaneRequiresQuitConfirmation
+    }
+
+    var terminalAppearance: NSAppearance? {
+        let theme = rootViewController.currentWindowTheme
+        let isDark = theme.windowBackground.isDarkThemeColor
+        return NSAppearance(named: isDark ? .darkAqua : .aqua)
+    }
+
+    private func syncWindowAppearance() {
+        window.appearance = terminalAppearance
     }
 
     var worklaneTitles: [String] {

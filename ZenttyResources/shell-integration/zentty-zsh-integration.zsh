@@ -83,8 +83,27 @@ _zentty_precmd() {
     builtin printf '\e]2;%s\a' "${PWD/#$HOME/~}"
 }
 
+_zentty_is_navigation_command() {
+    local cmd="$1"
+    case "$cmd" in
+        cd|pushd|popd|z|j) return 0 ;;
+    esac
+    # User-configured navigation commands (comma-separated)
+    if [[ -n "${ZENTTY_NAVIGATION_COMMANDS:-}" ]]; then
+        local nav
+        for nav in ${(s:,:)ZENTTY_NAVIGATION_COMMANDS}; do
+            [[ "$cmd" == "$nav" ]] && return 0
+        done
+    fi
+    # Alias that resolves to cd
+    local expansion="${aliases[$cmd]:-}"
+    [[ -n "$expansion" && "${expansion%%[[:space:]]*}" == "cd" ]] && return 0
+    return 1
+}
+
 _zentty_preexec() {
-    _zentty_agent_signal shell-state running
+    local cmd="${1%%[[:space:]]*}"
+    _zentty_is_navigation_command "$cmd" || _zentty_agent_signal shell-state running
     # Set terminal title to the running command (first line only)
     builtin printf '\e]2;%s\a' "${1%%$'\n'*}"
 }
