@@ -285,6 +285,17 @@ final class PaneContainerView: NSView {
         terminalHostView.setViewportSyncSuspended(suspended)
     }
 
+    static let dragZoneHeight: CGFloat = 15
+
+    func snapshotImage() -> NSImage? {
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        guard let rep = bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        cacheDisplay(in: bounds, to: rep)
+        let image = NSImage(size: bounds.size)
+        image.addRepresentation(rep)
+        return image
+    }
+
     func beginVerticalFreeze(gravity: TerminalAnchorView.Gravity) {
         guard !isTerminalAnimationFrozen else {
             return

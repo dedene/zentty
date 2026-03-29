@@ -93,10 +93,17 @@ extension WorklaneStore {
     }
 
     func applyAgentStatusPayload(_ payload: AgentStatusPayload) {
-        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
+        let worklaneIndex: Int
+        if let exact = worklanes.firstIndex(where: { worklane in
             worklane.id == payload.worklaneID
                 && worklane.paneStripState.panes.contains(where: { $0.id == payload.paneID })
-        }) else {
+        }) {
+            worklaneIndex = exact
+        } else if let fallback = worklanes.firstIndex(where: { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == payload.paneID })
+        }) {
+            worklaneIndex = fallback
+        } else {
             return
         }
 

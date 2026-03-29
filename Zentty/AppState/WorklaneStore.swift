@@ -191,7 +191,7 @@ final class WorklaneStore {
 
     var worklanes: [WorklaneState]
     let gitContextResolver: any PaneGitContextResolving
-    private var layoutContext: PaneLayoutContext
+    private(set) var layoutContext: PaneLayoutContext
     private var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
     private var lastFocusedPaneReference: PaneReference?
     private var lastFocusedLocalPaneReference: PaneReference?
@@ -202,7 +202,7 @@ final class WorklaneStore {
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     private let processEnvironment: [String: String]
 
-    private(set) var activeWorklaneID: WorklaneID
+    internal(set) var activeWorklaneID: WorklaneID
 
     private var subscribers: [(id: UUID, handler: (WorklaneChange) -> Void)] = []
     private var isBatching = false
@@ -373,7 +373,7 @@ final class WorklaneStore {
             worklane.paneStripState.moveFocusToLastColumn()
             clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
-        case .resizeLeft, .resizeRight, .resizeUp, .resizeDown, .resetLayout:
+        case .resizeLeft, .resizeRight, .resizeUp, .resizeDown, .resetLayout, .toggleZoomOut:
             activeWorklane = worklane
             return
         }
@@ -938,7 +938,7 @@ final class WorklaneStore {
         }
     }
 
-    private func refreshLastFocusedLocalWorkingDirectory() {
+    func refreshLastFocusedLocalWorkingDirectory() {
         guard
             let worklane = activeWorklane,
             let focusedPaneID = worklane.paneStripState.focusedPaneID

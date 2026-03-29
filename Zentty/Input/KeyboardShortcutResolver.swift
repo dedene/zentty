@@ -41,6 +41,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case resizePaneUp = "pane.resize.up"
     case resizePaneDown = "pane.resize.down"
     case resetPaneLayout = "pane.reset_layout"
+    case toggleZoomOut = "pane.toggle_zoom_out"
 }
 
 struct ShortcutBindingOverride: Equatable, Sendable {
@@ -318,6 +319,18 @@ enum AppCommandRegistry {
                 selector: #selector(MainWindowController.resetPaneLayout(_:))
             )
         ),
+        AppCommandDefinition(
+            id: .toggleZoomOut,
+            title: "Toggle Zoom Out",
+            category: .panes,
+            defaultShortcut: .init(key: .character("-"), modifiers: [.command, .shift]),
+            action: .pane(.toggleZoomOut),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Toggle Zoom Out",
+                selector: #selector(MainWindowController.toggleZoomOut(_:))
+            )
+        ),
     ]
 
     static let menuEntriesBySection: [AppMenuSection: [AppMenuEntry]] = [
@@ -348,6 +361,8 @@ enum AppCommandRegistry {
             .command(.resizePaneDown),
             .separator,
             .command(.resetPaneLayout),
+            .separator,
+            .command(.toggleZoomOut),
         ],
     ]
 

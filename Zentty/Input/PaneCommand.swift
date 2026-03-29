@@ -18,4 +18,5 @@ enum PaneCommand: Equatable, Sendable {
     case resizeUp
     case resizeDown
     case resetLayout
+    case toggleZoomOut
 }
