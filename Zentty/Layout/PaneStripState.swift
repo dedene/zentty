@@ -107,7 +107,7 @@ struct PaneColumnState: Equatable, Sendable {
     let id: PaneColumnID
     var panes: [PaneState]
     var width: CGFloat
-    private(set) var paneHeights: [CGFloat]
+    internal(set) var paneHeights: [CGFloat]
     private(set) var focusedPaneID: PaneID?
     private(set) var lastFocusedPaneID: PaneID?
 
@@ -353,7 +353,7 @@ struct PaneColumnState: Equatable, Sendable {
         lastFocusedPaneID = nextPaneID
     }
 
-    private mutating func reconcilePaneHeights() {
+    mutating func reconcilePaneHeights() {
         paneHeights = Self.resolvedStoredPaneHeights(
             preferred: paneHeights,
             paneCount: panes.count
@@ -460,7 +460,7 @@ struct PaneColumnState: Equatable, Sendable {
 struct PaneStripState: Equatable, Sendable {
     static let minimumVerticalPaneHeight: CGFloat = 160
 
-    private(set) var columns: [PaneColumnState]
+    internal(set) var columns: [PaneColumnState]
     private(set) var focusedColumnID: PaneColumnID?
     private(set) var layoutSizing: PaneLayoutSizing
     private(set) var lastInteractedDivider: PaneDivider?
@@ -765,6 +765,146 @@ struct PaneStripState: Equatable, Sendable {
 
         sanitizeLastInteractedDivider()
         return removedPane
+    }
+
+    @discardableResult
+    mutating func removePane(
+        id: PaneID,
+        singleColumnWidth: CGFloat? = nil
+    ) -> (pane: PaneState, fromColumnID: PaneColumnID, columnIndex: Int, paneIndex: Int)? {
+        guard let columnIndex = columns.firstIndex(where: { column in
+            column.panes.contains(where: { $0.id == id })
+        }) else {
+            return nil
+        }
+
+        let columnID = columns[columnIndex].id
+
+        guard let paneIndex = columns[columnIndex].panes.firstIndex(where: { $0.id == id }) else {
+            return nil
+        }
+
+        if columns[columnIndex].panes.count > 1 {
+            let removedPane = columns[columnIndex].panes.remove(at: paneIndex)
+            let removedHeight = columns[columnIndex].paneHeights.indices.contains(paneIndex)
+                ? columns[columnIndex].paneHeights.remove(at: paneIndex) : 1
+
+            let nextIndex = paneIndex < columns[columnIndex].panes.count
+                ? paneIndex : columns[columnIndex].panes.count - 1
+
+            if columns[columnIndex].focusedPaneID == id {
+                let nextPaneID = columns[columnIndex].panes[nextIndex].id
+                columns[columnIndex].focusPane(id: nextPaneID)
+            }
+
+            if columns[columnIndex].paneHeights.indices.contains(nextIndex) {
+                columns[columnIndex].paneHeights[nextIndex] += removedHeight
+            }
+            columns[columnIndex].reconcilePaneHeights()
+
+            if columns.count == 1,
+               columns[columnIndex].panes.count == 1,
+               let singleColumnWidth {
+                columns[columnIndex].width = max(1, singleColumnWidth)
+            }
+
+            sanitizeLastInteractedDivider()
+            return (removedPane, columnID, columnIndex, paneIndex)
+        }
+
+        let removedPane = columns[columnIndex].panes[0]
+        columns.remove(at: columnIndex)
+
+        guard !columns.isEmpty else {
+            focusedColumnID = nil
+            lastInteractedDivider = nil
+            return (removedPane, columnID, columnIndex, paneIndex)
+        }
+
+        let nextColIndex = min(columnIndex, columns.count - 1)
+        if focusedColumnID == columnID {
+            focusedColumnID = columns[nextColIndex].id
+            restoreColumnFocusIfNeeded()
+        }
+
+        if columns.count == 1, let singleColumnWidth {
+            columns[0].width = max(1, singleColumnWidth)
+        }
+
+        sanitizeLastInteractedDivider()
+        return (removedPane, columnID, columnIndex, paneIndex)
+    }
+
+    mutating func insertPaneAsColumn(
+        _ pane: PaneState,
+        atColumnIndex index: Int,
+        width: CGFloat
+    ) {
+        let clampedIndex = max(0, min(index, columns.count))
+        let newColumn = PaneColumnState(
+            id: PaneColumnID("column-\(pane.id.rawValue)"),
+            panes: [pane],
+            width: width,
+            focusedPaneID: pane.id,
+            lastFocusedPaneID: pane.id
+        )
+        columns.insert(newColumn, at: clampedIndex)
+        focusedColumnID = newColumn.id
+        sanitizeLastInteractedDivider()
+    }
+
+    @discardableResult
+    mutating func insertPaneIntoColumn(
+        _ pane: PaneState,
+        columnID: PaneColumnID,
+        targetPaneID: PaneID,
+        atPaneIndex paneIndex: Int,
+        availableHeight: CGFloat,
+        minimumPaneHeight: CGFloat = PaneStripState.minimumVerticalPaneHeight
+    ) -> Bool {
+        guard let columnIndex = columns.firstIndex(where: { $0.id == columnID }) else {
+            return false
+        }
+
+        guard let targetIndex = columns[columnIndex].panes.firstIndex(where: { $0.id == targetPaneID }) else {
+            return false
+        }
+
+        let targetHeight = columns[columnIndex].paneHeights.indices.contains(targetIndex)
+            ? columns[columnIndex].paneHeights[targetIndex] : 1
+
+        guard targetHeight / 2 >= minimumPaneHeight else {
+            return false
+        }
+
+        let insertedHeight = max(1, targetHeight / 2)
+        let retainedHeight = max(1, targetHeight - insertedHeight)
+
+        columns[columnIndex].paneHeights[targetIndex] = retainedHeight
+        let clampedPaneIndex = max(0, min(paneIndex, columns[columnIndex].panes.count))
+        columns[columnIndex].paneHeights.insert(insertedHeight, at: clampedPaneIndex)
+        columns[columnIndex].panes.insert(pane, at: clampedPaneIndex)
+        columns[columnIndex].reconcilePaneHeights()
+        columns[columnIndex].focusPane(id: pane.id)
+        focusedColumnID = columns[columnIndex].id
+        sanitizeLastInteractedDivider()
+        return true
+    }
+
+    mutating func insertPaneAdjacentToColumn(
+        _ pane: PaneState,
+        containingPaneID: PaneID,
+        leading: Bool,
+        width: CGFloat
+    ) {
+        guard let columnIndex = columns.firstIndex(where: { column in
+            column.panes.contains(where: { $0.id == containingPaneID })
+        }) else {
+            return
+        }
+
+        let insertionIndex = leading ? columnIndex : columnIndex + 1
+        insertPaneAsColumn(pane, atColumnIndex: insertionIndex, width: width)
     }
 
     @discardableResult

@@ -249,6 +249,18 @@ final class SidebarWorklaneRowButton: NSButton {
         paneStatusRows.forEach { $0.setShimmerVisibility(isVisible) }
     }
 
+    func setDropTargetHighlighted(_ highlighted: Bool) {
+        guard wantsLayer, let layer else { return }
+        if highlighted {
+            layer.shadowColor = NSColor.controlAccentColor.cgColor
+            layer.shadowOpacity = 0.5
+            layer.shadowRadius = 6
+            layer.shadowOffset = .zero
+        } else {
+            layer.shadowOpacity = 0
+        }
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
 
