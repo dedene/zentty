@@ -25,6 +25,7 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
     let contentView = NSView()
     private let documentView = SettingsDocumentView()
     private var contentWidthConstraint: NSLayoutConstraint?
+    private var isScrollerSuppressed = false
 
     final override func loadView() {
         scrollView.borderType = .noBorder
@@ -101,6 +102,15 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
         let clipView = scrollView.contentView
         clipView.scroll(to: .zero)
         scrollView.reflectScrolledClipView(clipView)
+    }
+
+    func setScrollerSuppressed(_ suppressed: Bool) {
+        isScrollerSuppressed = suppressed
+        scrollView.hasVerticalScroller = suppressed == false
+    }
+
+    var isScrollerSuppressedForTesting: Bool {
+        isScrollerSuppressed
     }
 
     private func updateDocumentLayout(viewportWidth: CGFloat, viewportHeight: CGFloat) {

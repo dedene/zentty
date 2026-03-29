@@ -701,6 +701,25 @@ final class WorklaneStore {
         let workingDirectory = resolveWorkingDirectoryForNewPane(in: worklane)
         let inheritFromPaneID = sourcePaneIDForSessionInheritance(in: worklane)
         let configInheritanceSourcePaneID = sourcePaneIDForConfigInheritance(in: worklane)
+
+        let initialShellContext = PaneShellContext(
+            scope: .local,
+            path: workingDirectory,
+            home: processEnvironment["HOME"],
+            user: processEnvironment["USER"],
+            host: nil
+        )
+        let initialRaw = PaneRawState(shellContext: initialShellContext)
+        let initialPresentation = PanePresentationNormalizer.normalize(
+            paneTitle: title,
+            raw: initialRaw,
+            previous: nil
+        )
+        worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
+            raw: initialRaw,
+            presentation: initialPresentation
+        )
+
         return PaneState(
             id: paneID,
             title: title,
@@ -745,6 +764,19 @@ final class WorklaneStore {
         processEnvironment: [String: String]
     ) -> WorklaneState {
         let shellPaneID = PaneID("\(id.rawValue)-shell")
+        let initialShellContext = PaneShellContext(
+            scope: .local,
+            path: workingDirectory,
+            home: processEnvironment["HOME"],
+            user: processEnvironment["USER"],
+            host: nil
+        )
+        let initialRaw = PaneRawState(shellContext: initialShellContext)
+        let initialPresentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: initialRaw,
+            previous: nil
+        )
         return WorklaneState(
             id: id,
             title: title,
@@ -769,7 +801,13 @@ final class WorklaneStore {
                 ],
                 focusedPaneID: shellPaneID,
                 layoutSizing: layoutContext.sizing
-            )
+            ),
+            auxiliaryStateByPaneID: [
+                shellPaneID: PaneAuxiliaryState(
+                    raw: initialRaw,
+                    presentation: initialPresentation
+                ),
+            ]
         )
     }
 

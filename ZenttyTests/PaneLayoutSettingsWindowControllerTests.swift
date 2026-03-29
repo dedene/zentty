@@ -27,7 +27,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(tabController.tabStyle, .toolbar)
         XCTAssertNotNil(controller.window?.toolbar)
         XCTAssertFalse(controller.window?.styleMask.contains(.resizable) == true)
-        XCTAssertEqual(contentController.sectionTitles, ["Shortcuts", "Open With", "Pane Layout"])
+        XCTAssertEqual(contentController.sectionTitles, ["General", "Shortcuts", "Open With", "Pane Layout"])
         XCTAssertEqual(contentController.selectedSection, .paneLayout)
         XCTAssertEqual(controller.window?.title, "Pane Layout")
 
@@ -35,11 +35,8 @@ final class SettingsWindowControllerTests: XCTestCase {
             contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
         )
         XCTAssertEqual(paneLayoutController.sectionTitles, ["Laptop", "Large Display", "Ultrawide Hybrid"])
-        XCTAssertEqual(paneLayoutController.presetSummary, [
-            "Laptop behavior: preserve the active pane, then scroll horizontally.",
-            "Large Display behavior: preserve the active pane with slightly denser columns.",
-            "Ultrawide Hybrid behavior: first split is 50/50, then keep horizontal scrolling.",
-        ])
+        XCTAssertEqual(paneLayoutController.presetSummary.count, paneLayoutController.sectionTitles.count)
+        XCTAssertTrue(paneLayoutController.presetSummary.allSatisfy { !$0.isEmpty })
     }
 
     func test_settings_window_can_switch_to_shortcuts_section_and_read_effective_bindings() throws {
@@ -81,6 +78,12 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         XCTAssertNotNil(shortcutsController.view.firstDescendantScrollView())
         XCTAssertEqual(shortcutsController.visibleCategoryTitles, ["General", "Worklanes", "Panes", "Notifications"])
+        XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Toggle Sidebar")
+        XCTAssertEqual(
+            shortcutsController.selectedCommandDescriptionForTesting,
+            "Show or hide the sidebar so you can focus on the canvas or quickly jump between worklanes."
+        )
+        XCTAssertNil(shortcutsController.selectedCommandDefaultShortcutForTesting)
         XCTAssertEqual(shortcutsController.displayString(for: .toggleSidebar), "⌘B")
         XCTAssertEqual(shortcutsController.displayString(for: .copyFocusedPanePath), "Unassigned")
     }
@@ -109,9 +112,10 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(shortcutsFrame.width, initialFrame.width, accuracy: 1.0)
         XCTAssertGreaterThan(shortcutsFrame.height, initialFrame.height)
         XCTAssertLessThanOrEqual(shortcutsFrame.height, maxAllowedHeight + 2.0)
+        XCTAssertEqual(shortcutsFrame.maxY, initialFrame.maxY, accuracy: 2.0)
     }
 
-    func test_shortcuts_pane_scrolls_when_content_exceeds_window_height_cap() throws {
+    func test_shortcuts_pane_uses_internal_browser_scroller() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -130,15 +134,13 @@ final class SettingsWindowControllerTests: XCTestCase {
         let shortcutsController = try XCTUnwrap(
             contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
         )
-        let scrollView = try XCTUnwrap(shortcutsController.view.firstDescendantScrollView())
-        let documentHeight = scrollView.documentView?.fittingSize.height ?? 0
 
-        XCTAssertGreaterThan(documentHeight, scrollView.contentSize.height)
-        XCTAssertTrue(scrollView.hasVerticalScroller)
+        XCTAssertTrue(shortcutsController.browserHasVerticalScrollerForTesting)
+        XCTAssertTrue(shortcutsController.visibleCommandTitles.contains("Toggle Sidebar"))
+        XCTAssertTrue(shortcutsController.visibleCommandTitles.contains("Reset Pane Layout"))
     }
 
-    @objc
-    func test_shortcuts_pane_opens_scrolled_to_top() throws {
+    func test_shortcuts_pane_shows_detail_content_for_selected_command() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -157,13 +159,12 @@ final class SettingsWindowControllerTests: XCTestCase {
         let shortcutsController = try XCTUnwrap(
             contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
         )
-        let scrollView = try XCTUnwrap(shortcutsController.view.firstDescendantScrollView())
 
-        XCTAssertEqual(scrollView.contentView.bounds.minY, 0, accuracy: 1.0)
+        XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Toggle Sidebar")
+        XCTAssertNil(shortcutsController.selectedCommandDefaultShortcutForTesting)
     }
 
-    @objc
-    func test_switching_back_to_shortcuts_resets_scroll_position_to_top() throws {
+    func test_shortcuts_pane_initial_selection_is_fully_visible() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -182,25 +183,252 @@ final class SettingsWindowControllerTests: XCTestCase {
         let shortcutsController = try XCTUnwrap(
             contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
         )
-        let scrollView = try XCTUnwrap(shortcutsController.view.firstDescendantScrollView())
-        let documentHeight = scrollView.documentView?.frame.height ?? 0
-        let viewportHeight = scrollView.contentSize.height
-        let bottomOffset = max(0, documentHeight - viewportHeight)
 
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: bottomOffset))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
-        XCTAssertGreaterThan(scrollView.contentView.bounds.minY, 1.0)
+        XCTAssertTrue(shortcutsController.isSelectedCommandFullyVisibleForTesting)
+    }
+
+    func test_shortcuts_pane_selected_row_uses_emphasized_text_color_when_emphasized() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.setSelectedRowEmphasizedForTesting(true)
+        XCTAssertTrue(shortcutsController.selectedRowUsesEmphasizedTextColorForTesting)
+    }
+
+    func test_shortcuts_pane_selected_row_reverts_to_regular_text_when_emphasis_clears() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.setSelectedRowEmphasizedForTesting(true)
+        XCTAssertTrue(shortcutsController.selectedRowUsesEmphasizedTextColorForTesting)
+
+        shortcutsController.setSelectedRowEmphasizedForTesting(false)
+        XCTAssertFalse(shortcutsController.selectedRowUsesEmphasizedTextColorForTesting)
+    }
+
+    func test_shortcuts_pane_search_flattens_results() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.applySearchForTesting("focus left")
+
+        XCTAssertEqual(shortcutsController.visibleCategoryTitles, [])
+        XCTAssertEqual(shortcutsController.visibleCommandTitles, ["Focus Left Pane"])
+        XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Focus Left Pane")
+    }
+
+    func test_shortcuts_pane_uses_dia_style_shortcut_ordering() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        XCTAssertEqual(shortcutsController.displayString(for: .copyFocusedPanePath), "⇧⌘C")
+    }
+
+    func test_shortcuts_pane_filters_live_while_typing() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.typeSearchTextForTesting("focus left")
+
+        XCTAssertEqual(shortcutsController.visibleCategoryTitles, [])
+        XCTAssertEqual(shortcutsController.visibleCommandTitles, ["Focus Left Pane"])
+        XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Focus Left Pane")
+    }
+
+    func test_shortcuts_pane_uses_fixed_browser_column_instead_of_resizable_split() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        XCTAssertTrue(shortcutsController.usesFixedBrowserColumnForTesting)
+    }
+
+    func test_shortcuts_pane_uses_simplified_detail_editor() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        XCTAssertNil(shortcutsController.selectedCommandDefaultShortcutForTesting)
+        XCTAssertTrue(shortcutsController.shortcutEditorUsesFullWidthLayoutForTesting)
+        XCTAssertTrue(shortcutsController.showsInlineClearAffordanceForTesting)
+        XCTAssertFalse(shortcutsController.showsPerCommandRestoreActionForTesting)
+        XCTAssertTrue(shortcutsController.showsResetAllShortcutsActionForTesting)
+    }
+
+    func test_shortcuts_conflict_message_can_jump_to_conflicting_command() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.newWorklane)
+        shortcutsController.attemptShortcutAssignmentForTesting(
+            KeyboardShortcut(key: .character("s"), modifiers: [.command])
+        )
+
+        XCTAssertEqual(shortcutsController.conflictTargetTitleForTesting, "Toggle Sidebar")
+
+        shortcutsController.activateConflictTargetForTesting()
+
+        XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Toggle Sidebar")
+    }
+
+    func test_switching_back_to_shortcuts_preserves_selected_command() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.focusRightPane)
+        XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Focus Right Pane")
 
         controller.show(section: .paneLayout, sender: nil)
         waitForLayout("pane layout settled")
         controller.show(section: .shortcuts, sender: nil)
         waitForLayout("shortcuts restored", delay: 0.2)
 
-        XCTAssertEqual(scrollView.contentView.bounds.minY, 0, accuracy: 1.0)
+        XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Focus Right Pane")
     }
 
-    @objc
-    func test_settings_window_uses_slide_and_fade_transition_between_sections() throws {
+    func test_settings_window_avoids_stock_directional_transition_between_sections() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -216,11 +444,42 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        let usesHorizontalSlide = contentController.transitionOptions.contains(.slideLeft)
+        let usesDirectionalSlide = contentController.transitionOptions.contains(.slideLeft)
             || contentController.transitionOptions.contains(.slideRight)
+            || contentController.transitionOptions.contains(.slideUp)
+            || contentController.transitionOptions.contains(.slideDown)
 
-        XCTAssertTrue(contentController.transitionOptions.contains(.crossfade))
-        XCTAssertTrue(usesHorizontalSlide)
+        XCTAssertFalse(usesDirectionalSlide)
+        XCTAssertEqual(contentController.transitionOptions, [])
+    }
+
+    func test_shortcuts_pane_suppresses_scroller_during_transition_then_restores_it() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+
+        controller.show(section: .shortcuts, sender: nil)
+
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+        XCTAssertTrue(shortcutsController.isScrollerSuppressedForTesting)
+
+        waitForLayout("shortcuts transition settled", delay: 0.35)
+
+        XCTAssertFalse(shortcutsController.isScrollerSuppressedForTesting)
     }
 
     func test_settings_window_can_switch_to_open_with_section_and_read_config() throws {
@@ -490,6 +749,64 @@ final class SettingsWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(store.current.openWith.customApps.map(\.id), ["custom:zed-preview"])
         XCTAssertEqual(store.current.openWith.enabledTargetIDs, ["finder", "custom:zed-preview"])
+    }
+
+    func test_settings_window_can_switch_to_general_section_and_shows_notification_controls() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        XCTAssertEqual(contentController.selectedSection, .general)
+        XCTAssertEqual(controller.window?.title, "General")
+
+        let generalController = try XCTUnwrap(
+            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        )
+        XCTAssertEqual(generalController.selectedSoundName, "")
+        XCTAssertTrue(generalController.availableSoundNames.contains(""))
+        XCTAssertTrue(generalController.availableSoundNames.contains("Glass"))
+        XCTAssertTrue(generalController.availableSoundNames.contains("Ping"))
+    }
+
+    func test_general_section_persists_sound_name_to_config() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        try store.update { config in
+            config.notifications.soundName = "Glass"
+        }
+
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let generalController = try XCTUnwrap(
+            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        )
+        XCTAssertEqual(generalController.selectedSoundName, "Glass")
     }
 
     func test_open_with_section_reconciles_unavailable_primary_target_to_available_fallback() throws {

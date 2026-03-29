@@ -526,6 +526,94 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.cwd, "/Users/peter/Development/other-project")
     }
 
+    func test_normalize_shows_command_title_during_execution_in_regular_shell() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "cmatrix",
+                currentWorkingDirectory: NSHomeDirectory(),
+                processName: "zsh",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.rememberedTitle, "cmatrix")
+        XCTAssertEqual(presentation.identityText, "cmatrix")
+    }
+
+    func test_normalize_clears_command_title_when_prompt_returns_in_regular_shell() {
+        var previous = PanePresentationState()
+        previous.rememberedTitle = "cmatrix"
+        previous.identityText = "cmatrix"
+
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "~/Development/project",
+                currentWorkingDirectory: "\(NSHomeDirectory())/Development/project",
+                processName: "zsh",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: previous
+        )
+
+        XCTAssertNil(presentation.rememberedTitle)
+    }
+
+    func test_normalize_preserves_agent_remembered_title_when_title_reverts_to_cwd() {
+        var previous = PanePresentationState()
+        previous.rememberedTitle = "Investigate flaky test"
+        previous.recognizedTool = .claudeCode
+
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "~/Development/project",
+                currentWorkingDirectory: "\(NSHomeDirectory())/Development/project",
+                processName: "claude",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 70),
+                hasObservedRunning: true
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: previous
+        )
+
+        XCTAssertEqual(presentation.rememberedTitle, "Investigate flaky test")
+    }
+
     func test_normalize_falls_through_when_agent_has_no_working_directory() {
         let raw = PaneRawState(
             metadata: TerminalMetadata(

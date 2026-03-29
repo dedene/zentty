@@ -85,6 +85,27 @@ final class WorklaneStoreGitContextTests: XCTestCase {
             store.unsubscribe(subscription)
         }
 
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklane!.id,
+                paneID: paneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/project",
+                    home: NSHomeDirectory(),
+                    user: NSUserName(),
+                    host: nil
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
         store.updateMetadata(
             paneID: paneID,
             metadata: TerminalMetadata(
@@ -258,6 +279,8 @@ final class WorklaneStoreGitContextTests: XCTestCase {
     }
 
     func test_metadata_branch_change_in_same_directory_reloads_git_context() async throws {
+        let paneID = PaneID("pane-shell")
+        let worklaneID = WorklaneID("worklane-main")
         let resolver = SequencedPaneGitContextResolver(
             resultsByWorkingDirectory: [
                 "/tmp/project": [
@@ -274,8 +297,28 @@ final class WorklaneStoreGitContextTests: XCTestCase {
                 ]
             ]
         )
-        let store = WorklaneStore(gitContextResolver: resolver)
-        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: paneID, title: "shell")],
+                        focusedPaneID: paneID
+                    ),
+                    paneContextByPaneID: [
+                        paneID: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: NSHomeDirectory(),
+                            user: NSUserName(),
+                            host: nil
+                        ),
+                    ]
+                ),
+            ],
+            gitContextResolver: resolver
+        )
 
         store.updateMetadata(
             paneID: paneID,

@@ -1,12 +1,15 @@
 import AppKit
 
 enum SettingsSection: String, CaseIterable, Equatable, Sendable {
+    case general
     case shortcuts
     case openWith
     case paneLayout
 
     var title: String {
         switch self {
+        case .general:
+            "General"
         case .shortcuts:
             "Shortcuts"
         case .openWith:
@@ -18,6 +21,8 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
 
     var symbolName: String {
         switch self {
+        case .general:
+            "gearshape"
         case .shortcuts:
             "keyboard"
         case .openWith:
@@ -29,6 +34,8 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
 
     var badgeColor: NSColor {
         switch self {
+        case .general:
+            .systemGray
         case .shortcuts:
             .systemIndigo
         case .openWith:
@@ -81,7 +88,7 @@ final class SettingsWindowController: NSWindowController {
         configStore: AppConfigStore,
         openWithService: OpenWithServing = OpenWithService(),
         customAppPicker: @escaping () -> OpenWithCustomApp? = OpenWithSettingsSectionViewController.defaultCustomAppPicker,
-        initialSection: SettingsSection = .paneLayout
+        initialSection: SettingsSection = .shortcuts
     ) {
         let settingsViewController = SettingsViewController(
             configStore: configStore,
@@ -123,7 +130,7 @@ final class SettingsWindowController: NSWindowController {
     func show(section: SettingsSection, sender: Any?) {
         settingsViewController.select(
             section: section,
-            animated: settingsViewController.selectedSection != section
+            animated: window?.isVisible == true && settingsViewController.selectedSection != section
         )
         showWindow(sender)
         window?.makeKeyAndOrderFront(sender)
@@ -145,14 +152,23 @@ final class SettingsViewController: NSTabViewController {
         let tabViewItem: NSTabViewItem
     }
 
+    private struct PendingTransition {
+        let id: Int
+        let section: SettingsSection
+        let animated: Bool
+    }
+
     private let configStore: AppConfigStore
     private var configObserverID: UUID?
+    private lazy var generalViewController = GeneralSettingsSectionViewController(configStore: configStore)
     private lazy var shortcutsViewController = ShortcutsSettingsSectionViewController(configStore: configStore)
     private lazy var paneLayoutViewController = PaneLayoutSettingsSectionViewController()
     private let openWithViewController: OpenWithSettingsSectionViewController
     private var entriesBySection: [SettingsSection: SectionEntry] = [:]
     private weak var hostWindow: NSWindow?
     private var isSynchronizingSelection = false
+    private var currentTransitionID = 0
+    private var pendingTransition: PendingTransition?
 
     private(set) var selectedSection: SettingsSection
 
@@ -206,7 +222,7 @@ final class SettingsViewController: NSTabViewController {
     override func viewWillAppear() {
         super.viewWillAppear()
         attach(to: view.window)
-        synchronizeWindow(animated: false)
+        synchronizeWindow(animated: false, transitionID: currentTransitionID)
     }
 
     var navigationPlacement: SettingsNavigationPlacement {
@@ -226,7 +242,7 @@ final class SettingsViewController: NSTabViewController {
     }
 
     func select(section: SettingsSection) {
-        select(section: section, animated: hostWindow != nil && selectedSection != section)
+        select(section: section, animated: hostWindow?.isVisible == true && selectedSection != section)
     }
 
     func select(section: SettingsSection, animated: Bool) {
@@ -237,27 +253,7 @@ final class SettingsViewController: NSTabViewController {
 
         let isChangingSection = selectedSection != section
         let shouldAnimate = animated && isChangingSection
-        let reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-
-        // Prepare the new section BEFORE the transition
-        if let presentingSection = entry.contentViewController as? SettingsPresentingSection {
-            presentingSection.prepareForPresentation()
-        }
-
-        if shouldAnimate {
-            let duration = SettingsTransitionProfile.resolvedDuration(reducedMotion: reducedMotion)
-            let timingFunction = SettingsTransitionProfile.resolvedTimingFunction(reducedMotion: reducedMotion)
-
-            CATransaction.begin()
-            CATransaction.setAnimationDuration(duration)
-            CATransaction.setAnimationTimingFunction(timingFunction)
-        }
-
-        transitionOptions = makeTransitionOptions(
-            from: selectedSection,
-            to: section,
-            animated: shouldAnimate
-        )
+        let transitionID = prepareTransition(to: section, animated: shouldAnimate)
 
         if tabView.selectedTabViewItem !== entry.tabViewItem {
             isSynchronizingSelection = true
@@ -265,11 +261,7 @@ final class SettingsViewController: NSTabViewController {
             isSynchronizingSelection = false
         }
 
-        handleSelectionChange(to: section, animated: shouldAnimate)
-
-        if shouldAnimate {
-            CATransaction.commit()
-        }
+        handleSelectionChange(to: section, animated: shouldAnimate, transitionID: transitionID)
     }
 
     override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
@@ -281,7 +273,16 @@ final class SettingsViewController: NSTabViewController {
             return
         }
 
-        handleSelectionChange(to: section, animated: hostWindow?.isVisible == true)
+        let transition = (pendingTransition?.section == section ? pendingTransition : nil)
+            ?? PendingTransition(
+                id: prepareTransition(
+                    to: section,
+                    animated: hostWindow?.isVisible == true && selectedSection != section
+                ),
+                section: section,
+                animated: hostWindow?.isVisible == true && selectedSection != section
+            )
+        handleSelectionChange(to: section, animated: transition.animated, transitionID: transition.id)
     }
 
     override func tabView(_ tabView: NSTabView, shouldSelect tabViewItem: NSTabViewItem?) -> Bool {
@@ -293,10 +294,9 @@ final class SettingsViewController: NSTabViewController {
             return true
         }
 
-        transitionOptions = makeTransitionOptions(
-            from: selectedSection,
+        _ = prepareTransition(
             to: section,
-            animated: hostWindow?.isVisible == true
+            animated: hostWindow?.isVisible == true && selectedSection != section
         )
         return true
     }
@@ -326,14 +326,17 @@ final class SettingsViewController: NSTabViewController {
     }
 
     private func apply(config: AppConfig) {
+        generalViewController.apply(notifications: config.notifications)
         shortcutsViewController.apply(shortcuts: config.shortcuts)
         paneLayoutViewController.apply(preferences: config.paneLayout)
         openWithViewController.apply(preferences: config.openWith)
-        synchronizeWindow(animated: false)
+        synchronizeWindow(animated: false, transitionID: currentTransitionID)
     }
 
     private func sectionViewController(for section: SettingsSection) -> NSViewController {
         switch section {
+        case .general:
+            generalViewController
         case .shortcuts:
             shortcutsViewController
         case .openWith:
@@ -343,32 +346,45 @@ final class SettingsViewController: NSTabViewController {
         }
     }
 
-    private func handleSelectionChange(to section: SettingsSection, animated: Bool) {
+    private func handleSelectionChange(to section: SettingsSection, animated: Bool, transitionID: Int) {
         selectedSection = section
-        synchronizeWindow(animated: animated)
+        synchronizeWindow(animated: animated, transitionID: transitionID)
     }
 
-    private func makeTransitionOptions(
-        from source: SettingsSection,
-        to destination: SettingsSection,
-        animated: Bool
-    ) -> NSViewController.TransitionOptions {
-        guard animated, source != destination else {
-            return []
+    @discardableResult
+    private func prepareTransition(to section: SettingsSection, animated: Bool) -> Int {
+        currentTransitionID += 1
+        let transitionID = currentTransitionID
+        pendingTransition = PendingTransition(id: transitionID, section: section, animated: animated)
+        transitionOptions = []
+        setScrollerSuppressed(true)
+
+        if let presentingSection = entriesBySection[section]?.contentViewController as? SettingsPresentingSection {
+            presentingSection.prepareForPresentation()
         }
 
-        let sourceIndex = SettingsSection.allCases.firstIndex(of: source) ?? 0
-        let destinationIndex = SettingsSection.allCases.firstIndex(of: destination) ?? 0
-
-        // Vertical direction: slide down for forward navigation, up for backward
-        let directionalOption: NSViewController.TransitionOptions = destinationIndex > sourceIndex
-            ? .slideDown   // Incoming slides down from above
-            : .slideUp      // Incoming slides up from below
-
-        return [.crossfade, directionalOption]
+        return transitionID
     }
 
-    private func synchronizeWindow(animated: Bool) {
+    private func setScrollerSuppressed(_ suppressed: Bool) {
+        entriesBySection.values.forEach { entry in
+            (entry.contentViewController as? SettingsScrollableSectionViewController)?
+                .setScrollerSuppressed(suppressed)
+        }
+    }
+
+    private func completeTransitionIfCurrent(_ transitionID: Int) {
+        guard transitionID == currentTransitionID else {
+            return
+        }
+
+        if pendingTransition?.id == transitionID {
+            pendingTransition = nil
+        }
+        setScrollerSuppressed(false)
+    }
+
+    private func synchronizeWindow(animated: Bool, transitionID: Int) {
         guard let window = hostWindow ?? view.window else {
             return
         }
@@ -385,7 +401,8 @@ final class SettingsViewController: NSTabViewController {
             window: window,
             screen: window.screen ?? NSScreen.main
         )
-        let targetSize = NSSize(width: Self.preferredContentWidth, height: targetHeight)
+        let targetContentSize = NSSize(width: Self.preferredContentWidth, height: targetHeight)
+        let targetFrame = targetWindowFrame(for: targetContentSize, window: window)
 
         if animated {
             let reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -396,11 +413,34 @@ final class SettingsViewController: NSTabViewController {
                 context.duration = duration
                 context.timingFunction = timingFunction
                 context.allowsImplicitAnimation = true
-                window.animator().setContentSize(targetSize)
+                window.animator().setFrame(targetFrame, display: false)
+            } completionHandler: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.completeTransitionIfCurrent(transitionID)
+                }
             }
         } else {
-            window.setContentSize(targetSize)
+            window.setFrame(targetFrame, display: false)
+            completeTransitionIfCurrent(transitionID)
         }
+    }
+
+    private func targetWindowFrame(for contentSize: NSSize, window: NSWindow) -> NSRect {
+        let currentFrame = window.frame
+        let topEdge = currentFrame.maxY
+        let targetFrameSize = window.frameRect(forContentRect: NSRect(
+            x: 0,
+            y: 0,
+            width: contentSize.width,
+            height: contentSize.height
+        )).size
+
+        return NSRect(
+            x: currentFrame.minX,
+            y: topEdge - targetFrameSize.height,
+            width: targetFrameSize.width,
+            height: targetFrameSize.height
+        )
     }
 
     private func targetContentHeight(

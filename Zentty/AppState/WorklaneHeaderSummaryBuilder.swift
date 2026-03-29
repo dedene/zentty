@@ -8,6 +8,7 @@ enum WorklaneHeaderSummaryBuilder {
         return WorklaneChromeSummary(
             attention: WorklaneAttentionSummaryBuilder.summary(for: worklane),
             focusedLabel: focusedLabel,
+            cwdPath: WorklaneContextFormatter.trimmed(presentation?.cwd),
             branch: branch,
             branchURL: presentation?.branchURL,
             pullRequest: presentation?.pullRequest,
