@@ -1115,14 +1115,36 @@ final class PaneStripView: NSView {
         let unfreezeDelay: TimeInterval = Self.zoomAnimationDuration + 0.05
         DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
             guard let self, !self.isZoomedOut else { return }
+
+            // Restore viewport autoresizing (was disabled by the drag coordinator)
+            self.viewportView.autoresizingMask = [.width, .height]
+
+            // Unfreeze and unsuspend all terminals
             for (_, paneView) in self.paneViews {
                 paneView.endVerticalFreeze()
                 paneView.setTerminalViewportSyncSuspended(false)
             }
+
+            // Re-render at correct layout
+            if let state = self.currentState {
+                self.renderCurrentState(state, animated: false)
+            }
+
+            // Force full display invalidation — layout alone doesn't
+            // mark layer-backed content dirty after bounds-based zoom.
             for (_, paneView) in self.paneViews {
                 paneView.needsLayout = true
                 paneView.layoutSubtreeIfNeeded()
+                paneView.needsDisplay = true
+                paneView.displayIfNeeded()
+                // Also invalidate sublayers (terminal host)
+                paneView.subviews.forEach { sub in
+                    sub.needsDisplay = true
+                    sub.subviews.forEach { $0.needsDisplay = true }
+                }
             }
+            self.viewportView.needsDisplay = true
+            self.viewportView.displayIfNeeded()
         }
     }
 

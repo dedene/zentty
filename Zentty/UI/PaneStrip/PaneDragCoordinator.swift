@@ -342,16 +342,31 @@ final class PaneDragCoordinator {
             )
         }
 
-        let posAnim = CABasicAnimation(keyPath: "position")
-        posAnim.toValue = NSValue(point: targetCenter)
-        posAnim.duration = 0.3
-        posAnim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        posAnim.fillMode = .forwards
-        posAnim.isRemovedOnCompletion = false
+        // Spring back to origin
+        let posSpring = CASpringAnimation(keyPath: "position")
+        posSpring.toValue = NSValue(point: targetCenter)
+        posSpring.mass = 0.8
+        posSpring.stiffness = 350
+        posSpring.damping = 26
+        posSpring.initialVelocity = 0
+        posSpring.duration = posSpring.settlingDuration
+        posSpring.fillMode = .forwards
+        posSpring.isRemovedOnCompletion = false
+
+        let currentTransform = draggedPaneView?.layer?.transform ?? CATransform3DIdentity
+        let transformSpring = CASpringAnimation(keyPath: "transform")
+        transformSpring.fromValue = NSValue(caTransform3D: currentTransform)
+        transformSpring.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+        transformSpring.mass = 0.8
+        transformSpring.stiffness = 350
+        transformSpring.damping = 26
+        transformSpring.duration = transformSpring.settlingDuration
+        transformSpring.fillMode = .forwards
+        transformSpring.isRemovedOnCompletion = false
 
         let shadowAnim = CABasicAnimation(keyPath: "shadowOpacity")
         shadowAnim.toValue = 0
-        shadowAnim.duration = 0.3
+        shadowAnim.duration = 0.15
 
         let stripView = paneStripView
 
@@ -364,7 +379,8 @@ final class PaneDragCoordinator {
                 stripView.endDragWithZoomIn()
             }
         }
-        draggedPaneView?.layer?.add(posAnim, forKey: "cancelPosition")
+        draggedPaneView?.layer?.add(posSpring, forKey: "cancelPosition")
+        draggedPaneView?.layer?.add(transformSpring, forKey: "cancelTransform")
         draggedPaneView?.layer?.add(shadowAnim, forKey: "cancelShadow")
         CATransaction.commit()
     }
@@ -456,16 +472,34 @@ final class PaneDragCoordinator {
             return
         }
 
-        let posAnim = CABasicAnimation(keyPath: "position")
-        posAnim.toValue = NSValue(point: targetCenter)
-        posAnim.duration = 0.25
-        posAnim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        posAnim.fillMode = .forwards
-        posAnim.isRemovedOnCompletion = false
+        // Spring animation for position — snappy with minimal overshoot
+        let posSpring = CASpringAnimation(keyPath: "position")
+        posSpring.toValue = NSValue(point: targetCenter)
+        posSpring.mass = 0.8
+        posSpring.stiffness = 400
+        posSpring.damping = 28
+        posSpring.initialVelocity = 0
+        posSpring.duration = posSpring.settlingDuration
+        posSpring.fillMode = .forwards
+        posSpring.isRemovedOnCompletion = false
 
+        // Spring animation for transform — scale back down to match zoomed panes
+        let currentTransform = draggedPaneView?.layer?.transform ?? CATransform3DIdentity
+        let targetTransform = CATransform3DIdentity  // will match zoomed scale via bounds
+        let transformSpring = CASpringAnimation(keyPath: "transform")
+        transformSpring.fromValue = NSValue(caTransform3D: currentTransform)
+        transformSpring.toValue = NSValue(caTransform3D: targetTransform)
+        transformSpring.mass = 0.8
+        transformSpring.stiffness = 400
+        transformSpring.damping = 28
+        transformSpring.duration = transformSpring.settlingDuration
+        transformSpring.fillMode = .forwards
+        transformSpring.isRemovedOnCompletion = false
+
+        // Shadow fades quickly
         let shadowAnim = CABasicAnimation(keyPath: "shadowOpacity")
         shadowAnim.toValue = 0
-        shadowAnim.duration = 0.25
+        shadowAnim.duration = 0.15
 
         let paneID = phase.activeState?.draggedPaneID
         let stripView = paneStripView
@@ -482,7 +516,8 @@ final class PaneDragCoordinator {
                 stripView.endDragWithZoomIn()
             }
         }
-        draggedPaneView?.layer?.add(posAnim, forKey: "settlePosition")
+        draggedPaneView?.layer?.add(posSpring, forKey: "settlePosition")
+        draggedPaneView?.layer?.add(transformSpring, forKey: "settleTransform")
         draggedPaneView?.layer?.add(shadowAnim, forKey: "settleShadow")
         CATransaction.commit()
     }
@@ -646,15 +681,9 @@ final class PaneDragCoordinator {
         insertionLine?.removeFromSuperview()
         insertionLine = nil
 
-        if let viewportView, let sv = viewportView.superview {
-            viewportView.autoresizingMask = [.width, .height]
-            viewportView.frame = sv.bounds
-        }
-
-        if let paneView = draggedPaneView {
-            paneView.endVerticalFreeze()
-            paneView.setTerminalViewportSyncSuspended(false)
-        }
+        // Do NOT unfreeze terminals here — keep ALL panes frozen until
+        // endDragWithZoomIn completes the zoom-in animation. Unfreezing
+        // early causes terminals to re-render at the wrong backing size.
 
         draggedPaneView = nil
         originalPaneFrame = .zero
