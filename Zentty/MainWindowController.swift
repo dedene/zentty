@@ -281,6 +281,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func navigateBack(_ sender: Any?) {
+        handle(.navigateBack)
+    }
+
+    @objc
+    func navigateForward(_ sender: Any?) {
+        handle(.navigateForward)
+    }
+
+    @objc
     func splitHorizontally(_ sender: Any?) {
         handle(.pane(.splitHorizontally))
     }

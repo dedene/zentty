@@ -41,6 +41,8 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case resizePaneUp = "pane.resize.up"
     case resizePaneDown = "pane.resize.down"
     case resetPaneLayout = "pane.reset_layout"
+    case navigateBack = "navigate.back"
+    case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
     case openSettings = "app.open_settings"
     case closeWindow = "app.close_window"
@@ -60,6 +62,8 @@ enum AppAction: Equatable, Sendable {
     case copyFocusedPanePath
     case jumpToLatestNotification
     case pane(PaneCommand)
+    case navigateBack
+    case navigateForward
     case showCommandPalette
     case openSettings
     case closeWindow
@@ -104,6 +108,30 @@ enum AppCommandRegistry {
                 section: .view,
                 title: "Toggle Sidebar",
                 selector: #selector(MainWindowController.toggleSidebar(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .navigateBack,
+            title: "Navigate Back",
+            category: .general,
+            defaultShortcut: .init(key: .character("["), modifiers: [.command]),
+            action: .navigateBack,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Navigate Back",
+                selector: #selector(MainWindowController.navigateBack(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .navigateForward,
+            title: "Navigate Forward",
+            category: .general,
+            defaultShortcut: .init(key: .character("]"), modifiers: [.command]),
+            action: .navigateForward,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Navigate Forward",
+                selector: #selector(MainWindowController.navigateForward(_:))
             )
         ),
         AppCommandDefinition(
@@ -378,6 +406,9 @@ enum AppCommandRegistry {
             .separator,
             .command(.toggleSidebar),
             .separator,
+            .command(.navigateBack),
+            .command(.navigateForward),
+            .separator,
             .command(.splitHorizontally),
             .command(.splitVertically),
             .separator,
@@ -417,6 +448,10 @@ extension AppCommandDefinition {
         switch id {
         case .toggleSidebar:
             "Show or hide the sidebar so you can focus on the canvas or quickly jump between worklanes."
+        case .navigateBack:
+            "Jump back to the previously focused pane, retracing your navigation history."
+        case .navigateForward:
+            "Jump forward to the pane you navigated away from after going back."
         case .newWorklane:
             "Create a new worklane immediately, keeping your current context intact while opening a fresh lane for new work."
         case .nextWorklane:
