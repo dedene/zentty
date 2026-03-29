@@ -221,6 +221,13 @@ final class PaneDragCoordinator {
             backingScaleFactor: backingScaleFactor
         )
 
+        // Compensate border width for the target zoom (0.4x) so borders stay visible.
+        // Note: currentZoom is still 1.0 here — the zoom animation starts via onDragActiveChanged.
+        let targetZoom = paneStripView.dragZoomScale
+        for (_, view) in paneViews {
+            view.applyZoomBorderCompensation(zoomScale: targetZoom)
+        }
+
         // Apply reduced layout (no gap yet)
         applyVisualLayout(activeReducedGapIndex: nil, animated: true, excludingPaneID: paneID)
 
@@ -974,6 +981,11 @@ final class PaneDragCoordinator {
         // Do NOT unfreeze terminals here — keep ALL panes frozen until
         // endDragWithZoomIn completes the zoom-in animation. Unfreezing
         // early causes terminals to re-render at the wrong backing size.
+
+        // Restore normal border width after zoom ends
+        for (_, view) in paneViews {
+            view.resetZoomBorderCompensation()
+        }
 
         draggedPaneView = nil
         originalPaneFrame = .zero

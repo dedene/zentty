@@ -59,7 +59,8 @@ final class PaneStripView: NSView {
     var activeWorklaneIDProvider: (() -> WorklaneID?)?
     private(set) var isDragActive = false
     private(set) var isZoomedOut = false
-    private static let zoomScale: CGFloat = 0.4
+    static let zoomScale: CGFloat = 0.4
+    var dragZoomScale: CGFloat { Self.zoomScale }
 
     private let motionController = PaneStripMotionController()
     private let scrollSwitchHandler = ScrollSwitchGestureHandler()
