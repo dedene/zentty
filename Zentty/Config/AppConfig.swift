@@ -32,11 +32,22 @@ struct AppConfig: Equatable, Sendable {
         static let `default` = Notifications(soundName: "")
     }
 
+    struct Confirmations: Equatable, Sendable {
+        var confirmBeforeClosingPane: Bool
+        var confirmBeforeQuitting: Bool
+
+        static let `default` = Confirmations(
+            confirmBeforeClosingPane: true,
+            confirmBeforeQuitting: true
+        )
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var openWith: OpenWith
     var shortcuts: Shortcuts
     var notifications: Notifications
+    var confirmations: Confirmations
 
     static let `default` = AppConfig(
         sidebar: Sidebar(
@@ -46,7 +57,8 @@ struct AppConfig: Equatable, Sendable {
         paneLayout: .default,
         openWith: .default,
         shortcuts: .default,
-        notifications: .default
+        notifications: .default,
+        confirmations: .default
     )
 
     static func migrated(
@@ -62,7 +74,8 @@ struct AppConfig: Equatable, Sendable {
             paneLayout: PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults),
             openWith: .default,
             shortcuts: .default,
-            notifications: .default
+            notifications: .default,
+            confirmations: .default
         )
     }
 
