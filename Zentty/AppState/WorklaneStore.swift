@@ -170,6 +170,7 @@ enum WorklaneChange: Equatable, Sendable {
     case auxiliaryStateUpdated(WorklaneID, PaneID, WorklaneAuxiliaryInvalidation)
     case activeWorklaneChanged
     case worklaneListChanged
+    case historyChanged
 }
 
 struct WorklaneChangeSubscription {
@@ -201,6 +202,8 @@ final class WorklaneStore {
     var pendingGitContextPaths: Set<String> = []
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     private let processEnvironment: [String: String]
+    let focusHistoryController = PaneFocusHistoryController()
+    private var isNavigatingHistory = false
 
     private(set) var activeWorklaneID: WorklaneID
 
@@ -254,6 +257,10 @@ final class WorklaneStore {
         normalizeAllPanePresentationState()
         refreshLastFocusedLocalWorkingDirectory()
         refreshAllPaneGitContexts()
+
+        focusHistoryController.onChange = { [weak self] in
+            self?.notify(.historyChanged)
+        }
     }
 
     var activeWorklane: WorklaneState? {
@@ -267,6 +274,61 @@ final class WorklaneStore {
 
             worklanes[index] = newValue
         }
+    }
+
+    // MARK: - Focus History Navigation
+
+    private var currentPaneReference: PaneReference? {
+        guard let worklane = activeWorklane,
+              let paneID = worklane.paneStripState.focusedPaneID else { return nil }
+        return PaneReference(worklaneID: worklane.id, paneID: paneID)
+    }
+
+    private var allLivePaneReferences: Set<PaneReference> {
+        Set(worklanes.flatMap { worklane in
+            worklane.paneStripState.panes.map {
+                PaneReference(worklaneID: worklane.id, paneID: $0.id)
+            }
+        })
+    }
+
+    func navigateBack() {
+        guard let current = currentPaneReference else { return }
+        guard let target = focusHistoryController.navigateBack(
+            current: current,
+            allPaneIDs: allLivePaneReferences
+        ) else { return }
+
+        isNavigatingHistory = true
+        defer { isNavigatingHistory = false }
+
+        if target.worklaneID == activeWorklaneID {
+            focusPane(id: target.paneID)
+        } else {
+            selectWorklaneAndFocusPane(worklaneID: target.worklaneID, paneID: target.paneID)
+        }
+    }
+
+    func navigateForward() {
+        guard let current = currentPaneReference else { return }
+        guard let target = focusHistoryController.navigateForward(
+            current: current,
+            allPaneIDs: allLivePaneReferences
+        ) else { return }
+
+        isNavigatingHistory = true
+        defer { isNavigatingHistory = false }
+
+        if target.worklaneID == activeWorklaneID {
+            focusPane(id: target.paneID)
+        } else {
+            selectWorklaneAndFocusPane(worklaneID: target.worklaneID, paneID: target.paneID)
+        }
+    }
+
+    private func recordFocusTransition(from previous: PaneReference?) {
+        guard !isNavigatingHistory, let previous else { return }
+        focusHistoryController.recordFocusChange(from: previous)
     }
 
     var focusedOpenWithContext: WorklaneOpenWithContext? {
@@ -320,7 +382,9 @@ final class WorklaneStore {
             return
         }
 
+        let previousPaneRef = currentPaneReference
         let changeType: WorklaneChange
+        var isFocusChangeFromClose = false
 
         switch command {
         case .split, .splitHorizontally, .splitAfterFocusedPane:
@@ -348,6 +412,7 @@ final class WorklaneStore {
             if let removedPane = worklane.paneStripState.closeFocusedPane(singleColumnWidth: layoutContext.singlePaneWidth) {
                 clearPaneState(for: removedPane.id, in: &worklane)
             }
+            isFocusChangeFromClose = true
             changeType = .paneStructure(activeWorklaneID)
         case .focusLeft:
             worklane.paneStripState.moveFocusLeft()
@@ -379,6 +444,12 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
+
+        let newPaneRef = currentPaneReference
+        if !isFocusChangeFromClose, previousPaneRef != newPaneRef {
+            recordFocusTransition(from: previousPaneRef)
+        }
+
         refreshLastFocusedLocalWorkingDirectory()
         notify(changeType)
     }
@@ -554,8 +625,10 @@ final class WorklaneStore {
             return
         }
 
+        let previousPaneRef = currentPaneReference
         clearReadyStatusForFocusedPane(in: &worklanes[index])
         activeWorklaneID = id
+        recordFocusTransition(from: previousPaneRef)
         refreshLastFocusedLocalWorkingDirectory()
         notify(.activeWorklaneChanged)
     }
@@ -581,6 +654,7 @@ final class WorklaneStore {
     }
 
     func createWorklane() {
+        let previousPaneRef = currentPaneReference
         let newIndex = worklanes.count + 1
         let title = "WS \(newIndex)"
         let id = WorklaneID("worklane-\(newIndex)")
@@ -599,6 +673,7 @@ final class WorklaneStore {
             )
         )
         activeWorklaneID = id
+        recordFocusTransition(from: previousPaneRef)
         refreshLastFocusedLocalWorkingDirectory()
         notify(.worklaneListChanged)
     }
@@ -609,6 +684,7 @@ final class WorklaneStore {
         }
 
         let previousWorklane = worklane
+        let previousPaneRef = currentPaneReference
         let wasFocusedPaneID = worklane.paneStripState.focusedPaneID
         let hadReadyStatus = worklane.auxiliaryStateByPaneID[id]?.raw.showsReadyStatus == true
         if wasFocusedPaneID == id, !hadReadyStatus {
@@ -625,6 +701,7 @@ final class WorklaneStore {
                 notify(.auxiliaryStateUpdated(activeWorklaneID, id, impacts))
             }
         } else {
+            recordFocusTransition(from: previousPaneRef)
             notify(.focusChanged(activeWorklaneID))
         }
     }
@@ -634,9 +711,11 @@ final class WorklaneStore {
             return
         }
 
+        let previousPaneRef = currentPaneReference
         worklanes[index].paneStripState.focusPane(id: paneID)
         clearReadyStatusIfNeeded(for: paneID, in: &worklanes[index])
         activeWorklaneID = worklaneID
+        recordFocusTransition(from: previousPaneRef)
         refreshLastFocusedLocalWorkingDirectory()
         notify(.activeWorklaneChanged)
     }
@@ -655,6 +734,7 @@ final class WorklaneStore {
             return
         }
 
+        let previousPaneRef = currentPaneReference
         worklane.paneStripState.focusPane(id: id)
         if worklane.paneStripState.columns.count == 1,
            worklane.paneStripState.panes.count == 1 {
@@ -673,6 +753,16 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
+
+        // Record the previous focus only if the closed pane was not the one
+        // we were already focused on. When closing a non-focused pane from the
+        // sidebar, previousPaneRef is the real focus origin (alive) and should
+        // be recorded so back returns there.
+        let newPaneRef = currentPaneReference
+        if let previousPaneRef, previousPaneRef.paneID != id, previousPaneRef != newPaneRef {
+            recordFocusTransition(from: previousPaneRef)
+        }
+
         refreshLastFocusedLocalWorkingDirectory()
         notify(.paneStructure(activeWorklaneID))
     }

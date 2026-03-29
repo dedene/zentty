@@ -114,6 +114,8 @@ final class WorklaneRenderCoordinator {
             bootstrapReviewRefresh(force: true)
         case .auxiliaryStateUpdated(let worklaneID, let paneID, let impacts):
             handleAuxiliaryStateUpdate(worklaneID: worklaneID, paneID: paneID, impacts: impacts)
+        case .historyChanged:
+            break
         }
     }
 

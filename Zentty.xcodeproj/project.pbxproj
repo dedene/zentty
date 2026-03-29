@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		02D777CF5546342EC50E6E32 /* NotificationBellButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DE8057D2B7795FE18D61F9D /* NotificationBellButton.swift */; };
+		9971717D2EFD3948AE4C2E6C /* PaneNavigationButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 856A88486E7C355EFD3A5727 /* PaneNavigationButtons.swift */; };
 		039A651343EA7A91CA374AB3 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 70234FD008E68026E8248FF5 /* AppIcon.icon */; };
 		04F27F3F3AE18FF0B4F78B44 /* AgentStatusPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79972CCAB3361277D4E949C /* AgentStatusPayload.swift */; };
 		064942C21BFD943CB5C8D46F /* LibghosttyAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDF1EF89E46D6EEECB8A320 /* LibghosttyAdapter.swift */; };
@@ -98,6 +99,8 @@
 		AF6C18AB558A8952DC241DEE /* LibghosttyViewDragDropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57CF2D04183C614FB5439EB3 /* LibghosttyViewDragDropTests.swift */; };
 		AF7C9145D694372F680B0624 /* WorklaneHeaderSummaryBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38818AED458478BCB3C95168 /* WorklaneHeaderSummaryBuilderTests.swift */; };
 		AF800D9AC1461F47A82F6214 /* NotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E06B6AF9A2D4A3F2872F62E /* NotificationStore.swift */; };
+		317266457CC216A5A500D4E0 /* PaneFocusHistoryController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD9BCEDB4F69AEC28A90DCEF /* PaneFocusHistoryController.swift */; };
+		1388B92C3F8AA01AB567F0F7 /* PaneFocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0A2CB1B94F3427C311BFFD /* PaneFocusHistory.swift */; };
 		AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */; };
 		B38B8A60FEC01BE8385B6ED1 /* WorklaneGitContextResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2D282138FCDC94B5D876B4D /* WorklaneGitContextResolverTests.swift */; };
 		BA9D0265E08E22F14A7E1C8A /* AgentWrapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5C60D4800BDD040F2D5B12 /* AgentWrapperTests.swift */; };
@@ -132,6 +135,8 @@
 		F2CC773E6329B7259DDB1868 /* SidebarWidthPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4764B4017D1DF1354C6FFB /* SidebarWidthPreference.swift */; };
 		F2DE6777CF96D61DF5BF4E32 /* WorklaneState+Testing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CF5DDE2F06EB5CBE4C2E0B9 /* WorklaneState+Testing.swift */; };
 		F326460BA08B4AB927FD355F /* NotificationStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859E02462A30A35800CA0123 /* NotificationStoreTests.swift */; };
+		673B0EBBC085A3A55713B461 /* PaneFocusHistoryControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61898495143FBE5C4704E766 /* PaneFocusHistoryControllerTests.swift */; };
+		9F688261512D2DE15D8F7891 /* PaneFocusHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 834D142080BF36C96244C063 /* PaneFocusHistoryTests.swift */; };
 		F33474EA4FEC1975F4FB4754 /* KeyboardShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D348923237491F345AB193 /* KeyboardShortcut.swift */; };
 		F42E958471B9D597F85A3894 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43EC896B9EA214B488CDCD09 /* GhosttyKit.xcframework */; };
 		F75C8D5EDC0772F56DE54C52 /* PaneStripStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFB4690A6E06FB3FC4C1909E /* PaneStripStoreTests.swift */; };
@@ -243,10 +248,13 @@
 		7DDF1EF89E46D6EEECB8A320 /* LibghosttyAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapter.swift; sourceTree = "<group>"; };
 		7F299D46F21F8BC295D1F0B3 /* PaneContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerView.swift; sourceTree = "<group>"; };
 		859E02462A30A35800CA0123 /* NotificationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStoreTests.swift; sourceTree = "<group>"; };
+		61898495143FBE5C4704E766 /* PaneFocusHistoryControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneFocusHistoryControllerTests.swift; sourceTree = "<group>"; };
+		834D142080BF36C96244C063 /* PaneFocusHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneFocusHistoryTests.swift; sourceTree = "<group>"; };
 		86917D1F9201725F12438AD5 /* WindowChromeRowLayoutPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeRowLayoutPlannerTests.swift; sourceTree = "<group>"; };
 		873301C3643C70777575BF64 /* ClaudeHookBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookBridge.swift; sourceTree = "<group>"; };
 		89AAE034094D87AF85EB6245 /* NotificationPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPanelView.swift; sourceTree = "<group>"; };
 		8DE8057D2B7795FE18D61F9D /* NotificationBellButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationBellButton.swift; sourceTree = "<group>"; };
+		856A88486E7C355EFD3A5727 /* PaneNavigationButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneNavigationButtons.swift; sourceTree = "<group>"; };
 		8F82AEDB8F3C8B3C5F014D8D /* TerminalPaneHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostView.swift; sourceTree = "<group>"; };
 		905DD9FD69FFEA7991390EA4 /* ScrollSwitchGestureHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollSwitchGestureHandler.swift; sourceTree = "<group>"; };
 		916D215502518D8BAF3C3921 /* SidebarWorklaneRowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowLayout.swift; sourceTree = "<group>"; };
@@ -255,6 +263,8 @@
 		9760F3B7EDC0087FA89778B9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		9D4020F350259F84864071D9 /* PathCopiedToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathCopiedToastView.swift; sourceTree = "<group>"; };
 		9E06B6AF9A2D4A3F2872F62E /* NotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStore.swift; sourceTree = "<group>"; };
+		AD9BCEDB4F69AEC28A90DCEF /* PaneFocusHistoryController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneFocusHistoryController.swift; sourceTree = "<group>"; };
+		4E0A2CB1B94F3427C311BFFD /* PaneFocusHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneFocusHistory.swift; sourceTree = "<group>"; };
 		9E9E7AF610F36B91C077C324 /* WorklaneHeaderSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneHeaderSummary.swift; sourceTree = "<group>"; };
 		A3CFC2B870895651B043DF45 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A594231C8131296490BB8E76 /* WorklaneSidebarSummaryBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneSidebarSummaryBuilder.swift; sourceTree = "<group>"; };
@@ -367,6 +377,8 @@
 			isa = PBXGroup;
 			children = (
 				9E06B6AF9A2D4A3F2872F62E /* NotificationStore.swift */,
+				AD9BCEDB4F69AEC28A90DCEF /* PaneFocusHistoryController.swift */,
+				4E0A2CB1B94F3427C311BFFD /* PaneFocusHistory.swift */,
 				E101FFDD49FF6625AC16DDED /* PaneAuxiliaryState.swift */,
 				BFE28087CB8A8A0F579745CA /* PaneShellContext.swift */,
 				A6243B7C8B8AE57798C0BFC0 /* WorklaneAttentionNotificationCoordinator.swift */,
@@ -561,6 +573,7 @@
 			isa = PBXGroup;
 			children = (
 				8DE8057D2B7795FE18D61F9D /* NotificationBellButton.swift */,
+				856A88486E7C355EFD3A5727 /* PaneNavigationButtons.swift */,
 				89AAE034094D87AF85EB6245 /* NotificationPanelView.swift */,
 				58FCD3F150B9379D6E145774 /* OpenWithPopoverButtons.swift */,
 				1D5C0C909C71D6B27191E73B /* OpenWithPopoverContentView.swift */,
@@ -637,6 +650,8 @@
 				20951EA69B03694C17C61738 /* LibghosttySurfaceActionCoalescerTests.swift */,
 				57CF2D04183C614FB5439EB3 /* LibghosttyViewDragDropTests.swift */,
 				859E02462A30A35800CA0123 /* NotificationStoreTests.swift */,
+				61898495143FBE5C4704E766 /* PaneFocusHistoryControllerTests.swift */,
+				834D142080BF36C96244C063 /* PaneFocusHistoryTests.swift */,
 				572BB2FACCFA8A236D880F28 /* OpenWithCatalogTests.swift */,
 				5E316EB04A90576B80F838D9 /* PaneAgentReducerTests.swift */,
 				37F4631D0A8465D807F16977 /* PaneContainerViewTests.swift */,
@@ -877,6 +892,8 @@
 				1A296EF0C60861DCA54D8B8E /* LibghosttySurfaceActionCoalescerTests.swift in Sources */,
 				AF6C18AB558A8952DC241DEE /* LibghosttyViewDragDropTests.swift in Sources */,
 				F326460BA08B4AB927FD355F /* NotificationStoreTests.swift in Sources */,
+				673B0EBBC085A3A55713B461 /* PaneFocusHistoryControllerTests.swift in Sources */,
+				9F688261512D2DE15D8F7891 /* PaneFocusHistoryTests.swift in Sources */,
 				F246DE4E17B65DFEA465BF98 /* OpenWithCatalogTests.swift in Sources */,
 				8E847756B23CB6F02E3897BD /* PaneAgentReducerTests.swift in Sources */,
 				9305DFB3157057C5F774497D /* PaneContainerViewTests.swift in Sources */,
@@ -947,8 +964,11 @@
 				AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */,
 				196932893F690C070D526631 /* MockTerminalAdapter.swift in Sources */,
 				02D777CF5546342EC50E6E32 /* NotificationBellButton.swift in Sources */,
+				9971717D2EFD3948AE4C2E6C /* PaneNavigationButtons.swift in Sources */,
 				AC60EE09544BBC10EFB386EA /* NotificationPanelView.swift in Sources */,
 				AF800D9AC1461F47A82F6214 /* NotificationStore.swift in Sources */,
+				317266457CC216A5A500D4E0 /* PaneFocusHistoryController.swift in Sources */,
+				1388B92C3F8AA01AB567F0F7 /* PaneFocusHistory.swift in Sources */,
 				E6DB3D37929BDB0F6583E0E5 /* OpenWithCatalog.swift in Sources */,
 				BEB7C06803C3DAB399E142A8 /* OpenWithPopoverButtons.swift in Sources */,
 				27A695AD5F3F318ACE9565F9 /* OpenWithPopoverContentView.swift in Sources */,
