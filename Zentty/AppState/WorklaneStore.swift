@@ -276,6 +276,29 @@ final class WorklaneStore {
         }
     }
 
+    enum PaneCloseReason {
+        case runningProcess
+        case sessionHistory
+    }
+
+    func paneCloseConfirmationReason(_ paneID: PaneID) -> PaneCloseReason? {
+        for worklane in worklanes {
+            guard let aux = worklane.auxiliaryStateByPaneID[paneID] else { continue }
+            if aux.shellActivityState == .commandRunning { return .runningProcess }
+            if aux.hasCommandHistory { return .sessionHistory }
+            return nil
+        }
+        return nil
+    }
+
+    var anyPaneRequiresQuitConfirmation: Bool {
+        worklanes.contains { worklane in
+            worklane.auxiliaryStateByPaneID.values.contains {
+                $0.shellActivityState == .commandRunning || $0.hasCommandHistory
+            }
+        }
+    }
+
     // MARK: - Focus History Navigation
 
     private var currentPaneReference: PaneReference? {
@@ -423,10 +446,18 @@ final class WorklaneStore {
             clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
         case .focusUp:
+            if worklane.paneStripState.isFocusedPaneAtTopOfColumn {
+                selectPreviousWorklane()
+                return
+            }
             worklane.paneStripState.moveFocusUp()
             clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
         case .focusDown:
+            if worklane.paneStripState.isFocusedPaneAtBottomOfColumn {
+                selectNextWorklane()
+                return
+            }
             worklane.paneStripState.moveFocusDown()
             clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
@@ -438,7 +469,14 @@ final class WorklaneStore {
             worklane.paneStripState.moveFocusToLastColumn()
             clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
-        case .resizeLeft, .resizeRight, .resizeUp, .resizeDown, .resetLayout, .toggleZoomOut:
+        case .resizeLeft,
+            .resizeRight,
+            .resizeUp,
+            .resizeDown,
+            .arrangeHorizontally,
+            .arrangeVertically,
+            .resetLayout,
+            .toggleZoomOut:
             activeWorklane = worklane
             return
         }
@@ -590,6 +628,41 @@ final class WorklaneStore {
         )
         activeWorklane = worklane
         notify(.layoutResized(activeWorklaneID))
+    }
+
+    func arrangeActiveWorklaneHorizontally(
+        _ arrangement: PaneHorizontalArrangement,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0
+    ) {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        guard worklane.paneStripState.arrangeHorizontally(
+            arrangement,
+            availableWidth: availableWidth,
+            leadingVisibleInset: leadingVisibleInset
+        ) else {
+            return
+        }
+
+        activeWorklane = worklane
+        notify(.paneStructure(activeWorklaneID))
+    }
+
+    func arrangeActiveWorklaneVertically(_ arrangement: PaneVerticalArrangement) {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        guard worklane.paneStripState.arrangeVertically(arrangement) else {
+            return
+        }
+
+        activeWorklane = worklane
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(activeWorklaneID))
     }
 
     private func insertNewPaneHorizontally(into worklane: inout WorklaneState, placement: PanePlacement) {

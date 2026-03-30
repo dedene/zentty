@@ -195,6 +195,12 @@ extension WorklaneStore {
                 return
             }
 
+            // Pane-level state: always persisted, independent of agent status.
+            auxiliaryState.shellActivityState = shellActivityState
+            if shellActivityState == .commandRunning {
+                auxiliaryState.hasCommandHistory = true
+            }
+
             if var existingStatus {
                 existingStatus.shellActivityState = shellActivityState
                 existingStatus.updatedAt = Date()
@@ -204,8 +210,9 @@ extension WorklaneStore {
                     case .commandRunning:
                         break
                     case .promptIdle:
-                        worklane.auxiliaryStateByPaneID[payload.paneID]?.terminalProgress = nil
-                        worklane.auxiliaryStateByPaneID[payload.paneID]?.agentStatus = nil
+                        auxiliaryState.terminalProgress = nil
+                        auxiliaryState.agentStatus = nil
+                        worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
                         recomputePresentation(for: payload.paneID, in: &worklane)
                         worklanes[worklaneIndex] = worklane
                         let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
@@ -230,10 +237,9 @@ extension WorklaneStore {
                     payload: payload,
                     auxiliaryState: &auxiliaryState
                 )
-                worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
-            } else {
-                return
             }
+
+            worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
         case .pid:
             guard let pidEvent = payload.pidEvent else {
                 return

@@ -336,6 +336,7 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
         return true
     }
     func hasSelection() -> Bool { selectionPresent }
+    func close() {}
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {
         inheritedConfigRequests.append(context)
         guard let inheritedConfigContext else {

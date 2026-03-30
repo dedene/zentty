@@ -153,6 +153,8 @@ struct PaneRawState: Equatable, Sendable {
     var shellContext: PaneShellContext?
     var agentStatus: PaneAgentStatus?
     var agentReducerState: PaneAgentReducerState = .init()
+    var shellActivityState: PaneShellActivityState = .unknown
+    var hasCommandHistory = false
     var terminalProgress: TerminalProgressReport?
     var reviewState: WorklaneReviewState?
     var gitContext: PaneGitContext?
@@ -629,6 +631,16 @@ struct PaneAuxiliaryState: Equatable, Sendable {
     var agentReducerState: PaneAgentReducerState {
         get { raw.agentReducerState }
         set { raw.agentReducerState = newValue }
+    }
+
+    var shellActivityState: PaneShellActivityState {
+        get { raw.shellActivityState }
+        set { raw.shellActivityState = newValue }
+    }
+
+    var hasCommandHistory: Bool {
+        get { raw.hasCommandHistory }
+        set { raw.hasCommandHistory = newValue }
     }
 
     var terminalProgress: TerminalProgressReport? {

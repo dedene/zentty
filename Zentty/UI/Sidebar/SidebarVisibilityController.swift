@@ -168,16 +168,9 @@ enum SidebarTransitionProfile {
 }
 
 enum SidebarToggleVisuals {
-    static func contentTintColor(theme: ZenttyTheme, isActive: Bool) -> NSColor {
-        theme.primaryText.withAlphaComponent(isActive ? 0.96 : 0.82)
-    }
-
-    static func backgroundColor(theme: ZenttyTheme, isActive: Bool) -> NSColor {
-        .clear
-    }
-
-    static func borderColor(theme: ZenttyTheme, isActive: Bool) -> NSColor {
-        .clear
+    static func contentTintColor(theme: ZenttyTheme, isActive: Bool, isHovered: Bool) -> NSColor {
+        let alpha: CGFloat = (isActive || isHovered) ? 0.96 : 0.82
+        return theme.primaryText.withAlphaComponent(alpha)
     }
 }
 
@@ -229,6 +222,9 @@ final class SidebarToggleButton: NSButton {
     static let buttonSize: CGFloat = 28
     static let spacingFromTrafficLights: CGFloat = 12
     private(set) var isActive = true
+    private(set) var isHovered = false
+    private var trackingAreaValue: NSTrackingArea?
+    private var currentTheme: ZenttyTheme?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -253,23 +249,66 @@ final class SidebarToggleButton: NSButton {
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyDown
         setAccessibilityLabel("Toggle sidebar")
+        toolTip = "Toggle Sidebar"
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaValue {
+            removeTrackingArea(trackingAreaValue)
+        }
+        let trackingAreaValue = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingAreaValue)
+        self.trackingAreaValue = trackingAreaValue
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard !isHovered else { return }
+        isHovered = true
+        updateHoverAppearance()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard isHovered else { return }
+        isHovered = false
+        updateHoverAppearance()
+    }
+
+    private func updateHoverAppearance() {
+        guard let theme = currentTheme else { return }
+        contentTintColor = SidebarToggleVisuals.contentTintColor(
+            theme: theme, isActive: isActive, isHovered: isHovered
+        )
+        performThemeAnimation(animated: true) {
+            self.layer?.backgroundColor = ChromeGeometry.iconButtonHoverBackground(
+                theme: theme, isHovered: self.isHovered
+            ).cgColor
+        }
     }
 
     func configure(theme: ZenttyTheme, isActive: Bool, animated: Bool) {
         self.isActive = isActive
-        contentTintColor = SidebarToggleVisuals.contentTintColor(theme: theme, isActive: isActive)
+        self.currentTheme = theme
+        contentTintColor = SidebarToggleVisuals.contentTintColor(
+            theme: theme, isActive: isActive, isHovered: isHovered
+        )
 
         performThemeAnimation(animated: animated) {
-            self.layer?.backgroundColor = (
-                SidebarToggleVisuals.backgroundColor(theme: theme, isActive: isActive)
+            self.layer?.backgroundColor = ChromeGeometry.iconButtonHoverBackground(
+                theme: theme, isHovered: self.isHovered
             ).cgColor
-            self.layer?.borderColor = (
-                SidebarToggleVisuals.borderColor(theme: theme, isActive: isActive)
-            ).cgColor
-            self.layer?.borderWidth = isActive ? 1.0 : 1.0
+            self.layer?.borderColor = NSColor.clear.cgColor
+            self.layer?.borderWidth = 1.0
             self.layer?.shadowColor = theme.underlapShadow.cgColor
-            self.layer?.shadowOpacity = isActive ? 0.18 : 0.10
-            self.layer?.shadowRadius = isActive ? 9 : 5
+            self.layer?.shadowOpacity = 0.10
+            self.layer?.shadowRadius = 5
             self.layer?.shadowOffset = CGSize(width: 0, height: -1)
         }
     }

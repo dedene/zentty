@@ -36,6 +36,7 @@ final class SidebarView: NSView {
     private var addWorklaneLeadingConstraint: NSLayoutConstraint?
     private var addWorklaneWidthConstraint: NSLayoutConstraint?
     private var addWorklaneCenterYConstraint: NSLayoutConstraint?
+    private var headerTopConstraint: NSLayoutConstraint?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var headerPinnedContentMinX = Layout.defaultHeaderContentMinX
     private var headerVisibilityMode: SidebarVisibilityMode = .pinnedOpen
@@ -115,13 +116,16 @@ final class SidebarView: NSView {
         )
         self.addWorklaneCenterYConstraint = addWorklaneCenterYConstraint
 
+        let headerTopConstraint = headerView.topAnchor.constraint(equalTo: topAnchor)
+        self.headerTopConstraint = headerTopConstraint
+
         NSLayoutConstraint.activate([
             backgroundView.topAnchor.constraint(equalTo: topAnchor),
             backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
             backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            headerView.topAnchor.constraint(equalTo: topAnchor),
+            headerTopConstraint,
             headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: trailingAnchor),
             headerView.heightAnchor.constraint(equalToConstant: Layout.headerHeight),
@@ -593,7 +597,6 @@ final class SidebarView: NSView {
 private extension SidebarView {
     func updateHeaderLayoutConstraints() {
         let desiredContentMinX: CGFloat
-        let usesPinnedLayout = headerVisibilityMode == .pinnedOpen
         switch headerVisibilityMode {
         case .pinnedOpen:
             desiredContentMinX = max(Layout.defaultHeaderContentMinX, headerPinnedContentMinX)
@@ -614,9 +617,15 @@ private extension SidebarView {
         )
         addWorklaneWidthConstraint?.constant = availableWidth
 
-        addWorklaneCenterYConstraint?.constant = usesPinnedLayout
-            ? ShellMetrics.sidebarCreateWorklanePinnedVerticalOffset
+        headerTopConstraint?.constant = headerVisibilityMode == .hoverPeek
+            ? ShellMetrics.sidebarHeaderPeekTopInset
             : 0
+
+        addWorklaneCenterYConstraint?.constant = switch headerVisibilityMode {
+        case .pinnedOpen: ShellMetrics.sidebarCreateWorklanePinnedVerticalOffset
+        case .hoverPeek: ShellMetrics.sidebarCreateWorklanePeekVerticalOffset
+        case .hidden: 0
+        }
     }
 
     static let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -879,29 +888,24 @@ private final class SidebarCreateWorklaneButton: NSButton {
             ? currentTheme.secondaryText.withAlphaComponent(0.92)
             : currentTheme.tertiaryText.withAlphaComponent(0.68)
         let backgroundColor: NSColor
-        let borderColor: NSColor
         if isEmphasized {
             let hoverMix: CGFloat = currentTheme.sidebarBackground.isDarkThemeColor ? 0.12 : 0.18
             backgroundColor = currentTheme.sidebarBackground
                 .mixed(towards: currentTheme.primaryText, amount: hoverMix)
                 .withAlphaComponent(min(1, currentTheme.sidebarBackground.alphaComponent + 0.10))
-            borderColor = currentTheme.sidebarBorder
-                .mixed(towards: currentTheme.primaryText, amount: hoverMix + 0.08)
-                .withAlphaComponent(min(1, currentTheme.sidebarBorder.alphaComponent + 0.22))
         } else {
             backgroundColor = .clear
-            borderColor = .clear
         }
 
         titleLabel.textColor = titleColor
         iconView.contentTintColor = iconColor
         backgroundColorForTesting = backgroundColor
-        borderColorForTesting = borderColor
+        borderColorForTesting = .clear
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = backgroundColor.cgColor
-            self.layer?.borderColor = borderColor.cgColor
-            self.layer?.borderWidth = isEmphasized ? 1 : 0
+            self.layer?.borderColor = NSColor.clear.cgColor
+            self.layer?.borderWidth = 0
         }
     }
 }

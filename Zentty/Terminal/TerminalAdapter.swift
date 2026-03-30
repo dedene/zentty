@@ -90,6 +90,7 @@ protocol TerminalAdapter: AnyObject {
     func makeTerminalView() -> NSView
     func startSession(using request: TerminalSessionRequest) throws
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity)
+    func close()
     var metadataDidChange: ((TerminalMetadata) -> Void)? { get set }
     var eventDidOccur: ((TerminalEvent) -> Void)? { get set }
 }

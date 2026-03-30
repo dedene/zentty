@@ -117,6 +117,7 @@ private final class SurfaceTextSpy: LibghosttySurfaceControlling {
     func sendText(_ text: String) { sentTexts.append(text) }
     func performBindingAction(_ action: String) -> Bool { true }
     func hasSelection() -> Bool { false }
+    func close() {}
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? { nil }
 }
 

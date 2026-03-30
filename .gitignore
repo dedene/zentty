@@ -5,7 +5,8 @@ docs/superpowers/
 *.profraw
 *.xcuserstate
 xcuserdata/
-FrameworksLocal/
+FrameworksLocal
 tmp/
 .claude
 build/
+.factory

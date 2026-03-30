@@ -948,6 +948,15 @@ private final class ShortcutsBrowserTableView: NSTableView {
 
 @MainActor
 private final class ShortcutsBrowserRowView: NSTableRowView {
+    override var isSelected: Bool {
+        didSet {
+            guard oldValue != isSelected else {
+                return
+            }
+            refreshCommandCellAppearance()
+        }
+    }
+
     override var isEmphasized: Bool {
         didSet {
             guard oldValue != isEmphasized else {

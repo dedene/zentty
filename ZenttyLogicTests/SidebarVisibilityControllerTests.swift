@@ -129,23 +129,9 @@ final class SidebarVisibilityControllerTests: XCTestCase {
             reduceTransparency: false
         )
 
-        let tint = SidebarToggleVisuals.contentTintColor(theme: theme, isActive: true)
+        let tint = SidebarToggleVisuals.contentTintColor(theme: theme, isActive: true, isHovered: false)
 
         XCTAssertTrue(tint.isDarkThemeColor)
-    }
-
-    func test_sidebar_toggle_visuals_use_clear_background_and_border_in_all_states() {
-        let theme = ZenttyTheme.fallback(for: nil)
-
-        let activeBackground = SidebarToggleVisuals.backgroundColor(theme: theme, isActive: true)
-        let inactiveBackground = SidebarToggleVisuals.backgroundColor(theme: theme, isActive: false)
-        let activeBorder = SidebarToggleVisuals.borderColor(theme: theme, isActive: true)
-        let inactiveBorder = SidebarToggleVisuals.borderColor(theme: theme, isActive: false)
-
-        XCTAssertEqual(activeBackground.srgbClamped.alphaComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(inactiveBackground.srgbClamped.alphaComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(activeBorder.srgbClamped.alphaComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(inactiveBorder.srgbClamped.alphaComponent, 0, accuracy: 0.001)
     }
 
     func test_inactive_traffic_light_tint_uses_composited_sidebar_surface_when_sidebar_is_pinned_open() {

@@ -128,6 +128,8 @@ private final class TerminalAdapterSpy: TerminalAdapter {
         lastRequest = request
     }
 
+    func close() {}
+
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         lastSurfaceActivity = activity
     }

@@ -309,8 +309,14 @@ final class PaneRuntimeRegistry {
 
         let obsoletePaneIDs = Set(runtimes.keys).subtracting(nextPaneIDs)
         obsoletePaneIDs.forEach { paneID in
+            runtimes[paneID]?.adapter.close()
             runtimes.removeValue(forKey: paneID)
         }
+    }
+
+    func destroyAll() {
+        runtimes.values.forEach { $0.adapter.close() }
+        runtimes.removeAll()
     }
 
     func updateSurfaceActivities(
