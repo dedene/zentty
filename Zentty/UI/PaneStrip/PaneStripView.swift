@@ -544,92 +544,94 @@ final class PaneStripView: NSView {
         insertionTransition: PaneInsertionTransition?,
         suspendedPaneIDs: Set<PaneID>
     ) {
-        let nextPaneIDs = Set(presentation.panes.map(\.paneID))
-        let obsoletePaneIDs = Set(paneViews.keys).subtracting(nextPaneIDs)
+        ZenttyPerformanceSignposts.interval("PaneStripReconcileViews") {
+            let nextPaneIDs = Set(presentation.panes.map(\.paneID))
+            let obsoletePaneIDs = Set(paneViews.keys).subtracting(nextPaneIDs)
 
-        for paneID in obsoletePaneIDs {
-            dragZoneViews[paneID]?.removeFromSuperview()
-            dragZoneViews.removeValue(forKey: paneID)
-            paneViews[paneID]?.prepareForRemoval()
-            paneViews[paneID]?.removeFromSuperview()
-            paneViews.removeValue(forKey: paneID)
-        }
-
-        presentation.panes.enumerated().forEach { index, panePresentation in
-            guard paneViews[panePresentation.paneID] == nil else {
-                return
+            for paneID in obsoletePaneIDs {
+                dragZoneViews[paneID]?.removeFromSuperview()
+                dragZoneViews.removeValue(forKey: paneID)
+                paneViews[paneID]?.prepareForRemoval()
+                paneViews[paneID]?.removeFromSuperview()
+                paneViews.removeValue(forKey: paneID)
             }
 
-            let pane = state.panes[index]
-            let runtime = runtimeRegistry.runtime(for: pane)
-            let paneView = PaneContainerView(
-                pane: pane,
-                width: panePresentation.frame.width,
-                height: panePresentation.frame.height,
-                emphasis: panePresentation.emphasis,
-                isFocused: panePresentation.isFocused,
-                runtime: runtime,
-                theme: currentTheme
-            )
-            paneView.onSelected = { [weak self] in
-                self?.onPaneSelected?(pane.id)
-            }
-            paneView.onCloseRequested = { [weak self] in
-                self?.onPaneCloseRequested?(pane.id)
-            }
-            paneView.onScrollWheel = { [weak self] event in
-                self?.handlePaneSwitchScroll(event) ?? false
-            }
-            paneView.setTerminalViewportSyncSuspended(suspendedPaneIDs.contains(pane.id))
-            if let insertionTransition, insertionTransition.paneID == pane.id {
-                paneView.frame = insertionTransition.initialFrame
-                paneView.alphaValue = insertionTransition.initialAlpha
-            } else {
-                paneView.frame = panePresentation.frame.offsetBy(
-                    dx: -resolvedOffset(initialOffset),
-                    dy: 0
+            presentation.panes.enumerated().forEach { index, panePresentation in
+                guard paneViews[panePresentation.paneID] == nil else {
+                    return
+                }
+
+                let pane = state.panes[index]
+                let runtime = runtimeRegistry.runtime(for: pane)
+                let paneView = PaneContainerView(
+                    pane: pane,
+                    width: panePresentation.frame.width,
+                    height: panePresentation.frame.height,
+                    emphasis: panePresentation.emphasis,
+                    isFocused: panePresentation.isFocused,
+                    runtime: runtime,
+                    theme: currentTheme
                 )
-                paneView.alphaValue = PaneContainerView.presentationAlpha(forEmphasis: panePresentation.emphasis)
-            }
-            paneViews[panePresentation.paneID] = paneView
-            viewportView.addSubview(paneView)
-            paneView.activateSessionIfNeeded()
+                paneView.onSelected = { [weak self] in
+                    self?.onPaneSelected?(pane.id)
+                }
+                paneView.onCloseRequested = { [weak self] in
+                    self?.onPaneCloseRequested?(pane.id)
+                }
+                paneView.onScrollWheel = { [weak self] event in
+                    self?.handlePaneSwitchScroll(event) ?? false
+                }
+                paneView.setTerminalViewportSyncSuspended(suspendedPaneIDs.contains(pane.id))
+                if let insertionTransition, insertionTransition.paneID == pane.id {
+                    paneView.frame = insertionTransition.initialFrame
+                    paneView.alphaValue = insertionTransition.initialAlpha
+                } else {
+                    paneView.frame = panePresentation.frame.offsetBy(
+                        dx: -resolvedOffset(initialOffset),
+                        dy: 0
+                    )
+                    paneView.alphaValue = PaneContainerView.presentationAlpha(forEmphasis: panePresentation.emphasis)
+                }
+                paneViews[panePresentation.paneID] = paneView
+                viewportView.addSubview(paneView)
+                paneView.activateSessionIfNeeded()
 
-            let dragZone = PaneDragZoneView(paneID: pane.id)
-            let dragZoneHeight = PaneContainerView.dragZoneHeight
-            dragZone.frame = CGRect(
-                x: 0,
-                y: paneView.bounds.height - dragZoneHeight,
-                width: paneView.bounds.width,
-                height: dragZoneHeight
-            )
-            dragZone.autoresizingMask = [.width, .minYMargin]
-            // Coordinates arrive in dragZone's local space. Convert directly
-            // from dragZone to self (PaneStripView) to avoid going through
-            // PaneContainerView which may have a CATransform3D during drag.
-            dragZone.onDragActivated = { [weak self, weak dragZone] paneID, localPoint in
-                guard let self, let dragZone else { return }
-                let inStrip = dragZone.convert(localPoint, to: self)
-                self.handleDragActivated(paneID: paneID, origin: inStrip)
+                let dragZone = PaneDragZoneView(paneID: pane.id)
+                let dragZoneHeight = PaneContainerView.dragZoneHeight
+                dragZone.frame = CGRect(
+                    x: 0,
+                    y: paneView.bounds.height - dragZoneHeight,
+                    width: paneView.bounds.width,
+                    height: dragZoneHeight
+                )
+                dragZone.autoresizingMask = [.width, .minYMargin]
+                // Coordinates arrive in dragZone's local space. Convert directly
+                // from dragZone to self (PaneStripView) to avoid going through
+                // PaneContainerView which may have a CATransform3D during drag.
+                dragZone.onDragActivated = { [weak self, weak dragZone] paneID, localPoint in
+                    guard let self, let dragZone else { return }
+                    let inStrip = dragZone.convert(localPoint, to: self)
+                    self.handleDragActivated(paneID: paneID, origin: inStrip)
+                }
+                dragZone.onDragMoved = { [weak self, weak dragZone] localPoint in
+                    guard let self, let dragZone else { return }
+                    let inStrip = dragZone.convert(localPoint, to: self)
+                    self.dragCoordinator.updateCursor(inStrip)
+                }
+                dragZone.onDragEnded = { [weak self, weak dragZone] localPoint in
+                    guard let self, let dragZone else { return }
+                    let inStrip = dragZone.convert(localPoint, to: self)
+                    self.dragCoordinator.endDrag(at: inStrip)
+                }
+                dragZone.onDragCancelled = { [weak self] in
+                    self?.dragCoordinator.cancelDrag()
+                }
+                paneView.addSubview(dragZone)
+                dragZoneViews[pane.id] = dragZone
             }
-            dragZone.onDragMoved = { [weak self, weak dragZone] localPoint in
-                guard let self, let dragZone else { return }
-                let inStrip = dragZone.convert(localPoint, to: self)
-                self.dragCoordinator.updateCursor(inStrip)
-            }
-            dragZone.onDragEnded = { [weak self, weak dragZone] localPoint in
-                guard let self, let dragZone else { return }
-                let inStrip = dragZone.convert(localPoint, to: self)
-                self.dragCoordinator.endDrag(at: inStrip)
-            }
-            dragZone.onDragCancelled = { [weak self] in
-                self?.dragCoordinator.cancelDrag()
-            }
-            paneView.addSubview(dragZone)
-            dragZoneViews[pane.id] = dragZone
+
+            lastFocusedPaneID = lastFocusedPaneID.flatMap { paneViews[$0] == nil ? nil : $0 }
         }
-
-        lastFocusedPaneID = lastFocusedPaneID.flatMap { paneViews[$0] == nil ? nil : $0 }
     }
 
     private func suspendedPaneIDs(

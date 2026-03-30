@@ -2,6 +2,8 @@ import Foundation
 
 extension WorklaneStore {
     func updateMetadata(paneID: PaneID, metadata: TerminalMetadata) {
+        terminalDiagnostics.recordStoreMetadataUpdate(paneID: paneID)
+
         guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
             worklane.paneStripState.panes.contains(where: { $0.id == paneID })
         }) else {
@@ -10,7 +12,12 @@ extension WorklaneStore {
 
         var worklane = worklanes[worklaneIndex]
         let previousWorklane = worklane
-        let previousMetadata = worklane.auxiliaryStateByPaneID[paneID]?.metadata
+        let previousAuxiliaryState = worklane.auxiliaryStateByPaneID[paneID] ?? PaneAuxiliaryState()
+        let previousMetadata = previousAuxiliaryState.metadata
+        let metadataChangeKind = TerminalMetadataChangeClassifier.classify(
+            previous: previousMetadata,
+            next: metadata
+        )
         worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
         clearStaleDesktopNotificationIfNeeded(for: paneID, metadata: metadata, in: &worklane)
         if branchContextDidChange(previous: previousMetadata, next: metadata) {
@@ -28,9 +35,21 @@ extension WorklaneStore {
         }
         invalidateGitContextIfNeeded(for: paneID, in: &worklane)
         recomputePresentation(for: paneID, in: &worklane)
+
+        if metadataChangeKind == .volatileTitleOnly,
+           shouldFastPathVolatileMetadataUpdate(
+                previousAuxiliaryState: previousAuxiliaryState,
+                nextAuxiliaryState: worklane.auxiliaryStateByPaneID[paneID] ?? PaneAuxiliaryState()
+           ) {
+            terminalDiagnostics.recordStoreFastPath(paneID: paneID)
+            worklanes[worklaneIndex] = worklane
+            return
+        }
+
         worklanes[worklaneIndex] = worklane
         refreshLastFocusedLocalWorkingDirectoryIfNeeded(worklane: worklane, paneID: paneID)
         let impacts = auxiliaryInvalidation(for: paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+        terminalDiagnostics.recordInvalidation(paneID: paneID, impacts: impacts)
         if !impacts.isEmpty {
             notify(.auxiliaryStateUpdated(worklane.id, paneID, impacts))
         }
@@ -92,6 +111,16 @@ extension WorklaneStore {
 
         return WorklaneContextFormatter.displayBranch(previous?.gitBranch)
             != WorklaneContextFormatter.displayBranch(next.gitBranch)
+    }
+
+    private func shouldFastPathVolatileMetadataUpdate(
+        previousAuxiliaryState: PaneAuxiliaryState,
+        nextAuxiliaryState: PaneAuxiliaryState
+    ) -> Bool {
+        previousAuxiliaryState.presentation == nextAuxiliaryState.presentation
+            && previousAuxiliaryState.localReviewWorkingDirectory == nextAuxiliaryState.localReviewWorkingDirectory
+            && previousAuxiliaryState.shellContext?.scope == nextAuxiliaryState.shellContext?.scope
+            && gitContextRefreshHint(for: previousAuxiliaryState) == gitContextRefreshHint(for: nextAuxiliaryState)
     }
 
     func auxiliaryInvalidation(

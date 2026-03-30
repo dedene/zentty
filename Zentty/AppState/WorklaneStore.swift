@@ -192,6 +192,7 @@ final class WorklaneStore {
 
     var worklanes: [WorklaneState]
     let gitContextResolver: any PaneGitContextResolving
+    let terminalDiagnostics: TerminalDiagnostics
     private(set) var layoutContext: PaneLayoutContext
     private var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
     private var lastFocusedPaneReference: PaneReference?
@@ -237,9 +238,11 @@ final class WorklaneStore {
         layoutContext: PaneLayoutContext = .fallback,
         activeWorklaneID: WorklaneID? = nil,
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
-        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
         self.gitContextResolver = gitContextResolver
+        self.terminalDiagnostics = terminalDiagnostics
         self.layoutContext = layoutContext
         self.processEnvironment = processEnvironment
         let initialWorklanes = worklanes.isEmpty

@@ -345,24 +345,20 @@ enum PanePresentationNormalizer {
         from metadata: TerminalMetadata?,
         recognizedTool: AgentTool?
     ) -> PanePresentationPhase? {
-        guard recognizedTool == .codex else {
-            return nil
-        }
-        guard let title = metadata?.title?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !title.isEmpty else {
+        guard let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            metadata?.title,
+            recognizedTool: recognizedTool
+        ) else {
             return nil
         }
 
-        let firstWord = title.prefix(while: { $0.isLetter }).lowercased()
-        switch firstWord {
-        case "working", "thinking":
+        switch signature.phase {
+        case .running:
             return .running
-        case "starting":
+        case .starting:
             return .starting
-        case "ready":
+        case .idle:
             return .idle
-        default:
-            return nil
         }
     }
 
@@ -432,7 +428,10 @@ enum PanePresentationNormalizer {
             guard let candidate else {
                 continue
             }
-            guard volatileAgentStatusTitle(candidate, recognizedTool: recognizedTool) == false else {
+            guard TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+                candidate,
+                recognizedTool: recognizedTool
+            ) == false else {
                 continue
             }
             guard rawShellLabelLooksMeaningful(candidate) else {
@@ -462,28 +461,6 @@ enum PanePresentationNormalizer {
         }
 
         return nil
-    }
-
-    private static func volatileAgentStatusTitle(
-        _ value: String,
-        recognizedTool: AgentTool?
-    ) -> Bool {
-        guard recognizedTool == .codex else {
-            return false
-        }
-
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalized.localizedCaseInsensitiveContains("zentty") else {
-            return false
-        }
-
-        let firstWord = normalized.prefix(while: { $0.isLetter }).lowercased()
-        switch firstWord {
-        case "working", "thinking", "starting", "ready":
-            return true
-        default:
-            return false
-        }
     }
 
     private static func rawShellLabelLooksMeaningful(_ value: String) -> Bool {

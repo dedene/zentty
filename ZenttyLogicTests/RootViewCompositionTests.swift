@@ -131,10 +131,24 @@ final class RootViewCompositionTests: XCTestCase {
             [
                 "Split Horizontally",
                 "Split Vertically",
+                "Width Presets",
+                "Height Presets",
+            ]
+        )
+
+        XCTAssertEqual(
+            controller.paneLayoutSubmenuCommandTitlesForTesting("Width Presets"),
+            [
                 "Arrange Width: Full Width",
                 "Arrange Width: Half Width",
                 "Arrange Width: Thirds",
                 "Arrange Width: Quarters",
+            ]
+        )
+
+        XCTAssertEqual(
+            controller.paneLayoutSubmenuCommandTitlesForTesting("Height Presets"),
+            [
                 "Arrange Height: Full Height",
                 "Arrange Height: 2 Per Column",
                 "Arrange Height: 3 Per Column",

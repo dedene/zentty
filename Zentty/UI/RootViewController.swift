@@ -659,26 +659,39 @@ final class RootViewController: NSViewController {
         menu.autoenablesItems = false
         addPaneLayoutMenuItems([.splitHorizontally, .splitVertically], to: menu)
         menu.addItem(NSMenuItem.separator())
-        addPaneLayoutMenuItems(
-            [
-                .arrangeWidthFull,
-                .arrangeWidthHalves,
-                .arrangeWidthThirds,
-                .arrangeWidthQuarters,
-            ],
-            to: menu
+        menu.addItem(
+            makePaneLayoutSubmenuItem(
+                title: "Width Presets",
+                commandIDs: [
+                    .arrangeWidthFull,
+                    .arrangeWidthHalves,
+                    .arrangeWidthThirds,
+                    .arrangeWidthQuarters,
+                ]
+            )
         )
-        menu.addItem(NSMenuItem.separator())
-        addPaneLayoutMenuItems(
-            [
-                .arrangeHeightFull,
-                .arrangeHeightTwoPerColumn,
-                .arrangeHeightThreePerColumn,
-                .arrangeHeightFourPerColumn,
-            ],
-            to: menu
+        menu.addItem(
+            makePaneLayoutSubmenuItem(
+                title: "Height Presets",
+                commandIDs: [
+                    .arrangeHeightFull,
+                    .arrangeHeightTwoPerColumn,
+                    .arrangeHeightThreePerColumn,
+                    .arrangeHeightFourPerColumn,
+                ]
+            )
         )
         return menu
+    }
+
+    private func makePaneLayoutSubmenuItem(title: String, commandIDs: [AppCommandID]) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: title)
+        submenu.autoenablesItems = false
+        addPaneLayoutMenuItems(commandIDs, to: submenu)
+        item.submenu = submenu
+        item.isEnabled = commandIDs.contains(where: isPaneLayoutMenuCommandEnabled)
+        return item
     }
 
     private func addPaneLayoutMenuItems(_ commandIDs: [AppCommandID], to menu: NSMenu) {
@@ -1388,6 +1401,14 @@ final class RootViewController: NSViewController {
             makePaneLayoutMenu().items
                 .filter { !$0.isSeparatorItem }
                 .map(\.title)
+        }
+
+        func paneLayoutSubmenuCommandTitlesForTesting(_ title: String) -> [String] {
+            makePaneLayoutMenu().items
+                .first { !$0.isSeparatorItem && $0.title == title }?
+                .submenu?
+                .items
+                .map(\.title) ?? []
         }
     #endif
 

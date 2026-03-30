@@ -279,8 +279,10 @@ final class PaneContainerView: NSView {
     }
 
     func activateSessionIfNeeded() {
-        layoutSubtreeIfNeeded()
-        runtime.ensureStarted()
+        ZenttyPerformanceSignposts.interval("PaneContainerActivateSession") {
+            layoutSubtreeIfNeeded()
+            runtime.ensureStarted()
+        }
     }
 
     func setTerminalViewportSyncSuspended(_ suspended: Bool) {

@@ -753,6 +753,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         )
     }
 
+    #if DEBUG
     func performOpenWithPrimaryActionForTesting() {
         performOpenWithPrimaryAction()
     }
@@ -872,6 +873,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func openWithPopoverRowBorderTokenForTesting(stableID: String) -> String {
         openWithPopoverController.rowBorderTokenForTesting(stableID: stableID)
     }
+    #endif
 }
 
 enum TrafficLightTintResolver {

@@ -42,7 +42,7 @@ require_command xcode-select "Install full Xcode."
 require_command xcrun "Install full Xcode."
 
 XCODE_PATH="$(xcode-select --print-path)"
-if [[ "${XCODE_PATH}" != "/Applications/Xcode.app/Contents/Developer" ]]; then
+if [[ "${XCODE_PATH}" != */Xcode*.app/Contents/Developer ]]; then
   echo "Full Xcode is not selected. Current developer dir: ${XCODE_PATH}" >&2
   echo "Select full Xcode with: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer" >&2
   exit 1
@@ -70,7 +70,7 @@ git -C "${SOURCE_DIR}" checkout --detach "${revision}"
 
 (
   cd "${SOURCE_DIR}"
-  zig build -Demit-macos-app=false -Dxcframework-target="${build_target}"
+  zig build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target="${build_target}"
 )
 
 if [[ ! -d "${ARTIFACT_SOURCE}" ]]; then
