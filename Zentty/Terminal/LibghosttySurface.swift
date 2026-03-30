@@ -213,6 +213,13 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         publishMetadata()
     }
 
+    func close() {
+        guard let surface else { return }
+        ghostty_surface_request_close(surface)
+        ghostty_surface_free(surface)
+        self.surface = nil
+    }
+
     deinit {
         if let surface {
             ghostty_surface_free(surface)

@@ -106,6 +106,88 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertGreaterThan(toggleIndex, sidebarIndex)
     }
 
+    func test_root_controller_places_arrange_button_between_sidebar_toggle_and_navigation_buttons() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let rootSubviews = controller.view.subviews
+        let sidebarToggleButton = try XCTUnwrap(rootSubviews.first { $0 is SidebarToggleButton } as? SidebarToggleButton)
+        let paneLayoutMenuButton = try XCTUnwrap(rootSubviews.first { $0 is PaneLayoutMenuButton } as? PaneLayoutMenuButton)
+        let paneNavigationButtons = try XCTUnwrap(rootSubviews.first { $0 is PaneNavigationButtons } as? PaneNavigationButtons)
+
+        XCTAssertEqual(paneLayoutMenuButton.frame.minX, sidebarToggleButton.frame.maxX + 4, accuracy: 0.5)
+        XCTAssertEqual(paneNavigationButtons.frame.minX, paneLayoutMenuButton.frame.maxX + 4, accuracy: 0.5)
+        XCTAssertEqual(paneLayoutMenuButton.frame.midY, sidebarToggleButton.frame.midY, accuracy: 0.5)
+    }
+
+    func test_root_controller_exposes_arrange_menu_commands_with_split_and_arrange_sections() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(
+            controller.paneLayoutMenuCommandTitlesForTesting(),
+            [
+                "Split Horizontally",
+                "Split Vertically",
+                "Arrange Width: Full Width",
+                "Arrange Width: Half Width",
+                "Arrange Width: Thirds",
+                "Arrange Width: Quarters",
+                "Arrange Height: Full Height",
+                "Arrange Height: 2 Per Column",
+                "Arrange Height: 3 Per Column",
+                "Arrange Height: 4 Per Column",
+            ]
+        )
+    }
+
+    func test_root_controller_handle_arrange_width_command_updates_active_pane_strip_state() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    columns: [
+                        PaneColumnState(
+                            id: PaneColumnID("left"),
+                            panes: [PaneState(id: PaneID("a"), title: "a")],
+                            width: 320,
+                            focusedPaneID: PaneID("a"),
+                            lastFocusedPaneID: PaneID("a")
+                        ),
+                        PaneColumnState(
+                            id: PaneColumnID("right"),
+                            panes: [PaneState(id: PaneID("b"), title: "b")],
+                            width: 520,
+                            focusedPaneID: PaneID("b"),
+                            lastFocusedPaneID: PaneID("b")
+                        ),
+                    ],
+                    focusedColumnID: PaneColumnID("left")
+                )
+            ),
+        ])
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        let expectedWidth = controller.paneStripStateForTesting.arrangedColumnWidth(
+            for: 2,
+            availableWidth: appCanvasView.bounds.width,
+            leadingVisibleInset: appCanvasView.leadingVisibleInset
+        )
+
+        controller.handle(.pane(.arrangeHorizontally(.halfWidth)))
+
+        XCTAssertEqual(controller.paneStripStateForTesting.columns[0].width, expectedWidth, accuracy: 0.001)
+        XCTAssertEqual(controller.paneStripStateForTesting.columns[1].width, expectedWidth, accuracy: 0.001)
+    }
+
     func test_root_controller_keeps_window_chrome_content_to_right_of_sidebar_visible_lane() throws {
         let controller = makeControllerWithCrowdedHeader(width: 1280)
         let rootSubviews = controller.view.subviews
@@ -682,7 +764,7 @@ final class RootViewCompositionTests: XCTestCase {
 
         XCTAssertTrue(sidebarView.addWorklaneUsesPointingHandCursor)
         XCTAssertGreaterThan(sidebarView.addWorklaneBackgroundAlpha, 0.01)
-        XCTAssertGreaterThan(sidebarView.addWorklaneBorderAlpha, 0.01)
+        XCTAssertEqual(sidebarView.addWorklaneBorderAlpha, 0, accuracy: 0.001)
         XCTAssertGreaterThan(sidebarView.addWorklaneTitleAlpha, restingTitleAlpha)
         XCTAssertGreaterThan(sidebarView.addWorklaneIconAlpha, restingIconAlpha)
     }

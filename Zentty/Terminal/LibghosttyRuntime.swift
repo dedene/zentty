@@ -77,6 +77,12 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
     }
 }
 
+private func libghosttyCloseSurfaceCallback(_: UnsafeMutableRawPointer?, _: Bool) {
+    // Acknowledge surface close requests from ghostty (e.g. shell exit).
+    // Zentty manages pane lifecycle through PaneRuntimeRegistry, so no
+    // additional work is needed here.
+}
+
 private func libghosttyWakeupCallback(userdata: UnsafeMutableRawPointer?) {
     guard let userdata else {
         return
@@ -146,6 +152,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         self.config = nil
 
         Self.configureResourcesDirectoryIfNeeded()
+        Self.configureLogLevelIfNeeded()
 
         let initResult = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         guard initResult == GHOSTTY_SUCCESS else {
@@ -226,7 +233,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             read_clipboard_cb: libghosttyReadClipboardCallback,
             confirm_read_clipboard_cb: libghosttyConfirmReadClipboardCallback,
             write_clipboard_cb: libghosttyWriteClipboardCallback,
-            close_surface_cb: nil
+            close_surface_cb: libghosttyCloseSurfaceCallback
         )
     }
 
@@ -244,6 +251,13 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             return
         }
         ghostty_app_set_focus(app, false)
+    }
+
+    private static func configureLogLevelIfNeeded() {
+        guard getenv("GHOSTTY_LOG") == nil else {
+            return
+        }
+        setenv("GHOSTTY_LOG", "macos,no-stderr", 1)
     }
 
     private static func configureResourcesDirectoryIfNeeded() {

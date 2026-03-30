@@ -31,6 +31,24 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
     }
 
+    func test_resolves_arrange_default_shortcuts_from_registry() {
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .character("2"), modifiers: [.command]),
+                shortcuts: .default
+            ),
+            .pane(.arrangeHorizontally(.halfWidth))
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .character("3"), modifiers: [.command, .shift]),
+                shortcuts: .default
+            ),
+            .pane(.arrangeVertically(.threePerColumn))
+        )
+    }
+
     func test_resolves_remapped_shortcuts_from_overrides() {
         let shortcuts = AppConfig.Shortcuts(
             bindings: [

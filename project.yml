@@ -12,6 +12,9 @@ settings:
     CLANG_ENABLE_MODULES: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 25TVW8MSGJ
+  configs:
+    Debug:
+      OTHER_CODE_SIGN_FLAGS: "--timestamp=none"
 schemes:
   Zentty:
     build:

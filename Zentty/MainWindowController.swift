@@ -109,6 +109,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     let window: NSWindow
     private let rootViewController: RootViewController
+    private let runtimeRegistry: PaneRuntimeRegistry
     private let configStore: AppConfigStore
     private let openWithService: OpenWithServing
     private let openWithPopoverController = OpenWithPopoverController()
@@ -168,6 +169,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
 
         self.rootViewController = rootViewController
+        self.runtimeRegistry = runtimeRegistry
         self.configStore = resolvedConfigStore
         self.openWithService = openWithService
         self.window = window
@@ -180,6 +182,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             self?.handleOpenWithSettingsMenuItem(nil)
         }
         rootViewController.onWindowChromeNeedsUpdate = { [weak self] in
+            self?.syncWindowAppearance()
             self?.updateTrafficLightAppearance()
         }
         rootViewController.onOpenWithPrimaryRequested = { [weak self] in
@@ -218,8 +221,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func showWindow(_ sender: Any?) {
         isWindowKey = true
         window.makeKeyAndOrderFront(sender)
+        syncWindowAppearance()
         layoutTrafficLights()
         rootViewController.activateWindowBindingsIfNeeded()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // The main window is never re-opened after close — destroyAll is a one-way teardown.
+        runtimeRegistry.destroyAll()
     }
 
     func windowDidResize(_ notification: Notification) {
@@ -298,6 +307,46 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @objc
     func splitVertically(_ sender: Any?) {
         handle(.pane(.splitVertically))
+    }
+
+    @objc
+    func arrangePaneWidthFull(_ sender: Any?) {
+        handle(.pane(.arrangeHorizontally(.fullWidth)))
+    }
+
+    @objc
+    func arrangePaneWidthHalves(_ sender: Any?) {
+        handle(.pane(.arrangeHorizontally(.halfWidth)))
+    }
+
+    @objc
+    func arrangePaneWidthThirds(_ sender: Any?) {
+        handle(.pane(.arrangeHorizontally(.thirds)))
+    }
+
+    @objc
+    func arrangePaneWidthQuarters(_ sender: Any?) {
+        handle(.pane(.arrangeHorizontally(.quarters)))
+    }
+
+    @objc
+    func arrangePaneHeightFull(_ sender: Any?) {
+        handle(.pane(.arrangeVertically(.fullHeight)))
+    }
+
+    @objc
+    func arrangePaneHeightTwoPerColumn(_ sender: Any?) {
+        handle(.pane(.arrangeVertically(.twoPerColumn)))
+    }
+
+    @objc
+    func arrangePaneHeightThreePerColumn(_ sender: Any?) {
+        handle(.pane(.arrangeVertically(.threePerColumn)))
+    }
+
+    @objc
+    func arrangePaneHeightFourPerColumn(_ sender: Any?) {
+        handle(.pane(.arrangeVertically(.fourPerColumn)))
     }
 
     @objc
@@ -413,6 +462,20 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         rootViewController.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    var anyPaneRequiresQuitConfirmation: Bool {
+        rootViewController.anyPaneRequiresQuitConfirmation
+    }
+
+    var terminalAppearance: NSAppearance? {
+        let theme = rootViewController.currentWindowTheme
+        let isDark = theme.windowBackground.isDarkThemeColor
+        return NSAppearance(named: isDark ? .darkAqua : .aqua)
+    }
+
+    private func syncWindowAppearance() {
+        window.appearance = terminalAppearance
     }
 
     var worklaneTitles: [String] {

@@ -45,7 +45,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController?.showSettingsWindow(sender)
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard configStore.current.confirmations.confirmBeforeQuitting,
+              windowController?.anyPaneRequiresQuitConfirmation == true else {
+            return .terminateNow
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Quit Zentty?"
+        alert.informativeText = "All panes and running processes will be terminated."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.appearance = windowController?.terminalAppearance
+
+        if let window = windowController?.window, window.isVisible {
+            alert.beginSheetModal(for: window) { response in
+                NSApp.reply(toApplicationShouldTerminate: response == .alertFirstButtonReturn)
+            }
+            return .terminateLater
+        }
+
+        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        runtimeRegistry.destroyAll()
         if let configObserverID {
             configStore.removeObserver(configObserverID)
         }

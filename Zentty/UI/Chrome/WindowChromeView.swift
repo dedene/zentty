@@ -417,7 +417,7 @@ final class WindowChromeView: NSView {
         }
 
         if isHovered {
-            return currentTheme.openWithChromeHoverBackground
+            return ChromeGeometry.iconButtonHoverBackground(theme: currentTheme, isHovered: true)
         }
 
         return .clear

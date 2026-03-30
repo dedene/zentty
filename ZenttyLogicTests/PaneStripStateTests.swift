@@ -659,6 +659,176 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(heights[1], 310, accuracy: 0.001)
     }
 
+    func test_arrange_horizontally_normalizes_column_widths_without_resetting_vertical_heights() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "left",
+                    paneIDs: ["top", "bottom"],
+                    width: 320,
+                    paneHeights: [200, 400],
+                    focusedPaneID: PaneID("bottom"),
+                    lastFocusedPaneID: PaneID("bottom")
+                ),
+                makeColumn("right", paneIDs: ["shell"], width: 540),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        let didArrange = state.arrangeHorizontally(
+            .halfWidth,
+            availableWidth: 1200,
+            leadingVisibleInset: 0
+        )
+
+        XCTAssertTrue(didArrange)
+        XCTAssertEqual(state.columns[0].width, 597, accuracy: 0.001)
+        XCTAssertEqual(state.columns[1].width, 597, accuracy: 0.001)
+        XCTAssertEqual(state.columns[0].paneHeights, [200, 400])
+        XCTAssertEqual(state.focusedPaneID, PaneID("bottom"))
+    }
+
+    func test_arrange_vertically_repacks_in_reading_order_and_preserves_focus_and_width_order() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["a", "b"], width: 320),
+                makeColumn(
+                    "right",
+                    paneIDs: ["c", "d"],
+                    width: 520,
+                    focusedPaneID: PaneID("d"),
+                    lastFocusedPaneID: PaneID("d")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("right")
+        )
+
+        let didArrange = state.arrangeVertically(.threePerColumn)
+
+        XCTAssertTrue(didArrange)
+        XCTAssertEqual(
+            state.columns.map { $0.panes.map(\.id) },
+            [
+                [PaneID("a"), PaneID("b"), PaneID("c")],
+                [PaneID("d")],
+            ]
+        )
+        XCTAssertEqual(state.columns[0].width, 320, accuracy: 0.001)
+        XCTAssertEqual(state.columns[1].width, 520, accuracy: 0.001)
+        XCTAssertEqual(state.columns[0].paneHeights, [1, 1, 1])
+        XCTAssertEqual(state.columns[1].paneHeights, [1])
+        XCTAssertEqual(state.focusedColumn?.id, PaneColumnID("right"))
+        XCTAssertEqual(state.focusedPaneID, PaneID("d"))
+    }
+
+    func test_arrange_vertically_reuses_last_existing_width_when_more_columns_are_needed() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["a", "b"], width: 300),
+                makeColumn("right", paneIDs: ["c", "d"], width: 500),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        let didArrange = state.arrangeVertically(.fullHeight)
+
+        XCTAssertTrue(didArrange)
+        XCTAssertEqual(state.columns[0].width, 300, accuracy: 0.001)
+        XCTAssertEqual(state.columns[1].width, 500, accuracy: 0.001)
+        XCTAssertEqual(state.columns[2].width, 500, accuracy: 0.001)
+        XCTAssertEqual(state.columns[3].width, 500, accuracy: 0.001)
+        XCTAssertEqual(
+            state.columns.map { $0.panes.map(\.id) },
+            [
+                [PaneID("a")],
+                [PaneID("b")],
+                [PaneID("c")],
+                [PaneID("d")],
+            ]
+        )
+    }
+
+    func test_arrange_vertically_redistributes_partial_final_column_evenly() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["a", "b", "c"], width: 320, paneHeights: [300, 150, 450]),
+                makeColumn("right", paneIDs: ["d", "e"], width: 480, paneHeights: [500, 100]),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        let didArrange = state.arrangeVertically(.threePerColumn)
+
+        XCTAssertTrue(didArrange)
+        XCTAssertEqual(state.columns[1].panes.map(\.id), [PaneID("d"), PaneID("e")])
+        XCTAssertEqual(state.columns[1].paneHeights, [1, 1])
+    }
+
+    // MARK: - Boundary Detection
+
+    func test_isFocusedPaneAtTop_singlePane_returnsTrue() {
+        let state = PaneStripState(
+            columns: [
+                makeColumn("col", paneIDs: ["only"], focusedPaneID: PaneID("only"))
+            ],
+            focusedColumnID: PaneColumnID("col")
+        )
+
+        XCTAssertTrue(state.isFocusedPaneAtTopOfColumn)
+        XCTAssertTrue(state.isFocusedPaneAtBottomOfColumn)
+    }
+
+    func test_isFocusedPaneAtTop_atMiddle_returnsFalse() {
+        let state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "col",
+                    paneIDs: ["top", "middle", "bottom"],
+                    focusedPaneID: PaneID("middle"),
+                    lastFocusedPaneID: PaneID("middle")
+                )
+            ],
+            focusedColumnID: PaneColumnID("col")
+        )
+
+        XCTAssertFalse(state.isFocusedPaneAtTopOfColumn)
+        XCTAssertFalse(state.isFocusedPaneAtBottomOfColumn)
+    }
+
+    func test_isFocusedPaneAtTop_atFirst_returnsTrue() {
+        let state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "col",
+                    paneIDs: ["top", "middle", "bottom"],
+                    focusedPaneID: PaneID("top"),
+                    lastFocusedPaneID: PaneID("top")
+                )
+            ],
+            focusedColumnID: PaneColumnID("col")
+        )
+
+        XCTAssertTrue(state.isFocusedPaneAtTopOfColumn)
+        XCTAssertFalse(state.isFocusedPaneAtBottomOfColumn)
+    }
+
+    func test_isFocusedPaneAtBottom_atLast_returnsTrue() {
+        let state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "col",
+                    paneIDs: ["top", "middle", "bottom"],
+                    focusedPaneID: PaneID("bottom"),
+                    lastFocusedPaneID: PaneID("bottom")
+                )
+            ],
+            focusedColumnID: PaneColumnID("col")
+        )
+
+        XCTAssertFalse(state.isFocusedPaneAtTopOfColumn)
+        XCTAssertTrue(state.isFocusedPaneAtBottomOfColumn)
+    }
+
     private func makeColumn(
         _ rawID: String,
         paneIDs: [String],

@@ -12,6 +12,9 @@ final class NotificationBellButton: NSButton {
     private let badgeLayer = CALayer()
     private let badgeTextLayer = CATextLayer()
     private var currentCount: Int = 0
+    private var isHovered = false
+    private var trackingAreaValue: NSTrackingArea?
+    private var currentTheme: ZenttyTheme?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -46,6 +49,7 @@ final class NotificationBellButton: NSButton {
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyDown
         setAccessibilityLabel("Notifications")
+        toolTip = "Notifications"
 
         target = self
         action = #selector(handleClick)
@@ -88,6 +92,48 @@ final class NotificationBellButton: NSButton {
         badgeTextLayer.contentsScale = scale
     }
 
+    // MARK: - Hover Tracking
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaValue {
+            removeTrackingArea(trackingAreaValue)
+        }
+        let trackingAreaValue = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingAreaValue)
+        self.trackingAreaValue = trackingAreaValue
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard !isHovered else { return }
+        isHovered = true
+        updateHoverAppearance()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard isHovered else { return }
+        isHovered = false
+        updateHoverAppearance()
+    }
+
+    private func updateHoverAppearance() {
+        guard let theme = currentTheme else { return }
+        let enabledAlpha: CGFloat = isHovered ? 1.0 : (currentCount > 0 ? 0.96 : 0.82)
+        contentTintColor = theme.primaryText.withAlphaComponent(enabledAlpha)
+        performThemeAnimation(animated: true) {
+            self.layer?.backgroundColor = ChromeGeometry.iconButtonHoverBackground(
+                theme: theme, isHovered: self.isHovered
+            ).cgColor
+        }
+    }
+
     // MARK: - Action
 
     @objc private func handleClick() {
@@ -106,10 +152,14 @@ final class NotificationBellButton: NSButton {
     }
 
     func configure(theme: ZenttyTheme, animated: Bool) {
-        contentTintColor = theme.primaryText.withAlphaComponent(currentCount > 0 ? 0.96 : 0.82)
+        currentTheme = theme
+        let enabledAlpha: CGFloat = isHovered ? 1.0 : (currentCount > 0 ? 0.96 : 0.82)
+        contentTintColor = theme.primaryText.withAlphaComponent(enabledAlpha)
 
         performThemeAnimation(animated: animated) {
-            self.layer?.backgroundColor = NSColor.clear.cgColor
+            self.layer?.backgroundColor = ChromeGeometry.iconButtonHoverBackground(
+                theme: theme, isHovered: self.isHovered
+            ).cgColor
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 1.0
             self.layer?.shadowColor = theme.underlapShadow.cgColor

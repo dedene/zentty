@@ -307,6 +307,36 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         XCTAssertEqual(worklaneAdapter.preparedContexts, [.tab])
     }
 
+    func test_registry_destroyAll_removes_all_runtimes() {
+        let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        let shell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let editor = PaneState(id: PaneID("worklane-main-editor"), title: "editor")
+
+        registry.synchronize(with: [
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [shell, editor],
+                    focusedPaneID: editor.id
+                )
+            )
+        ])
+        XCTAssertNotNil(registry.runtime(for: shell.id))
+        XCTAssertNotNil(registry.runtime(for: editor.id))
+
+        registry.destroyAll()
+
+        XCTAssertNil(registry.runtime(for: shell.id))
+        XCTAssertNil(registry.runtime(for: editor.id))
+
+        registry.destroyAll()
+        XCTAssertNil(registry.runtime(for: shell.id), "second destroyAll must be safe")
+    }
+
     func test_registry_starts_local_session_with_working_directory_without_inheritance() throws {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
@@ -383,6 +413,10 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
     func startSession(using request: TerminalSessionRequest) throws {
         eventLog.append("start")
         startSessionCallCount += 1
+    }
+
+    func close() {
+        eventLog.append("close")
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
