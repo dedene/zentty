@@ -828,6 +828,56 @@ final class WorklaneStore {
         )
     }
 
+    /// Create a new pane in the given worklane with an explicit working directory.
+    /// Used by duplicate-pane operations where the CWD comes from the source pane.
+    func makePaneWithDirectory(
+        in worklane: inout WorklaneState,
+        existingPaneCount: Int,
+        workingDirectory: String?
+    ) -> PaneState {
+        defer { worklane.nextPaneNumber += 1 }
+
+        let title = "pane \(worklane.nextPaneNumber)"
+        let paneID = PaneID("\(worklane.id.rawValue)-pane-\(worklane.nextPaneNumber)")
+        let resolvedDirectory = workingDirectory ?? Self.defaultWorkingDirectory()
+        let configSource = sourcePaneIDForConfigInheritance(in: worklane)
+
+        let initialShellContext = PaneShellContext(
+            scope: .local,
+            path: resolvedDirectory,
+            home: processEnvironment["HOME"],
+            user: processEnvironment["USER"],
+            host: nil
+        )
+        let initialRaw = PaneRawState(shellContext: initialShellContext)
+        let initialPresentation = PanePresentationNormalizer.normalize(
+            paneTitle: title,
+            raw: initialRaw,
+            previous: nil
+        )
+        worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
+            raw: initialRaw,
+            presentation: initialPresentation
+        )
+
+        return PaneState(
+            id: paneID,
+            title: title,
+            sessionRequest: TerminalSessionRequest(
+                workingDirectory: resolvedDirectory,
+                inheritFromPaneID: nil,
+                configInheritanceSourcePaneID: configSource,
+                surfaceContext: .split,
+                environmentVariables: sessionEnvironment(
+                    worklaneID: worklane.id,
+                    paneID: paneID,
+                    initialWorkingDirectory: resolvedDirectory
+                )
+            ),
+            width: layoutContext.newPaneWidth(existingPaneCount: existingPaneCount)
+        )
+    }
+
     private static func defaultWorklanes(
         layoutContext: PaneLayoutContext,
         processEnvironment: [String: String]

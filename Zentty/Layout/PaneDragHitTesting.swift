@@ -12,6 +12,12 @@ struct SplitZoneHit: Equatable {
     let leading: Bool
 }
 
+enum SidebarHitResult: Equatable {
+    case worklane(WorklaneID)
+    case newWorklane
+    case none
+}
+
 enum PaneDragHitTest {
 
     /// Resolve a reorder gap hit using gap zones around column boundaries.
@@ -178,6 +184,54 @@ enum PaneDragHitTest {
             axis: axis,
             leading: leading
         )
+    }
+
+    // MARK: - Sidebar Row Detection
+
+    /// Detect which sidebar worklane row the cursor is over.
+    /// Excludes the active worklane from targeting.
+    /// Returns `.newWorklane` when cursor is below the last row.
+    static func sidebarRowHit(
+        cursorInStrip: CGPoint,
+        worklaneFrames: [(WorklaneID, CGRect)],
+        activeWorklaneID: WorklaneID?,
+        sidebarBottomY: CGFloat,
+        isOptionHeld: Bool,
+        worklaneCount: Int
+    ) -> SidebarHitResult {
+        // Single-worklane guard: sidebar targeting only with Option held
+        if worklaneCount <= 1 && !isOptionHeld {
+            return .none
+        }
+
+        // Check each worklane row (excluding active worklane)
+        for (worklaneID, frame) in worklaneFrames {
+            guard worklaneID != activeWorklaneID else { continue }
+            if frame.contains(cursorInStrip) {
+                return .worklane(worklaneID)
+            }
+        }
+
+        // Check if cursor is below last row → new worklane zone.
+        // In non-flipped coords (bottom-left origin): lower Y = lower on screen.
+        // Sidebar rows are laid out top-to-bottom, so the last row has the lowest Y.
+        // "Below last row" means Y values less than the last row's bottom edge.
+        let lastRowBottomY: CGFloat
+        if let lastFrame = worklaneFrames.last?.1 {
+            lastRowBottomY = lastFrame.minY
+        } else {
+            // No rows at all — entire sidebar is the new-worklane zone
+            lastRowBottomY = sidebarBottomY + 1000
+        }
+
+        // Ensure a minimum drop zone height (40pt) even if sidebar bottom is flush
+        let effectiveSidebarBottom = min(sidebarBottomY, lastRowBottomY - 40)
+
+        if cursorInStrip.y < lastRowBottomY && cursorInStrip.y >= effectiveSidebarBottom {
+            return .newWorklane
+        }
+
+        return .none
     }
 
     /// Compute edge scroll velocity based on cursor proximity to the VISIBLE viewport edges.

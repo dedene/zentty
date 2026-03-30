@@ -9,6 +9,24 @@ final class PaneDragCoordinator {
     var onReorder: ((PaneID, Int) -> Void)?
     var onSplitDrop: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool) -> Void)?
     var onDragActiveChanged: ((Bool) -> Void)?
+    var onSidebarDrop: ((PaneID, WorklaneID, Bool) -> Void)?
+    var onSidebarNewWorklaneDrop: ((PaneID, Bool) -> Void)?
+    var onHoveredSidebarWorklaneChanged: ((WorklaneID?) -> Void)?
+    var onDragApproachingSidebarEdge: ((Bool) -> Void)?
+    var onNewWorklanePlaceholderVisibilityChanged: ((Bool) -> Void)?
+    var onSidebarScrollRequested: ((CGFloat) -> Void)?
+
+    // MARK: - Sidebar Providers
+
+    var sidebarWorklaneFrameProvider: (() -> [(WorklaneID, CGRect)])?
+    var activeWorklaneIDProvider: (() -> WorklaneID?)?
+    var sidebarBoundsProvider: (() -> CGRect)?
+    var worklaneCountProvider: (() -> Int)?
+    var sidebarWidthProvider: (() -> CGFloat)?
+
+    /// View above the sidebar in z-order. The dragged pane is reparented here
+    /// so it renders on top of the sidebar during drag.
+    weak var dragHostView: NSView?
 
     // MARK: - Public State
 
@@ -19,6 +37,17 @@ final class PaneDragCoordinator {
     private var draggedPaneView: PaneContainerView?
     private var originalPaneFrame: CGRect = .zero
     private var grabOffsetInContent: CGSize = .zero
+    /// Grab offset in window coordinates — the canonical space that never lies.
+    private var grabOffsetInWindow: CGSize = .zero
+    /// Layer-hosting container for the drag preview. We animate THIS layer
+    /// (not paneView.layer) to avoid AppKit fighting our transform/position changes.
+    private var dragContainer: PaneDragFloatingContainer?
+
+    /// The layer to animate for position/transform/shadow during drag.
+    /// Uses the container's layer (which we own) when available.
+    private var dragLayer: CALayer? {
+        dragContainer?.layer ?? draggedPaneView?.layer
+    }
 
     /// Current reduced-space insertion index (gap position in the layout without dragged pane).
     private var currentReducedIndex: Int?
@@ -29,6 +58,9 @@ final class PaneDragCoordinator {
     /// Current scroll velocity in content-space pt/s. Smoothly tracks the target.
     private var edgeScrollVelocity: CGFloat = 0
     private var escapeMonitor: Any?
+    private var flagsChangedMonitor: Any?
+    private var ghostView: PaneDragGhostView?
+    private var duplicateBadgeLayer: CALayer?
 
     // MARK: - References
 
@@ -57,11 +89,23 @@ final class PaneDragCoordinator {
     private var splitDwellSatisfied: Bool = false
     private var currentSplitHit: SplitZoneHit?
 
+    // MARK: - Sidebar Drag State
+
+    private var currentSidebarTarget: WorklaneID?
+    private var isCursorInSidebarZone: Bool = false
+    private var isApproachingSidebar: Bool = false
+    private var isShowingNewWorklanePlaceholder: Bool = false
+    private(set) var isOptionHeld: Bool = false
+    private var sidebarEdgeScrollTimer: Timer?
+    private var sidebarEdgeScrollVelocity: CGFloat = 0
+
     // MARK: - Constants
 
     private static let popScale: CGFloat = 0.45
+    private static let sidebarPopScale: CGFloat = 0.2
     private static let gapScreenPt: CGFloat = 20
     private static let splitDwellDuration: TimeInterval = 0.25
+    private static let sidebarDeadZoneScreenPt: CGFloat = 20
 
     // MARK: - Shared Visual Layout
 
@@ -155,6 +199,20 @@ final class PaneDragCoordinator {
         self.draggedPaneView = paneView
         self.originalPaneFrame = paneView.frame
 
+        // Compute grab offset by converting cursor into the PANE'S OWN coordinate space.
+        // Both cursor and center go through the same conversion path (viewportView → paneView),
+        // so any viewport scroll offset cancels out.
+        let cursorInPane = paneStripView.convert(cursorInStrip, to: paneView)
+        let grabOffsetInPane = CGSize(
+            width: paneView.bounds.midX - cursorInPane.x,
+            height: paneView.bounds.midY - cursorInPane.y
+        )
+
+        // Convert this pane-local offset to window space for the overlay path.
+        // At zoom 1.0, pane-local pixels ≈ window pixels (no scale transform on the pane).
+        grabOffsetInWindow = grabOffsetInPane
+
+        // Also keep the viewport-space version for the viewport path
         let cursorInContent = paneStripView.convert(cursorInStrip, to: viewportView)
         grabOffsetInContent = CGSize(
             width: paneView.frame.midX - cursorInContent.x,
@@ -180,35 +238,66 @@ final class PaneDragCoordinator {
         paneView.beginVerticalFreeze(gravity: .top)
         paneView.setTerminalViewportSyncSuspended(true)
 
-        // Bring to front
-        viewportView.addSubview(paneView, positioned: .above, relativeTo: nil)
+        // Snapshot the pane as a bitmap for the drag preview.
+        // The terminal is frozen, so a static image is perfect.
+        // This avoids reparenting the actual pane (which causes layer ownership issues).
+        let paneSize = paneView.frame.size
+        let paneCenterInViewport = CGPoint(x: paneView.frame.midX, y: paneView.frame.midY)
 
-        // Pop transform
-        let currentZoom = paneStripView.currentZoomScale()
-        let popMultiplier = Self.popScale / max(0.01, currentZoom)
-        paneView.wantsLayer = true
+        let hostView = dragHostView ?? viewportView
+        let centerInHost = viewportView.convert(paneCenterInViewport, to: hostView)
+
+        // Create snapshot image
+        let snapshot = NSImage(size: paneSize)
+        if let bitmapRep = paneView.bitmapImageRepForCachingDisplay(in: paneView.bounds) {
+            paneView.cacheDisplay(in: paneView.bounds, to: bitmapRep)
+            snapshot.addRepresentation(bitmapRep)
+        }
+
+        // Create a layer-hosting container with the snapshot
+        let container = PaneDragFloatingContainer(frame: CGRect(origin: .zero, size: paneSize))
+        container.layer?.contents = snapshot
+        container.layer?.contentsGravity = .resizeAspectFill
+        hostView.addSubview(container)
+        self.dragContainer = container
+
+        // Make original pane invisible but keep it in the hierarchy
+        // (isHidden = true would kill the gesture recognizer on the drag zone child)
+        paneView.alphaValue = 0
+
+        // Position the container using frame (avoids macOS anchorPoint issues)
+        let isOverlay = dragHostView != nil
+        let popScale = isOverlay ? Self.popScale : Self.popScale
+        let scaledWidth = paneSize.width * popScale
+        let scaledHeight = paneSize.height * popScale
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        paneView.layer?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        paneView.layer?.position = CGPoint(x: paneView.frame.midX, y: paneView.frame.midY)
-        paneView.layer?.transform = CATransform3DMakeScale(popMultiplier, popMultiplier, 1)
+        container.frame = CGRect(
+            x: centerInHost.x - scaledWidth / 2,
+            y: centerInHost.y - scaledHeight / 2,
+            width: scaledWidth,
+            height: scaledHeight
+        )
+        container.layer?.shadowColor = NSColor.black.cgColor
+        container.layer?.shadowOpacity = 0.6
+        container.layer?.shadowRadius = 24
+        container.layer?.shadowOffset = CGSize(width: 0, height: -10)
+        container.layer?.cornerRadius = 6
         CATransaction.commit()
 
-        // Shadow
-        paneView.shadow = NSShadow()
-        paneView.layer?.shadowColor = NSColor.black.cgColor
-        paneView.layer?.shadowOpacity = 0.6
-        paneView.layer?.shadowRadius = 24
-        paneView.layer?.shadowOffset = CGSize(width: 0, height: -10)
-
-        // Semi-transparent so you can see what's underneath
-        paneView.alphaValue = 0.8
+        container.alphaValue = 0.8
 
         viewportView.autoresizingMask = []
 
         // Signal drag active BEFORE layout
         installEscapeMonitor()
+        installFlagsChangedMonitor()
+
+        // Snapshot current Option state in case user was already holding it
+        isOptionHeld = NSEvent.modifierFlags.contains(.option)
+        if isOptionHeld { updateDuplicateVisuals() }
+
         onDragActiveChanged?(true)
 
         // Compute reduced layout
@@ -234,10 +323,10 @@ final class PaneDragCoordinator {
         // Insertion line
         let line = PaneDragInsertionLineView()
         line.isHidden = true
-        viewportView.addSubview(line, positioned: .below, relativeTo: paneView)
+        viewportView.addSubview(line)
         insertionLine = line
 
-        positionDraggedPane(cursorInStrip: cursorInStrip, zoomScale: currentZoom)
+        positionDraggedPane(cursorInStrip: cursorInStrip, zoomScale: paneStripView.currentZoomScale())
     }
 
     // MARK: - Cursor Update
@@ -252,6 +341,54 @@ final class PaneDragCoordinator {
         let currentZoom = paneStripView.currentZoomScale()
         positionDraggedPane(cursorInStrip: cursorInStrip, zoomScale: currentZoom)
 
+        // --- Sidebar zone routing ---
+        // Use the sidebar's actual width for boundary detection (works even when sidebar is
+        // auto-hidden and leadingVisibleInset is 0). The sidebar width represents where the
+        // sidebar WOULD be when fully revealed.
+        let sidebarWidth = sidebarWidthProvider?() ?? 0
+        let sidebarEdge = max(paneStripView.leadingVisibleInset, sidebarWidth)
+        let deadZone = Self.sidebarDeadZoneScreenPt
+        let cursorX = cursorInStrip.x
+
+        let inSidebarZone = cursorX < sidebarEdge - deadZone && sidebarEdge > deadZone
+        let inDeadZone = sidebarEdge > deadZone && cursorX >= sidebarEdge - deadZone && cursorX < sidebarEdge
+        let approachingSidebar = cursorX < sidebarEdge
+
+        // Fire approaching-sidebar edge callback for sidebar reveal
+        if approachingSidebar != isApproachingSidebar {
+            isApproachingSidebar = approachingSidebar
+            onDragApproachingSidebarEdge?(approachingSidebar)
+        }
+
+        if inDeadZone {
+            // Dead zone: clear all targets
+            clearCanvasTargets(activeState: &activeState)
+            clearSidebarTargets(activeState: &activeState)
+            activeState.currentDropTarget = .none
+            activeState.splitPreview = nil
+            phase = .active(activeState)
+            return
+        }
+
+        if inSidebarZone {
+            // Entered sidebar zone — clear canvas targets and evaluate sidebar
+            if !isCursorInSidebarZone {
+                isCursorInSidebarZone = true
+                clearCanvasTargets(activeState: &activeState)
+            }
+
+            evaluateSidebarTarget(cursorInStrip: cursorInStrip, activeState: &activeState)
+            phase = .active(activeState)
+            return
+        }
+
+        // Canvas zone — clear sidebar targets if we just left sidebar
+        if isCursorInSidebarZone {
+            isCursorInSidebarZone = false
+            clearSidebarTargets(activeState: &activeState)
+        }
+
+        // --- Canvas hit detection (existing logic) ---
         // Build the current visual layout to get column frames for hit testing
         let layout = makeDragVisualLayout(
             presentation: reducedPresentation,
@@ -377,7 +514,12 @@ final class PaneDragCoordinator {
     func endDrag(at cursorInStrip: CGPoint) {
         guard case .active(let activeState) = phase else { return }
 
-        if let splitHit = currentSplitHit {
+        // Sidebar drops take priority
+        if case .sidebarWorklane(let worklaneID) = activeState.currentDropTarget {
+            completeSidebarDrop(targetWorklaneID: worklaneID)
+        } else if case .newWorklane = activeState.currentDropTarget {
+            completeSidebarNewWorklaneDrop()
+        } else if let splitHit = currentSplitHit {
             completeSplitDrop(splitHit: splitHit)
         } else if let idx = currentInsertionIndex {
             completeDrop(columnIndex: idx)
@@ -396,11 +538,16 @@ final class PaneDragCoordinator {
             return
         }
 
+        // Reparent back to viewportView so the animation target (content space) is correct
+        reparentToViewportForAnimation()
         let targetCenter = CGPoint(x: originalPaneFrame.midX, y: originalPaneFrame.midY)
 
-        // Clear split state before animating back
+        // Clear split and sidebar state before animating back
         clearSplitMode()
         cancelSplitDwell()
+        onHoveredSidebarWorklaneChanged?(nil)
+        onNewWorklanePlaceholderVisibilityChanged?(false)
+        onDragApproachingSidebarEdge?(false)
 
         // Restore original layout
         if let originalPresentation {
@@ -422,7 +569,7 @@ final class PaneDragCoordinator {
         posSpring.fillMode = .forwards
         posSpring.isRemovedOnCompletion = false
 
-        let currentTransform = draggedPaneView?.layer?.transform ?? CATransform3DIdentity
+        let currentTransform = dragLayer?.transform ?? CATransform3DIdentity
         let transformSpring = CASpringAnimation(keyPath: "transform")
         transformSpring.fromValue = NSValue(caTransform3D: currentTransform)
         transformSpring.toValue = NSValue(caTransform3D: CATransform3DIdentity)
@@ -442,34 +589,124 @@ final class PaneDragCoordinator {
         CATransaction.begin()
         CATransaction.setCompletionBlock {
             MainActor.assumeIsolated {
-                self.draggedPaneView?.layer?.removeAllAnimations()
+                self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
                 stripView.endDragWithZoomIn()
             }
         }
-        draggedPaneView?.layer?.add(posSpring, forKey: "cancelPosition")
-        draggedPaneView?.layer?.add(transformSpring, forKey: "cancelTransform")
-        draggedPaneView?.layer?.add(shadowAnim, forKey: "cancelShadow")
+        dragLayer?.add(posSpring, forKey: "cancelPosition")
+        dragLayer?.add(transformSpring, forKey: "cancelTransform")
+        dragLayer?.add(shadowAnim, forKey: "cancelShadow")
         CATransaction.commit()
     }
 
     // MARK: - Private — Pane Positioning
 
+    /// Tracks whether the pane is currently at sidebar scale to avoid re-animating.
+    private var isAtSidebarScale: Bool = false
+
+    /// For canvas drop animations: move the snapshot container from the overlay
+    /// to viewportView with correct content-space position and zoom-compensated scale.
+    private func reparentToViewportForAnimation() {
+        guard let container = dragContainer,
+              let viewportView, let paneStripView else { return }
+
+        let posInOverlay = container.layer?.position ?? .zero
+        let hostView = container.superview ?? viewportView
+        let posInContent = hostView.convert(posInOverlay, to: viewportView)
+
+        viewportView.addSubview(container)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        container.layer?.position = posInContent
+        let zoomScale = paneStripView.currentZoomScale()
+        let scale = Self.popScale / max(0.01, zoomScale)
+        container.layer?.transform = CATransform3DMakeScale(scale, scale, 1)
+        CATransaction.commit()
+    }
+
     private func positionDraggedPane(cursorInStrip: CGPoint, zoomScale: CGFloat) {
-        guard let paneView = draggedPaneView,
-              let paneStripView, let viewportView else { return }
+        guard let paneStripView, let viewportView else { return }
 
-        let cursorInContent = paneStripView.convert(cursorInStrip, to: viewportView)
-        let paneCenterInContent = CGPoint(
-            x: cursorInContent.x + grabOffsetInContent.width,
-            y: cursorInContent.y + grabOffsetInContent.height
-        )
+        // The snapshot container lives in the overlay (or viewportView if no overlay)
+        let isInOverlay = dragContainer?.superview === dragHostView
 
-        paneView.layer?.position = paneCenterInContent
+        // In sidebar zone, center pane under cursor (zero out grab offset)
+        let effectiveGrabOffset: CGSize
+        let effectiveWindowOffset: CGSize
+        if isCursorInSidebarZone {
+            effectiveGrabOffset = .zero
+            effectiveWindowOffset = .zero
+        } else {
+            effectiveGrabOffset = grabOffsetInContent
+            effectiveWindowOffset = grabOffsetInWindow
+        }
 
-        let popMultiplier = Self.popScale / max(0.01, zoomScale)
-        paneView.layer?.transform = CATransform3DMakeScale(popMultiplier, popMultiplier, 1)
+        let paneCenter: CGPoint
+        let targetScale = isCursorInSidebarZone ? Self.sidebarPopScale : Self.popScale
+        let scaleMultiplier: CGFloat
+
+        if isInOverlay, let dragHostView, let container = dragContainer {
+            // --- Overlay path ---
+            // Use NSView.frame for positioning (no layer.position/anchorPoint issues).
+            let cursorInOverlay = dragHostView.convert(cursorInStrip, from: paneStripView)
+            let scaledWidth = originalPaneFrame.width * targetScale
+            let scaledHeight = originalPaneFrame.height * targetScale
+            let offsetX = effectiveWindowOffset.width * targetScale
+            let offsetY = effectiveWindowOffset.height * targetScale
+            let targetFrame = CGRect(
+                x: cursorInOverlay.x + offsetX - scaledWidth / 2,
+                y: cursorInOverlay.y + offsetY - scaledHeight / 2,
+                width: scaledWidth,
+                height: scaledHeight
+            )
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            container.frame = targetFrame
+            CATransaction.commit()
+            // Skip the dragLayer position/transform below
+            return
+        } else {
+            // --- Viewport path (original) ---
+            let cursorInContent = paneStripView.convert(cursorInStrip, to: viewportView)
+            paneCenter = CGPoint(
+                x: cursorInContent.x + effectiveGrabOffset.width,
+                y: cursorInContent.y + effectiveGrabOffset.height
+            )
+            // Compensate for viewportView zoom
+            scaleMultiplier = targetScale / max(0.01, zoomScale)
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dragLayer?.position = paneCenter
+        CATransaction.commit()
+
+        // Animate scale transition when crossing sidebar boundary
+        let shouldBeAtSidebarScale = isCursorInSidebarZone
+        if shouldBeAtSidebarScale != isAtSidebarScale {
+            isAtSidebarScale = shouldBeAtSidebarScale
+
+            let spring = CASpringAnimation(keyPath: "transform")
+            spring.toValue = NSValue(caTransform3D: CATransform3DMakeScale(scaleMultiplier, scaleMultiplier, 1))
+            spring.mass = 0.6
+            spring.stiffness = 500
+            spring.damping = 30
+            spring.initialVelocity = 0
+            spring.duration = spring.settlingDuration
+            spring.fillMode = .forwards
+            spring.isRemovedOnCompletion = false
+            dragLayer?.add(spring, forKey: "sidebarScaleSnap")
+        } else {
+            // Normal per-frame update (no implicit animation)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            dragLayer?.removeAnimation(forKey: "sidebarScaleSnap")
+            dragLayer?.transform = CATransform3DMakeScale(scaleMultiplier, scaleMultiplier, 1)
+            CATransaction.commit()
+        }
     }
 
     // MARK: - Private — Visual Layout Application
@@ -530,8 +767,8 @@ final class PaneDragCoordinator {
             } else {
                 targetCenter = originalPaneFrame.center
             }
-        } else if let paneLayer = draggedPaneView?.layer {
-            targetCenter = paneLayer.position
+        } else if let layerPos = dragLayer?.position {
+            targetCenter = layerPos
         } else {
             let paneID = phase.activeState?.draggedPaneID
             restoreDraggedPane()
@@ -540,6 +777,9 @@ final class PaneDragCoordinator {
             teardown()
             return
         }
+
+        // Reparent back to viewportView so existing content-space animation math works
+        reparentToViewportForAnimation()
 
         // Spring animation for position — snappy with minimal overshoot
         let posSpring = CASpringAnimation(keyPath: "position")
@@ -553,7 +793,7 @@ final class PaneDragCoordinator {
         posSpring.isRemovedOnCompletion = false
 
         // Spring animation for transform — scale back down to match zoomed panes
-        let currentTransform = draggedPaneView?.layer?.transform ?? CATransform3DIdentity
+        let currentTransform = dragLayer?.transform ?? CATransform3DIdentity
         let targetTransform = CATransform3DIdentity  // will match zoomed scale via bounds
         let transformSpring = CASpringAnimation(keyPath: "transform")
         transformSpring.fromValue = NSValue(caTransform3D: currentTransform)
@@ -576,7 +816,7 @@ final class PaneDragCoordinator {
         CATransaction.begin()
         CATransaction.setCompletionBlock {
             MainActor.assumeIsolated {
-                self.draggedPaneView?.layer?.removeAllAnimations()
+                self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
                 if let paneID {
@@ -585,9 +825,9 @@ final class PaneDragCoordinator {
                 stripView.endDragWithZoomIn()
             }
         }
-        draggedPaneView?.layer?.add(posSpring, forKey: "settlePosition")
-        draggedPaneView?.layer?.add(transformSpring, forKey: "settleTransform")
-        draggedPaneView?.layer?.add(shadowAnim, forKey: "settleShadow")
+        dragLayer?.add(posSpring, forKey: "settlePosition")
+        dragLayer?.add(transformSpring, forKey: "settleTransform")
+        dragLayer?.add(shadowAnim, forKey: "settleShadow")
         CATransaction.commit()
     }
 
@@ -620,6 +860,9 @@ final class PaneDragCoordinator {
         splitOverlay?.removeFromSuperview()
         splitOverlay = nil
 
+        // Reparent back to viewportView so existing content-space animation math works
+        reparentToViewportForAnimation()
+
         // Spring animation — same feel as reorder drop
         let posSpring = CASpringAnimation(keyPath: "position")
         posSpring.toValue = NSValue(point: targetCenter)
@@ -631,7 +874,7 @@ final class PaneDragCoordinator {
         posSpring.fillMode = .forwards
         posSpring.isRemovedOnCompletion = false
 
-        let currentTransform = draggedPaneView?.layer?.transform ?? CATransform3DIdentity
+        let currentTransform = dragLayer?.transform ?? CATransform3DIdentity
         let transformSpring = CASpringAnimation(keyPath: "transform")
         transformSpring.fromValue = NSValue(caTransform3D: currentTransform)
         transformSpring.toValue = NSValue(caTransform3D: CATransform3DIdentity)
@@ -652,7 +895,7 @@ final class PaneDragCoordinator {
         CATransaction.begin()
         CATransaction.setCompletionBlock {
             MainActor.assumeIsolated {
-                self.draggedPaneView?.layer?.removeAllAnimations()
+                self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
                 if let paneID {
@@ -661,10 +904,122 @@ final class PaneDragCoordinator {
                 stripView.endDragWithZoomIn()
             }
         }
-        draggedPaneView?.layer?.add(posSpring, forKey: "settlePosition")
-        draggedPaneView?.layer?.add(transformSpring, forKey: "settleTransform")
-        draggedPaneView?.layer?.add(shadowAnim, forKey: "settleShadow")
+        dragLayer?.add(posSpring, forKey: "settlePosition")
+        dragLayer?.add(transformSpring, forKey: "settleTransform")
+        dragLayer?.add(shadowAnim, forKey: "settleShadow")
         CATransaction.commit()
+    }
+
+    // MARK: - Private — Sidebar Drop
+
+    private func completeSidebarDrop(targetWorklaneID: WorklaneID) {
+        guard let paneStripView else {
+            let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
+            let isDuplicate = isOptionHeld
+            onSidebarDrop?(paneID, targetWorklaneID, isDuplicate)
+            teardown()
+            return
+        }
+
+        // Find the target row center from the sidebar frame provider.
+        // Frames are in PaneStripView coords → convert to dragged pane's superview.
+        let worklaneFrames = sidebarWorklaneFrameProvider?() ?? []
+        let targetCenter: CGPoint
+        if let targetFrame = worklaneFrames.first(where: { $0.0 == targetWorklaneID })?.1 {
+            let centerInStrip = CGPoint(x: targetFrame.midX, y: targetFrame.midY)
+            let containerSuperview = dragContainer?.superview ?? viewportView ?? paneStripView
+            targetCenter = paneStripView.convert(centerInStrip, to: containerSuperview)
+        } else if let layerPos = dragLayer?.position {
+            targetCenter = layerPos
+        } else {
+            cancelDrag()
+            return
+        }
+
+        let paneID = phase.activeState?.draggedPaneID
+        let isDuplicate = isOptionHeld
+        let stripView = paneStripView
+
+        animateSidebarDrop(to: targetCenter) {
+            MainActor.assumeIsolated {
+                self.dragLayer?.removeAllAnimations()
+                self.restoreDraggedPane()
+                self.teardown()
+                if let paneID {
+                    self.onSidebarDrop?(paneID, targetWorklaneID, isDuplicate)
+                }
+                stripView.endDragWithZoomIn()
+            }
+        }
+    }
+
+    private func completeSidebarNewWorklaneDrop() {
+        guard let paneStripView else {
+            let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
+            let isDuplicate = isOptionHeld
+            onSidebarNewWorklaneDrop?(paneID, isDuplicate)
+            teardown()
+            return
+        }
+
+        // Target: the new-worklane placeholder area (below last row)
+        let worklaneFrames = sidebarWorklaneFrameProvider?() ?? []
+        let targetCenter: CGPoint
+        if let lastFrame = worklaneFrames.last?.1 {
+            let placeholderCenterY = lastFrame.minY - 30
+            let centerInStrip = CGPoint(x: lastFrame.midX, y: placeholderCenterY)
+            let containerSuperview = dragContainer?.superview ?? viewportView ?? paneStripView
+            targetCenter = paneStripView.convert(centerInStrip, to: containerSuperview)
+        } else if let layerPos = dragLayer?.position {
+            targetCenter = layerPos
+        } else {
+            cancelDrag()
+            return
+        }
+
+        let paneID = phase.activeState?.draggedPaneID
+        let isDuplicate = isOptionHeld
+        let stripView = paneStripView
+
+        animateSidebarDrop(to: targetCenter) {
+            MainActor.assumeIsolated {
+                self.dragLayer?.removeAllAnimations()
+                self.restoreDraggedPane()
+                self.teardown()
+                if let paneID {
+                    self.onSidebarNewWorklaneDrop?(paneID, isDuplicate)
+                }
+                stripView.endDragWithZoomIn()
+            }
+        }
+    }
+
+    private func animateSidebarDrop(to targetCenter: CGPoint, completion: @escaping @Sendable () -> Void) {
+        guard let container = dragContainer else {
+            MainActor.assumeIsolated { completion() }
+            return
+        }
+
+        // Animate frame to shrink into the target center
+        let tinySize: CGFloat = 4
+        let targetFrame = CGRect(
+            x: targetCenter.x - tinySize / 2,
+            y: targetCenter.y - tinySize / 2,
+            width: tinySize,
+            height: tinySize
+        )
+
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.3
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            context.allowsImplicitAnimation = true
+            container.animator().frame = targetFrame
+            container.animator().alphaValue = 0
+        }, completionHandler: {
+            MainActor.assumeIsolated { completion() }
+        })
+
+        container.layer?.shadowOpacity = 0
     }
 
     // MARK: - Private — Restore
@@ -672,18 +1027,13 @@ final class PaneDragCoordinator {
     private func restoreDraggedPane() {
         guard let paneView = draggedPaneView else { return }
 
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        paneView.layer?.transform = CATransform3DIdentity
-        paneView.layer?.anchorPoint = CGPoint(x: 0, y: 0)
-        paneView.layer?.position = originalPaneFrame.origin
-        paneView.layer?.shadowOpacity = 0
-        paneView.layer?.shadowRadius = 0
-        CATransaction.commit()
-
-        paneView.frame = originalPaneFrame
-        paneView.shadow = nil
+        // Restore the original pane visibility
         paneView.alphaValue = 1.0
+        paneView.frame = originalPaneFrame
+
+        // Remove the snapshot container
+        dragContainer?.removeFromSuperview()
+        dragContainer = nil
     }
 
     // MARK: - Private — Insertion Line
@@ -859,6 +1209,94 @@ final class PaneDragCoordinator {
         // Do NOT reset splitDwellSatisfied — allow instant re-entry
     }
 
+    // MARK: - Private — Sidebar Zone Detection
+
+    private func evaluateSidebarTarget(cursorInStrip: CGPoint, activeState: inout PaneDragActiveState) {
+        let worklaneFrames = sidebarWorklaneFrameProvider?() ?? []
+        let activeID = activeWorklaneIDProvider?()
+        let sidebarBounds = sidebarBoundsProvider?() ?? .zero
+        let worklaneCount = worklaneCountProvider?() ?? 1
+
+        let hit = PaneDragHitTest.sidebarRowHit(
+            cursorInStrip: cursorInStrip,
+            worklaneFrames: worklaneFrames,
+            activeWorklaneID: activeID,
+            sidebarBottomY: sidebarBounds.minY,
+            isOptionHeld: isOptionHeld,
+            worklaneCount: worklaneCount
+        )
+
+        switch hit {
+        case .worklane(let worklaneID):
+            if currentSidebarTarget != worklaneID {
+                currentSidebarTarget = worklaneID
+                onHoveredSidebarWorklaneChanged?(worklaneID)
+            }
+            if isShowingNewWorklanePlaceholder {
+                isShowingNewWorklanePlaceholder = false
+                onNewWorklanePlaceholderVisibilityChanged?(false)
+            }
+            activeState.currentDropTarget = .sidebarWorklane(worklaneID)
+
+        case .newWorklane:
+            if currentSidebarTarget != nil {
+                currentSidebarTarget = nil
+                onHoveredSidebarWorklaneChanged?(nil)
+            }
+            if !isShowingNewWorklanePlaceholder {
+                isShowingNewWorklanePlaceholder = true
+                onNewWorklanePlaceholderVisibilityChanged?(true)
+            }
+            activeState.currentDropTarget = .newWorklane
+
+        case .none:
+            if currentSidebarTarget != nil {
+                currentSidebarTarget = nil
+                onHoveredSidebarWorklaneChanged?(nil)
+            }
+            if isShowingNewWorklanePlaceholder {
+                isShowingNewWorklanePlaceholder = false
+                onNewWorklanePlaceholderVisibilityChanged?(false)
+            }
+            activeState.currentDropTarget = .none
+        }
+
+        activeState.splitPreview = nil
+
+        // Sidebar vertical edge scroll
+        updateSidebarEdgeScroll(cursorInStrip: cursorInStrip)
+    }
+
+    private func clearCanvasTargets(activeState: inout PaneDragActiveState) {
+        if currentReducedIndex != nil {
+            currentReducedIndex = nil
+            currentInsertionIndex = nil
+            applyVisualLayout(
+                activeReducedGapIndex: nil,
+                animated: true,
+                excludingPaneID: activeState.draggedPaneID
+            )
+            insertionLine?.isHidden = true
+        }
+        if currentSplitHit != nil {
+            clearSplitMode()
+        }
+        cancelSplitDwell()
+        stopEdgeScroll()
+    }
+
+    private func clearSidebarTargets(activeState: inout PaneDragActiveState) {
+        if currentSidebarTarget != nil {
+            currentSidebarTarget = nil
+            onHoveredSidebarWorklaneChanged?(nil)
+        }
+        if isShowingNewWorklanePlaceholder {
+            isShowingNewWorklanePlaceholder = false
+            onNewWorklanePlaceholderVisibilityChanged?(false)
+        }
+        stopSidebarEdgeScroll()
+    }
+
     // MARK: - Private — Edge Scroll
 
     /// Compute the TARGET scroll velocity (in screen pt/s) from cursor position.
@@ -944,6 +1382,66 @@ final class PaneDragCoordinator {
         edgeScrollTimer = nil
     }
 
+    // MARK: - Private — Sidebar Edge Scroll
+
+    private func updateSidebarEdgeScroll(cursorInStrip: CGPoint) {
+        let sidebarBounds = sidebarBoundsProvider?() ?? .zero
+        guard sidebarBounds.height > 0 else {
+            stopSidebarEdgeScroll()
+            return
+        }
+
+        let targetVel = PaneDragSidebarEdgeScrollDriver.velocity(
+            cursorY: cursorInStrip.y,
+            sidebarMinY: sidebarBounds.minY,
+            sidebarMaxY: sidebarBounds.maxY
+        )
+
+        if abs(targetVel) > 0.001 || abs(sidebarEdgeScrollVelocity) > 0.5 {
+            startSidebarEdgeScrollIfNeeded(targetVelocity: targetVel)
+        }
+    }
+
+    private func startSidebarEdgeScrollIfNeeded(targetVelocity: CGFloat) {
+        guard sidebarEdgeScrollTimer == nil else { return }
+
+        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            guard case .active(let activeState) = self.phase else {
+                self.stopSidebarEdgeScroll()
+                return
+            }
+
+            let sidebarBounds = self.sidebarBoundsProvider?() ?? .zero
+            let target = PaneDragSidebarEdgeScrollDriver.velocity(
+                cursorY: activeState.cursorPosition.y,
+                sidebarMinY: sidebarBounds.minY,
+                sidebarMaxY: sidebarBounds.maxY
+            )
+
+            let smoothing: CGFloat = abs(target) > abs(self.sidebarEdgeScrollVelocity) ? 0.15 : 0.06
+            self.sidebarEdgeScrollVelocity += (target - self.sidebarEdgeScrollVelocity) * smoothing
+
+            if abs(self.sidebarEdgeScrollVelocity) < 0.5 && abs(target) < 0.001 {
+                self.sidebarEdgeScrollVelocity = 0
+                self.stopSidebarEdgeScroll()
+                return
+            }
+
+            let dt: CGFloat = 1.0 / 120
+            let delta = self.sidebarEdgeScrollVelocity * dt
+            self.onSidebarScrollRequested?(delta)
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        sidebarEdgeScrollTimer = timer
+    }
+
+    private func stopSidebarEdgeScroll() {
+        sidebarEdgeScrollTimer?.invalidate()
+        sidebarEdgeScrollTimer = nil
+        sidebarEdgeScrollVelocity = 0
+    }
+
     // MARK: - Private — Escape Monitor
 
     private func installEscapeMonitor() {
@@ -962,11 +1460,146 @@ final class PaneDragCoordinator {
         self.escapeMonitor = nil
     }
 
+    // MARK: - Private — Flags Changed Monitor (Option Key)
+
+    private func installFlagsChangedMonitor() {
+        guard flagsChangedMonitor == nil else { return }
+        flagsChangedMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            guard let self, case .active = self.phase else { return event }
+            let optionHeld = event.modifierFlags.contains(.option)
+            if optionHeld != self.isOptionHeld {
+                self.isOptionHeld = optionHeld
+                self.updateDuplicateVisuals()
+                // Re-evaluate sidebar targeting (single-worklane guard depends on Option state)
+                if self.isCursorInSidebarZone, case .active(let activeState) = self.phase {
+                    var mutableState = activeState
+                    self.evaluateSidebarTarget(cursorInStrip: activeState.cursorPosition, activeState: &mutableState)
+                    self.phase = .active(mutableState)
+                }
+            }
+            return event
+        }
+    }
+
+    private func removeFlagsChangedMonitor() {
+        guard let flagsChangedMonitor else { return }
+        NSEvent.removeMonitor(flagsChangedMonitor)
+        self.flagsChangedMonitor = nil
+    }
+
+    private func updateDuplicateVisuals() {
+        if isOptionHeld {
+            showGhostView()
+            showDuplicateBadge()
+        } else {
+            hideGhostView()
+            hideDuplicateBadge()
+        }
+    }
+
+    // MARK: - Private — Ghost View (Duplicate Indicator)
+
+    private func showGhostView() {
+        guard ghostView == nil, let viewportView, let draggedPaneView else { return }
+
+        let ghost = PaneDragGhostView(frame: originalPaneFrame)
+        ghost.alphaValue = 0
+        viewportView.addSubview(ghost, positioned: .below, relativeTo: draggedPaneView)
+        ghostView = ghost
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            ghost.animator().alphaValue = 0.3
+        }
+    }
+
+    private func hideGhostView() {
+        guard let ghost = ghostView else { return }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.15
+            ghost.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            ghost.removeFromSuperview()
+            self?.ghostView = nil
+        })
+    }
+
+    // MARK: - Private — Duplicate Badge
+
+    private func showDuplicateBadge() {
+        guard duplicateBadgeLayer == nil, let paneLayer = draggedPaneView?.layer else { return }
+
+        let badgeSize: CGFloat = 28
+        let badge = CALayer()
+        badge.bounds = CGRect(x: 0, y: 0, width: badgeSize, height: badgeSize)
+        badge.cornerRadius = badgeSize / 2
+        badge.backgroundColor = NSColor.controlAccentColor.cgColor
+
+        // Render '+' symbol
+        let textLayer = CATextLayer()
+        textLayer.string = "+"
+        textLayer.fontSize = 20
+        textLayer.font = NSFont.systemFont(ofSize: 20, weight: .bold)
+        textLayer.foregroundColor = NSColor.white.cgColor
+        textLayer.alignmentMode = .center
+        textLayer.bounds = badge.bounds
+        textLayer.position = CGPoint(x: badgeSize / 2, y: badgeSize / 2)
+        textLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
+        badge.addSublayer(textLayer)
+
+        // Position at top-right of the pane
+        badge.position = CGPoint(
+            x: paneLayer.bounds.maxX - badgeSize / 2 - 8,
+            y: paneLayer.bounds.maxY - badgeSize / 2 - 8
+        )
+
+        // Spring scale in
+        badge.transform = CATransform3DMakeScale(0.01, 0.01, 1)
+        paneLayer.addSublayer(badge)
+        duplicateBadgeLayer = badge
+
+        let spring = CASpringAnimation(keyPath: "transform")
+        spring.fromValue = NSValue(caTransform3D: CATransform3DMakeScale(0.01, 0.01, 1))
+        spring.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+        spring.mass = 0.6
+        spring.stiffness = 400
+        spring.damping = 18
+        spring.duration = spring.settlingDuration
+        spring.fillMode = .forwards
+        spring.isRemovedOnCompletion = false
+        badge.add(spring, forKey: "badgeSpringIn")
+    }
+
+    private func hideDuplicateBadge() {
+        guard let badge = duplicateBadgeLayer else { return }
+
+        let spring = CASpringAnimation(keyPath: "transform")
+        spring.toValue = NSValue(caTransform3D: CATransform3DMakeScale(0.01, 0.01, 1))
+        spring.mass = 0.6
+        spring.stiffness = 400
+        spring.damping = 18
+        spring.duration = spring.settlingDuration
+        spring.fillMode = .forwards
+        spring.isRemovedOnCompletion = false
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock {
+            MainActor.assumeIsolated {
+                badge.removeFromSuperlayer()
+                self.duplicateBadgeLayer = nil
+            }
+        }
+        badge.add(spring, forKey: "badgeSpringOut")
+        CATransaction.commit()
+    }
+
     // MARK: - Private — Teardown
 
     private func teardown() {
         removeEscapeMonitor()
+        removeFlagsChangedMonitor()
         stopEdgeScroll()
+        stopSidebarEdgeScroll()
 
         insertionLine?.removeFromSuperview()
         insertionLine = nil
@@ -978,6 +1611,12 @@ final class PaneDragCoordinator {
         splitDwellSatisfied = false
         currentSplitHit = nil
 
+        // Remove duplicate mode visuals
+        ghostView?.removeFromSuperview()
+        ghostView = nil
+        duplicateBadgeLayer?.removeFromSuperlayer()
+        duplicateBadgeLayer = nil
+
         // Do NOT unfreeze terminals here — keep ALL panes frozen until
         // endDragWithZoomIn completes the zoom-in animation. Unfreezing
         // early causes terminals to re-render at the wrong backing size.
@@ -987,6 +1626,8 @@ final class PaneDragCoordinator {
             view.resetZoomBorderCompensation()
         }
 
+        dragContainer?.removeFromSuperview()
+        dragContainer = nil
         draggedPaneView = nil
         originalPaneFrame = .zero
         paneViews = [:]
@@ -998,7 +1639,18 @@ final class PaneDragCoordinator {
         currentReducedIndex = nil
         currentInsertionIndex = nil
         grabOffsetInContent = .zero
+        grabOffsetInWindow = .zero
         edgeScrollVelocity = 0
+        isAtSidebarScale = false
+        currentSidebarTarget = nil
+        isCursorInSidebarZone = false
+        isApproachingSidebar = false
+        isShowingNewWorklanePlaceholder = false
+        isOptionHeld = false
+
+        onHoveredSidebarWorklaneChanged?(nil)
+        onNewWorklanePlaceholderVisibilityChanged?(false)
+        onDragApproachingSidebarEdge?(false)
 
         onDragActiveChanged?(false)
     }
