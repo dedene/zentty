@@ -84,12 +84,12 @@ private func libghosttyCloseSurfaceCallback(_: UnsafeMutableRawPointer?, _: Bool
 }
 
 final class LibghosttyWakeupCoordinator: @unchecked Sendable {
-    typealias Scheduler = (@escaping () -> Void) -> Void
+    typealias Scheduler = (@escaping @Sendable () -> Void) -> Void
 
     private let diagnostics: TerminalDiagnostics
     private let schedule: Scheduler
-    private let tick: () -> Void
-    private let now: () -> UInt64
+    private let tick: @Sendable () -> Void
+    private let now: @Sendable () -> UInt64
     private let lock = NSLock()
 
     private var tickScheduledOrRunning = false
@@ -98,8 +98,8 @@ final class LibghosttyWakeupCoordinator: @unchecked Sendable {
     init(
         diagnostics: TerminalDiagnostics,
         schedule: @escaping Scheduler = { DispatchQueue.main.async(execute: $0) },
-        now: @escaping () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
-        tick: @escaping () -> Void
+        now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+        tick: @escaping @Sendable () -> Void
     ) {
         self.diagnostics = diagnostics
         self.schedule = schedule

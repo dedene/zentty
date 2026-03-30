@@ -114,12 +114,7 @@ enum ShellMetrics {
         static let overflowLineHeight = lineHeight(for: overflowFont())
 
         private static func lineHeight(for font: NSFont) -> CGFloat {
-            let label = NSTextField(labelWithString: "Ag")
-            label.font = font
-            label.maximumNumberOfLines = 1
-            label.lineBreakMode = .byTruncatingTail
-            label.sizeToFit()
-            return ceil(label.fittingSize.height)
+            ceil(font.ascender - font.descender + font.leading)
         }
     }
 

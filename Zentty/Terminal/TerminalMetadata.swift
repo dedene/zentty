@@ -635,7 +635,7 @@ final class TerminalDiagnostics: @unchecked Sendable {
         }
     }
 
-    private func record(scope: Scope, update: @escaping (inout BurstSummary) -> Void) {
+    private func record(scope: Scope, update: @escaping @Sendable (inout BurstSummary) -> Void) {
         guard isEnabled else {
             return
         }

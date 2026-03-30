@@ -107,7 +107,7 @@ struct PaneColumnState: Equatable, Sendable {
     let id: PaneColumnID
     var panes: [PaneState]
     var width: CGFloat
-    internal(set) var paneHeights: [CGFloat]
+    var paneHeights: [CGFloat]
     private(set) var focusedPaneID: PaneID?
     private(set) var lastFocusedPaneID: PaneID?
 
@@ -468,7 +468,7 @@ struct PaneColumnState: Equatable, Sendable {
 struct PaneStripState: Equatable, Sendable {
     static let minimumVerticalPaneHeight: CGFloat = 160
 
-    internal(set) var columns: [PaneColumnState]
+    var columns: [PaneColumnState]
     private(set) var focusedColumnID: PaneColumnID?
     private(set) var layoutSizing: PaneLayoutSizing
     private(set) var lastInteractedDivider: PaneDivider?

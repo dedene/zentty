@@ -491,6 +491,10 @@ final class SidebarView: NSView {
         addWorklaneButton.contentMinX(in: self)
     }
 
+    var addWorklaneWidthConstraintConstant: CGFloat {
+        addWorklaneWidthConstraint?.constant ?? 0
+    }
+
     var addWorklaneContentMidX: CGFloat {
         addWorklaneButton.contentMidX(in: self)
     }
@@ -577,11 +581,8 @@ private extension SidebarView {
         )
         addWorklaneLeadingConstraint?.constant = buttonLeading
 
-        let availableWidth = max(
-            addWorklaneButton.intrinsicContentSize.width,
-            bounds.width - buttonLeading - Layout.contentInset
-        )
-        addWorklaneWidthConstraint?.constant = availableWidth
+        let maxAllowedWidth = max(0, bounds.width - buttonLeading - Layout.contentInset)
+        addWorklaneWidthConstraint?.constant = maxAllowedWidth
 
         headerTopConstraint?.constant = headerVisibilityMode == .hoverPeek
             ? ShellMetrics.sidebarHeaderPeekTopInset

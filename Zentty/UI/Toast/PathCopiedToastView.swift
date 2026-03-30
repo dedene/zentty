@@ -110,7 +110,9 @@ final class PathCopiedToastView: NSView {
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             self.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            self?.removeFromSuperview()
+            MainActor.assumeIsolated {
+                self?.removeFromSuperview()
+            }
         })
     }
 
