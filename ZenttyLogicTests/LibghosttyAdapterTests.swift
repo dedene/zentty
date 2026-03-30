@@ -694,33 +694,37 @@ final class TerminalDiagnosticsTests: XCTestCase {
 
 final class LibghosttyWakeupCoordinatorTests: XCTestCase {
     func test_request_tick_coalesces_repeated_wakeups_while_a_tick_is_pending() {
-        var scheduled: [() -> Void] = []
-        var tickCount = 0
+        final class State: @unchecked Sendable {
+            var scheduled: [@Sendable () -> Void] = []
+            var tickCount = 0
+        }
+
+        let state = State()
 
         let coordinator = LibghosttyWakeupCoordinator(
             diagnostics: .shared,
-            schedule: { scheduled.append($0) },
-            tick: { tickCount += 1 }
+            schedule: { state.scheduled.append($0) },
+            tick: { state.tickCount += 1 }
         )
 
         coordinator.requestTick()
         coordinator.requestTick()
         coordinator.requestTick()
 
-        XCTAssertEqual(scheduled.count, 1)
-        XCTAssertEqual(tickCount, 0)
+        XCTAssertEqual(state.scheduled.count, 1)
+        XCTAssertEqual(state.tickCount, 0)
 
-        let first = scheduled.removeFirst()
+        let first = state.scheduled.removeFirst()
         first()
 
-        XCTAssertEqual(tickCount, 1)
-        XCTAssertEqual(scheduled.count, 1)
+        XCTAssertEqual(state.tickCount, 1)
+        XCTAssertEqual(state.scheduled.count, 1)
 
-        let second = scheduled.removeFirst()
+        let second = state.scheduled.removeFirst()
         second()
 
-        XCTAssertEqual(tickCount, 2)
-        XCTAssertEqual(scheduled.count, 0)
+        XCTAssertEqual(state.tickCount, 2)
+        XCTAssertEqual(state.scheduled.count, 0)
     }
 }
 

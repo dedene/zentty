@@ -719,6 +719,8 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertGreaterThan(sidebarView.addWorklaneButtonWidth, 120)
         let buttonMaxX = sidebarView.addWorklaneButtonMinX + sidebarView.addWorklaneButtonWidth
         let expectedTrailing = sidebarView.bounds.width - ShellMetrics.sidebarContentInset
+        let expectedWidth = expectedTrailing - sidebarView.addWorklaneButtonMinX
+        XCTAssertEqual(sidebarView.addWorklaneWidthConstraintConstant, expectedWidth, accuracy: 1.0)
         XCTAssertEqual(buttonMaxX, expectedTrailing, accuracy: 1.0)
         XCTAssertLessThan(sidebarView.addWorklaneIconAlpha, sidebarView.addWorklaneTitleAlpha)
     }

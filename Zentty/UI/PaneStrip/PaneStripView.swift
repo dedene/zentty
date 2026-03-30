@@ -428,25 +428,21 @@ final class PaneStripView: NSView {
                 timingFunction: animationTimingFunction,
                 updates: updates
             ) { [weak self] in
-                guard let self, self.renderGuard.generation == settleGeneration else {
-                    return
-                }
-
-                self.applyPresentation(
-                    presentation,
-                    state: state,
-                    offset: targetOffset,
-                    animated: false,
-                    useNeutralBackground: false,
-                    insertionTransition: insertionTransition,
-                    allowInactiveDimming: true
-                )
-                self.reconcileDividerViews(with: presentation, offset: targetOffset)
-                self.paneViews.values.forEach { $0.syncInsetBorderNow() }
                 Task { @MainActor [weak self] in
                     guard let self, self.renderGuard.generation == settleGeneration else {
                         return
                     }
+                    self.applyPresentation(
+                        presentation,
+                        state: state,
+                        offset: targetOffset,
+                        animated: false,
+                        useNeutralBackground: false,
+                        insertionTransition: insertionTransition,
+                        allowInactiveDimming: true
+                    )
+                    self.reconcileDividerViews(with: presentation, offset: targetOffset)
+                    self.paneViews.values.forEach { $0.syncInsetBorderNow() }
                     if !self.isZoomedOut {
                         self.applyTerminalAnimationFreeze(to: [])
                         self.applyViewportSyncSuspension(to: [])
@@ -1028,7 +1024,9 @@ final class PaneStripView: NSView {
         stopZoomAnimation()
 
         let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in
-            self?.zoomAnimationTick()
+            Task { @MainActor [weak self] in
+                self?.zoomAnimationTick()
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         zoomAnimationTimer = timer

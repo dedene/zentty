@@ -10,7 +10,7 @@ final class RootViewController: NSViewController {
             matching mask: NSEvent.EventTypeMask,
             handler: @escaping (NSEvent) -> NSEvent?
         ) {
-            token = NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)
+            token = NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler) as Any
         }
 
         deinit {
@@ -29,7 +29,7 @@ final class RootViewController: NSViewController {
         func addObserver(
             forName name: Notification.Name,
             object: AnyObject?,
-            using block: @escaping (Notification) -> Void
+            using block: @escaping @Sendable (Notification) -> Void
         ) {
             tokens.append(
                 center.addObserver(forName: name, object: object, queue: .main, using: block)
@@ -1126,7 +1126,9 @@ final class RootViewController: NSViewController {
             NSWindow.didChangeScreenNotification,
         ].forEach { name in
             observerBag.addObserver(forName: name, object: window) { [weak self] _ in
-                self?.handleWindowStateDidChange()
+                Task { @MainActor [weak self] in
+                    self?.handleWindowStateDidChange()
+                }
             }
         }
         windowObserverBag = observerBag

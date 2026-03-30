@@ -206,7 +206,7 @@ final class WorklaneStore {
     let focusHistoryController = PaneFocusHistoryController()
     private var isNavigatingHistory = false
 
-    internal(set) var activeWorklaneID: WorklaneID
+    var activeWorklaneID: WorklaneID
 
     private var subscribers: [(id: UUID, handler: (WorklaneChange) -> Void)] = []
     private var isBatching = false
