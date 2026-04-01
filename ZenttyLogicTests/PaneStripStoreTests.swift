@@ -1014,6 +1014,113 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.paneStripState.focusedColumn?.id, PaneColumnID("right"))
     }
 
+    func test_focus_next_pane_by_sidebar_order_moves_within_worklane_then_across_worklanes() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("ws1"),
+                    title: "WS1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("ws1-left"), title: "ws1-left")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws1-left"),
+                                lastFocusedPaneID: PaneID("ws1-left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [PaneState(id: PaneID("ws1-right"), title: "ws1-right")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws1-right"),
+                                lastFocusedPaneID: PaneID("ws1-right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left")
+                    )
+                ),
+                WorklaneState(
+                    id: WorklaneID("ws2"),
+                    title: "WS2",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("main"),
+                                panes: [PaneState(id: PaneID("ws2-pane"), title: "ws2-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-pane"),
+                                lastFocusedPaneID: PaneID("ws2-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("main")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("ws1")
+        )
+
+        store.send(.focusNextPaneBySidebarOrder)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws1"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPaneID, PaneID("ws1-right"))
+
+        store.send(.focusNextPaneBySidebarOrder)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws2"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPaneID, PaneID("ws2-pane"))
+    }
+
+    func test_focus_previous_pane_by_sidebar_order_wraps_to_last_pane_of_last_worklane() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("ws1"),
+                    title: "WS1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("main"),
+                                panes: [PaneState(id: PaneID("ws1-pane"), title: "ws1-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws1-pane"),
+                                lastFocusedPaneID: PaneID("ws1-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("main")
+                    )
+                ),
+                WorklaneState(
+                    id: WorklaneID("ws2"),
+                    title: "WS2",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("ws2-left"), title: "ws2-left")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-left"),
+                                lastFocusedPaneID: PaneID("ws2-left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [PaneState(id: PaneID("ws2-right"), title: "ws2-right")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-right"),
+                                lastFocusedPaneID: PaneID("ws2-right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("ws1")
+        )
+
+        store.send(.focusPreviousPaneBySidebarOrder)
+
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws2"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPaneID, PaneID("ws2-right"))
+    }
+
     func test_split_before_inserts_adjacent_pane_before_focus() {
         let store = WorklaneStore(
             worklanes: [

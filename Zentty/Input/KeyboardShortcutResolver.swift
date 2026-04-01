@@ -38,12 +38,12 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case arrangeHeightThreePerColumn = "pane.arrange.height.three_per_column"
     case arrangeHeightFourPerColumn = "pane.arrange.height.four_per_column"
     case closeFocusedPane = "pane.close_focused"
+    case focusPreviousPane = "pane.focus.previous"
+    case focusNextPane = "pane.focus.next"
     case focusLeftPane = "pane.focus.left"
     case focusRightPane = "pane.focus.right"
     case focusUpInColumn = "pane.focus.up"
     case focusDownInColumn = "pane.focus.down"
-    case focusFirstColumn = "pane.focus.first_column"
-    case focusLastColumn = "pane.focus.last_column"
     case resizePaneLeft = "pane.resize.left"
     case resizePaneRight = "pane.resize.right"
     case resizePaneUp = "pane.resize.up"
@@ -328,10 +328,34 @@ enum AppCommandRegistry {
             menuItem: nil
         ),
         AppCommandDefinition(
+            id: .focusPreviousPane,
+            title: "Focus Previous Pane",
+            category: .panes,
+            defaultShortcut: .init(key: .upArrow, modifiers: [.command, .option]),
+            action: .pane(.focusPreviousPaneBySidebarOrder),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Focus Previous Pane",
+                selector: #selector(MainWindowController.focusPreviousPane(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .focusNextPane,
+            title: "Focus Next Pane",
+            category: .panes,
+            defaultShortcut: .init(key: .downArrow, modifiers: [.command, .option]),
+            action: .pane(.focusNextPaneBySidebarOrder),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Focus Next Pane",
+                selector: #selector(MainWindowController.focusNextPane(_:))
+            )
+        ),
+        AppCommandDefinition(
             id: .focusLeftPane,
             title: "Focus Left Pane",
             category: .panes,
-            defaultShortcut: .init(key: .leftArrow, modifiers: [.command, .option]),
+            defaultShortcut: .init(key: .leftArrow, modifiers: [.command]),
             action: .pane(.focusLeft),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -343,7 +367,7 @@ enum AppCommandRegistry {
             id: .focusRightPane,
             title: "Focus Right Pane",
             category: .panes,
-            defaultShortcut: .init(key: .rightArrow, modifiers: [.command, .option]),
+            defaultShortcut: .init(key: .rightArrow, modifiers: [.command]),
             action: .pane(.focusRight),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -355,7 +379,7 @@ enum AppCommandRegistry {
             id: .focusUpInColumn,
             title: "Focus Up In Column",
             category: .panes,
-            defaultShortcut: .init(key: .upArrow, modifiers: [.command, .option]),
+            defaultShortcut: .init(key: .upArrow, modifiers: [.command]),
             action: .pane(.focusUp),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -367,7 +391,7 @@ enum AppCommandRegistry {
             id: .focusDownInColumn,
             title: "Focus Down In Column",
             category: .panes,
-            defaultShortcut: .init(key: .downArrow, modifiers: [.command, .option]),
+            defaultShortcut: .init(key: .downArrow, modifiers: [.command]),
             action: .pane(.focusDown),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -376,34 +400,10 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
-            id: .focusFirstColumn,
-            title: "Focus First Column",
-            category: .panes,
-            defaultShortcut: .init(key: .leftArrow, modifiers: [.command, .option, .shift]),
-            action: .pane(.focusFirstColumn),
-            menuItem: AppCommandMenuItem(
-                section: .view,
-                title: "Focus First Column",
-                selector: #selector(MainWindowController.focusFirstColumn(_:))
-            )
-        ),
-        AppCommandDefinition(
-            id: .focusLastColumn,
-            title: "Focus Last Column",
-            category: .panes,
-            defaultShortcut: .init(key: .rightArrow, modifiers: [.command, .option, .shift]),
-            action: .pane(.focusLastColumn),
-            menuItem: AppCommandMenuItem(
-                section: .view,
-                title: "Focus Last Column",
-                selector: #selector(MainWindowController.focusLastColumn(_:))
-            )
-        ),
-        AppCommandDefinition(
             id: .resizePaneLeft,
             title: "Resize Pane Left",
             category: .panes,
-            defaultShortcut: .init(key: .leftArrow, modifiers: [.command, .control, .option]),
+            defaultShortcut: .init(key: .leftArrow, modifiers: [.command, .option, .shift]),
             action: .pane(.resizeLeft),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -415,7 +415,7 @@ enum AppCommandRegistry {
             id: .resizePaneRight,
             title: "Resize Pane Right",
             category: .panes,
-            defaultShortcut: .init(key: .rightArrow, modifiers: [.command, .control, .option]),
+            defaultShortcut: .init(key: .rightArrow, modifiers: [.command, .option, .shift]),
             action: .pane(.resizeRight),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -427,7 +427,7 @@ enum AppCommandRegistry {
             id: .resizePaneUp,
             title: "Resize Pane Up",
             category: .panes,
-            defaultShortcut: .init(key: .upArrow, modifiers: [.command, .control, .option]),
+            defaultShortcut: .init(key: .upArrow, modifiers: [.command, .option, .shift]),
             action: .pane(.resizeUp),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -439,7 +439,7 @@ enum AppCommandRegistry {
             id: .resizePaneDown,
             title: "Resize Pane Down",
             category: .panes,
-            defaultShortcut: .init(key: .downArrow, modifiers: [.command, .control, .option]),
+            defaultShortcut: .init(key: .downArrow, modifiers: [.command, .option, .shift]),
             action: .pane(.resizeDown),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -539,12 +539,12 @@ enum AppCommandRegistry {
             .command(.arrangeHeightThreePerColumn),
             .command(.arrangeHeightFourPerColumn),
             .separator,
+            .command(.focusPreviousPane),
+            .command(.focusNextPane),
             .command(.focusLeftPane),
             .command(.focusRightPane),
             .command(.focusUpInColumn),
             .command(.focusDownInColumn),
-            .command(.focusFirstColumn),
-            .command(.focusLastColumn),
             .separator,
             .command(.resizePaneLeft),
             .command(.resizePaneRight),
@@ -613,6 +613,10 @@ extension AppCommandDefinition {
             "Repack panes into columns of four panes each, distributing any partial final column evenly."
         case .closeFocusedPane:
             "Close the currently focused pane while keeping the rest of the layout intact."
+        case .focusPreviousPane:
+            "Move focus to the previous pane in sidebar order, crossing worklanes and wrapping at the beginning."
+        case .focusNextPane:
+            "Move focus to the next pane in sidebar order, crossing worklanes and wrapping at the end."
         case .focusLeftPane:
             "Move focus to the pane immediately to the left of the current pane."
         case .focusRightPane:
@@ -621,10 +625,6 @@ extension AppCommandDefinition {
             "Move focus up within the column, or to the previous worklane at the top."
         case .focusDownInColumn:
             "Move focus down within the column, or to the next worklane at the bottom."
-        case .focusFirstColumn:
-            "Jump focus to the first column in the current pane layout."
-        case .focusLastColumn:
-            "Jump focus to the last column in the current pane layout."
         case .resizePaneLeft:
             "Make the focused pane wider by pulling its left boundary outward."
         case .resizePaneRight:

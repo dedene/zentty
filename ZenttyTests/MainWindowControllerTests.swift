@@ -289,6 +289,21 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(settingsViewController.contentSectionTitle, "Open With")
     }
 
+    func test_show_settings_window_matches_terminal_appearance() throws {
+        let controller = makeController()
+
+        controller.showSettingsWindow(nil)
+        waitForLayout()
+
+        let settingsWindow = try XCTUnwrap(controller.settingsWindow)
+        let expectedAppearance = try XCTUnwrap(controller.terminalAppearance)
+
+        XCTAssertEqual(
+            settingsWindow.appearance?.bestMatch(from: [.darkAqua, .aqua]),
+            expectedAppearance.bestMatch(from: [.darkAqua, .aqua])
+        )
+    }
+
     func test_window_resign_key_shows_non_black_inactive_traffic_light_overlay_when_sidebar_is_pinned_open() throws {
         let controller = makeController(sidebarVisibilityMode: .pinnedOpen)
         controller.showWindow(nil)

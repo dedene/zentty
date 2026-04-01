@@ -3,13 +3,19 @@ import Foundation
 enum CommandAvailabilityResolver {
     static func availableCommandIDs(
         worklaneCount: Int,
-        paneCount: Int
+        activePaneCount: Int,
+        totalPaneCount: Int
     ) -> Set<AppCommandID> {
         var available = Set(AppCommandID.allCases)
 
         available.remove(.showCommandPalette)
 
-        if paneCount <= 1 {
+        if totalPaneCount <= 1 {
+            available.remove(.focusPreviousPane)
+            available.remove(.focusNextPane)
+        }
+
+        if activePaneCount <= 1 {
             available.remove(.closeFocusedPane)
             available.remove(.focusLeftPane)
             available.remove(.focusRightPane)
@@ -17,8 +23,6 @@ enum CommandAvailabilityResolver {
                 available.remove(.focusUpInColumn)
                 available.remove(.focusDownInColumn)
             }
-            available.remove(.focusFirstColumn)
-            available.remove(.focusLastColumn)
             available.remove(.resizePaneLeft)
             available.remove(.resizePaneRight)
             available.remove(.resizePaneUp)
