@@ -260,6 +260,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             let settingsWindowController = SettingsWindowController(
                 configStore: configStore,
                 openWithService: openWithService,
+                appearance: terminalAppearance,
                 initialSection: section
             )
             self.settingsWindowController = settingsWindowController
@@ -475,7 +476,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     private func syncWindowAppearance() {
-        window.appearance = terminalAppearance
+        let appearance = terminalAppearance
+        window.appearance = appearance
+        settingsWindowController?.applyAppearance(appearance)
     }
 
     var worklaneTitles: [String] {

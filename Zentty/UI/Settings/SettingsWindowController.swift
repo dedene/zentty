@@ -88,6 +88,7 @@ final class SettingsWindowController: NSWindowController {
         configStore: AppConfigStore,
         openWithService: OpenWithServing = OpenWithService(),
         customAppPicker: @escaping () -> OpenWithCustomApp? = OpenWithSettingsSectionViewController.defaultCustomAppPicker,
+        appearance: NSAppearance? = nil,
         initialSection: SettingsSection = .shortcuts
     ) {
         let settingsViewController = SettingsViewController(
@@ -109,6 +110,7 @@ final class SettingsWindowController: NSWindowController {
         window.titlebarSeparatorStyle = .automatic
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor.windowBackgroundColor
+        window.appearance = appearance
         window.center()
         if #available(macOS 13.0, *) {
             window.toolbarStyle = .preference
@@ -134,6 +136,11 @@ final class SettingsWindowController: NSWindowController {
         )
         showWindow(sender)
         window?.makeKeyAndOrderFront(sender)
+    }
+
+    func applyAppearance(_ appearance: NSAppearance?) {
+        window?.appearance = appearance
+        settingsViewController.handleAppearanceChange()
     }
 }
 
@@ -239,6 +246,12 @@ final class SettingsViewController: NSTabViewController {
 
     func attach(to window: NSWindow?) {
         hostWindow = window
+    }
+
+    func handleAppearanceChange() {
+        loadViewIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        (currentSectionViewController as? SettingsAppearanceUpdating)?.handleAppearanceChange()
     }
 
     func select(section: SettingsSection) {
