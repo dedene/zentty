@@ -323,6 +323,14 @@ final class WorklaneStore {
         })
     }
 
+    private var paneReferencesInSidebarOrder: [PaneReference] {
+        worklanes.flatMap { worklane in
+            worklane.paneStripState.panes.map { pane in
+                PaneReference(worklaneID: worklane.id, paneID: pane.id)
+            }
+        }
+    }
+
     func navigateBack() {
         guard let current = currentPaneReference else { return }
         guard let target = focusHistoryController.navigateBack(
@@ -360,6 +368,27 @@ final class WorklaneStore {
     private func recordFocusTransition(from previous: PaneReference?) {
         guard !isNavigatingHistory, let previous else { return }
         focusHistoryController.recordFocusChange(from: previous)
+    }
+
+    private func focusPaneBySidebarOrder(offset: Int) {
+        let paneReferences = paneReferencesInSidebarOrder
+        guard paneReferences.count > 1,
+              let current = currentPaneReference,
+              let currentIndex = paneReferences.firstIndex(of: current) else {
+            return
+        }
+
+        let nextIndex = (currentIndex + offset + paneReferences.count) % paneReferences.count
+        let target = paneReferences[nextIndex]
+        guard target != current else {
+            return
+        }
+
+        if target.worklaneID == activeWorklaneID {
+            focusPane(id: target.paneID)
+        } else {
+            selectWorklaneAndFocusPane(worklaneID: target.worklaneID, paneID: target.paneID)
+        }
     }
 
     var focusedOpenWithContext: WorklaneOpenWithContext? {
@@ -445,6 +474,12 @@ final class WorklaneStore {
             }
             isFocusChangeFromClose = true
             changeType = .paneStructure(activeWorklaneID)
+        case .focusPreviousPaneBySidebarOrder:
+            focusPaneBySidebarOrder(offset: -1)
+            return
+        case .focusNextPaneBySidebarOrder:
+            focusPaneBySidebarOrder(offset: 1)
+            return
         case .focusLeft:
             worklane.paneStripState.moveFocusLeft()
             clearReadyStatusForFocusedPane(in: &worklane)

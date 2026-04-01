@@ -353,6 +353,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func focusPreviousPane(_ sender: Any?) {
+        handle(.pane(.focusPreviousPaneBySidebarOrder))
+    }
+
+    @objc
+    func focusNextPane(_ sender: Any?) {
+        handle(.pane(.focusNextPaneBySidebarOrder))
+    }
+
+    @objc
     func focusRightPane(_ sender: Any?) {
         handle(.pane(.focusRight))
     }

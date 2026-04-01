@@ -50,6 +50,69 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
     }
 
+    func test_registry_exposes_sidebar_order_focus_commands_and_drops_first_last_column_commands() {
+        let titles = Set(AppCommandRegistry.definitions.map(\.title))
+
+        XCTAssertTrue(titles.contains("Focus Previous Pane"))
+        XCTAssertTrue(titles.contains("Focus Next Pane"))
+        XCTAssertFalse(titles.contains("Focus First Column"))
+        XCTAssertFalse(titles.contains("Focus Last Column"))
+    }
+
+    func test_resolves_remapped_focus_and_resize_arrow_shortcuts_from_registry() {
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .rightArrow, modifiers: [.command]),
+                shortcuts: .default
+            ),
+            .pane(.focusRight)
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .upArrow, modifiers: [.command]),
+                shortcuts: .default
+            ),
+            .pane(.focusUp)
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .downArrow, modifiers: [.command, .option]),
+                shortcuts: .default
+            ),
+            .pane(.focusNextPaneBySidebarOrder)
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .leftArrow, modifiers: [.command, .option, .shift]),
+                shortcuts: .default
+            ),
+            .pane(.resizeLeft)
+        )
+
+        XCTAssertNil(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .leftArrow, modifiers: [.command, .control, .option]),
+                shortcuts: .default
+            )
+        )
+    }
+
+    func test_command_availability_uses_total_pane_count_for_sidebar_order_navigation() {
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 2,
+            activePaneCount: 1,
+            totalPaneCount: 2
+        )
+
+        XCTAssertTrue(available.contains(.focusPreviousPane))
+        XCTAssertTrue(available.contains(.focusNextPane))
+        XCTAssertTrue(available.contains(.focusUpInColumn))
+        XCTAssertTrue(available.contains(.focusDownInColumn))
+    }
+
     func test_resolves_remapped_shortcuts_from_overrides() {
         let shortcuts = AppConfig.Shortcuts(
             bindings: [
