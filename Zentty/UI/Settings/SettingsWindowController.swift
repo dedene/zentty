@@ -324,10 +324,26 @@ final class SettingsViewController: NSTabViewController {
             let tabViewItem = NSTabViewItem(viewController: contentViewController)
             tabViewItem.identifier = section.rawValue
             tabViewItem.label = section.title
-            tabViewItem.image = NSImage(
+            let image = NSImage(
                 systemSymbolName: section.symbolName,
                 accessibilityDescription: section.title
             )
+            if section == .openWith, let base = image?.withSymbolConfiguration(
+                .init(pointSize: 0, weight: .regular, scale: .medium)
+            ) {
+                let bottomPadding: CGFloat = 2
+                let padded = NSImage(
+                    size: NSSize(width: base.size.width, height: base.size.height + bottomPadding),
+                    flipped: false
+                ) { _ in
+                    base.draw(in: NSRect(x: 0, y: bottomPadding, width: base.size.width, height: base.size.height))
+                    return true
+                }
+                padded.isTemplate = true
+                tabViewItem.image = padded
+            } else {
+                tabViewItem.image = image
+            }
 
             addTabViewItem(tabViewItem)
             entriesBySection[section] = SectionEntry(

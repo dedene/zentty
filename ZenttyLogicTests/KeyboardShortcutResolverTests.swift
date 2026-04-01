@@ -160,6 +160,10 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             model.highlightedModifierKeyCodes,
             [UInt16(kVK_Command), UInt16(kVK_RightCommand), UInt16(kVK_Option), UInt16(kVK_RightOption)]
         )
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Command)), .primary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightCommand)), .secondary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Option)), .primary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightOption)), .secondary)
     }
 
     func test_preview_resolver_maps_arrow_shortcuts_directly() {
@@ -176,6 +180,10 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             model.highlightedModifierKeyCodes,
             [UInt16(kVK_Command), UInt16(kVK_RightCommand), UInt16(kVK_Option), UInt16(kVK_RightOption)]
         )
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Command)), .secondary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightCommand)), .primary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Option)), .secondary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightOption)), .primary)
     }
 
     func test_preview_resolver_leaves_primary_key_empty_when_character_cannot_be_mapped() {
@@ -192,6 +200,78 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             model.highlightedModifierKeyCodes,
             [UInt16(kVK_Command), UInt16(kVK_RightCommand), UInt16(kVK_Option), UInt16(kVK_RightOption)]
         )
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Command)), .primary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightCommand)), .primary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Option)), .primary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightOption)), .primary)
+    }
+
+    func test_preview_resolver_prefers_left_command_for_left_side_character_shortcut() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(
+                geometry: .ansi,
+                outputs: [
+                    .init(keyCode: UInt16(kVK_ANSI_W), modifiers: [], value: "w")
+                ]
+            )
+        )
+
+        let model = resolver.resolve(shortcut: .init(key: .character("w"), modifiers: [.command]))
+
+        XCTAssertEqual(model.primaryHighlightedKeyCode, UInt16(kVK_ANSI_W))
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Command)), .primary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightCommand)), .secondary)
+    }
+
+    func test_preview_resolver_prefers_right_side_modifiers_for_right_side_character_shortcut() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(
+                geometry: .ansi,
+                outputs: [
+                    .init(keyCode: UInt16(kVK_ANSI_P), modifiers: [], value: "p")
+                ]
+            )
+        )
+
+        let model = resolver.resolve(shortcut: .init(key: .character("p"), modifiers: [.command, .shift]))
+
+        XCTAssertEqual(model.primaryHighlightedKeyCode, UInt16(kVK_ANSI_P))
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Command)), .secondary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightCommand)), .primary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Shift)), .secondary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightShift)), .primary)
+    }
+
+    func test_preview_resolver_does_not_render_right_control_key() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .ansi, outputs: [])
+        )
+
+        let model = resolver.resolve(shortcut: nil)
+
+        XCTAssertFalse(
+            model.rows.contains { row in
+                row.slots.contains(where: { $0.keyCode == UInt16(kVK_RightControl) && $0.isSpacer == false })
+            }
+        )
+    }
+
+    func test_preview_resolver_highlights_control_only_on_left_side() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(
+                geometry: .ansi,
+                outputs: [
+                    .init(keyCode: UInt16(kVK_ANSI_W), modifiers: [], value: "w")
+                ]
+            )
+        )
+
+        let model = resolver.resolve(shortcut: .init(key: .character("w"), modifiers: [.control]))
+
+        XCTAssertEqual(model.primaryHighlightedKeyCode, UInt16(kVK_ANSI_W))
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Control)), .primary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightControl)), .none)
+        XCTAssertEqual(model.highlightedModifierKeyCodes, [UInt16(kVK_Control)])
     }
 
     func test_preview_resolver_places_up_arrow_above_bottom_arrow_cluster() throws {
@@ -260,17 +340,14 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
 
         let model = resolver.resolve(shortcut: nil)
-        let rightEdges = (0...3).compactMap { renderedVisibleRightEdge(ofRowAt: $0, in: model) }
-        let leftEdges = (0...4).compactMap { renderedVisibleLeftEdge(ofRowAt: $0, in: model) }
+        let topRowSpans = (0...3).map { rowSpanUnits(for: model.rows[$0].slots) }
 
-        XCTAssertEqual(rightEdges.count, 4)
-        XCTAssertTrue(rightEdges.dropFirst().allSatisfy { abs($0 - rightEdges[0]) < 0.001 })
-        XCTAssertEqual(leftEdges.count, 5)
-        XCTAssertTrue(leftEdges.dropFirst().allSatisfy { abs($0 - leftEdges[0]) < 0.001 })
-        XCTAssertEqual(model.rows[0].slots[0].widthUnits, 1.2, accuracy: 0.001)
-        XCTAssertEqual(model.rows[1].slots[0].widthUnits, 1.9, accuracy: 0.001)
-        XCTAssertEqual(model.rows[2].slots[0].widthUnits, 2.18, accuracy: 0.001)
-        XCTAssertEqual(model.rows[3].slots[0].widthUnits, 2.91, accuracy: 0.001)
+        XCTAssertEqual(model.rows.prefix(4).map(\.alignment), [.trailing, .trailing, .trailing, .trailing])
+        XCTAssertTrue(topRowSpans.dropFirst().allSatisfy { abs($0 - topRowSpans[0]) < 0.001 })
+        XCTAssertEqual(model.rows[0].slots[0].widthUnits, 1.0, accuracy: 0.001)
+        XCTAssertGreaterThan(model.rows[1].slots[0].widthUnits, 1.5)
+        XCTAssertGreaterThan(model.rows[2].slots[0].widthUnits, 1.8)
+        XCTAssertGreaterThan(model.rows[3].slots[0].widthUnits, 2.1)
     }
 
     func test_preview_resolver_aligns_main_keyboard_rows_to_shared_left_edge() {
@@ -279,10 +356,10 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
 
         let model = resolver.resolve(shortcut: nil)
-        let leftEdges = (0...4).compactMap { renderedVisibleLeftEdge(ofRowAt: $0, in: model) }
+        let mainBlockSpans = (0...4).map { rowSpanUnits(for: model.rows[$0].slots) }
 
-        XCTAssertEqual(leftEdges.count, 5)
-        XCTAssertTrue(leftEdges.dropFirst().allSatisfy { abs($0 - leftEdges[0]) < 0.001 })
+        XCTAssertEqual(model.rows[4].alignment, .center)
+        XCTAssertTrue(mainBlockSpans.dropFirst().allSatisfy { abs($0 - mainBlockSpans[0]) < 0.001 })
     }
 
     func test_preview_resolver_stretches_leading_keys_in_main_block() {
@@ -292,7 +369,6 @@ final class KeyboardShortcutResolverTests: XCTestCase {
 
         let model = resolver.resolve(shortcut: nil)
 
-        XCTAssertGreaterThan(model.rows[0].slots[0].widthUnits, 1.0)
         XCTAssertGreaterThan(model.rows[1].slots[0].widthUnits, 1.5)
         XCTAssertGreaterThan(model.rows[2].slots[0].widthUnits, 1.8)
         XCTAssertGreaterThan(model.rows[3].slots[0].widthUnits, 2.1)
@@ -338,8 +414,18 @@ private func rowSpanUnits(for row: [KeyboardPreviewKeySlot]) -> CGFloat {
 }
 
 private func horizontalCenter(of keyCode: UInt16, in model: KeyboardShortcutPreviewModel) -> CGFloat? {
+    let maxRowWidth = model.rows.map { rowSpanUnits(for: $0.slots) }.max() ?? 0
+
     for row in model.rows {
-        var cursor = CGFloat.zero
+        let rowWidth = rowSpanUnits(for: row.slots)
+        var cursor: CGFloat
+        switch row.alignment {
+        case .center:
+            cursor = (maxRowWidth - rowWidth) / 2
+        case .trailing:
+            cursor = maxRowWidth - rowWidth
+        }
+
         for (index, slot) in row.slots.enumerated() {
             if slot.keyCode == keyCode {
                 return cursor + (slot.widthUnits / 2)

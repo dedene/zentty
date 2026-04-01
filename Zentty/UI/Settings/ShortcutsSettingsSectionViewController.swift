@@ -472,6 +472,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         commandTitleLabel.font = .systemFont(ofSize: Layout.detailTitleFontSize, weight: .semibold)
         commandTitleLabel.lineBreakMode = .byWordWrapping
         commandTitleLabel.maximumNumberOfLines = 2
+        commandTitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         stackView.addArrangedSubview(commandTitleLabel)
         commandTitleLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
@@ -1102,6 +1103,10 @@ private final class ShortcutsBrowserRowView: NSTableRowView {
         // Suppress default group row background that reduces text contrast.
     }
 
+    override func drawSeparator(in dirtyRect: NSRect) {
+        // Suppress row separator line below floating group headers.
+    }
+
     override func drawSelection(in dirtyRect: NSRect) {
         refreshSelectionAppearance()
 
@@ -1133,7 +1138,6 @@ private final class ShortcutsBrowserCategoryCellView: NSTableCellView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         titleLabel.textColor = .secondaryLabelColor
@@ -1176,7 +1180,6 @@ private final class ShortcutsBrowserCommandCellView: NSTableCellView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
         titleLabel.lineBreakMode = .byTruncatingTail
@@ -1212,11 +1215,6 @@ private final class ShortcutsBrowserCommandCellView: NSTableCellView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateWindowObservation()
-        syncSelectionAppearanceFromRowView()
-    }
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
         syncSelectionAppearanceFromRowView()
     }
 

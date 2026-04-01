@@ -25,6 +25,12 @@ enum KeyboardPreviewRowAlignment: Equatable {
     case trailing
 }
 
+enum KeyboardPreviewHighlightStyle: Equatable {
+    case none
+    case secondary
+    case primary
+}
+
 struct KeyboardPreviewKeySlot: Equatable {
     let keyCode: UInt16
     let widthUnits: CGFloat
@@ -45,7 +51,11 @@ struct KeyboardShortcutPreviewModel: Equatable {
     let geometry: KeyboardPreviewGeometry
     let rows: [KeyboardPreviewRow]
     let primaryHighlightedKeyCode: UInt16?
-    let highlightedModifierKeyCodes: Set<UInt16>
+    let modifierHighlightStylesByKeyCode: [UInt16: KeyboardPreviewHighlightStyle]
+
+    var highlightedModifierKeyCodes: Set<UInt16> {
+        Set(modifierHighlightStylesByKeyCode.keys)
+    }
 
     var highlightedKeyCodes: Set<UInt16> {
         var result = highlightedModifierKeyCodes
@@ -53,6 +63,14 @@ struct KeyboardShortcutPreviewModel: Equatable {
             result.insert(primaryHighlightedKeyCode)
         }
         return result
+    }
+
+    func highlightStyle(for keyCode: UInt16) -> KeyboardPreviewHighlightStyle {
+        if primaryHighlightedKeyCode == keyCode {
+            return .primary
+        }
+
+        return modifierHighlightStylesByKeyCode[keyCode] ?? .none
     }
 }
 
@@ -176,13 +194,19 @@ struct KeyboardLayoutPreviewResolver {
         }
 
         let primaryHighlightedKeyCode = shortcut.flatMap { primaryKeyCode(for: $0, templateRows: templateRows) }
-        let highlightedModifierKeyCodes = shortcut.map(highlightedModifierKeyCodes(for:)) ?? []
+        let modifierHighlightStylesByKeyCode = shortcut.map {
+            modifierHighlightStyles(
+                for: $0,
+                primaryHighlightedKeyCode: primaryHighlightedKeyCode,
+                templateRows: templateRows
+            )
+        } ?? [:]
 
         return KeyboardShortcutPreviewModel(
             geometry: geometry,
             rows: rows,
             primaryHighlightedKeyCode: primaryHighlightedKeyCode,
-            highlightedModifierKeyCodes: highlightedModifierKeyCodes
+            modifierHighlightStylesByKeyCode: modifierHighlightStylesByKeyCode
         )
     }
 
@@ -246,24 +270,128 @@ struct KeyboardLayoutPreviewResolver {
         }?.keyCode
     }
 
-    private func highlightedModifierKeyCodes(for shortcut: KeyboardShortcut) -> Set<UInt16> {
-        var keyCodes = Set<UInt16>()
+    private func modifierHighlightStyles(
+        for shortcut: KeyboardShortcut,
+        primaryHighlightedKeyCode: UInt16?,
+        templateRows: [KeyboardPreviewTemplateRow]
+    ) -> [UInt16: KeyboardPreviewHighlightStyle] {
+        var styles: [UInt16: KeyboardPreviewHighlightStyle] = [:]
+        let duplicatedModifiers = Set(duplicatedModifierPairs.map(\.modifier))
 
-        if shortcut.modifiers.contains(.command) {
-            keyCodes.formUnion([UInt16(kVK_Command), UInt16(kVK_RightCommand)])
-        }
-        if shortcut.modifiers.contains(.option) {
-            keyCodes.formUnion([UInt16(kVK_Option), UInt16(kVK_RightOption)])
-        }
-        if shortcut.modifiers.contains(.shift) {
-            keyCodes.formUnion([UInt16(kVK_Shift), UInt16(kVK_RightShift)])
-        }
-        if shortcut.modifiers.contains(.control) {
-            keyCodes.formUnion([UInt16(kVK_Control), UInt16(kVK_RightControl)])
+        for pair in duplicatedModifierPairs where shortcut.modifiers.contains(pair.modifier) {
+            let pairStyles = modifierPairHighlightStyles(
+                for: pair,
+                primaryHighlightedKeyCode: primaryHighlightedKeyCode,
+                templateRows: templateRows
+            )
+            styles[pair.leftKeyCode] = pairStyles.left
+            styles[pair.rightKeyCode] = pairStyles.right
         }
 
-        return keyCodes
+        for modifier in shortcut.modifiers.subtracting(duplicatedModifiers) {
+            if let keyCode = singleSidedModifierKeyCode(for: modifier) {
+                styles[keyCode] = .primary
+            }
+        }
+
+        return styles
     }
+
+    private func singleSidedModifierKeyCode(for modifier: KeyboardModifier) -> UInt16? {
+        switch modifier {
+        case .control:
+            UInt16(kVK_Control)
+        case .command, .option, .shift:
+            nil
+        }
+    }
+
+    private func modifierPairHighlightStyles(
+        for pair: DuplicatedModifierPair,
+        primaryHighlightedKeyCode: UInt16?,
+        templateRows: [KeyboardPreviewTemplateRow]
+    ) -> (left: KeyboardPreviewHighlightStyle, right: KeyboardPreviewHighlightStyle) {
+        guard let primaryHighlightedKeyCode,
+              let primaryCenter = keyCenter(for: primaryHighlightedKeyCode, in: templateRows),
+              let leftCenter = keyCenter(for: pair.leftKeyCode, in: templateRows),
+              let rightCenter = keyCenter(for: pair.rightKeyCode, in: templateRows) else {
+            return (.primary, .primary)
+        }
+
+        let leftDistance = squaredDistance(from: leftCenter, to: primaryCenter)
+        let rightDistance = squaredDistance(from: rightCenter, to: primaryCenter)
+
+        if abs(leftDistance - rightDistance) <= 0.001 {
+            return (.primary, .secondary)
+        }
+
+        return leftDistance < rightDistance
+            ? (.primary, .secondary)
+            : (.secondary, .primary)
+    }
+
+    private func keyCenter(
+        for keyCode: UInt16,
+        in templateRows: [KeyboardPreviewTemplateRow]
+    ) -> CGPoint? {
+        let maxRowWidth = templateRows.map { templateRowSpanUnits(for: $0.slots) }.max() ?? 0
+
+        for (rowIndex, row) in templateRows.enumerated() {
+            let rowWidth = templateRowSpanUnits(for: row.slots)
+            let startX: CGFloat
+            switch row.alignment {
+            case .center:
+                startX = (maxRowWidth - rowWidth) / 2
+            case .trailing:
+                startX = maxRowWidth - rowWidth
+            }
+
+            var cursorX = startX
+            for (index, key) in row.slots.enumerated() {
+                let keyStart = cursorX
+                let keyEnd = keyStart + key.widthUnits
+                if key.kind == .keycap, key.keyCode == keyCode {
+                    return CGPoint(x: (keyStart + keyEnd) / 2, y: CGFloat(rowIndex))
+                }
+
+                cursorX = keyEnd
+                if index < row.slots.count - 1,
+                   key.kind == .keycap,
+                   row.slots[index + 1].kind == .keycap {
+                    cursorX += KeyboardPreviewLayoutMetrics.interKeySpacingUnits
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func templateRowSpanUnits(for row: [KeyboardPreviewTemplateKey]) -> CGFloat {
+        let widths = row.reduce(CGFloat.zero) { $0 + $1.widthUnits }
+        let adjacencyCount = zip(row, row.dropFirst()).reduce(0) { count, pair in
+            count + (pair.0.kind == .keycap && pair.1.kind == .keycap ? 1 : 0)
+        }
+
+        return widths + (CGFloat(adjacencyCount) * KeyboardPreviewLayoutMetrics.interKeySpacingUnits)
+    }
+
+    private func squaredDistance(from first: CGPoint, to second: CGPoint) -> CGFloat {
+        let deltaX = first.x - second.x
+        let deltaY = first.y - second.y
+        return (deltaX * deltaX) + (deltaY * deltaY)
+    }
+
+    private let duplicatedModifierPairs: [DuplicatedModifierPair] = [
+        .init(modifier: .command, leftKeyCode: UInt16(kVK_Command), rightKeyCode: UInt16(kVK_RightCommand)),
+        .init(modifier: .option, leftKeyCode: UInt16(kVK_Option), rightKeyCode: UInt16(kVK_RightOption)),
+        .init(modifier: .shift, leftKeyCode: UInt16(kVK_Shift), rightKeyCode: UInt16(kVK_RightShift)),
+    ]
+}
+
+private struct DuplicatedModifierPair {
+    let modifier: KeyboardModifier
+    let leftKeyCode: UInt16
+    let rightKeyCode: UInt16
 }
 
 private enum KeyboardPreviewTemplateLabel: Equatable {
@@ -528,7 +656,6 @@ private enum KeyboardPreviewTemplate {
         row.append(contentsOf: [
             fixed(kVK_RightCommand, "⌘", width: 1.5),
             fixed(kVK_RightOption, "⌥", width: 1.2),
-            fixed(kVK_RightControl, "⌃", width: 1.2),
         ])
 
         return row
@@ -548,8 +675,25 @@ private enum KeyboardPreviewTemplate {
         let targetSpan = alignedRowIndices
             .map { rowSpanUnits(for: rows[$0].slots) }
             .max() ?? 0
+        var pendingCenteredArrowSpacerDeficit: CGFloat = 0
 
         return rows.enumerated().map { index, row in
+            if pendingCenteredArrowSpacerDeficit > 0.001,
+               index == 5,
+               row.alignment == .center,
+               row.slots.first?.kind == .spacer {
+                var adjustedSlots = row.slots
+                let leadingSpacer = adjustedSlots[0]
+                adjustedSlots[0] = KeyboardPreviewTemplateKey(
+                    keyCode: leadingSpacer.keyCode,
+                    widthUnits: leadingSpacer.widthUnits + pendingCenteredArrowSpacerDeficit,
+                    label: leadingSpacer.label,
+                    kind: leadingSpacer.kind
+                )
+                pendingCenteredArrowSpacerDeficit = 0
+                return KeyboardPreviewTemplateRow(alignment: row.alignment, slots: adjustedSlots)
+            }
+
             guard alignedRowIndices.contains(index) else {
                 return row
             }
@@ -568,6 +712,10 @@ private enum KeyboardPreviewTemplate {
                 label: firstKey.label,
                 kind: firstKey.kind
             )
+
+            if index == 4 {
+                pendingCenteredArrowSpacerDeficit = deficit
+            }
 
             return KeyboardPreviewTemplateRow(alignment: row.alignment, slots: stretchedSlots)
         }

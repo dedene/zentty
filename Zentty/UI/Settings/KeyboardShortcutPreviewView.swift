@@ -14,7 +14,7 @@ final class KeyboardShortcutPreviewView: NSView {
         geometry: .ansi,
         rows: [],
         primaryHighlightedKeyCode: nil,
-        highlightedModifierKeyCodes: []
+        modifierHighlightStylesByKeyCode: [:]
     ) {
         didSet {
             needsDisplay = true
@@ -98,14 +98,14 @@ final class KeyboardShortcutPreviewView: NSView {
     }
 
     private func drawKey(_ key: KeyboardPreviewKeySlot, in rect: CGRect) {
-        let isHighlighted = model.highlightedKeyCodes.contains(key.keyCode)
+        let highlightStyle = model.highlightStyle(for: key.keyCode)
         let keyPath = NSBezierPath(roundedRect: rect, xRadius: Layout.cornerRadius, yRadius: Layout.cornerRadius)
 
-        keyFillColor(isHighlighted: isHighlighted).setFill()
+        keyFillColor(for: highlightStyle).setFill()
         keyPath.fill()
 
-        keyStrokeColor(isHighlighted: isHighlighted).setStroke()
-        keyPath.lineWidth = isHighlighted ? 2 : 1
+        keyStrokeColor(for: highlightStyle).setStroke()
+        keyPath.lineWidth = strokeWidth(for: highlightStyle)
         keyPath.stroke()
 
         guard key.label.isEmpty == false else {
@@ -114,8 +114,8 @@ final class KeyboardShortcutPreviewView: NSView {
 
         let fontSize = fontSize(for: key.label, keyHeight: rect.height)
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: isHighlighted ? .semibold : .medium),
-            .foregroundColor: labelColor(isHighlighted: isHighlighted),
+            .font: NSFont.systemFont(ofSize: fontSize, weight: fontWeight(for: highlightStyle)),
+            .foregroundColor: labelColor(for: highlightStyle),
         ]
         let attributedString = NSAttributedString(string: key.label, attributes: attributes)
         let labelSize = attributedString.size()
@@ -128,9 +128,14 @@ final class KeyboardShortcutPreviewView: NSView {
         attributedString.draw(in: labelRect)
     }
 
-    private func keyFillColor(isHighlighted: Bool) -> NSColor {
-        if isHighlighted {
+    private func keyFillColor(for highlightStyle: KeyboardPreviewHighlightStyle) -> NSColor {
+        switch highlightStyle {
+        case .primary:
             return NSColor.controlAccentColor.withAlphaComponent(0.13)
+        case .secondary:
+            return NSColor.controlAccentColor.withAlphaComponent(0.07)
+        case .none:
+            break
         }
 
         let isDarkMode = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -139,9 +144,14 @@ final class KeyboardShortcutPreviewView: NSView {
             : NSColor.black.withAlphaComponent(0.035)
     }
 
-    private func keyStrokeColor(isHighlighted: Bool) -> NSColor {
-        if isHighlighted {
+    private func keyStrokeColor(for highlightStyle: KeyboardPreviewHighlightStyle) -> NSColor {
+        switch highlightStyle {
+        case .primary:
             return NSColor.controlAccentColor.withAlphaComponent(0.92)
+        case .secondary:
+            return NSColor.controlAccentColor.withAlphaComponent(0.45)
+        case .none:
+            break
         }
 
         let isDarkMode = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -150,12 +160,35 @@ final class KeyboardShortcutPreviewView: NSView {
             : NSColor.black.withAlphaComponent(0.08)
     }
 
-    private func labelColor(isHighlighted: Bool) -> NSColor {
-        if isHighlighted {
+    private func labelColor(for highlightStyle: KeyboardPreviewHighlightStyle) -> NSColor {
+        switch highlightStyle {
+        case .primary:
             return .controlAccentColor
+        case .secondary:
+            return .controlAccentColor.withAlphaComponent(0.65)
+        case .none:
+            return .secondaryLabelColor
         }
+    }
 
-        return .secondaryLabelColor
+    private func fontWeight(for highlightStyle: KeyboardPreviewHighlightStyle) -> NSFont.Weight {
+        switch highlightStyle {
+        case .primary:
+            .semibold
+        case .secondary, .none:
+            .medium
+        }
+    }
+
+    private func strokeWidth(for highlightStyle: KeyboardPreviewHighlightStyle) -> CGFloat {
+        switch highlightStyle {
+        case .primary:
+            2
+        case .secondary:
+            1.5
+        case .none:
+            1
+        }
     }
 
     private func fontSize(for label: String, keyHeight: CGFloat) -> CGFloat {
