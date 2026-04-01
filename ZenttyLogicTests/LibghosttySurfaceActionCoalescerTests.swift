@@ -11,8 +11,8 @@ final class LibghosttySurfaceActionCoalescerTests: XCTestCase {
         XCTAssertFalse(coalescer.enqueue(.setTitle("second")))
         XCTAssertFalse(coalescer.enqueue(.pwd("/tmp/first")))
         XCTAssertFalse(coalescer.enqueue(.pwd("/tmp/second")))
-        XCTAssertFalse(coalescer.enqueue(.scrollbar(total: 1, len: 2)))
-        XCTAssertFalse(coalescer.enqueue(.scrollbar(total: 9, len: 4)))
+        XCTAssertFalse(coalescer.enqueue(.scrollbar(total: 1, offset: 0, len: 2)))
+        XCTAssertFalse(coalescer.enqueue(.scrollbar(total: 9, offset: 3, len: 4)))
         XCTAssertFalse(coalescer.enqueue(.mouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)))
         XCTAssertFalse(coalescer.enqueue(.mouseShape(GHOSTTY_MOUSE_SHAPE_POINTER)))
 
@@ -53,6 +53,7 @@ final class LibghosttySurfaceActionCoalescerTests: XCTestCase {
         XCTAssertEqual(title, "second")
         XCTAssertEqual(pwd, "/tmp/second")
         XCTAssertEqual(scrollbar.total, 9)
+        XCTAssertEqual(scrollbar.offset, 3)
         XCTAssertEqual(scrollbar.len, 4)
         XCTAssertEqual(mouseShape, GHOSTTY_MOUSE_SHAPE_POINTER)
         XCTAssertEqual(progressReport, progress)

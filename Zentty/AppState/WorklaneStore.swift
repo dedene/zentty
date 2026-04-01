@@ -192,6 +192,7 @@ final class WorklaneStore {
 
     var worklanes: [WorklaneState]
     let gitContextResolver: any PaneGitContextResolving
+    let terminalDiagnostics: TerminalDiagnostics
     private(set) var layoutContext: PaneLayoutContext
     private var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
     private var lastFocusedPaneReference: PaneReference?
@@ -204,8 +205,9 @@ final class WorklaneStore {
     private let processEnvironment: [String: String]
     let focusHistoryController = PaneFocusHistoryController()
     private var isNavigatingHistory = false
+    private var nextWorklaneNumber: Int
 
-    internal(set) var activeWorklaneID: WorklaneID
+    var activeWorklaneID: WorklaneID
 
     private var subscribers: [(id: UUID, handler: (WorklaneChange) -> Void)] = []
     private var isBatching = false
@@ -237,9 +239,11 @@ final class WorklaneStore {
         layoutContext: PaneLayoutContext = .fallback,
         activeWorklaneID: WorklaneID? = nil,
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
-        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
         self.gitContextResolver = gitContextResolver
+        self.terminalDiagnostics = terminalDiagnostics
         self.layoutContext = layoutContext
         self.processEnvironment = processEnvironment
         let initialWorklanes = worklanes.isEmpty
@@ -254,6 +258,10 @@ final class WorklaneStore {
             : initialWorklanes.first?.id ?? WorklaneID("worklane-main")
         self.worklanes = initialWorklanes
         self.activeWorklaneID = resolvedActiveWorklaneID
+        self.nextWorklaneNumber = initialWorklanes.reduce(0) { max, worklane in
+            let suffix = worklane.id.rawValue.drop(while: { !$0.isNumber })
+            return Swift.max(max, Int(suffix) ?? 0)
+        }
         normalizeAllPanePresentationState()
         refreshLastFocusedLocalWorkingDirectory()
         refreshAllPaneGitContexts()
@@ -648,7 +656,7 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
-        notify(.paneStructure(activeWorklaneID))
+        notify(.layoutResized(activeWorklaneID))
     }
 
     func arrangeActiveWorklaneVertically(_ arrangement: PaneVerticalArrangement) {
@@ -662,7 +670,7 @@ final class WorklaneStore {
 
         activeWorklane = worklane
         refreshLastFocusedLocalWorkingDirectory()
-        notify(.paneStructure(activeWorklaneID))
+        notify(.layoutResized(activeWorklaneID))
     }
 
     private func insertNewPaneHorizontally(into worklane: inout WorklaneState, placement: PanePlacement) {
@@ -728,9 +736,9 @@ final class WorklaneStore {
 
     func createWorklane() {
         let previousPaneRef = currentPaneReference
-        let newIndex = worklanes.count + 1
-        let title = "WS \(newIndex)"
-        let id = WorklaneID("worklane-\(newIndex)")
+        nextWorklaneNumber += 1
+        let title = "WS \(nextWorklaneNumber)"
+        let id = WorklaneID("worklane-\(nextWorklaneNumber)")
         let workingDirectory = resolveWorkingDirectoryForNewWorklane()
         let configInheritanceSourcePaneID = resolveConfigInheritanceSourcePaneIDForNewWorklane()
 

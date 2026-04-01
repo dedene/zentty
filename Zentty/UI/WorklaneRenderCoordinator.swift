@@ -17,6 +17,7 @@ final class WorklaneRenderCoordinator {
     let worklaneStore: WorklaneStore
     let runtimeRegistry: PaneRuntimeRegistry
     let reviewStateResolver: WorklaneReviewStateResolver
+    private let terminalDiagnostics: TerminalDiagnostics
 
     private let attentionNotificationCoordinator: WorklaneAttentionNotificationCoordinator
 
@@ -25,6 +26,7 @@ final class WorklaneRenderCoordinator {
     private var reviewPollingTimer: Timer?
     private var reviewPollingTarget: (worklaneID: WorklaneID, paneID: PaneID, repoRoot: String, branch: String)?
     private var hasBootstrappedReviewState = false
+    private var needsRuntimeSynchronization = true
 
     var onNeedsSidebarSync: (() -> Void)?
     var themeProvider: (() -> ZenttyTheme)?
@@ -37,11 +39,13 @@ final class WorklaneRenderCoordinator {
         runtimeRegistry: PaneRuntimeRegistry,
         notificationStore: NotificationStore,
         configStore: AppConfigStore? = nil,
-        reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver()
+        reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
+        terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
         self.worklaneStore = worklaneStore
         self.runtimeRegistry = runtimeRegistry
         self.reviewStateResolver = reviewStateResolver
+        self.terminalDiagnostics = terminalDiagnostics
         self.attentionNotificationCoordinator = WorklaneAttentionNotificationCoordinator(
             notificationStore: notificationStore,
             configStore: configStore
@@ -103,14 +107,29 @@ final class WorklaneRenderCoordinator {
         themeProvider?() ?? ZenttyTheme.fallback(for: nil)
     }
 
+    private var activePaneID: PaneID? {
+        worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+    }
+
     private func handleWorklaneChange(_ change: WorklaneChange) {
         switch change {
-        case .paneStructure, .focusChanged:
+        case .paneStructure:
+            needsRuntimeSynchronization = true
             renderCurrentWorklane(animated: true)
+            updateRuntimeSurfaceActivities()
+        case .focusChanged:
+            renderCurrentWorklane(animated: true)
+            updateRuntimeSurfaceActivities()
         case .layoutResized:
             renderCurrentWorklane(animated: false)
-        case .worklaneListChanged, .activeWorklaneChanged:
+        case .worklaneListChanged:
+            needsRuntimeSynchronization = true
             renderCurrentWorklane(animated: false)
+            updateRuntimeSurfaceActivities()
+            bootstrapReviewRefresh(force: true)
+        case .activeWorklaneChanged:
+            renderCurrentWorklane(animated: false)
+            updateRuntimeSurfaceActivities()
             bootstrapReviewRefresh(force: true)
         case .auxiliaryStateUpdated(let worklaneID, let paneID, let impacts):
             handleAuxiliaryStateUpdate(worklaneID: worklaneID, paneID: paneID, impacts: impacts)
@@ -120,48 +139,56 @@ final class WorklaneRenderCoordinator {
     }
 
     private func renderCurrentWorklane(animated: Bool = false) {
-        guard let views else {
-            return
-        }
-
-        worklaneStore.batchUpdate { [self] in
-            runtimeRegistry.synchronize(with: worklaneStore.worklanes)
-            views.sidebarView.render(
-                summaries: WorklaneSidebarSummaryBuilder.summaries(
-                    for: worklaneStore.worklanes,
-                    activeWorklaneID: worklaneStore.activeWorklaneID
-                ),
-                theme: currentTheme
-            )
-            onNeedsSidebarSync?()
-
-            guard let worklane = worklaneStore.activeWorklane else {
-                renderWindowChrome(
-                    WorklaneChromeSummary(
-                    attention: nil,
-                    focusedLabel: nil,
-                    branch: nil,
-                    pullRequest: nil,
-                    reviewChips: []
-                    ),
-                    in: views
-                )
+        ZenttyPerformanceSignposts.interval("WorklaneRenderCurrent") {
+            guard let views else {
                 return
             }
 
-            let headerSummary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
-            renderWindowChrome(headerSummary, in: views)
-            renderCanvasForCurrentWorklane(animated: animated)
-            let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
-            attentionNotificationCoordinator.update(
-                worklanes: worklaneStore.worklanes,
-                activeWorklaneID: worklaneStore.activeWorklaneID,
-                windowIsKey: windowState.isKeyWindow
-            )
-            updateReviewPolling()
-            updateRuntimeSurfaceActivities()
+            terminalDiagnostics.recordRender(.full, activePaneID: activePaneID)
+            worklaneStore.batchUpdate { [self] in
+                if needsRuntimeSynchronization {
+                    runtimeRegistry.synchronize(with: worklaneStore.worklanes)
+                    needsRuntimeSynchronization = false
+                }
+                terminalDiagnostics.recordRender(.sidebar, activePaneID: activePaneID)
+                views.sidebarView.render(
+                    summaries: WorklaneSidebarSummaryBuilder.summaries(
+                        for: worklaneStore.worklanes,
+                        activeWorklaneID: worklaneStore.activeWorklaneID
+                    ),
+                    theme: currentTheme
+                )
+                onNeedsSidebarSync?()
+
+                guard let worklane = worklaneStore.activeWorklane else {
+                    terminalDiagnostics.recordRender(.header, activePaneID: activePaneID)
+                    renderWindowChrome(
+                        WorklaneChromeSummary(
+                        attention: nil,
+                        focusedLabel: nil,
+                        branch: nil,
+                        pullRequest: nil,
+                        reviewChips: []
+                        ),
+                        in: views
+                    )
+                    return
+                }
+
+                let headerSummary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
+                terminalDiagnostics.recordRender(.header, activePaneID: activePaneID)
+                renderWindowChrome(headerSummary, in: views)
+                renderCanvasForCurrentWorklane(animated: animated)
+                let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
+                attentionNotificationCoordinator.update(
+                    worklanes: worklaneStore.worklanes,
+                    activeWorklaneID: worklaneStore.activeWorklaneID,
+                    windowIsKey: windowState.isKeyWindow
+                )
+                updateReviewPolling()
+            }
+            bootstrapReviewRefresh(force: false)
         }
-        bootstrapReviewRefresh(force: false)
     }
 
     private func renderCanvasForCurrentWorklane(
@@ -170,44 +197,49 @@ final class WorklaneRenderCoordinator {
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
-        guard let views, let worklane = worklaneStore.activeWorklane else {
-            return
+        ZenttyPerformanceSignposts.interval("WorklaneRenderCanvas") {
+            guard let views, let worklane = worklaneStore.activeWorklane else {
+                return
+            }
+
+            guard !views.appCanvasView.paneStripView.isDragActive else {
+                return
+            }
+
+            let sidebarWidth = sidebarWidthProvider?() ?? SidebarWidthPreference.defaultWidth
+            let effectiveInset = leadingVisibleInsetOverride
+                ?? leadingInsetProvider?(sidebarWidth)
+                ?? 0
+
+            terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.paneStripState.focusedPaneID)
+            views.appCanvasView.render(
+                worklaneName: worklane.title,
+                state: worklane.paneStripState,
+                metadataByPaneID: worklane.auxiliaryStateByPaneID.compactMapValues(\.metadata),
+                paneBorderContextByPaneID: worklane.paneBorderContextDisplayByPaneID,
+                theme: currentTheme,
+                leadingVisibleInset: effectiveInset,
+                animated: animated,
+                duration: duration,
+                timingFunction: timingFunction
+            )
         }
-
-        guard !views.appCanvasView.paneStripView.isDragActive else {
-            return
-        }
-
-        let sidebarWidth = sidebarWidthProvider?() ?? SidebarWidthPreference.defaultWidth
-        let effectiveInset = leadingVisibleInsetOverride
-            ?? leadingInsetProvider?(sidebarWidth)
-            ?? 0
-
-        views.appCanvasView.render(
-            worklaneName: worklane.title,
-            state: worklane.paneStripState,
-            metadataByPaneID: worklane.auxiliaryStateByPaneID.compactMapValues(\.metadata),
-            paneBorderContextByPaneID: worklane.paneBorderContextDisplayByPaneID,
-            theme: currentTheme,
-            leadingVisibleInset: effectiveInset,
-            animated: animated,
-            duration: duration,
-            timingFunction: timingFunction
-        )
     }
 
     private func updateRuntimeSurfaceActivities() {
-        guard !worklaneStore.worklanes.isEmpty else {
-            return
-        }
+        ZenttyPerformanceSignposts.interval("WorklaneUpdateSurfaceActivities") {
+            guard !worklaneStore.worklanes.isEmpty else {
+                return
+            }
 
-        let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
-        runtimeRegistry.updateSurfaceActivities(
-            worklanes: worklaneStore.worklanes,
-            activeWorklaneID: worklaneStore.activeWorklaneID,
-            windowIsVisible: windowState.isVisible,
-            windowIsKey: windowState.isKeyWindow
-        )
+            let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
+            runtimeRegistry.updateSurfaceActivities(
+                worklanes: worklaneStore.worklanes,
+                activeWorklaneID: worklaneStore.activeWorklaneID,
+                windowIsVisible: windowState.isVisible,
+                windowIsKey: windowState.isKeyWindow
+            )
+        }
     }
 
     var translatedPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] {

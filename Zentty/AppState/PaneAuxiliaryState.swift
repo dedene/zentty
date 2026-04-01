@@ -126,6 +126,7 @@ struct PanePresentationState: Equatable, Sendable {
     var attentionArtifactLink: WorklaneArtifactLink?
     var updatedAt: Date = .distantPast
     var isWorking = false
+    var isReady = false
     var statusSymbolName: String?
     var interactionKind: PaneInteractionKind?
     var interactionLabel: String?
@@ -194,14 +195,22 @@ enum PanePresentationNormalizer {
         } else {
             rememberedTitle = nil
         }
-        let runtimePhase = normalizedRuntimePhase(from: raw, recognizedTool: recognizedTool)
+        let titlePhase = codexTitlePhase(from: raw.metadata, recognizedTool: recognizedTool)
+        let runtimePhase = normalizedRuntimePhase(
+            from: raw,
+            recognizedTool: recognizedTool,
+            titlePhase: titlePhase
+        )
         let agentInteractionKind = raw.agentStatus?.interactionKind ?? .none
         let showsReadyStatus = raw.showsReadyStatus
             || completionNotificationIndicatesReady(raw.lastDesktopNotificationText)
+        let hasObservedRunning = raw.agentStatus?.hasObservedRunning == true
+            || titlePhase == .running
+            || previous?.runtimePhase == .running
         let statusText = visibleStatusText(
             for: runtimePhase,
             interactionKind: agentInteractionKind,
-            hasObservedRunning: raw.agentStatus?.hasObservedRunning == true,
+            hasObservedRunning: hasObservedRunning,
             showsReadyStatus: showsReadyStatus,
             notificationText: raw.lastDesktopNotificationText,
             notificationDate: raw.lastDesktopNotificationDate
@@ -235,6 +244,7 @@ enum PanePresentationNormalizer {
         let attentionArtifactLink = deriveAttentionArtifact(from: raw.agentStatus?.artifactLink)
         let updatedAt = raw.agentStatus?.updatedAt ?? .distantPast
         let branchURL = deriveBranchURL(from: raw, repoRoot: repoRoot, lookupBranch: lookupBranch)
+        let isReady = runtimePhase == .idle && showsReadyStatus
 
         return PanePresentationState(
             cwd: cwd,
@@ -254,6 +264,7 @@ enum PanePresentationNormalizer {
             attentionArtifactLink: attentionArtifactLink,
             updatedAt: updatedAt,
             isWorking: runtimePhase == .running,
+            isReady: isReady,
             statusSymbolName: statusSymbolName,
             interactionKind: interactionKind,
             interactionLabel: interactionLabel,
@@ -311,9 +322,24 @@ enum PanePresentationNormalizer {
 
     private static func normalizedRuntimePhase(
         from raw: PaneRawState,
-        recognizedTool: AgentTool?
+        recognizedTool: AgentTool?,
+        titlePhase: PanePresentationPhase?
     ) -> PanePresentationPhase {
         if let agentState = raw.agentStatus?.state {
+            if recognizedTool == .codex,
+               agentState == .starting,
+               let titlePhase {
+                return titlePhase
+            }
+
+            // When Claude Code's hook says .running but the title says .idle
+            // (e.g., after Ctrl+C interruption), trust the title as more current.
+            if recognizedTool == .claudeCode,
+               agentState == .running,
+               titlePhase == .idle {
+                return .idle
+            }
+
             switch agentState {
             case .starting:
                 return .starting
@@ -330,7 +356,7 @@ enum PanePresentationNormalizer {
 
         // Codex emits status words in the terminal title (via tui.terminal_title=["status",...]).
         // Use these to infer runtime phase when no explicit agent status is available.
-        if let titlePhase = codexTitlePhase(from: raw.metadata, recognizedTool: recognizedTool) {
+        if let titlePhase {
             return titlePhase
         }
 
@@ -345,25 +371,36 @@ enum PanePresentationNormalizer {
         from metadata: TerminalMetadata?,
         recognizedTool: AgentTool?
     ) -> PanePresentationPhase? {
-        guard recognizedTool == .codex else {
-            return nil
-        }
-        guard let title = metadata?.title?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !title.isEmpty else {
-            return nil
+        if let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            metadata?.title,
+            recognizedTool: recognizedTool
+        ) {
+            switch signature.phase {
+            case .running:
+                return .running
+            case .starting:
+                return .starting
+            case .idle:
+                return .idle
+            }
         }
 
-        let firstWord = title.prefix(while: { $0.isLetter }).lowercased()
-        switch firstWord {
-        case "working", "thinking":
-            return .running
-        case "starting":
-            return .starting
-        case "ready":
-            return .idle
-        default:
-            return nil
+        if recognizedTool == .claudeCode,
+           let signature = TerminalMetadataChangeClassifier.diagnosticAgentStatusTitleSignature(
+               metadata?.title,
+               recognizedTool: .claudeCode
+           ) {
+            switch signature.phase {
+            case .running:
+                return .running
+            case .starting:
+                return .starting
+            case .idle:
+                return .idle
+            }
         }
+
+        return nil
     }
 
     private static let notificationVisibilityWindow: TimeInterval = 60
@@ -375,6 +412,7 @@ enum PanePresentationNormalizer {
 
         return notificationText.contains("agent run complete")
             || notificationText.contains("agent ready")
+            || notificationText.contains("agent turn complete")
     }
 
     private static func visibleStatusText(
@@ -432,15 +470,27 @@ enum PanePresentationNormalizer {
             guard let candidate else {
                 continue
             }
-            guard volatileAgentStatusTitle(candidate, recognizedTool: recognizedTool) == false else {
-                continue
+            let resolvedCandidate: String
+            if let displaySubject = TerminalMetadataChangeClassifier.volatileAgentStatusDisplaySubject(
+                candidate,
+                recognizedTool: recognizedTool
+            ) {
+                resolvedCandidate = displaySubject
+            } else {
+                guard TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+                    candidate,
+                    recognizedTool: recognizedTool
+                ) == false else {
+                    continue
+                }
+                resolvedCandidate = candidate
             }
-            guard rawShellLabelLooksMeaningful(candidate) else {
+            guard rawShellLabelLooksMeaningful(resolvedCandidate) else {
                 continue
             }
             guard let displayIdentity = WorklaneContextFormatter.displayMeaningfulTerminalIdentity(
                 for: TerminalMetadata(
-                    title: candidate,
+                    title: resolvedCandidate,
                     currentWorkingDirectory: nil,
                     processName: nil,
                     gitBranch: nil
@@ -448,7 +498,7 @@ enum PanePresentationNormalizer {
             ) else {
                 continue
             }
-            if matchesRecognizedTool(candidate, tool: recognizedTool) {
+            if matchesRecognizedTool(resolvedCandidate, tool: recognizedTool) {
                 continue
             }
             return displayIdentity
@@ -462,28 +512,6 @@ enum PanePresentationNormalizer {
         }
 
         return nil
-    }
-
-    private static func volatileAgentStatusTitle(
-        _ value: String,
-        recognizedTool: AgentTool?
-    ) -> Bool {
-        guard recognizedTool == .codex else {
-            return false
-        }
-
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalized.localizedCaseInsensitiveContains("zentty") else {
-            return false
-        }
-
-        let firstWord = normalized.prefix(while: { $0.isLetter }).lowercased()
-        switch firstWord {
-        case "working", "thinking", "starting", "ready":
-            return true
-        default:
-            return false
-        }
     }
 
     private static func rawShellLabelLooksMeaningful(_ value: String) -> Bool {

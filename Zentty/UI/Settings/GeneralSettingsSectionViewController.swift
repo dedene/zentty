@@ -26,6 +26,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
     init(configStore: AppConfigStore) {
         self.configStore = configStore
+        self.currentNotifications = configStore.current.notifications
+        self.currentConfirmations = configStore.current.confirmations
         super.init(nibName: nil, bundle: nil)
     }
 

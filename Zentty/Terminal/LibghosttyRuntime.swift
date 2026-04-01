@@ -8,7 +8,7 @@ enum LibghosttySurfaceActionPayload: Equatable {
     case progressReport(TerminalProgressReport)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
     case desktopNotification(TerminalDesktopNotification)
-    case scrollbar(total: UInt64, len: UInt64)
+    case scrollbar(total: UInt64, offset: UInt64, len: UInt64)
     case openURL(String)
     case mouseShape(ghostty_action_mouse_shape_e)
 }
@@ -59,7 +59,7 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
         return .desktopNotification(TerminalDesktopNotification(title: title, body: body))
     case GHOSTTY_ACTION_SCROLLBAR:
         let s = action.action.scrollbar
-        return .scrollbar(total: s.total, len: s.len)
+        return .scrollbar(total: s.total, offset: s.offset, len: s.len)
     case GHOSTTY_ACTION_OPEN_URL:
         let openURL = action.action.open_url
         guard let urlPointer = openURL.url, openURL.len > 0 else {
@@ -83,20 +83,94 @@ private func libghosttyCloseSurfaceCallback(_: UnsafeMutableRawPointer?, _: Bool
     // additional work is needed here.
 }
 
+final class LibghosttyWakeupCoordinator: @unchecked Sendable {
+    typealias Scheduler = (@escaping @Sendable () -> Void) -> Void
+
+    private let diagnostics: TerminalDiagnostics
+    private let schedule: Scheduler
+    private let tick: @Sendable () -> Void
+    private let now: @Sendable () -> UInt64
+    private let lock = NSLock()
+
+    private var tickScheduledOrRunning = false
+    private var wakeupRequestedWhileScheduled = false
+
+    init(
+        diagnostics: TerminalDiagnostics,
+        schedule: @escaping Scheduler = { DispatchQueue.main.async(execute: $0) },
+        now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+        tick: @escaping @Sendable () -> Void
+    ) {
+        self.diagnostics = diagnostics
+        self.schedule = schedule
+        self.now = now
+        self.tick = tick
+    }
+
+    func requestTick() {
+        diagnostics.recordWakeupReceived()
+
+        let enqueuedAt = now()
+        let shouldSchedule: Bool
+        lock.lock()
+        if tickScheduledOrRunning {
+            wakeupRequestedWhileScheduled = true
+            shouldSchedule = false
+        } else {
+            tickScheduledOrRunning = true
+            shouldSchedule = true
+        }
+        lock.unlock()
+
+        guard shouldSchedule else {
+            return
+        }
+
+        diagnostics.recordWakeupEnqueued()
+        schedule { [weak self] in
+            self?.runScheduledTick(enqueuedAt: enqueuedAt)
+        }
+    }
+
+    private func runScheduledTick(enqueuedAt: UInt64) {
+        let startedAt = now()
+        tick()
+        let finishedAt = now()
+        diagnostics.recordTick(
+            durationNanoseconds: finishedAt - startedAt,
+            queueDelayNanoseconds: startedAt - enqueuedAt
+        )
+
+        let nextEnqueuedAt = now()
+        let shouldScheduleAgain: Bool
+        lock.lock()
+        if wakeupRequestedWhileScheduled {
+            wakeupRequestedWhileScheduled = false
+            shouldScheduleAgain = true
+        } else {
+            tickScheduledOrRunning = false
+            shouldScheduleAgain = false
+        }
+        lock.unlock()
+
+        guard shouldScheduleAgain else {
+            return
+        }
+
+        diagnostics.recordWakeupEnqueued()
+        schedule { [weak self] in
+            self?.runScheduledTick(enqueuedAt: nextEnqueuedAt)
+        }
+    }
+}
+
 private func libghosttyWakeupCallback(userdata: UnsafeMutableRawPointer?) {
     guard let userdata else {
         return
     }
 
     let runtime = Unmanaged<LibghosttyRuntime>.fromOpaque(userdata).takeUnretainedValue()
-    let app = runtime.app
-
-    DispatchQueue.main.async {
-        guard let app else {
-            return
-        }
-        ghostty_app_tick(app)
-    }
+    runtime.wakeupCoordinator.requestTick()
 }
 
 private func libghosttyActionCallback(
@@ -117,10 +191,13 @@ private func libghosttyActionCallback(
     guard let payload = copyLibghosttySurfaceActionPayload(from: action) else {
         return false
     }
+    owner.recordActionCallback(payload: payload)
 
     if owner.enqueue(payload: payload) {
+        let enqueuedAt = DispatchTime.now().uptimeNanoseconds
         DispatchQueue.main.async { [weak owner] in
-            owner?.drainCoalescedActions()
+            let startedAt = DispatchTime.now().uptimeNanoseconds
+            owner?.drainCoalescedActions(queueDelayNanoseconds: startedAt - enqueuedAt)
         }
     }
 
@@ -146,10 +223,14 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
 
     nonisolated(unsafe) fileprivate var app: ghostty_app_t?
     nonisolated(unsafe) private var config: ghostty_config_t?
+    nonisolated let diagnostics: TerminalDiagnostics
+    nonisolated(unsafe) var wakeupCoordinator: LibghosttyWakeupCoordinator
 
     private init() throws {
         self.app = nil
         self.config = nil
+        self.diagnostics = .shared
+        self.wakeupCoordinator = LibghosttyWakeupCoordinator(diagnostics: self.diagnostics) {}
 
         Self.configureResourcesDirectoryIfNeeded()
         Self.configureLogLevelIfNeeded()
@@ -177,6 +258,12 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         }
 
         self.app = app
+        self.wakeupCoordinator = LibghosttyWakeupCoordinator(diagnostics: diagnostics) { [weak self] in
+            guard let app = self?.app else {
+                return
+            }
+            ghostty_app_tick(app)
+        }
         ghostty_app_set_focus(app, NSApp.isActive)
 
         NotificationCenter.default.addObserver(
@@ -205,6 +292,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
 
     func makeSurface(
         for hostView: LibghosttyView,
+        paneID: PaneID,
         request: TerminalSessionRequest,
         configTemplate: ghostty_surface_config_s?,
         metadataDidChange: @escaping (TerminalMetadata) -> Void,
@@ -216,9 +304,11 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
 
         return try LibghosttySurface(
             app: app,
+            paneID: paneID,
             hostView: hostView,
             request: request,
             configTemplate: configTemplate,
+            diagnostics: diagnostics,
             metadataDidChange: metadataDidChange,
             eventDidOccur: eventDidOccur
         )
@@ -288,7 +378,7 @@ private func libghosttyReadClipboardCallback(
         let userdata,
         let surface = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue().surface,
         let pasteboard = NSPasteboard.ghostty(location),
-        let string = pasteboard.getOpinionatedStringContents()
+        let string = TerminalClipboard.pastedString(from: pasteboard)
     else {
         return false
     }
@@ -385,15 +475,5 @@ private extension NSPasteboard {
         default:
             return nil
         }
-    }
-
-    func getOpinionatedStringContents() -> String? {
-        if let urls = readObjects(forClasses: [NSURL.self]) as? [URL], urls.isEmpty == false {
-            return urls
-                .map { $0.isFileURL ? $0.path : $0.absoluteString }
-                .joined(separator: " ")
-        }
-
-        return string(forType: .string)
     }
 }

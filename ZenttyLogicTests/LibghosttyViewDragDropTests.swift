@@ -123,17 +123,17 @@ private final class SurfaceTextSpy: LibghosttySurfaceControlling {
 
 private final class StubDraggingInfo: NSObject, NSDraggingInfo, @unchecked Sendable {
     nonisolated(unsafe) let draggingPasteboard: NSPasteboard
-    nonisolated(unsafe) var draggingDestinationWindow: NSWindow? { nil }
-    nonisolated(unsafe) var draggingSequenceNumber: Int { 0 }
-    nonisolated(unsafe) var draggingSource: Any? { nil }
-    nonisolated(unsafe) var draggingSourceOperationMask: NSDragOperation { .copy }
-    nonisolated(unsafe) var draggingLocation: NSPoint { .zero }
-    nonisolated(unsafe) var draggedImageLocation: NSPoint { .zero }
-    nonisolated(unsafe) var draggedImage: NSImage? { nil }
-    nonisolated(unsafe) var draggingFormation: NSDraggingFormation { get { .default } set {} }
-    nonisolated(unsafe) var animatesToDestination: Bool { get { false } set {} }
-    nonisolated(unsafe) var numberOfValidItemsForDrop: Int { get { 0 } set {} }
-    nonisolated(unsafe) var springLoadingHighlight: NSSpringLoadingHighlight { .none }
+    nonisolated var draggingDestinationWindow: NSWindow? { nil }
+    nonisolated var draggingSequenceNumber: Int { 0 }
+    nonisolated var draggingSource: Any? { nil }
+    nonisolated var draggingSourceOperationMask: NSDragOperation { .copy }
+    nonisolated var draggingLocation: NSPoint { .zero }
+    nonisolated var draggedImageLocation: NSPoint { .zero }
+    nonisolated var draggedImage: NSImage? { nil }
+    nonisolated var draggingFormation: NSDraggingFormation { get { .default } set {} }
+    nonisolated var animatesToDestination: Bool { get { false } set {} }
+    nonisolated var numberOfValidItemsForDrop: Int { get { 0 } set {} }
+    nonisolated var springLoadingHighlight: NSSpringLoadingHighlight { .none }
 
     @MainActor
     init(types: [NSPasteboard.PasteboardType]) {

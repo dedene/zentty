@@ -440,7 +440,7 @@ enum WorklaneSidebarSummaryBuilder {
         for presentation: PanePresentationState
     ) -> PaneSidebarStatusPresentation {
         let statusText = presentation.statusText
-        let attentionState = attentionState(for: presentation.runtimePhase)
+        let attentionState = attentionState(for: presentation)
         guard statusText != nil
             || attentionState != nil
             || presentation.interactionKind != nil
@@ -495,8 +495,12 @@ enum WorklaneSidebarSummaryBuilder {
         }
     }
 
-    private static func attentionState(for phase: PanePresentationPhase) -> WorklaneAttentionState? {
-        switch phase {
+    private static func attentionState(for presentation: PanePresentationState) -> WorklaneAttentionState? {
+        if presentation.isReady {
+            return .ready
+        }
+
+        switch presentation.runtimePhase {
         case .idle, .starting:
             return nil
         case .running:
@@ -832,6 +836,8 @@ enum WorklaneSidebarSummaryBuilder {
             return "ellipsis.circle"
         case .unresolvedStop:
             return "exclamationmark.circle"
+        case .ready:
+            return "checkmark.circle.fill"
         }
     }
 
@@ -841,6 +847,8 @@ enum WorklaneSidebarSummaryBuilder {
             return "Needs input"
         case .unresolvedStop:
             return "Stopped early"
+        case .ready:
+            return "Agent ready"
         case .running:
             return "Running"
         }

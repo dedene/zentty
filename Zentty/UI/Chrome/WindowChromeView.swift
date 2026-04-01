@@ -1055,7 +1055,6 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
     private static let accessibilityDescription = "Focused working directory"
     private static let menuIconSize = NSSize(width: 16, height: 16)
     private static let minimumHitTargetSize = NSSize(width: 30, height: 22)
-    fileprivate static let rootVolumeFallbackTitle = "Macintosh HD"
 
     private let iconView = WindowChromePassiveImageView()
     private(set) var cwdPath: String?
@@ -1434,6 +1433,7 @@ private final class WindowChromePassiveImageView: NSImageView {
 }
 
 private struct WindowChromeProxyIconPathMenuItem: Equatable {
+    private static let rootVolumeFallbackTitle = "Macintosh HD"
     let url: URL
 
     var title: String {
@@ -1444,7 +1444,7 @@ private struct WindowChromeProxyIconPathMenuItem: Equatable {
         if let volumeName = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName {
             return volumeName
         }
-        return WindowChromeProxyIconView.rootVolumeFallbackTitle
+        return Self.rootVolumeFallbackTitle
     }
 }
 
