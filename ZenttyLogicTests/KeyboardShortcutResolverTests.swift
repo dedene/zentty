@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import XCTest
 @testable import Zentty
 
@@ -129,4 +130,300 @@ final class KeyboardShortcutResolverTests: XCTestCase {
 
         XCTAssertNil(action)
     }
+
+    func test_preview_resolver_maps_option_modified_character_to_physical_key() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(
+                geometry: .iso,
+                outputs: [
+                    StubKeyboardPreviewSourceProvider.Output(
+                        keyCode: UInt16(kVK_ANSI_5),
+                        modifiers: [],
+                        value: "5"
+                    ),
+                    StubKeyboardPreviewSourceProvider.Output(
+                        keyCode: UInt16(kVK_ANSI_5),
+                        modifiers: [.option],
+                        value: "["
+                    ),
+                ]
+            )
+        )
+
+        let model = resolver.resolve(
+            shortcut: .init(key: .character("["), modifiers: [.command, .option])
+        )
+
+        XCTAssertEqual(model.geometry, .iso)
+        XCTAssertEqual(model.primaryHighlightedKeyCode, UInt16(kVK_ANSI_5))
+        XCTAssertEqual(
+            model.highlightedModifierKeyCodes,
+            [UInt16(kVK_Command), UInt16(kVK_RightCommand), UInt16(kVK_Option), UInt16(kVK_RightOption)]
+        )
+    }
+
+    func test_preview_resolver_maps_arrow_shortcuts_directly() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .ansi, outputs: [])
+        )
+
+        let model = resolver.resolve(
+            shortcut: .init(key: .rightArrow, modifiers: [.command, .option])
+        )
+
+        XCTAssertEqual(model.primaryHighlightedKeyCode, UInt16(kVK_RightArrow))
+        XCTAssertEqual(
+            model.highlightedModifierKeyCodes,
+            [UInt16(kVK_Command), UInt16(kVK_RightCommand), UInt16(kVK_Option), UInt16(kVK_RightOption)]
+        )
+    }
+
+    func test_preview_resolver_leaves_primary_key_empty_when_character_cannot_be_mapped() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .ansi, outputs: [])
+        )
+
+        let model = resolver.resolve(
+            shortcut: .init(key: .character("["), modifiers: [.command, .option])
+        )
+
+        XCTAssertNil(model.primaryHighlightedKeyCode)
+        XCTAssertEqual(
+            model.highlightedModifierKeyCodes,
+            [UInt16(kVK_Command), UInt16(kVK_RightCommand), UInt16(kVK_Option), UInt16(kVK_RightOption)]
+        )
+    }
+
+    func test_preview_resolver_places_up_arrow_above_bottom_arrow_cluster() throws {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .ansi, outputs: [])
+        )
+
+        let model = resolver.resolve(shortcut: nil)
+
+        let upRow = try XCTUnwrap(rowIndex(of: UInt16(kVK_UpArrow), in: model))
+        let leftRow = try XCTUnwrap(rowIndex(of: UInt16(kVK_LeftArrow), in: model))
+        let downRow = try XCTUnwrap(rowIndex(of: UInt16(kVK_DownArrow), in: model))
+        let rightRow = try XCTUnwrap(rowIndex(of: UInt16(kVK_RightArrow), in: model))
+
+        XCTAssertEqual(upRow, leftRow - 1)
+        XCTAssertEqual(leftRow, downRow)
+        XCTAssertEqual(leftRow, rightRow)
+    }
+
+    func test_preview_resolver_places_bottom_arrow_keys_as_rightmost_visible_cluster() throws {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .ansi, outputs: [])
+        )
+
+        let model = resolver.resolve(shortcut: nil)
+        let bottomArrowRow = try XCTUnwrap(rowIndex(of: UInt16(kVK_RightArrow), in: model))
+        let visibleKeyCodes = model.rows[bottomArrowRow].slots
+            .filter { $0.label.isEmpty == false }
+            .map(\.keyCode)
+
+        XCTAssertEqual(
+            Array(visibleKeyCodes.suffix(3)),
+            [UInt16(kVK_LeftArrow), UInt16(kVK_DownArrow), UInt16(kVK_RightArrow)]
+        )
+    }
+
+    func test_preview_resolver_uses_uniform_row_widths_for_compact_keyboard_outline() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .jis, outputs: [])
+        )
+
+        let model = resolver.resolve(shortcut: nil)
+        XCTAssertEqual(model.rows.prefix(4).map(\.alignment), [.trailing, .trailing, .trailing, .trailing])
+        XCTAssertEqual(model.rows.suffix(2).map(\.alignment), [.center, .center])
+
+        let mainBlockSpans = (0...4).map { rowSpanUnits(for: model.rows[$0].slots) }
+        XCTAssertTrue(mainBlockSpans.dropFirst().allSatisfy { abs($0 - mainBlockSpans[0]) < 0.001 })
+    }
+
+    func test_preview_resolver_centers_up_arrow_over_down_arrow() throws {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .ansi, outputs: [])
+        )
+
+        let model = resolver.resolve(shortcut: nil)
+
+        let upCenter = try XCTUnwrap(horizontalCenter(of: UInt16(kVK_UpArrow), in: model))
+        let downCenter = try XCTUnwrap(horizontalCenter(of: UInt16(kVK_DownArrow), in: model))
+
+        XCTAssertEqual(upCenter, downCenter, accuracy: 0.001)
+    }
+
+    func test_preview_resolver_aligns_main_keyboard_rows_to_shared_right_edge() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .ansi, outputs: [])
+        )
+
+        let model = resolver.resolve(shortcut: nil)
+        let rightEdges = (0...3).compactMap { renderedVisibleRightEdge(ofRowAt: $0, in: model) }
+        let leftEdges = (0...4).compactMap { renderedVisibleLeftEdge(ofRowAt: $0, in: model) }
+
+        XCTAssertEqual(rightEdges.count, 4)
+        XCTAssertTrue(rightEdges.dropFirst().allSatisfy { abs($0 - rightEdges[0]) < 0.001 })
+        XCTAssertEqual(leftEdges.count, 5)
+        XCTAssertTrue(leftEdges.dropFirst().allSatisfy { abs($0 - leftEdges[0]) < 0.001 })
+        XCTAssertEqual(model.rows[0].slots[0].widthUnits, 1.2, accuracy: 0.001)
+        XCTAssertEqual(model.rows[1].slots[0].widthUnits, 1.9, accuracy: 0.001)
+        XCTAssertEqual(model.rows[2].slots[0].widthUnits, 2.18, accuracy: 0.001)
+        XCTAssertEqual(model.rows[3].slots[0].widthUnits, 2.91, accuracy: 0.001)
+    }
+
+    func test_preview_resolver_aligns_main_keyboard_rows_to_shared_left_edge() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .ansi, outputs: [])
+        )
+
+        let model = resolver.resolve(shortcut: nil)
+        let leftEdges = (0...4).compactMap { renderedVisibleLeftEdge(ofRowAt: $0, in: model) }
+
+        XCTAssertEqual(leftEdges.count, 5)
+        XCTAssertTrue(leftEdges.dropFirst().allSatisfy { abs($0 - leftEdges[0]) < 0.001 })
+    }
+
+    func test_preview_resolver_stretches_leading_keys_in_main_block() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .ansi, outputs: [])
+        )
+
+        let model = resolver.resolve(shortcut: nil)
+
+        XCTAssertGreaterThan(model.rows[0].slots[0].widthUnits, 1.0)
+        XCTAssertGreaterThan(model.rows[1].slots[0].widthUnits, 1.5)
+        XCTAssertGreaterThan(model.rows[2].slots[0].widthUnits, 1.8)
+        XCTAssertGreaterThan(model.rows[3].slots[0].widthUnits, 2.1)
+    }
+}
+
+private struct StubKeyboardPreviewSourceProvider: KeyboardPreviewSourceProviding {
+    struct Output {
+        let keyCode: UInt16
+        let modifiers: Set<KeyboardModifier>
+        let value: String
+    }
+
+    let geometry: KeyboardPreviewGeometry
+    let outputs: [Output]
+
+    func currentGeometry() -> KeyboardPreviewGeometry {
+        geometry
+    }
+
+    func output(for keyCode: UInt16, modifiers: Set<KeyboardModifier>) -> String? {
+        outputs.first(where: { $0.keyCode == keyCode && $0.modifiers == modifiers })?.value
+    }
+
+    func displayLabel(for keyCode: UInt16) -> String? {
+        output(for: keyCode, modifiers: [])
+    }
+}
+
+private func rowIndex(of keyCode: UInt16, in model: KeyboardShortcutPreviewModel) -> Int? {
+    model.rows.firstIndex { row in
+        row.slots.contains(where: { $0.keyCode == keyCode })
+    }
+}
+
+private func rowSpanUnits(for row: [KeyboardPreviewKeySlot]) -> CGFloat {
+    let widths = row.reduce(CGFloat.zero) { $0 + $1.widthUnits }
+    let adjacencyCount = zip(row, row.dropFirst()).reduce(0) { count, pair in
+        count + (pair.0.isSpacer == false && pair.1.isSpacer == false ? 1 : 0)
+    }
+
+    return widths + (CGFloat(adjacencyCount) * KeyboardPreviewLayoutMetrics.interKeySpacingUnits)
+}
+
+private func horizontalCenter(of keyCode: UInt16, in model: KeyboardShortcutPreviewModel) -> CGFloat? {
+    for row in model.rows {
+        var cursor = CGFloat.zero
+        for (index, slot) in row.slots.enumerated() {
+            if slot.keyCode == keyCode {
+                return cursor + (slot.widthUnits / 2)
+            }
+
+            cursor += slot.widthUnits
+            if index < row.slots.count - 1, slot.isSpacer == false, row.slots[index + 1].isSpacer == false {
+                cursor += KeyboardPreviewLayoutMetrics.interKeySpacingUnits
+            }
+        }
+    }
+
+    return nil
+}
+
+private func visibleRightEdge(ofRowAt index: Int, in model: KeyboardShortcutPreviewModel) -> CGFloat? {
+    guard model.rows.indices.contains(index) else {
+        return nil
+    }
+
+    let row = model.rows[index].slots
+    var cursor = CGFloat.zero
+    var rightEdge: CGFloat?
+    for (slotIndex, slot) in row.enumerated() {
+        let slotStart = cursor
+        let slotEnd = slotStart + slot.widthUnits
+        if slot.isSpacer == false, slot.label.isEmpty == false {
+            rightEdge = slotEnd
+        }
+
+        cursor = slotEnd
+        if slotIndex < row.count - 1, slot.isSpacer == false, row[slotIndex + 1].isSpacer == false {
+            cursor += KeyboardPreviewLayoutMetrics.interKeySpacingUnits
+        }
+    }
+
+    return rightEdge
+}
+
+private func renderedVisibleRightEdge(ofRowAt index: Int, in model: KeyboardShortcutPreviewModel) -> CGFloat? {
+    guard let localRightEdge = visibleRightEdge(ofRowAt: index, in: model) else {
+        return nil
+    }
+
+    let maxRowWidth = model.rows.map { rowSpanUnits(for: $0.slots) }.max() ?? 0
+    let row = model.rows[index]
+    let rowWidth = rowSpanUnits(for: row.slots)
+    let startX: CGFloat
+    switch row.alignment {
+    case .center:
+        startX = (maxRowWidth - rowWidth) / 2
+    case .trailing:
+        startX = maxRowWidth - rowWidth
+    }
+    return startX + localRightEdge
+}
+
+private func renderedVisibleLeftEdge(ofRowAt index: Int, in model: KeyboardShortcutPreviewModel) -> CGFloat? {
+    guard model.rows.indices.contains(index) else {
+        return nil
+    }
+
+    let maxRowWidth = model.rows.map { rowSpanUnits(for: $0.slots) }.max() ?? 0
+    let row = model.rows[index]
+    let rowWidth = rowSpanUnits(for: row.slots)
+    let startX: CGFloat
+    switch row.alignment {
+    case .center:
+        startX = (maxRowWidth - rowWidth) / 2
+    case .trailing:
+        startX = maxRowWidth - rowWidth
+    }
+
+    var cursor = startX
+    for (slotIndex, slot) in row.slots.enumerated() {
+        if slot.isSpacer == false, slot.label.isEmpty == false {
+            return cursor
+        }
+
+        cursor += slot.widthUnits
+        if slotIndex < row.slots.count - 1, slot.isSpacer == false, row.slots[slotIndex + 1].isSpacer == false {
+            cursor += KeyboardPreviewLayoutMetrics.interKeySpacingUnits
+        }
+    }
+
+    return nil
 }

@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import XCTest
 @testable import Zentty
 
@@ -135,6 +136,8 @@ final class SettingsWindowControllerTests: XCTestCase {
             contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
         )
 
+        XCTAssertTrue(shortcutsController.isSearchFieldFullyVisibleForTesting)
+        XCTAssertTrue(shortcutsController.isFirstCategoryHeaderFullyVisibleForTesting)
         XCTAssertTrue(shortcutsController.browserHasVerticalScrollerForTesting)
         XCTAssertTrue(shortcutsController.visibleCommandTitles.contains("Toggle Sidebar"))
         XCTAssertTrue(shortcutsController.visibleCommandTitles.contains("Reset Pane Layout"))
@@ -162,6 +165,8 @@ final class SettingsWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Toggle Sidebar")
         XCTAssertNil(shortcutsController.selectedCommandDefaultShortcutForTesting)
+        XCTAssertTrue(shortcutsController.showsKeyboardPreviewForTesting)
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_ANSI_S))
     }
 
     func test_shortcuts_pane_initial_selection_is_fully_visible() throws {
@@ -185,6 +190,29 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
 
         XCTAssertTrue(shortcutsController.isSelectedCommandFullyVisibleForTesting)
+    }
+
+    func test_shortcuts_pane_initial_selection_uses_highlighted_text_color() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        XCTAssertTrue(shortcutsController.selectedRowUsesEmphasizedTextColorForTesting)
     }
 
     func test_shortcuts_pane_selected_row_uses_emphasized_text_color_when_emphasized() throws {
@@ -211,7 +239,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(shortcutsController.selectedRowUsesEmphasizedTextColorForTesting)
     }
 
-    func test_shortcuts_pane_selected_row_reverts_to_regular_text_when_emphasis_clears() throws {
+    func test_shortcuts_pane_selected_row_keeps_highlighted_text_color_when_emphasis_clears() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -235,7 +263,50 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(shortcutsController.selectedRowUsesEmphasizedTextColorForTesting)
 
         shortcutsController.setSelectedRowEmphasizedForTesting(false)
-        XCTAssertFalse(shortcutsController.selectedRowUsesEmphasizedTextColorForTesting)
+        XCTAssertTrue(shortcutsController.selectedRowUsesEmphasizedTextColorForTesting)
+    }
+
+    func test_settings_window_applies_injected_appearance() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            appearance: NSAppearance(named: .darkAqua),
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.showWindow(nil)
+        waitForLayout()
+
+        XCTAssertEqual(
+            controller.window?.appearance?.bestMatch(from: [.darkAqua, .aqua]),
+            .darkAqua
+        )
+    }
+
+    func test_settings_window_applyAppearance_updates_window_appearance() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            appearance: NSAppearance(named: .aqua),
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.applyAppearance(NSAppearance(named: .darkAqua))
+        waitForLayout("appearance update settled", delay: 0.05)
+
+        XCTAssertEqual(
+            controller.window?.appearance?.bestMatch(from: [.darkAqua, .aqua]),
+            .darkAqua
+        )
     }
 
     func test_shortcuts_pane_search_flattens_results() throws {
@@ -395,6 +466,62 @@ final class SettingsWindowControllerTests: XCTestCase {
         shortcutsController.activateConflictTargetForTesting()
 
         XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Toggle Sidebar")
+    }
+
+    func test_shortcuts_preview_updates_when_selected_command_changes() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.focusRightPane)
+
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_RightArrow))
+    }
+
+    func test_shortcuts_preview_has_no_primary_highlight_for_unassigned_command() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        try store.update { config in
+            config.shortcuts.bindings = [
+                ShortcutBindingOverride(commandID: .copyFocusedPanePath, shortcut: nil)
+            ]
+        }
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.copyFocusedPanePath)
+
+        XCTAssertNil(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting)
+        XCTAssertTrue(shortcutsController.previewHighlightedModifierKeyCodesForTesting.isEmpty)
     }
 
     func test_switching_back_to_shortcuts_preserves_selected_command() throws {
