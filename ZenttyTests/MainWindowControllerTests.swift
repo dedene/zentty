@@ -738,7 +738,11 @@ final class MainWindowControllerTests: XCTestCase {
                 displayName: "Cursor",
                 builtInID: .cursor,
                 appPath: nil
-            )
+            ),
+            iconsByStableID: [
+                "cursor": NSImage(size: NSSize(width: 16, height: 16)),
+                "finder": NSImage(size: NSSize(width: 16, height: 16))
+            ]
         )
         let adapterStore = MetadataAdapterStore()
         let controller = makeController(
@@ -786,7 +790,11 @@ final class MainWindowControllerTests: XCTestCase {
                 displayName: "Cursor",
                 builtInID: .cursor,
                 appPath: nil
-            )
+            ),
+            iconsByStableID: [
+                "cursor": NSImage(size: NSSize(width: 16, height: 16)),
+                "finder": NSImage(size: NSSize(width: 16, height: 16))
+            ]
         )
         let adapterStore = MetadataAdapterStore()
         let controller = makeController(
@@ -845,7 +853,11 @@ final class MainWindowControllerTests: XCTestCase {
                 displayName: "Cursor",
                 builtInID: .cursor,
                 appPath: nil
-            )
+            ),
+            iconsByStableID: [
+                "cursor": NSImage(size: NSSize(width: 16, height: 16)),
+                "finder": NSImage(size: NSSize(width: 16, height: 16))
+            ]
         )
         let adapterStore = MetadataAdapterStore()
         let controller = makeController(
@@ -869,7 +881,7 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(store.current.openWith.primaryTargetID, "xcode")
     }
 
-    func test_open_with_menu_button_presents_custom_popover() throws {
+    func test_open_with_menu_builds_native_items_with_icons_and_checked_primary_target() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
         )
@@ -901,7 +913,11 @@ final class MainWindowControllerTests: XCTestCase {
                 displayName: "Cursor",
                 builtInID: .cursor,
                 appPath: nil
-            )
+            ),
+            iconsByStableID: [
+                "cursor": NSImage(size: NSSize(width: 16, height: 16)),
+                "finder": NSImage(size: NSSize(width: 16, height: 16))
+            ]
         )
         let adapterStore = MetadataAdapterStore()
         let controller = makeController(
@@ -912,14 +928,16 @@ final class MainWindowControllerTests: XCTestCase {
         controller.showWindow(nil)
         waitForLayout()
 
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover settled", delay: 0.05)
+        let menu = controller.openWithMenuForTesting()
+        let targetItems = menu.items.filter { $0.representedObject is OpenWithResolvedTarget }
 
-        XCTAssertTrue(controller.isOpenWithPopoverShownForTesting)
-        XCTAssertEqual(controller.openWithPopoverSelectedStableIDForTesting, "cursor")
+        XCTAssertEqual(targetItems.map(\.title), ["Cursor", "Finder"])
+        XCTAssertTrue(targetItems.allSatisfy { $0.image != nil })
+        XCTAssertEqual(targetItems.map(\.state), [.on, .off])
+        XCTAssertEqual(menu.items.last?.title, "Choose Apps…")
     }
 
-    func test_open_with_popover_disables_rows_for_metadata_only_inherited_pane() throws {
+    func test_open_with_menu_disables_target_items_for_metadata_only_inherited_pane_but_keeps_settings_enabled() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
         )
@@ -961,14 +979,15 @@ final class MainWindowControllerTests: XCTestCase {
 
         XCTAssertNil(controller.rootViewControllerForTesting.focusedOpenWithContext)
 
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover settled", delay: 0.05)
+        let menu = controller.openWithMenuForTesting()
+        let targetItems = menu.items.filter { $0.representedObject is OpenWithResolvedTarget }
 
-        XCTAssertEqual(controller.openWithPopoverEnabledStableIDsForTesting, [])
-        XCTAssertEqual(controller.openWithPopoverDisabledStableIDsForTesting, ["cursor"])
+        XCTAssertEqual(targetItems.map(\.isEnabled), [false])
+        XCTAssertEqual(menu.items.last?.title, "Choose Apps…")
+        XCTAssertEqual(menu.items.last?.isEnabled, true)
     }
 
-    func test_open_with_popover_enables_rows_before_pane_context_arrives_for_local_pane() throws {
+    func test_open_with_menu_enables_rows_before_pane_context_arrives_for_local_pane() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
         )
@@ -1004,14 +1023,13 @@ final class MainWindowControllerTests: XCTestCase {
         controller.showWindow(nil)
         waitForLayout()
 
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover settled", delay: 0.05)
+        let menu = controller.openWithMenuForTesting()
+        let targetItems = menu.items.filter { $0.representedObject is OpenWithResolvedTarget }
 
-        XCTAssertEqual(controller.openWithPopoverEnabledStableIDsForTesting, ["cursor"])
-        XCTAssertEqual(controller.openWithPopoverDisabledStableIDsForTesting, [])
+        XCTAssertEqual(targetItems.map(\.isEnabled), [true])
     }
 
-    func test_open_with_popover_footer_routes_to_settings() throws {
+    func test_open_with_menu_choose_apps_routes_to_settings() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
         )
@@ -1047,9 +1065,9 @@ final class MainWindowControllerTests: XCTestCase {
         controller.showWindow(nil)
         waitForLayout()
 
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover settled", delay: 0.05)
-        controller.performOpenWithSettingsActionForTesting()
+        let menu = controller.openWithMenuForTesting()
+        let settingsItem = try XCTUnwrap(menu.items.last)
+        controller.performOpenWithMenuItemForTesting(settingsItem)
 
         let settingsWindow = try XCTUnwrap(controller.settingsWindow)
         let settingsViewController = try XCTUnwrap(
@@ -1060,70 +1078,33 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(settingsViewController.selectedSection, .openWith)
     }
 
-    func test_open_with_popover_clears_row_highlight_when_mouse_leaves_row() throws {
-        let controller = try makeOpenWithPopoverController()
+    func test_open_with_menu_empty_state_shows_disabled_message_and_settings_item() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
+        )
+        try store.update { config in
+            config.openWith.enabledTargetIDs = []
+        }
 
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover settled", delay: 0.05)
+        let controller = makeController(
+            configStore: store,
+            openWithService: RecordingOpenWithService(
+                availableTargets: [],
+                primaryTarget: nil
+            ),
+            adapterStore: MetadataAdapterStore()
+        )
+        controller.showWindow(nil)
+        waitForLayout()
 
-        controller.simulateOpenWithPopoverRowHoverForTesting(stableID: "finder")
-        XCTAssertEqual(controller.openWithPopoverHighlightedStableIDForTesting, "finder")
+        let menu = controller.openWithMenuForTesting()
 
-        controller.simulateOpenWithPopoverRowExitForTesting(stableID: "finder")
-        XCTAssertNil(controller.openWithPopoverHighlightedStableIDForTesting)
+        XCTAssertEqual(menu.items.map(\.title), ["No enabled installed apps", "", "Choose Apps…"])
+        XCTAssertEqual(menu.items.first?.isEnabled, false)
+        XCTAssertTrue(menu.items.last?.isEnabled == true)
     }
 
-    func test_open_with_popover_footer_hover_uses_emphasized_row_treatment() throws {
-        let controller = try makeOpenWithPopoverController()
-
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover settled", delay: 0.05)
-        controller.simulateOpenWithPopoverSettingsHoverForTesting()
-
-        XCTAssertNotNil(controller.openWithPopoverSettingsBackgroundTokenForTesting)
-        XCTAssertNotNil(controller.openWithPopoverSettingsBorderTokenForTesting)
-    }
-
-    func test_open_with_popover_escape_dismisses() throws {
-        let controller = try makeOpenWithPopoverController()
-
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover settled", delay: 0.05)
-        XCTAssertTrue(controller.isOpenWithPopoverShownForTesting)
-
-        controller.dismissOpenWithPopoverWithEscapeForTesting()
-        waitForLayout("escape dismissal", delay: 0.05)
-
-        XCTAssertFalse(controller.isOpenWithPopoverShownForTesting)
-    }
-
-    func test_open_with_popover_outside_click_dismisses() throws {
-        let controller = try makeOpenWithPopoverController()
-
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover settled", delay: 0.05)
-        XCTAssertTrue(controller.isOpenWithPopoverShownForTesting)
-
-        controller.performOpenWithPopoverOutsideClickDismissalForTesting()
-        waitForLayout("outside dismissal", delay: 0.05)
-
-        XCTAssertFalse(controller.isOpenWithPopoverShownForTesting)
-    }
-
-    func test_open_with_menu_button_toggles_custom_popover() throws {
-        let controller = try makeOpenWithPopoverController()
-
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover settled", delay: 0.05)
-        XCTAssertTrue(controller.isOpenWithPopoverShownForTesting)
-
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover toggle dismissal", delay: 0.05)
-
-        XCTAssertFalse(controller.isOpenWithPopoverShownForTesting)
-    }
-
-    func test_open_with_popover_keyboard_navigation_activates_highlighted_target() throws {
+    func test_open_with_targets_are_preloaded_when_config_is_applied_and_before_menu_is_built() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
         )
@@ -1157,54 +1138,19 @@ final class MainWindowControllerTests: XCTestCase {
                 appPath: nil
             )
         )
-        let adapterStore = MetadataAdapterStore()
         let controller = makeController(
             configStore: store,
             openWithService: openWithService,
-            adapterStore: adapterStore
+            adapterStore: MetadataAdapterStore()
         )
         controller.showWindow(nil)
         waitForLayout()
 
-        let initialPane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
-        let initialAdapter = try XCTUnwrap(adapterStore.adapters[initialPane.paneID])
-        initialAdapter.emitWorkingDirectory("/tmp/project-open-with")
-        controller.injectFocusedPaneShellContextForTesting(path: "/tmp/project-open-with")
-        waitForLayout("metadata settled", delay: 0.05)
+        XCTAssertEqual(openWithService.preloadCalls.map { $0.map(\.stableID) }, [["cursor", "finder"]])
 
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover settled", delay: 0.05)
+        _ = controller.openWithMenuForTesting()
 
-        XCTAssertNil(controller.openWithPopoverHighlightedStableIDForTesting)
-
-        controller.moveOpenWithPopoverSelectionDownForTesting()
-        waitForLayout("move highlight", delay: 0.05)
-        XCTAssertEqual(controller.openWithPopoverHighlightedStableIDForTesting, "cursor")
-
-        controller.moveOpenWithPopoverSelectionDownForTesting()
-        waitForLayout("move highlight again", delay: 0.05)
-        XCTAssertEqual(controller.openWithPopoverHighlightedStableIDForTesting, "finder")
-
-        controller.activateOpenWithPopoverSelectionForTesting()
-        waitForLayout("activate highlight", delay: 0.05)
-
-        XCTAssertEqual(openWithService.openCalls.map(\.target.stableID), ["finder"])
-        XCTAssertEqual(openWithService.openCalls.map(\.workingDirectory), ["/tmp/project-open-with"])
-        XCTAssertEqual(store.current.openWith.primaryTargetID, "finder")
-        XCTAssertFalse(controller.isOpenWithPopoverShownForTesting)
-    }
-
-    func test_open_with_popover_closes_when_window_resigns_key() throws {
-        let controller = try makeOpenWithPopoverController()
-
-        controller.rootViewControllerForTesting.chromeView.performOpenWithMenuClickForTesting()
-        waitForLayout("popover settled", delay: 0.05)
-        XCTAssertTrue(controller.isOpenWithPopoverShownForTesting)
-
-        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: controller.window))
-        waitForLayout("window resign dismissal", delay: 0.05)
-
-        XCTAssertFalse(controller.isOpenWithPopoverShownForTesting)
+        XCTAssertEqual(openWithService.preloadCalls.map { $0.map(\.stableID) }, [["cursor", "finder"], ["cursor", "finder"]])
     }
 
     func test_proxy_window_drag_suppression_matches_padded_proxy_zone() throws {
@@ -1254,65 +1200,21 @@ private final class MetadataAdapterStore {
 }
 
 @MainActor
-private extension MainWindowControllerTests {
-    func makeOpenWithPopoverController() throws -> MainWindowController {
-        let store = AppConfigStore(
-            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController")
-        )
-        try store.update { config in
-            config.openWith.primaryTargetID = "cursor"
-            config.openWith.enabledTargetIDs = ["cursor", "finder"]
-        }
-
-        let openWithService = RecordingOpenWithService(
-            availableTargets: [
-                OpenWithResolvedTarget(
-                    stableID: "cursor",
-                    kind: .editor,
-                    displayName: "Cursor",
-                    builtInID: .cursor,
-                    appPath: nil
-                ),
-                OpenWithResolvedTarget(
-                    stableID: "finder",
-                    kind: .fileManager,
-                    displayName: "Finder",
-                    builtInID: .finder,
-                    appPath: nil
-                )
-            ],
-            primaryTarget: OpenWithResolvedTarget(
-                stableID: "cursor",
-                kind: .editor,
-                displayName: "Cursor",
-                builtInID: .cursor,
-                appPath: nil
-            )
-        )
-        let adapterStore = MetadataAdapterStore()
-        let controller = makeController(
-            configStore: store,
-            openWithService: openWithService,
-            adapterStore: adapterStore
-        )
-        controller.showWindow(nil)
-        waitForLayout()
-        return controller
-    }
-}
-
-@MainActor
 private final class RecordingOpenWithService: OpenWithServing {
     let availableTargetsValue: [OpenWithResolvedTarget]
     let primaryTargetValue: OpenWithResolvedTarget?
     private(set) var openCalls: [(target: OpenWithResolvedTarget, workingDirectory: String)] = []
+    private(set) var preloadCalls: [[OpenWithResolvedTarget]] = []
+    private let iconsByStableID: [String: NSImage]
 
     init(
         availableTargets: [OpenWithResolvedTarget],
-        primaryTarget: OpenWithResolvedTarget?
+        primaryTarget: OpenWithResolvedTarget?,
+        iconsByStableID: [String: NSImage] = [:]
     ) {
         self.availableTargetsValue = availableTargets
         self.primaryTargetValue = primaryTarget
+        self.iconsByStableID = iconsByStableID
     }
 
     func detectedTargets(preferences: AppConfig.OpenWith) -> [OpenWithDetectedTarget] {
@@ -1327,8 +1229,12 @@ private final class RecordingOpenWithService: OpenWithServing {
         primaryTargetValue
     }
 
+    func preloadIcons(for targets: [OpenWithResolvedTarget]) {
+        preloadCalls.append(targets)
+    }
+
     func icon(for target: OpenWithResolvedTarget) -> NSImage? {
-        nil
+        iconsByStableID[target.stableID]
     }
 
     func open(target: OpenWithResolvedTarget, workingDirectory: String) -> Bool {

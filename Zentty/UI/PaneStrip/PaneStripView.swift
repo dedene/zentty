@@ -362,6 +362,10 @@ final class PaneStripView: NSView {
             previousOffset: previousOffset,
             to: presentation
         )
+        let needsTerminalRedrawAfterRender = terminalDisplaySizeChanged(
+            from: previousPresentation,
+            to: presentation
+        )
         lastInsertionTransition = insertionTransition
         currentPresentation = presentation
         let targetOffset = preferredTargetOffset(
@@ -395,6 +399,9 @@ final class PaneStripView: NSView {
             frozenPaneIDs.formUnion(removalTransition.survivingPaneIDs)
             suspendedPaneIDs.formUnion(removalTransition.survivingPaneIDs)
         }
+        if shouldAnimate, needsTerminalRedrawAfterRender {
+            suspendedPaneIDs.formUnion(presentation.panes.map(\.paneID))
+        }
         reconcilePaneViews(
             with: state,
             presentation: presentation,
@@ -416,7 +423,7 @@ final class PaneStripView: NSView {
                 animated: shouldAnimate,
                 useNeutralBackground: useNeutralPaneBackground,
                 insertionTransition: insertionTransition,
-                allowInactiveDimming: !shouldAnimate
+                allowInactiveDimming: true
             )
             self.reconcileDividerViews(with: presentation, offset: targetOffset)
         }
@@ -429,25 +436,33 @@ final class PaneStripView: NSView {
                 updates: updates
             ) { [weak self] in
                 Task { @MainActor [weak self] in
-                    guard let self, self.renderGuard.generation == settleGeneration else {
-                        return
+                    guard let self else { return }
+
+                    if self.renderGuard.generation == settleGeneration {
+                        self.applyPresentation(
+                            presentation,
+                            state: state,
+                            offset: targetOffset,
+                            animated: false,
+                            useNeutralBackground: false,
+                            insertionTransition: insertionTransition,
+                            allowInactiveDimming: true
+                        )
+                        self.reconcileDividerViews(with: presentation, offset: targetOffset)
+                        self.paneViews.values.forEach { $0.syncInsetBorderNow() }
                     }
-                    self.applyPresentation(
-                        presentation,
-                        state: state,
-                        offset: targetOffset,
-                        animated: false,
-                        useNeutralBackground: false,
-                        insertionTransition: insertionTransition,
-                        allowInactiveDimming: true
-                    )
-                    self.reconcileDividerViews(with: presentation, offset: targetOffset)
-                    self.paneViews.values.forEach { $0.syncInsetBorderNow() }
+
                     if !self.isZoomedOut {
                         self.applyTerminalAnimationFreeze(to: [])
                         self.applyViewportSyncSuspension(to: [])
                     }
                     self.viewportView.layoutSubtreeIfNeeded()
+                    if needsTerminalRedrawAfterRender {
+                        self.refreshTerminalDisplays()
+                        for paneView in self.paneViews.values {
+                            paneView.forceTerminalViewportSync()
+                        }
+                    }
                 }
             }
         } else {
@@ -457,6 +472,9 @@ final class PaneStripView: NSView {
                 applyViewportSyncSuspension(to: [])
             }
             viewportView.layoutSubtreeIfNeeded()
+            if needsTerminalRedrawAfterRender {
+                refreshTerminalDisplays()
+            }
         }
 
         currentOffset = targetOffset
@@ -475,6 +493,48 @@ final class PaneStripView: NSView {
         let nextPaneIDs = Set(state.panes.map(\.id))
         let previousPaneIDs = Set(previousPresentation?.panes.map(\.paneID) ?? [])
         return !nextPaneIDs.isDisjoint(with: previousPaneIDs)
+    }
+
+    private func terminalDisplaySizeChanged(
+        from previousPresentation: StripPresentation?,
+        to presentation: StripPresentation
+    ) -> Bool {
+        guard let previousPresentation else {
+            return false
+        }
+
+        let previousSizesByPaneID = Dictionary(
+            uniqueKeysWithValues: previousPresentation.panes.map { ($0.paneID, $0.frame.size) }
+        )
+
+        for pane in presentation.panes {
+            guard let previousSize = previousSizesByPaneID[pane.paneID] else {
+                continue
+            }
+
+            if abs(previousSize.width - pane.frame.width) > 0.5
+                || abs(previousSize.height - pane.frame.height) > 0.5 {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func refreshTerminalDisplays() {
+        for paneView in paneViews.values {
+            paneView.needsLayout = true
+            paneView.layoutSubtreeIfNeeded()
+            refreshDisplayRecursively(in: paneView)
+        }
+
+        refreshDisplayRecursively(in: viewportView)
+    }
+
+    private func refreshDisplayRecursively(in view: NSView) {
+        view.needsDisplay = true
+        view.displayIfNeeded()
+        view.subviews.forEach { refreshDisplayRecursively(in: $0) }
     }
 
     private func applyPresentation(
@@ -520,7 +580,9 @@ final class PaneStripView: NSView {
 
                 if shouldAnimateAlpha(
                     for: panePresentation,
-                    insertionTransition: insertionTransition
+                    insertionTransition: insertionTransition,
+                    currentAlpha: paneView.alphaValue,
+                    targetAlpha: targetAlpha
                 ) {
                     paneView.animator().alphaValue = targetAlpha
                 } else {
@@ -1510,9 +1572,12 @@ final class PaneStripView: NSView {
 
     private func shouldAnimateAlpha(
         for panePresentation: PanePresentation,
-        insertionTransition: PaneInsertionTransition?
+        insertionTransition: PaneInsertionTransition?,
+        currentAlpha: CGFloat,
+        targetAlpha: CGFloat
     ) -> Bool {
         insertionTransition?.paneID == panePresentation.paneID
+            || abs(currentAlpha - targetAlpha) > 0.001
     }
 }
 

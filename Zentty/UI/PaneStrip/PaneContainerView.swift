@@ -59,7 +59,11 @@ final class PaneContainerView: NSView {
     private var currentIsFocused: Bool
     var onSelected: (() -> Void)?
     var onCloseRequested: (() -> Void)?
-    var onScrollWheel: ((NSEvent) -> Bool)?
+    var onScrollWheel: ((NSEvent) -> Bool)? {
+        didSet {
+            terminalHostView.onScrollWheel = onScrollWheel
+        }
+    }
     var onMetadataDidChange: ((TerminalMetadata) -> Void)? {
         didSet {}
     }
@@ -158,6 +162,7 @@ final class PaneContainerView: NSView {
 
             self?.onSelected?()
         }
+        terminalHostView.onScrollWheel = onScrollWheel
         setupInsetBorderLayer()
         setupStatusOverlay()
         runtimeObserverID = runtime.addObserver { [weak self] snapshot in
@@ -287,6 +292,12 @@ final class PaneContainerView: NSView {
 
     func setTerminalViewportSyncSuspended(_ suspended: Bool) {
         terminalHostView.setViewportSyncSuspended(suspended)
+    }
+
+    func forceTerminalViewportSync() {
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        terminalHostView.forceViewportSync()
     }
 
     static let dragZoneHeight: CGFloat = 15

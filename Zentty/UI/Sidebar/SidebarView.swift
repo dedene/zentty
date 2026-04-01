@@ -85,7 +85,7 @@ final class SidebarView: NSView {
 
         addWorklaneButton.translatesAutoresizingMaskIntoConstraints = false
         addWorklaneButton.setContentHuggingPriority(.required, for: .horizontal)
-        addWorklaneButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        addWorklaneButton.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         addWorklaneButton.target = self
         addWorklaneButton.action = #selector(handleCreateWorklane)
 
@@ -703,12 +703,12 @@ private final class SidebarCreateWorklaneButton: NSButton {
         wantsLayer = true
         layer?.cornerRadius = ChromeGeometry.pillRadius
         layer?.cornerCurve = .continuous
-        layer?.masksToBounds = false
+        layer?.masksToBounds = true
         setButtonType(.momentaryChange)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCreateWorklaneButtonHeight).isActive = true
         setContentHuggingPriority(.required, for: .horizontal)
-        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
         iconView.image = NSImage(
             systemSymbolName: "plus",
@@ -716,36 +716,45 @@ private final class SidebarCreateWorklaneButton: NSButton {
         )?.withSymbolConfiguration(.init(pointSize: 15, weight: .regular))
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.setContentHuggingPriority(.required, for: .horizontal)
-        iconView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        iconView.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
         titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
         titleLabel.maximumNumberOfLines = 1
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.setContentHuggingPriority(.required, for: .horizontal)
-        titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
         contentStack.orientation = .horizontal
         contentStack.alignment = .centerY
         contentStack.spacing = ShellMetrics.sidebarCreateWorklaneIconSpacing
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.setContentHuggingPriority(.required, for: .horizontal)
-        contentStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        contentStack.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         contentStack.addArrangedSubview(iconView)
         contentStack.addArrangedSubview(titleLabel)
         addSubview(contentStack)
 
+        let leading = contentStack.leadingAnchor.constraint(
+            equalTo: leadingAnchor,
+            constant: ShellMetrics.sidebarCreateWorklaneHorizontalInset
+        )
+        leading.priority = .defaultHigh
+
+        let trailing = contentStack.trailingAnchor.constraint(
+            lessThanOrEqualTo: trailingAnchor,
+            constant: -ShellMetrics.sidebarCreateWorklaneHorizontalInset
+        )
+        trailing.priority = .defaultHigh
+
+        let iconWidth = iconView.widthAnchor.constraint(equalToConstant: 16)
+        iconWidth.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
-            contentStack.leadingAnchor.constraint(
-                equalTo: leadingAnchor,
-                constant: ShellMetrics.sidebarCreateWorklaneHorizontalInset
-            ),
-            contentStack.trailingAnchor.constraint(
-                lessThanOrEqualTo: trailingAnchor,
-                constant: -ShellMetrics.sidebarCreateWorklaneHorizontalInset
-            ),
+            leading,
+            trailing,
             contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconWidth,
             iconView.heightAnchor.constraint(equalToConstant: 16),
         ])
 

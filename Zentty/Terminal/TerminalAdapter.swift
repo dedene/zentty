@@ -106,6 +106,11 @@ protocol TerminalFocusTargetProviding: AnyObject {
 }
 
 @MainActor
+protocol TerminalScrollRouting: AnyObject {
+    var onScrollWheel: ((NSEvent) -> Bool)? { get set }
+}
+
+@MainActor
 protocol TerminalSessionInheritanceConfiguring: AnyObject {
     func prepareSessionStart(
         from sourceAdapter: (any TerminalAdapter)?,

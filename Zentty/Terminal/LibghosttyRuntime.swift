@@ -378,7 +378,7 @@ private func libghosttyReadClipboardCallback(
         let userdata,
         let surface = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue().surface,
         let pasteboard = NSPasteboard.ghostty(location),
-        let string = pasteboard.getOpinionatedStringContents()
+        let string = TerminalClipboard.pastedString(from: pasteboard)
     else {
         return false
     }
@@ -475,15 +475,5 @@ private extension NSPasteboard {
         default:
             return nil
         }
-    }
-
-    func getOpinionatedStringContents() -> String? {
-        if let urls = readObjects(forClasses: [NSURL.self]) as? [URL], urls.isEmpty == false {
-            return urls
-                .map { $0.isFileURL ? $0.path : $0.absoluteString }
-                .joined(separator: " ")
-        }
-
-        return string(forType: .string)
     }
 }

@@ -58,6 +58,11 @@ enum TerminalMetadataChangeClassifier {
         let subject: String
     }
 
+    private struct ParsedVolatileAgentStatusTitle: Equatable {
+        let phase: VolatileAgentStatusPhase
+        let displaySubject: String
+    }
+
     static func classify(previous: TerminalMetadata?, next: TerminalMetadata) -> TerminalMetadataChangeKind {
         guard previous != next else {
             return .noop
@@ -104,16 +109,42 @@ enum TerminalMetadataChangeClassifier {
         recognizedTool: AgentTool?
     ) -> VolatileAgentStatusTitleSignature? {
         guard recognizedTool == .codex,
-              let normalized = WorklaneContextFormatter.trimmed(value) else {
+              let normalized = WorklaneContextFormatter.trimmed(value),
+              let parsed = parseAgentStatusTitle(
+                  normalized,
+                  runningWords: ["working", "thinking"],
+                  startingWords: ["starting"],
+                  idleWords: ["ready"]
+              ) else {
             return nil
         }
 
-        return agentStatusTitleSignature(
-            normalized,
-            runningWords: ["working", "thinking"],
-            startingWords: ["starting"],
-            idleWords: ["ready"]
+        return VolatileAgentStatusTitleSignature(
+            phase: parsed.phase,
+            subject: parsed.displaySubject.lowercased()
         )
+    }
+
+    static func volatileAgentStatusDisplaySubject(
+        _ value: String?,
+        recognizedTool: AgentTool?
+    ) -> String? {
+        guard recognizedTool == .codex,
+              let normalized = WorklaneContextFormatter.trimmed(value),
+              let parsed = parseAgentStatusTitle(
+                  normalized,
+                  runningWords: ["working", "thinking"],
+                  startingWords: ["starting"],
+                  idleWords: ["ready"]
+              ) else {
+            return nil
+        }
+
+        guard parsed.displaySubject.caseInsensitiveCompare("zentty") != .orderedSame else {
+            return nil
+        }
+
+        return parsed.displaySubject
     }
 
     static func diagnosticAgentStatusTitleSignature(
@@ -128,11 +159,18 @@ enum TerminalMetadataChangeClassifier {
         case .codex:
             return volatileAgentStatusTitleSignature(normalized, recognizedTool: .codex)
         case .claudeCode:
-            return agentStatusTitleSignature(
+            guard let parsed = parseAgentStatusTitle(
                 normalized,
                 runningWords: ["thinking", "working", "responding", "analyzing"],
                 startingWords: ["starting"],
-                idleWords: ["ready", "waiting"]
+                idleWords: ["ready", "waiting", "interrupted"]
+            ) else {
+                return nil
+            }
+
+            return VolatileAgentStatusTitleSignature(
+                phase: parsed.phase,
+                subject: parsed.displaySubject.lowercased()
             )
         default:
             return nil
@@ -168,12 +206,12 @@ enum TerminalMetadataChangeClassifier {
         volatileAgentStatusTitleSignature(value, recognizedTool: recognizedTool) != nil
     }
 
-    private static func agentStatusTitleSignature(
+    private static func parseAgentStatusTitle(
         _ normalized: String,
         runningWords: Set<String>,
         startingWords: Set<String>,
         idleWords: Set<String>
-    ) -> VolatileAgentStatusTitleSignature? {
+    ) -> ParsedVolatileAgentStatusTitle? {
         let firstWord = normalized.prefix(while: { $0.isLetter }).lowercased()
         let phase: VolatileAgentStatusPhase
         if runningWords.contains(firstWord) {
@@ -203,9 +241,9 @@ enum TerminalMetadataChangeClassifier {
             return nil
         }
 
-        return VolatileAgentStatusTitleSignature(
+        return ParsedVolatileAgentStatusTitle(
             phase: phase,
-            subject: remainder.lowercased()
+            displaySubject: remainder
         )
     }
 }

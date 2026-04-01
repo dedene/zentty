@@ -5,6 +5,11 @@ import QuartzCore
 @MainActor
 protocol TerminalViewportSyncControlling: AnyObject {
     func setViewportSyncSuspended(_ suspended: Bool)
+    func forceViewportSync()
+}
+
+extension TerminalViewportSyncControlling {
+    func forceViewportSync() {}
 }
 
 @MainActor
@@ -15,7 +20,6 @@ private protocol LibghosttyScrollbarHandling: AnyObject {
 @MainActor
 private final class LibghosttyScrollView: NSScrollView {
     weak var surfaceView: LibghosttyView?
-    var onExplicitWheelScroll: (() -> Void)?
 
     override var acceptsFirstResponder: Bool {
         false
@@ -27,7 +31,6 @@ private final class LibghosttyScrollView: NSScrollView {
             return
         }
 
-        onExplicitWheelScroll?()
         if window?.firstResponder !== surfaceView {
             window?.makeFirstResponder(surfaceView)
         }
@@ -36,7 +39,7 @@ private final class LibghosttyScrollView: NSScrollView {
 }
 
 @MainActor
-final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, LibghosttyScrollbarHandling {
+final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalScrollRouting, LibghosttyScrollbarHandling {
     private struct ScrollHostSyncMetrics {
         let geometryApplied: Bool
         let documentHeightChanged: Bool
@@ -64,7 +67,6 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private var userScrolledAwayFromBottom = false
     private var lastSentRow: Int?
     private var scrollbarUpdate: LibghosttySurfaceScrollbarUpdate?
-
     private static let scrollToBottomThreshold: CGFloat = 5.0
 
     var onFocusDidChange: ((Bool) -> Void)? {
@@ -74,6 +76,11 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
     var terminalFocusTargetView: NSView {
         surfaceView
+    }
+
+    var onScrollWheel: ((NSEvent) -> Bool)? {
+        get { surfaceView.onScrollWheel }
+        set { surfaceView.onScrollWheel = newValue }
     }
 
     init(
@@ -100,7 +107,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         scrollView.drawsBackground = false
         scrollView.contentView.clipsToBounds = false
         scrollView.surfaceView = surfaceView
-        scrollView.onExplicitWheelScroll = { [weak self] in
+        surfaceView.onExplicitWheelScroll = { [weak self] in
             self?.pendingExplicitWheelScroll = true
         }
 
@@ -160,6 +167,12 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
     func setViewportSyncSuspended(_ suspended: Bool) {
         surfaceView.setViewportSyncSuspended(suspended)
+    }
+
+    func forceViewportSync() {
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        surfaceView.invalidateAndSyncViewport()
     }
 
     func applyScrollbarUpdate(_ update: LibghosttySurfaceScrollbarUpdate) {
@@ -423,6 +436,8 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     fileprivate weak var scrollbarHandler: (any LibghosttyScrollbarHandling)?
     var onFocusDidChange: ((Bool) -> Void)?
     var onLocalEventDidOccur: ((TerminalEvent) -> Void)?
+    var onScrollWheel: ((NSEvent) -> Bool)?
+    var onExplicitWheelScroll: (() -> Void)?
 
     override var acceptsFirstResponder: Bool {
         true
@@ -566,12 +581,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        if Self.shouldRouteScrollToPaneSwitch(event) {
-            if let nextResponder {
-                nextResponder.scrollWheel(with: event)
-            } else {
-                super.scrollWheel(with: event)
-            }
+        if onScrollWheel?(event) == true {
             return
         }
 
@@ -580,6 +590,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
             return
         }
 
+        onExplicitWheelScroll?()
         surfaceController.sendMouseScroll(
             x: event.scrollingDeltaX,
             y: event.scrollingDeltaY,
@@ -754,6 +765,11 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         surfaceController?.refresh()
     }
 
+    func invalidateAndSyncViewport() {
+        lastViewportSignature = nil
+        syncViewport()
+    }
+
     var terminalCellHeight: CGFloat {
         surfaceController?.cellHeight ?? 0
     }
@@ -803,21 +819,6 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         return text
     }
 
-    private static func shouldRouteScrollToPaneSwitch(_ event: NSEvent) -> Bool {
-        let horizontalDelta = abs(event.scrollingDeltaX)
-        let verticalDelta = abs(event.scrollingDeltaY)
-
-        if horizontalDelta > verticalDelta, horizontalDelta > 0 {
-            return true
-        }
-
-        let deviceIndependentFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return !event.hasPreciseScrollingDeltas
-            && deviceIndependentFlags.contains(.shift)
-            && verticalDelta > 0
-            && verticalDelta >= horizontalDelta
-    }
-
     private func forwardMousePosition(_ event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let position = CGPoint(x: point.x, y: bounds.height - point.y)
@@ -835,6 +836,9 @@ extension LibghosttyView: TerminalViewportSyncControlling {}
 extension LibghosttyView: TerminalFocusTargetProviding {
     var terminalFocusTargetView: NSView { self }
 }
+
+@MainActor
+extension LibghosttyView: TerminalScrollRouting {}
 
 extension LibghosttyView: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {

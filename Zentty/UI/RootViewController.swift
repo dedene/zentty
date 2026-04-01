@@ -125,6 +125,7 @@ final class RootViewController: NSViewController {
                 self?.applyPersistedConfig(config)
             }
         }
+        preloadOpenWithIcons()
     }
 
     convenience init(
@@ -1454,6 +1455,7 @@ final class RootViewController: NSViewController {
     private func applyPersistedConfig(_ config: AppConfig) {
         paneLayoutPreferences = config.paneLayout
         shortcutManager = ShortcutManager(shortcuts: config.shortcuts)
+        preloadOpenWithIcons()
         sidebarMotionCoordinator.applyPersistedSidebarSettings(
             config.sidebar,
             availableWidth: resolvedSidebarAvailableWidth()
@@ -1485,6 +1487,10 @@ final class RootViewController: NSViewController {
                 isPrimaryEnabled: canOpenFocusedPane,
                 isMenuEnabled: true
             ))
+    }
+
+    private func preloadOpenWithIcons() {
+        openWithService.preloadIcons(for: availableOpenWithTargets)
     }
 
     private func updatePaneLayoutContextIfNeeded(

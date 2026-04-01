@@ -107,12 +107,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         static let heightRatio: CGFloat = 0.9
     }
 
+    private enum OpenWithMenuContent {
+        static let emptyStateTitle = "No enabled installed apps"
+        static let settingsTitle = "Choose Apps…"
+    }
+
     let window: NSWindow
     private let rootViewController: RootViewController
     private let runtimeRegistry: PaneRuntimeRegistry
     private let configStore: AppConfigStore
     private let openWithService: OpenWithServing
-    private let openWithPopoverController = OpenWithPopoverController()
     private var settingsWindowController: SettingsWindowController?
     private let closeTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.close")
     private let miniTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.mini")
@@ -175,12 +179,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         self.window = window
         super.init()
         window.delegate = self
-        openWithPopoverController.onSelectTarget = { [weak self] stableID in
-            self?.performOpenWithMenuSelection(stableID: stableID)
-        }
-        openWithPopoverController.onOpenSettings = { [weak self] in
-            self?.handleOpenWithSettingsMenuItem(nil)
-        }
         rootViewController.onWindowChromeNeedsUpdate = { [weak self] in
             self?.syncWindowAppearance()
             self?.updateTrafficLightAppearance()
@@ -244,7 +242,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         isWindowKey = false
-        openWithPopoverController.close()
         refreshTrafficLightAppearanceAfterFocusChange()
     }
 
@@ -520,39 +517,64 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     private func showOpenWithMenu() {
-        if openWithPopoverController.isShown {
-            openWithPopoverController.close()
-            return
-        }
+        let menu = makeOpenWithMenu()
+        let anchorRect = rootViewController.chromeView.openWithMenuAnchorRect
+        let menuLocation = NSPoint(x: anchorRect.minX, y: anchorRect.maxY)
+        menu.popUp(positioning: nil, at: menuLocation, in: rootViewController.chromeView)
+    }
+
+    private func makeOpenWithMenu() -> NSMenu {
+        let menu = NSMenu(title: "")
+        menu.autoenablesItems = false
 
         let hasLocalContext = rootViewController.focusedOpenWithContext != nil
         let availableTargets = rootViewController.availableOpenWithTargets
-        let items = availableTargets.map {
-            OpenWithPopoverItem(
-                stableID: $0.stableID,
-                title: $0.displayName,
-                icon: openWithService.icon(for: $0),
-                isEnabled: hasLocalContext,
-                isSelected: $0.stableID == rootViewController.primaryOpenWithTarget?.stableID
-            )
+        let primaryStableID = rootViewController.primaryOpenWithTarget?.stableID
+        openWithService.preloadIcons(for: availableTargets)
+
+        if availableTargets.isEmpty {
+            let item = NSMenuItem(title: OpenWithMenuContent.emptyStateTitle, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        } else {
+            availableTargets.forEach { target in
+                menu.addItem(
+                    makeOpenWithMenuItem(
+                        target: target,
+                        isEnabled: hasLocalContext,
+                        isSelected: target.stableID == primaryStableID
+                    )
+                )
+            }
         }
 
-        openWithPopoverController.show(
-            relativeTo: rootViewController.chromeView.openWithMenuAnchorRect,
-            of: rootViewController.chromeView,
-            theme: rootViewController.currentWindowTheme,
-            items: items.isEmpty
-                ? [
-                    OpenWithPopoverItem(
-                        stableID: "__empty__",
-                        title: "No enabled installed apps",
-                        icon: nil,
-                        isEnabled: false,
-                        isSelected: false
-                    )
-                ]
-                : items
+        menu.addItem(.separator())
+        menu.addItem(makeOpenWithSettingsMenuItem())
+        return menu
+    }
+
+    private func makeOpenWithMenuItem(
+        target: OpenWithResolvedTarget,
+        isEnabled: Bool,
+        isSelected: Bool
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: target.displayName, action: #selector(handleOpenWithMenuItem(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = target
+        item.image = openWithService.icon(for: target)
+        item.isEnabled = isEnabled
+        item.state = isSelected ? .on : .off
+        return item
+    }
+
+    private func makeOpenWithSettingsMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(
+            title: OpenWithMenuContent.settingsTitle,
+            action: #selector(handleOpenWithSettingsMenuItem(_:)),
+            keyEquivalent: ""
         )
+        item.target = self
+        return item
     }
 
     @objc
@@ -794,24 +816,19 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController
     }
 
-    var isOpenWithPopoverShownForTesting: Bool {
-        openWithPopoverController.isShown
+    func openWithMenuForTesting() -> NSMenu {
+        makeOpenWithMenu()
     }
 
-    var openWithPopoverSelectedStableIDForTesting: String? {
-        openWithPopoverController.selectedStableIDForTesting
-    }
-
-    var openWithPopoverEnabledStableIDsForTesting: [String] {
-        openWithPopoverController.enabledStableIDsForTesting
-    }
-
-    var openWithPopoverDisabledStableIDsForTesting: [String] {
-        openWithPopoverController.disabledStableIDsForTesting
-    }
-
-    var openWithPopoverHighlightedStableIDForTesting: String? {
-        openWithPopoverController.highlightedStableIDForTesting
+    func performOpenWithMenuItemForTesting(_ item: NSMenuItem) {
+        switch item.action {
+        case #selector(handleOpenWithMenuItem(_:)):
+            handleOpenWithMenuItem(item)
+        case #selector(handleOpenWithSettingsMenuItem(_:)):
+            handleOpenWithSettingsMenuItem(item)
+        default:
+            break
+        }
     }
 
     func shouldSuppressWindowDragForTesting(at point: NSPoint, eventType: NSEvent.EventType) -> Bool {
@@ -824,54 +841,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     var isWindowMovableForTesting: Bool {
         window.isMovable
-    }
-
-    func dismissOpenWithPopoverWithEscapeForTesting() {
-        openWithPopoverController.dismissWithEscapeForTesting()
-    }
-
-    func performOpenWithPopoverOutsideClickDismissalForTesting() {
-        openWithPopoverController.performOutsideClickDismissalForTesting()
-    }
-
-    func moveOpenWithPopoverSelectionDownForTesting() {
-        openWithPopoverController.moveSelectionDownForTesting()
-    }
-
-    func activateOpenWithPopoverSelectionForTesting() {
-        openWithPopoverController.activateSelectionForTesting()
-    }
-
-    func performOpenWithSettingsActionForTesting() {
-        openWithPopoverController.performSettingsActionForTesting()
-    }
-
-    func simulateOpenWithPopoverRowHoverForTesting(stableID: String) {
-        openWithPopoverController.simulateHoverRowForTesting(stableID: stableID)
-    }
-
-    func simulateOpenWithPopoverRowExitForTesting(stableID: String) {
-        openWithPopoverController.simulateExitRowForTesting(stableID: stableID)
-    }
-
-    func simulateOpenWithPopoverSettingsHoverForTesting() {
-        openWithPopoverController.simulateHoverSettingsForTesting()
-    }
-
-    var openWithPopoverSettingsBackgroundTokenForTesting: String {
-        openWithPopoverController.settingsBackgroundTokenForTesting
-    }
-
-    var openWithPopoverSettingsBorderTokenForTesting: String {
-        openWithPopoverController.settingsBorderTokenForTesting
-    }
-
-    func openWithPopoverRowBackgroundTokenForTesting(stableID: String) -> String {
-        openWithPopoverController.rowBackgroundTokenForTesting(stableID: stableID)
-    }
-
-    func openWithPopoverRowBorderTokenForTesting(stableID: String) -> String {
-        openWithPopoverController.rowBorderTokenForTesting(stableID: stableID)
     }
     #endif
 }

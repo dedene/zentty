@@ -23,6 +23,11 @@ final class TerminalPaneHostView: NSView {
             (terminalView as? any TerminalFocusReporting)?.onFocusDidChange = onFocusDidChange
         }
     }
+    var onScrollWheel: ((NSEvent) -> Bool)? {
+        didSet {
+            (terminalView as? any TerminalScrollRouting)?.onScrollWheel = onScrollWheel
+        }
+    }
 
     init(adapter: any TerminalAdapter) {
         self.adapter = adapter
@@ -31,6 +36,7 @@ final class TerminalPaneHostView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         adapter.eventDidOccur = onEventDidOccur
         (terminalView as? any TerminalFocusReporting)?.onFocusDidChange = onFocusDidChange
+        (terminalView as? any TerminalScrollRouting)?.onScrollWheel = onScrollWheel
         setup()
     }
 
@@ -67,6 +73,12 @@ final class TerminalPaneHostView: NSView {
             .setViewportSyncSuspended(suspended)
     }
 
+    func forceViewportSync() {
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        (terminalView as? any TerminalViewportSyncControlling)?.forceViewportSync()
+    }
+
     func focusTerminal() {
         let focusTarget = (terminalView as? any TerminalFocusTargetProviding)?.terminalFocusTargetView ?? terminalView
 
@@ -79,6 +91,10 @@ final class TerminalPaneHostView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        if onScrollWheel?(event) == true {
+            return
+        }
+
         if let nextResponder {
             nextResponder.scrollWheel(with: event)
         } else {

@@ -33,6 +33,11 @@ extension WorklaneStore {
             worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
             worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState = PaneAgentReducerState()
         }
+        resumeBlockedCodexSessionIfTitleIndicatesRunning(
+            paneID: paneID,
+            metadata: metadata,
+            in: &worklane
+        )
         invalidateGitContextIfNeeded(for: paneID, in: &worklane)
         recomputePresentation(for: paneID, in: &worklane)
 
@@ -78,6 +83,41 @@ extension WorklaneStore {
         }
     }
 
+    private func resumeBlockedCodexSessionIfTitleIndicatesRunning(
+        paneID: PaneID,
+        metadata: TerminalMetadata,
+        in worklane: inout WorklaneState
+    ) {
+        let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
+            ?? AgentToolRecognizer.recognize(metadata: metadata)
+        guard
+            recognizedTool == .codex,
+            let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+                metadata.title,
+                recognizedTool: recognizedTool
+            ),
+            signature.phase == .running,
+            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+            auxiliaryState.agentStatus?.state == .needsInput
+        else {
+            return
+        }
+
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            auxiliaryState.agentReducerState,
+            from: auxiliaryState.agentStatus
+        )
+        guard auxiliaryState.agentReducerState.resumeBlockedSessionFromActivity(now: Date()) else {
+            return
+        }
+
+        auxiliaryState.agentStatus = Self.hydratedStatus(
+            auxiliaryState.agentReducerState.reducedStatus(),
+            existingStatus: auxiliaryState.agentStatus
+        )
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+    }
+
     /// Clears stale desktop notification text when a Codex terminal title transitions to
     /// an active state (Working/Thinking/Starting), preventing old notification text from
     /// surfacing in the sidebar during a new work cycle.
@@ -94,9 +134,11 @@ extension WorklaneStore {
         guard recognizedTool == .codex else {
             return
         }
-        let title = metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let firstWord = title.prefix(while: { $0.isLetter }).lowercased()
-        if firstWord == "working" || firstWord == "thinking" || firstWord == "starting" {
+        if let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            metadata.title,
+            recognizedTool: recognizedTool
+        ),
+           signature.phase == .running || signature.phase == .starting {
             worklane.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationText = nil
             worklane.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationDate = nil
             worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus = false
