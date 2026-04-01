@@ -984,7 +984,10 @@ final class RootViewController: NSViewController {
 
         let activeWorklane = worklaneStore.activeWorklane
         let worklaneCount = worklaneStore.worklanes.count
-        let paneCount = activeWorklane?.paneStripState.panes.count ?? 0
+        let activePaneCount = activeWorklane?.paneStripState.panes.count ?? 0
+        let totalPaneCount = worklaneStore.worklanes.reduce(0) { partialResult, worklane in
+            partialResult + worklane.paneStripState.panes.count
+        }
         let focusedPanePath: String? = {
             guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
@@ -999,7 +1002,8 @@ final class RootViewController: NSViewController {
             theme: currentTheme,
             shortcutManager: shortcutManager,
             worklaneCount: worklaneCount,
-            paneCount: paneCount,
+            activePaneCount: activePaneCount,
+            totalPaneCount: totalPaneCount,
             focusedPanePath: focusedPanePath,
             openWithTargets: openWithTargets
         )

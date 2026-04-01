@@ -7,6 +7,11 @@ protocol SettingsPresentingSection: AnyObject {
 }
 
 @MainActor
+protocol SettingsAppearanceUpdating: AnyObject {
+    func handleAppearanceChange()
+}
+
+@MainActor
 private final class SettingsDocumentView: NSView {
     override var isFlipped: Bool { true }
 }
