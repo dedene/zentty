@@ -147,8 +147,10 @@ final class CommandPaletteController {
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
         }, completionHandler: {
-            parentWindow.removeChildWindow(panel)
-            panel.orderOut(nil)
+            MainActor.assumeIsolated {
+                parentWindow.removeChildWindow(panel)
+                panel.orderOut(nil)
+            }
         })
     }
 

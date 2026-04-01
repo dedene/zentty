@@ -202,6 +202,86 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentations[0].rememberedTitle, presentations[1].rememberedTitle)
     }
 
+    func test_normalize_lets_codex_working_title_override_attached_starting_state() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .starting,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 41),
+                trackedPID: 4242
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+        XCTAssertTrue(presentation.isWorking)
+    }
+
+    func test_normalize_lets_codex_ready_title_override_attached_starting_state_after_running() {
+        var previous = PanePresentationState()
+        previous.runtimePhase = .running
+        previous.statusText = "Running"
+        previous.recognizedTool = .codex
+        previous.isWorking = true
+
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Ready zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .starting,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                trackedPID: 4242
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: previous
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertEqual(presentation.statusText, "Idle")
+        XCTAssertFalse(presentation.isWorking)
+    }
+
     func test_normalize_ignores_stale_review_facts_when_canonical_git_context_is_missing() {
         let raw = PaneRawState(
             metadata: TerminalMetadata(
@@ -648,5 +728,110 @@ final class PanePresentationStateTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.cwd, NSHomeDirectory())
+    }
+
+    // MARK: - Claude Code title-based idle override
+
+    func test_normalize_clears_running_when_claude_code_title_indicates_interrupted() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Interrupted · What should Claude do instead?",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 10)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+    }
+
+    func test_normalize_keeps_needs_input_when_claude_code_title_indicates_idle() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Interrupted · What should Claude do instead?",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .needsInput,
+                text: "Approve tool?",
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 10),
+                interactionKind: .approval
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+    }
+
+    func test_normalize_does_not_let_claude_code_title_promote_idle_to_running() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Thinking · about something",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 10)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
     }
 }

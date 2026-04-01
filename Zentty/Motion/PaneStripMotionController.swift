@@ -241,7 +241,7 @@ final class PaneStripMotionController {
         duration: TimeInterval = defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = defaultAnimationTimingFunction,
         updates: () -> Void,
-        completion: (() -> Void)? = nil
+        completion: (@Sendable () -> Void)? = nil
     ) {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration

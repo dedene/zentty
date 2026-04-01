@@ -82,6 +82,36 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertFalse(row.shimmerIsAnimatingForTesting)
     }
 
+    func test_working_inactive_worklane_row_keeps_same_background_as_idle_inactive_row() {
+        let row = makeRow()
+        let theme = ZenttyTheme.fallback(for: nil)
+
+        row.configure(
+            with: makeSummary(primaryText: "Claude Code", isActive: false),
+            theme: theme,
+            animated: false
+        )
+        let idleBackground = try! XCTUnwrap(row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Running",
+                attentionState: .running,
+                isWorking: true,
+                isActive: false
+            ),
+            theme: theme,
+            animated: false
+        )
+        let workingBackground = try! XCTUnwrap(row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
+
+        XCTAssertEqual(idleBackground.redComponent, workingBackground.redComponent, accuracy: 0.001)
+        XCTAssertEqual(idleBackground.greenComponent, workingBackground.greenComponent, accuracy: 0.001)
+        XCTAssertEqual(idleBackground.blueComponent, workingBackground.blueComponent, accuracy: 0.001)
+        XCTAssertEqual(idleBackground.alphaComponent, workingBackground.alphaComponent, accuracy: 0.001)
+    }
+
     func test_worklane_row_exposes_plain_status_copy() {
         let row = makeRow(height: 88)
 
@@ -102,7 +132,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(row.statusSymbolNameForTesting, "")
     }
 
-    func test_worklane_row_keeps_top_level_broad_status_text_and_interaction_icon() {
+    func test_worklane_row_prefers_specific_top_level_question_copy_and_icon() {
         let row = makeRow(height: 88)
 
         row.configure(
@@ -118,8 +148,12 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.statusTextForTesting, "Needs input")
+        XCTAssertEqual(row.statusTextForTesting, "Question")
         XCTAssertEqual(row.statusSymbolNameForTesting, "questionmark.circle")
+        XCTAssertEqual(
+            try! XCTUnwrap(row.statusTextColorForTesting.usingColorSpace(.deviceRGB)),
+            try! XCTUnwrap(NSColor.systemBlue.usingColorSpace(.deviceRGB))
+        )
     }
 
     func test_worklane_row_renders_pane_local_branch_detail_and_status_lines() {
@@ -281,7 +315,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         )
     }
 
-    func test_worklane_row_keeps_pane_broad_status_text_and_interaction_icon() {
+    func test_worklane_row_prefers_specific_pane_question_copy_and_icon() {
         let row = makeRow(width: 320, height: 110)
 
         row.configure(
@@ -307,8 +341,12 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Needs input"])
+        XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Question"])
         XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["questionmark.circle"])
+        XCTAssertEqual(
+            try! XCTUnwrap(row.statusTextColorForTesting.usingColorSpace(.deviceRGB)),
+            try! XCTUnwrap(NSColor.systemBlue.usingColorSpace(.deviceRGB))
+        )
     }
 
     func test_worklane_row_renders_agent_ready_with_success_icon_from_sidebar_summary() {
@@ -383,6 +421,55 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(row.primaryTextsForTesting, ["General coding assistance session"])
         XCTAssertEqual(row.primaryTrailingTextsForTesting, ["main"])
         XCTAssertEqual(row.detailTextsForTesting, [])
+    }
+
+    func test_agent_ready_row_uses_same_status_color_as_stopped_early() {
+        let readyRow = makeRow(width: 320, height: 110)
+        let stoppedRow = makeRow(width: 320, height: 110)
+        let theme = ZenttyTheme.fallback(for: nil)
+
+        readyRow.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-ready"),
+                        primaryText: "Claude Code",
+                        trailingText: "main",
+                        detailText: nil,
+                        statusText: "Agent ready",
+                        statusSymbolName: "checkmark.circle.fill",
+                        attentionState: .ready,
+                        isFocused: true,
+                        isWorking: false
+                    ),
+                ]
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        stoppedRow.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-stopped"),
+                        primaryText: "Claude Code",
+                        trailingText: "main",
+                        detailText: nil,
+                        statusText: "Stopped early",
+                        attentionState: .unresolvedStop,
+                        isFocused: true,
+                        isWorking: false
+                    ),
+                ]
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        XCTAssertEqual(readyRow.statusTextColorForTesting.srgbClamped, stoppedRow.statusTextColorForTesting.srgbClamped)
     }
 
     func test_worklane_row_spills_long_branch_into_detail_line_when_width_is_tight() {
@@ -542,7 +629,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(row.detailTextsForTesting, ["feature/scaleway-transactional-mails", "Personal"])
     }
 
-    func test_working_worklane_row_uses_text_derived_shimmer_highlight() {
+    func test_working_worklane_row_uses_dark_title_shimmer_overlay() {
         let row = makeRow()
         let theme = darkTheme(foreground: "#F0F3F6")
 
@@ -558,12 +645,95 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         )
 
         XCTAssertLessThan(
-            colorDistance(row.shimmerColorForTesting, theme.sidebarWorkingTextHighlight),
-            colorDistance(row.shimmerColorForTesting, theme.sidebarGradientStart)
+            row.shimmerColorForTesting.perceivedLuminance,
+            row.primaryTextColorForTesting.perceivedLuminance
         )
         XCTAssertLessThan(
             colorDistance(row.primaryTextColorForTesting, theme.sidebarWorkingTextHighlight),
             colorDistance(row.primaryTextColorForTesting, theme.sidebarGradientStart)
+        )
+    }
+
+    func test_running_status_shimmer_keeps_light_highlight_behavior() {
+        let row = makeRow()
+        let theme = darkTheme(foreground: "#F0F3F6")
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Running",
+                attentionState: .running,
+                isWorking: true
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        XCTAssertLessThan(
+            colorDistance(row.statusTextColorForTesting, theme.sidebarWorkingTextHighlight),
+            colorDistance(row.statusTextColorForTesting, theme.sidebarGradientStart)
+        )
+    }
+
+    func test_active_working_main_title_keeps_bright_base_text_and_uses_dark_shimmer_overlay() {
+        let row = makeRow()
+        let theme = darkTheme(foreground: "#F0F3F6")
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Running",
+                attentionState: .running,
+                isWorking: true,
+                isActive: true
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        XCTAssertEqual(
+            row.primaryTextColorForTesting.srgbClamped,
+            theme.sidebarButtonActiveText.srgbClamped
+        )
+        XCTAssertLessThan(
+            row.shimmerColorForTesting.perceivedLuminance,
+            row.primaryTextColorForTesting.perceivedLuminance
+        )
+    }
+
+    func test_active_working_pane_title_keeps_bright_base_text_and_uses_dark_shimmer_overlay() {
+        let row = makeRow(width: 320, height: 110)
+        let theme = darkTheme(foreground: "#F0F3F6")
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Claude Code",
+                        trailingText: "main",
+                        detailText: "…/zentty",
+                        statusText: "╰ Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                ],
+                isWorking: true,
+                isActive: true
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        XCTAssertEqual(
+            row.firstPanePrimaryTextColorForTesting?.srgbClamped,
+            theme.sidebarButtonActiveText.srgbClamped
+        )
+        XCTAssertLessThan(
+            try! XCTUnwrap(row.firstPanePrimaryShimmerColorForTesting).perceivedLuminance,
+            try! XCTUnwrap(row.firstPanePrimaryTextColorForTesting).perceivedLuminance
         )
     }
 

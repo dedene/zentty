@@ -10,7 +10,7 @@ final class RootViewController: NSViewController {
             matching mask: NSEvent.EventTypeMask,
             handler: @escaping (NSEvent) -> NSEvent?
         ) {
-            token = NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)
+            token = NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler) as Any
         }
 
         deinit {
@@ -29,7 +29,7 @@ final class RootViewController: NSViewController {
         func addObserver(
             forName name: Notification.Name,
             object: AnyObject?,
-            using block: @escaping (Notification) -> Void
+            using block: @escaping @Sendable (Notification) -> Void
         ) {
             tokens.append(
                 center.addObserver(forName: name, object: object, queue: .main, using: block)
@@ -125,6 +125,7 @@ final class RootViewController: NSViewController {
                 self?.applyPersistedConfig(config)
             }
         }
+        preloadOpenWithIcons()
     }
 
     convenience init(
@@ -659,26 +660,39 @@ final class RootViewController: NSViewController {
         menu.autoenablesItems = false
         addPaneLayoutMenuItems([.splitHorizontally, .splitVertically], to: menu)
         menu.addItem(NSMenuItem.separator())
-        addPaneLayoutMenuItems(
-            [
-                .arrangeWidthFull,
-                .arrangeWidthHalves,
-                .arrangeWidthThirds,
-                .arrangeWidthQuarters,
-            ],
-            to: menu
+        menu.addItem(
+            makePaneLayoutSubmenuItem(
+                title: "Width Presets",
+                commandIDs: [
+                    .arrangeWidthFull,
+                    .arrangeWidthHalves,
+                    .arrangeWidthThirds,
+                    .arrangeWidthQuarters,
+                ]
+            )
         )
-        menu.addItem(NSMenuItem.separator())
-        addPaneLayoutMenuItems(
-            [
-                .arrangeHeightFull,
-                .arrangeHeightTwoPerColumn,
-                .arrangeHeightThreePerColumn,
-                .arrangeHeightFourPerColumn,
-            ],
-            to: menu
+        menu.addItem(
+            makePaneLayoutSubmenuItem(
+                title: "Height Presets",
+                commandIDs: [
+                    .arrangeHeightFull,
+                    .arrangeHeightTwoPerColumn,
+                    .arrangeHeightThreePerColumn,
+                    .arrangeHeightFourPerColumn,
+                ]
+            )
         )
         return menu
+    }
+
+    private func makePaneLayoutSubmenuItem(title: String, commandIDs: [AppCommandID]) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: title)
+        submenu.autoenablesItems = false
+        addPaneLayoutMenuItems(commandIDs, to: submenu)
+        item.submenu = submenu
+        item.isEnabled = commandIDs.contains(where: isPaneLayoutMenuCommandEnabled)
+        return item
     }
 
     private func addPaneLayoutMenuItems(_ commandIDs: [AppCommandID], to menu: NSMenu) {
@@ -1113,7 +1127,9 @@ final class RootViewController: NSViewController {
             NSWindow.didChangeScreenNotification,
         ].forEach { name in
             observerBag.addObserver(forName: name, object: window) { [weak self] _ in
-                self?.handleWindowStateDidChange()
+                Task { @MainActor [weak self] in
+                    self?.handleWindowStateDidChange()
+                }
             }
         }
         windowObserverBag = observerBag
@@ -1389,6 +1405,14 @@ final class RootViewController: NSViewController {
                 .filter { !$0.isSeparatorItem }
                 .map(\.title)
         }
+
+        func paneLayoutSubmenuCommandTitlesForTesting(_ title: String) -> [String] {
+            makePaneLayoutMenu().items
+                .first { !$0.isSeparatorItem && $0.title == title }?
+                .submenu?
+                .items
+                .map(\.title) ?? []
+        }
     #endif
 
     private func resolvedSidebarAvailableWidth() -> CGFloat? {
@@ -1431,6 +1455,7 @@ final class RootViewController: NSViewController {
     private func applyPersistedConfig(_ config: AppConfig) {
         paneLayoutPreferences = config.paneLayout
         shortcutManager = ShortcutManager(shortcuts: config.shortcuts)
+        preloadOpenWithIcons()
         sidebarMotionCoordinator.applyPersistedSidebarSettings(
             config.sidebar,
             availableWidth: resolvedSidebarAvailableWidth()
@@ -1462,6 +1487,10 @@ final class RootViewController: NSViewController {
                 isPrimaryEnabled: canOpenFocusedPane,
                 isMenuEnabled: true
             ))
+    }
+
+    private func preloadOpenWithIcons() {
+        openWithService.preloadIcons(for: availableOpenWithTargets)
     }
 
     private func updatePaneLayoutContextIfNeeded(

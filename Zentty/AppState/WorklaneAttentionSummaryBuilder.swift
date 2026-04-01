@@ -20,7 +20,7 @@ enum WorklaneAttentionSummaryBuilder {
 
         let presentation = paneContext.presentation
         guard
-            let attentionState = attentionState(for: presentation.runtimePhase),
+            let attentionState = attentionState(for: presentation),
             let tool = presentation.recognizedTool
         else {
             return nil
@@ -41,8 +41,12 @@ enum WorklaneAttentionSummaryBuilder {
         )
     }
 
-    private static func attentionState(for phase: PanePresentationPhase) -> WorklaneAttentionState? {
-        switch phase {
+    private static func attentionState(for presentation: PanePresentationState) -> WorklaneAttentionState? {
+        if presentation.isReady {
+            return .ready
+        }
+
+        switch presentation.runtimePhase {
         case .idle, .starting:
             return nil
         case .running:
@@ -70,8 +74,10 @@ private extension WorklaneAttentionState {
             return 4
         case .unresolvedStop:
             return 3
-        case .running:
+        case .ready:
             return 2
+        case .running:
+            return 1
         }
     }
 }

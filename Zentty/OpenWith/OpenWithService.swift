@@ -5,15 +5,28 @@ protocol OpenWithServing: AnyObject {
     func detectedTargets(preferences: AppConfig.OpenWith) -> [OpenWithDetectedTarget]
     func availableTargets(preferences: AppConfig.OpenWith) -> [OpenWithResolvedTarget]
     func primaryTarget(preferences: AppConfig.OpenWith) -> OpenWithResolvedTarget?
+    func preloadIcons(for targets: [OpenWithResolvedTarget])
     func icon(for target: OpenWithResolvedTarget) -> NSImage?
     @discardableResult
     func open(target: OpenWithResolvedTarget, workingDirectory: String) -> Bool
 }
 
+extension OpenWithServing {
+    func preloadIcons(for targets: [OpenWithResolvedTarget]) {
+        _ = targets
+    }
+}
+
 @MainActor
 final class OpenWithService: OpenWithServing {
+    private enum CachedIcon {
+        case image(NSImage)
+        case missing
+    }
+
     private let workspace: NSWorkspace
     private let fileManager: FileManager
+    private var iconCache: [String: CachedIcon] = [:]
 
     init(
         workspace: NSWorkspace = .shared,
@@ -66,7 +79,27 @@ final class OpenWithService: OpenWithServing {
         )
     }
 
+    func preloadIcons(for targets: [OpenWithResolvedTarget]) {
+        targets.forEach { _ = icon(for: $0) }
+    }
+
     func icon(for target: OpenWithResolvedTarget) -> NSImage? {
+        let cacheKey = iconCacheKey(for: target)
+        if let cached = iconCache[cacheKey] {
+            switch cached {
+            case .image(let image):
+                return image
+            case .missing:
+                return nil
+            }
+        }
+
+        let resolvedIcon = loadIcon(for: target)
+        iconCache[cacheKey] = resolvedIcon.map(CachedIcon.image) ?? .missing
+        return resolvedIcon
+    }
+
+    private func loadIcon(for target: OpenWithResolvedTarget) -> NSImage? {
         if let applicationURL = applicationURL(for: target) {
             let icon = workspace.icon(forFile: applicationURL.path)
             icon.size = NSSize(width: 18, height: 18)
@@ -78,6 +111,18 @@ final class OpenWithService: OpenWithServing {
         }
 
         return nil
+    }
+
+    private func iconCacheKey(for target: OpenWithResolvedTarget) -> String {
+        if let builtInID = target.builtInID {
+            return "builtin:\(builtInID.rawValue)"
+        }
+
+        if let appPath = target.appPath {
+            return "custom:\(appPath)"
+        }
+
+        return "target:\(target.stableID)"
     }
 
     @discardableResult

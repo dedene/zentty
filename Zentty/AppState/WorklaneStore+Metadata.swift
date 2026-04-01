@@ -2,6 +2,8 @@ import Foundation
 
 extension WorklaneStore {
     func updateMetadata(paneID: PaneID, metadata: TerminalMetadata) {
+        terminalDiagnostics.recordStoreMetadataUpdate(paneID: paneID)
+
         guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
             worklane.paneStripState.panes.contains(where: { $0.id == paneID })
         }) else {
@@ -10,7 +12,12 @@ extension WorklaneStore {
 
         var worklane = worklanes[worklaneIndex]
         let previousWorklane = worklane
-        let previousMetadata = worklane.auxiliaryStateByPaneID[paneID]?.metadata
+        let previousAuxiliaryState = worklane.auxiliaryStateByPaneID[paneID] ?? PaneAuxiliaryState()
+        let previousMetadata = previousAuxiliaryState.metadata
+        let metadataChangeKind = TerminalMetadataChangeClassifier.classify(
+            previous: previousMetadata,
+            next: metadata
+        )
         worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
         clearStaleDesktopNotificationIfNeeded(for: paneID, metadata: metadata, in: &worklane)
         if branchContextDidChange(previous: previousMetadata, next: metadata) {
@@ -26,11 +33,28 @@ extension WorklaneStore {
             worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
             worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState = PaneAgentReducerState()
         }
+        resumeBlockedCodexSessionIfTitleIndicatesRunning(
+            paneID: paneID,
+            metadata: metadata,
+            in: &worklane
+        )
         invalidateGitContextIfNeeded(for: paneID, in: &worklane)
         recomputePresentation(for: paneID, in: &worklane)
+
+        if metadataChangeKind == .volatileTitleOnly,
+           shouldFastPathVolatileMetadataUpdate(
+                previousAuxiliaryState: previousAuxiliaryState,
+                nextAuxiliaryState: worklane.auxiliaryStateByPaneID[paneID] ?? PaneAuxiliaryState()
+           ) {
+            terminalDiagnostics.recordStoreFastPath(paneID: paneID)
+            worklanes[worklaneIndex] = worklane
+            return
+        }
+
         worklanes[worklaneIndex] = worklane
         refreshLastFocusedLocalWorkingDirectoryIfNeeded(worklane: worklane, paneID: paneID)
         let impacts = auxiliaryInvalidation(for: paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+        terminalDiagnostics.recordInvalidation(paneID: paneID, impacts: impacts)
         if !impacts.isEmpty {
             notify(.auxiliaryStateUpdated(worklane.id, paneID, impacts))
         }
@@ -59,6 +83,41 @@ extension WorklaneStore {
         }
     }
 
+    private func resumeBlockedCodexSessionIfTitleIndicatesRunning(
+        paneID: PaneID,
+        metadata: TerminalMetadata,
+        in worklane: inout WorklaneState
+    ) {
+        let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
+            ?? AgentToolRecognizer.recognize(metadata: metadata)
+        guard
+            recognizedTool == .codex,
+            let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+                metadata.title,
+                recognizedTool: recognizedTool
+            ),
+            signature.phase == .running,
+            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+            auxiliaryState.agentStatus?.state == .needsInput
+        else {
+            return
+        }
+
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            auxiliaryState.agentReducerState,
+            from: auxiliaryState.agentStatus
+        )
+        guard auxiliaryState.agentReducerState.resumeBlockedSessionFromActivity(now: Date()) else {
+            return
+        }
+
+        auxiliaryState.agentStatus = Self.hydratedStatus(
+            auxiliaryState.agentReducerState.reducedStatus(),
+            existingStatus: auxiliaryState.agentStatus
+        )
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+    }
+
     /// Clears stale desktop notification text when a Codex terminal title transitions to
     /// an active state (Working/Thinking/Starting), preventing old notification text from
     /// surfacing in the sidebar during a new work cycle.
@@ -75,9 +134,11 @@ extension WorklaneStore {
         guard recognizedTool == .codex else {
             return
         }
-        let title = metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let firstWord = title.prefix(while: { $0.isLetter }).lowercased()
-        if firstWord == "working" || firstWord == "thinking" || firstWord == "starting" {
+        if let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            metadata.title,
+            recognizedTool: recognizedTool
+        ),
+           signature.phase == .running || signature.phase == .starting {
             worklane.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationText = nil
             worklane.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationDate = nil
             worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus = false
@@ -92,6 +153,16 @@ extension WorklaneStore {
 
         return WorklaneContextFormatter.displayBranch(previous?.gitBranch)
             != WorklaneContextFormatter.displayBranch(next.gitBranch)
+    }
+
+    private func shouldFastPathVolatileMetadataUpdate(
+        previousAuxiliaryState: PaneAuxiliaryState,
+        nextAuxiliaryState: PaneAuxiliaryState
+    ) -> Bool {
+        previousAuxiliaryState.presentation == nextAuxiliaryState.presentation
+            && previousAuxiliaryState.localReviewWorkingDirectory == nextAuxiliaryState.localReviewWorkingDirectory
+            && previousAuxiliaryState.shellContext?.scope == nextAuxiliaryState.shellContext?.scope
+            && gitContextRefreshHint(for: previousAuxiliaryState) == gitContextRefreshHint(for: nextAuxiliaryState)
     }
 
     func auxiliaryInvalidation(

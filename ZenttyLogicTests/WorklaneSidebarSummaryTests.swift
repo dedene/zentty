@@ -1021,6 +1021,45 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertTrue(paneRow.isWorking)
     }
 
+    func test_builder_uses_codex_status_title_subject_as_primary_when_running() {
+        let paneID = PaneID("worklane-main-codex-running")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main-codex-running"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "Working ⠋ Investigate pane title updates",
+                    currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                    processName: "codex",
+                    gitBranch: "main"
+                )
+            ],
+            agentStatusByPaneID: [
+                paneID: PaneAgentStatus(
+                    tool: .codex,
+                    state: .running,
+                    text: nil,
+                    artifactLink: nil,
+                    updatedAt: Date(timeIntervalSince1970: 42)
+                )
+            ]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.primaryText, "Investigate pane title updates")
+        XCTAssertEqual(paneRow.trailingText, "main")
+        XCTAssertNil(paneRow.detailText)
+        XCTAssertEqual(paneRow.statusText, "Running")
+        XCTAssertEqual(paneRow.attentionState, .running)
+        XCTAssertTrue(paneRow.isWorking)
+    }
+
     func test_builder_keeps_idle_single_pane_agent_title_primary_and_branch_trailing() {
         let paneID = PaneID("worklane-main-agent")
         let worklane = WorklaneState(
@@ -1103,6 +1142,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
         XCTAssertEqual(paneRow.statusText, "Agent ready")
+        XCTAssertEqual(paneRow.attentionState, .ready)
     }
 
     func test_builder_keeps_starting_single_pane_agent_title_primary_and_branch_trailing() {

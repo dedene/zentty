@@ -36,6 +36,10 @@ extension WorklaneStore {
         case .commandFinished:
             worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
             let existingStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
+            if let trackedPID = existingStatus?.trackedPID,
+               Self.isProcessAlive(pid: trackedPID) {
+                break
+            }
             if existingStatus?.state != .idle,
                existingStatus?.state != .needsInput,
                existingStatus?.state != .starting,
@@ -435,6 +439,7 @@ extension WorklaneStore {
 
         return notificationText.contains("agent run complete")
             || notificationText.contains("agent ready")
+            || notificationText.contains("agent turn complete")
     }
 
     func invalidateCachedGitContext(path: String?) {
@@ -507,7 +512,7 @@ extension WorklaneStore {
         }
     }
 
-    private static func seededReducerState(
+    static func seededReducerState(
         _ reducerState: PaneAgentReducerState,
         from existingStatus: PaneAgentStatus?
     ) -> PaneAgentReducerState {
@@ -543,7 +548,7 @@ extension WorklaneStore {
         return seededReducerState
     }
 
-    private static func hydratedStatus(
+    static func hydratedStatus(
         _ status: PaneAgentStatus?,
         existingStatus: PaneAgentStatus?,
         payloadWorkingDirectory: String? = nil

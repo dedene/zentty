@@ -257,7 +257,7 @@ enum ClaudeHookBridge {
                     paneID: existing?.paneID ?? target.paneID,
                     cwd: input.cwd ?? existing?.cwd,
                     pid: existing?.pid,
-                    text: message ?? prompt.text,
+                    text: message,
                     kind: prompt.interactionKind,
                     confidence: .explicit
                 )
@@ -284,7 +284,7 @@ enum ClaudeHookBridge {
                     state: .running,
                     text: nil,
                     cwd: input.cwd ?? preToolExisting?.cwd,
-                    interactionKind: .none,
+                    interactionKind: PaneAgentInteractionKind.none,
                     confidence: .explicit,
                     sessionID: input.sessionID
                 ),
@@ -303,7 +303,7 @@ enum ClaudeHookBridge {
                     state: .running,
                     text: nil,
                     cwd: input.cwd ?? promptExisting?.cwd,
-                    interactionKind: .none,
+                    interactionKind: PaneAgentInteractionKind.none,
                     confidence: .explicit,
                     sessionID: input.sessionID
                 ),

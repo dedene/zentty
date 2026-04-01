@@ -131,10 +131,24 @@ final class RootViewCompositionTests: XCTestCase {
             [
                 "Split Horizontally",
                 "Split Vertically",
+                "Width Presets",
+                "Height Presets",
+            ]
+        )
+
+        XCTAssertEqual(
+            controller.paneLayoutSubmenuCommandTitlesForTesting("Width Presets"),
+            [
                 "Arrange Width: Full Width",
                 "Arrange Width: Half Width",
                 "Arrange Width: Thirds",
                 "Arrange Width: Quarters",
+            ]
+        )
+
+        XCTAssertEqual(
+            controller.paneLayoutSubmenuCommandTitlesForTesting("Height Presets"),
+            [
                 "Arrange Height: Full Height",
                 "Arrange Height: 2 Per Column",
                 "Arrange Height: 3 Per Column",
@@ -705,6 +719,8 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertGreaterThan(sidebarView.addWorklaneButtonWidth, 120)
         let buttonMaxX = sidebarView.addWorklaneButtonMinX + sidebarView.addWorklaneButtonWidth
         let expectedTrailing = sidebarView.bounds.width - ShellMetrics.sidebarContentInset
+        let expectedWidth = expectedTrailing - sidebarView.addWorklaneButtonMinX
+        XCTAssertEqual(sidebarView.addWorklaneWidthConstraintConstant, expectedWidth, accuracy: 1.0)
         XCTAssertEqual(buttonMaxX, expectedTrailing, accuracy: 1.0)
         XCTAssertLessThan(sidebarView.addWorklaneIconAlpha, sidebarView.addWorklaneTitleAlpha)
     }

@@ -122,7 +122,6 @@ enum AppConfigTOML {
                 section = .confirmations
                 continue
             }
-
             guard let assignment = parseAssignment(line) else {
                 return nil
             }

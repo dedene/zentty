@@ -170,4 +170,5 @@ if [[ "${ZENTTY_CODEX_NOTIFY_DISABLED:-0}" != "1" ]] \
 fi
 
 export ZENTTY_AGENT_TOOL="codex"
+export ZENTTY_CODEX_PID=$$
 exec "$(cd "$(dirname "$0")" && pwd)/zentty-agent-wrapper" "$@"

@@ -2,6 +2,7 @@
 
 [[ "${ZENTTY_ZSH_INTEGRATION_LOADED:-0}" == "1" ]] && return 0
 typeset -g ZENTTY_ZSH_INTEGRATION_LOADED=1
+typeset -g _zentty_shell_activity_last=""
 
 _zentty_ensure_wrapper_path() {
     [[ -n "${ZENTTY_WRAPPER_BIN_DIR:-}" ]] || return 0
@@ -14,6 +15,13 @@ _zentty_agent_signal() {
     [[ "${ZENTTY_SHELL_INTEGRATION:-1}" == "0" ]] && return 0
     [[ -n "${ZENTTY_AGENT_BIN:-}" ]] || return 0
     "$ZENTTY_AGENT_BIN" agent-signal "$@" >/dev/null 2>&1 || true
+}
+
+_zentty_report_shell_activity() {
+    local state="$1"
+    [[ "$_zentty_shell_activity_last" == "$state" ]] && return 0
+    typeset -g _zentty_shell_activity_last="$state"
+    _zentty_agent_signal shell-state "$state"
 }
 
 _zentty_is_remote_shell() {
@@ -77,7 +85,7 @@ _zentty_precmd() {
     # entries to clear multi-level stacks (e.g., Ink/React TUI layers).
     # Extra pops beyond the stack depth are harmless no-ops.
     builtin printf '\e[<99u'
-    _zentty_agent_signal shell-state prompt
+    _zentty_report_shell_activity prompt
     _zentty_emit_pane_context
     # Reset terminal title to CWD after command completes
     builtin printf '\e]2;%s\a' "${PWD/#$HOME/~}"
@@ -103,7 +111,7 @@ _zentty_is_navigation_command() {
 
 _zentty_preexec() {
     local cmd="${1%%[[:space:]]*}"
-    _zentty_is_navigation_command "$cmd" || _zentty_agent_signal shell-state running
+    _zentty_is_navigation_command "$cmd" || _zentty_report_shell_activity running
     # Set terminal title to the running command (first line only)
     builtin printf '\e]2;%s\a' "${1%%$'\n'*}"
 }
