@@ -139,7 +139,25 @@ final class OpenWithService: OpenWithServing {
             return false
         }
 
-        return runOpen(arguments: ["-a", applicationURL.path, workingDirectory])
+        let pathToOpen = resolvedPath(for: target, workingDirectory: workingDirectory)
+        return runOpen(arguments: ["-a", applicationURL.path, pathToOpen])
+    }
+
+    private func resolvedPath(for target: OpenWithResolvedTarget, workingDirectory: String) -> String {
+        guard let builtInID = target.builtInID else {
+            return workingDirectory
+        }
+
+        let directoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
+        if let projectFileURL = ProjectFileResolver.resolveProjectFile(
+            for: builtInID,
+            in: directoryURL,
+            fileManager: fileManager
+        ) {
+            return projectFileURL.path
+        }
+
+        return workingDirectory
     }
 
     private func discoveredAvailableTargetIDs(preferences: AppConfig.OpenWith) -> [String] {
