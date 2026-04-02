@@ -23,7 +23,7 @@ enum AppMenuBuilder {
         let settingsItem = NSMenuItem(
             title: "Settings…",
             action: #selector(AppDelegate.showSettingsWindow(_:)),
-            keyEquivalent: ","
+            keyEquivalent: ""
         )
         let quitItem = NSMenuItem(
             title: "Quit \(appName)",
@@ -31,7 +31,7 @@ enum AppMenuBuilder {
             keyEquivalent: "q"
         )
 
-        settingsItem.keyEquivalentModifierMask = [.command]
+        apply(shortcutManager.shortcut(for: .openSettings), to: settingsItem)
         quitItem.keyEquivalentModifierMask = [.command]
         appMenu.addItem(settingsItem)
         appMenu.addItem(makeSeparatorItem())

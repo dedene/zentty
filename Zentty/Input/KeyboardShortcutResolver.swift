@@ -487,9 +487,13 @@ enum AppCommandRegistry {
             id: .openSettings,
             title: "Open Settings",
             category: .general,
-            defaultShortcut: nil,
+            defaultShortcut: .init(key: .character(","), modifiers: [.command]),
             action: .openSettings,
-            menuItem: nil
+            menuItem: AppCommandMenuItem(
+                section: .file,
+                title: "Settings…",
+                selector: #selector(AppDelegate.showSettingsWindow(_:))
+            )
         ),
         AppCommandDefinition(
             id: .closeWindow,

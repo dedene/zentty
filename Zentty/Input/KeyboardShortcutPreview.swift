@@ -137,6 +137,18 @@ struct SystemKeyboardPreviewSourceProvider: KeyboardPreviewSourceProviding {
         return output.uppercased()
     }
 
+    func currentInputSourceName() -> String? {
+        guard let inputSource = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else {
+            return nil
+        }
+
+        guard let rawName = TISGetInputSourceProperty(inputSource, kTISPropertyLocalizedName) else {
+            return nil
+        }
+
+        return unsafeBitCast(rawName, to: CFString.self) as String
+    }
+
     private func currentUnicodeKeyLayoutData() -> CFData? {
         guard let inputSource = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else {
             return nil
