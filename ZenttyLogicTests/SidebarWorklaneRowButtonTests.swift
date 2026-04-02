@@ -150,9 +150,10 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
 
         XCTAssertEqual(row.statusTextForTesting, "Question")
         XCTAssertEqual(row.statusSymbolNameForTesting, "questionmark.circle")
+        let theme = ZenttyTheme.fallback(for: nil)
         XCTAssertEqual(
-            try! XCTUnwrap(row.statusTextColorForTesting.usingColorSpace(.deviceRGB)),
-            try! XCTUnwrap(NSColor.systemBlue.usingColorSpace(.deviceRGB))
+            row.statusTextColorForTesting.srgbClamped,
+            theme.statusNeedsInput.srgbClamped
         )
     }
 
@@ -343,9 +344,10 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
 
         XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Question"])
         XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["questionmark.circle"])
+        let theme = ZenttyTheme.fallback(for: nil)
         XCTAssertEqual(
-            try! XCTUnwrap(row.statusTextColorForTesting.usingColorSpace(.deviceRGB)),
-            try! XCTUnwrap(NSColor.systemBlue.usingColorSpace(.deviceRGB))
+            row.statusTextColorForTesting.srgbClamped,
+            theme.statusNeedsInput.srgbClamped
         )
     }
 
@@ -423,7 +425,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(row.detailTextsForTesting, [])
     }
 
-    func test_agent_ready_row_uses_same_status_color_as_stopped_early() {
+    func test_agent_ready_and_stopped_early_use_distinct_status_colors() {
         let readyRow = makeRow(width: 320, height: 110)
         let stoppedRow = makeRow(width: 320, height: 110)
         let theme = ZenttyTheme.fallback(for: nil)
@@ -469,7 +471,9 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             animated: false
         )
 
-        XCTAssertEqual(readyRow.statusTextColorForTesting.srgbClamped, stoppedRow.statusTextColorForTesting.srgbClamped)
+        XCTAssertEqual(readyRow.statusTextColorForTesting.srgbClamped, theme.statusReady.srgbClamped)
+        XCTAssertEqual(stoppedRow.statusTextColorForTesting.srgbClamped, theme.statusStopped.srgbClamped)
+        XCTAssertNotEqual(readyRow.statusTextColorForTesting.srgbClamped, stoppedRow.statusTextColorForTesting.srgbClamped)
     }
 
     func test_worklane_row_spills_long_branch_into_detail_line_when_width_is_tight() {
@@ -654,7 +658,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         )
     }
 
-    func test_running_status_shimmer_keeps_light_highlight_behavior() {
+    func test_running_status_uses_theme_status_running_color() {
         let row = makeRow()
         let theme = darkTheme(foreground: "#F0F3F6")
 
@@ -669,9 +673,9 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             animated: false
         )
 
-        XCTAssertLessThan(
-            colorDistance(row.statusTextColorForTesting, theme.sidebarWorkingTextHighlight),
-            colorDistance(row.statusTextColorForTesting, theme.sidebarGradientStart)
+        XCTAssertEqual(
+            row.statusTextColorForTesting.srgbClamped,
+            theme.statusRunning.srgbClamped
         )
     }
 
