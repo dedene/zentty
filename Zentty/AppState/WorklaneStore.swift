@@ -660,7 +660,15 @@ final class WorklaneStore {
             ? layoutContext.singlePaneWidth
             : (layoutContext.firstPaneWidthAfterSingleSplit ?? defaultColumnWidth)
         for index in columns.indices {
-            columns[index].width = index == 0 ? firstColumnWidth : defaultColumnWidth
+            let width: CGFloat
+            if index == 0 {
+                width = firstColumnWidth
+            } else if columns.count == 2, layoutContext.firstPaneWidthAfterSingleSplit != nil {
+                width = firstColumnWidth
+            } else {
+                width = defaultColumnWidth
+            }
+            columns[index].width = width
             columns[index].resetPaneHeights()
         }
 

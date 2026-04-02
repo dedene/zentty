@@ -163,7 +163,10 @@ struct PaneLayoutContext: Equatable, Sendable {
             return newPaneWidth
         }
 
-        return preset.firstSplitWidth(for: displayClass, viewportWidth: availableWidth)
+        return preset.firstSplitWidth(
+            for: displayClass,
+            viewportWidth: availableWidth - sizing.interPaneSpacing
+        )
     }
 
     var firstPaneWidthAfterSingleSplit: CGFloat? {
@@ -171,7 +174,10 @@ struct PaneLayoutContext: Equatable, Sendable {
             return nil
         }
 
-        return preset.firstSplitWidth(for: displayClass, viewportWidth: availableWidth)
+        return preset.firstSplitWidth(
+            for: displayClass,
+            viewportWidth: availableWidth - sizing.interPaneSpacing
+        )
     }
 
     var singlePaneWidth: CGFloat {
