@@ -199,8 +199,12 @@ extension ShortcutPreset {
 
         // Worklanes
         .init(commandID: .newWorklane, keyCode: UInt16(kVK_ANSI_T), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .newWorklane, keyCode: UInt16(kVK_ANSI_N), keyKind: .character, modifiers: [.command]),
         .init(commandID: .nextWorklane, keyCode: UInt16(kVK_Tab), keyKind: .tab, modifiers: [.control]),
         .init(commandID: .previousWorklane, keyCode: UInt16(kVK_Tab), keyKind: .tab, modifiers: [.control, .shift]),
+
+        // Windows
+        .init(commandID: .newWindow, keyCode: UInt16(kVK_ANSI_N), keyKind: .character, modifiers: [.command, .shift]),
 
         // General
         .init(commandID: .showCommandPalette, keyCode: UInt16(kVK_ANSI_F), keyKind: .character, modifiers: [.command]),
@@ -249,6 +253,9 @@ extension ShortcutPreset {
         .init(commandID: .newWorklane, keyCode: UInt16(kVK_ANSI_N), keyKind: .character, modifiers: [.command]),
         .init(commandID: .nextWorklane, keyCode: UInt16(kVK_ANSI_RightBracket), keyKind: .character, modifiers: [.command]),
         .init(commandID: .previousWorklane, keyCode: UInt16(kVK_ANSI_LeftBracket), keyKind: .character, modifiers: [.command]),
+
+        // Windows
+        .init(commandID: .newWindow, keyCode: UInt16(kVK_ANSI_N), keyKind: .character, modifiers: [.command, .shift]),
 
         // General
         .init(commandID: .showCommandPalette, keyCode: UInt16(kVK_ANSI_Semicolon), keyKind: .character, modifiers: [.command]),

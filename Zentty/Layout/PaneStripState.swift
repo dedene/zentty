@@ -1077,6 +1077,81 @@ struct PaneStripState: Equatable, Sendable {
     }
 
     @discardableResult
+    mutating func arrangeGoldenWidth(focusWide: Bool) -> Bool {
+        guard columns.count >= 2, let focusedIdx = focusedColumnIndex else {
+            return false
+        }
+
+        let neighborIdx: Int
+        if focusedIdx + 1 < columns.count {
+            neighborIdx = focusedIdx + 1
+        } else {
+            neighborIdx = focusedIdx - 1
+        }
+
+        let phi: CGFloat = (1 + sqrt(5)) / 2
+        let goldenMajor: CGFloat = phi / (1 + phi)
+        let focusedRatio = focusWide ? goldenMajor : 1 - goldenMajor
+
+        let combinedWidth = columns[focusedIdx].width + columns[neighborIdx].width
+        let targetFocusedWidth = combinedWidth * focusedRatio
+        let targetNeighborWidth = combinedWidth - targetFocusedWidth
+
+        guard abs(columns[focusedIdx].width - targetFocusedWidth) > 0.001 else {
+            return false
+        }
+
+        columns[focusedIdx].width = targetFocusedWidth
+        columns[neighborIdx].width = targetNeighborWidth
+        return true
+    }
+
+    @discardableResult
+    mutating func arrangeGoldenHeight(focusTall: Bool, availableSize: CGSize) -> Bool {
+        guard let focusedIdx = focusedColumnIndex else {
+            return false
+        }
+
+        let column = columns[focusedIdx]
+        guard column.panes.count >= 2 else {
+            return false
+        }
+
+        let focusedPaneIdx = column.focusedPaneIndex
+        let neighborPaneIdx: Int
+        if focusedPaneIdx + 1 < column.panes.count {
+            neighborPaneIdx = focusedPaneIdx + 1
+        } else {
+            neighborPaneIdx = focusedPaneIdx - 1
+        }
+
+        let phi: CGFloat = (1 + sqrt(5)) / 2
+        let goldenMajor: CGFloat = phi / (1 + phi)
+        let focusedRatio = focusTall ? goldenMajor : 1 - goldenMajor
+
+        let totalHeight = layoutSizing.paneHeight(for: availableSize.height)
+        let currentHeights = column.resolvedPaneHeights(
+            totalHeight: totalHeight,
+            spacing: layoutSizing.interPaneSpacing
+        )
+
+        let combinedHeight = currentHeights[focusedPaneIdx] + currentHeights[neighborPaneIdx]
+        let targetFocusedHeight = combinedHeight * focusedRatio
+        let targetNeighborHeight = combinedHeight - targetFocusedHeight
+
+        guard abs(currentHeights[focusedPaneIdx] - targetFocusedHeight) > 0.001 else {
+            return false
+        }
+
+        var updatedHeights = currentHeights
+        updatedHeights[focusedPaneIdx] = targetFocusedHeight
+        updatedHeights[neighborPaneIdx] = targetNeighborHeight
+        columns[focusedIdx].paneHeights = updatedHeights
+        columns[focusedIdx].reconcilePaneHeights()
+        return true
+    }
+
+    @discardableResult
     mutating func updateLayoutSizing(_ layoutSizing: PaneLayoutSizing) -> Bool {
         guard self.layoutSizing != layoutSizing else {
             return false
@@ -1260,6 +1335,14 @@ struct PaneStripState: Equatable, Sendable {
 
         let preferredEdge: PaneHorizontalEdge = focusedColumnIndex > dividerColumnIndex ? .left : .right
         return focusedHorizontalResizeTarget(preferredEdge: preferredEdge)
+    }
+
+    func shouldInvertVerticalKeyboardResizeDelta() -> Bool {
+        guard let divider = preferredDivider(for: .vertical) else {
+            return false
+        }
+
+        return isFocusedPaneAbove(divider: divider)
     }
 
     @discardableResult
@@ -1602,6 +1685,18 @@ struct PaneStripState: Equatable, Sendable {
 
             return columns[focusedColumnIndex].focusedPaneIndex == dividerPaneIndex + 1 ? -delta : delta
         }
+    }
+
+    private func isFocusedPaneAbove(divider: PaneDivider) -> Bool {
+        guard case .pane(let columnID, let afterPaneID) = divider,
+              let focusedColumnIndex,
+              columns.indices.contains(focusedColumnIndex),
+              columns[focusedColumnIndex].id == columnID,
+              let dividerPaneIndex = columns[focusedColumnIndex].panes.firstIndex(where: { $0.id == afterPaneID }) else {
+            return false
+        }
+
+        return columns[focusedColumnIndex].focusedPaneIndex <= dividerPaneIndex
     }
 
     private func minimumColumnWidth(
