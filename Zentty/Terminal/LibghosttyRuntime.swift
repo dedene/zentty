@@ -378,9 +378,17 @@ private func libghosttyReadClipboardCallback(
         let userdata,
         let surface = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue().surface,
         let pasteboard = NSPasteboard.ghostty(location),
-        let string = TerminalClipboard.pastedString(from: pasteboard)
+        let content = TerminalClipboard.pastedContent(from: pasteboard)
     else {
         return false
+    }
+
+    let string: String
+    switch content {
+    case .text(let text):
+        string = text
+    case .filePath(let path):
+        string = path
     }
 
     string.withCString { pointer in
