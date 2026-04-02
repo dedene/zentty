@@ -87,9 +87,9 @@ final class PaneLayoutPreferencesTests: XCTestCase {
             leadingVisibleInset: 290
         )
 
-        XCTAssertEqual(laptopContext.newPaneWidth, 800, accuracy: 0.001)
-        XCTAssertEqual(largeDisplayContext.newPaneWidth, 860, accuracy: 0.001)
-        XCTAssertEqual(ultrawideContext.newPaneWidth, 1376, accuracy: 0.001)
+        XCTAssertEqual(laptopContext.newPaneWidth, 606.667, accuracy: 0.001)
+        XCTAssertEqual(largeDisplayContext.newPaneWidth, 715, accuracy: 0.001)
+        XCTAssertEqual(ultrawideContext.newPaneWidth, 1260, accuracy: 0.001)
     }
 
     func test_first_split_is_resized_only_for_ultrawide_display_class() {
@@ -117,11 +117,11 @@ final class PaneLayoutPreferencesTests: XCTestCase {
 
         XCTAssertNil(laptopContext.firstPaneWidthAfterSingleSplit)
         XCTAssertNil(largeDisplayContext.firstPaneWidthAfterSingleSplit)
-        XCTAssertEqual(ultrawideContext.firstPaneWidthAfterSingleSplit ?? 0, 1720, accuracy: 0.001)
+        XCTAssertEqual(ultrawideContext.firstPaneWidthAfterSingleSplit ?? 0, 1575, accuracy: 0.001)
 
-        XCTAssertEqual(laptopContext.newPaneWidth(existingPaneCount: 1), 800, accuracy: 0.001)
-        XCTAssertEqual(largeDisplayContext.newPaneWidth(existingPaneCount: 1), 860, accuracy: 0.001)
-        XCTAssertEqual(ultrawideContext.newPaneWidth(existingPaneCount: 1), 1720, accuracy: 0.001)
+        XCTAssertEqual(laptopContext.newPaneWidth(existingPaneCount: 1), 606.667, accuracy: 0.001)
+        XCTAssertEqual(largeDisplayContext.newPaneWidth(existingPaneCount: 1), 715, accuracy: 0.001)
+        XCTAssertEqual(ultrawideContext.newPaneWidth(existingPaneCount: 1), 1575, accuracy: 0.001)
     }
 
     func test_single_pane_width_always_uses_full_readable_width() {
