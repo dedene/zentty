@@ -25,8 +25,12 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         static let conflictSpacing: CGFloat = 6
         static let previewHeight: CGFloat = 182
         static let headerRowHeight: CGFloat = max(searchHeight, headerActionSize)
+        static let layoutIndicatorSpacingAbove: CGFloat = 4
+        static let layoutIndicatorHeight: CGFloat = 14
+        static let layoutIndicatorSpacingBelow: CGFloat = contentSpacing - layoutIndicatorSpacingAbove
         static let preferredViewportHeight: CGFloat =
-            topInset + headerRowHeight + contentSpacing + shellHeight + bottomInset
+            topInset + headerRowHeight + layoutIndicatorSpacingAbove + layoutIndicatorHeight
+            + layoutIndicatorSpacingBelow + shellHeight + bottomInset
     }
 
     private enum ShortcutIssue: Equatable {
@@ -65,6 +69,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     private let conflictLabel = NSTextField(labelWithString: "This shortcut conflicts with another shortcut:")
     private let conflictTargetButton = NSButton(title: "", target: nil, action: nil)
     private let keyboardPreviewView = KeyboardShortcutPreviewView()
+    private let layoutIndicatorLabel = NSTextField(labelWithString: "")
     private let emptyStateLabel = NSTextField(labelWithString: "No shortcuts match your search.")
 
     private var currentShortcuts: AppConfig.Shortcuts = .default
@@ -116,6 +121,11 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         headerRow.addArrangedSubview(overflowButton)
         overflowButton.widthAnchor.constraint(equalToConstant: Layout.headerActionSize).isActive = true
         overflowButton.heightAnchor.constraint(equalToConstant: Layout.headerActionSize).isActive = true
+
+        configureLayoutIndicator()
+        stackView.addArrangedSubview(layoutIndicatorLabel)
+        stackView.setCustomSpacing(Layout.layoutIndicatorSpacingAbove, after: headerRow)
+        stackView.setCustomSpacing(Layout.layoutIndicatorSpacingBelow, after: layoutIndicatorLabel)
 
         let shellView = makeShellView()
         stackView.addArrangedSubview(shellView)
@@ -368,6 +378,38 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         overflowButton.action = #selector(handleOverflowButtonClicked(_:))
 
         overflowMenu.removeAllItems()
+
+        for preset in ShortcutPreset.allCases {
+            let item = NSMenuItem(
+                title: preset.menuTitle,
+                action: #selector(handleApplyPreset(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = preset
+            overflowMenu.addItem(item)
+        }
+
+        overflowMenu.addItem(.separator())
+
+        let exportItem = NSMenuItem(
+            title: "Export Shortcuts…",
+            action: #selector(handleExportShortcuts(_:)),
+            keyEquivalent: ""
+        )
+        exportItem.target = self
+        overflowMenu.addItem(exportItem)
+
+        let importItem = NSMenuItem(
+            title: "Import Shortcuts…",
+            action: #selector(handleImportShortcuts(_:)),
+            keyEquivalent: ""
+        )
+        importItem.target = self
+        overflowMenu.addItem(importItem)
+
+        overflowMenu.addItem(.separator())
+
         let resetItem = NSMenuItem(
             title: "Reset All Shortcuts",
             action: #selector(handleResetAllShortcuts(_:)),
@@ -957,7 +999,33 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
     @objc
     private func handleResetAllShortcuts(_ sender: Any?) {
-        resetAllShortcuts()
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Reset All Shortcuts?"
+        alert.informativeText = "This will restore all shortcuts to their factory defaults."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.resetAllShortcuts()
+        }
+    }
+
+    @objc
+    private func handleApplyPreset(_ sender: NSMenuItem) {
+        guard let preset = sender.representedObject as? ShortcutPreset else { return }
+        applyPresetWithConfirmation(preset)
+    }
+
+    @objc
+    private func handleExportShortcuts(_ sender: Any?) {
+        exportShortcuts()
+    }
+
+    @objc
+    private func handleImportShortcuts(_ sender: Any?) {
+        importShortcuts()
     }
 
     @objc
@@ -974,6 +1042,142 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     @objc
     private func handleKeyboardInputSourceChanged(_ notification: Notification) {
         refreshDetailPane()
+        refreshLayoutIndicator()
+    }
+
+    // MARK: - Layout Indicator
+
+    private func configureLayoutIndicator() {
+        layoutIndicatorLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        layoutIndicatorLabel.textColor = .tertiaryLabelColor
+        layoutIndicatorLabel.translatesAutoresizingMaskIntoConstraints = false
+        refreshLayoutIndicator()
+    }
+
+    private func refreshLayoutIndicator() {
+        let sourceProvider = SystemKeyboardPreviewSourceProvider()
+        let name = sourceProvider.currentInputSourceName() ?? "Unknown"
+        let geometry = sourceProvider.currentGeometry()
+        let geometryLabel: String
+        switch geometry {
+        case .ansi:
+            geometryLabel = "ANSI"
+        case .iso:
+            geometryLabel = "ISO"
+        case .jis:
+            geometryLabel = "JIS"
+        }
+        layoutIndicatorLabel.stringValue = "Keyboard: \(name) (\(geometryLabel))"
+    }
+
+    // MARK: - Presets
+
+    private func applyPresetWithConfirmation(_ preset: ShortcutPreset) {
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Apply \(preset.title)?"
+        alert.informativeText = preset.confirmationMessage
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Apply")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.applyPreset(preset)
+        }
+    }
+
+    private func applyPreset(_ preset: ShortcutPreset) {
+        recordingCommandID = nil
+        issueByCommandID.removeAll()
+        let resolver = ShortcutPresetResolver()
+        let bindings = resolver.resolve(preset)
+        try? configStore.update { config in
+            config.shortcuts = AppConfig.Shortcuts(bindings: bindings)
+        }
+        searchField.stringValue = ""
+        searchQuery = ""
+        apply(shortcuts: configStore.current.shortcuts)
+    }
+
+    // MARK: - Export / Import
+
+    private func exportShortcuts() {
+        guard let window = view.window else { return }
+
+        let allBindings = resolveAllBindingsForExport()
+        let toml = AppConfigTOML.encodeShortcuts(allBindings)
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let dateString = formatter.string(from: Date())
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "zentty-shortcuts-\(dateString).toml"
+        panel.allowedContentTypes = [.init(filenameExtension: "toml") ?? .plainText]
+        panel.canCreateDirectories = true
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? toml.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func resolveAllBindingsForExport() -> [ShortcutBindingOverride] {
+        AppCommandRegistry.definitions.compactMap { definition in
+            let shortcut = shortcutManager.shortcut(for: definition.id)
+            guard shortcut != definition.defaultShortcut || shortcutManager.isUnbound(definition.id) else {
+                return nil
+            }
+            return ShortcutBindingOverride(commandID: definition.id, shortcut: shortcut)
+        }
+    }
+
+    private func importShortcuts() {
+        guard let window = view.window else { return }
+
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.init(filenameExtension: "toml") ?? .plainText]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.importShortcutsFromFile(url, window: window)
+        }
+    }
+
+    private func importShortcutsFromFile(_ url: URL, window: NSWindow) {
+        guard let contents = try? String(contentsOf: url, encoding: .utf8),
+              let bindings = AppConfigTOML.decodeShortcuts(contents) else {
+            let alert = NSAlert()
+            alert.messageText = "Import Failed"
+            alert.informativeText = "The file could not be read or contains invalid shortcut bindings."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.beginSheetModal(for: window)
+            return
+        }
+
+        let filename = url.lastPathComponent
+        let alert = NSAlert()
+        alert.messageText = "Import shortcuts from \"\(filename)\"?"
+        alert.informativeText = "This will replace all current shortcut bindings."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Import")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.applyImportedBindings(bindings)
+        }
+    }
+
+    private func applyImportedBindings(_ bindings: [ShortcutBindingOverride]) {
+        recordingCommandID = nil
+        issueByCommandID.removeAll()
+        try? configStore.update { config in
+            config.shortcuts = AppConfig.Shortcuts(bindings: bindings)
+        }
+        searchField.stringValue = ""
+        searchQuery = ""
+        apply(shortcuts: configStore.current.shortcuts)
     }
 }
 
