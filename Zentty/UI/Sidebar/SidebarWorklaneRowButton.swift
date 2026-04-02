@@ -1013,18 +1013,16 @@ final class SidebarWorklaneRowButton: NSButton {
 
     private func statusTextColor(for summary: WorklaneSidebarSummary) -> NSColor {
         switch summary.attentionState {
-        case .needsInput:
-            return NSColor.systemBlue
-        case .unresolvedStop, .ready:
-            return NSColor.systemOrange
         case .running:
-            return summary.isActive
-                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.74)
-                : currentTheme.secondaryText
+            return currentTheme.statusRunning
+        case .needsInput:
+            return currentTheme.statusNeedsInput
+        case .unresolvedStop:
+            return currentTheme.statusStopped
+        case .ready:
+            return currentTheme.statusReady
         case nil:
-            return summary.isActive
-                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.74)
-                : currentTheme.secondaryText
+            return currentTheme.statusIdle
         }
     }
 
@@ -1033,19 +1031,17 @@ final class SidebarWorklaneRowButton: NSButton {
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
-        let focusedBaseColor =
-            (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
         switch paneRow.attentionState {
-        case .needsInput:
-            return NSColor.systemBlue
-        case .unresolvedStop, .ready:
-            return NSColor.systemOrange
         case .running:
-            return paneRow.isFocused
-                ? focusedBaseColor.withAlphaComponent(0.74) : currentTheme.secondaryText
+            return currentTheme.statusRunning
+        case .needsInput:
+            return currentTheme.statusNeedsInput
+        case .unresolvedStop:
+            return currentTheme.statusStopped
+        case .ready:
+            return currentTheme.statusReady
         case nil:
-            return paneRow.isFocused
-                ? focusedBaseColor.withAlphaComponent(0.74) : currentTheme.secondaryText
+            return currentTheme.statusIdle
         }
     }
 

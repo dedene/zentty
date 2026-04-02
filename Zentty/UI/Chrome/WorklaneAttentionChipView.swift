@@ -8,6 +8,7 @@ struct WorklaneAttentionChipPresentation: Equatable {
     var interactionKind: PaneInteractionKind?
     var interactionLabel: String?
     var interactionSymbolName: String?
+    var attentionState: WorklaneAttentionState?
 
     init(
         statusText: String?,
@@ -16,7 +17,8 @@ struct WorklaneAttentionChipPresentation: Equatable {
         artifactURL: URL?,
         interactionKind: PaneInteractionKind? = nil,
         interactionLabel: String? = nil,
-        interactionSymbolName: String? = nil
+        interactionSymbolName: String? = nil,
+        attentionState: WorklaneAttentionState? = nil
     ) {
         self.statusText = statusText
         self.toolText = toolText
@@ -25,6 +27,7 @@ struct WorklaneAttentionChipPresentation: Equatable {
         self.interactionKind = interactionKind
         self.interactionLabel = interactionLabel
         self.interactionSymbolName = interactionSymbolName
+        self.attentionState = attentionState
     }
 }
 
@@ -40,6 +43,7 @@ final class WorklaneAttentionChipView: NSView {
     private let stackView = NSStackView()
     private var artifactURL: URL?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var currentAttentionState: WorklaneAttentionState?
     private var currentStateSymbolName = ""
 
     override init(frame frameRect: NSRect) {
@@ -121,7 +125,8 @@ final class WorklaneAttentionChipView: NSView {
                 artifactURL: attention.artifactLink?.url,
                 interactionKind: attention.interactionKind,
                 interactionLabel: attention.interactionLabel,
-                interactionSymbolName: attention.interactionSymbolName
+                interactionSymbolName: attention.interactionSymbolName,
+                attentionState: attention.state
             )
         )
     }
@@ -130,6 +135,7 @@ final class WorklaneAttentionChipView: NSView {
         guard let presentation else {
             isHidden = true
             artifactURL = nil
+            currentAttentionState = nil
             currentStateSymbolName = ""
             stateLabel.stringValue = ""
             toolLabel.stringValue = ""
@@ -142,6 +148,7 @@ final class WorklaneAttentionChipView: NSView {
         }
 
         isHidden = false
+        currentAttentionState = presentation.attentionState
         stateLabel.stringValue = WorklaneContextFormatter.trimmed(presentation.statusText)
             ?? presentation.interactionLabel
             ?? presentation.interactionKind?.defaultLabel
@@ -161,22 +168,49 @@ final class WorklaneAttentionChipView: NSView {
             [stateIconView, stateLabel, toolLabel, artifactButton].filter { !$0.isHidden },
             in: .leading
         )
+
+        applyStatusColors(animated: false)
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {
         currentTheme = theme
-        stateLabel.textColor = theme.primaryText
+        applyStatusColors(animated: animated)
+    }
+
+    private func applyStatusColors(animated: Bool) {
+        let theme = currentTheme
+        let statusColor = chipStatusColor(for: currentAttentionState, theme: theme)
+        stateLabel.textColor = statusColor
         toolLabel.textColor = theme.secondaryText
-        stateIconView.contentTintColor = theme.primaryText
+        stateIconView.contentTintColor = statusColor
         artifactButton.contentTintColor = theme.primaryText
 
-        let border = theme.contextStripBorder
-        let background = theme.contextStripBackground
+        let baseBackground = theme.contextStripBackground
             .mixed(towards: theme.sidebarButtonActiveBackground, amount: 0.3)
+        let background = baseBackground.mixed(towards: statusColor, amount: 0.12)
+        let border = theme.contextStripBorder.mixed(towards: statusColor, amount: 0.22)
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = background.cgColor
             self.layer?.borderColor = border.cgColor
+        }
+    }
+
+    private func chipStatusColor(
+        for attentionState: WorklaneAttentionState?,
+        theme: ZenttyTheme
+    ) -> NSColor {
+        switch attentionState {
+        case .running:
+            return theme.statusRunning
+        case .needsInput:
+            return theme.statusNeedsInput
+        case .unresolvedStop:
+            return theme.statusStopped
+        case .ready:
+            return theme.statusReady
+        case nil:
+            return theme.primaryText
         }
     }
 
