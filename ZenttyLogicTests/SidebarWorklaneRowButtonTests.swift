@@ -855,6 +855,153 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertTrue(window.isVisible)
     }
 
+    func test_sidebar_view_assigns_distinct_phase_offsets_to_visible_working_rows() throws {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 220))
+        _ = makeVisibleWindow(containing: sidebarView)
+
+        sidebarView.render(
+            summaries: [
+                makeSidebarSummary(worklaneID: WorklaneID("worklane-api"), primaryText: "API"),
+                makeSidebarSummary(worklaneID: WorklaneID("worklane-web"), primaryText: "Web"),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        sidebarView.layoutSubtreeIfNeeded()
+        sidebarView.updateShimmerVisibilityForTesting()
+
+        let buttons = try sidebarWorklaneButtons(in: sidebarView)
+        XCTAssertEqual(buttons.count, 2)
+        XCTAssertNotEqual(
+            buttons[0].shimmerPhaseOffsetForTesting,
+            buttons[1].shimmerPhaseOffsetForTesting
+        )
+    }
+
+    func test_worklane_row_keeps_primary_and_status_shimmer_offsets_aligned() {
+        let row = makeRow()
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Running",
+                attentionState: .running,
+                isWorking: true
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(
+            row.shimmerPhaseOffsetForTesting,
+            row.statusShimmerPhaseOffsetForTesting
+        )
+    }
+
+    func test_pane_row_keeps_primary_and_status_shimmer_offsets_aligned() {
+        let row = makeRow(width: 320, height: 110)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("pane-agent"),
+                        primaryText: "Claude Code",
+                        trailingText: "main",
+                        detailText: "…/zentty",
+                        statusText: "╰ Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                ],
+                isWorking: true
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(
+            row.panePrimaryShimmerPhaseOffsetsForTesting,
+            row.paneStatusShimmerPhaseOffsetsForTesting
+        )
+    }
+
+    func test_pane_row_shimmer_offsets_follow_pane_ids_across_rerenders() {
+        let row = makeRow(width: 320, height: 140)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("pane-api"),
+                        primaryText: "API",
+                        trailingText: "main",
+                        detailText: "…/api",
+                        statusText: "╰ Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("pane-web"),
+                        primaryText: "Web",
+                        trailingText: "feat/shimmer",
+                        detailText: "…/web",
+                        statusText: "╰ Running",
+                        attentionState: .running,
+                        isFocused: false,
+                        isWorking: true
+                    ),
+                ],
+                isWorking: true
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let initialOffsets = row.panePrimaryShimmerPhaseOffsetsForTesting
+        XCTAssertEqual(initialOffsets.count, 2)
+        XCTAssertNotEqual(initialOffsets[0], initialOffsets[1])
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("pane-web"),
+                        primaryText: "Web",
+                        trailingText: "feat/shimmer",
+                        detailText: "…/web",
+                        statusText: "╰ Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("pane-api"),
+                        primaryText: "API",
+                        trailingText: "main",
+                        detailText: "…/api",
+                        statusText: "╰ Running",
+                        attentionState: .running,
+                        isFocused: false,
+                        isWorking: true
+                    ),
+                ],
+                isWorking: true
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let rerenderedOffsets = row.panePrimaryShimmerPhaseOffsetsForTesting
+        XCTAssertEqual(rerenderedOffsets.count, 2)
+        XCTAssertEqual(rerenderedOffsets[0], initialOffsets[1])
+        XCTAssertEqual(rerenderedOffsets[1], initialOffsets[0])
+    }
+
     func test_sidebar_view_keeps_offscreen_working_rows_static() throws {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 140))
         _ = makeVisibleWindow(containing: sidebarView)
