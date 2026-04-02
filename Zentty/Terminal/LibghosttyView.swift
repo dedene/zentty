@@ -448,7 +448,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         layerContentsRedrawPolicy = .duringViewResize
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerForDraggedTypes([.fileURL, .URL, .string, .png, .tiff])
     }
 
     @available(*, unavailable)
@@ -955,7 +955,7 @@ extension LibghosttyView: NSTextInputClient {
 
 extension LibghosttyView {
     private static let acceptedDropTypes: Set<NSPasteboard.PasteboardType> = [
-        .fileURL, .URL, .string,
+        .fileURL, .URL, .string, .png, .tiff,
     ]
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -979,6 +979,9 @@ extension LibghosttyView {
                 .joined(separator: " ")
         } else if let string = pasteboard.string(forType: .string) {
             content = string
+        } else if let imagePath = TerminalClipboard.pastedContent(from: pasteboard),
+                  case .filePath(let path) = imagePath {
+            content = path
         } else {
             content = nil
         }
