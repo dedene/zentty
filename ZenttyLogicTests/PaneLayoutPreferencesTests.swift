@@ -117,11 +117,11 @@ final class PaneLayoutPreferencesTests: XCTestCase {
 
         XCTAssertNil(laptopContext.firstPaneWidthAfterSingleSplit)
         XCTAssertNil(largeDisplayContext.firstPaneWidthAfterSingleSplit)
-        XCTAssertEqual(ultrawideContext.firstPaneWidthAfterSingleSplit ?? 0, 1575, accuracy: 0.001)
+        XCTAssertEqual(ultrawideContext.firstPaneWidthAfterSingleSplit ?? 0, 1572, accuracy: 0.001)
 
         XCTAssertEqual(laptopContext.newPaneWidth(existingPaneCount: 1), 606.667, accuracy: 0.001)
         XCTAssertEqual(largeDisplayContext.newPaneWidth(existingPaneCount: 1), 715, accuracy: 0.001)
-        XCTAssertEqual(ultrawideContext.newPaneWidth(existingPaneCount: 1), 1575, accuracy: 0.001)
+        XCTAssertEqual(ultrawideContext.newPaneWidth(existingPaneCount: 1), 1572, accuracy: 0.001)
     }
 
     func test_single_pane_width_always_uses_full_readable_width() {

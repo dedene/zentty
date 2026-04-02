@@ -481,7 +481,7 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.send(.splitHorizontally)
 
-        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [1575, 1575])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [1572, 1572])
     }
 
     func test_updating_layout_context_resizes_existing_single_pane_to_full_readable_width() {
