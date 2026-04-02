@@ -123,6 +123,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private let zoomTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.zoom")
     private var isApplicationActive = true
     private var isWindowKey = true
+    var onWindowDidClose: ((MainWindowController) -> Void)?
 
     init(
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
@@ -130,7 +131,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         openWithService: OpenWithServing = OpenWithService(),
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
-        paneLayoutDefaults: UserDefaults = .standard
+        paneLayoutDefaults: UserDefaults = .standard,
+        windowIndex: Int = 0
     ) {
         let resolvedConfigStore = configStore ?? AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.MainWindowController"),
@@ -169,7 +171,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.view.autoresizingMask = [.width, .height]
         window.contentView = rootViewController.view
         if !CommandLine.arguments.contains("-ApplePersistenceIgnoreState") {
-            window.setFrameAutosaveName("MainWindow")
+            let autosaveName = windowIndex == 0 ? "MainWindow" : "ZenttyWindow-\(windowIndex)"
+            window.setFrameAutosaveName(autosaveName)
         }
 
         self.rootViewController = rootViewController
@@ -218,15 +221,47 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func showWindow(_ sender: Any?) {
         isWindowKey = true
+        if !window.isVisible, window.frameAutosaveName.isEmpty || !window.setFrameUsingName(window.frameAutosaveName) {
+            // No saved frame — cascade from the current key window if one exists.
+            if let keyWindow = NSApp.keyWindow, keyWindow !== window {
+                let cascaded = keyWindow.cascadeTopLeft(from: .zero)
+                window.cascadeTopLeft(from: cascaded)
+            }
+        }
         window.makeKeyAndOrderFront(sender)
         syncWindowAppearance()
         layoutTrafficLights()
         rootViewController.activateWindowBindingsIfNeeded()
     }
 
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        let appDelegate = NSApp.delegate as? AppDelegate
+        let isLastWindow = (appDelegate?.windowControllerCount ?? 1) <= 1
+        // When this is the last window, applicationShouldTerminate handles confirmation — skip here to avoid double-prompt.
+        guard !isLastWindow,
+              configStore.current.confirmations.confirmBeforeClosingWindow,
+              anyPaneRequiresQuitConfirmation else {
+            return true
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Close Window?"
+        alert.informativeText = "All panes and running processes in this window will be terminated."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.appearance = terminalAppearance
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .alertFirstButtonReturn else { return }
+            self.window.close()
+        }
+        return false
+    }
+
     func windowWillClose(_ notification: Notification) {
-        // The main window is never re-opened after close — destroyAll is a one-way teardown.
         runtimeRegistry.destroyAll()
+        onWindowDidClose?(self)
     }
 
     func windowDidResize(_ notification: Notification) {
@@ -345,6 +380,26 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @objc
     func arrangePaneHeightFourPerColumn(_ sender: Any?) {
         handle(.pane(.arrangeVertically(.fourPerColumn)))
+    }
+
+    @objc
+    func arrangeWidthGoldenFocusWide(_ sender: Any?) {
+        handle(.pane(.arrangeGoldenRatio(.focusWide)))
+    }
+
+    @objc
+    func arrangeWidthGoldenFocusNarrow(_ sender: Any?) {
+        handle(.pane(.arrangeGoldenRatio(.focusNarrow)))
+    }
+
+    @objc
+    func arrangeHeightGoldenFocusTall(_ sender: Any?) {
+        handle(.pane(.arrangeGoldenRatio(.focusTall)))
+    }
+
+    @objc
+    func arrangeHeightGoldenFocusShort(_ sender: Any?) {
+        handle(.pane(.arrangeGoldenRatio(.focusShort)))
     }
 
     @objc
@@ -470,6 +525,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         rootViewController.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    func containsWorklane(_ worklaneID: WorklaneID) -> Bool {
+        rootViewController.containsWorklane(worklaneID)
+    }
+
+    func tearDownRuntime() {
+        runtimeRegistry.destroyAll()
     }
 
     var anyPaneRequiresQuitConfirmation: Bool {

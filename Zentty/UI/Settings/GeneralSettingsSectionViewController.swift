@@ -22,6 +22,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let soundPopupButton = NSPopUpButton()
     private let playButton = NSButton()
     private let closePaneSwitch = NSSwitch()
+    private let closeWindowSwitch = NSSwitch()
     private let quitSwitch = NSSwitch()
 
     init(configStore: AppConfigStore) {
@@ -95,11 +96,26 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         confirmStack.addArrangedSubview(closePaneRow)
         closePaneRow.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
 
-        let confirmSeparator = NSBox()
-        confirmSeparator.boxType = .separator
-        confirmSeparator.translatesAutoresizingMaskIntoConstraints = false
-        confirmStack.addArrangedSubview(confirmSeparator)
-        confirmSeparator.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+        let confirmSeparator1 = NSBox()
+        confirmSeparator1.boxType = .separator
+        confirmSeparator1.translatesAutoresizingMaskIntoConstraints = false
+        confirmStack.addArrangedSubview(confirmSeparator1)
+        confirmSeparator1.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+
+        let closeWindowRow = makeSwitchRow(
+            title: "Confirm before closing window",
+            subtitle: "Show a confirmation dialog when closing a window with running processes.",
+            toggle: closeWindowSwitch,
+            action: #selector(handleCloseWindowSwitchChanged(_:))
+        )
+        confirmStack.addArrangedSubview(closeWindowRow)
+        closeWindowRow.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+
+        let confirmSeparator2 = NSBox()
+        confirmSeparator2.boxType = .separator
+        confirmSeparator2.translatesAutoresizingMaskIntoConstraints = false
+        confirmStack.addArrangedSubview(confirmSeparator2)
+        confirmSeparator2.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
 
         let quitRow = makeSwitchRow(
             title: "Confirm before quitting",
@@ -131,6 +147,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     override func viewDidLoad() {
         super.viewDidLoad()
         closePaneSwitch.state = currentConfirmations.confirmBeforeClosingPane ? .on : .off
+        closeWindowSwitch.state = currentConfirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = currentConfirmations.confirmBeforeQuitting ? .on : .off
         refreshNotificationStatus()
     }
@@ -149,6 +166,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         currentConfirmations = confirmations
         guard isViewLoaded else { return }
         closePaneSwitch.state = confirmations.confirmBeforeClosingPane ? .on : .off
+        closeWindowSwitch.state = confirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = confirmations.confirmBeforeQuitting ? .on : .off
     }
 
@@ -326,6 +344,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private func handleClosePaneSwitchChanged(_ sender: NSSwitch) {
         try? configStore.update { config in
             config.confirmations.confirmBeforeClosingPane = sender.state == .on
+        }
+        currentConfirmations = configStore.current.confirmations
+    }
+
+    @objc
+    private func handleCloseWindowSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.confirmations.confirmBeforeClosingWindow = sender.state == .on
         }
         currentConfirmations = configStore.current.confirmations
     }

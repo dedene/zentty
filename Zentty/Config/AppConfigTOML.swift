@@ -71,6 +71,7 @@ enum AppConfigTOML {
         lines.append("")
         lines.append("[confirmations]")
         lines.append("confirm_before_closing_pane = \(config.confirmations.confirmBeforeClosingPane)")
+        lines.append("confirm_before_closing_window = \(config.confirmations.confirmBeforeClosingWindow)")
         lines.append("confirm_before_quitting = \(config.confirmations.confirmBeforeQuitting)")
 
         return lines.joined(separator: "\n") + "\n"
@@ -334,6 +335,9 @@ enum AppConfigTOML {
         case "confirm_before_closing_pane":
             guard let value = decodeBool(assignment.value) else { return false }
             config.confirmations.confirmBeforeClosingPane = value
+        case "confirm_before_closing_window":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.confirmations.confirmBeforeClosingWindow = value
         case "confirm_before_quitting":
             guard let value = decodeBool(assignment.value) else { return false }
             config.confirmations.confirmBeforeQuitting = value
