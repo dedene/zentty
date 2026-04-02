@@ -518,6 +518,7 @@ final class WorklaneStore {
             .resizeDown,
             .arrangeHorizontally,
             .arrangeVertically,
+            .arrangeGoldenRatio,
             .resetLayout,
             .toggleZoomOut:
             activeWorklane = worklane
@@ -716,6 +717,42 @@ final class WorklaneStore {
         notify(.layoutResized(activeWorklaneID))
     }
 
+    func arrangeActiveWorklaneGoldenWidth(
+        focusWide: Bool,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0
+    ) {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        guard worklane.paneStripState.arrangeGoldenWidth(focusWide: focusWide) else {
+            return
+        }
+
+        activeWorklane = worklane
+        notify(.layoutResized(activeWorklaneID))
+    }
+
+    func arrangeActiveWorklaneGoldenHeight(
+        focusTall: Bool,
+        availableSize: CGSize
+    ) {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        guard worklane.paneStripState.arrangeGoldenHeight(
+            focusTall: focusTall,
+            availableSize: availableSize
+        ) else {
+            return
+        }
+
+        activeWorklane = worklane
+        notify(.layoutResized(activeWorklaneID))
+    }
+
     private func insertNewPaneHorizontally(into worklane: inout WorklaneState, placement: PanePlacement) {
         let existingColumnCount = worklane.paneStripState.columns.count
         let sourceWidth = worklane.paneStripState.focusedColumn?.width
@@ -851,6 +888,48 @@ final class WorklaneStore {
 
         refreshLastFocusedLocalWorkingDirectory()
         notify(.worklaneListChanged)
+    }
+
+    enum ShellExitCloseResult {
+        case closed
+        case shouldQuit
+        case notFound
+    }
+
+    func closePaneFromShellExit(id paneID: PaneID) -> ShellExitCloseResult {
+        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
+        }) else {
+            return .notFound
+        }
+
+        var worklane = worklanes[worklaneIndex]
+
+        if worklane.paneStripState.panes.count == 1 {
+            if worklanes.count == 1 {
+                worklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
+                worklanes[worklaneIndex] = worklane
+                return .shouldQuit
+            }
+
+            let removedID = worklane.id
+            worklanes.remove(at: worklaneIndex)
+            if activeWorklaneID == removedID {
+                let replacementIndex = min(max(worklaneIndex - 1, 0), worklanes.count - 1)
+                activeWorklaneID = worklanes[replacementIndex].id
+            }
+            refreshLastFocusedLocalWorkingDirectory()
+            notify(.worklaneListChanged)
+            return .closed
+        }
+
+        if let removal = worklane.paneStripState.removePane(id: paneID, singleColumnWidth: layoutContext.singlePaneWidth) {
+            clearPaneState(for: removal.pane.id, in: &worklane)
+        }
+        worklanes[worklaneIndex] = worklane
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(worklane.id))
+        return .closed
     }
 
     func closePane(id: PaneID) {

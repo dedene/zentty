@@ -554,7 +554,18 @@ final class RootViewController: NSViewController {
             self.worklaneStore.updateMetadata(id: paneID, metadata: metadata)
         }
         runtimeRegistry.onEventDidOccur = { [weak self] paneID, event in
-            self?.worklaneStore.handleTerminalEvent(paneID: paneID, event: event)
+            guard let self else {
+                return
+            }
+
+            if event == .surfaceClosed {
+                if self.worklaneStore.closePaneFromShellExit(id: paneID) == .shouldQuit {
+                    NSApp.terminate(nil)
+                }
+                return
+            }
+
+            self.worklaneStore.handleTerminalEvent(paneID: paneID, event: event)
         }
         agentStatusCenter.onPayload = { [weak self] payload in
             self?.worklaneStore.applyAgentStatusPayload(payload)
@@ -668,6 +679,10 @@ final class RootViewController: NSViewController {
                     .arrangeWidthHalves,
                     .arrangeWidthThirds,
                     .arrangeWidthQuarters,
+                ],
+                trailingCommandIDs: [
+                    .arrangeWidthGoldenFocusWide,
+                    .arrangeWidthGoldenFocusNarrow,
                 ]
             )
         )
@@ -679,19 +694,32 @@ final class RootViewController: NSViewController {
                     .arrangeHeightTwoPerColumn,
                     .arrangeHeightThreePerColumn,
                     .arrangeHeightFourPerColumn,
+                ],
+                trailingCommandIDs: [
+                    .arrangeHeightGoldenFocusTall,
+                    .arrangeHeightGoldenFocusShort,
                 ]
             )
         )
         return menu
     }
 
-    private func makePaneLayoutSubmenuItem(title: String, commandIDs: [AppCommandID]) -> NSMenuItem {
+    private func makePaneLayoutSubmenuItem(
+        title: String,
+        commandIDs: [AppCommandID],
+        trailingCommandIDs: [AppCommandID] = []
+    ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: title)
         submenu.autoenablesItems = false
         addPaneLayoutMenuItems(commandIDs, to: submenu)
+        if !trailingCommandIDs.isEmpty {
+            submenu.addItem(NSMenuItem.separator())
+            addPaneLayoutMenuItems(trailingCommandIDs, to: submenu)
+        }
+        let allCommandIDs = commandIDs + trailingCommandIDs
         item.submenu = submenu
-        item.isEnabled = commandIDs.contains(where: isPaneLayoutMenuCommandEnabled)
+        item.isEnabled = allCommandIDs.contains(where: isPaneLayoutMenuCommandEnabled)
         return item
     }
 
@@ -713,7 +741,8 @@ final class RootViewController: NSViewController {
     }
 
     private func isPaneLayoutMenuCommandEnabled(_ commandID: AppCommandID) -> Bool {
-        let paneCount = worklaneStore.activeWorklane?.paneStripState.panes.count ?? 0
+        let paneStripState = worklaneStore.activeWorklane?.paneStripState
+        let paneCount = paneStripState?.panes.count ?? 0
         switch commandID {
         case .splitHorizontally, .splitVertically:
             return paneCount > 0
@@ -726,6 +755,12 @@ final class RootViewController: NSViewController {
             .arrangeHeightThreePerColumn,
             .arrangeHeightFourPerColumn:
             return paneCount > 1
+        case .arrangeWidthGoldenFocusWide,
+            .arrangeWidthGoldenFocusNarrow:
+            return (paneStripState?.columns.count ?? 0) >= 2
+        case .arrangeHeightGoldenFocusTall,
+            .arrangeHeightGoldenFocusShort:
+            return (paneStripState?.focusedColumn?.panes.count ?? 0) >= 2
         default:
             return true
         }
@@ -791,6 +826,8 @@ final class RootViewController: NSViewController {
             showCommandPalette()
         case .openSettings:
             onShowSettingsRequested?()
+        case .newWindow:
+            NSApp.sendAction(#selector(AppDelegate.newWindow(_:)), to: nil, from: nil)
         case .closeWindow:
             view.window?.close()
         case .reloadConfig:
@@ -836,7 +873,9 @@ final class RootViewController: NSViewController {
             appCanvasView.settlePaneStripPresentationNow()
             worklaneStore.resizeFocusedPane(
                 in: .vertical,
-                delta: keyboardResizeStep(for: .vertical),
+                delta: resolvedVerticalKeyboardResizeDelta(
+                    keyboardResizeStep(for: .vertical)
+                ),
                 availableSize: appCanvasView.bounds.size,
                 minimumSizeByPaneID: paneMinimumSizesByPaneID()
             )
@@ -844,7 +883,9 @@ final class RootViewController: NSViewController {
             appCanvasView.settlePaneStripPresentationNow()
             worklaneStore.resizeFocusedPane(
                 in: .vertical,
-                delta: -keyboardResizeStep(for: .vertical),
+                delta: resolvedVerticalKeyboardResizeDelta(
+                    -keyboardResizeStep(for: .vertical)
+                ),
                 availableSize: appCanvasView.bounds.size,
                 minimumSizeByPaneID: paneMinimumSizesByPaneID()
             )
@@ -858,6 +899,21 @@ final class RootViewController: NSViewController {
         case .arrangeVertically(let arrangement):
             appCanvasView.settlePaneStripPresentationNow()
             worklaneStore.arrangeActiveWorklaneVertically(arrangement)
+        case .arrangeGoldenRatio(let preset):
+            appCanvasView.settlePaneStripPresentationNow()
+            switch preset {
+            case .focusWide, .focusNarrow:
+                worklaneStore.arrangeActiveWorklaneGoldenWidth(
+                    focusWide: preset == .focusWide,
+                    availableWidth: appCanvasView.bounds.width,
+                    leadingVisibleInset: appCanvasView.leadingVisibleInset
+                )
+            case .focusTall, .focusShort:
+                worklaneStore.arrangeActiveWorklaneGoldenHeight(
+                    focusTall: preset == .focusTall,
+                    availableSize: appCanvasView.bounds.size
+                )
+            }
         case .resetLayout:
             worklaneStore.resetActiveWorklaneLayout()
         case .closeFocusedPane:
@@ -1065,6 +1121,14 @@ final class RootViewController: NSViewController {
         case .vertical:
             return max(1, minimumSize.height / PaneResize.minimumRows)
         }
+    }
+
+    private func resolvedVerticalKeyboardResizeDelta(_ delta: CGFloat) -> CGFloat {
+        guard worklaneStore.activeWorklane?.paneStripState.shouldInvertVerticalKeyboardResizeDelta() == true else {
+            return delta
+        }
+
+        return -delta
     }
 
     private func paneMinimumSizesByPaneID() -> [PaneID: PaneMinimumSize] {
@@ -1330,6 +1394,10 @@ final class RootViewController: NSViewController {
 
     var anyPaneRequiresQuitConfirmation: Bool {
         worklaneStore.anyPaneRequiresQuitConfirmation
+    }
+
+    func containsWorklane(_ worklaneID: WorklaneID) -> Bool {
+        worklaneStore.worklanes.contains { $0.id == worklaneID }
     }
 
     var worklaneTitles: [String] {

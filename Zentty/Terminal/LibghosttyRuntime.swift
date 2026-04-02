@@ -77,10 +77,13 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
     }
 }
 
-private func libghosttyCloseSurfaceCallback(_: UnsafeMutableRawPointer?, _: Bool) {
-    // Acknowledge surface close requests from ghostty (e.g. shell exit).
-    // Zentty manages pane lifecycle through PaneRuntimeRegistry, so no
-    // additional work is needed here.
+private func libghosttyCloseSurfaceCallback(_ userdata: UnsafeMutableRawPointer?, _: Bool) {
+    guard let userdata else {
+        return
+    }
+
+    let surface = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue()
+    surface.notifySurfaceClosed()
 }
 
 final class LibghosttyWakeupCoordinator: @unchecked Sendable {

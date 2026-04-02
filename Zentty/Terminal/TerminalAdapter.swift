@@ -80,6 +80,7 @@ enum TerminalEvent: Equatable, Sendable {
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
     case desktopNotification(TerminalDesktopNotification)
     case userSubmittedInput
+    case surfaceClosed
 }
 
 @MainActor

@@ -490,6 +490,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         metadataDidChange(metadata)
     }
 
+    nonisolated func notifySurfaceClosed() {
+        DispatchQueue.main.async { [weak self] in
+            self?.eventDidOccur(.surfaceClosed)
+        }
+    }
+
     nonisolated func recordActionCallback(payload: LibghosttySurfaceActionPayload) {
         diagnostics.recordActionCallback(paneID: paneID, payload: payload)
     }

@@ -56,6 +56,8 @@ extension WorklaneStore {
                 auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
                 worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
+        case .surfaceClosed:
+            return
         case .desktopNotification(let notification):
             let title = AgentInteractionClassifier.trimmed(notification.title)
             let body = AgentInteractionClassifier.trimmed(notification.body)
