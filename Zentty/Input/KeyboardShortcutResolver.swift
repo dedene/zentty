@@ -37,6 +37,10 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case arrangeHeightTwoPerColumn = "pane.arrange.height.two_per_column"
     case arrangeHeightThreePerColumn = "pane.arrange.height.three_per_column"
     case arrangeHeightFourPerColumn = "pane.arrange.height.four_per_column"
+    case arrangeWidthGoldenFocusWide = "pane.arrange.width.golden_focus_wide"
+    case arrangeWidthGoldenFocusNarrow = "pane.arrange.width.golden_focus_narrow"
+    case arrangeHeightGoldenFocusTall = "pane.arrange.height.golden_focus_tall"
+    case arrangeHeightGoldenFocusShort = "pane.arrange.height.golden_focus_short"
     case closeFocusedPane = "pane.close_focused"
     case focusPreviousPane = "pane.focus.previous"
     case focusNextPane = "pane.focus.next"
@@ -54,6 +58,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
     case openSettings = "app.open_settings"
+    case newWindow = "app.new_window"
     case closeWindow = "app.close_window"
     case reloadConfig = "app.reload_config"
 }
@@ -75,6 +80,7 @@ enum AppAction: Equatable, Sendable {
     case navigateForward
     case showCommandPalette
     case openSettings
+    case newWindow
     case closeWindow
     case reloadConfig
 }
@@ -320,6 +326,54 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
+            id: .arrangeWidthGoldenFocusWide,
+            title: "Arrange Width: Golden — Focus Wide",
+            category: .panes,
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command]),
+            action: .pane(.arrangeGoldenRatio(.focusWide)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Width: Golden — Focus Wide",
+                selector: #selector(MainWindowController.arrangeWidthGoldenFocusWide(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeWidthGoldenFocusNarrow,
+            title: "Arrange Width: Golden — Focus Narrow",
+            category: .panes,
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .option]),
+            action: .pane(.arrangeGoldenRatio(.focusNarrow)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Width: Golden — Focus Narrow",
+                selector: #selector(MainWindowController.arrangeWidthGoldenFocusNarrow(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeHeightGoldenFocusTall,
+            title: "Arrange Height: Golden — Focus Tall",
+            category: .panes,
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .shift]),
+            action: .pane(.arrangeGoldenRatio(.focusTall)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Height: Golden — Focus Tall",
+                selector: #selector(MainWindowController.arrangeHeightGoldenFocusTall(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeHeightGoldenFocusShort,
+            title: "Arrange Height: Golden — Focus Short",
+            category: .panes,
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .shift, .option]),
+            action: .pane(.arrangeGoldenRatio(.focusShort)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Height: Golden — Focus Short",
+                selector: #selector(MainWindowController.arrangeHeightGoldenFocusShort(_:))
+            )
+        ),
+        AppCommandDefinition(
             id: .closeFocusedPane,
             title: "Close Focused Pane",
             category: .panes,
@@ -496,6 +550,18 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
+            id: .newWindow,
+            title: "New Window",
+            category: .general,
+            defaultShortcut: .init(key: .character("n"), modifiers: [.command, .shift]),
+            action: .newWindow,
+            menuItem: AppCommandMenuItem(
+                section: .file,
+                title: "New Window",
+                selector: #selector(AppDelegate.newWindow(_:))
+            )
+        ),
+        AppCommandDefinition(
             id: .closeWindow,
             title: "Close Window",
             category: .general,
@@ -515,7 +581,9 @@ enum AppCommandRegistry {
 
     static let menuEntriesBySection: [AppMenuSection: [AppMenuEntry]] = [
         .file: [
+            .command(.newWindow),
             .command(.newWorklane),
+            .separator,
             .command(.nextWorklane),
             .command(.previousWorklane),
         ],
@@ -538,10 +606,16 @@ enum AppCommandRegistry {
             .command(.arrangeWidthThirds),
             .command(.arrangeWidthQuarters),
             .separator,
+            .command(.arrangeWidthGoldenFocusWide),
+            .command(.arrangeWidthGoldenFocusNarrow),
+            .separator,
             .command(.arrangeHeightFull),
             .command(.arrangeHeightTwoPerColumn),
             .command(.arrangeHeightThreePerColumn),
             .command(.arrangeHeightFourPerColumn),
+            .separator,
+            .command(.arrangeHeightGoldenFocusTall),
+            .command(.arrangeHeightGoldenFocusShort),
             .separator,
             .command(.focusPreviousPane),
             .command(.focusNextPane),
@@ -615,6 +689,14 @@ extension AppCommandDefinition {
             "Repack panes into columns of three panes each, distributing any partial final column evenly."
         case .arrangeHeightFourPerColumn:
             "Repack panes into columns of four panes each, distributing any partial final column evenly."
+        case .arrangeWidthGoldenFocusWide:
+            "Apply golden ratio to the focused column and its neighbor, making the focused column the wider one (~61.8%)."
+        case .arrangeWidthGoldenFocusNarrow:
+            "Apply golden ratio to the focused column and its neighbor, making the focused column the narrower one (~38.2%)."
+        case .arrangeHeightGoldenFocusTall:
+            "Apply golden ratio to the focused pane and its neighbor, making the focused pane the taller one (~61.8%)."
+        case .arrangeHeightGoldenFocusShort:
+            "Apply golden ratio to the focused pane and its neighbor, making the focused pane the shorter one (~38.2%)."
         case .closeFocusedPane:
             "Close the currently focused pane while keeping the rest of the layout intact."
         case .focusPreviousPane:
@@ -645,6 +727,8 @@ extension AppCommandDefinition {
             "Open the command palette to quickly find and run any command."
         case .openSettings:
             "Open the settings window to customize shortcuts, appearance, and behavior."
+        case .newWindow:
+            "Open a new independent window with its own worklanes and panes."
         case .closeWindow:
             "Close the current window."
         case .reloadConfig:

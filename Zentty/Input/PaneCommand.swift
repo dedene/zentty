@@ -16,6 +16,13 @@ enum PaneVerticalArrangement: Int, CaseIterable, Equatable, Sendable {
     var panesPerColumn: Int { rawValue }
 }
 
+enum GoldenRatioPreset: Equatable, Sendable {
+    case focusWide
+    case focusNarrow
+    case focusTall
+    case focusShort
+}
+
 enum PaneCommand: Equatable, Sendable {
     case split
     case splitHorizontally
@@ -39,6 +46,7 @@ enum PaneCommand: Equatable, Sendable {
     case resizeDown
     case arrangeHorizontally(PaneHorizontalArrangement)
     case arrangeVertically(PaneVerticalArrangement)
+    case arrangeGoldenRatio(GoldenRatioPreset)
     case resetLayout
     case toggleZoomOut
 }
