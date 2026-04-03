@@ -123,6 +123,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private let zoomTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.zoom")
     private var isApplicationActive = true
     private var isWindowKey = true
+    private var shouldBypassNextCloseConfirmation = false
     var onWindowDidClose: ((MainWindowController) -> Void)?
 
     init(
@@ -195,6 +196,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onShowSettingsRequested = { [weak self] in
             self?.showSettingsWindow(section: .shortcuts, sender: nil)
         }
+        rootViewController.onCloseWindowRequested = { [weak self] in
+            self?.closeWindowBypassingConfirmation()
+        }
         window.shouldSuppressWindowDragAtPoint = { [weak rootViewController] point, eventType in
             rootViewController?.shouldSuppressWindowDrag(at: point, eventType: eventType) == true
         }
@@ -235,6 +239,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if shouldBypassNextCloseConfirmation {
+            shouldBypassNextCloseConfirmation = false
+            return true
+        }
+
         let appDelegate = NSApp.delegate as? AppDelegate
         let isLastWindow = (appDelegate?.windowControllerCount ?? 1) <= 1
         // When this is the last window, applicationShouldTerminate handles confirmation — skip here to avoid double-prompt.
@@ -254,7 +263,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .alertFirstButtonReturn else { return }
-            self.window.close()
+            self.closeWindowBypassingConfirmation()
         }
         return false
     }
@@ -533,6 +542,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func tearDownRuntime() {
         runtimeRegistry.destroyAll()
+    }
+
+    func closeWindowBypassingConfirmation() {
+        shouldBypassNextCloseConfirmation = true
+        window.close()
     }
 
     var anyPaneRequiresQuitConfirmation: Bool {

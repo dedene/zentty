@@ -293,6 +293,7 @@ final class PaneDragCoordinator {
         // Signal drag active BEFORE layout
         installEscapeMonitor()
         installFlagsChangedMonitor()
+        NSCursor.closedHand.push()
 
         // Snapshot current Option state in case user was already holding it
         isOptionHeld = NSEvent.modifierFlags.contains(.option)
@@ -627,6 +628,27 @@ final class PaneDragCoordinator {
         CATransaction.commit()
     }
 
+    /// Frame-preserving reparent: moves the snapshot container to viewportView
+    /// using NSView frame conversion (no layer.position/transform math).
+    /// After this call both the container and pane views share the same
+    /// coordinate system, so we can animate the container's frame directly.
+    private func reparentPreviewToViewportForSettle() {
+        guard let container = dragContainer,
+              let viewportView else { return }
+
+        let host = container.superview ?? viewportView
+        let frameInViewport = viewportView.convert(container.frame, from: host)
+
+        viewportView.addSubview(container)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        container.layer?.removeAllAnimations()
+        container.frame = frameInViewport
+        container.layer?.transform = CATransform3DIdentity
+        CATransaction.commit()
+    }
+
     private func positionDraggedPane(cursorInStrip: CGPoint, zoomScale: CGFloat) {
         guard let paneStripView, let viewportView else { return }
 
@@ -749,86 +771,73 @@ final class PaneDragCoordinator {
             return
         }
 
-        // Find drop target position from visual layout
-        let zoomScale = paneStripView.currentZoomScale()
-        let targetCenter: CGPoint
-        if let reducedPresentation, let reducedIdx = currentReducedIndex {
-            let layout = makeDragVisualLayout(
-                presentation: reducedPresentation,
-                activeReducedGapIndex: reducedIdx,
-                zoomScale: zoomScale
-            )
-            if layout.gapCenters.indices.contains(reducedIdx),
-               let refFrame = layout.columnFrames.first {
-                let gapX = layout.gapCenters[reducedIdx]
-                targetCenter = CGPoint(x: gapX, y: refFrame.midY)
-            } else if let paneLayer = draggedPaneView?.layer {
-                targetCenter = paneLayer.position
-            } else {
-                targetCenter = originalPaneFrame.center
-            }
-        } else if let layerPos = dragLayer?.position {
-            targetCenter = layerPos
-        } else {
-            let paneID = phase.activeState?.draggedPaneID
-            restoreDraggedPane()
-            if let paneID { onReorder?(paneID, columnIndex) }
-            paneStripView.endDragWithZoomIn()
-            teardown()
+        guard let paneID = phase.activeState?.draggedPaneID else {
+            cancelDrag()
             return
         }
 
-        // Reparent back to viewportView so existing content-space animation math works
-        reparentToViewportForAnimation()
+        let stripView = paneStripView
 
-        // Spring animation for position — snappy with minimal overshoot
-        let posSpring = CASpringAnimation(keyPath: "position")
-        posSpring.toValue = NSValue(point: targetCenter)
-        posSpring.mass = 0.8
-        posSpring.stiffness = 400
-        posSpring.damping = 28
-        posSpring.initialVelocity = 0
-        posSpring.duration = posSpring.settlingDuration
-        posSpring.fillMode = .forwards
-        posSpring.isRemovedOnCompletion = false
+        // 1. Clean up drag chrome but keep container + pane refs alive.
+        prepareForDropSettle()
 
-        // Spring animation for transform — scale back down to match zoomed panes
-        let currentTransform = dragLayer?.transform ?? CATransform3DIdentity
-        let targetTransform = CATransform3DIdentity  // will match zoomed scale via bounds
-        let transformSpring = CASpringAnimation(keyPath: "transform")
-        transformSpring.fromValue = NSValue(caTransform3D: currentTransform)
-        transformSpring.toValue = NSValue(caTransform3D: targetTransform)
-        transformSpring.mass = 0.8
-        transformSpring.stiffness = 400
-        transformSpring.damping = 28
-        transformSpring.duration = transformSpring.settlingDuration
-        transformSpring.fillMode = .forwards
-        transformSpring.isRemovedOnCompletion = false
+        // 2. Reparent snapshot to viewportView preserving its visual rect.
+        //    After this, container.frame and paneView.frame share coordinate systems.
+        reparentPreviewToViewportForSettle()
 
+        // 3. Begin settle: allows rendering while snapshot covers the pane.
+        //    The callback fires after the post-reorder layout is applied.
+        stripView.beginDropSettle(paneID: paneID) { [weak self] in
+            guard let self else { return }
+
+            guard let landingFrame = stripView.livePaneFrame(paneID),
+                  let container = self.dragContainer else {
+                // Fallback: just finish immediately
+                stripView.endDropSettle()
+                self.restoreDraggedPane()
+                self.teardown()
+                stripView.endDragWithZoomIn()
+                return
+            }
+
+            // 4. Animate snapshot frame to the actual rendered pane position.
+            self.animateSettleTo(frame: landingFrame, container: container) {
+                // 5. Swap: reveal the real pane, remove snapshot, zoom in.
+                stripView.endDropSettle()
+                self.restoreDraggedPane()
+                self.teardown()
+                stripView.endDragWithZoomIn()
+            }
+        }
+
+        // 4. Fire state mutation — render coordinator is unblocked by isDropSettling,
+        //    so the full render pipeline runs and fires the afterRender callback.
+        onReorder?(paneID, columnIndex)
+    }
+
+    /// Animate the snapshot container's frame to match the landing pane frame.
+    private func animateSettleTo(
+        frame landingFrame: CGRect,
+        container: PaneDragFloatingContainer,
+        completion: @escaping () -> Void
+    ) {
         // Shadow fades quickly
         let shadowAnim = CABasicAnimation(keyPath: "shadowOpacity")
         shadowAnim.toValue = 0
         shadowAnim.duration = 0.15
+        container.layer?.add(shadowAnim, forKey: "settleShadow")
 
-        let paneID = phase.activeState?.draggedPaneID
-        let stripView = paneStripView
-
-        CATransaction.begin()
-        CATransaction.setCompletionBlock {
-            MainActor.assumeIsolated {
-                self.dragLayer?.removeAllAnimations()
-                self.restoreDraggedPane()
-                self.teardown()
-                if let paneID {
-                    self.onReorder?(paneID, columnIndex)
-                }
-                stripView.endDragWithZoomIn()
-            }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            context.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.2, 1.0, 0.3, 1.0  // ease-out
+            )
+            context.allowsImplicitAnimation = true
+            container.animator().frame = landingFrame
+            container.animator().alphaValue = 1.0
+        } completionHandler: {
+            completion()
         }
-        dragLayer?.add(posSpring, forKey: "settlePosition")
-        dragLayer?.add(transformSpring, forKey: "settleTransform")
-        dragLayer?.add(shadowAnim, forKey: "settleShadow")
-        CATransaction.commit()
     }
 
     private func completeSplitDrop(splitHit: SplitZoneHit) {
@@ -839,75 +848,37 @@ final class PaneDragCoordinator {
             return
         }
 
-        // Target: center of the overlay (where the pane will land)
-        let targetCenter: CGPoint
-        if let overlay = splitOverlay {
-            targetCenter = CGPoint(x: overlay.frame.midX, y: overlay.frame.midY)
-        } else if let reducedPresentation {
-            let zoomScale = paneStripView.currentZoomScale()
-            let layout = makeDragVisualLayout(
-                presentation: reducedPresentation,
-                activeReducedGapIndex: nil,
-                zoomScale: zoomScale
-            )
-            let paneFrame = layout.paneFramesByID[splitHit.targetPaneID] ?? .zero
-            targetCenter = CGPoint(x: paneFrame.midX, y: paneFrame.midY)
-        } else {
-            targetCenter = originalPaneFrame.center
+        guard let paneID = phase.activeState?.draggedPaneID else {
+            cancelDrag()
+            return
         }
 
-        // Hide the split overlay immediately
-        splitOverlay?.removeFromSuperview()
-        splitOverlay = nil
-
-        // Reparent back to viewportView so existing content-space animation math works
-        reparentToViewportForAnimation()
-
-        // Spring animation — same feel as reorder drop
-        let posSpring = CASpringAnimation(keyPath: "position")
-        posSpring.toValue = NSValue(point: targetCenter)
-        posSpring.mass = 0.8
-        posSpring.stiffness = 400
-        posSpring.damping = 28
-        posSpring.initialVelocity = 0
-        posSpring.duration = posSpring.settlingDuration
-        posSpring.fillMode = .forwards
-        posSpring.isRemovedOnCompletion = false
-
-        let currentTransform = dragLayer?.transform ?? CATransform3DIdentity
-        let transformSpring = CASpringAnimation(keyPath: "transform")
-        transformSpring.fromValue = NSValue(caTransform3D: currentTransform)
-        transformSpring.toValue = NSValue(caTransform3D: CATransform3DIdentity)
-        transformSpring.mass = 0.8
-        transformSpring.stiffness = 400
-        transformSpring.damping = 28
-        transformSpring.duration = transformSpring.settlingDuration
-        transformSpring.fillMode = .forwards
-        transformSpring.isRemovedOnCompletion = false
-
-        let shadowAnim = CABasicAnimation(keyPath: "shadowOpacity")
-        shadowAnim.toValue = 0
-        shadowAnim.duration = 0.15
-
-        let paneID = phase.activeState?.draggedPaneID
         let stripView = paneStripView
 
-        CATransaction.begin()
-        CATransaction.setCompletionBlock {
-            MainActor.assumeIsolated {
-                self.dragLayer?.removeAllAnimations()
+        prepareForDropSettle()
+        reparentPreviewToViewportForSettle()
+
+        stripView.beginDropSettle(paneID: paneID) { [weak self] in
+            guard let self else { return }
+
+            guard let landingFrame = stripView.livePaneFrame(paneID),
+                  let container = self.dragContainer else {
+                stripView.endDropSettle()
                 self.restoreDraggedPane()
                 self.teardown()
-                if let paneID {
-                    self.onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading)
-                }
+                stripView.endDragWithZoomIn()
+                return
+            }
+
+            self.animateSettleTo(frame: landingFrame, container: container) {
+                stripView.endDropSettle()
+                self.restoreDraggedPane()
+                self.teardown()
                 stripView.endDragWithZoomIn()
             }
         }
-        dragLayer?.add(posSpring, forKey: "settlePosition")
-        dragLayer?.add(transformSpring, forKey: "settleTransform")
-        dragLayer?.add(shadowAnim, forKey: "settleShadow")
-        CATransaction.commit()
+
+        onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading)
     }
 
     // MARK: - Private — Sidebar Drop
@@ -1027,9 +998,9 @@ final class PaneDragCoordinator {
     private func restoreDraggedPane() {
         guard let paneView = draggedPaneView else { return }
 
-        // Restore the original pane visibility
+        // Restore the original pane visibility — don't set frame here;
+        // renderCurrentState (triggered by teardown) sets the correct position.
         paneView.alphaValue = 1.0
-        paneView.frame = originalPaneFrame
 
         // Remove the snapshot container
         dragContainer?.removeFromSuperview()
@@ -1592,6 +1563,34 @@ final class PaneDragCoordinator {
         CATransaction.commit()
     }
 
+    /// Lightweight cleanup for drop-settle: remove timers, insertion line,
+    /// split overlays, monitors — but keep the drag container, pane refs, and
+    /// isDragActive state intact for the settle animation.
+    private func prepareForDropSettle() {
+        removeEscapeMonitor()
+        removeFlagsChangedMonitor()
+        stopEdgeScroll()
+        stopSidebarEdgeScroll()
+
+        insertionLine?.removeFromSuperview()
+        insertionLine = nil
+
+        splitOverlay?.removeFromSuperview()
+        splitOverlay = nil
+        cancelSplitDwell()
+        splitDwellSatisfied = false
+        currentSplitHit = nil
+
+        ghostView?.removeFromSuperview()
+        ghostView = nil
+        duplicateBadgeLayer?.removeFromSuperlayer()
+        duplicateBadgeLayer = nil
+
+        onHoveredSidebarWorklaneChanged?(nil)
+        onNewWorklanePlaceholderVisibilityChanged?(false)
+        onDragApproachingSidebarEdge?(false)
+    }
+
     // MARK: - Private — Teardown
 
     private func teardown() {
@@ -1646,6 +1645,8 @@ final class PaneDragCoordinator {
         isApproachingSidebar = false
         isShowingNewWorklanePlaceholder = false
         isOptionHeld = false
+
+        NSCursor.pop()
 
         onHoveredSidebarWorklaneChanged?(nil)
         onNewWorklanePlaceholderVisibilityChanged?(false)

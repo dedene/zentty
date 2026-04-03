@@ -109,16 +109,16 @@ final class WorklaneStoreShellExitTests: XCTestCase {
 
     // MARK: - Last worklane signals quit
 
-    func test_shell_exit_signals_quit_when_last_pane_in_last_worklane() {
+    func test_shell_exit_requests_window_close_when_last_pane_in_last_worklane() {
         let store = WorklaneStore()
         let paneID = store.activeWorklane!.paneStripState.focusedPaneID!
 
         let result = store.closePaneFromShellExit(id: paneID)
 
-        XCTAssertEqual(result, .shouldQuit)
+        XCTAssertEqual(result, .closeWindow)
     }
 
-    func test_shell_exit_clears_auxiliary_state_so_quit_confirmation_is_bypassed() {
+    func test_shell_exit_clears_auxiliary_state_before_window_close() {
         let store = WorklaneStore()
         let paneID = store.activeWorklane!.paneStripState.focusedPaneID!
 
@@ -126,7 +126,7 @@ final class WorklaneStoreShellExitTests: XCTestCase {
 
         let result = store.closePaneFromShellExit(id: paneID)
 
-        XCTAssertEqual(result, .shouldQuit)
+        XCTAssertEqual(result, .closeWindow)
         XCTAssertFalse(store.anyPaneRequiresQuitConfirmation)
     }
 

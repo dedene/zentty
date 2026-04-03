@@ -66,6 +66,9 @@ final class PaneStripView: NSView {
         didSet { dragCoordinator.dragHostView = dragOverlayView }
     }
     private(set) var isDragActive = false
+    private(set) var isDropSettling = false
+    private var dropSettleCoveredPaneID: PaneID?
+    private var afterNextRenderCallback: (() -> Void)?
     private(set) var isZoomedOut = false
     static let zoomScale: CGFloat = 0.4
     var dragZoomScale: CGFloat { Self.zoomScale }
@@ -388,7 +391,7 @@ final class PaneStripView: NSView {
         animationDuration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         animationTimingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
-        guard !isDragActive else { return }
+        guard !isDragActive || isDropSettling else { return }
         let settleGeneration = renderGuard.advanceGeneration()
         let previousPresentation = currentPresentation
         let previousOffset = currentOffset
@@ -424,6 +427,7 @@ final class PaneStripView: NSView {
             && window?.inLiveResize != true
             && !inLiveResize
             && !isResizeSuppressedRender
+            && !isZoomedOut
         lastRenderWasAnimated = shouldAnimate
         let removalTransition = shouldAnimate
             ? removalTransition(from: previousPresentation, to: presentation)
@@ -527,6 +531,11 @@ final class PaneStripView: NSView {
         }
         onBorderChromeSnapshotsDidChange?(borderChromeSnapshots(for: presentation, offset: targetOffset))
         syncFocusedTerminal(with: state.focusedPaneID)
+
+        if let callback = afterNextRenderCallback {
+            afterNextRenderCallback = nil
+            callback()
+        }
     }
 
     private func sharesAnyPane(
@@ -606,10 +615,15 @@ final class PaneStripView: NSView {
                 dx: -resolvedOffset(offset),
                 dy: 0
             )
-            let targetAlpha = PaneContainerView.presentationAlpha(
-                forEmphasis: panePresentation.emphasis,
-                allowInactiveDimming: allowInactiveDimming
-            )
+            let targetAlpha: CGFloat
+            if panePresentation.paneID == dropSettleCoveredPaneID {
+                targetAlpha = 0
+            } else {
+                targetAlpha = PaneContainerView.presentationAlpha(
+                    forEmphasis: panePresentation.emphasis,
+                    allowInactiveDimming: allowInactiveDimming
+                )
+            }
             if animated {
                 if shouldAnimateFrame(
                     for: panePresentation,
@@ -1205,6 +1219,27 @@ final class PaneStripView: NSView {
             backingScaleFactor: currentBackingScaleFactor,
             leadingVisibleInset: resolvedLeadingVisibleInset
         )
+    }
+
+    // MARK: - Drop Settle
+
+    /// Begin the "drop settling" phase: allows rendering while the snapshot covers the pane.
+    func beginDropSettle(paneID: PaneID, afterRender callback: @escaping () -> Void) {
+        isDropSettling = true
+        dropSettleCoveredPaneID = paneID
+        afterNextRenderCallback = callback
+    }
+
+    /// End the settling phase, reveal the covered pane.
+    func endDropSettle() {
+        isDropSettling = false
+        dropSettleCoveredPaneID = nil
+        afterNextRenderCallback = nil
+    }
+
+    /// Return the current frame of a live pane view in viewportView coordinates.
+    func livePaneFrame(_ paneID: PaneID) -> CGRect? {
+        paneViews[paneID]?.frame
     }
 
     /// Called by PaneDragCoordinator after drop/cancel to trigger zoom-in.

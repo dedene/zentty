@@ -15,7 +15,11 @@ final class AppDelegateTests: XCTestCase {
 
     override func tearDown() {
         for window in NSApp.windows where originalWindows.contains(where: { $0 === window }) == false {
-            window.close()
+            if let controller = window.delegate as? MainWindowController {
+                controller.closeWindowBypassingConfirmation()
+            } else {
+                window.close()
+            }
         }
 
         NSApp.mainMenu = originalMainMenu
@@ -147,14 +151,20 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(toggleSidebarItem?.keyEquivalentModifierMask, [.command])
     }
 
-    @objc func test_application_launch_preserves_main_menu_when_required_items_already_exist() {
+    @objc func test_application_launch_keeps_existing_main_menu_semantically_valid() {
         let existingMenu = AppMenuBuilder.makeMainMenu(appName: "Zentty")
         NSApp.mainMenu = existingMenu
 
         let delegate = AppDelegate(shouldOpenMainWindow: false)
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
-        XCTAssertTrue(NSApp.mainMenu === existingMenu)
+        let appMenu = NSApp.mainMenu?.items.first?.submenu
+        let fileMenu = menu(named: "File")
+        let viewMenu = menu(named: "View")
+
+        XCTAssertEqual(appMenu?.title, "Zentty")
+        XCTAssertNotNil(fileMenu?.items.first(where: { $0.action == #selector(AppDelegate.newWindow(_:)) }))
+        XCTAssertNotNil(viewMenu?.items.first(where: { $0.action == #selector(MainWindowController.toggleSidebar(_:)) }))
     }
 
     func test_show_settings_window_creates_visible_settings_window() throws {
@@ -170,6 +180,35 @@ final class AppDelegateTests: XCTestCase {
         let settingsWindow = try XCTUnwrap(delegate.settingsWindow)
         XCTAssertTrue(settingsWindow.isVisible)
         XCTAssertEqual(settingsWindow.title, "General")
+    }
+
+    func test_closing_one_window_keeps_app_running_when_another_window_is_open() throws {
+        NSApp.mainMenu = nil
+
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) }
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        delegate.newWindow(nil)
+
+        let opened = expectation(description: "windows opened")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { opened.fulfill() }
+        wait(for: [opened], timeout: 2.0)
+
+        XCTAssertEqual(delegate.windowControllerCount, 2)
+        let controllerToClose = try XCTUnwrap(delegate.firstWindowController)
+
+        controllerToClose.closeWindowBypassingConfirmation()
+
+        let closed = expectation(description: "window closed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { closed.fulfill() }
+        wait(for: [closed], timeout: 2.0)
+
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+        let visibleLaunchedWindows = NSApp.windows.filter { window in
+            originalWindows.contains(where: { $0 === window }) == false && window.isVisible
+        }
+        XCTAssertEqual(visibleLaunchedWindows.count, 1)
     }
 
     func test_application_launch_places_sidebar_toggle_beside_traffic_lights_without_resize() throws {

@@ -803,7 +803,8 @@ struct PaneStripState: Equatable, Sendable {
         }
 
         if columns[columnIndex].panes.count > 1 {
-            let removedPane = columns[columnIndex].panes.remove(at: paneIndex)
+            var removedPane = columns[columnIndex].panes.remove(at: paneIndex)
+            removedPane.width = columns[columnIndex].width
             let removedHeight = columns[columnIndex].paneHeights.indices.contains(paneIndex)
                 ? columns[columnIndex].paneHeights.remove(at: paneIndex) : 1
 
@@ -830,7 +831,8 @@ struct PaneStripState: Equatable, Sendable {
             return (removedPane, columnID, columnIndex, paneIndex)
         }
 
-        let removedPane = columns[columnIndex].panes[0]
+        var removedPane = columns[columnIndex].panes[0]
+        removedPane.width = columns[columnIndex].width
         columns.remove(at: columnIndex)
 
         guard !columns.isEmpty else {

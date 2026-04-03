@@ -1175,11 +1175,23 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklaneID, mainID)
     }
 
-    func test_close_focused_pane_on_last_remaining_worklane_keeps_single_shell_open() {
+    func test_close_focused_pane_on_last_remaining_worklane_requests_window_close() {
         let store = WorklaneStore()
 
-        store.send(.closeFocusedPane)
+        let result = store.closeFocusedPane()
 
+        XCTAssertEqual(result, .closeWindow)
+        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN"])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
+    }
+
+    func test_close_pane_requests_window_close_when_closing_last_pane_in_last_worklane() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        let result = store.closePane(id: paneID)
+
+        XCTAssertEqual(result, .closeWindow)
         XCTAssertEqual(store.worklanes.map(\.title), ["MAIN"])
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
     }

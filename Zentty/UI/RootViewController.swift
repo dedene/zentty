@@ -95,6 +95,7 @@ final class RootViewController: NSViewController {
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
     var onShowSettingsRequested: (() -> Void)?
+    var onCloseWindowRequested: (() -> Void)?
 
     init(
         configStore: AppConfigStore,
@@ -409,10 +410,10 @@ final class RootViewController: NSViewController {
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
                let reason = self.worklaneStore.paneCloseConfirmationReason(paneID) {
                 self.showClosePaneConfirmation(reason: reason) {
-                    self.worklaneStore.closePane(id: paneID)
+                    self.closePane(id: paneID)
                 }
             } else {
-                self.worklaneStore.closePane(id: paneID)
+                self.closePane(id: paneID)
             }
         }
         appCanvasView.paneStripView.onDividerInteraction = { [weak self] divider in
@@ -459,11 +460,11 @@ final class RootViewController: NSViewController {
                let reason = self.worklaneStore.paneCloseConfirmationReason(paneID) {
                 self.showClosePaneConfirmation(reason: reason) {
                     self.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
-                    self.worklaneStore.closePane(id: paneID)
+                    self.closePane(id: paneID)
                 }
             } else {
                 self.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
-                self.worklaneStore.closePane(id: paneID)
+                self.closePane(id: paneID)
             }
         }
         sidebarView.onSplitHorizontalRequested = { [weak self] worklaneID, paneID in
@@ -610,18 +611,7 @@ final class RootViewController: NSViewController {
             self.worklaneStore.updateMetadata(id: paneID, metadata: metadata)
         }
         runtimeRegistry.onEventDidOccur = { [weak self] paneID, event in
-            guard let self else {
-                return
-            }
-
-            if event == .surfaceClosed {
-                if self.worklaneStore.closePaneFromShellExit(id: paneID) == .shouldQuit {
-                    NSApp.terminate(nil)
-                }
-                return
-            }
-
-            self.worklaneStore.handleTerminalEvent(paneID: paneID, event: event)
+            self?.handleTerminalEvent(paneID: paneID, event: event)
         }
         agentStatusCenter.onPayload = { [weak self] payload in
             self?.worklaneStore.applyAgentStatusPayload(payload)
@@ -978,16 +968,51 @@ final class RootViewController: NSViewController {
                let focusedPaneID,
                let reason = worklaneStore.paneCloseConfirmationReason(focusedPaneID) {
                 showClosePaneConfirmation(reason: reason) { [weak self] in
-                    self?.worklaneStore.send(command)
+                    self?.closeFocusedPane()
                 }
             } else {
-                worklaneStore.send(command)
+                closeFocusedPane()
             }
         case .toggleZoomOut:
             appCanvasView.paneStripView.toggleZoom()
         default:
             worklaneStore.send(command)
         }
+    }
+
+    private func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
+        if event == .surfaceClosed {
+            handlePaneCloseResult(worklaneStore.closePaneFromShellExit(id: paneID))
+            return
+        }
+
+        worklaneStore.handleTerminalEvent(paneID: paneID, event: event)
+    }
+
+    private func closePane(id paneID: PaneID) {
+        handlePaneCloseResult(worklaneStore.closePane(id: paneID))
+    }
+
+    private func closeFocusedPane() {
+        handlePaneCloseResult(worklaneStore.closeFocusedPane())
+    }
+
+    private func handlePaneCloseResult(_ result: WorklaneStore.PaneCloseResult) {
+        switch result {
+        case .closed, .notFound:
+            return
+        case .closeWindow:
+            requestContainingWindowClose()
+        }
+    }
+
+    private func requestContainingWindowClose() {
+        if let onCloseWindowRequested {
+            onCloseWindowRequested()
+            return
+        }
+
+        view.window?.close()
     }
 
     private var isShowingClosePaneConfirmation = false
@@ -1497,6 +1522,10 @@ final class RootViewController: NSViewController {
     }
 
     #if DEBUG
+        func handleTerminalEventForTesting(paneID: PaneID, event: TerminalEvent) {
+            handleTerminalEvent(paneID: paneID, event: event)
+        }
+
         func handleSidebarVisibilityEvent(_ event: SidebarVisibilityEvent) {
             sidebarMotionCoordinator.handle(event)
             syncSidebarVisibilityControls(animated: false)
@@ -1539,12 +1568,13 @@ final class RootViewController: NSViewController {
                 .first { !$0.isSeparatorItem && $0.title == title }?
                 .submenu?
                 .items
+                .filter { !$0.isSeparatorItem }
                 .map(\.title) ?? []
         }
     #endif
 
     private func resolvedSidebarAvailableWidth() -> CGFloat? {
-        view.window?.screen?.visibleFrame.width
+        view.bounds.width > 0 ? view.bounds.width : view.window?.screen?.visibleFrame.width
     }
 
     private func syncSidebarWidthToAvailableWidth(persist: Bool) {
