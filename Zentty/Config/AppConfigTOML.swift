@@ -12,6 +12,7 @@ enum AppConfigTOML {
         case sidebar
         case paneLayout
         case openWith
+        case errorReporting
         case customApp(Int)
         case shortcuts
         case shortcutBinding(Int)
@@ -65,6 +66,10 @@ enum AppConfigTOML {
         }
 
         lines.append("")
+        lines.append("[error_reporting]")
+        lines.append("enabled = \(config.errorReporting.enabled)")
+
+        lines.append("")
         lines.append("[notifications]")
         lines.append("sound_name = \(encode(string: config.notifications.soundName))")
 
@@ -99,6 +104,10 @@ enum AppConfigTOML {
             }
             if line == "[open_with]" {
                 section = .openWith
+                continue
+            }
+            if line == "[error_reporting]" {
+                section = .errorReporting
                 continue
             }
             if line == "[[open_with.custom_apps]]" {
@@ -138,6 +147,10 @@ enum AppConfigTOML {
                 }
             case .openWith:
                 guard decodeOpenWithAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .errorReporting:
+                guard decodeErrorReportingAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .customApp(let index):
@@ -270,6 +283,23 @@ enum AppConfigTOML {
             app.name = decoded
         case "path":
             app.appPath = decoded
+        default:
+            return true
+        }
+
+        return true
+    }
+
+    private static func decodeErrorReportingAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "enabled":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.errorReporting.enabled = value
         default:
             return true
         }

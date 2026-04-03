@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 
 let isHostedTestMode = CommandLine.arguments.contains("-ApplePersistenceIgnoreState")
+let configStore = AppConfigStore()
 
 if !isHostedTestMode {
     if let exitCode = AgentStatusHelper.runIfNeeded(
@@ -17,12 +18,21 @@ if !isHostedTestMode {
     ) {
         Foundation.exit(exitCode)
     }
+
+    _ = ErrorReportingBootstrap.startIfNeeded(
+        appConfig: configStore.current,
+        bundleConfiguration: ErrorReportingBundleConfiguration.load(from: .main),
+        client: SentryErrorReportingClient()
+    )
 }
 
 let app = NSApplication.shared
 app.setActivationPolicy(isHostedTestMode ? .prohibited : .regular)
 
-let delegate = AppDelegate(shouldOpenMainWindow: !isHostedTestMode)
+let delegate = AppDelegate(
+    shouldOpenMainWindow: !isHostedTestMode,
+    configStore: configStore
+)
 app.delegate = delegate
  
 app.run()

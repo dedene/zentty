@@ -884,6 +884,13 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         let controller = SettingsWindowController(
             configStore: store,
+            errorReportingBundleConfigurationProvider: {
+                ErrorReportingBundleConfiguration(
+                    dsn: "https://public@example.com/1",
+                    releaseName: "Zentty@1.0",
+                    dist: "167"
+                )
+            },
             initialSection: .paneLayout
         )
         addTeardownBlock { controller.window?.close() }
@@ -906,6 +913,8 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(generalController.availableSoundNames.contains(""))
         XCTAssertTrue(generalController.availableSoundNames.contains("Glass"))
         XCTAssertTrue(generalController.availableSoundNames.contains("Ping"))
+        XCTAssertTrue(generalController.isErrorReportingSwitchOn)
+        XCTAssertTrue(generalController.isErrorReportingControlEnabled)
     }
 
     func test_general_section_persists_sound_name_to_config() throws {
@@ -934,6 +943,162 @@ final class SettingsWindowControllerTests: XCTestCase {
             contentController.currentSectionViewController as? GeneralSettingsSectionViewController
         )
         XCTAssertEqual(generalController.selectedSoundName, "Glass")
+    }
+
+    func test_general_section_confirms_error_reporting_change_before_persisting() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        var requestedValue: Bool?
+        let controller = SettingsWindowController(
+            configStore: store,
+            errorReportingBundleConfigurationProvider: {
+                ErrorReportingBundleConfiguration(
+                    dsn: "https://public@example.com/1",
+                    releaseName: "Zentty@1.0",
+                    dist: "167"
+                )
+            },
+            errorReportingConfirmationPresenter: { _, newValue, completion in
+                requestedValue = newValue
+                completion(.restartLater)
+            },
+            runtimeErrorReportingEnabled: true,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let generalController = try XCTUnwrap(
+            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        )
+
+        generalController.setErrorReportingEnabledForTesting(false)
+
+        XCTAssertEqual(requestedValue, false)
+        XCTAssertFalse(store.current.errorReporting.enabled)
+        XCTAssertFalse(generalController.isErrorReportingSwitchOn)
+        XCTAssertEqual(generalController.errorReportingRestartMessage, "Restart Zentty to apply this change.")
+    }
+
+    func test_general_section_cancels_error_reporting_change_without_persisting() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            errorReportingBundleConfigurationProvider: {
+                ErrorReportingBundleConfiguration(
+                    dsn: "https://public@example.com/1",
+                    releaseName: "Zentty@1.0",
+                    dist: "167"
+                )
+            },
+            errorReportingConfirmationPresenter: { _, _, completion in
+                completion(.cancel)
+            },
+            runtimeErrorReportingEnabled: true,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let generalController = try XCTUnwrap(
+            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        )
+
+        generalController.setErrorReportingEnabledForTesting(false)
+
+        XCTAssertTrue(store.current.errorReporting.enabled)
+        XCTAssertTrue(generalController.isErrorReportingSwitchOn)
+        XCTAssertNil(generalController.errorReportingRestartMessage)
+    }
+
+    func test_general_section_disables_error_reporting_controls_when_dsn_is_unavailable() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            errorReportingBundleConfigurationProvider: { nil },
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let generalController = try XCTUnwrap(
+            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        )
+
+        XCTAssertFalse(generalController.isErrorReportingControlEnabled)
+        XCTAssertEqual(
+            generalController.errorReportingStatusMessage,
+            "Error reporting is unavailable in this build."
+        )
+    }
+
+    func test_general_section_restart_now_persists_and_requests_restart() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        var restartRequested = false
+        let controller = SettingsWindowController(
+            configStore: store,
+            errorReportingBundleConfigurationProvider: {
+                ErrorReportingBundleConfiguration(
+                    dsn: "https://public@example.com/1",
+                    releaseName: "Zentty@1.0",
+                    dist: "167"
+                )
+            },
+            errorReportingConfirmationPresenter: { _, _, completion in
+                completion(.restartNow)
+            },
+            errorReportingRestartHandler: {
+                restartRequested = true
+            },
+            runtimeErrorReportingEnabled: true,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let generalController = try XCTUnwrap(
+            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        )
+
+        generalController.setErrorReportingEnabledForTesting(false)
+
+        XCTAssertFalse(store.current.errorReporting.enabled)
+        XCTAssertTrue(restartRequested)
     }
 
     func test_open_with_section_reconciles_unavailable_primary_target_to_available_fallback() throws {

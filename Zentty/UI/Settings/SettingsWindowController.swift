@@ -88,6 +88,12 @@ final class SettingsWindowController: NSWindowController {
         configStore: AppConfigStore,
         openWithService: OpenWithServing = OpenWithService(),
         customAppPicker: @escaping () -> OpenWithCustomApp? = OpenWithSettingsSectionViewController.defaultCustomAppPicker,
+        errorReportingBundleConfigurationProvider: @escaping ErrorReportingBundleConfigurationProvider = {
+            ErrorReportingBundleConfiguration.load(from: .main)
+        },
+        errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter = ErrorReportingRestartConfirmation.present,
+        errorReportingRestartHandler: @escaping ErrorReportingRestartHandler = ErrorReportingApplicationRestart.restart,
+        runtimeErrorReportingEnabled: Bool = ErrorReportingRuntimeState.isEnabledForCurrentProcess,
         appearance: NSAppearance? = nil,
         initialSection: SettingsSection = .shortcuts
     ) {
@@ -95,6 +101,10 @@ final class SettingsWindowController: NSWindowController {
             configStore: configStore,
             openWithService: openWithService,
             customAppPicker: customAppPicker,
+            errorReportingBundleConfigurationProvider: errorReportingBundleConfigurationProvider,
+            errorReportingConfirmationPresenter: errorReportingConfirmationPresenter,
+            errorReportingRestartHandler: errorReportingRestartHandler,
+            runtimeErrorReportingEnabled: runtimeErrorReportingEnabled,
             initialSection: initialSection
         )
         let initialContentSize = NSSize(width: SettingsViewController.preferredContentWidth, height: 440)
@@ -167,10 +177,20 @@ final class SettingsViewController: NSTabViewController {
 
     private let configStore: AppConfigStore
     private var configObserverID: UUID?
-    private lazy var generalViewController = GeneralSettingsSectionViewController(configStore: configStore)
+    private lazy var generalViewController = GeneralSettingsSectionViewController(
+        configStore: configStore,
+        errorReportingBundleConfigurationProvider: errorReportingBundleConfigurationProvider,
+        errorReportingConfirmationPresenter: errorReportingConfirmationPresenter,
+        errorReportingRestartHandler: errorReportingRestartHandler,
+        runtimeErrorReportingEnabled: runtimeErrorReportingEnabled
+    )
     private lazy var shortcutsViewController = ShortcutsSettingsSectionViewController(configStore: configStore)
     private lazy var paneLayoutViewController = PaneLayoutSettingsSectionViewController()
     private let openWithViewController: OpenWithSettingsSectionViewController
+    private let errorReportingBundleConfigurationProvider: ErrorReportingBundleConfigurationProvider
+    private let errorReportingConfirmationPresenter: ErrorReportingConfirmationPresenter
+    private let errorReportingRestartHandler: ErrorReportingRestartHandler
+    private let runtimeErrorReportingEnabled: Bool
     private var entriesBySection: [SettingsSection: SectionEntry] = [:]
     private weak var hostWindow: NSWindow?
     private var isSynchronizingSelection = false
@@ -187,10 +207,18 @@ final class SettingsViewController: NSTabViewController {
         configStore: AppConfigStore,
         openWithService: OpenWithServing,
         customAppPicker: @escaping () -> OpenWithCustomApp?,
+        errorReportingBundleConfigurationProvider: @escaping ErrorReportingBundleConfigurationProvider,
+        errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter,
+        errorReportingRestartHandler: @escaping ErrorReportingRestartHandler,
+        runtimeErrorReportingEnabled: Bool,
         initialSection: SettingsSection
     ) {
         self.configStore = configStore
         self.selectedSection = initialSection
+        self.errorReportingBundleConfigurationProvider = errorReportingBundleConfigurationProvider
+        self.errorReportingConfirmationPresenter = errorReportingConfirmationPresenter
+        self.errorReportingRestartHandler = errorReportingRestartHandler
+        self.runtimeErrorReportingEnabled = runtimeErrorReportingEnabled
         self.openWithViewController = OpenWithSettingsSectionViewController(
             configStore: configStore,
             openWithService: openWithService,
@@ -357,6 +385,7 @@ final class SettingsViewController: NSTabViewController {
     private func apply(config: AppConfig) {
         generalViewController.apply(notifications: config.notifications)
         generalViewController.apply(confirmations: config.confirmations)
+        generalViewController.apply(errorReporting: config.errorReporting)
         shortcutsViewController.apply(shortcuts: config.shortcuts)
         paneLayoutViewController.apply(preferences: config.paneLayout)
         openWithViewController.apply(preferences: config.openWith)
