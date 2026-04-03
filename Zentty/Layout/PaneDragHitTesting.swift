@@ -195,15 +195,8 @@ enum PaneDragHitTest {
         cursorInStrip: CGPoint,
         worklaneFrames: [(WorklaneID, CGRect)],
         activeWorklaneID: WorklaneID?,
-        sidebarBottomY: CGFloat,
-        isOptionHeld: Bool,
-        worklaneCount: Int
+        sidebarBottomY: CGFloat
     ) -> SidebarHitResult {
-        // Single-worklane guard: sidebar targeting only with Option held
-        if worklaneCount <= 1 && !isOptionHeld {
-            return .none
-        }
-
         // Check each worklane row (excluding active worklane)
         for (worklaneID, frame) in worklaneFrames {
             guard worklaneID != activeWorklaneID else { continue }

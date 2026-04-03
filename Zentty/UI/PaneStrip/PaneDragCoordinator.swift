@@ -512,7 +512,7 @@ final class PaneDragCoordinator {
     // MARK: - Drop
 
     func endDrag(at cursorInStrip: CGPoint) {
-        guard case .active = phase else { return }
+        guard case .active(let activeState) = phase else { return }
 
         // Sidebar drops take priority
         if case .sidebarWorklane(let worklaneID) = activeState.currentDropTarget {
@@ -1217,15 +1217,12 @@ final class PaneDragCoordinator {
         let worklaneFrames = sidebarWorklaneFrameProvider?() ?? []
         let activeID = activeWorklaneIDProvider?()
         let sidebarBounds = sidebarBoundsProvider?() ?? .zero
-        let worklaneCount = worklaneCountProvider?() ?? 1
 
         let hit = PaneDragHitTest.sidebarRowHit(
             cursorInStrip: cursorInStrip,
             worklaneFrames: worklaneFrames,
             activeWorklaneID: activeID,
-            sidebarBottomY: sidebarBounds.minY,
-            isOptionHeld: isOptionHeld,
-            worklaneCount: worklaneCount
+            sidebarBottomY: sidebarBounds.minY
         )
 
         switch hit {

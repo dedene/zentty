@@ -212,10 +212,18 @@ extension WorklaneStore {
         paneID: PaneID,
         singleColumnWidth: CGFloat
     ) {
-        let newWorklaneID = WorklaneID("worklane-\(worklanes.count + 1)")
+        // Prevent transferring the last pane — would leave an empty worklane.
+        // Option+drag (duplicate) is unaffected.
+        guard let source = activeWorklane,
+              source.paneStripState.panes.count > 1 else {
+            return
+        }
+
+        let n = nextWorklaneNumber()
+        let newWorklaneID = WorklaneID("worklane-\(n)")
         let newWorklane = WorklaneState(
             id: newWorklaneID,
-            title: "WS \(worklanes.count + 1)",
+            title: "WS \(n)",
             paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
             nextPaneNumber: 1
         )
@@ -291,10 +299,11 @@ extension WorklaneStore {
         paneID: PaneID,
         singleColumnWidth: CGFloat
     ) {
-        let newWorklaneID = WorklaneID("worklane-\(worklanes.count + 1)")
+        let n = nextWorklaneNumber()
+        let newWorklaneID = WorklaneID("worklane-\(n)")
         let newWorklane = WorklaneState(
             id: newWorklaneID,
-            title: "WS \(worklanes.count + 1)",
+            title: "WS \(n)",
             paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
             nextPaneNumber: 1
         )

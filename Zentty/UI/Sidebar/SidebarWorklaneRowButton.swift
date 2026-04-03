@@ -459,7 +459,7 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     private func resolvedSummary(for summary: WorklaneSidebarSummary) -> WorklaneSidebarSummary {
-        guard summary.paneRows.count == 1 else {
+        guard summary.paneRows.isEmpty == false else {
             return summary
         }
 
