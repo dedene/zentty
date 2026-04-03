@@ -193,7 +193,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             self?.showOpenWithMenu()
         }
         rootViewController.onShowSettingsRequested = { [weak self] in
-            self?.showSettingsWindow(section: .shortcuts, sender: nil)
+            self?.showSettingsWindow(section: .general, sender: nil)
         }
         window.shouldSuppressWindowDragAtPoint = { [weak rootViewController] point, eventType in
             rootViewController?.shouldSuppressWindowDrag(at: point, eventType: eventType) == true
@@ -292,6 +292,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             let settingsWindowController = SettingsWindowController(
                 configStore: configStore,
                 openWithService: openWithService,
+                runtimeErrorReportingEnabled: ErrorReportingRuntimeState.isEnabledForCurrentProcess,
                 appearance: terminalAppearance,
                 initialSection: section
             )

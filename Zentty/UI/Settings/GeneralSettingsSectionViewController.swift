@@ -12,8 +12,13 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     }
 
     private let configStore: AppConfigStore
+    private let errorReportingBundleConfigurationProvider: ErrorReportingBundleConfigurationProvider
+    private let errorReportingConfirmationPresenter: ErrorReportingConfirmationPresenter
+    private let errorReportingRestartHandler: ErrorReportingRestartHandler
+    private let runtimeErrorReportingEnabled: Bool
     private var currentNotifications: AppConfig.Notifications = .default
     private var currentConfirmations: AppConfig.Confirmations = .default
+    private var currentErrorReporting: AppConfig.ErrorReporting = .default
 
     private let statusLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
@@ -24,11 +29,28 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let closePaneSwitch = NSSwitch()
     private let closeWindowSwitch = NSSwitch()
     private let quitSwitch = NSSwitch()
+    private let errorReportingSwitch = NSSwitch()
+    private let errorReportingStatusLabel = NSTextField(labelWithString: "")
+    private let errorReportingSubtitleLabel = NSTextField(labelWithString: "")
+    private let errorReportingRestartLabel = NSTextField(labelWithString: "")
 
-    init(configStore: AppConfigStore) {
+    init(
+        configStore: AppConfigStore,
+        errorReportingBundleConfigurationProvider: @escaping ErrorReportingBundleConfigurationProvider = {
+            ErrorReportingBundleConfiguration.load(from: .main)
+        },
+        errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter = ErrorReportingRestartConfirmation.present,
+        errorReportingRestartHandler: @escaping ErrorReportingRestartHandler = ErrorReportingApplicationRestart.restart,
+        runtimeErrorReportingEnabled: Bool = ErrorReportingRuntimeState.isEnabledForCurrentProcess
+    ) {
         self.configStore = configStore
+        self.errorReportingBundleConfigurationProvider = errorReportingBundleConfigurationProvider
+        self.errorReportingConfirmationPresenter = errorReportingConfirmationPresenter
+        self.errorReportingRestartHandler = errorReportingRestartHandler
+        self.runtimeErrorReportingEnabled = runtimeErrorReportingEnabled
         self.currentNotifications = configStore.current.notifications
         self.currentConfirmations = configStore.current.confirmations
+        self.currentErrorReporting = configStore.current.errorReporting
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -77,6 +99,28 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
         stackView.addArrangedSubview(card)
         card.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        let errorReportingCard = SettingsCardView()
+        let errorReportingStack = NSStackView()
+        errorReportingStack.orientation = .vertical
+        errorReportingStack.alignment = .leading
+        errorReportingStack.spacing = 0
+        errorReportingStack.translatesAutoresizingMaskIntoConstraints = false
+        errorReportingCard.addSubview(errorReportingStack)
+
+        let errorReportingRow = makeErrorReportingRow()
+        errorReportingStack.addArrangedSubview(errorReportingRow)
+        errorReportingRow.widthAnchor.constraint(equalTo: errorReportingStack.widthAnchor).isActive = true
+
+        NSLayoutConstraint.activate([
+            errorReportingStack.topAnchor.constraint(equalTo: errorReportingCard.topAnchor),
+            errorReportingStack.leadingAnchor.constraint(equalTo: errorReportingCard.leadingAnchor),
+            errorReportingStack.trailingAnchor.constraint(equalTo: errorReportingCard.trailingAnchor),
+            errorReportingStack.bottomAnchor.constraint(equalTo: errorReportingCard.bottomAnchor),
+        ])
+
+        stackView.addArrangedSubview(errorReportingCard)
+        errorReportingCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         // Confirmations card
         let confirmCard = SettingsCardView()
@@ -149,7 +193,10 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         closePaneSwitch.state = currentConfirmations.confirmBeforeClosingPane ? .on : .off
         closeWindowSwitch.state = currentConfirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = currentConfirmations.confirmBeforeQuitting ? .on : .off
+        errorReportingSwitch.state = currentErrorReporting.enabled ? .on : .off
         refreshNotificationStatus()
+        updateErrorReportingAvailability()
+        updateErrorReportingRestartMessage()
     }
 
     override func prepareForPresentation() {
@@ -168,6 +215,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         closePaneSwitch.state = confirmations.confirmBeforeClosingPane ? .on : .off
         closeWindowSwitch.state = confirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = confirmations.confirmBeforeQuitting ? .on : .off
+    }
+
+    func apply(errorReporting: AppConfig.ErrorReporting) {
+        currentErrorReporting = errorReporting
+        guard isViewLoaded else { return }
+        errorReportingSwitch.state = errorReporting.enabled ? .on : .off
+        updateErrorReportingAvailability()
+        updateErrorReportingRestartMessage()
     }
 
     // MARK: - Notification Row
@@ -306,6 +361,65 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         return container
     }
 
+    private func makeErrorReportingRow() -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let leftStack = NSStackView()
+        leftStack.orientation = .vertical
+        leftStack.alignment = .leading
+        leftStack.spacing = 2
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = makeLabel(
+            text: "Error Reporting",
+            font: .systemFont(ofSize: 13, weight: .semibold)
+        )
+        leftStack.addArrangedSubview(titleLabel)
+
+        errorReportingSubtitleLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        errorReportingSubtitleLabel.textColor = .secondaryLabelColor
+        errorReportingSubtitleLabel.lineBreakMode = .byWordWrapping
+        errorReportingSubtitleLabel.maximumNumberOfLines = 0
+        leftStack.addArrangedSubview(errorReportingSubtitleLabel)
+
+        errorReportingRestartLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        errorReportingRestartLabel.textColor = .secondaryLabelColor
+        errorReportingRestartLabel.lineBreakMode = .byWordWrapping
+        errorReportingRestartLabel.maximumNumberOfLines = 0
+        leftStack.addArrangedSubview(errorReportingRestartLabel)
+
+        let rightStack = NSStackView()
+        rightStack.orientation = .horizontal
+        rightStack.alignment = .centerY
+        rightStack.spacing = 8
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+
+        errorReportingStatusLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        errorReportingStatusLabel.textColor = .secondaryLabelColor
+        rightStack.addArrangedSubview(errorReportingStatusLabel)
+
+        errorReportingSwitch.target = self
+        errorReportingSwitch.action = #selector(handleErrorReportingSwitchChanged(_:))
+        rightStack.addArrangedSubview(errorReportingSwitch)
+
+        container.addSubview(leftStack)
+        container.addSubview(rightStack)
+        rightStack.setContentHuggingPriority(.required, for: .horizontal)
+
+        NSLayoutConstraint.activate([
+            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
+
+            rightStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            rightStack.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
+            rightStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+        ])
+
+        return container
+    }
+
     // MARK: - Actions
 
     @objc
@@ -365,6 +479,47 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     }
 
     @objc
+    private func handleErrorReportingSwitchChanged(_ sender: NSSwitch) {
+        requestErrorReportingChange(to: sender.state == .on)
+    }
+
+    private func requestErrorReportingChange(to requestedValue: Bool) {
+        guard requestedValue != currentErrorReporting.enabled else {
+            return
+        }
+
+        guard errorReportingBundleConfigurationProvider() != nil else {
+            errorReportingSwitch.state = currentErrorReporting.enabled ? .on : .off
+            updateErrorReportingAvailability()
+            return
+        }
+
+        guard let window = view.window else {
+            errorReportingSwitch.state = currentErrorReporting.enabled ? .on : .off
+            return
+        }
+
+        errorReportingConfirmationPresenter(window, requestedValue) { [weak self] decision in
+            guard let self else { return }
+
+            if decision != .cancel {
+                try? self.configStore.update { config in
+                    config.errorReporting.enabled = requestedValue
+                }
+                self.currentErrorReporting = self.configStore.current.errorReporting
+            }
+
+            self.errorReportingSwitch.state = self.currentErrorReporting.enabled ? .on : .off
+            self.updateErrorReportingAvailability()
+            self.updateErrorReportingRestartMessage()
+
+            if decision == .restartNow {
+                self.errorReportingRestartHandler()
+            }
+        }
+    }
+
+    @objc
     private func handlePlaySound(_ sender: Any?) {
         let soundName = currentNotifications.soundName
         if soundName.isEmpty {
@@ -412,6 +567,27 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
             statusLabel.textColor = .secondaryLabelColor
             subtitleLabel.stringValue = "Unable to determine notification status."
         }
+    }
+
+    private func updateErrorReportingAvailability() {
+        let isAvailable = errorReportingBundleConfigurationProvider() != nil
+        errorReportingSwitch.isEnabled = isAvailable
+
+        if isAvailable {
+            errorReportingStatusLabel.stringValue = currentErrorReporting.enabled ? "On" : "Off"
+            errorReportingStatusLabel.textColor = .secondaryLabelColor
+            errorReportingSubtitleLabel.stringValue = "Send anonymous crash reports to help improve Zentty. Privacy-first by design."
+        } else {
+            errorReportingStatusLabel.stringValue = "Unavailable"
+            errorReportingStatusLabel.textColor = .secondaryLabelColor
+            errorReportingSubtitleLabel.stringValue = "Error reporting is unavailable in this build."
+        }
+    }
+
+    private func updateErrorReportingRestartMessage() {
+        let needsRestart = currentErrorReporting.enabled != runtimeErrorReportingEnabled
+        errorReportingRestartLabel.stringValue = needsRestart ? "Restart Zentty to apply this change." : ""
+        errorReportingRestartLabel.isHidden = !needsRestart
     }
 
     // MARK: - Helpers
@@ -504,6 +680,26 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
     var isQuitSwitchOn: Bool {
         quitSwitch.state == .on
+    }
+
+    var isErrorReportingSwitchOn: Bool {
+        errorReportingSwitch.state == .on
+    }
+
+    var isErrorReportingControlEnabled: Bool {
+        errorReportingSwitch.isEnabled
+    }
+
+    var errorReportingStatusMessage: String {
+        errorReportingSubtitleLabel.stringValue
+    }
+
+    var errorReportingRestartMessage: String? {
+        errorReportingRestartLabel.stringValue.isEmpty ? nil : errorReportingRestartLabel.stringValue
+    }
+
+    func setErrorReportingEnabledForTesting(_ enabled: Bool) {
+        requestErrorReportingChange(to: enabled)
     }
 }
 

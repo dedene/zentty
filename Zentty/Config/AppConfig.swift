@@ -44,9 +44,16 @@ struct AppConfig: Equatable, Sendable {
         )
     }
 
+    struct ErrorReporting: Equatable, Sendable {
+        var enabled: Bool
+
+        static let `default` = ErrorReporting(enabled: true)
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var openWith: OpenWith
+    var errorReporting: ErrorReporting
     var shortcuts: Shortcuts
     var notifications: Notifications
     var confirmations: Confirmations
@@ -58,6 +65,7 @@ struct AppConfig: Equatable, Sendable {
         ),
         paneLayout: .default,
         openWith: .default,
+        errorReporting: .default,
         shortcuts: .default,
         notifications: .default,
         confirmations: .default
@@ -75,6 +83,7 @@ struct AppConfig: Equatable, Sendable {
             ),
             paneLayout: PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults),
             openWith: .default,
+            errorReporting: .default,
             shortcuts: .default,
             notifications: .default,
             confirmations: .default

@@ -270,6 +270,21 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(settingsViewController.contentSectionTitle, "General")
     }
 
+    func test_root_settings_callback_opens_settings_shell_on_general() throws {
+        let controller = makeController()
+
+        controller.rootViewControllerForTesting.onShowSettingsRequested?()
+
+        let settingsWindow = try XCTUnwrap(controller.settingsWindow)
+        let settingsViewController = try XCTUnwrap(
+            settingsWindow.contentViewController as? SettingsViewController
+        )
+        settingsViewController.loadViewIfNeeded()
+
+        XCTAssertEqual(settingsViewController.selectedSection, .general)
+        XCTAssertEqual(settingsViewController.contentSectionTitle, "General")
+    }
+
     func test_show_settings_window_can_route_existing_window_to_open_with() throws {
         let controller = makeController()
 
