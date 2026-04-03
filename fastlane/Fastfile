@@ -19,6 +19,7 @@ platform :mac do
     generate_project
     sync_signing
     bump_build_number
+    commit_build_number
     archive
     notarize_app
     package_dmg
@@ -41,6 +42,15 @@ platform :mac do
       value: build_number.to_s
     )
     UI.success("Build number set to #{build_number}")
+  end
+
+  desc "Commit the bumped build number"
+  lane :commit_build_number do
+    build_number = get_info_plist_value(path: INFO_PLIST, key: "CFBundleVersion")
+    git_commit(
+      path: INFO_PLIST,
+      message: "build: bump build number to #{build_number}"
+    )
   end
 
   desc "Sync Developer ID certificate via match"
