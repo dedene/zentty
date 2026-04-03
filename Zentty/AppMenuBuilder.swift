@@ -23,7 +23,7 @@ enum AppMenuBuilder {
         let settingsItem = NSMenuItem(
             title: "Settings…",
             action: #selector(AppDelegate.showSettingsWindow(_:)),
-            keyEquivalent: ","
+            keyEquivalent: ""
         )
         let quitItem = NSMenuItem(
             title: "Quit \(appName)",
@@ -31,7 +31,7 @@ enum AppMenuBuilder {
             keyEquivalent: "q"
         )
 
-        settingsItem.keyEquivalentModifierMask = [.command]
+        apply(shortcutManager.shortcut(for: .openSettings), to: settingsItem)
         quitItem.keyEquivalentModifierMask = [.command]
         appMenu.addItem(settingsItem)
         appMenu.addItem(makeSeparatorItem())
@@ -179,6 +179,7 @@ enum AppMenuBuilder {
         let editMenu = menu(named: AppMenuSection.edit.rawValue, in: mainMenu)
         let viewMenu = menu(named: AppMenuSection.view.rawValue, in: mainMenu)
         let requiredFileItems: [(String, Selector)] = [
+            ("New Window", #selector(AppDelegate.newWindow(_:))),
             ("New Worklane", #selector(MainWindowController.newWorklane(_:))),
             ("Next Worklane", #selector(MainWindowController.nextWorklane(_:))),
             ("Previous Worklane", #selector(MainWindowController.previousWorklane(_:))),
@@ -205,17 +206,23 @@ enum AppMenuBuilder {
             ("Arrange Width: Thirds", #selector(MainWindowController.arrangePaneWidthThirds(_:))),
             ("Arrange Width: Quarters", #selector(MainWindowController.arrangePaneWidthQuarters(_:))),
             (nil, nil),
+            ("Arrange Width: Golden — Focus Wide", #selector(MainWindowController.arrangeWidthGoldenFocusWide(_:))),
+            ("Arrange Width: Golden — Focus Narrow", #selector(MainWindowController.arrangeWidthGoldenFocusNarrow(_:))),
+            (nil, nil),
             ("Arrange Height: Full Height", #selector(MainWindowController.arrangePaneHeightFull(_:))),
             ("Arrange Height: 2 Per Column", #selector(MainWindowController.arrangePaneHeightTwoPerColumn(_:))),
             ("Arrange Height: 3 Per Column", #selector(MainWindowController.arrangePaneHeightThreePerColumn(_:))),
             ("Arrange Height: 4 Per Column", #selector(MainWindowController.arrangePaneHeightFourPerColumn(_:))),
             (nil, nil),
+            ("Arrange Height: Golden — Focus Tall", #selector(MainWindowController.arrangeHeightGoldenFocusTall(_:))),
+            ("Arrange Height: Golden — Focus Short", #selector(MainWindowController.arrangeHeightGoldenFocusShort(_:))),
+            (nil, nil),
+            ("Focus Previous Pane", #selector(MainWindowController.focusPreviousPane(_:))),
+            ("Focus Next Pane", #selector(MainWindowController.focusNextPane(_:))),
             ("Focus Left Pane", #selector(MainWindowController.focusLeftPane(_:))),
             ("Focus Right Pane", #selector(MainWindowController.focusRightPane(_:))),
             ("Focus Up In Column", #selector(MainWindowController.focusUpInColumn(_:))),
             ("Focus Down In Column", #selector(MainWindowController.focusDownInColumn(_:))),
-            ("Focus First Column", #selector(MainWindowController.focusFirstColumn(_:))),
-            ("Focus Last Column", #selector(MainWindowController.focusLastColumn(_:))),
             (nil, nil),
             ("Resize Pane Left", #selector(MainWindowController.resizePaneLeft(_:))),
             ("Resize Pane Right", #selector(MainWindowController.resizePaneRight(_:))),

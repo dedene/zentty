@@ -48,6 +48,8 @@ real_binary="$(find_real_binary)" || {
     exit 127
 }
 
-send_signal pid attach "$$"
+if [[ "$tool_basename" != "codex" ]]; then
+    send_signal pid attach "$$"
+fi
 
 exec "$real_binary" "$@"

@@ -234,6 +234,7 @@ enum PaneAgentStatusSource: Equatable, Sendable {
 enum WorklaneAttentionState: String, Equatable, Sendable {
     case needsInput
     case unresolvedStop
+    case ready
     case running
 }
 
@@ -444,7 +445,7 @@ struct WorklaneAttentionSummary: Equatable, Sendable {
         switch state {
         case .needsInput, .unresolvedStop:
             return true
-        case .running:
+        case .ready, .running:
             return false
         }
     }

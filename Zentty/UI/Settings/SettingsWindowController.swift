@@ -88,6 +88,7 @@ final class SettingsWindowController: NSWindowController {
         configStore: AppConfigStore,
         openWithService: OpenWithServing = OpenWithService(),
         customAppPicker: @escaping () -> OpenWithCustomApp? = OpenWithSettingsSectionViewController.defaultCustomAppPicker,
+        appearance: NSAppearance? = nil,
         initialSection: SettingsSection = .shortcuts
     ) {
         let settingsViewController = SettingsViewController(
@@ -109,6 +110,7 @@ final class SettingsWindowController: NSWindowController {
         window.titlebarSeparatorStyle = .automatic
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor.windowBackgroundColor
+        window.appearance = appearance
         window.center()
         if #available(macOS 13.0, *) {
             window.toolbarStyle = .preference
@@ -134,6 +136,11 @@ final class SettingsWindowController: NSWindowController {
         )
         showWindow(sender)
         window?.makeKeyAndOrderFront(sender)
+    }
+
+    func applyAppearance(_ appearance: NSAppearance?) {
+        window?.appearance = appearance
+        settingsViewController.handleAppearanceChange()
     }
 }
 
@@ -241,6 +248,12 @@ final class SettingsViewController: NSTabViewController {
         hostWindow = window
     }
 
+    func handleAppearanceChange() {
+        loadViewIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        (currentSectionViewController as? SettingsAppearanceUpdating)?.handleAppearanceChange()
+    }
+
     func select(section: SettingsSection) {
         select(section: section, animated: hostWindow?.isVisible == true && selectedSection != section)
     }
@@ -311,10 +324,26 @@ final class SettingsViewController: NSTabViewController {
             let tabViewItem = NSTabViewItem(viewController: contentViewController)
             tabViewItem.identifier = section.rawValue
             tabViewItem.label = section.title
-            tabViewItem.image = NSImage(
+            let image = NSImage(
                 systemSymbolName: section.symbolName,
                 accessibilityDescription: section.title
             )
+            if section == .openWith, let base = image?.withSymbolConfiguration(
+                .init(pointSize: 0, weight: .regular, scale: .medium)
+            ) {
+                let bottomPadding: CGFloat = 2
+                let padded = NSImage(
+                    size: NSSize(width: base.size.width, height: base.size.height + bottomPadding),
+                    flipped: false
+                ) { _ in
+                    base.draw(in: NSRect(x: 0, y: bottomPadding, width: base.size.width, height: base.size.height))
+                    return true
+                }
+                padded.isTemplate = true
+                tabViewItem.image = padded
+            } else {
+                tabViewItem.image = image
+            }
 
             addTabViewItem(tabViewItem)
             entriesBySection[section] = SectionEntry(

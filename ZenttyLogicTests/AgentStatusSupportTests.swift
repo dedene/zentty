@@ -80,6 +80,36 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_repository_shell_integrations_dedupe_shell_activity_signal() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let shellIntegrationDirectory = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("shell-integration", isDirectory: true)
+
+        for filename in ["zentty-zsh-integration.zsh", "zentty-bash-integration.bash"] {
+            let scriptURL = shellIntegrationDirectory.appendingPathComponent(filename, isDirectory: false)
+            let script = try String(contentsOf: scriptURL, encoding: .utf8)
+
+            XCTAssertTrue(script.contains("_zentty_shell_activity_last"), filename)
+            XCTAssertTrue(script.contains("[[ \"$_zentty_shell_activity_last\" == \"$state\" ]]"), filename)
+        }
+    }
+
+    func test_repository_codex_wrapper_exports_session_scoped_pid() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let codexWrapperURL = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("codex", isDirectory: false)
+
+        let script = try String(contentsOf: codexWrapperURL, encoding: .utf8)
+        XCTAssertTrue(script.contains("export ZENTTY_CODEX_PID=$$"))
+    }
+
     func test_agent_status_command_uses_env_defaults_and_round_trips_notification_payload() throws {
         let command = try AgentStatusCommand.parse(
             arguments: [
@@ -1046,9 +1076,10 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.state, .running)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
-    func test_codex_hook_session_start_is_non_visible_noop() throws {
+    func test_codex_hook_session_start_emits_session_scoped_pid_attach_and_starting_payloads() throws {
         let input = try CodexHookBridge.parseInput(
             Data("""
             {"hook_event_name":"SessionStart","session_id":"session-1","cwd":"/tmp/project"}
@@ -1060,10 +1091,46 @@ final class AgentStatusSupportTests: XCTestCase {
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
                 "ZENTTY_PANE_ID": "worklane-main-shell",
+                "ZENTTY_CODEX_PID": "4242",
             ]
         )
 
-        XCTAssertTrue(payloads.isEmpty)
+        XCTAssertEqual(
+            payloads,
+            [
+                AgentStatusPayload(
+                    worklaneID: WorklaneID("worklane-main"),
+                    paneID: PaneID("worklane-main-shell"),
+                    signalKind: .pid,
+                    state: nil,
+                    pid: 4242,
+                    pidEvent: .attach,
+                    origin: .explicitHook,
+                    toolName: "Codex",
+                    text: nil,
+                    sessionID: "session-1",
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil
+                ),
+                AgentStatusPayload(
+                    worklaneID: WorklaneID("worklane-main"),
+                    paneID: PaneID("worklane-main-shell"),
+                    signalKind: .lifecycle,
+                    state: .starting,
+                    origin: .explicitHook,
+                    toolName: "Codex",
+                    text: nil,
+                    lifecycleEvent: .update,
+                    confidence: .explicit,
+                    sessionID: "session-1",
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil,
+                    agentWorkingDirectory: "/tmp/project"
+                ),
+            ]
+        )
     }
 
     func test_codex_hook_stop_maps_to_idle_payload() throws {
@@ -1245,6 +1312,45 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(recorder.requests.isEmpty)
     }
 
+    func test_notification_coordinator_fires_for_ready_when_pane_is_not_actively_viewed() {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            worklanes: [makeReadyWorklane(worklaneID: worklaneID, paneID: paneID, primaryText: "Implement push notifications")],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        XCTAssertEqual(
+            recorder.requests,
+            [
+                .init(
+                    identifier: recorder.requests.first?.identifier ?? "",
+                    title: "Agent ready",
+                    body: "Implement push notifications"
+                )
+            ]
+        )
+    }
+
+    func test_notification_coordinator_does_not_fire_for_ready_when_pane_is_actively_viewed() {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            worklanes: [makeReadyWorklane(worklaneID: worklaneID, paneID: paneID, primaryText: "Implement push notifications")],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+
+        XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
     private func makeClaudeHookSessionStore() throws -> ClaudeHookSessionStore {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1255,6 +1361,56 @@ final class AgentStatusSupportTests: XCTestCase {
     private func makeTemporaryBundle(named name: String) throws -> Bundle {
         let bundleRoot = try makeTemporaryBundleRoot(named: name)
         return try XCTUnwrap(Bundle(url: bundleRoot))
+    }
+
+    private func makeReadyWorklane(
+        worklaneID: WorklaneID,
+        paneID: PaneID,
+        primaryText: String
+    ) -> WorklaneState {
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: primaryText,
+                currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 100),
+                hasObservedRunning: true
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/Users/peter/Development/Personal/zentty",
+                repositoryRoot: "/Users/peter/Development/Personal/zentty",
+                reference: .branch("main")
+            ),
+            showsReadyStatus: true,
+            lastDesktopNotificationText: "Agent ready",
+            lastDesktopNotificationDate: Date(timeIntervalSince1970: 100)
+        )
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+
+        return WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
     }
 
     private func makeTemporaryBundleRoot(named name: String) throws -> URL {

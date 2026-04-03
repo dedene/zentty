@@ -934,6 +934,25 @@ final class WindowChromeViewTests: XCTestCase {
         )
     }
 
+    func test_path_copied_toast_uses_glass_capsule_with_icon_and_depth() {
+        let parentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 160))
+        let toast = PathCopiedToastView()
+
+        toast.show(
+            in: parentView,
+            theme: ZenttyTheme.fallback(for: NSAppearance(named: .darkAqua), reduceTransparency: false)
+        )
+        toast.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(parentView.subviews.contains(toast))
+        XCTAssertNotNil(findLabel(in: toast, withText: "Path copied"))
+        XCTAssertGreaterThanOrEqual(toast.frame.width, 136)
+        XCTAssertGreaterThanOrEqual(toast.frame.height, 34)
+        XCTAssertGreaterThan(toast.layer?.shadowRadius ?? 0, 12)
+        XCTAssertTrue(toast.subviews.contains(where: { $0 is NSVisualEffectView }))
+        XCTAssertNotNil(findImageView(in: toast))
+    }
+
     private func makeNeedsInputAttention() -> WorklaneAttentionSummary {
         WorklaneAttentionSummary(
             paneID: PaneID("pane-shell"),
@@ -996,6 +1015,20 @@ final class WindowChromeViewTests: XCTestCase {
 
         for subview in rootView.subviews {
             if let match = findButton(in: subview, withTitle: title) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
+    private func findImageView(in rootView: NSView) -> NSImageView? {
+        if let imageView = rootView as? NSImageView, imageView.image != nil {
+            return imageView
+        }
+
+        for subview in rootView.subviews {
+            if let match = findImageView(in: subview) {
                 return match
             }
         }

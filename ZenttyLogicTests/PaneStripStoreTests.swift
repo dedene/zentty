@@ -20,7 +20,7 @@ final class PaneStripStoreTests: XCTestCase {
         let store = WorklaneStore()
         store.createWorklane()
 
-        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 2" })?.id)
+        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 1" })?.id)
         let mainID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "MAIN" })?.id)
         store.selectWorklane(id: worklane2ID)
         store.send(.splitAfterFocusedPane)
@@ -39,8 +39,8 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.createWorklane()
 
-        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN", "WS 2"])
-        XCTAssertEqual(store.activeWorklane?.title, "WS 2")
+        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN", "WS 1"])
+        XCTAssertEqual(store.activeWorklane?.title, "WS 1")
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
         XCTAssertEqual(
             store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.surfaceContext,
@@ -245,7 +245,7 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.createWorklane()
 
-        XCTAssertEqual(store.activeWorklane?.title, "WS 2")
+        XCTAssertEqual(store.activeWorklane?.title, "WS 1")
         XCTAssertEqual(
             store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
             "/tmp/local-project"
@@ -481,7 +481,7 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.send(.splitHorizontally)
 
-        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [1720, 1720])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [1572, 1572])
     }
 
     func test_updating_layout_context_resizes_existing_single_pane_to_full_readable_width() {
@@ -1014,6 +1014,113 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.paneStripState.focusedColumn?.id, PaneColumnID("right"))
     }
 
+    func test_focus_next_pane_by_sidebar_order_moves_within_worklane_then_across_worklanes() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("ws1"),
+                    title: "WS1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("ws1-left"), title: "ws1-left")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws1-left"),
+                                lastFocusedPaneID: PaneID("ws1-left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [PaneState(id: PaneID("ws1-right"), title: "ws1-right")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws1-right"),
+                                lastFocusedPaneID: PaneID("ws1-right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left")
+                    )
+                ),
+                WorklaneState(
+                    id: WorklaneID("ws2"),
+                    title: "WS2",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("main"),
+                                panes: [PaneState(id: PaneID("ws2-pane"), title: "ws2-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-pane"),
+                                lastFocusedPaneID: PaneID("ws2-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("main")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("ws1")
+        )
+
+        store.send(.focusNextPaneBySidebarOrder)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws1"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPaneID, PaneID("ws1-right"))
+
+        store.send(.focusNextPaneBySidebarOrder)
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws2"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPaneID, PaneID("ws2-pane"))
+    }
+
+    func test_focus_previous_pane_by_sidebar_order_wraps_to_last_pane_of_last_worklane() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("ws1"),
+                    title: "WS1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("main"),
+                                panes: [PaneState(id: PaneID("ws1-pane"), title: "ws1-pane")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws1-pane"),
+                                lastFocusedPaneID: PaneID("ws1-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("main")
+                    )
+                ),
+                WorklaneState(
+                    id: WorklaneID("ws2"),
+                    title: "WS2",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("ws2-left"), title: "ws2-left")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-left"),
+                                lastFocusedPaneID: PaneID("ws2-left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [PaneState(id: PaneID("ws2-right"), title: "ws2-right")],
+                                width: 900,
+                                focusedPaneID: PaneID("ws2-right"),
+                                lastFocusedPaneID: PaneID("ws2-right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("ws1")
+        )
+
+        store.send(.focusPreviousPaneBySidebarOrder)
+
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("ws2"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPaneID, PaneID("ws2-right"))
+    }
+
     func test_split_before_inserts_adjacent_pane_before_focus() {
         let store = WorklaneStore(
             worklanes: [
@@ -1042,7 +1149,7 @@ final class PaneStripStoreTests: XCTestCase {
     func test_close_removes_focused_pane_inside_active_worklane_only() throws {
         let store = WorklaneStore()
         store.createWorklane()
-        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 2" })?.id)
+        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 1" })?.id)
 
         store.selectWorklane(id: worklane2ID)
         store.send(.splitAfterFocusedPane)
@@ -1059,7 +1166,7 @@ final class PaneStripStoreTests: XCTestCase {
         store.createWorklane()
 
         let mainID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "MAIN" })?.id)
-        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 2" })?.id)
+        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 1" })?.id)
 
         store.selectWorklane(id: worklane2ID)
         store.send(.closeFocusedPane)
@@ -1427,6 +1534,61 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool, .claudeCode)
     }
 
+    func test_command_finished_does_not_promote_running_agent_with_live_pid_to_unresolved_stop() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 5"]
+        try process.run()
+        addTeardownBlock {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                state: .running,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .pid,
+                state: nil,
+                pid: process.processIdentifier,
+                pidEvent: .attach,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .commandFinished(exitCode: 0, durationNanoseconds: 500_000_000)
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.trackedPID,
+            process.processIdentifier
+        )
+    }
+
     func test_progress_report_event_stores_and_removes_terminal_progress() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -1640,6 +1802,92 @@ final class PaneStripStoreTests: XCTestCase {
             .some(.none)
         )
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.sessionID, "session-1")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+    }
+
+    func test_running_codex_title_update_resumes_blocked_codex_question_into_running() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Codex",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: "What should Codex do next?",
+                interactionKind: .question,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ Follow up on the question",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            .some(.none)
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Running"
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.rememberedTitle,
+            "Follow up on the question"
+        )
+    }
+
+    func test_completion_notification_phrase_agent_turn_complete_surfaces_agent_ready() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Codex",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(title: "Codex", body: "Agent turn complete")
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
     func test_desktop_notification_event_ignores_non_actionable_copy_for_codex() throws {
@@ -2996,6 +3244,62 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
             "Running"
+        )
+    }
+
+    func test_updating_codex_status_title_subject_notifies_sidebar_immediately() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                state: .running,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ Investigate sidebar titles",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        var recordedImpacts: [WorklaneAuxiliaryInvalidation] = []
+        let subscription = store.subscribe { change in
+            guard case .auxiliaryStateUpdated(_, let changedPaneID, let impacts) = change, changedPaneID == paneID else {
+                return
+            }
+            recordedImpacts.append(impacts)
+        }
+        defer { store.unsubscribe(subscription) }
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠙ Make pane titles reactive again",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let impacts = try XCTUnwrap(recordedImpacts.last)
+        XCTAssertTrue(impacts.contains(.sidebar))
+        XCTAssertTrue(impacts.contains(.header))
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.rememberedTitle,
+            "Make pane titles reactive again"
         )
     }
 

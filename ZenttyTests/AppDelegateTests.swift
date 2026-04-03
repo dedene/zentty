@@ -161,7 +161,7 @@ final class AppDelegateTests: XCTestCase {
         NSApp.mainMenu = nil
 
         let delegate = AppDelegate(
-            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) }
         )
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
@@ -176,7 +176,7 @@ final class AppDelegateTests: XCTestCase {
         NSApp.mainMenu = nil
 
         let delegate = AppDelegate(
-            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) }
         )
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
         let settled = expectation(description: "layout settled")

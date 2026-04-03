@@ -143,10 +143,14 @@ struct PaneLayoutContext: Equatable, Sendable {
     let leadingVisibleInset: CGFloat
     let sizing: PaneLayoutSizing
 
+    var availableWidth: CGFloat {
+        max(0, viewportWidth - leadingVisibleInset)
+    }
+
     var newPaneWidth: CGFloat {
         preset.defaultPaneWidth(
             for: displayClass,
-            viewportWidth: viewportWidth
+            viewportWidth: availableWidth
         )
     }
 
@@ -159,7 +163,10 @@ struct PaneLayoutContext: Equatable, Sendable {
             return newPaneWidth
         }
 
-        return preset.firstSplitWidth(for: displayClass, viewportWidth: viewportWidth)
+        return preset.firstSplitWidth(
+            for: displayClass,
+            viewportWidth: availableWidth - sizing.interPaneSpacing
+        )
     }
 
     var firstPaneWidthAfterSingleSplit: CGFloat? {
@@ -167,7 +174,10 @@ struct PaneLayoutContext: Equatable, Sendable {
             return nil
         }
 
-        return preset.firstSplitWidth(for: displayClass, viewportWidth: viewportWidth)
+        return preset.firstSplitWidth(
+            for: displayClass,
+            viewportWidth: availableWidth - sizing.interPaneSpacing
+        )
     }
 
     var singlePaneWidth: CGFloat {

@@ -73,6 +73,11 @@ struct ZenttyTheme: Equatable {
     let sidebarWorkingTextHighlight: NSColor
     let sidebarGradientStart: NSColor
     let sidebarGradientEnd: NSColor
+    let statusRunning: NSColor
+    let statusNeedsInput: NSColor
+    let statusStopped: NSColor
+    let statusReady: NSColor
+    let statusIdle: NSColor
     let openWithChromeBackground: NSColor
     let openWithChromeBorder: NSColor
     let openWithChromeDivider: NSColor
@@ -135,6 +140,7 @@ struct ZenttyTheme: Equatable {
             lhs.commandPaletteRowHoverBackground, lhs.commandPaletteRowSelectedBackground,
             lhs.commandPaletteSeparator,
             lhs.underlapShadow,
+            lhs.statusRunning, lhs.statusNeedsInput, lhs.statusStopped, lhs.statusReady, lhs.statusIdle,
         ].map(\.themeToken) == [
             rhs.windowBackground, rhs.sidebarBackground, rhs.sidebarBorder, rhs.sidebarShadow,
             rhs.topChromeBackground, rhs.topChromeBorder, rhs.canvasBackground, rhs.canvasBorder,
@@ -160,6 +166,7 @@ struct ZenttyTheme: Equatable {
             rhs.commandPaletteRowHoverBackground, rhs.commandPaletteRowSelectedBackground,
             rhs.commandPaletteSeparator,
             rhs.underlapShadow,
+            rhs.statusRunning, rhs.statusNeedsInput, rhs.statusStopped, rhs.statusReady, rhs.statusIdle,
         ].map(\.themeToken)
             && lhs.sidebarGlassAppearance == rhs.sidebarGlassAppearance
             && lhs.reducedTransparency == rhs.reducedTransparency
@@ -261,6 +268,23 @@ struct ZenttyTheme: Equatable {
         sidebarGradientEnd = baseSidebar
             .mixed(towards: foreground, amount: background.isDarkThemeColor ? 0.05 : 0.12)
             .withAlphaComponent(reduceTransparency ? 0.04 : (background.isDarkThemeColor ? 0.10 : 0.08))
+
+        let isDark = background.isDarkThemeColor
+        let palette = resolvedTheme.palette
+        let paletteBlue = ((isDark ? palette[12] : palette[4]) ?? palette[4])?.srgbClamped
+            ?? accent
+        let paletteYellow = ((isDark ? palette[11] : palette[3]) ?? palette[3])?.srgbClamped
+            ?? foreground.mixed(towards: NSColor(srgbRed: 1.0, green: 0.70, blue: 0.20, alpha: 1), amount: 0.82)
+        let paletteRed = ((isDark ? palette[9] : palette[1]) ?? palette[1])?.srgbClamped
+            ?? foreground.mixed(towards: NSColor(srgbRed: 1.0, green: 0.30, blue: 0.30, alpha: 1), amount: 0.82)
+        let paletteGreen = ((isDark ? palette[10] : palette[2]) ?? palette[2])?.srgbClamped
+            ?? foreground.mixed(towards: NSColor(srgbRed: 0.30, green: 0.85, blue: 0.40, alpha: 1), amount: 0.82)
+        statusRunning = paletteBlue
+        statusNeedsInput = paletteYellow
+        statusStopped = paletteRed
+        statusReady = paletteGreen
+        statusIdle = accent.withAlphaComponent(isDark ? 0.54 : 0.48)
+
         openWithChromeBackground = openWithChromeBase.withAlphaComponent(
             reduceTransparency ? 0.96 : (background.isDarkThemeColor ? 0.60 : 0.82)
         )

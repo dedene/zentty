@@ -75,21 +75,25 @@ final class WorklaneAttentionNotificationCoordinator {
                 )
             }
 
-            // System notification — only for background / non-active worklanes.
-            let shouldNotify = (worklane.id != activeWorklaneID) || !windowIsKey
-            guard didChange, shouldNotify, attention.state == .needsInput else {
+            guard didChange,
+                  shouldNotifySystemNotification(
+                    for: attention,
+                    in: worklane,
+                    activeWorklaneID: activeWorklaneID,
+                    windowIsKey: windowIsKey
+                  ) else {
                 continue
             }
 
             center.add(
                 identifier: "\(worklane.id.rawValue)-\(attention.state.rawValue)-\(attention.updatedAt.timeIntervalSince1970)",
                 title: attention.statusText,
-                body: attention.primaryText,
+                body: systemNotificationBody(for: attention, in: worklane),
                 worklaneID: worklane.id.rawValue,
                 paneID: attention.paneID.rawValue,
                 soundName: configStore?.current.notifications.soundName ?? ""
             )
-            if !windowIsKey {
+            if attention.state == .needsInput, !windowIsKey {
                 NSApplication.shared.requestUserAttention(.informationalRequest)
             }
         }
@@ -104,6 +108,65 @@ final class WorklaneAttentionNotificationCoordinator {
 
         lastSeenStates = nextSeenStates
         lastSeenPaneIDs = nextSeenPaneIDs
+    }
+
+    private func shouldNotifySystemNotification(
+        for attention: WorklaneAttentionSummary,
+        in worklane: WorklaneState,
+        activeWorklaneID: WorklaneID,
+        windowIsKey: Bool
+    ) -> Bool {
+        switch attention.state {
+        case .needsInput:
+            return (worklane.id != activeWorklaneID) || !windowIsKey
+        case .ready:
+            return !isPaneActivelyViewed(
+                paneID: attention.paneID,
+                in: worklane,
+                activeWorklaneID: activeWorklaneID,
+                windowIsKey: windowIsKey
+            )
+        case .unresolvedStop, .running:
+            return false
+        }
+    }
+
+    private func isPaneActivelyViewed(
+        paneID: PaneID,
+        in worklane: WorklaneState,
+        activeWorklaneID: WorklaneID,
+        windowIsKey: Bool
+    ) -> Bool {
+        windowIsKey
+            && worklane.id == activeWorklaneID
+            && worklane.paneStripState.focusedPaneID == paneID
+    }
+
+    private func systemNotificationBody(
+        for attention: WorklaneAttentionSummary,
+        in worklane: WorklaneState
+    ) -> String {
+        guard attention.state == .ready else {
+            return attention.primaryText
+        }
+
+        if let presentation = worklane.paneContext(for: attention.paneID)?.presentation {
+            let meaningfulTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
+                ?? WorklaneContextFormatter.trimmed(presentation.identityText)
+            if let meaningfulTitle,
+               meaningfulTitle != presentation.contextText,
+               meaningfulTitle.caseInsensitiveCompare("shell") != .orderedSame {
+                return meaningfulTitle
+            }
+
+            if let cwd = presentation.cwd,
+               let compactPath = WorklaneContextFormatter.compactRepositorySidebarPath(cwd)
+                ?? WorklaneContextFormatter.formattedWorkingDirectory(cwd, branch: nil) {
+                return "Agent in \(compactPath) is ready."
+            }
+        }
+
+        return "Agent is ready."
     }
 }
 

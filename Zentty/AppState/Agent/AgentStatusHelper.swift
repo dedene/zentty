@@ -198,17 +198,39 @@ enum CodexHookBridge {
         environment: [String: String]
     ) throws -> [AgentStatusPayload] {
         let target = try currentTarget(from: environment)
+        let pid = parseCodexPID(from: environment)
 
         switch input.hookEventName {
         case "SessionStart":
-            return []
+            var payloads: [AgentStatusPayload] = []
+            if let pid {
+                payloads.append(
+                    pidPayload(
+                        worklaneID: target.worklaneID,
+                        paneID: target.paneID,
+                        pid: pid,
+                        sessionID: input.sessionID
+                    )
+                )
+            }
+            payloads.append(
+                lifecyclePayload(
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: .starting,
+                    sessionID: input.sessionID,
+                    cwd: input.cwd
+                )
+            )
+            return payloads
         case "UserPromptSubmit":
             return [
                 lifecyclePayload(
                     worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .running,
-                    sessionID: input.sessionID
+                    sessionID: input.sessionID,
+                    cwd: input.cwd
                 ),
             ]
         case "Stop":
@@ -217,7 +239,8 @@ enum CodexHookBridge {
                     worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .idle,
-                    sessionID: input.sessionID
+                    sessionID: input.sessionID,
+                    cwd: input.cwd
                 ),
             ]
         default:
@@ -260,7 +283,8 @@ enum CodexHookBridge {
         worklaneID: WorklaneID,
         paneID: PaneID,
         state: PaneAgentState,
-        sessionID: String?
+        sessionID: String?,
+        cwd: String?
     ) -> AgentStatusPayload {
         AgentStatusPayload(
             worklaneID: worklaneID,
@@ -275,8 +299,39 @@ enum CodexHookBridge {
             sessionID: sessionID,
             artifactKind: nil,
             artifactLabel: nil,
+            artifactURL: nil,
+            agentWorkingDirectory: cwd
+        )
+    }
+
+    private static func pidPayload(
+        worklaneID: WorklaneID,
+        paneID: PaneID,
+        pid: Int32,
+        sessionID: String?
+    ) -> AgentStatusPayload {
+        AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .pid,
+            state: nil,
+            pid: pid,
+            pidEvent: .attach,
+            origin: .explicitHook,
+            toolName: AgentTool.codex.displayName,
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
             artifactURL: nil
         )
+    }
+
+    private static func parseCodexPID(from environment: [String: String]) -> Int32? {
+        guard let rawPID = environment["ZENTTY_CODEX_PID"] else {
+            return nil
+        }
+        return Int32(rawPID)
     }
 
     private static func readStandardInput() -> Data {

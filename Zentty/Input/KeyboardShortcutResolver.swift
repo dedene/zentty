@@ -37,13 +37,17 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case arrangeHeightTwoPerColumn = "pane.arrange.height.two_per_column"
     case arrangeHeightThreePerColumn = "pane.arrange.height.three_per_column"
     case arrangeHeightFourPerColumn = "pane.arrange.height.four_per_column"
+    case arrangeWidthGoldenFocusWide = "pane.arrange.width.golden_focus_wide"
+    case arrangeWidthGoldenFocusNarrow = "pane.arrange.width.golden_focus_narrow"
+    case arrangeHeightGoldenFocusTall = "pane.arrange.height.golden_focus_tall"
+    case arrangeHeightGoldenFocusShort = "pane.arrange.height.golden_focus_short"
     case closeFocusedPane = "pane.close_focused"
+    case focusPreviousPane = "pane.focus.previous"
+    case focusNextPane = "pane.focus.next"
     case focusLeftPane = "pane.focus.left"
     case focusRightPane = "pane.focus.right"
     case focusUpInColumn = "pane.focus.up"
     case focusDownInColumn = "pane.focus.down"
-    case focusFirstColumn = "pane.focus.first_column"
-    case focusLastColumn = "pane.focus.last_column"
     case resizePaneLeft = "pane.resize.left"
     case resizePaneRight = "pane.resize.right"
     case resizePaneUp = "pane.resize.up"
@@ -54,6 +58,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
     case openSettings = "app.open_settings"
+    case newWindow = "app.new_window"
     case closeWindow = "app.close_window"
     case reloadConfig = "app.reload_config"
 }
@@ -75,6 +80,7 @@ enum AppAction: Equatable, Sendable {
     case navigateForward
     case showCommandPalette
     case openSettings
+    case newWindow
     case closeWindow
     case reloadConfig
 }
@@ -320,6 +326,54 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
+            id: .arrangeWidthGoldenFocusWide,
+            title: "Arrange Width: Golden — Focus Wide",
+            category: .panes,
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command]),
+            action: .pane(.arrangeGoldenRatio(.focusWide)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Width: Golden — Focus Wide",
+                selector: #selector(MainWindowController.arrangeWidthGoldenFocusWide(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeWidthGoldenFocusNarrow,
+            title: "Arrange Width: Golden — Focus Narrow",
+            category: .panes,
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .option]),
+            action: .pane(.arrangeGoldenRatio(.focusNarrow)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Width: Golden — Focus Narrow",
+                selector: #selector(MainWindowController.arrangeWidthGoldenFocusNarrow(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeHeightGoldenFocusTall,
+            title: "Arrange Height: Golden — Focus Tall",
+            category: .panes,
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .shift]),
+            action: .pane(.arrangeGoldenRatio(.focusTall)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Height: Golden — Focus Tall",
+                selector: #selector(MainWindowController.arrangeHeightGoldenFocusTall(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .arrangeHeightGoldenFocusShort,
+            title: "Arrange Height: Golden — Focus Short",
+            category: .panes,
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .shift, .option]),
+            action: .pane(.arrangeGoldenRatio(.focusShort)),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Arrange Height: Golden — Focus Short",
+                selector: #selector(MainWindowController.arrangeHeightGoldenFocusShort(_:))
+            )
+        ),
+        AppCommandDefinition(
             id: .closeFocusedPane,
             title: "Close Focused Pane",
             category: .panes,
@@ -328,10 +382,34 @@ enum AppCommandRegistry {
             menuItem: nil
         ),
         AppCommandDefinition(
+            id: .focusPreviousPane,
+            title: "Focus Previous Pane",
+            category: .panes,
+            defaultShortcut: .init(key: .upArrow, modifiers: [.command, .option]),
+            action: .pane(.focusPreviousPaneBySidebarOrder),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Focus Previous Pane",
+                selector: #selector(MainWindowController.focusPreviousPane(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .focusNextPane,
+            title: "Focus Next Pane",
+            category: .panes,
+            defaultShortcut: .init(key: .downArrow, modifiers: [.command, .option]),
+            action: .pane(.focusNextPaneBySidebarOrder),
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Focus Next Pane",
+                selector: #selector(MainWindowController.focusNextPane(_:))
+            )
+        ),
+        AppCommandDefinition(
             id: .focusLeftPane,
             title: "Focus Left Pane",
             category: .panes,
-            defaultShortcut: .init(key: .leftArrow, modifiers: [.command, .option]),
+            defaultShortcut: .init(key: .leftArrow, modifiers: [.command]),
             action: .pane(.focusLeft),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -343,7 +421,7 @@ enum AppCommandRegistry {
             id: .focusRightPane,
             title: "Focus Right Pane",
             category: .panes,
-            defaultShortcut: .init(key: .rightArrow, modifiers: [.command, .option]),
+            defaultShortcut: .init(key: .rightArrow, modifiers: [.command]),
             action: .pane(.focusRight),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -355,7 +433,7 @@ enum AppCommandRegistry {
             id: .focusUpInColumn,
             title: "Focus Up In Column",
             category: .panes,
-            defaultShortcut: .init(key: .upArrow, modifiers: [.command, .option]),
+            defaultShortcut: .init(key: .upArrow, modifiers: [.command]),
             action: .pane(.focusUp),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -367,7 +445,7 @@ enum AppCommandRegistry {
             id: .focusDownInColumn,
             title: "Focus Down In Column",
             category: .panes,
-            defaultShortcut: .init(key: .downArrow, modifiers: [.command, .option]),
+            defaultShortcut: .init(key: .downArrow, modifiers: [.command]),
             action: .pane(.focusDown),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -376,34 +454,10 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
-            id: .focusFirstColumn,
-            title: "Focus First Column",
-            category: .panes,
-            defaultShortcut: .init(key: .leftArrow, modifiers: [.command, .option, .shift]),
-            action: .pane(.focusFirstColumn),
-            menuItem: AppCommandMenuItem(
-                section: .view,
-                title: "Focus First Column",
-                selector: #selector(MainWindowController.focusFirstColumn(_:))
-            )
-        ),
-        AppCommandDefinition(
-            id: .focusLastColumn,
-            title: "Focus Last Column",
-            category: .panes,
-            defaultShortcut: .init(key: .rightArrow, modifiers: [.command, .option, .shift]),
-            action: .pane(.focusLastColumn),
-            menuItem: AppCommandMenuItem(
-                section: .view,
-                title: "Focus Last Column",
-                selector: #selector(MainWindowController.focusLastColumn(_:))
-            )
-        ),
-        AppCommandDefinition(
             id: .resizePaneLeft,
             title: "Resize Pane Left",
             category: .panes,
-            defaultShortcut: .init(key: .leftArrow, modifiers: [.command, .control, .option]),
+            defaultShortcut: .init(key: .leftArrow, modifiers: [.command, .option, .shift]),
             action: .pane(.resizeLeft),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -415,7 +469,7 @@ enum AppCommandRegistry {
             id: .resizePaneRight,
             title: "Resize Pane Right",
             category: .panes,
-            defaultShortcut: .init(key: .rightArrow, modifiers: [.command, .control, .option]),
+            defaultShortcut: .init(key: .rightArrow, modifiers: [.command, .option, .shift]),
             action: .pane(.resizeRight),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -427,7 +481,7 @@ enum AppCommandRegistry {
             id: .resizePaneUp,
             title: "Resize Pane Up",
             category: .panes,
-            defaultShortcut: .init(key: .upArrow, modifiers: [.command, .control, .option]),
+            defaultShortcut: .init(key: .upArrow, modifiers: [.command, .option, .shift]),
             action: .pane(.resizeUp),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -439,7 +493,7 @@ enum AppCommandRegistry {
             id: .resizePaneDown,
             title: "Resize Pane Down",
             category: .panes,
-            defaultShortcut: .init(key: .downArrow, modifiers: [.command, .control, .option]),
+            defaultShortcut: .init(key: .downArrow, modifiers: [.command, .option, .shift]),
             action: .pane(.resizeDown),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -487,9 +541,25 @@ enum AppCommandRegistry {
             id: .openSettings,
             title: "Open Settings",
             category: .general,
-            defaultShortcut: nil,
+            defaultShortcut: .init(key: .character(","), modifiers: [.command]),
             action: .openSettings,
-            menuItem: nil
+            menuItem: AppCommandMenuItem(
+                section: .file,
+                title: "Settings…",
+                selector: #selector(AppDelegate.showSettingsWindow(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .newWindow,
+            title: "New Window",
+            category: .general,
+            defaultShortcut: .init(key: .character("n"), modifiers: [.command, .shift]),
+            action: .newWindow,
+            menuItem: AppCommandMenuItem(
+                section: .file,
+                title: "New Window",
+                selector: #selector(AppDelegate.newWindow(_:))
+            )
         ),
         AppCommandDefinition(
             id: .closeWindow,
@@ -511,7 +581,9 @@ enum AppCommandRegistry {
 
     static let menuEntriesBySection: [AppMenuSection: [AppMenuEntry]] = [
         .file: [
+            .command(.newWindow),
             .command(.newWorklane),
+            .separator,
             .command(.nextWorklane),
             .command(.previousWorklane),
         ],
@@ -534,17 +606,23 @@ enum AppCommandRegistry {
             .command(.arrangeWidthThirds),
             .command(.arrangeWidthQuarters),
             .separator,
+            .command(.arrangeWidthGoldenFocusWide),
+            .command(.arrangeWidthGoldenFocusNarrow),
+            .separator,
             .command(.arrangeHeightFull),
             .command(.arrangeHeightTwoPerColumn),
             .command(.arrangeHeightThreePerColumn),
             .command(.arrangeHeightFourPerColumn),
             .separator,
+            .command(.arrangeHeightGoldenFocusTall),
+            .command(.arrangeHeightGoldenFocusShort),
+            .separator,
+            .command(.focusPreviousPane),
+            .command(.focusNextPane),
             .command(.focusLeftPane),
             .command(.focusRightPane),
             .command(.focusUpInColumn),
             .command(.focusDownInColumn),
-            .command(.focusFirstColumn),
-            .command(.focusLastColumn),
             .separator,
             .command(.resizePaneLeft),
             .command(.resizePaneRight),
@@ -611,8 +689,20 @@ extension AppCommandDefinition {
             "Repack panes into columns of three panes each, distributing any partial final column evenly."
         case .arrangeHeightFourPerColumn:
             "Repack panes into columns of four panes each, distributing any partial final column evenly."
+        case .arrangeWidthGoldenFocusWide:
+            "Apply golden ratio to the focused column and its neighbor, making the focused column the wider one (~61.8%)."
+        case .arrangeWidthGoldenFocusNarrow:
+            "Apply golden ratio to the focused column and its neighbor, making the focused column the narrower one (~38.2%)."
+        case .arrangeHeightGoldenFocusTall:
+            "Apply golden ratio to the focused pane and its neighbor, making the focused pane the taller one (~61.8%)."
+        case .arrangeHeightGoldenFocusShort:
+            "Apply golden ratio to the focused pane and its neighbor, making the focused pane the shorter one (~38.2%)."
         case .closeFocusedPane:
             "Close the currently focused pane while keeping the rest of the layout intact."
+        case .focusPreviousPane:
+            "Move focus to the previous pane in sidebar order, crossing worklanes and wrapping at the beginning."
+        case .focusNextPane:
+            "Move focus to the next pane in sidebar order, crossing worklanes and wrapping at the end."
         case .focusLeftPane:
             "Move focus to the pane immediately to the left of the current pane."
         case .focusRightPane:
@@ -621,10 +711,6 @@ extension AppCommandDefinition {
             "Move focus up within the column, or to the previous worklane at the top."
         case .focusDownInColumn:
             "Move focus down within the column, or to the next worklane at the bottom."
-        case .focusFirstColumn:
-            "Jump focus to the first column in the current pane layout."
-        case .focusLastColumn:
-            "Jump focus to the last column in the current pane layout."
         case .resizePaneLeft:
             "Make the focused pane wider by pulling its left boundary outward."
         case .resizePaneRight:
@@ -641,6 +727,8 @@ extension AppCommandDefinition {
             "Open the command palette to quickly find and run any command."
         case .openSettings:
             "Open the settings window to customize shortcuts, appearance, and behavior."
+        case .newWindow:
+            "Open a new independent window with its own worklanes and panes."
         case .closeWindow:
             "Close the current window."
         case .reloadConfig:

@@ -1,7 +1,8 @@
 import AppKit
+import Carbon.HIToolbox
 
 @MainActor
-final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionViewController {
+final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionViewController, SettingsAppearanceUpdating {
     private enum Layout {
         static let contentSpacing: CGFloat = 16
         static let shellHeight: CGFloat = 430
@@ -18,9 +19,18 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         static let categoryHorizontalInset: CGFloat = 10
         static let rowHorizontalInset: CGFloat = 10
         static let detailSpacing: CGFloat = 14
+        static let detailTitleFontSize: CGFloat = 26
         static let shortcutControlHeight: CGFloat = 52
         static let shortcutControlInset: CGFloat = 12
         static let conflictSpacing: CGFloat = 6
+        static let previewHeight: CGFloat = 182
+        static let headerRowHeight: CGFloat = max(searchHeight, headerActionSize)
+        static let layoutIndicatorSpacingAbove: CGFloat = 4
+        static let layoutIndicatorHeight: CGFloat = 14
+        static let layoutIndicatorSpacingBelow: CGFloat = contentSpacing - layoutIndicatorSpacingAbove
+        static let preferredViewportHeight: CGFloat =
+            topInset + headerRowHeight + layoutIndicatorSpacingAbove + layoutIndicatorHeight
+            + layoutIndicatorSpacingBelow + shellHeight + bottomInset
     }
 
     private enum ShortcutIssue: Equatable {
@@ -58,12 +68,17 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     private let conflictContainerView = NSStackView()
     private let conflictLabel = NSTextField(labelWithString: "This shortcut conflicts with another shortcut:")
     private let conflictTargetButton = NSButton(title: "", target: nil, action: nil)
+    private let keyboardPreviewView = KeyboardShortcutPreviewView()
+    private let layoutIndicatorLabel = NSTextField(labelWithString: "")
     private let emptyStateLabel = NSTextField(labelWithString: "No shortcuts match your search.")
 
     private var currentShortcuts: AppConfig.Shortcuts = .default
     private var shortcutManager: ShortcutManager
+    private let keyboardPreviewResolver = KeyboardLayoutPreviewResolver()
+    private let keyboardInputSourceCenter = DistributedNotificationCenter.default()
     private var recordingCommandID: AppCommandID?
     private var keyMonitor: Any?
+    private var isKeyboardInputSourceObserverInstalled = false
     private var issueByCommandID: [AppCommandID: ShortcutIssue] = [:]
     private var searchQuery = ""
     private var browserItems: [BrowserItem] = []
@@ -107,6 +122,11 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         overflowButton.widthAnchor.constraint(equalToConstant: Layout.headerActionSize).isActive = true
         overflowButton.heightAnchor.constraint(equalToConstant: Layout.headerActionSize).isActive = true
 
+        configureLayoutIndicator()
+        stackView.addArrangedSubview(layoutIndicatorLabel)
+        stackView.setCustomSpacing(Layout.layoutIndicatorSpacingAbove, after: headerRow)
+        stackView.setCustomSpacing(Layout.layoutIndicatorSpacingBelow, after: layoutIndicatorLabel)
+
         let shellView = makeShellView()
         stackView.addArrangedSubview(shellView)
         shellView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
@@ -128,11 +148,13 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     override func viewDidAppear() {
         super.viewDidAppear()
         installKeyMonitorIfNeeded()
+        installKeyboardInputSourceObserverIfNeeded()
     }
 
     override func viewDidDisappear() {
         super.viewDidDisappear()
         removeKeyMonitor()
+        removeKeyboardInputSourceObserver()
     }
 
     override func prepareForPresentation() {
@@ -145,7 +167,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     }
 
     override func preferredViewportHeight(for width: CGFloat) -> CGFloat {
-        Layout.shellHeight + Layout.contentSpacing + Layout.topInset + Layout.bottomInset
+        Layout.preferredViewportHeight
     }
 
     var visibleCategoryTitles: [String] {
@@ -180,6 +202,31 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
     var browserHasVerticalScrollerForTesting: Bool {
         browserScrollView.hasVerticalScroller
+    }
+
+    var isSearchFieldFullyVisibleForTesting: Bool {
+        guard let documentView = scrollView.documentView else {
+            return false
+        }
+
+        view.layoutSubtreeIfNeeded()
+        let searchFieldRect = searchField.convert(searchField.bounds, to: documentView)
+        return scrollView.contentView.documentVisibleRect.contains(searchFieldRect)
+    }
+
+    var isFirstCategoryHeaderFullyVisibleForTesting: Bool {
+        guard let categoryRow = browserItems.firstIndex(where: {
+            if case .category = $0 {
+                return true
+            }
+            return false
+        }) else {
+            return false
+        }
+
+        browserTableView.layoutSubtreeIfNeeded()
+        let rowRect = browserTableView.rect(ofRow: categoryRow)
+        return browserTableView.visibleRect.contains(rowRect)
     }
 
     var isSelectedCommandFullyVisibleForTesting: Bool {
@@ -249,6 +296,18 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         return AppCommandRegistry.definition(for: conflictingCommandID).title
     }
 
+    var showsKeyboardPreviewForTesting: Bool {
+        keyboardPreviewView.superview != nil
+    }
+
+    var previewPrimaryHighlightedKeyCodeForTesting: UInt16? {
+        keyboardPreviewView.model.primaryHighlightedKeyCode
+    }
+
+    var previewHighlightedModifierKeyCodesForTesting: Set<UInt16> {
+        keyboardPreviewView.model.highlightedModifierKeyCodes
+    }
+
     func applySearchForTesting(_ query: String) {
         searchField.stringValue = query
         updateSearchQuery(query)
@@ -257,6 +316,16 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     func typeSearchTextForTesting(_ query: String) {
         searchField.stringValue = query
         controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
+    }
+
+    func handleAppearanceChange() {
+        guard isViewLoaded else {
+            return
+        }
+
+        updateAppearanceColors()
+        refreshBrowserSelectionAppearance()
+        refreshDetailPane()
     }
 
     func selectCommandForTesting(_ commandID: AppCommandID) {
@@ -309,6 +378,38 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         overflowButton.action = #selector(handleOverflowButtonClicked(_:))
 
         overflowMenu.removeAllItems()
+
+        for preset in ShortcutPreset.allCases {
+            let item = NSMenuItem(
+                title: preset.menuTitle,
+                action: #selector(handleApplyPreset(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = preset
+            overflowMenu.addItem(item)
+        }
+
+        overflowMenu.addItem(.separator())
+
+        let exportItem = NSMenuItem(
+            title: "Export Shortcuts…",
+            action: #selector(handleExportShortcuts(_:)),
+            keyEquivalent: ""
+        )
+        exportItem.target = self
+        overflowMenu.addItem(exportItem)
+
+        let importItem = NSMenuItem(
+            title: "Import Shortcuts…",
+            action: #selector(handleImportShortcuts(_:)),
+            keyEquivalent: ""
+        )
+        importItem.target = self
+        overflowMenu.addItem(importItem)
+
+        overflowMenu.addItem(.separator())
+
         let resetItem = NSMenuItem(
             title: "Reset All Shortcuts",
             action: #selector(handleResetAllShortcuts(_:)),
@@ -387,6 +488,8 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         browserScrollView.hasVerticalScroller = true
         browserScrollView.autohidesScrollers = true
         browserScrollView.documentView = browserTableView
+        browserScrollView.automaticallyAdjustsContentInsets = false
+        browserScrollView.contentInsets = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
         browserScrollView.translatesAutoresizingMaskIntoConstraints = false
 
         updateAppearanceColors()
@@ -408,9 +511,10 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         categoryLabel.maximumNumberOfLines = 1
         stackView.addArrangedSubview(categoryLabel)
 
-        commandTitleLabel.font = .systemFont(ofSize: 28, weight: .semibold)
+        commandTitleLabel.font = .systemFont(ofSize: Layout.detailTitleFontSize, weight: .semibold)
         commandTitleLabel.lineBreakMode = .byWordWrapping
         commandTitleLabel.maximumNumberOfLines = 2
+        commandTitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         stackView.addArrangedSubview(commandTitleLabel)
         commandTitleLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
@@ -481,6 +585,11 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         stackView.addArrangedSubview(conflictContainerView)
         conflictContainerView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
+        keyboardPreviewView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.addArrangedSubview(keyboardPreviewView)
+        keyboardPreviewView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+        keyboardPreviewView.heightAnchor.constraint(equalToConstant: Layout.previewHeight).isActive = true
+
         emptyStateLabel.font = .systemFont(ofSize: 12, weight: .regular)
         emptyStateLabel.textColor = .secondaryLabelColor
         emptyStateLabel.isHidden = true
@@ -547,6 +656,32 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
             anchorRow = row
         }
         browserTableView.scrollRowToVisible(anchorRow)
+        refreshBrowserSelectionAppearance()
+    }
+
+    private func refreshBrowserSelectionAppearance() {
+        guard browserTableView.numberOfRows > 0 else {
+            return
+        }
+
+        let visibleRows = browserTableView.rows(in: browserTableView.visibleRect)
+        if visibleRows.length > 0 {
+            for row in visibleRows.location ..< NSMaxRange(visibleRows) {
+                guard row >= 0, row < browserTableView.numberOfRows else {
+                    continue
+                }
+                (browserTableView.rowView(atRow: row, makeIfNecessary: false) as? ShortcutsBrowserRowView)?
+                    .refreshSelectionAppearance()
+            }
+        }
+
+        guard let selectedCommandID,
+              let row = browserItems.firstIndex(where: { $0.commandID == selectedCommandID }) else {
+            return
+        }
+
+        (browserTableView.rowView(atRow: row, makeIfNecessary: true) as? ShortcutsBrowserRowView)?
+            .refreshSelectionAppearance()
     }
 
     private func refreshDetailPane() {
@@ -562,6 +697,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
             errorLabel.stringValue = ""
             errorLabel.isHidden = true
             conflictContainerView.isHidden = true
+            keyboardPreviewView.model = keyboardPreviewResolver.resolve(shortcut: nil)
             emptyStateLabel.isHidden = browserItems.isEmpty == false
             return
         }
@@ -579,6 +715,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         shortcutFieldButton.isEnabled = true
         clearButton.isHidden = shortcutManager.isUnbound(selectedCommandID)
         clearButton.isEnabled = shortcutManager.isUnbound(selectedCommandID) == false
+        keyboardPreviewView.model = keyboardPreviewResolver.resolve(shortcut: effectiveShortcut)
 
         switch issueByCommandID[selectedCommandID] {
         case let .message(message):
@@ -718,6 +855,34 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         self.keyMonitor = nil
     }
 
+    private func installKeyboardInputSourceObserverIfNeeded() {
+        guard isKeyboardInputSourceObserverInstalled == false else {
+            return
+        }
+
+        keyboardInputSourceCenter.addObserver(
+            self,
+            selector: #selector(handleKeyboardInputSourceChanged(_:)),
+            name: Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
+            object: nil,
+            suspensionBehavior: .deliverImmediately
+        )
+        isKeyboardInputSourceObserverInstalled = true
+    }
+
+    private func removeKeyboardInputSourceObserver() {
+        guard isKeyboardInputSourceObserverInstalled else {
+            return
+        }
+
+        keyboardInputSourceCenter.removeObserver(
+            self,
+            name: Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
+            object: nil
+        )
+        isKeyboardInputSourceObserverInstalled = false
+    }
+
     private func beginRecordingSelectedCommand() {
         guard let selectedCommandID else {
             return
@@ -834,7 +999,33 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
     @objc
     private func handleResetAllShortcuts(_ sender: Any?) {
-        resetAllShortcuts()
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Reset All Shortcuts?"
+        alert.informativeText = "This will restore all shortcuts to their factory defaults."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.resetAllShortcuts()
+        }
+    }
+
+    @objc
+    private func handleApplyPreset(_ sender: NSMenuItem) {
+        guard let preset = sender.representedObject as? ShortcutPreset else { return }
+        applyPresetWithConfirmation(preset)
+    }
+
+    @objc
+    private func handleExportShortcuts(_ sender: Any?) {
+        exportShortcuts()
+    }
+
+    @objc
+    private func handleImportShortcuts(_ sender: Any?) {
+        importShortcuts()
     }
 
     @objc
@@ -846,6 +1037,147 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
             return
         }
         jumpToCommand(conflictingCommandID)
+    }
+
+    @objc
+    private func handleKeyboardInputSourceChanged(_ notification: Notification) {
+        refreshDetailPane()
+        refreshLayoutIndicator()
+    }
+
+    // MARK: - Layout Indicator
+
+    private func configureLayoutIndicator() {
+        layoutIndicatorLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        layoutIndicatorLabel.textColor = .tertiaryLabelColor
+        layoutIndicatorLabel.translatesAutoresizingMaskIntoConstraints = false
+        refreshLayoutIndicator()
+    }
+
+    private func refreshLayoutIndicator() {
+        let sourceProvider = SystemKeyboardPreviewSourceProvider()
+        let name = sourceProvider.currentInputSourceName() ?? "Unknown"
+        let geometry = sourceProvider.currentGeometry()
+        let geometryLabel: String
+        switch geometry {
+        case .ansi:
+            geometryLabel = "ANSI"
+        case .iso:
+            geometryLabel = "ISO"
+        case .jis:
+            geometryLabel = "JIS"
+        }
+        layoutIndicatorLabel.stringValue = "Keyboard: \(name) (\(geometryLabel))"
+    }
+
+    // MARK: - Presets
+
+    private func applyPresetWithConfirmation(_ preset: ShortcutPreset) {
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Apply \(preset.title)?"
+        alert.informativeText = preset.confirmationMessage
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Apply")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.applyPreset(preset)
+        }
+    }
+
+    private func applyPreset(_ preset: ShortcutPreset) {
+        recordingCommandID = nil
+        issueByCommandID.removeAll()
+        let resolver = ShortcutPresetResolver()
+        let bindings = resolver.resolve(preset)
+        try? configStore.update { config in
+            config.shortcuts = AppConfig.Shortcuts(bindings: bindings)
+        }
+        searchField.stringValue = ""
+        searchQuery = ""
+        apply(shortcuts: configStore.current.shortcuts)
+    }
+
+    // MARK: - Export / Import
+
+    private func exportShortcuts() {
+        guard let window = view.window else { return }
+
+        let allBindings = resolveAllBindingsForExport()
+        let toml = AppConfigTOML.encodeShortcuts(allBindings)
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let dateString = formatter.string(from: Date())
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "zentty-shortcuts-\(dateString).toml"
+        panel.allowedContentTypes = [.init(filenameExtension: "toml") ?? .plainText]
+        panel.canCreateDirectories = true
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? toml.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func resolveAllBindingsForExport() -> [ShortcutBindingOverride] {
+        AppCommandRegistry.definitions.compactMap { definition in
+            let shortcut = shortcutManager.shortcut(for: definition.id)
+            guard shortcut != definition.defaultShortcut || shortcutManager.isUnbound(definition.id) else {
+                return nil
+            }
+            return ShortcutBindingOverride(commandID: definition.id, shortcut: shortcut)
+        }
+    }
+
+    private func importShortcuts() {
+        guard let window = view.window else { return }
+
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.init(filenameExtension: "toml") ?? .plainText]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.importShortcutsFromFile(url, window: window)
+        }
+    }
+
+    private func importShortcutsFromFile(_ url: URL, window: NSWindow) {
+        guard let contents = try? String(contentsOf: url, encoding: .utf8),
+              let bindings = AppConfigTOML.decodeShortcuts(contents) else {
+            let alert = NSAlert()
+            alert.messageText = "Import Failed"
+            alert.informativeText = "The file could not be read or contains invalid shortcut bindings."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.beginSheetModal(for: window)
+            return
+        }
+
+        let filename = url.lastPathComponent
+        let alert = NSAlert()
+        alert.messageText = "Import shortcuts from \"\(filename)\"?"
+        alert.informativeText = "This will replace all current shortcut bindings."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Import")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.applyImportedBindings(bindings)
+        }
+    }
+
+    private func applyImportedBindings(_ bindings: [ShortcutBindingOverride]) {
+        recordingCommandID = nil
+        issueByCommandID.removeAll()
+        try? configStore.update { config in
+            config.shortcuts = AppConfig.Shortcuts(bindings: bindings)
+        }
+        searchField.stringValue = ""
+        searchQuery = ""
+        apply(shortcuts: configStore.current.shortcuts)
     }
 }
 
@@ -953,7 +1285,7 @@ private final class ShortcutsBrowserRowView: NSTableRowView {
             guard oldValue != isSelected else {
                 return
             }
-            refreshCommandCellAppearance()
+            refreshSelectionAppearance()
         }
     }
 
@@ -962,17 +1294,25 @@ private final class ShortcutsBrowserRowView: NSTableRowView {
             guard oldValue != isEmphasized else {
                 return
             }
-            refreshCommandCellAppearance()
+            refreshSelectionAppearance()
         }
     }
 
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
-        refreshCommandCellAppearance()
+        refreshSelectionAppearance()
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        // Suppress default group row background that reduces text contrast.
+    }
+
+    override func drawSeparator(in dirtyRect: NSRect) {
+        // Suppress row separator line below floating group headers.
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
-        refreshCommandCellAppearance()
+        refreshSelectionAppearance()
 
         guard selectionHighlightStyle != .none else {
             return
@@ -982,17 +1322,17 @@ private final class ShortcutsBrowserRowView: NSTableRowView {
         NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 0), xRadius: 6, yRadius: 6).fill()
     }
 
-    private func refreshCommandCellAppearance() {
-        let isEmphasizedSelection = isSelected && isEmphasized
-        refreshCommandCellAppearance(in: self, isEmphasizedSelection: isEmphasizedSelection)
+    func refreshSelectionAppearance() {
+        let usesSelectedTextColor = isSelected && selectionHighlightStyle != .none
+        refreshCommandCellAppearance(in: self, usesSelectedTextColor: usesSelectedTextColor)
     }
 
-    private func refreshCommandCellAppearance(in view: NSView, isEmphasizedSelection: Bool) {
+    private func refreshCommandCellAppearance(in view: NSView, usesSelectedTextColor: Bool) {
         if let commandCell = view as? ShortcutsBrowserCommandCellView {
-            commandCell.setEmphasizedSelection(isEmphasizedSelection)
+            commandCell.setSelectedAppearance(usesSelectedTextColor)
         }
 
-        view.subviews.forEach { refreshCommandCellAppearance(in: $0, isEmphasizedSelection: isEmphasizedSelection) }
+        view.subviews.forEach { refreshCommandCellAppearance(in: $0, usesSelectedTextColor: usesSelectedTextColor) }
     }
 }
 
@@ -1002,7 +1342,6 @@ private final class ShortcutsBrowserCategoryCellView: NSTableCellView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         titleLabel.textColor = .secondaryLabelColor
@@ -1032,7 +1371,7 @@ private final class ShortcutsBrowserCommandCellView: NSTableCellView {
     private let shortcutLabel = NSTextField(labelWithString: "")
     private var currentShortcut = ""
     private var isRecording = false
-    private var isEmphasizedSelection = false
+    private var usesSelectedAppearance = false
     private var observedWindow: NSWindow?
 
     var titleColorForTesting: NSColor? {
@@ -1040,12 +1379,11 @@ private final class ShortcutsBrowserCommandCellView: NSTableCellView {
     }
 
     var usesEmphasizedSelectionForTesting: Bool {
-        isEmphasizedSelection
+        usesSelectedAppearance
     }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
         titleLabel.lineBreakMode = .byTruncatingTail
@@ -1096,21 +1434,20 @@ private final class ShortcutsBrowserCommandCellView: NSTableCellView {
         syncSelectionAppearanceFromRowView()
     }
 
-    func setEmphasizedSelection(_ isEmphasizedSelection: Bool) {
-        guard self.isEmphasizedSelection != isEmphasizedSelection else {
-            return
+    func setSelectedAppearance(_ usesSelectedAppearance: Bool) {
+        if self.usesSelectedAppearance != usesSelectedAppearance {
+            self.usesSelectedAppearance = usesSelectedAppearance
         }
-        self.isEmphasizedSelection = isEmphasizedSelection
         updateAppearance()
     }
 
     private func updateAppearance() {
-        titleLabel.textColor = isEmphasizedSelection ? .alternateSelectedControlTextColor : .labelColor
+        titleLabel.textColor = usesSelectedAppearance ? .alternateSelectedControlTextColor : .labelColor
         shortcutLabel.attributedStringValue = NSAttributedString(
             string: isRecording ? "Type Shortcut…" : currentShortcut,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 14, weight: .medium),
-                .foregroundColor: shortcutColor(isEmphasizedSelection: isEmphasizedSelection),
+                .foregroundColor: shortcutColor(usesSelectedAppearance: usesSelectedAppearance),
                 .kern: -0.15,
             ]
         )
@@ -1118,7 +1455,8 @@ private final class ShortcutsBrowserCommandCellView: NSTableCellView {
 
     private func syncSelectionAppearanceFromRowView() {
         let rowView = enclosingRowView()
-        setEmphasizedSelection(rowView?.isSelected == true && rowView?.isEmphasized == true)
+        let usesSelectedAppearance = rowView?.isSelected == true && rowView?.selectionHighlightStyle != .none
+        setSelectedAppearance(usesSelectedAppearance)
     }
 
     private func updateWindowObservation() {
@@ -1163,12 +1501,12 @@ private final class ShortcutsBrowserCommandCellView: NSTableCellView {
         return nil
     }
 
-    private func shortcutColor(isEmphasizedSelection: Bool) -> NSColor {
+    private func shortcutColor(usesSelectedAppearance: Bool) -> NSColor {
         if isRecording {
-            return isEmphasizedSelection ? .alternateSelectedControlTextColor : .controlAccentColor
+            return usesSelectedAppearance ? .alternateSelectedControlTextColor : .controlAccentColor
         }
-        return isEmphasizedSelection
-            ? NSColor.alternateSelectedControlTextColor.withAlphaComponent(0.92)
+        return usesSelectedAppearance
+            ? .alternateSelectedControlTextColor
             : .secondaryLabelColor
     }
 }

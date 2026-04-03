@@ -2,6 +2,37 @@ import AppKit
 import CoreText
 import QuartzCore
 
+private enum SidebarShimmerTreatment {
+    case highlight
+    case shadow
+}
+
+private enum SidebarShimmerPhaseOffset {
+    private static let range: ClosedRange<CGFloat> = 0.03...0.21
+    private static let seed: UInt64 = 14_695_981_039_346_656_037
+    private static let prime: UInt64 = 1_099_511_628_211
+
+    static func forIdentifier(_ identifier: String?) -> CGFloat {
+        guard let identifier, identifier.isEmpty == false else {
+            return 0
+        }
+
+        var hash = seed
+        for byte in identifier.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= prime
+        }
+
+        let fraction = CGFloat(hash & 0xFFFF) / CGFloat(UInt16.max)
+        return range.lowerBound + ((range.upperBound - range.lowerBound) * fraction)
+    }
+
+    static func wrapped(_ phase: CGFloat) -> CGFloat {
+        let wrappedPhase = phase.truncatingRemainder(dividingBy: 1)
+        return wrappedPhase >= 0 ? wrappedPhase : wrappedPhase + 1
+    }
+}
+
 @MainActor
 final class SidebarWorklaneRowButton: NSButton {
     private enum Layout {
@@ -354,6 +385,9 @@ final class SidebarWorklaneRowButton: NSButton {
         currentSummary = summary
         currentTheme = theme
         isWorking = summary.isWorking
+        let worklanePhaseOffset = SidebarShimmerPhaseOffset.forIdentifier(summary.worklaneID.rawValue)
+        primaryLabel.shimmerPhaseOffset = worklanePhaseOffset
+        statusLabel.shimmerPhaseOffset = worklanePhaseOffset
         applyResolvedSummary(animated: animated)
     }
 
@@ -374,18 +408,20 @@ final class SidebarWorklaneRowButton: NSButton {
         if resolvedSummary.paneRows.isEmpty {
             primaryBaseLabel.stringValue = resolvedSummary.primaryText
             primaryLabel.stringValue = resolvedSummary.primaryText
-            let statusCopy =
-                resolvedSummary.statusText
-                ?? resolvedSummary.interactionLabel
-                ?? resolvedSummary.interactionKind?.defaultLabel
-                ?? ""
+            let statusCopy = resolvedStatusCopy(
+                statusText: resolvedSummary.statusText,
+                attentionState: resolvedSummary.attentionState,
+                interactionKind: resolvedSummary.interactionKind,
+                interactionLabel: resolvedSummary.interactionLabel
+            )
             statusBaseLabel.stringValue = statusCopy
             statusLabel.stringValue = statusCopy
-            currentStatusSymbolName =
-                resolvedSummary.statusSymbolName
-                ?? resolvedSummary.interactionSymbolName
-                ?? resolvedSummary.interactionKind?.defaultSymbolName
-                ?? ""
+            currentStatusSymbolName = resolvedStatusSymbolName(
+                statusSymbolName: resolvedSummary.statusSymbolName,
+                attentionState: resolvedSummary.attentionState,
+                interactionKind: resolvedSummary.interactionKind,
+                interactionSymbolName: resolvedSummary.interactionSymbolName
+            )
             statusIconView.image =
                 currentStatusSymbolName.isEmpty
                 ? nil
@@ -558,20 +594,28 @@ final class SidebarWorklaneRowButton: NSButton {
         }
 
         for (index, paneRow) in paneRows.enumerated() {
+            let panePhaseOffset = SidebarShimmerPhaseOffset.forIdentifier(paneRow.paneID.rawValue)
             panePrimaryRows[index].configure(
                 primaryText: paneRow.primaryText,
                 trailingText: paneRow.trailingText
             )
+            panePrimaryRows[index].setShimmerPhaseOffset(panePhaseOffset)
             paneDetailLabels[index].stringValue = paneRow.detailText ?? ""
             paneStatusRows[index].configure(
-                text: paneRow.statusText
-                    ?? paneRow.interactionLabel
-                    ?? paneRow.interactionKind?.defaultLabel
-                    ?? "",
-                symbolName: paneRow.statusSymbolName
-                    ?? paneRow.interactionSymbolName
-                    ?? paneRow.interactionKind?.defaultSymbolName
+                text: resolvedStatusCopy(
+                    statusText: paneRow.statusText,
+                    attentionState: paneRow.attentionState,
+                    interactionKind: paneRow.interactionKind,
+                    interactionLabel: paneRow.interactionLabel
+                ),
+                symbolName: resolvedStatusSymbolName(
+                    statusSymbolName: paneRow.statusSymbolName,
+                    attentionState: paneRow.attentionState,
+                    interactionKind: paneRow.interactionKind,
+                    interactionSymbolName: paneRow.interactionSymbolName
+                )
             )
+            paneStatusRows[index].setShimmerPhaseOffset(panePhaseOffset)
 
             let button = paneRowButtons[index]
             button.paneID = paneRow.paneID
@@ -620,10 +664,15 @@ final class SidebarWorklaneRowButton: NSButton {
             : currentTheme.tertiaryText
 
         if summary.paneRows.isEmpty {
-            primaryBaseLabel.textColor = primaryTextColor(
+            let primaryColor = primaryTextColor(
                 for: summary,
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor
+            )
+            primaryBaseLabel.textColor = renderedBaseTextColor(
+                primaryColor,
+                isShimmering: summary.isWorking,
+                treatment: .shadow
             )
             statusBaseLabel.textColor = statusTextColor(for: summary)
             statusIconView.contentTintColor =
@@ -698,45 +747,48 @@ final class SidebarWorklaneRowButton: NSButton {
             return hoverBackground
         }
 
-        guard isWorking else {
-            return inactiveBackground
-        }
-
-        let base =
-            inactiveBackground
-            .mixed(towards: currentTheme.sidebarGradientStart, amount: 0.18)
-        return base.withAlphaComponent(currentTheme.reducedTransparency ? 0.92 : 1)
+        return inactiveBackground
     }
 
     private func updateShimmerState() {
-        let isActive = currentSummary?.isActive ?? false
-        let activeTextColor = currentTheme.sidebarButtonActiveText
-        let inactiveTextColor = currentTheme.sidebarButtonInactiveText
-        if let paneRows = currentSummary?.paneRows, paneRows.isEmpty == false {
+        guard let summary = currentSummary else {
             primaryLabel.isShimmering = false
             statusLabel.isShimmering = false
             return
         }
 
+        let isActive = currentSummary?.isActive ?? false
+        let activeTextColor = currentTheme.sidebarButtonActiveText
+        let inactiveTextColor = currentTheme.sidebarButtonInactiveText
+        if summary.paneRows.isEmpty == false {
+            primaryLabel.isShimmering = false
+            statusLabel.isShimmering = false
+            return
+        }
+
+        let primaryColor = primaryTextColor(
+            for: summary,
+            activeTextColor: activeTextColor,
+            inactiveTextColor: inactiveTextColor
+        )
         primaryLabel.isShimmering = isWorking
         primaryLabel.reducedMotion = reducedMotionProvider()
-        primaryLabel.shimmerColor = workingTextHighlightColor(
-            isActive: isActive,
-            activeTextColor: activeTextColor,
-            inactiveTextColor: inactiveTextColor
+        primaryLabel.shimmerColor = shimmerColor(
+            for: primaryColor,
+            treatment: .shadow,
+            isActive: isActive
         )
-        .withAlphaComponent(shimmerHighlightAlpha(isActive: isActive))
         let shimmersStatus =
-            currentSummary?.attentionState == .running
-            && currentSummary?.statusText == "Running"
+            summary.attentionState == .running
+            && summary.statusText == "Running"
         statusLabel.isShimmering = shimmersStatus
         statusLabel.reducedMotion = reducedMotionProvider()
-        statusLabel.shimmerColor = workingTextHighlightColor(
-            isActive: isActive,
-            activeTextColor: activeTextColor,
-            inactiveTextColor: inactiveTextColor
+        let shimmerBase = currentTheme.statusRunning.mixed(towards: .white, amount: 0.65)
+        statusLabel.shimmerColor = shimmerColor(
+            for: shimmerBase,
+            treatment: .highlight,
+            isActive: isActive
         )
-        .withAlphaComponent(shimmerHighlightAlpha(isActive: isActive))
     }
 
     private func primaryTextColor(
@@ -789,12 +841,10 @@ final class SidebarWorklaneRowButton: NSButton {
                 primaryColor: primaryColor,
                 trailingColor: trailingColor,
                 isShimmering: paneRow.isWorking,
-                shimmerColor: workingTextHighlightColor(
-                    isActive: currentSummary?.isActive ?? false,
-                    activeTextColor: activeTextColor,
-                    inactiveTextColor: inactiveTextColor
-                ).withAlphaComponent(
-                    shimmerHighlightAlpha(isActive: currentSummary?.isActive ?? false)
+                shimmerColor: shimmerColor(
+                    for: primaryColor,
+                    treatment: .shadow,
+                    isActive: currentSummary?.isActive ?? false
                 ),
                 reducedMotion: reducedMotionProvider()
             )
@@ -810,12 +860,10 @@ final class SidebarWorklaneRowButton: NSButton {
                     inactiveTextColor: inactiveTextColor
                 ),
                 isShimmering: paneRow.isWorking && paneRow.attentionState == .running,
-                shimmerColor: workingTextHighlightColor(
-                    isActive: currentSummary?.isActive ?? false,
-                    activeTextColor: activeTextColor,
-                    inactiveTextColor: inactiveTextColor
-                ).withAlphaComponent(
-                    shimmerHighlightAlpha(isActive: currentSummary?.isActive ?? false)
+                shimmerColor: shimmerColor(
+                    for: currentTheme.statusRunning.mixed(towards: .white, amount: 0.65),
+                    treatment: .highlight,
+                    isActive: currentSummary?.isActive ?? false
                 ),
                 reducedMotion: reducedMotionProvider()
             )
@@ -932,20 +980,123 @@ final class SidebarWorklaneRowButton: NSButton {
         return isActive ? 1.0 : 0.72
     }
 
+    private func shadowShimmerAlpha(isActive: Bool) -> CGFloat {
+        if currentTheme.reducedTransparency {
+            return isActive ? 0.64 : 0.54
+        }
+
+        return isActive ? 0.72 : 0.60
+    }
+
+    private func shimmerColor(
+        for baseTextColor: NSColor,
+        treatment: SidebarShimmerTreatment,
+        isActive: Bool
+    ) -> NSColor {
+        switch treatment {
+        case .highlight:
+            return baseTextColor.withAlphaComponent(shimmerHighlightAlpha(isActive: isActive))
+        case .shadow:
+            let shadowTarget = currentTheme.sidebarGlassAppearance == .dark
+                ? NSColor.black
+                : currentTheme.sidebarBackground
+            return baseTextColor
+                .mixed(towards: shadowTarget, amount: currentTheme.sidebarGlassAppearance == .dark ? 0.82 : 0.74)
+                .withAlphaComponent(shadowShimmerAlpha(isActive: isActive))
+        }
+    }
+
+    private func renderedBaseTextColor(
+        _ textColor: NSColor,
+        isShimmering: Bool,
+        treatment: SidebarShimmerTreatment
+    ) -> NSColor {
+        guard isShimmering else {
+            return textColor
+        }
+
+        switch treatment {
+        case .highlight:
+            return textColor.withAlphaComponent(textColor.alphaComponent * 0.90)
+        case .shadow:
+            return textColor
+        }
+    }
+
+    private func resolvedStatusCopy(
+        statusText: String?,
+        attentionState: WorklaneAttentionState?,
+        interactionKind: PaneInteractionKind?,
+        interactionLabel: String?
+    ) -> String {
+        guard shouldPreferInteractionPresentation(
+            attentionState: attentionState,
+            interactionKind: interactionKind
+        ) else {
+            return statusText
+                ?? interactionLabel
+                ?? interactionKind?.defaultLabel
+                ?? ""
+        }
+
+        let preferredLabel = interactionLabel ?? interactionKind?.defaultLabel ?? ""
+        guard let statusText else {
+            return preferredLabel
+        }
+
+        if let genericRange = statusText.range(
+            of: PaneInteractionKind.genericInput.defaultLabel,
+            options: [.caseInsensitive, .backwards]
+        ) {
+            return statusText.replacingCharacters(in: genericRange, with: preferredLabel)
+        }
+
+        return preferredLabel
+    }
+
+    private func resolvedStatusSymbolName(
+        statusSymbolName: String?,
+        attentionState: WorklaneAttentionState?,
+        interactionKind: PaneInteractionKind?,
+        interactionSymbolName: String?
+    ) -> String {
+        guard shouldPreferInteractionPresentation(
+            attentionState: attentionState,
+            interactionKind: interactionKind
+        ) else {
+            return statusSymbolName
+                ?? interactionSymbolName
+                ?? interactionKind?.defaultSymbolName
+                ?? ""
+        }
+
+        return interactionSymbolName
+            ?? interactionKind?.defaultSymbolName
+            ?? statusSymbolName
+            ?? ""
+    }
+
+    private func shouldPreferInteractionPresentation(
+        attentionState: WorklaneAttentionState?,
+        interactionKind: PaneInteractionKind?
+    ) -> Bool {
+        attentionState == .needsInput
+            && interactionKind != nil
+            && interactionKind != .genericInput
+    }
+
     private func statusTextColor(for summary: WorklaneSidebarSummary) -> NSColor {
         switch summary.attentionState {
-        case .needsInput:
-            return NSColor.systemBlue
-        case .unresolvedStop:
-            return NSColor.systemOrange
         case .running:
-            return summary.isActive
-                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.74)
-                : currentTheme.secondaryText
+            return currentTheme.statusRunning
+        case .needsInput:
+            return currentTheme.statusNeedsInput
+        case .unresolvedStop:
+            return currentTheme.statusStopped
+        case .ready:
+            return currentTheme.statusReady
         case nil:
-            return summary.isActive
-                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.74)
-                : currentTheme.secondaryText
+            return currentTheme.secondaryText
         }
     }
 
@@ -954,19 +1105,17 @@ final class SidebarWorklaneRowButton: NSButton {
         activeTextColor: NSColor,
         inactiveTextColor: NSColor
     ) -> NSColor {
-        let focusedBaseColor =
-            (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
         switch paneRow.attentionState {
-        case .needsInput:
-            return NSColor.systemBlue
-        case .unresolvedStop:
-            return NSColor.systemOrange
         case .running:
-            return paneRow.isFocused
-                ? focusedBaseColor.withAlphaComponent(0.74) : currentTheme.secondaryText
+            return currentTheme.statusRunning
+        case .needsInput:
+            return currentTheme.statusNeedsInput
+        case .unresolvedStop:
+            return currentTheme.statusStopped
+        case .ready:
+            return currentTheme.statusReady
         case nil:
-            return paneRow.isFocused
-                ? focusedBaseColor.withAlphaComponent(0.74) : currentTheme.secondaryText
+            return currentTheme.secondaryText
         }
     }
 
@@ -1075,6 +1224,14 @@ final class SidebarWorklaneRowButton: NSButton {
         return statusBaseLabel.stringValue
     }
 
+    var statusTextColorForTesting: NSColor {
+        if currentSummary?.paneRows.isEmpty == false {
+            return paneStatusRows.first?.textColor ?? .clear
+        }
+
+        return statusBaseLabel.textColor ?? .clear
+    }
+
     var statusSymbolNameForTesting: String {
         if currentSummary?.paneRows.isEmpty == false {
             return paneStatusRows.first?.symbolName ?? ""
@@ -1107,6 +1264,14 @@ final class SidebarWorklaneRowButton: NSButton {
         primaryLabel.shimmerColor
     }
 
+    var shimmerPhaseOffsetForTesting: CGFloat {
+        primaryLabel.shimmerPhaseOffsetForTesting
+    }
+
+    var statusShimmerPhaseOffsetForTesting: CGFloat {
+        statusLabel.shimmerPhaseOffsetForTesting
+    }
+
     var primaryTextColorForTesting: NSColor {
         primaryBaseLabel.textColor ?? .clear
     }
@@ -1129,6 +1294,18 @@ final class SidebarWorklaneRowButton: NSButton {
         panePrimaryRows.prefix(currentSummary?.paneRows.count ?? 0).map(\.primaryText)
     }
 
+    var firstPanePrimaryTextColorForTesting: NSColor? {
+        panePrimaryRows.first?.renderedPrimaryTextColorForTesting
+    }
+
+    var firstPanePrimaryShimmerColorForTesting: NSColor? {
+        panePrimaryRows.first?.shimmerColorForTesting
+    }
+
+    var panePrimaryShimmerPhaseOffsetsForTesting: [CGFloat] {
+        panePrimaryRows.prefix(currentSummary?.paneRows.count ?? 0).map(\.shimmerPhaseOffsetForTesting)
+    }
+
     var primaryTrailingTextsForTesting: [String] {
         panePrimaryRows.prefix(currentSummary?.paneRows.count ?? 0).compactMap(\.trailingText)
     }
@@ -1143,6 +1320,11 @@ final class SidebarWorklaneRowButton: NSButton {
         paneStatusRows.prefix(currentSummary?.paneRows.count ?? 0)
             .map(\.symbolName)
             .filter { $0.isEmpty == false }
+    }
+
+    var paneStatusShimmerPhaseOffsetsForTesting: [CGFloat] {
+        paneStatusRows.prefix(currentSummary?.paneRows.count ?? 0)
+            .map(\.shimmerPhaseOffsetForTesting)
     }
 
     var paneRowWidthConstraintCountForTesting: Int {
@@ -1239,8 +1421,6 @@ private final class SidebarShimmerTextView: NSView {
         static let velocity: CGFloat = 130      // pts/sec — constant across all widths
         static let bandWidth: CGFloat = 48
         static let frameInterval: TimeInterval = 1.0 / 30.0
-        static let pauseMin: CFTimeInterval = 3.5
-        static let pauseMax: CFTimeInterval = 5.5
     }
 
     private static let textLeadingInset: CGFloat = 0
@@ -1311,6 +1491,13 @@ private final class SidebarShimmerTextView: NSView {
         }
     }
 
+    var shimmerPhaseOffset: CGFloat = 0 {
+        didSet {
+            guard oldValue != shimmerPhaseOffset else { return }
+            needsDisplay = true
+        }
+    }
+
     weak var shimmerCoordinator: SidebarShimmerCoordinator? {
         didSet {
             guard oldValue !== shimmerCoordinator else {
@@ -1345,6 +1532,10 @@ private final class SidebarShimmerTextView: NSView {
 
     var shimmerIsAnimating: Bool {
         canAnimateSharedShimmer && sharedShimmerInSweep
+    }
+
+    var shimmerPhaseOffsetForTesting: CGFloat {
+        shimmerPhaseOffset
     }
 
     private var preferredTextWidth: CGFloat {
@@ -1412,7 +1603,8 @@ private final class SidebarShimmerTextView: NSView {
             originX = Self.textLeadingInset + (availableWidth / 2) - (bandWidth / 2)
         } else {
             let travel = availableWidth + bandWidth
-            originX = Self.textLeadingInset - bandWidth + (travel * sharedShimmerPhase)
+            let phase = SidebarShimmerPhaseOffset.wrapped(sharedShimmerPhase + shimmerPhaseOffset)
+            originX = Self.textLeadingInset - bandWidth + (travel * phase)
         }
 
         guard
@@ -1582,6 +1774,8 @@ private final class SidebarShimmerTextView: NSView {
 
 @MainActor
 final class SidebarShimmerCoordinator {
+    private static let pauseRange: ClosedRange<CFTimeInterval> = 2.5...4.0
+
     private var labels: NSHashTable<SidebarShimmerTextView> = .weakObjects()
     private var timer: Timer?
     private var windowIsRenderable = false
@@ -1592,6 +1786,10 @@ final class SidebarShimmerCoordinator {
 
     var isRunningForTesting: Bool {
         timer != nil
+    }
+
+    static var pauseRangeForTesting: ClosedRange<CFTimeInterval> {
+        pauseRange
     }
 
     fileprivate func register(_ label: SidebarShimmerTextView) {
@@ -1645,9 +1843,7 @@ final class SidebarShimmerCoordinator {
 
     private func startTimer() {
         cycleStart = CACurrentMediaTime()
-        pauseDuration = .random(
-            in: SidebarShimmerTextView.Animation.pauseMin...SidebarShimmerTextView.Animation.pauseMax
-        )
+        pauseDuration = .random(in: Self.pauseRange)
         inSweep = true
         currentPhase = 0
 
@@ -1693,7 +1889,7 @@ final class SidebarShimmerCoordinator {
 
         if elapsed >= cycleDuration {
             cycleStart = CACurrentMediaTime()
-            pauseDuration = .random(in: SidebarShimmerTextView.Animation.pauseMin...SidebarShimmerTextView.Animation.pauseMax)
+            pauseDuration = .random(in: Self.pauseRange)
             currentPhase = 0
             inSweep = true
         } else if elapsed < sweepDuration {
@@ -1810,6 +2006,14 @@ private final class SidebarPanePrimaryRowView: NSView {
     private(set) var primaryColor: NSColor = .labelColor
     private(set) var trailingColor: NSColor = .secondaryLabelColor
 
+    var renderedPrimaryTextColorForTesting: NSColor {
+        baseLabel.textColor ?? .clear
+    }
+
+    var shimmerColorForTesting: NSColor {
+        shimmerLabel.shimmerColor
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setup()
@@ -1887,9 +2091,7 @@ private final class SidebarPanePrimaryRowView: NSView {
     ) {
         self.primaryColor = primaryColor
         self.trailingColor = trailingColor
-        baseLabel.textColor = isShimmering
-            ? primaryColor.withAlphaComponent(primaryColor.alphaComponent * 0.90)
-            : primaryColor
+        baseLabel.textColor = primaryColor
         trailingLabelView.textColor = trailingColor
         shimmerLabel.isShimmering = isShimmering
         shimmerLabel.reducedMotion = reducedMotion
@@ -1902,6 +2104,14 @@ private final class SidebarPanePrimaryRowView: NSView {
 
     func setShimmerVisibility(_ isVisible: Bool) {
         shimmerLabel.isVisibleForSharedAnimation = isVisible
+    }
+
+    func setShimmerPhaseOffset(_ offset: CGFloat) {
+        shimmerLabel.shimmerPhaseOffset = offset
+    }
+
+    var shimmerPhaseOffsetForTesting: CGFloat {
+        shimmerLabel.shimmerPhaseOffsetForTesting
     }
 }
 
@@ -2013,6 +2223,14 @@ private final class SidebarPaneTextRowView: NSView {
 
     func setShimmerVisibility(_ isVisible: Bool) {
         shimmerLabel.isVisibleForSharedAnimation = isVisible
+    }
+
+    func setShimmerPhaseOffset(_ offset: CGFloat) {
+        shimmerLabel.shimmerPhaseOffset = offset
+    }
+
+    var shimmerPhaseOffsetForTesting: CGFloat {
+        shimmerLabel.shimmerPhaseOffsetForTesting
     }
 }
 
