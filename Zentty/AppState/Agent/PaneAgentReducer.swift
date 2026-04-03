@@ -373,10 +373,37 @@ struct PaneAgentReducerState: Equatable, Sendable {
         }
 
         if shellActivityState == .commandRunning {
+            _ = promoteExplicitStartingCodexSessionFromShellActivity(now: now)
             _ = resumeBlockedSessionFromActivity(now: now)
         } else if shellActivityState == .promptIdle {
             _ = markRunningSessionIdleFromPromptReturn(now: now)
         }
+    }
+
+    @discardableResult
+    private mutating func promoteExplicitStartingCodexSessionFromShellActivity(now: Date) -> Bool {
+        let candidateSessions = sessionsByID.values.filter { session in
+            session.tool == .codex
+                && session.state == .starting
+                && session.source == .explicit
+                && session.origin != .shell
+        }
+        guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
+              var session = sessionsByID[sessionID]
+        else {
+            return false
+        }
+
+        session.state = .running
+        session.text = nil
+        session.interactionKind = .none
+        session.completionCandidateDeadline = nil
+        session.idleVisibleUntil = nil
+        session.unresolvedStopVisibleUntil = nil
+        session.hasObservedRunning = true
+        session.updatedAt = now
+        sessionsByID[sessionID] = session
+        return true
     }
 
     @discardableResult

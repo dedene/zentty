@@ -10,7 +10,7 @@ final class RootViewController: NSViewController {
             matching mask: NSEvent.EventTypeMask,
             handler: @escaping (NSEvent) -> NSEvent?
         ) {
-            token = NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)
+            token = NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler) as Any
         }
 
         deinit {
@@ -29,7 +29,7 @@ final class RootViewController: NSViewController {
         func addObserver(
             forName name: Notification.Name,
             object: AnyObject?,
-            using block: @escaping (Notification) -> Void
+            using block: @escaping @Sendable (Notification) -> Void
         ) {
             tokens.append(
                 center.addObserver(forName: name, object: object, queue: .main, using: block)
@@ -131,6 +131,7 @@ final class RootViewController: NSViewController {
                 self?.applyPersistedConfig(config)
             }
         }
+        preloadOpenWithIcons()
     }
 
     convenience init(
@@ -609,7 +610,18 @@ final class RootViewController: NSViewController {
             self.worklaneStore.updateMetadata(id: paneID, metadata: metadata)
         }
         runtimeRegistry.onEventDidOccur = { [weak self] paneID, event in
-            self?.worklaneStore.handleTerminalEvent(paneID: paneID, event: event)
+            guard let self else {
+                return
+            }
+
+            if event == .surfaceClosed {
+                if self.worklaneStore.closePaneFromShellExit(id: paneID) == .shouldQuit {
+                    NSApp.terminate(nil)
+                }
+                return
+            }
+
+            self.worklaneStore.handleTerminalEvent(paneID: paneID, event: event)
         }
         agentStatusCenter.onPayload = { [weak self] payload in
             self?.worklaneStore.applyAgentStatusPayload(payload)
@@ -715,26 +727,56 @@ final class RootViewController: NSViewController {
         menu.autoenablesItems = false
         addPaneLayoutMenuItems([.splitHorizontally, .splitVertically], to: menu)
         menu.addItem(NSMenuItem.separator())
-        addPaneLayoutMenuItems(
-            [
-                .arrangeWidthFull,
-                .arrangeWidthHalves,
-                .arrangeWidthThirds,
-                .arrangeWidthQuarters,
-            ],
-            to: menu
+        menu.addItem(
+            makePaneLayoutSubmenuItem(
+                title: "Width Presets",
+                commandIDs: [
+                    .arrangeWidthFull,
+                    .arrangeWidthHalves,
+                    .arrangeWidthThirds,
+                    .arrangeWidthQuarters,
+                ],
+                trailingCommandIDs: [
+                    .arrangeWidthGoldenFocusWide,
+                    .arrangeWidthGoldenFocusNarrow,
+                ]
+            )
         )
-        menu.addItem(NSMenuItem.separator())
-        addPaneLayoutMenuItems(
-            [
-                .arrangeHeightFull,
-                .arrangeHeightTwoPerColumn,
-                .arrangeHeightThreePerColumn,
-                .arrangeHeightFourPerColumn,
-            ],
-            to: menu
+        menu.addItem(
+            makePaneLayoutSubmenuItem(
+                title: "Height Presets",
+                commandIDs: [
+                    .arrangeHeightFull,
+                    .arrangeHeightTwoPerColumn,
+                    .arrangeHeightThreePerColumn,
+                    .arrangeHeightFourPerColumn,
+                ],
+                trailingCommandIDs: [
+                    .arrangeHeightGoldenFocusTall,
+                    .arrangeHeightGoldenFocusShort,
+                ]
+            )
         )
         return menu
+    }
+
+    private func makePaneLayoutSubmenuItem(
+        title: String,
+        commandIDs: [AppCommandID],
+        trailingCommandIDs: [AppCommandID] = []
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: title)
+        submenu.autoenablesItems = false
+        addPaneLayoutMenuItems(commandIDs, to: submenu)
+        if !trailingCommandIDs.isEmpty {
+            submenu.addItem(NSMenuItem.separator())
+            addPaneLayoutMenuItems(trailingCommandIDs, to: submenu)
+        }
+        let allCommandIDs = commandIDs + trailingCommandIDs
+        item.submenu = submenu
+        item.isEnabled = allCommandIDs.contains(where: isPaneLayoutMenuCommandEnabled)
+        return item
     }
 
     private func addPaneLayoutMenuItems(_ commandIDs: [AppCommandID], to menu: NSMenu) {
@@ -755,7 +797,8 @@ final class RootViewController: NSViewController {
     }
 
     private func isPaneLayoutMenuCommandEnabled(_ commandID: AppCommandID) -> Bool {
-        let paneCount = worklaneStore.activeWorklane?.paneStripState.panes.count ?? 0
+        let paneStripState = worklaneStore.activeWorklane?.paneStripState
+        let paneCount = paneStripState?.panes.count ?? 0
         switch commandID {
         case .splitHorizontally, .splitVertically:
             return paneCount > 0
@@ -768,6 +811,12 @@ final class RootViewController: NSViewController {
             .arrangeHeightThreePerColumn,
             .arrangeHeightFourPerColumn:
             return paneCount > 1
+        case .arrangeWidthGoldenFocusWide,
+            .arrangeWidthGoldenFocusNarrow:
+            return (paneStripState?.columns.count ?? 0) >= 2
+        case .arrangeHeightGoldenFocusTall,
+            .arrangeHeightGoldenFocusShort:
+            return (paneStripState?.focusedColumn?.panes.count ?? 0) >= 2
         default:
             return true
         }
@@ -833,6 +882,8 @@ final class RootViewController: NSViewController {
             showCommandPalette()
         case .openSettings:
             onShowSettingsRequested?()
+        case .newWindow:
+            NSApp.sendAction(#selector(AppDelegate.newWindow(_:)), to: nil, from: nil)
         case .closeWindow:
             view.window?.close()
         case .reloadConfig:
@@ -878,7 +929,9 @@ final class RootViewController: NSViewController {
             appCanvasView.settlePaneStripPresentationNow()
             worklaneStore.resizeFocusedPane(
                 in: .vertical,
-                delta: keyboardResizeStep(for: .vertical),
+                delta: resolvedVerticalKeyboardResizeDelta(
+                    keyboardResizeStep(for: .vertical)
+                ),
                 availableSize: appCanvasView.bounds.size,
                 minimumSizeByPaneID: paneMinimumSizesByPaneID()
             )
@@ -886,7 +939,9 @@ final class RootViewController: NSViewController {
             appCanvasView.settlePaneStripPresentationNow()
             worklaneStore.resizeFocusedPane(
                 in: .vertical,
-                delta: -keyboardResizeStep(for: .vertical),
+                delta: resolvedVerticalKeyboardResizeDelta(
+                    -keyboardResizeStep(for: .vertical)
+                ),
                 availableSize: appCanvasView.bounds.size,
                 minimumSizeByPaneID: paneMinimumSizesByPaneID()
             )
@@ -900,6 +955,21 @@ final class RootViewController: NSViewController {
         case .arrangeVertically(let arrangement):
             appCanvasView.settlePaneStripPresentationNow()
             worklaneStore.arrangeActiveWorklaneVertically(arrangement)
+        case .arrangeGoldenRatio(let preset):
+            appCanvasView.settlePaneStripPresentationNow()
+            switch preset {
+            case .focusWide, .focusNarrow:
+                worklaneStore.arrangeActiveWorklaneGoldenWidth(
+                    focusWide: preset == .focusWide,
+                    availableWidth: appCanvasView.bounds.width,
+                    leadingVisibleInset: appCanvasView.leadingVisibleInset
+                )
+            case .focusTall, .focusShort:
+                worklaneStore.arrangeActiveWorklaneGoldenHeight(
+                    focusTall: preset == .focusTall,
+                    availableSize: appCanvasView.bounds.size
+                )
+            }
         case .resetLayout:
             worklaneStore.resetActiveWorklaneLayout()
         case .closeFocusedPane:
@@ -1026,7 +1096,10 @@ final class RootViewController: NSViewController {
 
         let activeWorklane = worklaneStore.activeWorklane
         let worklaneCount = worklaneStore.worklanes.count
-        let paneCount = activeWorklane?.paneStripState.panes.count ?? 0
+        let activePaneCount = activeWorklane?.paneStripState.panes.count ?? 0
+        let totalPaneCount = worklaneStore.worklanes.reduce(0) { partialResult, worklane in
+            partialResult + worklane.paneStripState.panes.count
+        }
         let focusedPanePath: String? = {
             guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
@@ -1041,7 +1114,8 @@ final class RootViewController: NSViewController {
             theme: currentTheme,
             shortcutManager: shortcutManager,
             worklaneCount: worklaneCount,
-            paneCount: paneCount,
+            activePaneCount: activePaneCount,
+            totalPaneCount: totalPaneCount,
             focusedPanePath: focusedPanePath,
             openWithTargets: openWithTargets
         )
@@ -1103,6 +1177,14 @@ final class RootViewController: NSViewController {
         case .vertical:
             return max(1, minimumSize.height / PaneResize.minimumRows)
         }
+    }
+
+    private func resolvedVerticalKeyboardResizeDelta(_ delta: CGFloat) -> CGFloat {
+        guard worklaneStore.activeWorklane?.paneStripState.shouldInvertVerticalKeyboardResizeDelta() == true else {
+            return delta
+        }
+
+        return -delta
     }
 
     private func paneMinimumSizesByPaneID() -> [PaneID: PaneMinimumSize] {
@@ -1169,7 +1251,9 @@ final class RootViewController: NSViewController {
             NSWindow.didChangeScreenNotification,
         ].forEach { name in
             observerBag.addObserver(forName: name, object: window) { [weak self] _ in
-                self?.handleWindowStateDidChange()
+                Task { @MainActor [weak self] in
+                    self?.handleWindowStateDidChange()
+                }
             }
         }
         windowObserverBag = observerBag
@@ -1368,6 +1452,10 @@ final class RootViewController: NSViewController {
         worklaneStore.anyPaneRequiresQuitConfirmation
     }
 
+    func containsWorklane(_ worklaneID: WorklaneID) -> Bool {
+        worklaneStore.worklanes.contains { $0.id == worklaneID }
+    }
+
     var worklaneTitles: [String] {
         worklaneStore.worklanes.map(\.title)
     }
@@ -1445,6 +1533,14 @@ final class RootViewController: NSViewController {
                 .filter { !$0.isSeparatorItem }
                 .map(\.title)
         }
+
+        func paneLayoutSubmenuCommandTitlesForTesting(_ title: String) -> [String] {
+            makePaneLayoutMenu().items
+                .first { !$0.isSeparatorItem && $0.title == title }?
+                .submenu?
+                .items
+                .map(\.title) ?? []
+        }
     #endif
 
     private func resolvedSidebarAvailableWidth() -> CGFloat? {
@@ -1487,6 +1583,7 @@ final class RootViewController: NSViewController {
     private func applyPersistedConfig(_ config: AppConfig) {
         paneLayoutPreferences = config.paneLayout
         shortcutManager = ShortcutManager(shortcuts: config.shortcuts)
+        preloadOpenWithIcons()
         sidebarMotionCoordinator.applyPersistedSidebarSettings(
             config.sidebar,
             availableWidth: resolvedSidebarAvailableWidth()
@@ -1518,6 +1615,10 @@ final class RootViewController: NSViewController {
                 isPrimaryEnabled: canOpenFocusedPane,
                 isMenuEnabled: true
             ))
+    }
+
+    private func preloadOpenWithIcons() {
+        openWithService.preloadIcons(for: availableOpenWithTargets)
     }
 
     private func updatePaneLayoutContextIfNeeded(

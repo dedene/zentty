@@ -192,6 +192,7 @@ final class WorklaneStore {
 
     var worklanes: [WorklaneState]
     let gitContextResolver: any PaneGitContextResolving
+    let terminalDiagnostics: TerminalDiagnostics
     private(set) var layoutContext: PaneLayoutContext
     private var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
     private var lastFocusedPaneReference: PaneReference?
@@ -204,8 +205,9 @@ final class WorklaneStore {
     private let processEnvironment: [String: String]
     let focusHistoryController = PaneFocusHistoryController()
     private var isNavigatingHistory = false
+    private var nextWorklaneNumber: Int
 
-    internal(set) var activeWorklaneID: WorklaneID
+    var activeWorklaneID: WorklaneID
 
     private var subscribers: [(id: UUID, handler: (WorklaneChange) -> Void)] = []
     private var isBatching = false
@@ -237,9 +239,11 @@ final class WorklaneStore {
         layoutContext: PaneLayoutContext = .fallback,
         activeWorklaneID: WorklaneID? = nil,
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
-        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
         self.gitContextResolver = gitContextResolver
+        self.terminalDiagnostics = terminalDiagnostics
         self.layoutContext = layoutContext
         self.processEnvironment = processEnvironment
         let initialWorklanes = worklanes.isEmpty
@@ -254,6 +258,10 @@ final class WorklaneStore {
             : initialWorklanes.first?.id ?? WorklaneID("worklane-main")
         self.worklanes = initialWorklanes
         self.activeWorklaneID = resolvedActiveWorklaneID
+        self.nextWorklaneNumber = initialWorklanes.reduce(0) { max, worklane in
+            let suffix = worklane.id.rawValue.drop(while: { !$0.isNumber })
+            return Swift.max(max, Int(suffix) ?? 0)
+        }
         normalizeAllPanePresentationState()
         refreshLastFocusedLocalWorkingDirectory()
         refreshAllPaneGitContexts()
@@ -315,6 +323,14 @@ final class WorklaneStore {
         })
     }
 
+    private var paneReferencesInSidebarOrder: [PaneReference] {
+        worklanes.flatMap { worklane in
+            worklane.paneStripState.panes.map { pane in
+                PaneReference(worklaneID: worklane.id, paneID: pane.id)
+            }
+        }
+    }
+
     func navigateBack() {
         guard let current = currentPaneReference else { return }
         guard let target = focusHistoryController.navigateBack(
@@ -352,6 +368,27 @@ final class WorklaneStore {
     private func recordFocusTransition(from previous: PaneReference?) {
         guard !isNavigatingHistory, let previous else { return }
         focusHistoryController.recordFocusChange(from: previous)
+    }
+
+    private func focusPaneBySidebarOrder(offset: Int) {
+        let paneReferences = paneReferencesInSidebarOrder
+        guard paneReferences.count > 1,
+              let current = currentPaneReference,
+              let currentIndex = paneReferences.firstIndex(of: current) else {
+            return
+        }
+
+        let nextIndex = (currentIndex + offset + paneReferences.count) % paneReferences.count
+        let target = paneReferences[nextIndex]
+        guard target != current else {
+            return
+        }
+
+        if target.worklaneID == activeWorklaneID {
+            focusPane(id: target.paneID)
+        } else {
+            selectWorklaneAndFocusPane(worklaneID: target.worklaneID, paneID: target.paneID)
+        }
     }
 
     var focusedOpenWithContext: WorklaneOpenWithContext? {
@@ -437,6 +474,12 @@ final class WorklaneStore {
             }
             isFocusChangeFromClose = true
             changeType = .paneStructure(activeWorklaneID)
+        case .focusPreviousPaneBySidebarOrder:
+            focusPaneBySidebarOrder(offset: -1)
+            return
+        case .focusNextPaneBySidebarOrder:
+            focusPaneBySidebarOrder(offset: 1)
+            return
         case .focusLeft:
             worklane.paneStripState.moveFocusLeft()
             clearReadyStatusForFocusedPane(in: &worklane)
@@ -475,6 +518,7 @@ final class WorklaneStore {
             .resizeDown,
             .arrangeHorizontally,
             .arrangeVertically,
+            .arrangeGoldenRatio,
             .resetLayout,
             .toggleZoomOut:
             activeWorklane = worklane
@@ -617,7 +661,15 @@ final class WorklaneStore {
             ? layoutContext.singlePaneWidth
             : (layoutContext.firstPaneWidthAfterSingleSplit ?? defaultColumnWidth)
         for index in columns.indices {
-            columns[index].width = index == 0 ? firstColumnWidth : defaultColumnWidth
+            let width: CGFloat
+            if index == 0 {
+                width = firstColumnWidth
+            } else if columns.count == 2, layoutContext.firstPaneWidthAfterSingleSplit != nil {
+                width = firstColumnWidth
+            } else {
+                width = defaultColumnWidth
+            }
+            columns[index].width = width
             columns[index].resetPaneHeights()
         }
 
@@ -648,7 +700,7 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
-        notify(.paneStructure(activeWorklaneID))
+        notify(.layoutResized(activeWorklaneID))
     }
 
     func arrangeActiveWorklaneVertically(_ arrangement: PaneVerticalArrangement) {
@@ -662,7 +714,43 @@ final class WorklaneStore {
 
         activeWorklane = worklane
         refreshLastFocusedLocalWorkingDirectory()
-        notify(.paneStructure(activeWorklaneID))
+        notify(.layoutResized(activeWorklaneID))
+    }
+
+    func arrangeActiveWorklaneGoldenWidth(
+        focusWide: Bool,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0
+    ) {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        guard worklane.paneStripState.arrangeGoldenWidth(focusWide: focusWide) else {
+            return
+        }
+
+        activeWorklane = worklane
+        notify(.layoutResized(activeWorklaneID))
+    }
+
+    func arrangeActiveWorklaneGoldenHeight(
+        focusTall: Bool,
+        availableSize: CGSize
+    ) {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        guard worklane.paneStripState.arrangeGoldenHeight(
+            focusTall: focusTall,
+            availableSize: availableSize
+        ) else {
+            return
+        }
+
+        activeWorklane = worklane
+        notify(.layoutResized(activeWorklaneID))
     }
 
     private func insertNewPaneHorizontally(into worklane: inout WorklaneState, placement: PanePlacement) {
@@ -728,9 +816,9 @@ final class WorklaneStore {
 
     func createWorklane() {
         let previousPaneRef = currentPaneReference
-        let newIndex = worklanes.count + 1
-        let title = "WS \(newIndex)"
-        let id = WorklaneID("worklane-\(newIndex)")
+        nextWorklaneNumber += 1
+        let title = "WS \(nextWorklaneNumber)"
+        let id = WorklaneID("worklane-\(nextWorklaneNumber)")
         let workingDirectory = resolveWorkingDirectoryForNewWorklane()
         let configInheritanceSourcePaneID = resolveConfigInheritanceSourcePaneIDForNewWorklane()
 
@@ -800,6 +888,48 @@ final class WorklaneStore {
 
         refreshLastFocusedLocalWorkingDirectory()
         notify(.worklaneListChanged)
+    }
+
+    enum ShellExitCloseResult {
+        case closed
+        case shouldQuit
+        case notFound
+    }
+
+    func closePaneFromShellExit(id paneID: PaneID) -> ShellExitCloseResult {
+        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
+        }) else {
+            return .notFound
+        }
+
+        var worklane = worklanes[worklaneIndex]
+
+        if worklane.paneStripState.panes.count == 1 {
+            if worklanes.count == 1 {
+                worklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
+                worklanes[worklaneIndex] = worklane
+                return .shouldQuit
+            }
+
+            let removedID = worklane.id
+            worklanes.remove(at: worklaneIndex)
+            if activeWorklaneID == removedID {
+                let replacementIndex = min(max(worklaneIndex - 1, 0), worklanes.count - 1)
+                activeWorklaneID = worklanes[replacementIndex].id
+            }
+            refreshLastFocusedLocalWorkingDirectory()
+            notify(.worklaneListChanged)
+            return .closed
+        }
+
+        if let removal = worklane.paneStripState.removePane(id: paneID, singleColumnWidth: layoutContext.singlePaneWidth) {
+            clearPaneState(for: removal.pane.id, in: &worklane)
+        }
+        worklanes[worklaneIndex] = worklane
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(worklane.id))
+        return .closed
     }
 
     func closePane(id: PaneID) {

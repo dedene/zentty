@@ -27,6 +27,25 @@ final class TerminalPaneHostViewTests: XCTestCase {
         XCTAssertEqual(adapter.terminalView.frame, hostView.bounds)
     }
 
+    func test_host_resize_forces_terminal_subtree_layout() {
+        let terminalView = LayoutTrackingTerminalView()
+        let adapter = TerminalAdapterSpy(terminalView: terminalView)
+        let hostView = TerminalPaneHostView(adapter: adapter)
+
+        hostView.frame = NSRect(x: 0, y: 0, width: 420, height: 320)
+        hostView.layoutSubtreeIfNeeded()
+        let initialLayoutCallCount = terminalView.layoutCallCount
+
+        hostView.frame = NSRect(x: 0, y: 0, width: 320, height: 180)
+        hostView.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThan(
+            terminalView.layoutCallCount,
+            initialLayoutCallCount,
+            "Resizing the host should trigger a layout pass in the embedded terminal subtree"
+        )
+    }
+
     func test_start_session_if_needed_starts_adapter_only_once() throws {
         let adapter = TerminalAdapterSpy()
         let hostView = TerminalPaneHostView(adapter: adapter)
@@ -99,17 +118,36 @@ final class TerminalPaneHostViewTests: XCTestCase {
     func test_viewport_sync_suspension_is_forwarded_to_terminal_view() {
         let adapter = TerminalAdapterSpy()
         let hostView = TerminalPaneHostView(adapter: adapter)
+        guard let terminalView = adapter.terminalView as? FirstResponderTerminalView else {
+            return XCTFail("Expected first-responder-capable terminal view")
+        }
 
         hostView.setViewportSyncSuspended(true)
         hostView.setViewportSyncSuspended(false)
 
-        XCTAssertEqual(adapter.terminalView.viewportSyncSuspensionUpdates, [true, false])
+        XCTAssertEqual(terminalView.viewportSyncSuspensionUpdates, [true, false])
+    }
+
+    func test_scroll_wheel_handler_is_forwarded_to_terminal_view() throws {
+        let terminalView = ScrollForwardingTerminalView()
+        let adapter = TerminalAdapterSpy(terminalView: terminalView)
+        let hostView = TerminalPaneHostView(adapter: adapter)
+        var routedEvents: [NSEvent] = []
+
+        hostView.onScrollWheel = { event in
+            routedEvents.append(event)
+            return true
+        }
+
+        terminalView.scrollWheel(with: try makeScrollEvent(deltaX: 32, precise: true))
+
+        XCTAssertEqual(routedEvents.count, 1)
     }
 }
 
 @MainActor
 private final class TerminalAdapterSpy: TerminalAdapter {
-    let terminalView = FirstResponderTerminalView()
+    let terminalView: NSView
     var hasScrollback = false
     var cellWidth: CGFloat = 0
     var cellHeight: CGFloat = 0
@@ -118,6 +156,10 @@ private final class TerminalAdapterSpy: TerminalAdapter {
     private(set) var startSessionCallCount = 0
     private(set) var lastRequest: TerminalSessionRequest?
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: true, isFocused: false)
+
+    init(terminalView: NSView = FirstResponderTerminalView()) {
+        self.terminalView = terminalView
+    }
 
     func makeTerminalView() -> NSView {
         terminalView
@@ -158,4 +200,78 @@ extension FirstResponderTerminalView: TerminalViewportSyncControlling {
     func setViewportSyncSuspended(_ suspended: Bool) {
         viewportSyncSuspensionUpdates.append(suspended)
     }
+}
+
+private final class ScrollForwardingTerminalView: NSView, TerminalFocusReporting, TerminalScrollRouting {
+    var onFocusDidChange: ((Bool) -> Void)?
+    var onScrollWheel: ((NSEvent) -> Bool)?
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        onFocusDidChange?(true)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        onFocusDidChange?(false)
+        return true
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        _ = onScrollWheel?(event)
+    }
+}
+
+private final class LayoutTrackingTerminalView: NSView, TerminalFocusReporting {
+    var onFocusDidChange: ((Bool) -> Void)?
+    private(set) var layoutCallCount = 0
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        onFocusDidChange?(true)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        onFocusDidChange?(false)
+        return true
+    }
+
+    override func layout() {
+        layoutCallCount += 1
+        super.layout()
+    }
+}
+
+private func makeScrollEvent(
+    deltaX: Int32 = 0,
+    deltaY: Int32 = 0,
+    precise: Bool
+) throws -> NSEvent {
+    let source = try XCTUnwrap(CGEventSource(stateID: .hidSystemState))
+    let units: CGScrollEventUnit = precise ? .pixel : .line
+    let cgEvent = try XCTUnwrap(
+        CGEvent(
+            scrollWheelEvent2Source: source,
+            units: units,
+            wheelCount: 2,
+            wheel1: deltaY,
+            wheel2: deltaX,
+            wheel3: 0
+        )
+    )
+
+    if precise {
+        cgEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: Double(deltaX))
+        cgEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: Double(deltaY))
+        cgEvent.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+    }
+
+    return try XCTUnwrap(NSEvent(cgEvent: cgEvent))
 }

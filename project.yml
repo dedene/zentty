@@ -76,6 +76,7 @@ targets:
         INFOPLIST_FILE: Zentty/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_ENTITLEMENTS: Zentty/Zentty.entitlements
         SWIFT_EMIT_LOC_STRINGS: YES
         OTHER_LDFLAGS:
           - -lc++
@@ -89,6 +90,10 @@ targets:
           - UniformTypeIdentifiers
           - -framework
           - Carbon
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Developer ID Application"
   ZenttyTests:
     type: bundle.unit-test
     platform: macOS

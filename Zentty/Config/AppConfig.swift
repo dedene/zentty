@@ -34,10 +34,12 @@ struct AppConfig: Equatable, Sendable {
 
     struct Confirmations: Equatable, Sendable {
         var confirmBeforeClosingPane: Bool
+        var confirmBeforeClosingWindow: Bool
         var confirmBeforeQuitting: Bool
 
         static let `default` = Confirmations(
             confirmBeforeClosingPane: true,
+            confirmBeforeClosingWindow: true,
             confirmBeforeQuitting: true
         )
     }

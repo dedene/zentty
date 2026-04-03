@@ -80,6 +80,7 @@ enum TerminalEvent: Equatable, Sendable {
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
     case desktopNotification(TerminalDesktopNotification)
     case userSubmittedInput
+    case surfaceClosed
 }
 
 @MainActor
@@ -98,6 +99,16 @@ protocol TerminalAdapter: AnyObject {
 @MainActor
 protocol TerminalFocusReporting: AnyObject {
     var onFocusDidChange: ((Bool) -> Void)? { get set }
+}
+
+@MainActor
+protocol TerminalFocusTargetProviding: AnyObject {
+    var terminalFocusTargetView: NSView { get }
+}
+
+@MainActor
+protocol TerminalScrollRouting: AnyObject {
+    var onScrollWheel: ((NSEvent) -> Bool)? { get set }
 }
 
 @MainActor

@@ -1,0 +1,8 @@
+git_url "git@github.com:dedene/zentty-certificates.git"
+
+type "developer_id"
+platform "macos"
+app_identifier "be.zenjoy.zentty"
+team_id "25TVW8MSGJ"
+
+storage_mode "git"

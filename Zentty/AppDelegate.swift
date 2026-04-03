@@ -4,18 +4,19 @@ import UserNotifications
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let shouldOpenMainWindow: Bool
-    private let runtimeRegistry: PaneRuntimeRegistry
     private let configStore: AppConfigStore
-    private var windowController: MainWindowController?
+    private let runtimeRegistryFactory: () -> PaneRuntimeRegistry
+    private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
     private var configObserverID: UUID?
+    private var nextWindowIndex = 0
 
     init(
         shouldOpenMainWindow: Bool = true,
-        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
+        runtimeRegistryFactory: @escaping () -> PaneRuntimeRegistry = { PaneRuntimeRegistry() },
         configStore: AppConfigStore = AppConfigStore()
     ) {
         self.shouldOpenMainWindow = shouldOpenMainWindow
-        self.runtimeRegistry = runtimeRegistry
+        self.runtimeRegistryFactory = runtimeRegistryFactory
         self.configStore = configStore
         super.init()
     }
@@ -31,35 +32,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard shouldOpenMainWindow else { return }
 
-        let windowController = MainWindowController(
-            runtimeRegistry: runtimeRegistry,
-            configStore: configStore
-        )
+        let windowController = makeWindowController()
         windowController.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
-        self.windowController = windowController
+    }
+
+    @objc
+    func newWindow(_ sender: Any?) {
+        let windowController = makeWindowController()
+        windowController.showWindow(nil)
     }
 
     @objc
     func showSettingsWindow(_ sender: Any?) {
-        windowController?.showSettingsWindow(sender)
+        keyWindowController?.showSettingsWindow(sender)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard configStore.current.confirmations.confirmBeforeQuitting,
-              windowController?.anyPaneRequiresQuitConfirmation == true else {
+              windowControllers.values.contains(where: { $0.anyPaneRequiresQuitConfirmation }) else {
             return .terminateNow
         }
 
         let alert = NSAlert()
         alert.messageText = "Quit Zentty?"
-        alert.informativeText = "All panes and running processes will be terminated."
+        alert.informativeText = "All windows, panes, and running processes will be terminated."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
-        alert.window.appearance = windowController?.terminalAppearance
+        alert.window.appearance = keyWindowController?.terminalAppearance
 
-        if let window = windowController?.window, window.isVisible {
+        if let window = keyWindowController?.window, window.isVisible {
             alert.beginSheetModal(for: window) { response in
                 NSApp.reply(toApplicationShouldTerminate: response == .alertFirstButtonReturn)
             }
@@ -70,16 +73,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        runtimeRegistry.destroyAll()
+        for controller in windowControllers.values {
+            controller.tearDownRuntime()
+        }
+        windowControllers.removeAll()
         if let configObserverID {
             configStore.removeObserver(configObserverID)
         }
         NSApp.dockTile.badgeLabel = nil
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            newWindow(nil)
+        }
+        return true
+    }
+
+    // MARK: - Window Lifecycle
+
+    private func makeWindowController() -> MainWindowController {
+        let index = nextWindowIndex
+        nextWindowIndex += 1
+        let controller = MainWindowController(
+            runtimeRegistry: runtimeRegistryFactory(),
+            configStore: configStore,
+            windowIndex: index
+        )
+        let id = ObjectIdentifier(controller)
+        windowControllers[id] = controller
+        controller.onWindowDidClose = { [weak self] closedController in
+            self?.handleWindowDidClose(closedController)
+        }
+        return controller
+    }
+
+    private func handleWindowDidClose(_ controller: MainWindowController) {
+        windowControllers.removeValue(forKey: ObjectIdentifier(controller))
+        if windowControllers.isEmpty {
+            NSApp.terminate(nil)
+        }
+    }
+
+    private var keyWindowController: MainWindowController? {
+        windowControllers.values.first { $0.window.isKeyWindow }
+            ?? windowControllers.values.first
+    }
+
+    func windowController(containingWorklane worklaneID: WorklaneID) -> MainWindowController? {
+        windowControllers.values.first { $0.containsWorklane(worklaneID) }
+    }
+
+    var windowControllerCount: Int {
+        windowControllers.count
+    }
+
     #if DEBUG
     var settingsWindow: NSWindow? {
-        windowController?.settingsWindow
+        keyWindowController?.settingsWindow
+    }
+
+    var firstWindowController: MainWindowController? {
+        windowControllers.values.first
     }
     #endif
 }
@@ -100,8 +155,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
         await MainActor.run {
             if shouldJump {
-                self.windowController?.navigateToPane(
-                    worklaneID: WorklaneID(worklaneRaw),
+                let worklaneID = WorklaneID(worklaneRaw)
+                let target = self.windowController(containingWorklane: worklaneID)
+                target?.navigateToPane(
+                    worklaneID: worklaneID,
                     paneID: PaneID(paneRaw)
                 )
             }

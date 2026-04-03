@@ -18,6 +18,7 @@ extension TerminalSurfaceContext {
 protocol LibghosttyRuntimeProviding: AnyObject {
     func makeSurface(
         for hostView: LibghosttyView,
+        paneID: PaneID,
         request: TerminalSessionRequest,
         configTemplate: ghostty_surface_config_s?,
         metadataDidChange: @escaping (TerminalMetadata) -> Void,
@@ -57,7 +58,14 @@ protocol LibghosttySurfaceControlling: AnyObject {
 @MainActor
 final class LibghosttyAdapter: TerminalAdapter {
     private let runtime: any LibghosttyRuntimeProviding
+    private let paneID: PaneID
+    private let diagnostics: TerminalDiagnostics
     private let hostView = LibghosttyView()
+    private lazy var scrollHostView = LibghosttySurfaceScrollHostView(
+        surfaceView: hostView,
+        paneID: paneID,
+        diagnostics: diagnostics
+    )
     private var surfaceController: (any LibghosttySurfaceControlling)?
     private var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: false, isFocused: false)
     private var hasAppliedSurfaceActivity = false
@@ -69,15 +77,21 @@ final class LibghosttyAdapter: TerminalAdapter {
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
 
-    init(runtime: any LibghosttyRuntimeProviding = LibghosttyRuntime.shared) {
+    init(
+        paneID: PaneID = PaneID("unknown"),
+        runtime: any LibghosttyRuntimeProviding = LibghosttyRuntime.shared,
+        diagnostics: TerminalDiagnostics = .shared
+    ) {
+        self.paneID = paneID
         self.runtime = runtime
+        self.diagnostics = diagnostics
         hostView.onLocalEventDidOccur = { [weak self] event in
             self?.eventDidOccur?(event)
         }
     }
 
     func makeTerminalView() -> NSView {
-        hostView
+        scrollHostView
     }
 
     func startSession(using request: TerminalSessionRequest) throws {
@@ -85,22 +99,25 @@ final class LibghosttyAdapter: TerminalAdapter {
             return
         }
 
-        let surfaceController = try runtime.makeSurface(
-            for: hostView,
-            request: request,
-            configTemplate: inheritedConfigTemplate,
-            metadataDidChange: { [weak self] metadata in
-                self?.metadataDidChange?(metadata)
-            },
-            eventDidOccur: { [weak self] event in
-                self?.eventDidOccur?(event)
-            }
-        )
+        try ZenttyPerformanceSignposts.interval("LibghosttyAdapterStartSession") {
+            let surfaceController = try runtime.makeSurface(
+                for: hostView,
+                paneID: paneID,
+                request: request,
+                configTemplate: inheritedConfigTemplate,
+                metadataDidChange: { [weak self] metadata in
+                    self?.metadataDidChange?(metadata)
+                },
+                eventDidOccur: { [weak self] event in
+                    self?.eventDidOccur?(event)
+                }
+            )
 
-        hostView.bind(surfaceController: surfaceController)
-        self.surfaceController = surfaceController
-        hasAppliedSurfaceActivity = false
-        setSurfaceActivity(lastSurfaceActivity)
+            hostView.bind(surfaceController: surfaceController)
+            self.surfaceController = surfaceController
+            hasAppliedSurfaceActivity = false
+            setSurfaceActivity(lastSurfaceActivity)
+        }
     }
 
     func close() {
@@ -109,30 +126,32 @@ final class LibghosttyAdapter: TerminalAdapter {
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
-        let isFirstApplication = !hasAppliedSurfaceActivity
-        let previouslyAppliedActivity = isFirstApplication
-            ? TerminalSurfaceActivity(isVisible: false, isFocused: false)
-            : lastSurfaceActivity
-        lastSurfaceActivity = activity
+        ZenttyPerformanceSignposts.interval("LibghosttyAdapterSetSurfaceActivity") {
+            let isFirstApplication = !hasAppliedSurfaceActivity
+            let previouslyAppliedActivity = isFirstApplication
+                ? TerminalSurfaceActivity(isVisible: false, isFocused: false)
+                : lastSurfaceActivity
+            lastSurfaceActivity = activity
 
-        guard let surfaceController else {
-            return
-        }
+            guard let surfaceController else {
+                return
+            }
 
-        if !isFirstApplication, previouslyAppliedActivity == activity {
-            return
-        }
+            if !isFirstApplication, previouslyAppliedActivity == activity {
+                return
+            }
 
-        hasAppliedSurfaceActivity = true
+            hasAppliedSurfaceActivity = true
 
-        if isFirstApplication || previouslyAppliedActivity.isFocused != activity.isFocused {
-            surfaceController.setFocused(activity.isFocused)
-        }
+            if isFirstApplication || previouslyAppliedActivity.isFocused != activity.isFocused {
+                surfaceController.setFocused(activity.isFocused)
+            }
 
-        if !previouslyAppliedActivity.isVisible && activity.isVisible {
-            hostView.needsLayout = true
-            hostView.layoutSubtreeIfNeeded()
-            surfaceController.refresh()
+            if !previouslyAppliedActivity.isVisible && activity.isVisible {
+                scrollHostView.needsLayout = true
+                scrollHostView.layoutSubtreeIfNeeded()
+                surfaceController.refresh()
+            }
         }
     }
 }

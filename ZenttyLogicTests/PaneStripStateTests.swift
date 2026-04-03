@@ -659,6 +659,59 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(heights[1], 310, accuracy: 0.001)
     }
 
+    func test_shouldInvertVerticalKeyboardResizeDelta_returns_true_when_focused_pane_is_above_divider() {
+        let state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "stack",
+                    paneIDs: ["top", "bottom"],
+                    paneHeights: [300, 300],
+                    focusedPaneID: PaneID("top"),
+                    lastFocusedPaneID: PaneID("top")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        XCTAssertTrue(state.shouldInvertVerticalKeyboardResizeDelta())
+    }
+
+    func test_shouldInvertVerticalKeyboardResizeDelta_returns_false_when_focused_pane_is_below_divider() {
+        let state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "stack",
+                    paneIDs: ["top", "bottom"],
+                    paneHeights: [300, 300],
+                    focusedPaneID: PaneID("bottom"),
+                    lastFocusedPaneID: PaneID("bottom")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        XCTAssertFalse(state.shouldInvertVerticalKeyboardResizeDelta())
+    }
+
+    func test_shouldInvertVerticalKeyboardResizeDelta_uses_last_interacted_lower_divider_for_middle_pane() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "stack",
+                    paneIDs: ["top", "middle", "bottom"],
+                    paneHeights: [200, 300, 400],
+                    focusedPaneID: PaneID("middle"),
+                    lastFocusedPaneID: PaneID("middle")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        state.markDividerInteraction(.pane(columnID: PaneColumnID("stack"), afterPaneID: PaneID("middle")))
+
+        XCTAssertTrue(state.shouldInvertVerticalKeyboardResizeDelta())
+    }
+
     func test_arrange_horizontally_normalizes_column_widths_without_resetting_vertical_heights() {
         var state = PaneStripState(
             columns: [
@@ -827,6 +880,208 @@ final class PaneStripStateTests: XCTestCase {
 
         XCTAssertFalse(state.isFocusedPaneAtTopOfColumn)
         XCTAssertTrue(state.isFocusedPaneAtBottomOfColumn)
+    }
+
+    // MARK: - Golden Ratio Width
+
+    func test_arrangeGoldenWidth_focusWide_applies_golden_ratio_to_focused_and_neighbor() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["a"], width: 500),
+                makeColumn("right", paneIDs: ["b"], width: 500),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        let didArrange = state.arrangeGoldenWidth(focusWide: true)
+
+        XCTAssertTrue(didArrange)
+        let phi: CGFloat = (1 + sqrt(5)) / 2
+        let expectedWide = 1000 * phi / (1 + phi)
+        XCTAssertEqual(state.columns[0].width, expectedWide, accuracy: 0.01)
+        XCTAssertEqual(state.columns[1].width, 1000 - expectedWide, accuracy: 0.01)
+    }
+
+    func test_arrangeGoldenWidth_focusNarrow_makes_focused_column_narrower() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["a"], width: 500),
+                makeColumn("right", paneIDs: ["b"], width: 500),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        let didArrange = state.arrangeGoldenWidth(focusWide: false)
+
+        XCTAssertTrue(didArrange)
+        let phi: CGFloat = (1 + sqrt(5)) / 2
+        let expectedNarrow = 1000 * 1 / (1 + phi)
+        XCTAssertEqual(state.columns[0].width, expectedNarrow, accuracy: 0.01)
+        XCTAssertEqual(state.columns[1].width, 1000 - expectedNarrow, accuracy: 0.01)
+    }
+
+    func test_arrangeGoldenWidth_focused_last_column_pairs_with_previous() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["a"], width: 400),
+                makeColumn("middle", paneIDs: ["b"], width: 300),
+                makeColumn("right", paneIDs: ["c"], width: 300),
+            ],
+            focusedColumnID: PaneColumnID("right")
+        )
+
+        let didArrange = state.arrangeGoldenWidth(focusWide: true)
+
+        XCTAssertTrue(didArrange)
+        XCTAssertEqual(state.columns[0].width, 400, accuracy: 0.01, "Uninvolved column should not change")
+        let combined: CGFloat = 600
+        let phi: CGFloat = (1 + sqrt(5)) / 2
+        let expectedWide = combined * phi / (1 + phi)
+        XCTAssertEqual(state.columns[2].width, expectedWide, accuracy: 0.01)
+        XCTAssertEqual(state.columns[1].width, combined - expectedWide, accuracy: 0.01)
+    }
+
+    func test_arrangeGoldenWidth_single_column_returns_false() {
+        var state = PaneStripState(
+            columns: [makeColumn("only", paneIDs: ["a"], width: 800)],
+            focusedColumnID: PaneColumnID("only")
+        )
+
+        XCTAssertFalse(state.arrangeGoldenWidth(focusWide: true))
+    }
+
+    func test_arrangeGoldenWidth_idempotent_second_call_returns_false() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["a"], width: 500),
+                makeColumn("right", paneIDs: ["b"], width: 500),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        XCTAssertTrue(state.arrangeGoldenWidth(focusWide: true))
+        XCTAssertFalse(state.arrangeGoldenWidth(focusWide: true))
+    }
+
+    // MARK: - Golden Ratio Height
+
+    func test_arrangeGoldenHeight_focusTall_applies_golden_ratio_to_focused_and_neighbor() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "col",
+                    paneIDs: ["top", "bottom"],
+                    paneHeights: [1, 1],
+                    focusedPaneID: PaneID("top"),
+                    lastFocusedPaneID: PaneID("top")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("col")
+        )
+        let availableSize = CGSize(width: 800, height: 600)
+
+        let didArrange = state.arrangeGoldenHeight(focusTall: true, availableSize: availableSize)
+
+        XCTAssertTrue(didArrange)
+        let totalHeight = PaneLayoutSizing.balanced.paneHeight(for: 600)
+        let spacing = PaneLayoutSizing.balanced.interPaneSpacing
+        let resolvedHeights = state.columns[0].resolvedPaneHeights(
+            totalHeight: totalHeight,
+            spacing: spacing
+        )
+        let combinedHeight = resolvedHeights[0] + resolvedHeights[1]
+        let phi: CGFloat = (1 + sqrt(5)) / 2
+        let expectedTall = combinedHeight * phi / (1 + phi)
+        XCTAssertEqual(resolvedHeights[0], expectedTall, accuracy: 1.0)
+    }
+
+    func test_arrangeGoldenHeight_focusShort_makes_focused_pane_shorter() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "col",
+                    paneIDs: ["top", "bottom"],
+                    paneHeights: [1, 1],
+                    focusedPaneID: PaneID("top"),
+                    lastFocusedPaneID: PaneID("top")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("col")
+        )
+        let availableSize = CGSize(width: 800, height: 600)
+
+        let didArrange = state.arrangeGoldenHeight(focusTall: false, availableSize: availableSize)
+
+        XCTAssertTrue(didArrange)
+        let totalHeight = PaneLayoutSizing.balanced.paneHeight(for: 600)
+        let spacing = PaneLayoutSizing.balanced.interPaneSpacing
+        let resolvedHeights = state.columns[0].resolvedPaneHeights(
+            totalHeight: totalHeight,
+            spacing: spacing
+        )
+        let combinedHeight = resolvedHeights[0] + resolvedHeights[1]
+        let phi: CGFloat = (1 + sqrt(5)) / 2
+        let expectedShort = combinedHeight * 1 / (1 + phi)
+        XCTAssertEqual(resolvedHeights[0], expectedShort, accuracy: 1.0)
+    }
+
+    func test_arrangeGoldenHeight_focused_last_pane_pairs_with_previous() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "col",
+                    paneIDs: ["top", "middle", "bottom"],
+                    paneHeights: [1, 1, 1],
+                    focusedPaneID: PaneID("bottom"),
+                    lastFocusedPaneID: PaneID("bottom")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("col")
+        )
+        let availableSize = CGSize(width: 800, height: 900)
+
+        let didArrange = state.arrangeGoldenHeight(focusTall: true, availableSize: availableSize)
+
+        XCTAssertTrue(didArrange)
+        let totalHeight = PaneLayoutSizing.balanced.paneHeight(for: 900)
+        let spacing = PaneLayoutSizing.balanced.interPaneSpacing
+        let resolvedHeights = state.columns[0].resolvedPaneHeights(
+            totalHeight: totalHeight,
+            spacing: spacing
+        )
+        // bottom (focused) should be larger than middle (neighbor)
+        XCTAssertGreaterThan(resolvedHeights[2], resolvedHeights[1])
+        // top (uninvolved) should stay at roughly 1/3 of the original
+        let originalPerPaneHeight = (totalHeight - 2 * spacing) / 3
+        XCTAssertEqual(resolvedHeights[0], originalPerPaneHeight, accuracy: 1.0)
+    }
+
+    func test_arrangeGoldenHeight_single_pane_returns_false() {
+        var state = PaneStripState(
+            columns: [makeColumn("col", paneIDs: ["only"])],
+            focusedColumnID: PaneColumnID("col")
+        )
+
+        XCTAssertFalse(state.arrangeGoldenHeight(focusTall: true, availableSize: CGSize(width: 800, height: 600)))
+    }
+
+    func test_arrangeGoldenHeight_idempotent_second_call_returns_false() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "col",
+                    paneIDs: ["top", "bottom"],
+                    paneHeights: [1, 1],
+                    focusedPaneID: PaneID("top"),
+                    lastFocusedPaneID: PaneID("top")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("col")
+        )
+        let availableSize = CGSize(width: 800, height: 600)
+
+        XCTAssertTrue(state.arrangeGoldenHeight(focusTall: true, availableSize: availableSize))
+        XCTAssertFalse(state.arrangeGoldenHeight(focusTall: true, availableSize: availableSize))
     }
 
     private func makeColumn(

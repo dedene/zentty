@@ -1,0 +1,164 @@
+default_platform(:mac)
+
+APP_NAME   = "Zentty"
+SCHEME     = "Zentty"
+PROJECT    = "Zentty.xcodeproj"
+INFO_PLIST = "Zentty/Info.plist"
+BUILD_DIR  = "build/release"
+APP_PATH   = "#{BUILD_DIR}/#{APP_NAME}.app"
+
+# Absolute project root for FileUtils (Fastlane cwd is fastlane/)
+PROJECT_ROOT = File.expand_path("..", __dir__)
+
+platform :mac do
+
+  # ── Full pipeline ──────────────────────────────────────────────────
+
+  desc "Build, sign, notarize, and package Zentty for distribution"
+  lane :release do
+    generate_project
+    sync_signing
+    bump_build_number
+    commit_build_number
+    archive
+    notarize_app
+    package_dmg
+    notarize_dmg
+  end
+
+  # ── Individual lanes ───────────────────────────────────────────────
+
+  desc "Regenerate Xcode project from project.yml"
+  lane :generate_project do
+    sh("xcodegen", "generate", "--spec", "../project.yml")
+  end
+
+  desc "Set build number to git commit count"
+  lane :bump_build_number do
+    build_number = number_of_commits(all: true)
+    set_info_plist_value(
+      path: INFO_PLIST,
+      key: "CFBundleVersion",
+      value: build_number.to_s
+    )
+    UI.success("Build number set to #{build_number}")
+  end
+
+  desc "Commit the bumped build number"
+  lane :commit_build_number do
+    build_number = get_info_plist_value(path: INFO_PLIST, key: "CFBundleVersion")
+    git_commit(
+      path: INFO_PLIST,
+      message: "build: bump build number to #{build_number}"
+    )
+  end
+
+  desc "Sync Developer ID certificate via match"
+  lane :sync_signing do
+    match(
+      type: "developer_id",
+      platform: "macos",
+      readonly: true,
+      skip_provisioning_profiles: true
+    )
+  end
+
+  desc "Archive and export with Developer ID signing"
+  lane :archive do
+    build_mac_app(
+      project: PROJECT,
+      scheme: SCHEME,
+      configuration: "Release",
+      clean: true,
+      output_directory: BUILD_DIR,
+      output_name: APP_NAME,
+      export_method: "developer-id",
+      export_options: "fastlane/ExportOptions.plist"
+    )
+  end
+
+  desc "Notarize the .app bundle"
+  lane :notarize_app do
+    notarize(
+      package: APP_PATH,
+      bundle_id: CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier),
+      api_key: load_api_key,
+      print_log: true
+    )
+  end
+
+  desc "Create DMG from the exported .app"
+  lane :package_dmg do
+    version = get_info_plist_value(path: INFO_PLIST, key: "CFBundleShortVersionString")
+    build   = get_info_plist_value(path: INFO_PLIST, key: "CFBundleVersion")
+
+    dmg_name  = "#{APP_NAME}-#{version}-#{build}"
+    abs_build = File.join(PROJECT_ROOT, BUILD_DIR)
+    abs_app   = File.join(PROJECT_ROOT, APP_PATH)
+    abs_dmg   = File.join(abs_build, "#{dmg_name}.dmg")
+    bg_image  = File.join(PROJECT_ROOT, "assets", "dmg", "background.tiff")
+
+    FileUtils.rm_f(abs_dmg)
+
+    # Stage the .app for create-dmg
+    staging = File.join(abs_build, "dmg-staging")
+    FileUtils.rm_rf(staging)
+    FileUtils.mkdir_p(staging)
+    FileUtils.cp_r(abs_app, staging)
+
+    args = [
+      "create-dmg",
+      "--volname", APP_NAME,
+      "--window-pos", "200", "120",
+      "--window-size", "660", "400",
+      "--icon-size", "128",
+      "--text-size", "14",
+      "--icon", "#{APP_NAME}.app", "200", "170",
+      "--hide-extension", "#{APP_NAME}.app",
+      "--app-drop-link", "460", "170",
+      "--no-internet-enable",
+      "--format", "UDZO"
+    ]
+    args += ["--background", bg_image] if File.exist?(bg_image)
+    args += [abs_dmg, staging]
+
+    sh(*args)
+
+    FileUtils.rm_rf(staging)
+    UI.success("DMG created: #{abs_dmg}")
+
+    ENV["ZENTTY_DMG_PATH"] = abs_dmg
+  end
+
+  desc "Notarize the DMG"
+  lane :notarize_dmg do
+    abs_build = File.join(PROJECT_ROOT, BUILD_DIR)
+    dmg_path = ENV["ZENTTY_DMG_PATH"] || Dir["#{abs_build}/*.dmg"].first
+    UI.user_error!("No DMG found in #{abs_build}") unless dmg_path && File.exist?(dmg_path)
+
+    notarize(
+      package: dmg_path,
+      bundle_id: CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier),
+      api_key: load_api_key,
+      print_log: true
+    )
+    UI.success("DMG notarized and stapled: #{dmg_path}")
+  end
+
+  # ── Optional ───────────────────────────────────────────────────────
+
+  desc "Build GhosttyKit.xcframework from source"
+  lane :build_ghosttykit do
+    sh("../scripts/build_ghosttykit.sh")
+  end
+
+  # ── Helpers ────────────────────────────────────────────────────────
+
+  private_lane :load_api_key do
+    app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_filepath: ENV.fetch("ASC_KEY_FILEPATH")
+    )
+  end
+end

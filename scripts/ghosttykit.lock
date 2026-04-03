@@ -1,3 +1,3 @@
 repo=https://github.com/ghostty-org/ghostty.git
 revision=e75f895
-build_target=native
+build_target=universal

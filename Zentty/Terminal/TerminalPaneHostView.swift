@@ -23,6 +23,11 @@ final class TerminalPaneHostView: NSView {
             (terminalView as? any TerminalFocusReporting)?.onFocusDidChange = onFocusDidChange
         }
     }
+    var onScrollWheel: ((NSEvent) -> Bool)? {
+        didSet {
+            (terminalView as? any TerminalScrollRouting)?.onScrollWheel = onScrollWheel
+        }
+    }
 
     init(adapter: any TerminalAdapter) {
         self.adapter = adapter
@@ -31,6 +36,7 @@ final class TerminalPaneHostView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         adapter.eventDidOccur = onEventDidOccur
         (terminalView as? any TerminalFocusReporting)?.onFocusDidChange = onFocusDidChange
+        (terminalView as? any TerminalScrollRouting)?.onScrollWheel = onScrollWheel
         setup()
     }
 
@@ -44,8 +50,10 @@ final class TerminalPaneHostView: NSView {
             return
         }
 
-        try adapter.startSession(using: request)
-        hasStartedSession = true
+        try ZenttyPerformanceSignposts.interval("TerminalHostStartSession") {
+            try adapter.startSession(using: request)
+            hasStartedSession = true
+        }
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
@@ -65,15 +73,28 @@ final class TerminalPaneHostView: NSView {
             .setViewportSyncSuspended(suspended)
     }
 
+    func forceViewportSync() {
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        (terminalView as? any TerminalViewportSyncControlling)?.forceViewportSync()
+    }
+
     func focusTerminal() {
-        guard window?.firstResponder !== terminalView else {
+        let focusTarget = (terminalView as? any TerminalFocusTargetProviding)?.terminalFocusTargetView ?? terminalView
+
+        guard window?.firstResponder !== focusTarget else {
             return
         }
 
-        window?.makeFirstResponder(terminalView)
+        ZenttyPerformanceSignposts.event("TerminalFocusRequested")
+        window?.makeFirstResponder(focusTarget)
     }
 
     override func scrollWheel(with event: NSEvent) {
+        if onScrollWheel?(event) == true {
+            return
+        }
+
         if let nextResponder {
             nextResponder.scrollWheel(with: event)
         } else {
@@ -197,8 +218,10 @@ final class PaneRuntime {
             return
         }
 
-        hasAttemptedStart = true
-        attemptStart()
+        ZenttyPerformanceSignposts.interval("PaneRuntimeEnsureStarted") {
+            hasAttemptedStart = true
+            attemptStart()
+        }
     }
 
     func retryStartSession() {
@@ -207,10 +230,12 @@ final class PaneRuntime {
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
-        if activity.keepsRuntimeLive {
-            ensureStarted()
+        ZenttyPerformanceSignposts.interval("PaneRuntimeSetSurfaceActivity") {
+            if activity.keepsRuntimeLive {
+                ensureStarted()
+            }
+            hostViewValue.setSurfaceActivity(activity)
         }
-        hostViewValue.setSurfaceActivity(activity)
     }
 
     func prepareSessionStart(from sourceRuntime: PaneRuntime?) {
@@ -260,12 +285,19 @@ final class PaneRuntimeRegistry {
     typealias AdapterFactory = @MainActor (PaneID) -> any TerminalAdapter
 
     private let adapterFactory: AdapterFactory
+    private let diagnostics: TerminalDiagnostics
     private var runtimes: [PaneID: PaneRuntime] = [:]
 
     var onMetadataDidChange: ((PaneID, TerminalMetadata) -> Void)?
     var onEventDidOccur: ((PaneID, TerminalEvent) -> Void)?
 
-    init(adapterFactory: @escaping AdapterFactory = { _ in LibghosttyAdapter() }) {
+    init(
+        diagnostics: TerminalDiagnostics = .shared,
+        adapterFactory: @escaping AdapterFactory = { paneID in
+            LibghosttyAdapter(paneID: paneID)
+        }
+    ) {
+        self.diagnostics = diagnostics
         self.adapterFactory = adapterFactory
     }
 
@@ -275,18 +307,20 @@ final class PaneRuntimeRegistry {
             return runtime
         }
 
-        let runtime = PaneRuntime(
-            pane: pane,
-            adapter: adapterFactory(pane.id),
-            metadataSink: { [weak self] paneID, metadata in
-                self?.onMetadataDidChange?(paneID, metadata)
-            },
-            eventSink: { [weak self] paneID, event in
-                self?.onEventDidOccur?(paneID, event)
-            }
-        )
-        runtimes[pane.id] = runtime
-        return runtime
+        return ZenttyPerformanceSignposts.interval("PaneRuntimeCreate") {
+            let runtime = PaneRuntime(
+                pane: pane,
+                adapter: adapterFactory(pane.id),
+                metadataSink: { [weak self] paneID, metadata in
+                    self?.onMetadataDidChange?(paneID, metadata)
+                },
+                eventSink: { [weak self] paneID, event in
+                    self?.onEventDidOccur?(paneID, event)
+                }
+            )
+            runtimes[pane.id] = runtime
+            return runtime
+        }
     }
 
     func runtime(for paneID: PaneID) -> PaneRuntime? {
@@ -294,23 +328,25 @@ final class PaneRuntimeRegistry {
     }
 
     func synchronize(with worklanes: [WorklaneState]) {
-        var nextPaneIDs = Set<PaneID>()
+        ZenttyPerformanceSignposts.interval("PaneRuntimeSynchronize") {
+            var nextPaneIDs = Set<PaneID>()
 
-        for worklane in worklanes {
-            for pane in worklane.paneStripState.panes {
-                nextPaneIDs.insert(pane.id)
-                let runtime = runtime(for: pane)
-                let sourcePaneID = pane.sessionRequest.configInheritanceSourcePaneID
-                    ?? pane.sessionRequest.inheritFromPaneID
-                let sourceRuntime = sourcePaneID.flatMap { runtimes[$0] }
-                runtime.prepareSessionStart(from: sourceRuntime)
+            for worklane in worklanes {
+                for pane in worklane.paneStripState.panes {
+                    nextPaneIDs.insert(pane.id)
+                    let runtime = runtime(for: pane)
+                    let sourcePaneID = pane.sessionRequest.configInheritanceSourcePaneID
+                        ?? pane.sessionRequest.inheritFromPaneID
+                    let sourceRuntime = sourcePaneID.flatMap { runtimes[$0] }
+                    runtime.prepareSessionStart(from: sourceRuntime)
+                }
             }
-        }
 
-        let obsoletePaneIDs = Set(runtimes.keys).subtracting(nextPaneIDs)
-        obsoletePaneIDs.forEach { paneID in
-            runtimes[paneID]?.adapter.close()
-            runtimes.removeValue(forKey: paneID)
+            let obsoletePaneIDs = Set(runtimes.keys).subtracting(nextPaneIDs)
+            obsoletePaneIDs.forEach { paneID in
+                runtimes[paneID]?.adapter.close()
+                runtimes.removeValue(forKey: paneID)
+            }
         }
     }
 
@@ -325,6 +361,18 @@ final class PaneRuntimeRegistry {
         windowIsVisible: Bool,
         windowIsKey: Bool
     ) {
+        let visiblePaneCount = worklanes
+            .first(where: { $0.id == activeWorklaneID && windowIsVisible })?
+            .paneStripState
+            .panes
+            .count ?? 0
+        diagnostics.recordRuntimeTopology(
+            liveRuntimeCount: runtimes.count,
+            visiblePaneCount: visiblePaneCount,
+            windowVisible: windowIsVisible,
+            windowKey: windowIsKey
+        )
+
         for worklane in worklanes {
             let isActiveWorklane = worklane.id == activeWorklaneID
             for pane in worklane.paneStripState.panes {

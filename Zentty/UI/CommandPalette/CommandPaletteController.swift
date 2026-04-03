@@ -23,7 +23,8 @@ final class CommandPaletteController {
         theme: ZenttyTheme,
         shortcutManager: ShortcutManager,
         worklaneCount: Int,
-        paneCount: Int,
+        activePaneCount: Int,
+        totalPaneCount: Int,
         focusedPanePath: String?,
         openWithTargets: [OpenWithResolvedTarget] = []
     ) {
@@ -36,7 +37,8 @@ final class CommandPaletteController {
 
         let availableIDs = CommandAvailabilityResolver.availableCommandIDs(
             worklaneCount: worklaneCount,
-            paneCount: paneCount
+            activePaneCount: activePaneCount,
+            totalPaneCount: totalPaneCount
         )
         let commandItems = CommandPaletteItemBuilder.buildItems(
             availableCommandIDs: availableIDs,
@@ -147,8 +149,10 @@ final class CommandPaletteController {
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
         }, completionHandler: {
-            parentWindow.removeChildWindow(panel)
-            panel.orderOut(nil)
+            MainActor.assumeIsolated {
+                parentWindow.removeChildWindow(panel)
+                panel.orderOut(nil)
+            }
         })
     }
 

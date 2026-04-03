@@ -3,6 +3,7 @@ import GhosttyKit
 
 struct LibghosttySurfaceScrollbarUpdate: Equatable, Sendable {
     let total: UInt64
+    let offset: UInt64
     let len: UInt64
 }
 
@@ -75,8 +76,8 @@ final class LibghosttySurfaceActionCoalescer {
         case .progressReport(let report):
             state.progressReport = .present(report)
             state.record(.progressReport)
-        case .scrollbar(let total, let len):
-            state.scrollbar = .present(LibghosttySurfaceScrollbarUpdate(total: total, len: len))
+        case .scrollbar(let total, let offset, let len):
+            state.scrollbar = .present(LibghosttySurfaceScrollbarUpdate(total: total, offset: offset, len: len))
             state.record(.scrollbar)
         case .mouseShape(let shape):
             state.mouseShape = .present(shape)
@@ -120,6 +121,8 @@ final class LibghosttySurfaceActionCoalescer {
 final class LibghosttySurface: LibghosttySurfaceControlling {
     nonisolated(unsafe) var surface: ghostty_surface_t?
     nonisolated(unsafe) private let actionCoalescer = LibghosttySurfaceActionCoalescer()
+    nonisolated let paneID: PaneID
+    nonisolated let diagnostics: TerminalDiagnostics
     private var metadata = TerminalMetadata()
     private let metadataDidChange: (TerminalMetadata) -> Void
     private let eventDidOccur: (TerminalEvent) -> Void
@@ -140,12 +143,16 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
 
     init(
         app: ghostty_app_t,
+        paneID: PaneID,
         hostView: LibghosttyView,
         request: TerminalSessionRequest,
         configTemplate: ghostty_surface_config_s?,
+        diagnostics: TerminalDiagnostics,
         metadataDidChange: @escaping (TerminalMetadata) -> Void,
         eventDidOccur: @escaping (TerminalEvent) -> Void
     ) throws {
+        self.paneID = paneID
+        self.diagnostics = diagnostics
         self.metadataDidChange = metadataDidChange
         self.eventDidOccur = eventDidOccur
 
@@ -387,7 +394,8 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     }
 
     @MainActor
-    func drainCoalescedActions() {
+    func drainCoalescedActions(queueDelayNanoseconds: UInt64 = 0) {
+        diagnostics.recordActionDrain(paneID: paneID, queueDelayNanoseconds: queueDelayNanoseconds)
         let batch = actionCoalescer.drain()
         guard batch.isEmpty == false else {
             return
@@ -434,6 +442,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
                     continue
                 }
                 hasScrollback = scrollbar.total > scrollbar.len
+                hostView?.applyScrollbarUpdate(scrollbar)
             case .mouseShape:
                 flushMetadataIfNeeded()
                 guard let mouseShape = batch.mouseShape.value else {
@@ -463,7 +472,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             eventDidOccur(.commandFinished(exitCode: exitCode, durationNanoseconds: durationNanoseconds))
         case .desktopNotification(let notification):
             eventDidOccur(.desktopNotification(notification))
-        case .scrollbar(let total, let len):
+        case .scrollbar(let total, _, let len):
             hasScrollback = total > len
         case .openURL(let urlString):
             if let url = URL(string: urlString), url.scheme != nil {
@@ -479,6 +488,16 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
 
     private func publishMetadata() {
         metadataDidChange(metadata)
+    }
+
+    nonisolated func notifySurfaceClosed() {
+        DispatchQueue.main.async { [weak self] in
+            self?.eventDidOccur(.surfaceClosed)
+        }
+    }
+
+    nonisolated func recordActionCallback(payload: LibghosttySurfaceActionPayload) {
+        diagnostics.recordActionCallback(paneID: paneID, payload: payload)
     }
 
     private func makeSurfaceEnvironment(from requestEnvironment: [String: String]) -> (

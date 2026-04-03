@@ -28,7 +28,7 @@ final class PaneDragSplitOverlayView: NSView {
         }
     }
 
-    func animateOut(completion: (() -> Void)? = nil) {
+    func animateOut(completion: (@Sendable () -> Void)? = nil) {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.10
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)

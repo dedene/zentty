@@ -8,8 +8,10 @@ Two test targets:
 
 Run all tests (scheme controls parallelism per-target automatically):
 ```
-xcodebuild test -scheme Zentty -destination 'platform=macOS'
+xcodebuild test -scheme Zentty -destination 'platform=macOS' -derivedDataPath /tmp/zentty-agent-$$
 ```
+
+Multiple agents often run in parallel in this repo. Always use `-derivedDataPath /tmp/zentty-agent-$$` (or any unique temp path) to isolate DerivedData per process. Sharing the default DerivedData causes xcodebuild to deadlock on build locks.
 
 Before CLI test runs, inspect for stale or stuck `xcodebuild` / `Zentty` processes if test behavior looks suspicious. Do not kill active processes automatically. If an obviously stale instance is blocking the run, confirm with Peter before terminating it.
 

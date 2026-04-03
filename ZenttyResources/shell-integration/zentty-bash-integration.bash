@@ -4,6 +4,7 @@ if [[ "${ZENTTY_BASH_INTEGRATION_LOADED:-0}" == "1" ]]; then
     return 0
 fi
 export ZENTTY_BASH_INTEGRATION_LOADED=1
+_zentty_shell_activity_last=""
 
 _zentty_ensure_wrapper_path() {
     local wrapper="${ZENTTY_WRAPPER_BIN_DIR:-}"
@@ -29,6 +30,13 @@ _zentty_agent_signal() {
     [[ "${ZENTTY_SHELL_INTEGRATION:-1}" == "0" ]] && return 0
     [[ -n "${ZENTTY_AGENT_BIN:-}" ]] || return 0
     "$ZENTTY_AGENT_BIN" agent-signal "$@" >/dev/null 2>&1 || true
+}
+
+_zentty_report_shell_activity() {
+    local state="$1"
+    [[ "$_zentty_shell_activity_last" == "$state" ]] && return 0
+    _zentty_shell_activity_last="$state"
+    _zentty_agent_signal shell-state "$state"
 }
 
 _zentty_is_remote_shell() {
@@ -96,7 +104,7 @@ _zentty_bash_prompt_hook() {
     # entries to clear multi-level stacks (e.g., Ink/React TUI layers).
     # Extra pops beyond the stack depth are harmless no-ops.
     printf '\e[<99u'
-    _zentty_agent_signal shell-state prompt
+    _zentty_report_shell_activity prompt
     _zentty_emit_pane_context
     if [[ -n "$_zentty_bash_original_prompt_command" ]]; then
         eval "$_zentty_bash_original_prompt_command"
@@ -109,7 +117,7 @@ _zentty_bash_prompt_hook() {
 _zentty_bash_preexec_hook() {
     [[ -n "${COMP_LINE:-}" ]] && return 0
     [[ "$_zentty_bash_in_prompt" == "1" ]] && return 0
-    _zentty_agent_signal shell-state running
+    _zentty_report_shell_activity running
     # Set terminal title to the running command (first line only)
     printf '\e]2;%s\a' "${BASH_COMMAND%%$'\n'*}"
 }

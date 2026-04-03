@@ -512,7 +512,7 @@ final class PaneDragCoordinator {
     // MARK: - Drop
 
     func endDrag(at cursorInStrip: CGPoint) {
-        guard case .active(let activeState) = phase else { return }
+        guard case .active = phase else { return }
 
         // Sidebar drops take priority
         if case .sidebarWorklane(let worklaneID) = activeState.currentDropTarget {
@@ -1198,8 +1198,10 @@ final class PaneDragCoordinator {
     private func hideSplitOverlay() {
         guard let overlay = splitOverlay else { return }
         self.splitOverlay = nil
-        overlay.animateOut {
-            overlay.removeFromSuperview()
+        overlay.animateOut { [weak overlay] in
+            Task { @MainActor in
+                overlay?.removeFromSuperview()
+            }
         }
     }
 
@@ -1315,7 +1317,6 @@ final class PaneDragCoordinator {
         if cursorX < leftEdge + edgeZone {
             let distFromEdge = max(0, cursorX - leftEdge)
             let activeZone = edgeZone - deadZone
-            guard activeZone > 0 else { return 0 }
             let proximity = max(0, 1 - (distFromEdge - deadZone) / activeZone)
             guard proximity > 0 else { return 0 }
             return -maxSpeed * proximity * proximity * proximity
@@ -1326,7 +1327,6 @@ final class PaneDragCoordinator {
         if cursorX > rightEdgeStart {
             let distFromEdge = max(0, visibleMaxX - cursorX)
             let activeZone = edgeZone - deadZone
-            guard activeZone > 0 else { return 0 }
             let proximity = max(0, 1 - (distFromEdge - deadZone) / activeZone)
             guard proximity > 0 else { return 0 }
             return maxSpeed * proximity * proximity * proximity
@@ -1341,37 +1341,39 @@ final class PaneDragCoordinator {
 
         // Timer fires at 120Hz in .common mode so it runs during gesture tracking.
         let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            guard case .active(let activeState) = self.phase,
-                  let paneStripView = self.paneStripView else {
-                self.stopEdgeScroll()
-                return
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard case .active(let activeState) = self.phase,
+                      let paneStripView = self.paneStripView else {
+                    self.stopEdgeScroll()
+                    return
+                }
+
+                let dt: CGFloat = 1.0 / 120
+                let zoomScale = paneStripView.currentZoomScale()
+
+                // Target velocity from cursor position (screen-space pt/s)
+                let target = self.targetEdgeVelocity(for: activeState.cursorPosition.x)
+
+                // Smoothly interpolate current velocity toward target.
+                // Faster ramp-up (0.15), gentler deceleration (0.06) for natural momentum.
+                let smoothing: CGFloat = abs(target) > abs(self.edgeScrollVelocity) ? 0.15 : 0.06
+                self.edgeScrollVelocity += (target - self.edgeScrollVelocity) * smoothing
+
+                // Stop timer only when velocity has fully settled to near-zero
+                if abs(self.edgeScrollVelocity) < 0.5 && abs(target) < 0.001 {
+                    self.edgeScrollVelocity = 0
+                    self.stopEdgeScroll()
+                    return
+                }
+
+                // Convert screen velocity to content-space delta
+                let contentDelta = self.edgeScrollVelocity * dt / max(0.01, zoomScale)
+                paneStripView.dragScrollOffsetX += contentDelta
+                paneStripView.applyCurrentZoom()
+
+                self.updateCursor(activeState.cursorPosition)
             }
-
-            let dt: CGFloat = 1.0 / 120
-            let zoomScale = paneStripView.currentZoomScale()
-
-            // Target velocity from cursor position (screen-space pt/s)
-            let target = self.targetEdgeVelocity(for: activeState.cursorPosition.x)
-
-            // Smoothly interpolate current velocity toward target.
-            // Faster ramp-up (0.15), gentler deceleration (0.06) for natural momentum.
-            let smoothing: CGFloat = abs(target) > abs(self.edgeScrollVelocity) ? 0.15 : 0.06
-            self.edgeScrollVelocity += (target - self.edgeScrollVelocity) * smoothing
-
-            // Stop timer only when velocity has fully settled to near-zero
-            if abs(self.edgeScrollVelocity) < 0.5 && abs(target) < 0.001 {
-                self.edgeScrollVelocity = 0
-                self.stopEdgeScroll()
-                return
-            }
-
-            // Convert screen velocity to content-space delta
-            let contentDelta = self.edgeScrollVelocity * dt / max(0.01, zoomScale)
-            paneStripView.dragScrollOffsetX += contentDelta
-            paneStripView.applyCurrentZoom()
-
-            self.updateCursor(activeState.cursorPosition)
         }
         RunLoop.main.add(timer, forMode: .common)
         edgeScrollTimer = timer

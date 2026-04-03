@@ -71,6 +71,7 @@ enum AppConfigTOML {
         lines.append("")
         lines.append("[confirmations]")
         lines.append("confirm_before_closing_pane = \(config.confirmations.confirmBeforeClosingPane)")
+        lines.append("confirm_before_closing_window = \(config.confirmations.confirmBeforeClosingWindow)")
         lines.append("confirm_before_quitting = \(config.confirmations.confirmBeforeQuitting)")
 
         return lines.joined(separator: "\n") + "\n"
@@ -122,7 +123,6 @@ enum AppConfigTOML {
                 section = .confirmations
                 continue
             }
-
             guard let assignment = parseAssignment(line) else {
                 return nil
             }
@@ -335,6 +335,9 @@ enum AppConfigTOML {
         case "confirm_before_closing_pane":
             guard let value = decodeBool(assignment.value) else { return false }
             config.confirmations.confirmBeforeClosingPane = value
+        case "confirm_before_closing_window":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.confirmations.confirmBeforeClosingWindow = value
         case "confirm_before_quitting":
             guard let value = decodeBool(assignment.value) else { return false }
             config.confirmations.confirmBeforeQuitting = value
@@ -494,5 +497,67 @@ enum AppConfigTOML {
         }
 
         return String(Double(number))
+    }
+
+    // MARK: - Shortcuts-only encode/decode for export/import
+
+    static func encodeShortcuts(_ bindings: [ShortcutBindingOverride]) -> String {
+        var lines: [String] = []
+
+        for binding in bindings {
+            lines.append("[[shortcuts.bindings]]")
+            lines.append("command_id = \(encode(string: binding.commandID.rawValue))")
+            lines.append("shortcut = \(encode(string: binding.shortcut?.storageString ?? ""))")
+            lines.append("")
+        }
+
+        while lines.last?.isEmpty == true {
+            lines.removeLast()
+        }
+
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func decodeShortcuts(_ source: String) -> [ShortcutBindingOverride]? {
+        var decodedBindings: [DecodedShortcutBinding] = []
+        var inBinding = false
+
+        for rawLine in source.components(separatedBy: .newlines) {
+            let line = stripComment(from: rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+
+            if line == "[[shortcuts.bindings]]" {
+                decodedBindings.append(DecodedShortcutBinding())
+                inBinding = true
+                continue
+            }
+
+            if line.hasPrefix("[") {
+                inBinding = false
+                continue
+            }
+
+            guard inBinding, let assignment = parseAssignment(line) else { continue }
+
+            let index = decodedBindings.count - 1
+            guard index >= 0 else { continue }
+
+            guard decodeShortcutAssignment(assignment, into: &decodedBindings[index]) else {
+                return nil
+            }
+        }
+
+        let bindings = decodedBindings.compactMap { binding -> ShortcutBindingOverride? in
+            guard let commandID = binding.commandID, binding.hasShortcutValue else {
+                return nil
+            }
+            return ShortcutBindingOverride(commandID: commandID, shortcut: binding.shortcut)
+        }
+
+        guard bindings.count == decodedBindings.count else {
+            return nil
+        }
+
+        return bindings
     }
 }

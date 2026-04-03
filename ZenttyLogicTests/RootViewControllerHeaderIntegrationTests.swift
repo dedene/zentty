@@ -613,6 +613,35 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         XCTAssertEqual(coordinator.reviewPollingTargetForTesting?.branch, "feature/review-band")
     }
 
+    func test_render_coordinator_does_not_resynchronize_runtimes_on_repeated_full_render() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let adapterFactory = HeaderIntegrationTerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        let coordinator = WorklaneRenderCoordinator(
+            worklaneStore: store,
+            runtimeRegistry: runtimeRegistry,
+            notificationStore: NotificationStore()
+        )
+        coordinator.windowStateProvider = { (isVisible: true, isKeyWindow: true) }
+        coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
+            sidebarView: SidebarView(),
+            windowChromeView: WindowChromeView(),
+            appCanvasView: AppCanvasView(runtimeRegistry: runtimeRegistry),
+            paneBorderContextOverlayView: PaneBorderContextOverlayView()
+        ))
+
+        coordinator.render()
+        let adapter = try XCTUnwrap(adapterFactory.adaptersByPaneID[paneID])
+        XCTAssertEqual(adapter.eventLog, ["prepare"])
+
+        coordinator.render()
+
+        XCTAssertEqual(adapter.eventLog, ["prepare"])
+    }
+
     private func makeController(
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver()
@@ -698,6 +727,47 @@ private final class QuietTerminalAdapter: TerminalAdapter {
     func close() {}
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
+    }
+}
+
+@MainActor
+private final class HeaderIntegrationTerminalAdapterFactorySpy {
+    private(set) var adaptersByPaneID: [PaneID: HeaderIntegrationTerminalAdapterSpy] = [:]
+
+    func makeAdapter(for paneID: PaneID) -> any TerminalAdapter {
+        let adapter = HeaderIntegrationTerminalAdapterSpy()
+        adaptersByPaneID[paneID] = adapter
+        return adapter
+    }
+}
+
+@MainActor
+private final class HeaderIntegrationTerminalAdapterSpy: TerminalAdapter, TerminalSessionInheritanceConfiguring {
+    private let terminalView = NSView()
+    var hasScrollback = false
+    var cellWidth: CGFloat = 0
+    var cellHeight: CGFloat = 0
+    var metadataDidChange: ((TerminalMetadata) -> Void)?
+    var eventDidOccur: ((TerminalEvent) -> Void)?
+    private(set) var eventLog: [String] = []
+
+    func makeTerminalView() -> NSView {
+        terminalView
+    }
+
+    func startSession(using request: TerminalSessionRequest) throws {
+        eventLog.append("start")
+    }
+
+    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {}
+
+    func close() {}
+
+    func prepareSessionStart(
+        from sourceAdapter: (any TerminalAdapter)?,
+        context: TerminalSurfaceContext
+    ) {
+        eventLog.append("prepare")
     }
 }
 

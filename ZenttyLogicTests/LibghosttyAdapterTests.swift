@@ -5,14 +5,15 @@ import XCTest
 
 @MainActor
 final class LibghosttyAdapterTests: XCTestCase {
-    func test_make_terminal_view_returns_reusable_libghostty_view() {
+    func test_make_terminal_view_returns_reusable_scroll_host_view() throws {
         let adapter = LibghosttyAdapter(runtime: LibghosttyRuntimeProviderSpy())
 
         let firstView = adapter.makeTerminalView()
         let secondView = adapter.makeTerminalView()
 
         XCTAssertTrue(firstView === secondView)
-        XCTAssertTrue(firstView is LibghosttyView)
+        let scrollHost = try XCTUnwrap(firstView as? LibghosttySurfaceScrollHostView)
+        XCTAssertTrue(scrollHost.surfaceViewForTesting is LibghosttyView)
     }
 
     func test_start_session_creates_surface_and_forwards_metadata() throws {
@@ -33,12 +34,158 @@ final class LibghosttyAdapterTests: XCTestCase {
         try adapter.startSession(using: request)
 
         XCTAssertEqual(runtime.makeSurfaceCallCount, 1)
-        XCTAssertTrue(runtime.lastHostView === terminalView)
+        XCTAssertFalse(runtime.lastHostView === terminalView)
+        XCTAssertTrue((terminalView as? LibghosttySurfaceScrollHostView)?.surfaceViewForTesting === runtime.lastHostView)
         XCTAssertEqual(runtime.lastRequest, request)
 
         runtime.lastMetadataHandler?(metadata)
 
         XCTAssertEqual(receivedMetadata, metadata)
+    }
+
+    func test_start_session_delivers_codex_title_phase_transition_immediately() async throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var delivered: [TerminalMetadata] = []
+        let unexpectedThirdDelivery = expectation(description: "no delayed third delivery")
+        unexpectedThirdDelivery.isInverted = true
+
+        adapter.metadataDidChange = { metadata in
+            delivered.append(metadata)
+            if delivered.count > 2 {
+                unexpectedThirdDelivery.fulfill()
+            }
+        }
+
+        try adapter.startSession(using: TerminalSessionRequest())
+
+        runtime.lastMetadataHandler?(
+            TerminalMetadata(
+                title: "Working ⠋ my-project",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        runtime.lastMetadataHandler?(
+            TerminalMetadata(
+                title: "Ready my-project",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            delivered,
+            [
+                TerminalMetadata(
+                    title: "Working ⠋ my-project",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "codex",
+                    gitBranch: "main"
+                ),
+                TerminalMetadata(
+                    title: "Ready my-project",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "codex",
+                    gitBranch: "main"
+                ),
+            ]
+        )
+
+        await fulfillment(of: [unexpectedThirdDelivery], timeout: 0.08)
+        XCTAssertEqual(delivered.count, 2)
+    }
+
+    func test_start_session_delivers_title_implied_working_directory_change_immediately() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var delivered: [TerminalMetadata] = []
+
+        adapter.metadataDidChange = { delivered.append($0) }
+
+        try adapter.startSession(using: TerminalSessionRequest())
+
+        runtime.lastMetadataHandler?(
+            TerminalMetadata(
+                title: "peter@host:~/Development/project-a",
+                currentWorkingDirectory: nil,
+                processName: "zsh",
+                gitBranch: nil
+            )
+        )
+        runtime.lastMetadataHandler?(
+            TerminalMetadata(
+                title: "peter@host:~/Development/project-b",
+                currentWorkingDirectory: nil,
+                processName: "zsh",
+                gitBranch: nil
+            )
+        )
+
+        XCTAssertEqual(
+            delivered,
+            [
+                TerminalMetadata(
+                    title: "peter@host:~/Development/project-a",
+                    currentWorkingDirectory: nil,
+                    processName: "zsh",
+                    gitBranch: nil
+                ),
+                TerminalMetadata(
+                    title: "peter@host:~/Development/project-b",
+                    currentWorkingDirectory: nil,
+                    processName: "zsh",
+                    gitBranch: nil
+                ),
+            ]
+        )
+    }
+
+    func test_start_session_delivers_meaningful_title_identity_change_immediately() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var delivered: [TerminalMetadata] = []
+
+        adapter.metadataDidChange = { delivered.append($0) }
+
+        try adapter.startSession(using: TerminalSessionRequest())
+
+        runtime.lastMetadataHandler?(
+            TerminalMetadata(
+                title: "Review PR #128",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        runtime.lastMetadataHandler?(
+            TerminalMetadata(
+                title: "Review PR #129",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            delivered,
+            [
+                TerminalMetadata(
+                    title: "Review PR #128",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "codex",
+                    gitBranch: "main"
+                ),
+                TerminalMetadata(
+                    title: "Review PR #129",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "codex",
+                    gitBranch: "main"
+                ),
+            ]
+        )
     }
 
     func test_starting_visible_surface_refreshes_after_first_visibility_update() throws {
@@ -250,6 +397,23 @@ final class LibghosttyAdapterTests: XCTestCase {
         )
     }
 
+    func test_copy_action_payload_copies_scrollbar_offset_values() {
+        let action = ghostty_action_s(
+            tag: GHOSTTY_ACTION_SCROLLBAR,
+            action: ghostty_action_u(
+                scrollbar: ghostty_action_scrollbar_s(
+                    total: 120,
+                    offset: 35,
+                    len: 18
+                )
+            )
+        )
+
+        let payload = copyLibghosttySurfaceActionPayload(from: action)
+
+        XCTAssertEqual(payload, .scrollbar(total: 120, offset: 35, len: 18))
+    }
+
     func test_copy_action_payload_copies_desktop_notification_values() {
         let duplicatedTitle = strdup("Codex")
         let duplicatedBody = strdup("Needs your input")
@@ -280,6 +444,290 @@ final class LibghosttyAdapterTests: XCTestCase {
 
 }
 
+final class TerminalDiagnosticsTests: XCTestCase {
+    func test_terminal_diagnostics_emits_burst_summary_after_quiet_period() async {
+        let diagnostics = TerminalDiagnostics(quietPeriod: 0.02)
+        let emitted = expectation(description: "burst emitted")
+        var summary: TerminalDiagnostics.BurstSummary?
+        diagnostics.onEmit = { emittedSummary in
+            summary = emittedSummary
+            emitted.fulfill()
+        }
+        diagnostics.setEnabled(true)
+
+        let paneID = PaneID("pane-1")
+        let previous = TerminalMetadata(
+            title: "Thinking ✳ drag-drop-pane-reorder",
+            currentWorkingDirectory: "/tmp/project",
+            processName: "claude",
+            gitBranch: "main"
+        )
+        let next = TerminalMetadata(
+            title: "Thinking ● drag-drop-pane-reorder",
+            currentWorkingDirectory: "/tmp/project",
+            processName: "claude",
+            gitBranch: "main"
+        )
+
+        diagnostics.recordMetadataObservation(
+            paneID: paneID,
+            previous: previous,
+            next: next,
+            changeKind: .meaningful,
+            delivery: .immediate
+        )
+        diagnostics.recordMetadataDelivery(paneID: paneID, outcome: .immediate)
+        diagnostics.recordStoreMetadataUpdate(paneID: paneID)
+        diagnostics.recordStoreFastPath(paneID: paneID)
+        diagnostics.recordInvalidation(paneID: paneID, impacts: [.sidebar, .header, .reviewRefresh])
+        diagnostics.recordActionCallback(
+            paneID: paneID,
+            payload: .setTitle("Thinking about drag-drop-pane-reorder")
+        )
+        diagnostics.recordRender(.canvas, activePaneID: paneID)
+
+        await fulfillment(of: [emitted], timeout: 1.0)
+
+        XCTAssertEqual(summary?.scope, .pane(paneID))
+        XCTAssertEqual(summary?.metadataDeliveryCount, 1)
+        XCTAssertEqual(summary?.metadataChangeKindCounts["meaningful"], 1)
+        XCTAssertEqual(summary?.metadataToolCounts["claude"], 1)
+        XCTAssertEqual(summary?.storeUpdateCount, 1)
+        XCTAssertEqual(summary?.storeFastPathCount, 1)
+        XCTAssertEqual(summary?.auxiliaryInvalidationCounts["sidebar"], 1)
+        XCTAssertEqual(summary?.auxiliaryInvalidationCounts["header"], 1)
+        XCTAssertEqual(summary?.auxiliaryInvalidationCounts["reviewRefresh"], 1)
+        XCTAssertEqual(summary?.actionPayloadCounts["title"], 1)
+        XCTAssertEqual(summary?.renderCounts["canvas"], 1)
+        XCTAssertEqual(summary?.wouldHaveBeenVolatileClaudeCount, 1)
+    }
+
+    func test_terminal_diagnostics_emits_tick_and_drain_timings_in_payload() async throws {
+        let diagnostics = TerminalDiagnostics(quietPeriod: 0.02)
+        let runtimeEmitted = expectation(description: "runtime burst emitted")
+        let paneEmitted = expectation(description: "pane burst emitted")
+        var summariesByScope: [TerminalDiagnostics.Scope: TerminalDiagnostics.BurstSummary] = [:]
+        diagnostics.onEmit = { emittedSummary in
+            summariesByScope[emittedSummary.scope] = emittedSummary
+            switch emittedSummary.scope {
+            case .runtime:
+                runtimeEmitted.fulfill()
+            case .pane(PaneID("pane-2")):
+                paneEmitted.fulfill()
+            default:
+                break
+            }
+        }
+        diagnostics.setEnabled(true)
+
+        let paneID = PaneID("pane-2")
+        diagnostics.recordWakeupReceived()
+        diagnostics.recordWakeupEnqueued()
+        diagnostics.recordTick(durationNanoseconds: 2_500_000, queueDelayNanoseconds: 750_000)
+        diagnostics.recordActionCallback(paneID: paneID, payload: .scrollbar(total: 100, offset: 0, len: 10))
+        diagnostics.recordActionDrain(paneID: paneID, queueDelayNanoseconds: 4_250_000)
+
+        await fulfillment(of: [runtimeEmitted, paneEmitted], timeout: 1.0)
+
+        let runtimeSummary = try XCTUnwrap(summariesByScope[.runtime])
+        XCTAssertEqual(runtimeSummary.wakeupCount, 1)
+        XCTAssertEqual(runtimeSummary.tickCount, 1)
+        XCTAssertEqual(runtimeSummary.tickTotalMilliseconds, 2.5, accuracy: 0.001)
+        XCTAssertEqual(runtimeSummary.tickMaxMilliseconds, 2.5, accuracy: 0.001)
+        XCTAssertEqual(runtimeSummary.mainQueueDelayTotalMilliseconds, 0.75, accuracy: 0.001)
+        XCTAssertEqual(runtimeSummary.mainQueueDelayMaxMilliseconds, 0.75, accuracy: 0.001)
+
+        let runtimePayload = TerminalDiagnostics.logPayloadForTesting(runtimeSummary)
+        XCTAssertTrue(runtimePayload.contains("tickTotalMilliseconds=2.5"))
+        XCTAssertTrue(runtimePayload.contains("tickMaxMilliseconds=2.5"))
+        XCTAssertTrue(runtimePayload.contains("mainQueueDelayTotalMilliseconds=0.75"))
+        XCTAssertTrue(runtimePayload.contains("mainQueueDelayMaxMilliseconds=0.75"))
+
+        let paneSummary = try XCTUnwrap(summariesByScope[.pane(paneID)])
+        XCTAssertEqual(paneSummary.actionCallbackCount, 1)
+        XCTAssertEqual(paneSummary.actionDrainCount, 1)
+        XCTAssertEqual(paneSummary.actionDrainQueueDelayTotalMilliseconds, 4.25, accuracy: 0.001)
+        XCTAssertEqual(paneSummary.actionDrainQueueDelayMaxMilliseconds, 4.25, accuracy: 0.001)
+        XCTAssertEqual(paneSummary.actionPayloadCounts["scrollbar"], 1)
+
+        let panePayload = TerminalDiagnostics.logPayloadForTesting(paneSummary)
+        XCTAssertTrue(panePayload.contains("actionCallbackCount=1"))
+        XCTAssertTrue(panePayload.contains("actionDrainCount=1"))
+        XCTAssertTrue(panePayload.contains("actionDrainQueueDelayTotalMilliseconds=4.25"))
+        XCTAssertTrue(panePayload.contains("actionDrainQueueDelayMaxMilliseconds=4.25"))
+    }
+
+    func test_terminal_diagnostics_emits_scroll_host_metrics_in_payload() async throws {
+        let diagnostics = TerminalDiagnostics(quietPeriod: 0.02)
+        let emitted = expectation(description: "pane burst emitted")
+        var summary: TerminalDiagnostics.BurstSummary?
+        let paneID = PaneID("pane-scroll-host")
+        diagnostics.onEmit = { emittedSummary in
+            guard emittedSummary.scope == .pane(paneID) else {
+                return
+            }
+            summary = emittedSummary
+            emitted.fulfill()
+        }
+        diagnostics.setEnabled(true)
+
+        diagnostics.recordScrollbarApply(paneID: paneID, durationNanoseconds: 3_500_000)
+        diagnostics.recordScrollHostSync(
+            paneID: paneID,
+            durationNanoseconds: 6_250_000,
+            geometryApplied: true,
+            documentHeightChanged: true,
+            documentHeightPoints: 12_000,
+            documentHeightDeltaPoints: 11_500,
+            reflected: true,
+            scrollbarTotalRows: 1_024,
+            scrollbarOffsetRows: 960,
+            scrollbarVisibleRows: 64,
+            wasAtBottom: true,
+            shouldAutoScroll: true,
+            autoScrollApplied: true,
+            userScrolledAwayFromBottom: false,
+            explicitScrollbarSyncAllowed: false
+        )
+        diagnostics.recordScrollToRowAction(paneID: paneID)
+        diagnostics.recordViewportSync(paneID: paneID, durationNanoseconds: 1_250_000)
+
+        await fulfillment(of: [emitted], timeout: 1.0)
+
+        let emittedSummary = try XCTUnwrap(summary)
+        XCTAssertEqual(emittedSummary.scrollbarApplyCount, 1)
+        XCTAssertEqual(emittedSummary.scrollbarApplyTotalMilliseconds, 3.5, accuracy: 0.001)
+        XCTAssertEqual(emittedSummary.scrollHostSyncCount, 1)
+        XCTAssertEqual(emittedSummary.scrollHostSyncTotalMilliseconds, 6.25, accuracy: 0.001)
+        XCTAssertEqual(emittedSummary.scrollbarGeometryApplyCount, 1)
+        XCTAssertEqual(emittedSummary.documentHeightChangeCount, 1)
+        XCTAssertEqual(emittedSummary.documentHeightMaxPoints, 12_000, accuracy: 0.001)
+        XCTAssertEqual(emittedSummary.documentHeightMaxDeltaPoints, 11_500, accuracy: 0.001)
+        XCTAssertEqual(emittedSummary.scrollbarBottomAlignedCount, 1)
+        XCTAssertEqual(emittedSummary.scrollbarOffBottomCount, 0)
+        XCTAssertEqual(emittedSummary.scrollbarWasAtBottomCount, 1)
+        XCTAssertEqual(emittedSummary.scrollbarAutoFollowEligibleCount, 1)
+        XCTAssertEqual(emittedSummary.scrollbarAutoFollowSuppressedCount, 0)
+        XCTAssertEqual(emittedSummary.scrollbarAutoFollowAppliedCount, 1)
+        XCTAssertEqual(emittedSummary.scrollbarUserScrolledAwayCount, 0)
+        XCTAssertEqual(emittedSummary.scrollbarExplicitSyncAllowedCount, 0)
+        XCTAssertEqual(emittedSummary.scrollbarMaxTotalRows, 1_024)
+        XCTAssertEqual(emittedSummary.scrollbarMinOffsetRows, 960)
+        XCTAssertEqual(emittedSummary.scrollbarMaxOffsetRows, 960)
+        XCTAssertEqual(emittedSummary.scrollbarMinVisibleRows, 64)
+        XCTAssertEqual(emittedSummary.scrollbarMaxVisibleRows, 64)
+        XCTAssertEqual(emittedSummary.firstScrollbarPosition, "total:1024,offset:960,len:64")
+        XCTAssertEqual(emittedSummary.lastScrollbarPosition, "total:1024,offset:960,len:64")
+        XCTAssertEqual(emittedSummary.reflectScrolledClipViewCount, 1)
+        XCTAssertEqual(emittedSummary.scrollToRowActionCount, 1)
+        XCTAssertEqual(emittedSummary.viewportSyncCount, 1)
+        XCTAssertEqual(emittedSummary.viewportSyncTotalMilliseconds, 1.25, accuracy: 0.001)
+
+        let payload = TerminalDiagnostics.logPayloadForTesting(emittedSummary)
+        XCTAssertTrue(payload.contains("scrollbarApplyCount=1"))
+        XCTAssertTrue(payload.contains("scrollHostSyncCount=1"))
+        XCTAssertTrue(payload.contains("documentHeightMaxDeltaPoints=11500.0"))
+        XCTAssertTrue(payload.contains("scrollbarBottomAlignedCount=1"))
+        XCTAssertTrue(payload.contains("scrollbarAutoFollowAppliedCount=1"))
+        XCTAssertTrue(payload.contains("scrollbarMaxTotalRows=1024"))
+        XCTAssertTrue(payload.contains("firstScrollbarPosition=total:1024,offset:960,len:64"))
+        XCTAssertTrue(payload.contains("reflectScrolledClipViewCount=1"))
+        XCTAssertTrue(payload.contains("scrollToRowActionCount=1"))
+        XCTAssertTrue(payload.contains("viewportSyncCount=1"))
+    }
+
+    func test_terminal_diagnostics_tolerates_inconsistent_scrollbar_ranges() async throws {
+        let diagnostics = TerminalDiagnostics(quietPeriod: 0.02)
+        let emitted = expectation(description: "pane burst emitted")
+        let paneID = PaneID("pane-scroll-overflow")
+        var summary: TerminalDiagnostics.BurstSummary?
+        diagnostics.onEmit = { emittedSummary in
+            guard emittedSummary.scope == .pane(paneID) else {
+                return
+            }
+            summary = emittedSummary
+            emitted.fulfill()
+        }
+        diagnostics.setEnabled(true)
+
+        diagnostics.recordScrollHostSync(
+            paneID: paneID,
+            durationNanoseconds: 1_000,
+            geometryApplied: false,
+            documentHeightChanged: false,
+            documentHeightPoints: 100,
+            documentHeightDeltaPoints: 0,
+            reflected: false,
+            scrollbarTotalRows: 10,
+            scrollbarOffsetRows: UInt64.max,
+            scrollbarVisibleRows: UInt64.max,
+            wasAtBottom: nil,
+            shouldAutoScroll: nil,
+            autoScrollApplied: nil,
+            userScrolledAwayFromBottom: nil,
+            explicitScrollbarSyncAllowed: nil
+        )
+
+        await fulfillment(of: [emitted], timeout: 1.0)
+
+        let emittedSummary = try XCTUnwrap(summary)
+        XCTAssertEqual(emittedSummary.scrollbarBottomAlignedCount, 1)
+        XCTAssertEqual(emittedSummary.scrollbarOffBottomCount, 0)
+        XCTAssertEqual(emittedSummary.scrollbarMaxTotalRows, 10)
+        XCTAssertEqual(emittedSummary.scrollbarMaxOffsetRows, UInt64.max)
+        XCTAssertEqual(emittedSummary.scrollbarMaxVisibleRows, UInt64.max)
+    }
+
+    func test_terminal_diagnostics_drops_events_when_disabled() async {
+        let diagnostics = TerminalDiagnostics(quietPeriod: 0.02)
+        let emitted = expectation(description: "no burst emitted")
+        emitted.isInverted = true
+        diagnostics.onEmit = { _ in
+            emitted.fulfill()
+        }
+
+        diagnostics.recordStoreMetadataUpdate(paneID: PaneID("pane-1"))
+
+        await fulfillment(of: [emitted], timeout: 0.1)
+    }
+}
+
+final class LibghosttyWakeupCoordinatorTests: XCTestCase {
+    func test_request_tick_coalesces_repeated_wakeups_while_a_tick_is_pending() {
+        final class State: @unchecked Sendable {
+            var scheduled: [@Sendable () -> Void] = []
+            var tickCount = 0
+        }
+
+        let state = State()
+
+        let coordinator = LibghosttyWakeupCoordinator(
+            diagnostics: .shared,
+            schedule: { state.scheduled.append($0) },
+            tick: { state.tickCount += 1 }
+        )
+
+        coordinator.requestTick()
+        coordinator.requestTick()
+        coordinator.requestTick()
+
+        XCTAssertEqual(state.scheduled.count, 1)
+        XCTAssertEqual(state.tickCount, 0)
+
+        let first = state.scheduled.removeFirst()
+        first()
+
+        XCTAssertEqual(state.tickCount, 1)
+        XCTAssertEqual(state.scheduled.count, 1)
+
+        let second = state.scheduled.removeFirst()
+        second()
+
+        XCTAssertEqual(state.tickCount, 2)
+        XCTAssertEqual(state.scheduled.count, 0)
+    }
+}
+
 @MainActor
 private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
     private(set) var makeSurfaceCallCount = 0
@@ -292,6 +740,7 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
 
     func makeSurface(
         for hostView: LibghosttyView,
+        paneID _: PaneID,
         request: TerminalSessionRequest,
         configTemplate: ghostty_surface_config_s?,
         metadataDidChange: @escaping (TerminalMetadata) -> Void,

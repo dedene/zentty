@@ -20,7 +20,7 @@ if !isHostedTestMode {
 }
 
 let app = NSApplication.shared
-app.setActivationPolicy(.regular)
+app.setActivationPolicy(isHostedTestMode ? .prohibited : .regular)
 
 let delegate = AppDelegate(shouldOpenMainWindow: !isHostedTestMode)
 app.delegate = delegate
