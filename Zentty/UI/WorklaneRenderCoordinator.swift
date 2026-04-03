@@ -202,7 +202,8 @@ final class WorklaneRenderCoordinator {
                 return
             }
 
-            guard !views.appCanvasView.paneStripView.isDragActive else {
+            guard !views.appCanvasView.paneStripView.isDragActive
+                  || views.appCanvasView.paneStripView.isDropSettling else {
                 return
             }
 

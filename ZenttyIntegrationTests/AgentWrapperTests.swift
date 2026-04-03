@@ -117,9 +117,9 @@ final class AgentWrapperTests: XCTestCase {
     }
 
     func test_generic_wrapper_attaches_running_pid_without_supervising_exit() throws {
-        let harness = try WrapperHarness(copyingScriptsNamed: ["codex", "zentty-agent-wrapper"])
+        let harness = try WrapperHarness(copyingScriptsNamed: ["zentty-agent-wrapper"])
         try harness.installRealBinary(
-            named: "codex",
+            named: "opencode",
             script: """
             #!/bin/bash
             set -euo pipefail
@@ -130,9 +130,10 @@ final class AgentWrapperTests: XCTestCase {
         try harness.installHelperStub()
 
         let result = try harness.run(
-            tool: "codex",
+            tool: "zentty-agent-wrapper",
             arguments: ["exec"],
             extraEnvironment: [
+                "ZENTTY_AGENT_TOOL": "opencode",
                 "ZENTTY_AGENT_BIN": harness.helperPath,
                 "ZENTTY_WORKLANE_ID": "worklane-main",
                 "ZENTTY_PANE_ID": "worklane-main-shell",
@@ -146,7 +147,7 @@ final class AgentWrapperTests: XCTestCase {
         let realPID = try XCTUnwrap(try harness.readLines(named: "real-pid.log").first)
         XCTAssertEqual(
             try XCTUnwrap(signalLines[safe: 0]),
-            "agent-signal pid attach \(realPID) --origin explicit-api --tool Codex"
+            "agent-signal pid attach \(realPID) --origin explicit-api --tool OpenCode"
         )
     }
 

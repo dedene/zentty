@@ -439,7 +439,6 @@ final class WorklaneStore {
 
         let previousPaneRef = currentPaneReference
         let changeType: WorklaneChange
-        var isFocusChangeFromClose = false
 
         switch command {
         case .split, .splitHorizontally, .splitAfterFocusedPane:
@@ -452,23 +451,8 @@ final class WorklaneStore {
             insertNewPaneHorizontally(into: &worklane, placement: .beforeFocused)
             changeType = .paneStructure(activeWorklaneID)
         case .closeFocusedPane:
-            if worklane.paneStripState.columns.count == 1,
-               worklane.paneStripState.panes.count == 1 {
-                guard removeActiveWorklaneIfPossible() else {
-                    refreshLastFocusedLocalWorkingDirectory()
-                    notify(.paneStructure(activeWorklaneID))
-                    return
-                }
-                refreshLastFocusedLocalWorkingDirectory()
-                notify(.worklaneListChanged)
-                return
-            }
-
-            if let removedPane = worklane.paneStripState.closeFocusedPane(singleColumnWidth: layoutContext.singlePaneWidth) {
-                clearPaneState(for: removedPane.id, in: &worklane)
-            }
-            isFocusChangeFromClose = true
-            changeType = .paneStructure(activeWorklaneID)
+            _ = closeFocusedPane()
+            return
         case .focusPreviousPaneBySidebarOrder:
             focusPaneBySidebarOrder(offset: -1)
             return
@@ -523,7 +507,7 @@ final class WorklaneStore {
         activeWorklane = worklane
 
         let newPaneRef = currentPaneReference
-        if !isFocusChangeFromClose, previousPaneRef != newPaneRef {
+        if previousPaneRef != newPaneRef {
             recordFocusTransition(from: previousPaneRef)
         }
 
@@ -885,13 +869,13 @@ final class WorklaneStore {
         notify(.worklaneListChanged)
     }
 
-    enum ShellExitCloseResult {
+    enum PaneCloseResult {
         case closed
-        case shouldQuit
+        case closeWindow
         case notFound
     }
 
-    func closePaneFromShellExit(id paneID: PaneID) -> ShellExitCloseResult {
+    func closePaneFromShellExit(id paneID: PaneID) -> PaneCloseResult {
         guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
             worklane.paneStripState.panes.contains(where: { $0.id == paneID })
         }) else {
@@ -904,7 +888,7 @@ final class WorklaneStore {
             if worklanes.count == 1 {
                 worklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
                 worklanes[worklaneIndex] = worklane
-                return .shouldQuit
+                return .closeWindow
             }
 
             let removedID = worklane.id
@@ -927,23 +911,40 @@ final class WorklaneStore {
         return .closed
     }
 
-    func closePane(id: PaneID) {
+    func closeFocusedPane() -> PaneCloseResult {
+        guard let paneID = activeWorklane?.paneStripState.focusedPaneID else {
+            return .notFound
+        }
+
+        return closePane(id: paneID)
+    }
+
+    @discardableResult
+    func closePane(id: PaneID) -> PaneCloseResult {
         guard var worklane = activeWorklane else {
-            return
+            return .notFound
         }
 
         let previousPaneRef = currentPaneReference
         worklane.paneStripState.focusPane(id: id)
+        guard worklane.paneStripState.panes.contains(where: { $0.id == id }) else {
+            return .notFound
+        }
+
         if worklane.paneStripState.columns.count == 1,
            worklane.paneStripState.panes.count == 1 {
+            if worklanes.count == 1 {
+                return .closeWindow
+            }
+
             guard removeActiveWorklaneIfPossible() else {
                 refreshLastFocusedLocalWorkingDirectory()
                 notify(.paneStructure(activeWorklaneID))
-                return
+                return .closed
             }
             refreshLastFocusedLocalWorkingDirectory()
             notify(.worklaneListChanged)
-            return
+            return .closed
         }
 
         if let removedPane = worklane.paneStripState.closeFocusedPane(singleColumnWidth: layoutContext.singlePaneWidth) {
@@ -963,6 +964,7 @@ final class WorklaneStore {
 
         refreshLastFocusedLocalWorkingDirectory()
         notify(.paneStructure(activeWorklaneID))
+        return .closed
     }
 
     #if DEBUG

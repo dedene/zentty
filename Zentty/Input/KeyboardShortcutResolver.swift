@@ -513,17 +513,15 @@ enum AppCommandRegistry {
                 selector: #selector(MainWindowController.resetPaneLayout(_:))
             )
         ),
+        // Toggle Zoom Out is currently internal-only (triggered by drag).
+        // Hidden from menu and command palette until the UX is finalized.
         AppCommandDefinition(
             id: .toggleZoomOut,
             title: "Toggle Zoom Out",
             category: .panes,
-            defaultShortcut: .init(key: .character("-"), modifiers: [.command, .shift]),
+            defaultShortcut: nil,
             action: .pane(.toggleZoomOut),
-            menuItem: AppCommandMenuItem(
-                section: .view,
-                title: "Toggle Zoom Out",
-                selector: #selector(MainWindowController.toggleZoomOut(_:))
-            )
+            menuItem: nil
         ),
         AppCommandDefinition(
             id: .showCommandPalette,
@@ -630,8 +628,6 @@ enum AppCommandRegistry {
             .command(.resizePaneDown),
             .separator,
             .command(.resetPaneLayout),
-            .separator,
-            .command(.toggleZoomOut),
         ],
     ]
 

@@ -420,7 +420,7 @@ final class SidebarView: NSView {
             onResized?(
                 SidebarWidthPreference.clamped(
                     resizeStartWidth + translation,
-                    availableWidth: window?.screen?.visibleFrame.width
+                    availableWidth: window?.contentView?.bounds.width
                 )
             )
         default:

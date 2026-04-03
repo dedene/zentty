@@ -5,6 +5,7 @@ enum SidebarWidthPreference {
     static let minimumWidth: CGFloat = 180
     static let maximumWidth: CGFloat = 420
     static let maximumWidthScreenFraction: CGFloat = 0.33
+    static let minimumContentAreaWidth: CGFloat = 200
     static let persistenceKey = "RootViewController.sidebarWidth"
 
     private static let testDefaultsSuiteName = "ZenttyTests.SidebarWidthPreference"
@@ -14,7 +15,9 @@ enum SidebarWidthPreference {
             return maximumWidth
         }
 
-        return max(minimumWidth, floor(availableWidth * maximumWidthScreenFraction))
+        let fractionBased = floor(availableWidth * maximumWidthScreenFraction)
+        let contentGuard = availableWidth - minimumContentAreaWidth
+        return max(minimumWidth, min(fractionBased, contentGuard))
     }
 
     static func clamped(_ width: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
