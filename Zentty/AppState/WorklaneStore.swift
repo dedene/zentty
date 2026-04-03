@@ -205,7 +205,6 @@ final class WorklaneStore {
     private let processEnvironment: [String: String]
     let focusHistoryController = PaneFocusHistoryController()
     private var isNavigatingHistory = false
-    private var nextWorklaneNumber: Int
 
     var activeWorklaneID: WorklaneID
 
@@ -258,10 +257,6 @@ final class WorklaneStore {
             : initialWorklanes.first?.id ?? WorklaneID("worklane-main")
         self.worklanes = initialWorklanes
         self.activeWorklaneID = resolvedActiveWorklaneID
-        self.nextWorklaneNumber = initialWorklanes.reduce(0) { max, worklane in
-            let suffix = worklane.id.rawValue.drop(while: { !$0.isNumber })
-            return Swift.max(max, Int(suffix) ?? 0)
-        }
         normalizeAllPanePresentationState()
         refreshLastFocusedLocalWorkingDirectory()
         refreshAllPaneGitContexts()
@@ -816,9 +811,9 @@ final class WorklaneStore {
 
     func createWorklane() {
         let previousPaneRef = currentPaneReference
-        nextWorklaneNumber += 1
-        let title = "WS \(nextWorklaneNumber)"
-        let id = WorklaneID("worklane-\(nextWorklaneNumber)")
+        let newIndex = nextWorklaneNumber()
+        let title = "WS \(newIndex)"
+        let id = WorklaneID("worklane-\(newIndex)")
         let workingDirectory = resolveWorkingDirectoryForNewWorklane()
         let configInheritanceSourcePaneID = resolveConfigInheritanceSourcePaneIDForNewWorklane()
 
@@ -1471,6 +1466,16 @@ final class WorklaneStore {
         }
 
         return nextReadableWidth / previousReadableWidth
+    }
+
+    func nextWorklaneNumber() -> Int {
+        let maxExisting = worklanes.compactMap { worklane -> Int? in
+            let raw = worklane.id.rawValue
+            guard raw.hasPrefix("worklane-"),
+                  let n = Int(raw.dropFirst("worklane-".count)) else { return nil }
+            return n
+        }.max() ?? 0
+        return maxExisting + 1
     }
 
     @discardableResult

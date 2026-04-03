@@ -729,6 +729,7 @@ final class PaneStripView: NSView {
             }
             paneView.addSubview(dragZone)
             dragZoneViews[pane.id] = dragZone
+            }
 
             lastFocusedPaneID = lastFocusedPaneID.flatMap { paneViews[$0] == nil ? nil : $0 }
         }
