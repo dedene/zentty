@@ -10,3 +10,14 @@ tmp/
 .claude
 build/
 .factory
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+fastlane/README.md
+fastlane/.env
+
+# App Store Connect API keys
+*.p8
