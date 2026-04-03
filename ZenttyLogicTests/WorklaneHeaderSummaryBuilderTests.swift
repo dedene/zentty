@@ -204,6 +204,39 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary.branch, branch)
     }
 
+    func test_summary_keeps_compact_repo_label_for_development_root_without_meaningful_title() {
+        let paneID = PaneID("pane-shell")
+        let repoPath = "\(NSHomeDirectory())/Development/Personal/zentty"
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "zsh",
+                    currentWorkingDirectory: repoPath,
+                    processName: "zsh",
+                    gitBranch: "main"
+                )
+            ],
+            gitContextByPaneID: [
+                paneID: PaneGitContext(
+                    workingDirectory: repoPath,
+                    repositoryRoot: repoPath,
+                    reference: .branch("main")
+                )
+            ]
+        )
+
+        let summary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
+
+        XCTAssertEqual(summary.focusedLabel, "…/zentty")
+        XCTAssertEqual(summary.branch, "main")
+    }
+
     func test_summary_hides_detached_branch_chip_when_focused_label_already_contains_detached_reference() {
         let paneID = PaneID("pane-shell")
         let worklane = WorklaneState(

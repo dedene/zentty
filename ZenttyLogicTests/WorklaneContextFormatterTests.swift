@@ -2,6 +2,28 @@ import XCTest
 @testable import Zentty
 
 final class WorklaneContextFormatterTests: XCTestCase {
+    func test_formatted_working_directory_uses_plain_text_for_development_root() {
+        let path = (NSHomeDirectory() as NSString).appendingPathComponent(
+            "Development/Personal/folder-glitch-check"
+        )
+
+        XCTAssertEqual(
+            WorklaneContextFormatter.formattedWorkingDirectory(path, branch: nil),
+            "~/Development/folder-glitch-check"
+        )
+    }
+
+    func test_formatted_working_directory_uses_plain_text_for_developer_root() {
+        let path = (NSHomeDirectory() as NSString).appendingPathComponent(
+            "Developer/Tooling/folder-glitch-check"
+        )
+
+        XCTAssertEqual(
+            WorklaneContextFormatter.formattedWorkingDirectory(path, branch: nil),
+            "~/Developer/folder-glitch-check"
+        )
+    }
+
     func test_compact_worklane_path_prefers_two_segment_worktree_label() {
         let compact = WorklaneContextFormatter.compactSidebarPath(
             "/Users/peter/Development/Personal/worktrees/feature/sidebar"

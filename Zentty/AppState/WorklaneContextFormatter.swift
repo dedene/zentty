@@ -365,6 +365,14 @@ enum WorklaneContextFormatter {
         return value.contains("...") || value.contains("…")
     }
 
+    static func isDeveloperRootPath(_ path: String?) -> Bool {
+        guard let standardizedPath = standardizedPath(path) else {
+            return false
+        }
+
+        return developerRootMatch(for: standardizedPath) != nil
+    }
+
     private static func meaningfulSidebarRole(
         metadata: TerminalMetadata?,
         fallbackTitle: String?
@@ -472,28 +480,31 @@ enum WorklaneContextFormatter {
         }
 
         guard match.relativeComponents.isEmpty == false else {
-            return "~/󰲋"
+            return "~/\(match.rootName)"
         }
 
         let clampedSegmentCount = min(
             max(1, minimumSegments),
             match.relativeComponents.count
         )
-        return "~/󰲋/" + match.relativeComponents.suffix(clampedSegmentCount).joined(separator: "/")
+        return "~/\(match.rootName)/" + match.relativeComponents.suffix(clampedSegmentCount).joined(separator: "/")
     }
 
-    private static func developerRootMatch(for path: String) -> (root: String, relativeComponents: [String])? {
+    private static func developerRootMatch(for path: String) -> (rootName: String, root: String, relativeComponents: [String])? {
         let homePath = standardPath(NSHomeDirectory())
-        let roots = ["Development", "Developer"].map {
-            standardPath((homePath as NSString).appendingPathComponent($0))
+        let roots = ["Development", "Developer"].map { rootName in
+            (
+                rootName: rootName,
+                root: standardPath((homePath as NSString).appendingPathComponent(rootName))
+            )
         }
 
         for root in roots {
-            if path == root {
-                return (root, [])
+            if path == root.root {
+                return (root.rootName, root.root, [])
             }
 
-            let prefix = root + "/"
+            let prefix = root.root + "/"
             guard path.hasPrefix(prefix) else {
                 continue
             }
@@ -503,7 +514,7 @@ enum WorklaneContextFormatter {
                 .split(separator: "/")
                 .map(String.init)
                 .filter { !$0.isEmpty }
-            return (root, relativeComponents)
+            return (root.rootName, root.root, relativeComponents)
         }
 
         return nil

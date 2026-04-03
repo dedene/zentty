@@ -38,7 +38,7 @@ enum WorklaneHeaderSummaryBuilder {
         if let cwd = WorklaneContextFormatter.trimmed(presentation.cwd) {
             let formattedWorkingDirectory = WorklaneContextFormatter.formattedWorkingDirectory(cwd, branch: nil)
             if presentation.lookupBranch != nil,
-               formattedWorkingDirectory?.hasPrefix("~/󰲋") == true,
+               WorklaneContextFormatter.isDeveloperRootPath(cwd),
                let compactRepositoryPath = WorklaneContextFormatter.compactRepositorySidebarPath(cwd) {
                 return compactRepositoryPath
             }
