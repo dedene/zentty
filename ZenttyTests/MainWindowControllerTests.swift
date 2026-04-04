@@ -51,7 +51,7 @@ final class MainWindowControllerTests: XCTestCase {
     }
 
     override func tearDown() {
-        controller?.window.close()
+        controller?.closeWindowBypassingConfirmation()
         controller = nil
         testDefaultsSuiteNames.forEach {
             UserDefaults(suiteName: $0)?.removePersistentDomain(forName: $0)
@@ -253,6 +253,78 @@ final class MainWindowControllerTests: XCTestCase {
             ChromeGeometry.trafficLightSpacing,
             accuracy: 1.0
         )
+    }
+
+    func test_surface_closed_on_last_pane_closes_only_this_window() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let paneID = PaneID("worklane-main-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.hasCommandHistory = true
+        controller.rootViewControllerForTesting.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "shell")],
+                    focusedPaneID: paneID
+                ),
+                auxiliaryStateByPaneID: [paneID: auxiliaryState]
+            )
+        ], activeWorklaneID: WorklaneID("worklane-main"))
+        waitForLayout("worklane replaced", delay: 0.05)
+
+        controller.rootViewControllerForTesting.handleTerminalEventForTesting(
+            paneID: paneID,
+            event: .surfaceClosed
+        )
+        waitForLayout("window closed", delay: 0.05)
+
+        XCTAssertFalse(controller.window.isVisible)
+    }
+
+    func test_close_focused_pane_closes_window_without_followup_window_confirmation() throws {
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController.CloseFocusedPane")
+        )
+        try configStore.update { config in
+            config.confirmations.confirmBeforeClosingPane = false
+            config.confirmations.confirmBeforeClosingWindow = true
+            config.confirmations.confirmBeforeQuitting = true
+        }
+
+        let openWithService = RecordingOpenWithService(availableTargets: [], primaryTarget: nil)
+        let adapterStore = MetadataAdapterStore()
+        let controller = makeController(
+            configStore: configStore,
+            openWithService: openWithService,
+            adapterStore: adapterStore
+        )
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let paneID = PaneID("worklane-main-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.hasCommandHistory = true
+        controller.rootViewControllerForTesting.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "shell")],
+                    focusedPaneID: paneID
+                ),
+                auxiliaryStateByPaneID: [paneID: auxiliaryState]
+            )
+        ], activeWorklaneID: WorklaneID("worklane-main"))
+        waitForLayout("worklane replaced", delay: 0.05)
+
+        controller.rootViewControllerForTesting.handle(.pane(.closeFocusedPane))
+        waitForLayout("window closed", delay: 0.05)
+
+        XCTAssertFalse(controller.window.isVisible)
     }
 
     func test_show_settings_window_opens_settings_shell_on_general() throws {
@@ -618,8 +690,8 @@ final class MainWindowControllerTests: XCTestCase {
 
         controller.newWorklane(nil)
 
-        XCTAssertEqual(controller.worklaneTitles, ["MAIN", "WS 2"])
-        XCTAssertEqual(controller.activeWorklaneTitle, "WS 2")
+        XCTAssertEqual(controller.worklaneTitles, ["MAIN", "WS 1"])
+        XCTAssertEqual(controller.activeWorklaneTitle, "WS 1")
         XCTAssertEqual(controller.activePaneTitles, ["shell"])
     }
 
@@ -636,7 +708,7 @@ final class MainWindowControllerTests: XCTestCase {
         controller.newWorklane(nil)
         waitForLayout("worklane settled", delay: 0.05)
 
-        XCTAssertEqual(controller.activeWorklaneTitle, "WS 2")
+        XCTAssertEqual(controller.activeWorklaneTitle, "WS 1")
         let activePane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
         let activeAdapter = try XCTUnwrap(adapterStore.adapters[activePane.paneID])
         XCTAssertEqual(activeAdapter.lastRequest?.workingDirectory, "/tmp/project-a")
@@ -691,7 +763,7 @@ final class MainWindowControllerTests: XCTestCase {
         controller.newWorklane(nil)
         waitForLayout("worklane settled", delay: 0.05)
 
-        XCTAssertEqual(controller.activeWorklaneTitle, "WS 2")
+        XCTAssertEqual(controller.activeWorklaneTitle, "WS 1")
         let activePane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
         let activeAdapter = try XCTUnwrap(adapterStore.adapters[activePane.paneID])
         XCTAssertEqual(activeAdapter.lastRequest?.workingDirectory, "/tmp/project-right")

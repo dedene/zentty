@@ -206,7 +206,119 @@ extension WorklaneStore {
         }
     }
 
-    // MARK: - Private
+    // MARK: - Cross-Worklane: New Worklane
+
+    func transferPaneToNewWorklane(
+        paneID: PaneID,
+        singleColumnWidth: CGFloat
+    ) {
+        // Prevent transferring the last pane — would leave an empty worklane.
+        // Option+drag (duplicate) is unaffected.
+        guard let source = activeWorklane,
+              source.paneStripState.panes.count > 1 else {
+            return
+        }
+
+        let n = nextWorklaneNumber()
+        let newWorklaneID = WorklaneID("worklane-\(n)")
+        let newWorklane = WorklaneState(
+            id: newWorklaneID,
+            title: "WS \(n)",
+            paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
+            nextPaneNumber: 1
+        )
+        worklanes.append(newWorklane)
+
+        // transferPaneToWorklane handles notifications. It fires .worklaneListChanged
+        // when the source empties (covering both the removal and the addition). When
+        // the source still has panes, it fires .paneStructure + .activeWorklaneChanged,
+        // so we need to also emit .worklaneListChanged for the new worklane addition.
+        let sourceWorklaneID = activeWorklaneID
+        transferPaneToWorklane(
+            paneID: paneID,
+            targetWorklaneID: newWorklaneID,
+            singleColumnWidth: singleColumnWidth
+        )
+
+        // If source wasn't removed, transferPaneToWorklane didn't fire .worklaneListChanged
+        if worklanes.contains(where: { $0.id == sourceWorklaneID }) {
+            notify(.worklaneListChanged)
+        }
+    }
+
+    // MARK: - Duplicate Pane
+
+    func duplicatePaneToWorklane(
+        paneID: PaneID,
+        targetWorklaneID: WorklaneID,
+        singleColumnWidth: CGFloat
+    ) {
+        guard let sourceWorklane = worklanes.first(where: { $0.paneStripState.columns.contains(where: { $0.panes.contains(where: { $0.id == paneID }) }) }),
+              let targetIndex = worklanes.firstIndex(where: { $0.id == targetWorklaneID }) else {
+            return
+        }
+
+        // Read CWD from source pane's auxiliary state
+        let auxiliaryState = sourceWorklane.auxiliaryStateByPaneID[paneID]
+        let workingDirectory = auxiliaryState?.raw.shellContext?.path
+
+        var targetWorklane = worklanes[targetIndex]
+
+        let existingCount = targetWorklane.paneStripState.columns.count
+        let newPane = makePaneWithDirectory(
+            in: &targetWorklane,
+            existingPaneCount: existingCount,
+            workingDirectory: workingDirectory
+        )
+
+        let targetColumnCount = targetWorklane.paneStripState.columns.count
+        let insertWidth: CGFloat
+        if targetColumnCount == 0 {
+            insertWidth = layoutContext.singlePaneWidth
+        } else {
+            insertWidth = layoutContext.newPaneWidth(existingPaneCount: targetColumnCount)
+        }
+
+        if targetColumnCount == 1, let firstPaneWidth = layoutContext.firstPaneWidthAfterSingleSplit {
+            targetWorklane.paneStripState.resizeFirstColumn(to: firstPaneWidth)
+        }
+
+        targetWorklane.paneStripState.insertPaneAsColumn(
+            newPane,
+            atColumnIndex: targetWorklane.paneStripState.columns.count,
+            width: insertWidth
+        )
+
+        worklanes[targetIndex] = targetWorklane
+        activeWorklaneID = targetWorklaneID
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.activeWorklaneChanged)
+    }
+
+    func duplicatePaneToNewWorklane(
+        paneID: PaneID,
+        singleColumnWidth: CGFloat
+    ) {
+        let n = nextWorklaneNumber()
+        let newWorklaneID = WorklaneID("worklane-\(n)")
+        let newWorklane = WorklaneState(
+            id: newWorklaneID,
+            title: "WS \(n)",
+            paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
+            nextPaneNumber: 1
+        )
+        worklanes.append(newWorklane)
+
+        // duplicatePaneToWorklane fires .activeWorklaneChanged but not .worklaneListChanged
+        duplicatePaneToWorklane(
+            paneID: paneID,
+            targetWorklaneID: newWorklaneID,
+            singleColumnWidth: singleColumnWidth
+        )
+        notify(.worklaneListChanged)
+    }
+
+    // MARK: - Private — Column Width
 
     private func applyColumnWidthNormalization(
         _ worklane: inout WorklaneState,

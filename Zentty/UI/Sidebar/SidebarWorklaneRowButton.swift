@@ -80,6 +80,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private var isWorking = false
     private var isApplyingResolvedSummary = false
     private var shimmerCoordinator: SidebarShimmerCoordinator?
+    private var isDropTargetHighlighted = false
     private let reducedMotionProvider: () -> Bool
 
     var onPaneSelected: ((PaneID) -> Void)?
@@ -291,13 +292,61 @@ final class SidebarWorklaneRowButton: NSButton {
 
     func setDropTargetHighlighted(_ highlighted: Bool) {
         guard wantsLayer, let layer else { return }
+        guard highlighted != isDropTargetHighlighted else { return }
+        isDropTargetHighlighted = highlighted
+
         if highlighted {
+            // -- Glow --
             layer.shadowColor = NSColor.controlAccentColor.cgColor
-            layer.shadowOpacity = 0.5
-            layer.shadowRadius = 6
+            layer.shadowOpacity = 0.7
+            layer.shadowRadius = 8
             layer.shadowOffset = .zero
+
+            // -- Scale from center --
+            let center = CGPoint(x: bounds.midX, y: bounds.midY)
+            layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            layer.position = center
+
+            let spring = CASpringAnimation(keyPath: "transform")
+            spring.mass = 1.0
+            spring.stiffness = 300
+            spring.damping = 20
+            spring.fromValue = CATransform3DIdentity
+            spring.toValue = CATransform3DMakeScale(1.025, 1.025, 1)
+            spring.fillMode = .forwards
+            spring.isRemovedOnCompletion = false
+            layer.add(spring, forKey: "dropTargetScale")
         } else {
-            layer.shadowOpacity = 0
+            CATransaction.begin()
+            CATransaction.setCompletionBlock { [weak self] in
+                guard let self, let layer = self.layer else { return }
+                layer.removeAllAnimations()
+                layer.anchorPoint = .zero
+                layer.position = self.frame.origin
+                layer.transform = CATransform3DIdentity
+                layer.shadowOpacity = 0
+            }
+
+            // -- Fade shadow out --
+            let fade = CABasicAnimation(keyPath: "shadowOpacity")
+            fade.toValue = 0
+            fade.duration = 0.15
+            fade.fillMode = .forwards
+            fade.isRemovedOnCompletion = false
+            layer.add(fade, forKey: "dropTargetShadowFade")
+
+            // -- Scale back to identity --
+            let spring = CASpringAnimation(keyPath: "transform")
+            spring.mass = 1.0
+            spring.stiffness = 300
+            spring.damping = 20
+            spring.fromValue = CATransform3DMakeScale(1.025, 1.025, 1)
+            spring.toValue = CATransform3DIdentity
+            spring.fillMode = .forwards
+            spring.isRemovedOnCompletion = false
+            layer.add(spring, forKey: "dropTargetScale")
+
+            CATransaction.commit()
         }
     }
 
@@ -410,7 +459,7 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     private func resolvedSummary(for summary: WorklaneSidebarSummary) -> WorklaneSidebarSummary {
-        guard summary.paneRows.count == 1 else {
+        guard summary.paneRows.isEmpty == false else {
             return summary
         }
 

@@ -50,14 +50,25 @@ final class PaneStripView: NSView {
     var onPaneStripStateRestoreRequested: ((PaneStripState) -> Void)?
     var onPaneReorderRequested: ((PaneID, Int) -> Void)?
     var onPaneSplitDropRequested: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool) -> Void)?
-    var onPaneCrossWorklaneDropRequested: ((PaneID, WorklaneID) -> Void)?
+    var onPaneCrossWorklaneDropRequested: ((PaneID, WorklaneID, Bool) -> Void)?
     var sidebarWorklaneFrameProvider: (() -> [(WorklaneID, CGRect)])?
     var onDragApproachingSidebarEdge: ((Bool) -> Void)?
     var onHoveredSidebarWorklaneChanged: ((WorklaneID?) -> Void)?
+    var onNewWorklanePlaceholderVisibilityChanged: ((Bool) -> Void)?
+    var onSidebarScrollRequested: ((CGFloat) -> Void)?
     var onDragActiveChanged: ((Bool) -> Void)?
     var onLeadingInsetChangedDuringDrag: ((CGFloat) -> Void)?
     var activeWorklaneIDProvider: (() -> WorklaneID?)?
+    var sidebarBoundsProvider: (() -> CGRect)?
+    var worklaneCountProvider: (() -> Int)?
+    var sidebarWidthProvider: (() -> CGFloat)?
+    weak var dragOverlayView: NSView? {
+        didSet { dragCoordinator.dragHostView = dragOverlayView }
+    }
     private(set) var isDragActive = false
+    private(set) var isDropSettling = false
+    private var dropSettleCoveredPaneID: PaneID?
+    private var afterNextRenderCallback: (() -> Void)?
     private(set) var isZoomedOut = false
     static let zoomScale: CGFloat = 0.4
     var dragZoomScale: CGFloat { Self.zoomScale }
@@ -178,6 +189,8 @@ final class PaneStripView: NSView {
         setupDragCoordinator()
     }
 
+    var onPaneNewWorklaneDropRequested: ((PaneID, Bool) -> Void)?
+
     private func setupDragCoordinator() {
         dragCoordinator.onReorder = { [weak self] paneID, columnIndex in
             self?.onPaneReorderRequested?(paneID, columnIndex)
@@ -194,6 +207,39 @@ final class PaneStripView: NSView {
                 }
             }
             self.onDragActiveChanged?(active)
+        }
+        dragCoordinator.onSidebarDrop = { [weak self] paneID, worklaneID, isDuplicate in
+            self?.onPaneCrossWorklaneDropRequested?(paneID, worklaneID, isDuplicate)
+        }
+        dragCoordinator.onSidebarNewWorklaneDrop = { [weak self] paneID, isDuplicate in
+            self?.onPaneNewWorklaneDropRequested?(paneID, isDuplicate)
+        }
+        dragCoordinator.onHoveredSidebarWorklaneChanged = { [weak self] worklaneID in
+            self?.onHoveredSidebarWorklaneChanged?(worklaneID)
+        }
+        dragCoordinator.onDragApproachingSidebarEdge = { [weak self] approaching in
+            self?.onDragApproachingSidebarEdge?(approaching)
+        }
+        dragCoordinator.sidebarWorklaneFrameProvider = { [weak self] in
+            self?.sidebarWorklaneFrameProvider?() ?? []
+        }
+        dragCoordinator.activeWorklaneIDProvider = { [weak self] in
+            self?.activeWorklaneIDProvider?()
+        }
+        dragCoordinator.sidebarBoundsProvider = { [weak self] in
+            self?.sidebarBoundsProvider?() ?? .zero
+        }
+        dragCoordinator.worklaneCountProvider = { [weak self] in
+            self?.worklaneCountProvider?() ?? 1
+        }
+        dragCoordinator.sidebarWidthProvider = { [weak self] in
+            self?.sidebarWidthProvider?() ?? 0
+        }
+        dragCoordinator.onNewWorklanePlaceholderVisibilityChanged = { [weak self] visible in
+            self?.onNewWorklanePlaceholderVisibilityChanged?(visible)
+        }
+        dragCoordinator.onSidebarScrollRequested = { [weak self] delta in
+            self?.onSidebarScrollRequested?(delta)
         }
     }
 
@@ -345,7 +391,7 @@ final class PaneStripView: NSView {
         animationDuration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         animationTimingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
-        guard !isDragActive else { return }
+        guard !isDragActive || isDropSettling else { return }
         let settleGeneration = renderGuard.advanceGeneration()
         let previousPresentation = currentPresentation
         let previousOffset = currentOffset
@@ -381,6 +427,7 @@ final class PaneStripView: NSView {
             && window?.inLiveResize != true
             && !inLiveResize
             && !isResizeSuppressedRender
+            && !isZoomedOut
         lastRenderWasAnimated = shouldAnimate
         let removalTransition = shouldAnimate
             ? removalTransition(from: previousPresentation, to: presentation)
@@ -484,6 +531,11 @@ final class PaneStripView: NSView {
         }
         onBorderChromeSnapshotsDidChange?(borderChromeSnapshots(for: presentation, offset: targetOffset))
         syncFocusedTerminal(with: state.focusedPaneID)
+
+        if let callback = afterNextRenderCallback {
+            afterNextRenderCallback = nil
+            callback()
+        }
     }
 
     private func sharesAnyPane(
@@ -563,10 +615,15 @@ final class PaneStripView: NSView {
                 dx: -resolvedOffset(offset),
                 dy: 0
             )
-            let targetAlpha = PaneContainerView.presentationAlpha(
-                forEmphasis: panePresentation.emphasis,
-                allowInactiveDimming: allowInactiveDimming
-            )
+            let targetAlpha: CGFloat
+            if panePresentation.paneID == dropSettleCoveredPaneID {
+                targetAlpha = 0
+            } else {
+                targetAlpha = PaneContainerView.presentationAlpha(
+                    forEmphasis: panePresentation.emphasis,
+                    allowInactiveDimming: allowInactiveDimming
+                )
+            }
             if animated {
                 if shouldAnimateFrame(
                     for: panePresentation,
@@ -654,38 +711,38 @@ final class PaneStripView: NSView {
                 viewportView.addSubview(paneView)
                 paneView.activateSessionIfNeeded()
 
-                let dragZone = PaneDragZoneView(paneID: pane.id)
-                let dragZoneHeight = PaneContainerView.dragZoneHeight
-                dragZone.frame = CGRect(
-                    x: 0,
-                    y: paneView.bounds.height - dragZoneHeight,
-                    width: paneView.bounds.width,
-                    height: dragZoneHeight
-                )
-                dragZone.autoresizingMask = [.width, .minYMargin]
-                // Coordinates arrive in dragZone's local space. Convert directly
-                // from dragZone to self (PaneStripView) to avoid going through
-                // PaneContainerView which may have a CATransform3D during drag.
-                dragZone.onDragActivated = { [weak self, weak dragZone] paneID, localPoint in
-                    guard let self, let dragZone else { return }
-                    let inStrip = dragZone.convert(localPoint, to: self)
-                    self.handleDragActivated(paneID: paneID, origin: inStrip)
-                }
-                dragZone.onDragMoved = { [weak self, weak dragZone] localPoint in
-                    guard let self, let dragZone else { return }
-                    let inStrip = dragZone.convert(localPoint, to: self)
-                    self.dragCoordinator.updateCursor(inStrip)
-                }
-                dragZone.onDragEnded = { [weak self, weak dragZone] localPoint in
-                    guard let self, let dragZone else { return }
-                    let inStrip = dragZone.convert(localPoint, to: self)
-                    self.dragCoordinator.endDrag(at: inStrip)
-                }
-                dragZone.onDragCancelled = { [weak self] in
-                    self?.dragCoordinator.cancelDrag()
-                }
-                paneView.addSubview(dragZone)
-                dragZoneViews[pane.id] = dragZone
+            let dragZone = PaneDragZoneView(paneID: pane.id)
+            let dragZoneHeight = PaneContainerView.dragZoneHeight
+            dragZone.frame = CGRect(
+                x: 0,
+                y: paneView.bounds.height - dragZoneHeight,
+                width: paneView.bounds.width,
+                height: dragZoneHeight
+            )
+            dragZone.autoresizingMask = [.width, .minYMargin]
+            // Coordinates arrive in WINDOW space (location(in: nil)).
+            // Convert from window to PaneStripView — stable regardless of
+            // whether the pane was reparented to an overlay during drag.
+            dragZone.onDragActivated = { [weak self] paneID, windowPoint in
+                guard let self else { return }
+                let inStrip = self.convert(windowPoint, from: nil)
+                self.handleDragActivated(paneID: paneID, origin: inStrip)
+            }
+            dragZone.onDragMoved = { [weak self] windowPoint in
+                guard let self else { return }
+                let inStrip = self.convert(windowPoint, from: nil)
+                self.dragCoordinator.updateCursor(inStrip)
+            }
+            dragZone.onDragEnded = { [weak self] windowPoint in
+                guard let self else { return }
+                let inStrip = self.convert(windowPoint, from: nil)
+                self.dragCoordinator.endDrag(at: inStrip)
+            }
+            dragZone.onDragCancelled = { [weak self] in
+                self?.dragCoordinator.cancelDrag()
+            }
+            paneView.addSubview(dragZone)
+            dragZoneViews[pane.id] = dragZone
             }
 
             lastFocusedPaneID = lastFocusedPaneID.flatMap { paneViews[$0] == nil ? nil : $0 }
@@ -1162,6 +1219,27 @@ final class PaneStripView: NSView {
             backingScaleFactor: currentBackingScaleFactor,
             leadingVisibleInset: resolvedLeadingVisibleInset
         )
+    }
+
+    // MARK: - Drop Settle
+
+    /// Begin the "drop settling" phase: allows rendering while the snapshot covers the pane.
+    func beginDropSettle(paneID: PaneID, afterRender callback: @escaping () -> Void) {
+        isDropSettling = true
+        dropSettleCoveredPaneID = paneID
+        afterNextRenderCallback = callback
+    }
+
+    /// End the settling phase, reveal the covered pane.
+    func endDropSettle() {
+        isDropSettling = false
+        dropSettleCoveredPaneID = nil
+        afterNextRenderCallback = nil
+    }
+
+    /// Return the current frame of a live pane view in viewportView coordinates.
+    func livePaneFrame(_ paneID: PaneID) -> CGRect? {
+        paneViews[paneID]?.frame
     }
 
     /// Called by PaneDragCoordinator after drop/cancel to trigger zoom-in.

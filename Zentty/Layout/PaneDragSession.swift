@@ -42,6 +42,8 @@ enum PaneDropTarget: Equatable, Sendable {
     case horizontalSplit(targetPaneID: PaneID, leading: Bool)
     /// Drop onto a sidebar worklane row.
     case sidebarWorklane(WorklaneID)
+    /// Drop onto empty sidebar space to create a new worklane.
+    case newWorklane
     /// No valid drop target.
     case none
 }

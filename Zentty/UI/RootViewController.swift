@@ -67,6 +67,12 @@ final class RootViewController: NSViewController {
     private var staleAgentSweepTimer: Timer?
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
     private let paneBorderContextOverlayView = PaneBorderContextOverlayView()
+    private let dragOverlayView: HitTransparentView = {
+        let view = HitTransparentView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.wantsLayer = true
+        return view
+    }()
     private let windowChromeView = WindowChromeView()
     private var keyMonitor: LocalEventMonitor?
     private var windowObserverBag: NotificationObserverBag?
@@ -89,6 +95,7 @@ final class RootViewController: NSViewController {
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
     var onShowSettingsRequested: (() -> Void)?
+    var onCloseWindowRequested: (() -> Void)?
 
     init(
         configStore: AppConfigStore,
@@ -192,6 +199,7 @@ final class RootViewController: NSViewController {
         view.addSubview(windowChromeView)
         view.addSubview(sidebarHoverRailView)
         view.addSubview(sidebarView)
+        view.addSubview(dragOverlayView)
         view.addSubview(sidebarToggleButton)
         view.addSubview(paneLayoutMenuButton)
         view.addSubview(paneNavigationButtons)
@@ -243,6 +251,12 @@ final class RootViewController: NSViewController {
                 equalTo: view.trailingAnchor, constant: -ShellMetrics.canvasOuterInset),
             appCanvasView.bottomAnchor.constraint(
                 equalTo: view.bottomAnchor, constant: -ShellMetrics.canvasOuterInset),
+
+            // Drag overlay matches canvas frame so coordinate conversion is identity
+            dragOverlayView.topAnchor.constraint(equalTo: appCanvasView.topAnchor),
+            dragOverlayView.leadingAnchor.constraint(equalTo: appCanvasView.leadingAnchor),
+            dragOverlayView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
+            dragOverlayView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
 
             paneBorderContextOverlayView.topAnchor.constraint(equalTo: view.topAnchor),
             paneBorderContextOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -396,10 +410,10 @@ final class RootViewController: NSViewController {
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
                let reason = self.worklaneStore.paneCloseConfirmationReason(paneID) {
                 self.showClosePaneConfirmation(reason: reason) {
-                    self.worklaneStore.closePane(id: paneID)
+                    self.closePane(id: paneID)
                 }
             } else {
-                self.worklaneStore.closePane(id: paneID)
+                self.closePane(id: paneID)
             }
         }
         appCanvasView.paneStripView.onDividerInteraction = { [weak self] divider in
@@ -446,11 +460,11 @@ final class RootViewController: NSViewController {
                let reason = self.worklaneStore.paneCloseConfirmationReason(paneID) {
                 self.showClosePaneConfirmation(reason: reason) {
                     self.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
-                    self.worklaneStore.closePane(id: paneID)
+                    self.closePane(id: paneID)
                 }
             } else {
                 self.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
-                self.worklaneStore.closePane(id: paneID)
+                self.closePane(id: paneID)
             }
         }
         sidebarView.onSplitHorizontalRequested = { [weak self] worklaneID, paneID in
@@ -502,13 +516,21 @@ final class RootViewController: NSViewController {
                 singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
             )
         }
-        appCanvasView.paneStripView.onPaneCrossWorklaneDropRequested = { [weak self] paneID, worklaneID in
+        appCanvasView.paneStripView.onPaneCrossWorklaneDropRequested = { [weak self] paneID, worklaneID, isDuplicate in
             guard let self else { return }
-            self.worklaneStore.transferPaneToWorklane(
-                paneID: paneID,
-                targetWorklaneID: worklaneID,
-                singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-            )
+            if isDuplicate {
+                self.worklaneStore.duplicatePaneToWorklane(
+                    paneID: paneID,
+                    targetWorklaneID: worklaneID,
+                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+                )
+            } else {
+                self.worklaneStore.transferPaneToWorklane(
+                    paneID: paneID,
+                    targetWorklaneID: worklaneID,
+                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+                )
+            }
         }
         appCanvasView.paneStripView.sidebarWorklaneFrameProvider = { [weak self] in
             guard let self else { return [] }
@@ -534,6 +556,41 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.activeWorklaneIDProvider = { [weak self] in
             self?.worklaneStore.activeWorklaneID
         }
+        appCanvasView.paneStripView.sidebarBoundsProvider = { [weak self] in
+            guard let self else { return .zero }
+            return self.sidebarView.convert(self.sidebarView.bounds, to: self.appCanvasView.paneStripView)
+        }
+        appCanvasView.paneStripView.worklaneCountProvider = { [weak self] in
+            self?.worklaneStore.worklanes.count ?? 1
+        }
+        appCanvasView.paneStripView.onPaneNewWorklaneDropRequested = { [weak self] paneID, isDuplicate in
+            guard let self else { return }
+            if isDuplicate {
+                self.worklaneStore.duplicatePaneToNewWorklane(
+                    paneID: paneID,
+                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+                )
+            } else {
+                self.worklaneStore.transferPaneToNewWorklane(
+                    paneID: paneID,
+                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+                )
+            }
+        }
+        appCanvasView.paneStripView.onNewWorklanePlaceholderVisibilityChanged = { [weak self] visible in
+            if visible {
+                self?.sidebarView.showNewWorklanePlaceholder()
+            } else {
+                self?.sidebarView.hideNewWorklanePlaceholder()
+            }
+        }
+        appCanvasView.paneStripView.onSidebarScrollRequested = { [weak self] delta in
+            self?.sidebarView.adjustScrollOffset(by: delta)
+        }
+        appCanvasView.paneStripView.sidebarWidthProvider = { [weak self] in
+            self?.sidebarMotionCoordinator.currentSidebarWidth ?? 0
+        }
+        appCanvasView.paneStripView.dragOverlayView = dragOverlayView
         sidebarToggleButton.target = self
         sidebarToggleButton.action = #selector(handleToggleSidebar)
         sidebarMotionCoordinator.onMotionStateDidChange = { [weak self] motionState, animated in
@@ -554,18 +611,7 @@ final class RootViewController: NSViewController {
             self.worklaneStore.updateMetadata(id: paneID, metadata: metadata)
         }
         runtimeRegistry.onEventDidOccur = { [weak self] paneID, event in
-            guard let self else {
-                return
-            }
-
-            if event == .surfaceClosed {
-                if self.worklaneStore.closePaneFromShellExit(id: paneID) == .shouldQuit {
-                    NSApp.terminate(nil)
-                }
-                return
-            }
-
-            self.worklaneStore.handleTerminalEvent(paneID: paneID, event: event)
+            self?.handleTerminalEvent(paneID: paneID, event: event)
         }
         agentStatusCenter.onPayload = { [weak self] payload in
             self?.worklaneStore.applyAgentStatusPayload(payload)
@@ -922,16 +968,51 @@ final class RootViewController: NSViewController {
                let focusedPaneID,
                let reason = worklaneStore.paneCloseConfirmationReason(focusedPaneID) {
                 showClosePaneConfirmation(reason: reason) { [weak self] in
-                    self?.worklaneStore.send(command)
+                    self?.closeFocusedPane()
                 }
             } else {
-                worklaneStore.send(command)
+                closeFocusedPane()
             }
         case .toggleZoomOut:
             appCanvasView.paneStripView.toggleZoom()
         default:
             worklaneStore.send(command)
         }
+    }
+
+    private func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
+        if event == .surfaceClosed {
+            handlePaneCloseResult(worklaneStore.closePaneFromShellExit(id: paneID))
+            return
+        }
+
+        worklaneStore.handleTerminalEvent(paneID: paneID, event: event)
+    }
+
+    private func closePane(id paneID: PaneID) {
+        handlePaneCloseResult(worklaneStore.closePane(id: paneID))
+    }
+
+    private func closeFocusedPane() {
+        handlePaneCloseResult(worklaneStore.closeFocusedPane())
+    }
+
+    private func handlePaneCloseResult(_ result: WorklaneStore.PaneCloseResult) {
+        switch result {
+        case .closed, .notFound:
+            return
+        case .closeWindow:
+            requestContainingWindowClose()
+        }
+    }
+
+    private func requestContainingWindowClose() {
+        if let onCloseWindowRequested {
+            onCloseWindowRequested()
+            return
+        }
+
+        view.window?.close()
     }
 
     private var isShowingClosePaneConfirmation = false
@@ -1441,6 +1522,10 @@ final class RootViewController: NSViewController {
     }
 
     #if DEBUG
+        func handleTerminalEventForTesting(paneID: PaneID, event: TerminalEvent) {
+            handleTerminalEvent(paneID: paneID, event: event)
+        }
+
         func handleSidebarVisibilityEvent(_ event: SidebarVisibilityEvent) {
             sidebarMotionCoordinator.handle(event)
             syncSidebarVisibilityControls(animated: false)
@@ -1483,12 +1568,13 @@ final class RootViewController: NSViewController {
                 .first { !$0.isSeparatorItem && $0.title == title }?
                 .submenu?
                 .items
+                .filter { !$0.isSeparatorItem }
                 .map(\.title) ?? []
         }
     #endif
 
     private func resolvedSidebarAvailableWidth() -> CGFloat? {
-        view.window?.screen?.visibleFrame.width
+        view.bounds.width > 0 ? view.bounds.width : view.window?.screen?.visibleFrame.width
     }
 
     private func syncSidebarWidthToAvailableWidth(persist: Bool) {
@@ -1613,4 +1699,9 @@ private final class WindowContentView: NSView {
         super.viewDidChangeEffectiveAppearance()
         onEffectiveAppearanceDidChange?()
     }
+}
+
+/// Transparent to hit testing — allows mouse events to pass through to views below.
+private final class HitTransparentView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

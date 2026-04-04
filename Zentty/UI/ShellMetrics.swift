@@ -114,7 +114,11 @@ enum ShellMetrics {
         static let overflowLineHeight = lineHeight(for: overflowFont())
 
         private static func lineHeight(for font: NSFont) -> CGFloat {
-            ceil(font.ascender - font.descender + font.leading)
+            let sample = NSAttributedString(
+                string: "Ag",
+                attributes: [.font: font]
+            )
+            return ceil(sample.size().height)
         }
     }
 

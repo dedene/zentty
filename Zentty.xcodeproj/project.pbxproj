@@ -44,6 +44,9 @@
 		371FB2F8A67CC747CF1FFD4F /* CommandPaletteResultRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1664363F6DAF16AD33EECA9D /* CommandPaletteResultRow.swift */; };
 		37BA55C0F8CA3C6AB8738F66 /* ClaudeHookBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 873301C3643C70777575BF64 /* ClaudeHookBridge.swift */; };
 		38DB18B3D68AD8CDA8D85C4E /* AppMenuBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB3C0ACB087A96811645CE3 /* AppMenuBuilder.swift */; };
+		3ADE91AD9AAFB1171CD04F53 /* PaneDragSplitOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6E4A296F35695C7E5CD69E5 /* PaneDragSplitOverlayView.swift */; };
+		45969956D66F350452A9B24C /* PaneDragGhostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660571F8BACA8049EC6FF721 /* PaneDragGhostView.swift */; };
+		0871E4E79BCD91F1FA605903 /* PaneDragFloatingContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF9A63F1DE1469E71E530341 /* PaneDragFloatingContainer.swift */; };
 		3D8E68F60EB0EE09177233CC /* WorklaneHeaderSummaryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239D19C1C465BA5197EBC394 /* WorklaneHeaderSummaryBuilder.swift */; };
 		3F270AD6399CAA5729853F2D /* PaneContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F299D46F21F8BC295D1F0B3 /* PaneContainerView.swift */; };
 		436EBF7575C96541F36511A3 /* PaneDragSplitOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2BC275D0F7E90ACD593C6 /* PaneDragSplitOverlayView.swift */; };
@@ -57,6 +60,7 @@
 		4FE322E96C1A232404A28D38 /* PaneLayoutPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAA052B6DDCA1EE9D9F58BC0 /* PaneLayoutPreferencesTests.swift */; };
 		53C04E574AF84DBCF050718B /* PaneStripViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94042661C850159F74FC9F69 /* PaneStripViewTests.swift */; };
 		54429983035325D5F12099E2 /* SidebarWorklaneRowButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6036CEA3DA007CEA2955C180 /* SidebarWorklaneRowButton.swift */; };
+		5C17BF1BDA638D175B708F0B /* SidebarDropPlaceholderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D7EFEFAF41CDF7221E3C58 /* SidebarDropPlaceholderView.swift */; };
 		55C1CC506BD2F0613AD94835 /* AgentStatusSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003771A9512A8005B0DCF7DE /* AgentStatusSupportTests.swift */; };
 		55F7D4A1A8A84F4FA1AC0E11 /* ErrorReportingBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55F7D4A0A8A84F4FA1AC0E11 /* ErrorReportingBootstrapTests.swift */; };
 		5C90188186788922397ADD4A /* ProjectFileResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB2531220560D56153939CB /* ProjectFileResolver.swift */; };
@@ -138,6 +142,8 @@
 		C81F06F705D6F4A67A3DAE8F /* WorklaneSidebarSummaryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A594231C8131296490BB8E76 /* WorklaneSidebarSummaryBuilder.swift */; };
 		CC3E9AE062D12B88458DA88B /* FuzzyMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC0EFB8B00D5CA9A67589A3A /* FuzzyMatcher.swift */; };
 		CEE6C654BA6B3D3F6FCFCAE2 /* PaneFocusHistoryController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41CE6484C3A7D0F443F1FF10 /* PaneFocusHistoryController.swift */; };
+		D01A68A9811BA414D3ED958A /* PaneDragEdgeScrollDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D78A8BC12213FC8625A2CC /* PaneDragEdgeScrollDriver.swift */; };
+		372C9762EEE6FC4BEBE54A48 /* PaneDragSidebarEdgeScrollDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D73FFACAAA026DF3D30D4EB /* PaneDragSidebarEdgeScrollDriver.swift */; };
 		D0C44C284C252D950CB890FA /* WorklaneAttentionChipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9B72357CA80C59A161F7BE2 /* WorklaneAttentionChipView.swift */; };
 		D30BFC88CE52F92960ADE15C /* WorklaneSidebarSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F486F3A22B74F1699C4D18B9 /* WorklaneSidebarSummary.swift */; };
 		D3B45C25D1794724A766C6DA /* WorklaneStoreGitContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78A6A6B85882097AFFAE3EE /* WorklaneStoreGitContextTests.swift */; };
@@ -263,6 +269,8 @@
 		5E316EB04A90576B80F838D9 /* PaneAgentReducerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneAgentReducerTests.swift; sourceTree = "<group>"; };
 		5EEF748059F59CD2590E1C2C /* LibghosttySurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttySurface.swift; sourceTree = "<group>"; };
 		6036CEA3DA007CEA2955C180 /* SidebarWorklaneRowButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowButton.swift; sourceTree = "<group>"; };
+		25D7EFEFAF41CDF7221E3C58 /* SidebarDropPlaceholderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarDropPlaceholderView.swift; sourceTree = "<group>"; };
+		61898495143FBE5C4704E766 /* PaneFocusHistoryControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneFocusHistoryControllerTests.swift; sourceTree = "<group>"; };
 		63590216920018B71F1ACB7A /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		65F7D4A2A8A84F4FA1AC0E11 /* ErrorReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorReporting.swift; sourceTree = "<group>"; };
 		6BC138BE273ED92291124633 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
@@ -299,6 +307,8 @@
 		A3CFC2B870895651B043DF45 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A594231C8131296490BB8E76 /* WorklaneSidebarSummaryBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneSidebarSummaryBuilder.swift; sourceTree = "<group>"; };
 		A6243B7C8B8AE57798C0BFC0 /* WorklaneAttentionNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneAttentionNotificationCoordinator.swift; sourceTree = "<group>"; };
+		A6D78A8BC12213FC8625A2CC /* PaneDragEdgeScrollDriver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PaneDragEdgeScrollDriver.swift; sourceTree = "<group>"; };
+		0D73FFACAAA026DF3D30D4EB /* PaneDragSidebarEdgeScrollDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragSidebarEdgeScrollDriver.swift; sourceTree = "<group>"; };
 		A6AC3A2E72C18928AB5ADE0B /* Zentty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Zentty.entitlements; sourceTree = "<group>"; };
 		A78A6A6B85882097AFFAE3EE /* WorklaneStoreGitContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreGitContextTests.swift; sourceTree = "<group>"; };
 		AAEEE6EDBC73B9A55E684093 /* AgentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus.swift; sourceTree = "<group>"; };
@@ -364,6 +374,9 @@
 		F1CA54C85F2342CD81275B11 /* WorklaneStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStore.swift; sourceTree = "<group>"; };
 		F32F85F7274DE278E845FF4A /* GhosttyThemeResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyThemeResolverTests.swift; sourceTree = "<group>"; };
 		F486F3A22B74F1699C4D18B9 /* WorklaneSidebarSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneSidebarSummary.swift; sourceTree = "<group>"; };
+		F6E4A296F35695C7E5CD69E5 /* PaneDragSplitOverlayView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PaneDragSplitOverlayView.swift; sourceTree = "<group>"; };
+		660571F8BACA8049EC6FF721 /* PaneDragGhostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragGhostView.swift; sourceTree = "<group>"; };
+		BF9A63F1DE1469E71E530341 /* PaneDragFloatingContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragFloatingContainer.swift; sourceTree = "<group>"; };
 		F876089DABC0460791806F3E /* PaneDragHitTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragHitTesting.swift; sourceTree = "<group>"; };
 		FA88E1E64FB65E4B800852D7 /* GeneralSettingsSectionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsSectionViewController.swift; sourceTree = "<group>"; };
 		FD6261C82AADF1EDAAA09BC9 /* PaneStripMotionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripMotionController.swift; sourceTree = "<group>"; };
@@ -614,6 +627,12 @@
 				FEFFC2CAEA605772B62E73E5 /* PaneStripView.swift */,
 				28E15DDC0970C4214A4C9E5E /* PaneStripView+Transitions.swift */,
 				905DD9FD69FFEA7991390EA4 /* ScrollSwitchGestureHandler.swift */,
+				D79A98373ABACDCA526C5C0E /* PaneDragCoordinator.swift */,
+				3C2618D6A5CFBCC78BE8F460 /* PaneDragInsertionLineView.swift */,
+				C2461C56A887D30C4BF75B85 /* PaneDragZoneView.swift */,
+				F6E4A296F35695C7E5CD69E5 /* PaneDragSplitOverlayView.swift */,
+				660571F8BACA8049EC6FF721 /* PaneDragGhostView.swift */,
+				BF9A63F1DE1469E71E530341 /* PaneDragFloatingContainer.swift */,
 			);
 			path = PaneStrip;
 			sourceTree = "<group>";
@@ -668,6 +687,7 @@
 				163D5C0FE862CC71E8B354E2 /* SidebarVisibilityController.swift */,
 				ED4764B4017D1DF1354C6FFB /* SidebarWidthPreference.swift */,
 				6036CEA3DA007CEA2955C180 /* SidebarWorklaneRowButton.swift */,
+				25D7EFEFAF41CDF7221E3C58 /* SidebarDropPlaceholderView.swift */,
 				916D215502518D8BAF3C3921 /* SidebarWorklaneRowLayout.swift */,
 				F486F3A22B74F1699C4D18B9 /* WorklaneSidebarSummary.swift */,
 				A594231C8131296490BB8E76 /* WorklaneSidebarSummaryBuilder.swift */,
@@ -699,6 +719,8 @@
 				CAC113A53E86E67BCA330D9A /* PaneDragEdgeScrollDriver.swift */,
 				FD6261C82AADF1EDAAA09BC9 /* PaneStripMotionController.swift */,
 				D25EF5AC625776DA85911237 /* TrackpadPanGestureDriver.swift */,
+				A6D78A8BC12213FC8625A2CC /* PaneDragEdgeScrollDriver.swift */,
+				0D73FFACAAA026DF3D30D4EB /* PaneDragSidebarEdgeScrollDriver.swift */,
 			);
 			path = Motion;
 			sourceTree = "<group>";
@@ -1067,6 +1089,7 @@
 				C7E03A7F4908AC8B2713A19B /* SidebarVisibilityController.swift in Sources */,
 				F2CC773E6329B7259DDB1868 /* SidebarWidthPreference.swift in Sources */,
 				54429983035325D5F12099E2 /* SidebarWorklaneRowButton.swift in Sources */,
+				5C17BF1BDA638D175B708F0B /* SidebarDropPlaceholderView.swift in Sources */,
 				C41A9DA1C5F846F4F63F7D95 /* SidebarWorklaneRowLayout.swift in Sources */,
 				DC139F18052FBD8126678D7F /* TerminalAdapter.swift in Sources */,
 				21B5B2D8D083E4D952FD9E03 /* TerminalClipboard.swift in Sources */,
@@ -1092,6 +1115,17 @@
 				23F41140FCDDF143E82EE86C /* WorklaneStore+ReviewState.swift in Sources */,
 				4DA7426938463D7F07B7A515 /* WorklaneStore.swift in Sources */,
 				1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */,
+				9D443184551043DF838DDA04 /* WorklaneStore+DragDrop.swift in Sources */,
+				F36BE6675591A6AF3E696D7E /* PaneDragHitTesting.swift in Sources */,
+				EFD32A746246599BCED806EC /* PaneDragSession.swift in Sources */,
+				D01A68A9811BA414D3ED958A /* PaneDragEdgeScrollDriver.swift in Sources */,
+				372C9762EEE6FC4BEBE54A48 /* PaneDragSidebarEdgeScrollDriver.swift in Sources */,
+				B0097C47FE9A65DCF43F8452 /* PaneDragCoordinator.swift in Sources */,
+				BE4BC05B483733BEED16CD64 /* PaneDragInsertionLineView.swift in Sources */,
+				F12CEEDECC34F737A0E15D58 /* PaneDragZoneView.swift in Sources */,
+				3ADE91AD9AAFB1171CD04F53 /* PaneDragSplitOverlayView.swift in Sources */,
+				45969956D66F350452A9B24C /* PaneDragGhostView.swift in Sources */,
+				0871E4E79BCD91F1FA605903 /* PaneDragFloatingContainer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

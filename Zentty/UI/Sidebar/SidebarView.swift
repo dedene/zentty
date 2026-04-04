@@ -43,6 +43,7 @@ final class SidebarView: NSView {
     private var resizeStartWidth: CGFloat = SidebarWidthPreference.defaultWidth
     private var trackingArea: NSTrackingArea?
     private var isResizeEnabled = true
+    private var dropPlaceholder: SidebarDropPlaceholderView?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -337,6 +338,16 @@ final class SidebarView: NSView {
         resizeHandleView.setEnabled(isEnabled)
     }
 
+    func adjustScrollOffset(by delta: CGFloat) {
+        guard let clipView = listScrollView.contentView as? NSClipView else { return }
+        var origin = clipView.bounds.origin
+        origin.y += delta
+        let maxY = max(0, listDocumentView.frame.height - clipView.bounds.height)
+        origin.y = max(0, min(origin.y, maxY))
+        clipView.scroll(to: origin)
+        listScrollView.reflectScrolledClipView(clipView)
+    }
+
     func worklaneRowFrames(in targetView: NSView) -> [(WorklaneID, CGRect)] {
         worklaneButtons.compactMap { button in
             guard let worklaneID = button.worklaneID else { return nil }
@@ -348,6 +359,29 @@ final class SidebarView: NSView {
     func setHighlightedDropTargetWorklane(_ worklaneID: WorklaneID?) {
         for button in worklaneButtons {
             button.setDropTargetHighlighted(button.worklaneID == worklaneID)
+        }
+    }
+
+    func showNewWorklanePlaceholder() {
+        guard dropPlaceholder == nil else { return }
+
+        let placeholder = SidebarDropPlaceholderView()
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
+        listStack.addArrangedSubview(placeholder)
+        NSLayoutConstraint.activate([
+            placeholder.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
+            placeholder.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
+            placeholder.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight),
+        ])
+        dropPlaceholder = placeholder
+        placeholder.animateIn()
+    }
+
+    func hideNewWorklanePlaceholder() {
+        guard let placeholder = dropPlaceholder else { return }
+        placeholder.animateOut { [weak self] in
+            placeholder.removeFromSuperview()
+            self?.dropPlaceholder = nil
         }
     }
 
@@ -386,7 +420,7 @@ final class SidebarView: NSView {
             onResized?(
                 SidebarWidthPreference.clamped(
                     resizeStartWidth + translation,
-                    availableWidth: window?.screen?.visibleFrame.width
+                    availableWidth: window?.contentView?.bounds.width
                 )
             )
         default:

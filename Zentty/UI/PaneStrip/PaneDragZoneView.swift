@@ -6,8 +6,8 @@ final class PaneDragZoneView: NSView {
 
     var paneID: PaneID
 
-    /// All point callbacks deliver coordinates in the DragZoneView's own local space.
-    /// The receiver is responsible for converting to whatever target space it needs.
+    /// All point callbacks deliver coordinates in WINDOW space.
+    /// The receiver converts from window to whatever target space it needs.
     var onDragActivated: ((PaneID, CGPoint) -> Void)?
     var onDragMoved: ((CGPoint) -> Void)?
     var onDragEnded: ((CGPoint) -> Void)?
@@ -137,11 +137,9 @@ final class PaneDragZoneView: NSView {
 
         switch recognizer.state {
         case .began:
-            let location = recognizer.location(in: self)
-            dragOrigin = location
+            dragOrigin = recognizer.location(in: nil)
             dragTimestamp = CACurrentMediaTime()
             isDragActivated = false
-
 
         case .changed:
             guard let origin = dragOrigin else { return }
@@ -159,13 +157,11 @@ final class PaneDragZoneView: NSView {
                 onDragActivated?(paneID, origin)
             }
 
-            let current = recognizer.location(in: self)
-            onDragMoved?(current)
+            onDragMoved?(recognizer.location(in: nil))
 
         case .ended:
             if isDragActivated {
-                let current = recognizer.location(in: self)
-                onDragEnded?(current)
+                onDragEnded?(recognizer.location(in: nil))
             }
             resetDragState()
 

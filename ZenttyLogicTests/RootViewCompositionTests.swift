@@ -143,6 +143,8 @@ final class RootViewCompositionTests: XCTestCase {
                 "Arrange Width: Half Width",
                 "Arrange Width: Thirds",
                 "Arrange Width: Quarters",
+                "Arrange Width: Golden — Focus Wide",
+                "Arrange Width: Golden — Focus Narrow",
             ]
         )
 
@@ -153,6 +155,8 @@ final class RootViewCompositionTests: XCTestCase {
                 "Arrange Height: 2 Per Column",
                 "Arrange Height: 3 Per Column",
                 "Arrange Height: 4 Per Column",
+                "Arrange Height: Golden — Focus Tall",
+                "Arrange Height: Golden — Focus Short",
             ]
         )
     }
@@ -469,6 +473,37 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(
             SidebarWidthPreference.clamped(500, availableWidth: 900),
             SidebarWidthPreference.maximumWidth(for: 900),
+            accuracy: 0.001
+        )
+    }
+
+    func test_sidebar_maximum_width_respects_minimum_content_area() {
+        // 33% of 500 = 165 < minimumWidth (180), so minimumWidth wins
+        XCTAssertEqual(
+            SidebarWidthPreference.maximumWidth(for: 500),
+            SidebarWidthPreference.minimumWidth,
+            accuracy: 0.001
+        )
+
+        // 33% of 700 = 231; content guard = 500; fraction is binding
+        XCTAssertEqual(
+            SidebarWidthPreference.maximumWidth(for: 700),
+            231,
+            accuracy: 0.001
+        )
+
+        // Small window: fraction = floor(380*0.33) = 125, content guard = 180.
+        // min(125, 180) = 125. max(180, 125) = 180 (minimumWidth wins)
+        XCTAssertEqual(
+            SidebarWidthPreference.clamped(9999, availableWidth: 380),
+            SidebarWidthPreference.minimumWidth,
+            accuracy: 0.001
+        )
+
+        // Large window: fraction-based max governs as before
+        XCTAssertEqual(
+            SidebarWidthPreference.maximumWidth(for: 1440),
+            floor(1440 * 0.33),
             accuracy: 0.001
         )
     }
