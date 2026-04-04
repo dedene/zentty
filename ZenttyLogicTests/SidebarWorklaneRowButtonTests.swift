@@ -679,6 +679,63 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         )
     }
 
+    func test_running_status_shimmer_preserves_hue_and_increases_saturation() {
+        let row = makeRow()
+        let theme = darkTheme(foreground: "#F0F3F6")
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Running",
+                attentionState: .running,
+                isWorking: true
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        let baseComponents = try! XCTUnwrap(hsbComponents(theme.statusRunning))
+        let shimmerComponents = try! XCTUnwrap(hsbComponents(row.statusShimmerColorForTesting))
+
+        XCTAssertEqual(shimmerComponents.hue, baseComponents.hue, accuracy: 0.02)
+        XCTAssertGreaterThanOrEqual(shimmerComponents.saturation, baseComponents.saturation)
+    }
+
+    func test_working_pane_branch_stays_neutral_while_status_remains_semantic() {
+        let row = makeRow(width: 320, height: 110)
+        let theme = darkTheme(foreground: "#F0F3F6")
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Claude Code",
+                        trailingText: "main",
+                        detailText: "…/zentty",
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                ],
+                isWorking: true
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        XCTAssertEqual(
+            try! XCTUnwrap(row.firstPaneTrailingTextColorForTesting).srgbClamped,
+            theme.sidebarButtonInactiveText.withAlphaComponent(0.62).srgbClamped
+        )
+        XCTAssertEqual(
+            try! XCTUnwrap(row.firstPaneStatusTextColorForTesting).srgbClamped,
+            theme.statusRunning.srgbClamped
+        )
+    }
+
     func test_active_working_main_title_keeps_bright_base_text_and_uses_dark_shimmer_overlay() {
         let row = makeRow()
         let theme = darkTheme(foreground: "#F0F3F6")
@@ -1149,5 +1206,18 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         let green = left.greenComponent - right.greenComponent
         let blue = left.blueComponent - right.blueComponent
         return sqrt((red * red) + (green * green) + (blue * blue))
+    }
+
+    private func hsbComponents(_ color: NSColor) -> (hue: CGFloat, saturation: CGFloat, brightness: CGFloat)? {
+        guard let converted = color.usingColorSpace(.deviceRGB) else {
+            return nil
+        }
+
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        converted.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        return (hue, saturation, brightness)
     }
 }

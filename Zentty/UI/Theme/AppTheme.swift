@@ -476,6 +476,29 @@ extension NSColor {
         )
     }
 
+    func adjustedHSB(
+        saturationBy saturationDelta: CGFloat = 0,
+        brightnessBy brightnessDelta: CGFloat = 0,
+        alphaBy alphaDelta: CGFloat = 0
+    ) -> NSColor {
+        guard let rgb = usingColorSpace(.deviceRGB) else {
+            return self
+        }
+
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+
+        return NSColor(
+            deviceHue: hue,
+            saturation: min(max(saturation + saturationDelta, 0), 1),
+            brightness: min(max(brightness + brightnessDelta, 0), 1),
+            alpha: min(max(alpha + alphaDelta, 0), 1)
+        )
+    }
+
     func composited(over background: NSColor) -> NSColor {
         let source = srgbClamped
         let destination = background.srgbClamped
