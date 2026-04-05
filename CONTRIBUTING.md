@@ -31,10 +31,10 @@ Bootstrap the required Ghostty framework:
 ./scripts/build_ghosttykit.sh
 ```
 
-Run the test suite with isolated DerivedData:
+Run the test suite:
 
 ```bash
-xcodebuild test -scheme Zentty -destination 'platform=macOS' -derivedDataPath /tmp/zentty-agent-$$
+xcodebuild test -scheme Zentty -destination 'platform=macOS'
 ```
 
 Regenerate the Xcode project when needed:
