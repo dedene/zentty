@@ -41,10 +41,10 @@ More detail about the Ghostty bootstrap flow lives in [`docs/ghosttykit-setup.md
 
 ## Test
 
-Run the full test suite with an isolated DerivedData path:
+Run the full test suite:
 
 ```bash
-xcodebuild test -scheme Zentty -destination 'platform=macOS' -derivedDataPath /tmp/zentty-agent-$$
+xcodebuild test -scheme Zentty -destination 'platform=macOS'
 ```
 
 ## Agent Hooks
