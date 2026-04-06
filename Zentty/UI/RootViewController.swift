@@ -63,7 +63,7 @@ final class RootViewController: NSViewController {
     private let agentStatusCenter = AgentStatusCenter()
     private let sidebarMotionCoordinator: SidebarMotionCoordinator
     private let themeCoordinator: ThemeCoordinator
-    private let notificationStore = NotificationStore()
+    private let notificationCoordinator: NotificationChromeCoordinator
     private let renderCoordinator: WorklaneRenderCoordinator
     private var staleAgentSweepTimer: Timer?
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
@@ -87,9 +87,7 @@ final class RootViewController: NSViewController {
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
     private var pathCopiedToastView: PathCopiedToastView?
     private let paneNavigationButtons = PaneNavigationButtons()
-    private let paneLayoutMenuButton = PaneLayoutMenuButton()
-    private let notificationBellButton = NotificationBellButton()
-    private var notificationPanelView: NotificationPanelView?
+    private let paneLayoutMenuCoordinator: PaneLayoutMenuCoordinator
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
     private let commandPaletteController = CommandPaletteController()
     private var appUpdateObserverID: UUID?
@@ -122,6 +120,10 @@ final class RootViewController: NSViewController {
             configStore: configStore
         )
         self.themeCoordinator = ThemeCoordinator()
+        self.notificationCoordinator = NotificationChromeCoordinator()
+        self.paneLayoutMenuCoordinator = PaneLayoutMenuCoordinator(
+            shortcutManager: shortcutManager
+        )
         self.worklaneStore = WorklaneStore(
             layoutContext: initialLayoutContext,
             gitContextResolver: gitContextResolver
@@ -129,7 +131,7 @@ final class RootViewController: NSViewController {
         self.renderCoordinator = WorklaneRenderCoordinator(
             worklaneStore: worklaneStore,
             runtimeRegistry: runtimeRegistry,
-            notificationStore: notificationStore,
+            notificationStore: notificationCoordinator.store,
             configStore: configStore,
             reviewStateResolver: reviewStateResolver
         )
@@ -212,8 +214,8 @@ final class RootViewController: NSViewController {
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
         sidebarToggleButton.translatesAutoresizingMaskIntoConstraints = false
         paneNavigationButtons.translatesAutoresizingMaskIntoConstraints = false
-        paneLayoutMenuButton.translatesAutoresizingMaskIntoConstraints = false
-        notificationBellButton.translatesAutoresizingMaskIntoConstraints = false
+        paneLayoutMenuCoordinator.menuButton.translatesAutoresizingMaskIntoConstraints = false
+        notificationCoordinator.bellButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appCanvasView)
         view.addSubview(paneBorderContextOverlayView)
         view.addSubview(windowChromeView)
@@ -221,9 +223,9 @@ final class RootViewController: NSViewController {
         view.addSubview(sidebarView)
         view.addSubview(dragOverlayView)
         view.addSubview(sidebarToggleButton)
-        view.addSubview(paneLayoutMenuButton)
+        view.addSubview(paneLayoutMenuCoordinator.menuButton)
         view.addSubview(paneNavigationButtons)
-        view.addSubview(notificationBellButton)
+        view.addSubview(notificationCoordinator.bellButton)
         sidebarView.setUpdateAvailable(isUpdateAvailable)
 
         let sidebarWidthConstraint = sidebarView.widthAnchor.constraint(
@@ -306,22 +308,22 @@ final class RootViewController: NSViewController {
             sidebarToggleButton.heightAnchor.constraint(
                 equalToConstant: SidebarToggleButton.buttonSize),
 
-            paneLayoutMenuButton.leadingAnchor.constraint(
+            paneLayoutMenuCoordinator.menuButton.leadingAnchor.constraint(
                 equalTo: sidebarToggleButton.trailingAnchor,
                 constant: 4
             ),
-            paneLayoutMenuButton.centerYAnchor.constraint(
+            paneLayoutMenuCoordinator.menuButton.centerYAnchor.constraint(
                 equalTo: sidebarToggleButton.centerYAnchor
             ),
-            paneLayoutMenuButton.widthAnchor.constraint(
+            paneLayoutMenuCoordinator.menuButton.widthAnchor.constraint(
                 equalToConstant: PaneLayoutMenuButton.buttonSize
             ),
-            paneLayoutMenuButton.heightAnchor.constraint(
+            paneLayoutMenuCoordinator.menuButton.heightAnchor.constraint(
                 equalToConstant: PaneLayoutMenuButton.buttonSize
             ),
 
             paneNavigationButtons.leadingAnchor.constraint(
-                equalTo: paneLayoutMenuButton.trailingAnchor, constant: 4),
+                equalTo: paneLayoutMenuCoordinator.menuButton.trailingAnchor, constant: 4),
             paneNavigationButtons.centerYAnchor.constraint(
                 equalTo: sidebarToggleButton.centerYAnchor),
             paneNavigationButtons.widthAnchor.constraint(
@@ -329,13 +331,13 @@ final class RootViewController: NSViewController {
             paneNavigationButtons.heightAnchor.constraint(
                 equalToConstant: PaneNavigationButtons.buttonSize),
 
-            notificationBellButton.leadingAnchor.constraint(
+            notificationCoordinator.bellButton.leadingAnchor.constraint(
                 equalTo: paneNavigationButtons.trailingAnchor, constant: 8),
-            notificationBellButton.centerYAnchor.constraint(
+            notificationCoordinator.bellButton.centerYAnchor.constraint(
                 equalTo: sidebarToggleButton.centerYAnchor),
-            notificationBellButton.widthAnchor.constraint(
+            notificationCoordinator.bellButton.widthAnchor.constraint(
                 equalToConstant: NotificationBellButton.buttonSize),
-            notificationBellButton.heightAnchor.constraint(
+            notificationCoordinator.bellButton.heightAnchor.constraint(
                 equalToConstant: NotificationBellButton.buttonSize),
         ])
 
@@ -397,23 +399,19 @@ final class RootViewController: NSViewController {
         paneNavigationButtons.update(canGoBack: false, canGoForward: false, theme: currentTheme)
         paneNavigationButtons.configure(theme: currentTheme, animated: false)
 
-        paneLayoutMenuButton.target = self
-        paneLayoutMenuButton.action = #selector(handlePaneLayoutMenuAction)
-        paneLayoutMenuButton.configure(theme: currentTheme, animated: false)
-
-        notificationBellButton.onClick = { [weak self] in
-            self?.toggleNotificationPanel()
+        paneLayoutMenuCoordinator.setup(
+            target: self,
+            buttonAction: #selector(handlePaneLayoutMenuAction),
+            menuItemAction: #selector(handlePaneLayoutMenuItem(_:)),
+            theme: currentTheme
+        )
+        paneLayoutMenuCoordinator.onAction = { [weak self] action in
+            self?.handle(action)
         }
-        notificationBellButton.update(count: 0, theme: currentTheme)
-        notificationBellButton.configure(theme: currentTheme, animated: false)
-        notificationStore.onChange = { [weak self] in
-            guard let self else { return }
-            self.notificationBellButton.update(
-                count: self.notificationStore.unresolvedCount, theme: self.currentTheme)
-            self.notificationPanelView?.update(
-                notifications: self.notificationStore.notifications, theme: self.currentTheme)
-            let count = self.notificationStore.unresolvedCount
-            NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
+
+        notificationCoordinator.setup(parentView: view, theme: currentTheme)
+        notificationCoordinator.onNavigateToPane = { [weak self] worklaneID, paneID in
+            self?.navigateToPane(worklaneID: worklaneID, paneID: paneID)
         }
 
         paneBorderContextOverlayView.onPathClicked = { [weak self] paneID in
@@ -718,127 +716,12 @@ final class RootViewController: NSViewController {
 
     @objc
     private func handlePaneLayoutMenuAction() {
-        showPaneLayoutMenu()
+        paneLayoutMenuCoordinator.showMenu(worklaneStore: worklaneStore)
     }
 
     @objc
     private func handlePaneLayoutMenuItem(_ sender: NSMenuItem) {
-        guard let commandID = sender.representedObject as? AppCommandID else {
-            return
-        }
-
-        handle(AppCommandRegistry.definition(for: commandID).action)
-    }
-
-    private func showPaneLayoutMenu() {
-        let menu = makePaneLayoutMenu()
-        let menuLocation = NSPoint(x: 0, y: paneLayoutMenuButton.bounds.height)
-        menu.popUp(positioning: nil, at: menuLocation, in: paneLayoutMenuButton)
-    }
-
-    private func makePaneLayoutMenu() -> NSMenu {
-        let menu = NSMenu(title: "")
-        menu.autoenablesItems = false
-        addPaneLayoutMenuItems([.splitHorizontally, .splitVertically], to: menu)
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(
-            makePaneLayoutSubmenuItem(
-                title: "Width Presets",
-                commandIDs: [
-                    .arrangeWidthFull,
-                    .arrangeWidthHalves,
-                    .arrangeWidthThirds,
-                    .arrangeWidthQuarters,
-                ],
-                trailingCommandIDs: [
-                    .arrangeWidthGoldenFocusWide,
-                    .arrangeWidthGoldenFocusNarrow,
-                ]
-            )
-        )
-        menu.addItem(
-            makePaneLayoutSubmenuItem(
-                title: "Height Presets",
-                commandIDs: [
-                    .arrangeHeightFull,
-                    .arrangeHeightTwoPerColumn,
-                    .arrangeHeightThreePerColumn,
-                    .arrangeHeightFourPerColumn,
-                ],
-                trailingCommandIDs: [
-                    .arrangeHeightGoldenFocusTall,
-                    .arrangeHeightGoldenFocusShort,
-                ]
-            )
-        )
-        return menu
-    }
-
-    private func makePaneLayoutSubmenuItem(
-        title: String,
-        commandIDs: [AppCommandID],
-        trailingCommandIDs: [AppCommandID] = []
-    ) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        let submenu = NSMenu(title: title)
-        submenu.autoenablesItems = false
-        addPaneLayoutMenuItems(commandIDs, to: submenu)
-        if !trailingCommandIDs.isEmpty {
-            submenu.addItem(NSMenuItem.separator())
-            addPaneLayoutMenuItems(trailingCommandIDs, to: submenu)
-        }
-        let allCommandIDs = commandIDs + trailingCommandIDs
-        item.submenu = submenu
-        item.isEnabled = allCommandIDs.contains(where: isPaneLayoutMenuCommandEnabled)
-        return item
-    }
-
-    private func addPaneLayoutMenuItems(_ commandIDs: [AppCommandID], to menu: NSMenu) {
-        commandIDs.forEach { commandID in
-            menu.addItem(makePaneLayoutMenuItem(commandID: commandID))
-        }
-    }
-
-    private func makePaneLayoutMenuItem(commandID: AppCommandID) -> NSMenuItem {
-        let definition = AppCommandRegistry.definition(for: commandID)
-        let title = definition.menuItem?.title ?? definition.title
-        let item = NSMenuItem(title: title, action: #selector(handlePaneLayoutMenuItem(_:)), keyEquivalent: "")
-        item.target = self
-        item.representedObject = commandID
-        item.isEnabled = isPaneLayoutMenuCommandEnabled(commandID)
-        apply(shortcutManager.shortcut(for: commandID), to: item)
-        return item
-    }
-
-    private func isPaneLayoutMenuCommandEnabled(_ commandID: AppCommandID) -> Bool {
-        let paneStripState = worklaneStore.activeWorklane?.paneStripState
-        let paneCount = paneStripState?.panes.count ?? 0
-        switch commandID {
-        case .splitHorizontally, .splitVertically:
-            return paneCount > 0
-        case .arrangeWidthFull,
-            .arrangeWidthHalves,
-            .arrangeWidthThirds,
-            .arrangeWidthQuarters,
-            .arrangeHeightFull,
-            .arrangeHeightTwoPerColumn,
-            .arrangeHeightThreePerColumn,
-            .arrangeHeightFourPerColumn:
-            return paneCount > 1
-        case .arrangeWidthGoldenFocusWide,
-            .arrangeWidthGoldenFocusNarrow:
-            return (paneStripState?.columns.count ?? 0) >= 2
-        case .arrangeHeightGoldenFocusTall,
-            .arrangeHeightGoldenFocusShort:
-            return (paneStripState?.focusedColumn?.panes.count ?? 0) >= 2
-        default:
-            return true
-        }
-    }
-
-    private func apply(_ shortcut: KeyboardShortcut?, to item: NSMenuItem) {
-        item.keyEquivalent = shortcut?.menuKeyEquivalent ?? ""
-        item.keyEquivalentModifierMask = shortcut?.menuModifierFlags ?? []
+        paneLayoutMenuCoordinator.handleMenuItem(sender)
     }
 
     private func installKeyboardMonitorIfNeeded() {
@@ -885,7 +768,10 @@ final class RootViewController: NSViewController {
         case .copyFocusedPanePath:
             copyFocusedPanePath()
         case .jumpToLatestNotification:
-            jumpToLatestNotification()
+            if let notification = notificationCoordinator.store.mostUrgentUnresolved() {
+                notificationCoordinator.closePanel()
+                navigateToPane(worklaneID: notification.worklaneID, paneID: notification.paneID)
+            }
         case .pane(let command):
             handlePaneCommand(command)
         case .navigateBack:
@@ -1092,52 +978,9 @@ final class RootViewController: NSViewController {
             && focusedColumnIndex + 1 < state.columns.count
     }
 
-    private func jumpToLatestNotification() {
-        guard let notification = notificationStore.mostUrgentUnresolved() else { return }
-        closeNotificationPanel()
-        navigateToPane(worklaneID: notification.worklaneID, paneID: notification.paneID)
-    }
-
-    private func toggleNotificationPanel() {
-        if notificationPanelView != nil {
-            closeNotificationPanel()
-        } else {
-            showNotificationPanel()
-        }
-    }
-
-    private func showNotificationPanel() {
-        guard notificationPanelView == nil else { return }
-        let panel = NotificationPanelView()
-        panel.onJumpToLatest = { [weak self] in
-            self?.jumpToLatestNotification()
-        }
-        panel.onClearAll = { [weak self] in
-            self?.notificationStore.clearAll()
-        }
-        panel.onDismissNotification = { [weak self] id in
-            self?.notificationStore.dismiss(id: id)
-        }
-        panel.onJumpToNotification = { [weak self] notification in
-            self?.closeNotificationPanel()
-            self?.navigateToPane(worklaneID: notification.worklaneID, paneID: notification.paneID)
-        }
-        panel.onClosePanel = { [weak self] in
-            self?.closeNotificationPanel()
-        }
-        notificationPanelView = panel
-        panel.show(below: notificationBellButton, in: view, theme: currentTheme)
-        panel.update(notifications: notificationStore.notifications, theme: currentTheme)
-    }
-
-    private func closeNotificationPanel() {
-        notificationPanelView?.close()
-        notificationPanelView = nil
-    }
-
     func navigateToPane(worklaneID: WorklaneID, paneID: PaneID) {
         worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
-        notificationStore.resolve(worklaneID: worklaneID, paneID: paneID)
+        notificationCoordinator.store.resolve(worklaneID: worklaneID, paneID: paneID)
     }
 
     private func showCommandPalette() {
@@ -1342,8 +1185,9 @@ final class RootViewController: NSViewController {
             isActive: sidebarMotionCoordinator.mode == .pinnedOpen,
             animated: animated
         )
-        paneLayoutMenuButton.configure(theme: theme, animated: animated)
+        paneLayoutMenuCoordinator.applyTheme(theme, animated: animated)
         paneNavigationButtons.configure(theme: theme, animated: animated)
+        notificationCoordinator.applyTheme(theme, animated: animated)
         updatePaneNavigationButtonState()
         windowChromeView.apply(theme: theme, animated: animated)
         appCanvasView.apply(theme: theme, animated: animated)
@@ -1590,13 +1434,13 @@ final class RootViewController: NSViewController {
         }
 
         func paneLayoutMenuCommandTitlesForTesting() -> [String] {
-            makePaneLayoutMenu().items
+            paneLayoutMenuCoordinator.makeMenu(worklaneStore: worklaneStore).items
                 .filter { !$0.isSeparatorItem }
                 .map(\.title)
         }
 
         func paneLayoutSubmenuCommandTitlesForTesting(_ title: String) -> [String] {
-            makePaneLayoutMenu().items
+            paneLayoutMenuCoordinator.makeMenu(worklaneStore: worklaneStore).items
                 .first { !$0.isSeparatorItem && $0.title == title }?
                 .submenu?
                 .items
@@ -1654,6 +1498,7 @@ final class RootViewController: NSViewController {
     private func applyPersistedConfig(_ config: AppConfig) {
         paneLayoutPreferences = config.paneLayout
         shortcutManager = ShortcutManager(shortcuts: config.shortcuts)
+        paneLayoutMenuCoordinator.updateShortcutManager(shortcutManager)
         preloadOpenWithIcons()
         sidebarMotionCoordinator.applyPersistedSidebarSettings(
             config.sidebar,
