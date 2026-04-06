@@ -28,6 +28,10 @@ def run_command(*args, chdir: PROJECT_ROOT)
   [stdout, stderr, status]
 end
 
+def xcrun_path
+  "/usr/bin/xcrun"
+end
+
 def capture_command!(*args, chdir: PROJECT_ROOT, error_message: nil)
   stdout, stderr, status = run_command(*args, chdir: chdir)
   return stdout if status.success?
@@ -228,15 +232,22 @@ def determine_release_channel(options)
 end
 
 def determine_release_version(channel:, requested_version:)
+  latest_stable_version = latest_published_version(channel: "stable")
   default_version = ReleaseAutomation.suggested_version(
     channel: channel,
-    latest_version: latest_published_version(channel: "stable") || "0.0.0"
+    latest_version: latest_stable_version,
+    fallback_version: read_project_marketing_version
   )
 
   if requested_version.to_s.strip.empty?
     return default_version unless UI.interactive?
 
-    UI.message("Latest published stable version: #{latest_published_version(channel: "stable") || "none"}")
+    if latest_stable_version
+      UI.message("Latest published stable version: #{latest_stable_version}")
+    else
+      UI.message("Latest published stable version: none")
+      UI.message("Using current project version #{read_project_marketing_version} as the first release default")
+    end
     response = UI.input("Release version [default: #{default_version}]")
     response = default_version if response.to_s.strip.empty?
     return response.strip
@@ -279,9 +290,15 @@ end
 def write_project_marketing_version(version:)
   project_spec_path = File.join(PROJECT_ROOT, PROJECT_SPEC)
   project_spec = File.read(project_spec_path)
-  updated_project_spec = project_spec.sub(/^(\s*MARKETING_VERSION:\s*).+$/, "\\1#{version}")
-
-  UI.user_error!("MARKETING_VERSION not found in #{PROJECT_SPEC}") if updated_project_spec == project_spec
+  UI.user_error!("MARKETING_VERSION not found in #{PROJECT_SPEC}") unless ReleaseAutomation.yaml_scalar_present?(
+    content: project_spec,
+    key: "MARKETING_VERSION"
+  )
+  updated_project_spec = ReleaseAutomation.replace_yaml_scalar(
+    content: project_spec,
+    key: "MARKETING_VERSION",
+    value: version
+  )
 
   File.write(project_spec_path, updated_project_spec)
 end
@@ -289,9 +306,15 @@ end
 def write_project_build_number(build_number:)
   project_spec_path = File.join(PROJECT_ROOT, PROJECT_SPEC)
   project_spec = File.read(project_spec_path)
-  updated_project_spec = project_spec.sub(/^(\s*CURRENT_PROJECT_VERSION:\s*).+$/, "\\1#{build_number}")
-
-  UI.user_error!("CURRENT_PROJECT_VERSION not found in #{PROJECT_SPEC}") if updated_project_spec == project_spec
+  UI.user_error!("CURRENT_PROJECT_VERSION not found in #{PROJECT_SPEC}") unless ReleaseAutomation.yaml_scalar_present?(
+    content: project_spec,
+    key: "CURRENT_PROJECT_VERSION"
+  )
+  updated_project_spec = ReleaseAutomation.replace_yaml_scalar(
+    content: project_spec,
+    key: "CURRENT_PROJECT_VERSION",
+    value: build_number
+  )
 
   File.write(project_spec_path, updated_project_spec)
 end
@@ -550,7 +573,14 @@ def wrangler_put_file!(local_path:, object_key:, content_type:, cache_control:)
   )
 end
 
-def upsert_github_release!(tag_name:, version:, channel:, notes_path:)
+def upload_github_release_assets!(tag_name:, asset_paths:)
+  paths = Array(asset_paths).select { |path| path && File.file?(path) }
+  return if paths.empty?
+
+  sh("gh", "release", "upload", tag_name, *paths, "--clobber")
+end
+
+def upsert_github_release!(tag_name:, version:, channel:, notes_path:, asset_paths: [])
   if github_release_exists?(tag_name)
     sh(
       "gh", "release", "edit", tag_name,
@@ -568,6 +598,8 @@ def upsert_github_release!(tag_name:, version:, channel:, notes_path:)
     args << "--latest" if channel == "stable"
     sh(*args)
   end
+
+  upload_github_release_assets!(tag_name: tag_name, asset_paths: asset_paths)
 end
 
 def prepare_release_notes!(tag_name:, archive_basename:)
@@ -605,8 +637,25 @@ def sparkle_generate_appcast_binary!
   return explicit_bin if !explicit_bin.empty? && File.executable?(explicit_bin)
 
   checkout = sparkle_checkout_path!
-  capture_command!("swift", "build", "-c", "release", "--product", "generate_appcast", chdir: checkout, error_message: "Failed to build Sparkle generate_appcast tool")
-  File.join(checkout, ".build", "release", "generate_appcast")
+  build_dir = project_root_path("build", "sparkle-tools")
+  binary_path = File.join(build_dir, "generate_appcast")
+  return binary_path if File.executable?(binary_path)
+
+  FileUtils.mkdir_p(build_dir)
+  capture_command!(
+    xcrun_path, "xcodebuild",
+    "-project", File.join(checkout, "Sparkle.xcodeproj"),
+    "-scheme", "generate_appcast",
+    "-configuration", "Release",
+    "CONFIGURATION_BUILD_DIR=#{build_dir}",
+    "CODE_SIGNING_ALLOWED=NO",
+    "CODE_SIGNING_REQUIRED=NO",
+    "build",
+    chdir: checkout,
+    error_message: "Failed to build Sparkle generate_appcast tool"
+  )
+  UI.user_error!("Expected generate_appcast at #{binary_path}") unless File.executable?(binary_path)
+  binary_path
 end
 
 def build_generate_appcast_arguments(channel:)
@@ -725,14 +774,19 @@ def run_release_pipeline(options)
   package_release_dmg!
   notarize_release_dmg!
 
-  push_release_tag!(tag_name)
-
   archive_basename = ENV["ZENTTY_ARCHIVE_BASENAME"] || ReleaseAutomation.archive_basename(app_name: APP_NAME, version: version, build: build_number)
   stage_release_archive!(zip_path: ENV.fetch("ZENTTY_ZIP_PATH"))
   notes_path = prepare_release_notes!(tag_name: tag_name, archive_basename: archive_basename)
   generate_sparkle_appcast!(channel: channel)
   upload_release_artifacts_to_r2!(dmg_path: ENV.fetch("ZENTTY_DMG_PATH"))
-  upsert_github_release!(tag_name: tag_name, version: version, channel: channel, notes_path: notes_path)
+  push_release_tag!(tag_name)
+  upsert_github_release!(
+    tag_name: tag_name,
+    version: version,
+    channel: channel,
+    notes_path: notes_path,
+    asset_paths: [ENV.fetch("ZENTTY_DMG_PATH")]
+  )
 end
 
 lane :bundle do

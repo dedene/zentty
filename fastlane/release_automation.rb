@@ -14,23 +14,30 @@ module ReleaseAutomation
   end
 
   def normalized_version(value)
-    value.to_s.strip.sub(/\Av/, "")
+    normalized = value.to_s.strip.sub(/\Av/, "")
+    normalized.empty? ? nil : normalized
   end
 
   def release_tag(version)
-    "v#{normalized_version(version)}"
+    normalized = normalized_version(version)
+    raise ArgumentError, "Release tag requires a version" if normalized.nil?
+
+    "v#{normalized}"
   end
 
   def stable_version?(value)
-    STABLE_VERSION_REGEX.match?(normalized_version(value))
+    normalized = normalized_version(value)
+    !normalized.nil? && STABLE_VERSION_REGEX.match?(normalized)
   end
 
   def beta_version?(value)
-    BETA_VERSION_REGEX.match?(normalized_version(value))
+    normalized = normalized_version(value)
+    !normalized.nil? && BETA_VERSION_REGEX.match?(normalized)
   end
 
   def validate_version!(channel:, version:)
     normalized = normalized_version(version)
+    raise ArgumentError, "Release version is required" if normalized.nil?
 
     case normalize_channel(channel)
     when "stable"
@@ -53,8 +60,18 @@ module ReleaseAutomation
     "#{major}.#{minor}.#{patch + 1}"
   end
 
-  def suggested_version(channel:, latest_version:)
-    base = patch_bump(latest_version || "0.0.0")
+  def suggested_version(channel:, latest_version:, fallback_version: nil)
+    normalized_latest = normalized_version(latest_version)
+    base =
+      if normalized_latest.nil?
+        normalized_fallback = normalized_version(fallback_version)
+        raise ArgumentError, "Cannot suggest version without a stable fallback version" unless stable_version?(normalized_fallback)
+
+        normalized_fallback
+      else
+        patch_bump(normalized_latest)
+      end
+
     normalize_channel(channel) == "beta" ? "#{base}-beta.1" : base
   end
 
@@ -63,7 +80,19 @@ module ReleaseAutomation
   end
 
   def archive_basename(app_name:, version:, build:)
-    "#{app_name}-#{normalized_version(version)}-#{build}"
+    normalized = normalized_version(version)
+    raise ArgumentError, "Archive basename requires a version" if normalized.nil?
+
+    "#{app_name}-#{normalized}-#{build}"
+  end
+
+  def replace_yaml_scalar(content:, key:, value:)
+    pattern = /^(\s*#{Regexp.escape(key)}:\s*).+$/
+    content.sub(pattern) { "#{$1}#{value}" }
+  end
+
+  def yaml_scalar_present?(content:, key:)
+    content.match?(/^\s*#{Regexp.escape(key)}:\s*.+$/)
   end
 
   def appcast_key

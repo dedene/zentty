@@ -40,6 +40,8 @@ assert_nil ReleaseAutomation.normalize_channel("nightly")
 
 assert_equal "v1.2.3", ReleaseAutomation.release_tag("1.2.3")
 assert_equal "v1.2.3", ReleaseAutomation.release_tag("v1.2.3")
+assert_nil ReleaseAutomation.normalized_version(nil)
+assert_nil ReleaseAutomation.normalized_version("")
 
 assert ReleaseAutomation.stable_version?("1.2.3")
 refute_stable = ReleaseAutomation.stable_version?("1.2.3-beta.1")
@@ -54,6 +56,35 @@ assert_equal "1.2.3-beta.4", ReleaseAutomation.validate_version!(channel: "beta"
 assert_equal "1.2.4", ReleaseAutomation.patch_bump("1.2.3")
 assert_equal "1.2.4", ReleaseAutomation.suggested_version(channel: "stable", latest_version: "v1.2.3")
 assert_equal "1.2.4-beta.1", ReleaseAutomation.suggested_version(channel: "beta", latest_version: "1.2.3")
+assert_equal "0.1.0", ReleaseAutomation.suggested_version(channel: "stable", latest_version: nil, fallback_version: "0.1.0")
+assert_equal "0.1.0-beta.1", ReleaseAutomation.suggested_version(channel: "beta", latest_version: "", fallback_version: "0.1.0")
+
+yaml = <<~YAML
+  targets:
+    Zentty:
+      settings:
+        base:
+          CURRENT_PROJECT_VERSION: 180
+          MARKETING_VERSION: 0.1.0
+YAML
+
+updated_yaml = ReleaseAutomation.replace_yaml_scalar(
+  content: yaml,
+  key: "MARKETING_VERSION",
+  value: "0.2.0"
+)
+assert_match(/MARKETING_VERSION: 0\.2\.0/, updated_yaml)
+
+updated_yaml = ReleaseAutomation.replace_yaml_scalar(
+  content: yaml,
+  key: "CURRENT_PROJECT_VERSION",
+  value: "184"
+)
+assert_match(/CURRENT_PROJECT_VERSION: 184/, updated_yaml)
+assert_equal true, ReleaseAutomation.yaml_scalar_present?(content: yaml, key: "MARKETING_VERSION")
+assert_equal true, ReleaseAutomation.yaml_scalar_present?(content: yaml, key: "CURRENT_PROJECT_VERSION")
+assert_equal false, ReleaseAutomation.yaml_scalar_present?(content: yaml, key: "DOES_NOT_EXIST")
+assert_equal yaml, ReleaseAutomation.replace_yaml_scalar(content: yaml, key: "MARKETING_VERSION", value: "0.1.0")
 
 assert_nil ReleaseAutomation.sparkle_channel("stable")
 assert_equal "beta", ReleaseAutomation.sparkle_channel("beta")
