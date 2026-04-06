@@ -130,6 +130,29 @@ final class WorklaneStoreShellExitTests: XCTestCase {
         XCTAssertFalse(store.anyPaneRequiresQuitConfirmation)
     }
 
+    func test_terminal_progress_requires_quit_confirmation() {
+        let paneID = PaneID("main-shell")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: paneID, title: "shell")],
+                        focusedPaneID: paneID
+                    ),
+                    terminalProgressByPaneID: [
+                        paneID: TerminalProgressReport(state: .indeterminate, progress: nil)
+                    ]
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        XCTAssertEqual(store.paneCloseConfirmationReason(paneID), .runningProcess)
+        XCTAssertTrue(store.anyPaneRequiresQuitConfirmation)
+    }
+
     // MARK: - Not found
 
     func test_shell_exit_returns_not_found_for_unknown_pane() {

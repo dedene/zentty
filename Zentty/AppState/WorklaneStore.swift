@@ -307,9 +307,7 @@ final class WorklaneStore {
     func paneCloseConfirmationReason(_ paneID: PaneID) -> PaneCloseReason? {
         for worklane in worklanes {
             guard let aux = worklane.auxiliaryStateByPaneID[paneID] else { continue }
-            if aux.shellActivityState == .commandRunning { return .runningProcess }
-            if aux.hasCommandHistory { return .sessionHistory }
-            return nil
+            return quitConfirmationReason(for: aux)
         }
         return nil
     }
@@ -317,9 +315,22 @@ final class WorklaneStore {
     var anyPaneRequiresQuitConfirmation: Bool {
         worklanes.contains { worklane in
             worklane.auxiliaryStateByPaneID.values.contains {
-                $0.shellActivityState == .commandRunning || $0.hasCommandHistory
+                quitConfirmationReason(for: $0) != nil
             }
         }
+    }
+
+    private func quitConfirmationReason(for auxiliaryState: PaneAuxiliaryState) -> PaneCloseReason? {
+        if auxiliaryState.shellActivityState == .commandRunning
+            || auxiliaryState.terminalProgress?.state.indicatesActivity == true {
+            return .runningProcess
+        }
+
+        if auxiliaryState.hasCommandHistory {
+            return .sessionHistory
+        }
+
+        return nil
     }
 
     // MARK: - Focus History Navigation

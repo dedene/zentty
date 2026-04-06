@@ -371,6 +371,55 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(visibleLaunchedWindows.count, 1)
     }
 
+    func test_application_quit_prompts_when_background_window_has_active_terminal_progress() throws {
+        NSApp.mainMenu = nil
+
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) }
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        delegate.newWindow(nil)
+
+        let opened = expectation(description: "windows opened")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { opened.fulfill() }
+        wait(for: [opened], timeout: 2.0)
+
+        let controllers = delegate.windowControllersForTesting
+        XCTAssertEqual(controllers.count, 2)
+
+        let blockingController = controllers[0]
+        let keyController = controllers[1]
+        let paneID = PaneID("main-shell")
+        blockingController.rootViewControllerForTesting.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "shell")],
+                    focusedPaneID: paneID
+                ),
+                terminalProgressByPaneID: [
+                    paneID: TerminalProgressReport(state: .indeterminate, progress: nil)
+                ]
+            )
+        ], activeWorklaneID: WorklaneID("main"))
+
+        let replaced = expectation(description: "worklane replaced")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { replaced.fulfill() }
+        wait(for: [replaced], timeout: 2.0)
+
+        keyController.window.makeKeyAndOrderFront(nil)
+        let focused = expectation(description: "key window focused")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused.fulfill() }
+        wait(for: [focused], timeout: 2.0)
+
+        let reply = delegate.applicationShouldTerminate(NSApp)
+
+        XCTAssertEqual(reply, .terminateLater)
+        XCTAssertNotNil(blockingController.window.attachedSheet)
+        XCTAssertNil(keyController.window.attachedSheet)
+    }
+
     func test_new_windows_export_distinct_runtime_identity_environment() throws {
         NSApp.mainMenu = nil
 

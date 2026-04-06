@@ -77,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard configStore.current.confirmations.confirmBeforeQuitting,
-              windowControllers.values.contains(where: { $0.anyPaneRequiresQuitConfirmation }) else {
+              let blockingController = windowControllers.values.first(where: { $0.anyPaneRequiresQuitConfirmation }) else {
             return .terminateNow
         }
 
@@ -87,9 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
-        alert.window.appearance = keyWindowController?.terminalAppearance
+        alert.window.appearance = blockingController.terminalAppearance
 
-        if let window = keyWindowController?.window, window.isVisible {
+        let window = blockingController.window
+        if window.isVisible {
             alert.beginSheetModal(for: window) { response in
                 NSApp.reply(toApplicationShouldTerminate: response == .alertFirstButtonReturn)
             }
