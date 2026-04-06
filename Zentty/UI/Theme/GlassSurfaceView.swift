@@ -136,6 +136,9 @@ final class GlassSurfaceView: NSVisualEffectView {
             self.layer?.borderWidth = 1
             self.layer?.shadowColor = shadowColor.cgColor
             self.gradientLayer.colors = gradientColors
+            if case .sidebar = self.style {
+                self.alphaValue = theme.sidebarGlassOpacity
+            }
         }
 
         layer?.shadowOpacity = 1

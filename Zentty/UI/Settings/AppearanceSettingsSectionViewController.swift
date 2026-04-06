@@ -294,7 +294,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     // MARK: - Opacity
 
     private func configureOpacitySlider() {
-        opacitySlider.minValue = 0.1
+        opacitySlider.minValue = 0.3
         opacitySlider.maxValue = 1.0
         opacitySlider.isContinuous = true
         opacitySlider.target = self

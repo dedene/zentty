@@ -43,7 +43,7 @@ final class PaneStripView: NSView {
     var onFocusSettled: ((PaneID) -> Void)?
     var onPaneSelected: ((PaneID) -> Void)?
     var onPaneCloseRequested: ((PaneID) -> Void)?
-    var onBorderChromeSnapshotsDidChange: (([PaneBorderChromeSnapshot]) -> Void)?
+    var onBorderChromeSnapshotsDidChange: ((_ snapshots: [PaneBorderChromeSnapshot], _ animated: Bool) -> Void)?
     var onDividerInteraction: ((PaneDivider) -> Void)?
     var onDividerResizeRequested: ((PaneResizeTarget, CGFloat) -> Void)?
     var onDividerEqualizeRequested: ((PaneDivider) -> Void)?
@@ -537,7 +537,7 @@ final class PaneStripView: NSView {
         if isResizeSuppressedRender {
             renderGuard.clearResizeSuppression(forGeneration: settleGeneration)
         }
-        onBorderChromeSnapshotsDidChange?(borderChromeSnapshots(for: presentation, offset: targetOffset))
+        onBorderChromeSnapshotsDidChange?(borderChromeSnapshots(for: presentation, offset: targetOffset), shouldAnimate)
         syncFocusedTerminal(with: state.focusedPaneID)
 
         if let callback = afterNextRenderCallback {
@@ -619,6 +619,11 @@ final class PaneStripView: NSView {
                 animated: animated,
                 useNeutralBackground: useNeutralBackground
             )
+            let gapWidth = Self.borderLabelGapWidth(
+                for: currentPaneBorderContextByPaneID[panePresentation.paneID],
+                paneWidth: panePresentation.frame.width
+            )
+            paneView.setBorderLabelGap(width: gapWidth)
             let targetFrame = panePresentation.frame.offsetBy(
                 dx: -resolvedOffset(offset),
                 dy: 0
@@ -836,6 +841,31 @@ final class PaneStripView: NSView {
 
     var leadingMaskMinX: CGFloat {
         0
+    }
+
+    private static let borderLabelFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
+
+    private static func borderLabelGapWidth(
+        for context: PaneBorderContextDisplayModel?,
+        paneWidth: CGFloat
+    ) -> CGFloat {
+        guard let context, !context.text.isEmpty else { return 0 }
+        let padding: CGFloat = 7
+        let leadingInset: CGFloat = 24
+        let trailingGutter: CGFloat = 16
+        let maxWidth = max(0, paneWidth - leadingInset - trailingGutter)
+        guard maxWidth > 24 else { return 0 }
+        let naturalWidth = ceil(
+            NSAttributedString(
+                string: context.text,
+                attributes: [.font: borderLabelFont]
+            ).boundingRect(
+                with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            ).width
+        )
+        return min(maxWidth, naturalWidth + padding * 2)
     }
 
     private func borderChromeSnapshots(

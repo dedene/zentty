@@ -69,11 +69,11 @@ final class PaneBorderContextOverlayView: NSView {
         }
     }
 
-    func render(snapshots: [PaneBorderChromeSnapshot], theme: ZenttyTheme) {
+    func render(snapshots: [PaneBorderChromeSnapshot], theme: ZenttyTheme, animated: Bool = false) {
         currentSnapshots = snapshots
         currentTheme = theme
         reconcileItemViews()
-        layoutItemViews()
+        layoutItemViews(animated: animated)
     }
 
     override func layout() {
@@ -91,14 +91,6 @@ final class PaneBorderContextOverlayView: NSView {
 
     var paneContextTextColorTokensForTesting: [PaneID: String] {
         itemViewsByPaneID.mapValues(\.textColorTokenForTesting)
-    }
-
-    var paneContextBackdropColorTokensForTesting: [PaneID: String] {
-        itemViewsByPaneID.mapValues(\.backdropColorTokenForTesting)
-    }
-
-    var paneContextBackdropFramesForTesting: [PaneID: CGRect] {
-        itemViewsByPaneID.mapValues(\.backdropFrameForTesting)
     }
 
     var paneContextTextFramesForTesting: [PaneID: CGRect] {
@@ -147,45 +139,63 @@ final class PaneBorderContextOverlayView: NSView {
         }
     }
 
-    private func layoutItemViews() {
+    private func layoutItemViews(animated: Bool = false) {
         let backingScaleFactor = max(1, window?.backingScaleFactor ?? backingScaleFactorProvider())
         let borderInset = ChromeGeometry.paneBorderInset(backingScaleFactor: backingScaleFactor)
         let borderWidth: CGFloat = 1
 
-        for snapshot in currentSnapshots {
-            guard let itemView = itemViewsByPaneID[snapshot.paneID] else {
-                continue
-            }
+        let applyFrames = {
+            for snapshot in self.currentSnapshots {
+                guard let itemView = self.itemViewsByPaneID[snapshot.paneID] else {
+                    continue
+                }
 
-            guard let borderContext = snapshot.borderContext else {
-                itemView.isHidden = true
-                continue
-            }
+                guard let borderContext = snapshot.borderContext else {
+                    itemView.isHidden = true
+                    continue
+                }
 
-            let maxWidth = max(
-                0,
-                snapshot.frame.width - Layout.paneContextLeadingInset - Layout.paneContextTrailingGutter
-            )
-            guard maxWidth > 24 else {
-                itemView.isHidden = true
-                continue
-            }
+                let maxWidth = max(
+                    0,
+                    snapshot.frame.width - Layout.paneContextLeadingInset - Layout.paneContextTrailingGutter
+                )
+                guard maxWidth > 24 else {
+                    itemView.isHidden = true
+                    continue
+                }
 
-            let size = itemView.measure(text: borderContext.text, maxWidth: maxWidth)
-            let borderLineY = snapshot.frame.maxY - borderInset - (borderWidth / 2)
-            itemView.frame = CGRect(
-                x: snapshot.frame.minX + Layout.paneContextLeadingInset,
-                y: borderLineY - (size.height / 2),
-                width: size.width,
-                height: size.height
-            )
-            itemView.isHidden = false
-            itemView.render(
-                text: borderContext.text,
-                isFocused: snapshot.isFocused,
-                theme: currentTheme,
-                backingScaleFactor: backingScaleFactor
-            )
+                let size = itemView.measure(text: borderContext.text, maxWidth: maxWidth)
+                let borderLineY = snapshot.frame.maxY - borderInset - (borderWidth / 2)
+                let targetFrame = CGRect(
+                    x: snapshot.frame.minX + Layout.paneContextLeadingInset,
+                    y: borderLineY - (size.height / 2),
+                    width: size.width,
+                    height: size.height
+                )
+                if animated {
+                    itemView.animator().frame = targetFrame
+                } else {
+                    itemView.frame = targetFrame
+                }
+                itemView.isHidden = false
+                itemView.render(
+                    text: borderContext.text,
+                    isFocused: snapshot.isFocused,
+                    theme: self.currentTheme,
+                    backingScaleFactor: backingScaleFactor
+                )
+            }
+        }
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = PaneStripMotionController.defaultAnimationDuration
+                context.timingFunction = PaneStripMotionController.defaultAnimationTimingFunction
+                context.allowsImplicitAnimation = true
+                applyFrames()
+            }
+        } else {
+            applyFrames()
         }
 
         if onPathClicked != nil {
@@ -194,12 +204,10 @@ final class PaneBorderContextOverlayView: NSView {
     }
 
     private final class PaneBorderContextInsetView: NSView {
-        private let backdropLayer = CALayer()
         private let textContentLayer = CALayer()
         private let leftBorderLineLayer = CALayer()
         private let rightBorderLineLayer = CALayer()
         private let textFont = NSFont.systemFont(ofSize: Layout.paneContextFontSize, weight: .semibold)
-        private var backdropColorToken = ""
         private var textColorToken = ""
         private var naturalTextWidth: CGFloat = 0
         private var currentAttributedText = NSAttributedString(string: "")
@@ -270,23 +278,13 @@ final class PaneBorderContextOverlayView: NSView {
             let borderColor = (isFocused
                 ? theme.paneBorderFocused
                 : theme.paneBorderUnfocused).cgColor
-            let paneFillColor = theme.startupSurface.cgColor
             let lineHeight = max(1, 1 / backingScaleFactor)
-            backdropColorToken = theme.startupSurface.themeToken
             textColorToken = textColor.themeToken
 
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer?.backgroundColor = NSColor.clear.cgColor
             let lineY = (bounds.height - lineHeight) / 2
-            let backdropY = max(0, lineY - TextLayout.borderCoverTopBleed)
-            backdropLayer.frame = CGRect(
-                x: 0,
-                y: backdropY,
-                width: bounds.width,
-                height: max(0, bounds.height - backdropY)
-            )
-            backdropLayer.backgroundColor = paneFillColor
             leftBorderLineLayer.frame = CGRect(
                 x: 0,
                 y: lineY,
@@ -332,14 +330,6 @@ final class PaneBorderContextOverlayView: NSView {
             textColorToken
         }
 
-        var backdropColorTokenForTesting: String {
-            backdropColorToken
-        }
-
-        var backdropFrameForTesting: CGRect {
-            backdropLayer.frame
-        }
-
         var textFrameForTesting: CGRect {
             currentTextRect
         }
@@ -368,11 +358,9 @@ final class PaneBorderContextOverlayView: NSView {
             wantsLayer = true
             layer?.masksToBounds = false
 
-            backdropLayer.zPosition = 0
             textContentLayer.zPosition = 1
             leftBorderLineLayer.zPosition = 1
             rightBorderLineLayer.zPosition = 1
-            layer?.addSublayer(backdropLayer)
             layer?.addSublayer(textContentLayer)
             layer?.addSublayer(leftBorderLineLayer)
             layer?.addSublayer(rightBorderLineLayer)

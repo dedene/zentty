@@ -59,9 +59,9 @@ final class WorklaneRenderCoordinator {
 
     func bind(to views: ViewBindings) {
         self.views = views
-        views.appCanvasView.paneStripView.onBorderChromeSnapshotsDidChange = { [weak self] snapshots in
+        views.appCanvasView.paneStripView.onBorderChromeSnapshotsDidChange = { [weak self] snapshots, animated in
             self?.currentPaneBorderChromeSnapshots = snapshots
-            self?.renderPaneBorderContextOverlay()
+            self?.renderPaneBorderContextOverlay(animated: animated)
         }
     }
 
@@ -267,7 +267,7 @@ final class WorklaneRenderCoordinator {
         }
     }
 
-    private func renderPaneBorderContextOverlay() {
+    private func renderPaneBorderContextOverlay(animated: Bool = false) {
         guard let views else { return }
         if views.paneBorderContextOverlayView.isHidden,
            !views.appCanvasView.paneStripView.isDragActive {
@@ -275,7 +275,8 @@ final class WorklaneRenderCoordinator {
         }
         views.paneBorderContextOverlayView.render(
             snapshots: translatedPaneBorderChromeSnapshots,
-            theme: currentTheme
+            theme: currentTheme,
+            animated: animated
         )
     }
 

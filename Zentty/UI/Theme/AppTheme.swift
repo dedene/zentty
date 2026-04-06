@@ -110,6 +110,7 @@ struct ZenttyTheme: Equatable {
     let commandPaletteSeparator: NSColor
     let underlapShadow: NSColor
     let sidebarGlassAppearance: ThemeChromeAppearance
+    let sidebarGlassOpacity: CGFloat
     let reducedTransparency: Bool
 
     static let animationDuration: CFTimeInterval = 0.20
@@ -169,6 +170,7 @@ struct ZenttyTheme: Equatable {
             rhs.statusRunning, rhs.statusNeedsInput, rhs.statusStopped, rhs.statusReady, rhs.statusIdle,
         ].map(\.themeToken)
             && lhs.sidebarGlassAppearance == rhs.sidebarGlassAppearance
+            && lhs.sidebarGlassOpacity == rhs.sidebarGlassOpacity
             && lhs.reducedTransparency == rhs.reducedTransparency
     }
 
@@ -197,14 +199,13 @@ struct ZenttyTheme: Equatable {
             ? background
                 .mixed(towards: NSColor.black, amount: 0.18)
                 .mixed(towards: foreground, amount: 0.04)
-            : foreground
-                .mixed(towards: background, amount: 0.12)
+            : baseSidebar.mixed(towards: .white, amount: 0.38)
         let sidebarRowHoverBase = background.isDarkThemeColor
             ? baseSidebar.mixed(towards: foreground, amount: 0.12)
-            : foreground.mixed(towards: background, amount: 0.24)
+            : baseSidebar.mixed(towards: .white, amount: 0.24)
         let sidebarRowIdleBase = background.isDarkThemeColor
             ? baseSidebar.mixed(towards: foreground, amount: 0.22)
-            : baseSidebar.mixed(towards: foreground, amount: 0.18)
+            : baseSidebar.mixed(towards: .white, amount: 0.10)
         let readableForeground = foreground.ensuringTextContrast(on: background)
         let readableSidebarText = foreground.ensuringTextContrast(on: baseSidebar)
         let readableSidebarActiveText = foreground.ensuringTextContrast(on: sidebarRowSelectedBase)
@@ -227,7 +228,8 @@ struct ZenttyTheme: Equatable {
         startupSurface = isTranslucent ? .clear : startupSurfaceBase
         windowBackground = startupSurfaceBase
         let sidebarBaseAlpha: CGFloat = background.isDarkThemeColor ? 0.42 : 0.74
-        let sidebarAlpha = reduceTransparency ? 0.92 : sidebarBaseAlpha * min(bgOpacity / 0.8, 1.0)
+        let sidebarAlpha = reduceTransparency ? 0.92 : sidebarBaseAlpha
+        sidebarGlassOpacity = reduceTransparency ? 1.0 : (isTranslucent ? max(bgOpacity, 0.4) : 1.0)
         sidebarBackground = baseSidebar.withAlphaComponent(sidebarAlpha)
         sidebarBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.10)
         sidebarShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.05)

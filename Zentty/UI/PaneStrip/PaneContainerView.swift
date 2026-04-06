@@ -42,6 +42,7 @@ final class PaneContainerView: NSView {
     private let terminalHostView: TerminalPaneHostView
     private let backingScaleFactorProvider: () -> CGFloat
     private let insetBorderLayer = CALayer()
+    private let borderGapMaskLayer = CAShapeLayer()
     private let statusOverlayView = NSView()
     private let statusTitleLabel = NSTextField(labelWithString: "")
     private let statusMessageLabel = NSTextField(wrappingLabelWithString: "")
@@ -56,6 +57,7 @@ final class PaneContainerView: NSView {
     private var isInsetBorderAnimationManaged = false
     private var currentTheme: ZenttyTheme
     private var currentEmphasis: CGFloat
+    private var currentBorderGapWidth: CGFloat = 0
     private var currentIsFocused: Bool
     var onSelected: (() -> Void)?
     var onCloseRequested: (() -> Void)?
@@ -487,11 +489,20 @@ final class PaneContainerView: NSView {
         isTerminalAnimationFrozen
     }
 
+    func setBorderLabelGap(width: CGFloat) {
+        guard currentBorderGapWidth != width else { return }
+        currentBorderGapWidth = width
+        updateBorderGapMask()
+    }
+
     private func setupInsetBorderLayer() {
         insetBorderLayer.backgroundColor = NSColor.clear.cgColor
         insetBorderLayer.borderWidth = Layout.borderWidth
         insetBorderLayer.cornerCurve = .continuous
         insetBorderLayer.zPosition = 10
+        borderGapMaskLayer.fillColor = NSColor.white.cgColor
+        borderGapMaskLayer.fillRule = .evenOdd
+        insetBorderLayer.mask = borderGapMaskLayer
         layer?.addSublayer(insetBorderLayer)
         updateInsetBorderLayer()
     }
@@ -540,6 +551,36 @@ final class PaneContainerView: NSView {
         insetBorderLayer.contentsScale = backingScaleFactor
         insetBorderLayer.frame = insetRect
         insetBorderLayer.cornerRadius = cornerRadius
+        CATransaction.commit()
+
+        updateBorderGapMask()
+    }
+
+    private func updateBorderGapMask() {
+        let borderBounds = insetBorderLayer.bounds
+        guard !borderBounds.isEmpty else { return }
+
+        let path = CGMutablePath()
+        path.addRect(borderBounds)
+
+        if currentBorderGapWidth > 0 {
+            let inset = ChromeGeometry.paneBorderInset(
+                backingScaleFactor: resolvedBackingScaleFactor
+            )
+            let gapX = 24 - inset
+            let gapRect = CGRect(
+                x: gapX,
+                y: borderBounds.maxY - Layout.borderWidth - 1,
+                width: currentBorderGapWidth,
+                height: Layout.borderWidth + 2
+            )
+            path.addRect(gapRect)
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        borderGapMaskLayer.frame = borderBounds
+        borderGapMaskLayer.path = path
         CATransaction.commit()
     }
 

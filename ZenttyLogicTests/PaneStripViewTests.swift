@@ -299,7 +299,7 @@ final class PaneStripViewTests: XCTestCase {
             focusedPaneID: PaneID("editor")
         )
         var snapshots: [PaneBorderChromeSnapshot] = []
-        paneStripView.onBorderChromeSnapshotsDidChange = { snapshots = $0 }
+        paneStripView.onBorderChromeSnapshotsDidChange = { newSnapshots, _ in snapshots = newSnapshots }
 
         paneStripView.render(
             state,
@@ -317,31 +317,6 @@ final class PaneStripViewTests: XCTestCase {
             snapshots[1].frame,
             try XCTUnwrap(paneStripView.descendantPaneViews().first { $0.titleText == "editor" }?.frame)
         )
-    }
-
-    @MainActor
-    func test_pane_context_backdrop_stays_below_the_top_of_its_badge() throws {
-        let overlayView = PaneBorderContextOverlayView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
-        let paneID = PaneID("bottom")
-        overlayView.render(
-            snapshots: [
-                PaneBorderChromeSnapshot(
-                    paneID: paneID,
-                    frame: CGRect(x: 0, y: 0, width: 640, height: 220),
-                    isFocused: true,
-                    emphasis: 1,
-                    borderContext: PaneBorderContextDisplayModel(text: "peter@m1-pro-peter:~")
-                )
-            ],
-            theme: ZenttyTheme.fallback(for: nil)
-        )
-        overlayView.layoutSubtreeIfNeeded()
-
-        let badgeFrame = try XCTUnwrap(overlayView.paneContextFramesForTesting[paneID])
-        let backdropFrame = try XCTUnwrap(overlayView.paneContextBackdropFramesForTesting[paneID])
-
-        XCTAssertGreaterThan(backdropFrame.minY, 4)
-        XCTAssertLessThan(backdropFrame.height, badgeFrame.height)
     }
 
     @MainActor
