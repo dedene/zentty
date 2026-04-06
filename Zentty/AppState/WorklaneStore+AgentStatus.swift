@@ -377,6 +377,11 @@ extension WorklaneStore {
             }
         }
 
+        promoteCodexRunningIfCurrentTitleIndicatesRunning(
+            paneID: payload.paneID,
+            in: &worklane
+        )
+
         recomputePresentation(for: payload.paneID, in: &worklane)
         worklanes[worklaneIndex] = worklane
         refreshLastFocusedLocalWorkingDirectoryIfNeeded(worklane: worklane, paneID: payload.paneID)
@@ -741,6 +746,39 @@ extension WorklaneStore {
             from: auxiliaryState.agentStatus
         )
         guard auxiliaryState.agentReducerState.promoteExplicitCodexSessionFromUserInput(now: now) else {
+            return
+        }
+
+        auxiliaryState.agentStatus = Self.hydratedStatus(
+            auxiliaryState.agentReducerState.reducedStatus(now: now),
+            existingStatus: auxiliaryState.agentStatus
+        )
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+    }
+
+    private func promoteCodexRunningIfCurrentTitleIndicatesRunning(
+        paneID: PaneID,
+        in worklane: inout WorklaneState
+    ) {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+              auxiliaryState.agentStatus?.tool == .codex,
+              auxiliaryState.agentStatus?.source == .explicit,
+              let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+                  auxiliaryState.metadata?.title,
+                  recognizedTool: .codex
+              ),
+              signature.phase == .running else {
+            return
+        }
+
+        let now = Date()
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            auxiliaryState.agentReducerState,
+            from: auxiliaryState.agentStatus
+        )
+        let didPromoteStarting = auxiliaryState.agentReducerState.promoteExplicitStartingSessionToRunning(now: now)
+        let didResumeBlocked = auxiliaryState.agentReducerState.resumeBlockedSessionFromActivity(now: now)
+        guard didPromoteStarting || didResumeBlocked else {
             return
         }
 

@@ -455,5 +455,25 @@ enum AgentToolRecognizer {
     static func recognize(metadata: TerminalMetadata?) -> AgentTool? {
         AgentTool.resolveKnown(named: metadata?.title)
             ?? AgentTool.resolveKnown(named: metadata?.processName)
+            ?? codexFromVolatileTitle(metadata?.title)
+    }
+
+    private static func codexFromVolatileTitle(_ title: String?) -> AgentTool? {
+        guard let title,
+              containsCodexSpinner(in: title),
+              TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            title,
+            recognizedTool: .codex
+        ) != nil else {
+            return nil
+        }
+
+        return .codex
+    }
+
+    private static func containsCodexSpinner(in title: String) -> Bool {
+        title.unicodeScalars.contains { scalar in
+            scalar.value >= 0x2800 && scalar.value <= 0x28FF
+        }
     }
 }

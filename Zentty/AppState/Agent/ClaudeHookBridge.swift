@@ -540,7 +540,7 @@ enum ClaudeHookBridge {
         }
         return (
             text: lines.joined(separator: "\n"),
-            interactionKind: (options?.isEmpty == false) ? .decision : .question
+            interactionKind: .decision
         )
     }
 

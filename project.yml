@@ -91,9 +91,10 @@ targets:
           RESOURCES_SRC="${PROJECT_DIR}/ZenttyResources"
           RESOURCES_DST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
 
-          mkdir -p "${RESOURCES_DST}/bin" "${RESOURCES_DST}/shell-integration"
+          mkdir -p "${RESOURCES_DST}/bin" "${RESOURCES_DST}/shell-integration" "${RESOURCES_DST}/opencode/plugins"
           rsync -a --delete "${RESOURCES_SRC}/bin/" "${RESOURCES_DST}/bin/"
           rsync -a --delete "${RESOURCES_SRC}/shell-integration/" "${RESOURCES_DST}/shell-integration/"
+          rsync -a --delete "${RESOURCES_SRC}/opencode/" "${RESOURCES_DST}/opencode/"
         basedOnDependencyAnalysis: false
       - name: Inject Git Commit Metadata
         script: |

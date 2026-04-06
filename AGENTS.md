@@ -24,6 +24,12 @@ Guidelines:
 - Do not add design docs, specs, or plans to git unless Peter explicitly asks.
 - It is fine to create them locally for discussion or planning, but keep them untracked and ignored by default.
 
+## Project Generation
+
+- Treat `project.yml` as the source of truth for Xcode project structure and generated build scripts.
+- Do not make manual edits directly in `Zentty.xcodeproj/project.pbxproj` unless Peter explicitly asks.
+- When project configuration changes are needed, update `project.yml` first and regenerate the project.
+
 ## Error Handling
 
 Two-tier strategy based on execution context:

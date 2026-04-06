@@ -57,7 +57,7 @@ enum AgentInteractionClassifier {
         }
 
         if message.contains("question requested") || message.contains("questions requested") {
-            return .question
+            return .decision
         }
 
         if message.contains("log in") || message.contains("login") {

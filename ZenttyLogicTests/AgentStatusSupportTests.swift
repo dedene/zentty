@@ -9,8 +9,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ("Approval requested: npm publish", .approval),
             ("Codex wants to edit Sources/App.swift", .approval),
             ("Approval requested by docs", .approval),
-            ("Question requested: Choose deployment target", .question),
-            ("Questions requested: 2", .question),
+            ("Question requested: Choose deployment target", .decision),
+            ("Questions requested: 2", .decision),
             ("Plan mode prompt: Implement this plan?", .decision),
         ]
 
@@ -692,7 +692,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.text, "Ship this?\n[Yes] [No]")
     }
 
-    func test_claude_hook_ask_user_question_without_options_maps_to_question_payload() throws {
+    func test_claude_hook_ask_user_question_without_options_maps_to_decision_payload() throws {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
             sessionID: "session-1",
@@ -731,7 +731,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .needsInput)
-        XCTAssertEqual(payload.interactionKind, .question)
+        XCTAssertEqual(payload.interactionKind, .decision)
         XCTAssertEqual(payload.text, "Ship this?")
     }
 

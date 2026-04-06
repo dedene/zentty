@@ -430,7 +430,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         }
 
         if shellActivityState == .commandRunning {
-            _ = promoteExplicitStartingSessionFromShellActivity(now: now)
+            _ = promoteExplicitStartingSessionToRunning(now: now)
             _ = resumeBlockedSessionFromActivity(now: now)
         } else if shellActivityState == .promptIdle {
             _ = markRunningSessionIdleFromPromptReturn(now: now)
@@ -438,7 +438,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
     }
 
     @discardableResult
-    private mutating func promoteExplicitStartingSessionFromShellActivity(now: Date) -> Bool {
+    mutating func promoteExplicitStartingSessionToRunning(now: Date = Date()) -> Bool {
         let candidateSessions = sessionsByID.values.filter { session in
             session.state == .starting
                 && session.source == .explicit

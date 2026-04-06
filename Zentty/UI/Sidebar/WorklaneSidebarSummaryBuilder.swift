@@ -201,6 +201,7 @@ enum WorklaneSidebarSummaryBuilder {
             let isFocused = worklane.paneStripState.focusedPaneID == paneContext.paneID
             let statusPresentation = paneSidebarStatusPresentation(for: paneContext.presentation)
             let paneIdentity = paneIdentity(
+                metadata: paneContext.metadata,
                 for: paneContext.presentation,
                 isSinglePane: isSinglePane,
                 fallbackTitle: paneContext.pane.title
@@ -366,6 +367,7 @@ enum WorklaneSidebarSummaryBuilder {
     ) -> WorklaneSidebarIdentity? {
         let presentation = paneContext.presentation
         let paneIdentity = paneIdentity(
+            metadata: paneContext.metadata,
             for: presentation,
             isSinglePane: isSinglePane,
             fallbackTitle: paneContext.pane.title
@@ -381,12 +383,26 @@ enum WorklaneSidebarSummaryBuilder {
     }
 
     private static func paneIdentity(
+        metadata: TerminalMetadata?,
         for presentation: PanePresentationState,
         isSinglePane: Bool,
         fallbackTitle: String?
     ) -> PaneSidebarIdentity {
         let branch = presentation.branchDisplayText
         let workingDirectory = compactWorkingDirectory(for: presentation)
+
+        if presentation.recognizedTool == .codex,
+           let volatileTitle = WorklaneContextFormatter.trimmed(metadata?.title),
+           TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+               volatileTitle,
+               recognizedTool: .codex
+           ) {
+            return PaneSidebarIdentity(
+                primaryText: volatileTitle,
+                trailingText: branch,
+                detailText: nil
+            )
+        }
 
         if let rememberedTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle) {
             if isSinglePane {

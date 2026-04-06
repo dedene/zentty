@@ -2279,7 +2279,41 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
-    func test_desktop_notification_event_classifies_codex_question_request_as_question() throws {
+    func test_desktop_notification_event_can_recognize_codex_from_working_title_without_process_name() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(title: nil, body: "Question requested: Next Step")
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool, .codex)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            .some(.decision)
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Needs decision"
+        )
+    }
+
+    func test_desktop_notification_event_classifies_codex_question_request_as_decision() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
@@ -2306,7 +2340,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
-            .some(.question)
+            .some(.decision)
         )
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
@@ -2402,7 +2436,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
     }
 
-    func test_running_codex_title_update_resumes_blocked_codex_question_into_running() throws {
+    func test_running_codex_title_does_not_override_active_codex_question_state() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.knownNonRepositoryPaths.insert("/tmp/project")
@@ -2444,19 +2478,51 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
-            .some(.none)
+            .some(.question)
         )
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
-            "Running"
+            "Needs decision"
         )
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.rememberedTitle,
             "Follow up on the question"
         )
+    }
+
+    func test_ready_codex_title_after_inferred_running_surfaces_agent_ready() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
     func test_submit_input_event_promotes_ready_codex_session_back_into_running() throws {
@@ -2598,6 +2664,106 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
         XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
+    }
+
+    func test_working_codex_title_promotes_explicit_session_to_running() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Codex",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .starting,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                interactionKind: .none,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ Demo",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+    }
+
+    func test_existing_working_codex_title_promotes_new_explicit_starting_session_to_running() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ Demo",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
     }
 
     func test_cold_ready_codex_title_does_not_surface_agent_ready() throws {

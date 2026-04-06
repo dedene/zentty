@@ -44,7 +44,7 @@ extension WorklaneStore {
             worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
             worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState = PaneAgentReducerState()
         }
-        resumeBlockedCodexSessionIfTitleIndicatesRunning(
+        promoteCodexSessionIfTitleIndicatesRunning(
             paneID: paneID,
             metadata: metadata,
             in: &worklane
@@ -100,7 +100,7 @@ extension WorklaneStore {
         }
     }
 
-    private func resumeBlockedCodexSessionIfTitleIndicatesRunning(
+    private func promoteCodexSessionIfTitleIndicatesRunning(
         paneID: PaneID,
         metadata: TerminalMetadata,
         in worklane: inout WorklaneState
@@ -114,9 +114,12 @@ extension WorklaneStore {
                 recognizedTool: recognizedTool
             ),
             signature.phase == .running,
-            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
-            auxiliaryState.agentStatus?.state == .needsInput
+            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID]
         else {
+            return
+        }
+
+        if auxiliaryState.agentStatus?.interactionKind.requiresHumanAttention == true {
             return
         }
 
@@ -124,13 +127,35 @@ extension WorklaneStore {
             auxiliaryState.agentReducerState,
             from: auxiliaryState.agentStatus
         )
-        guard auxiliaryState.agentReducerState.resumeBlockedSessionFromActivity(now: Date()) else {
+        let now = Date()
+        let didPromoteStarting = auxiliaryState.agentReducerState.promoteExplicitStartingSessionToRunning(now: now)
+        let didResumeBlocked = auxiliaryState.agentReducerState.resumeBlockedSessionFromActivity(now: now)
+
+        if didPromoteStarting || didResumeBlocked {
+            auxiliaryState.agentStatus = Self.hydratedStatus(
+                auxiliaryState.agentReducerState.reducedStatus(),
+                existingStatus: auxiliaryState.agentStatus
+            )
+            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
             return
         }
 
-        auxiliaryState.agentStatus = Self.hydratedStatus(
-            auxiliaryState.agentReducerState.reducedStatus(),
-            existingStatus: auxiliaryState.agentStatus
+        auxiliaryState.agentStatus = PaneAgentStatus(
+            tool: .codex,
+            state: .running,
+            text: nil,
+            artifactLink: auxiliaryState.agentStatus?.artifactLink,
+            updatedAt: now,
+            source: .inferred,
+            origin: .inferred,
+            interactionKind: .none,
+            confidence: .weak,
+            shellActivityState: auxiliaryState.agentStatus?.shellActivityState ?? .unknown,
+            trackedPID: auxiliaryState.agentStatus?.trackedPID,
+            workingDirectory: auxiliaryState.agentStatus?.workingDirectory,
+            hasObservedRunning: true,
+            sessionID: auxiliaryState.agentStatus?.sessionID,
+            parentSessionID: auxiliaryState.agentStatus?.parentSessionID
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
@@ -167,21 +192,52 @@ extension WorklaneStore {
             auxiliaryState.agentReducerState,
             from: auxiliaryState.agentStatus
         )
-        _ = auxiliaryState.agentReducerState.markExplicitCodexSessionIdleFromReadyTitle(now: Date())
-        let reducedStatus = Self.hydratedStatus(
-            auxiliaryState.agentReducerState.reducedStatus(),
-            existingStatus: auxiliaryState.agentStatus
-        )
-        guard let reducedStatus,
-              reducedStatus.tool == .codex,
-              reducedStatus.source == .explicit,
-              reducedStatus.state == .idle,
-              reducedStatus.hasObservedRunning
+        let now = Date()
+        if auxiliaryState.agentReducerState.markExplicitCodexSessionIdleFromReadyTitle(now: now) {
+            let reducedStatus = Self.hydratedStatus(
+                auxiliaryState.agentReducerState.reducedStatus(),
+                existingStatus: auxiliaryState.agentStatus
+            )
+            guard let reducedStatus,
+                  reducedStatus.tool == .codex,
+                  reducedStatus.source == .explicit,
+                  reducedStatus.state == .idle,
+                  reducedStatus.hasObservedRunning
+            else {
+                return
+            }
+
+            auxiliaryState.agentStatus = reducedStatus
+            auxiliaryState.raw.showsReadyStatus = true
+            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+            return
+        }
+
+        guard let existingStatus = auxiliaryState.agentStatus,
+              existingStatus.tool == .codex,
+              existingStatus.hasObservedRunning,
+              existingStatus.state == .running || existingStatus.state == .idle
         else {
             return
         }
 
-        auxiliaryState.agentStatus = reducedStatus
+        auxiliaryState.agentStatus = PaneAgentStatus(
+            tool: .codex,
+            state: .idle,
+            text: nil,
+            artifactLink: existingStatus.artifactLink,
+            updatedAt: now,
+            source: .inferred,
+            origin: existingStatus.origin == .explicitAPI || existingStatus.origin == .explicitHook ? existingStatus.origin : .inferred,
+            interactionKind: .none,
+            confidence: existingStatus.confidence,
+            shellActivityState: existingStatus.shellActivityState,
+            trackedPID: existingStatus.trackedPID,
+            workingDirectory: existingStatus.workingDirectory,
+            hasObservedRunning: true,
+            sessionID: existingStatus.sessionID,
+            parentSessionID: existingStatus.parentSessionID
+        )
         auxiliaryState.raw.showsReadyStatus = true
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }

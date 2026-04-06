@@ -1105,7 +1105,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertTrue(paneRow.isWorking)
     }
 
-    func test_builder_uses_codex_status_title_subject_as_primary_when_running() {
+    func test_builder_uses_exact_codex_status_title_as_primary_when_running() {
         let paneID = PaneID("worklane-main-codex-running")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-codex-running"),
@@ -1136,9 +1136,51 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
-        XCTAssertEqual(paneRow.primaryText, "Investigate pane title updates")
+        XCTAssertEqual(paneRow.primaryText, "Working ⠋ Investigate pane title updates")
         XCTAssertEqual(paneRow.trailingText, "main")
         XCTAssertNil(paneRow.detailText)
+        XCTAssertEqual(paneRow.statusText, "Running")
+        XCTAssertEqual(paneRow.attentionState, .running)
+        XCTAssertTrue(paneRow.isWorking)
+    }
+
+    func test_builder_surfaces_running_for_codex_spinner_title_without_explicit_agent_status() {
+        let paneID = PaneID("worklane-main-codex-title-only")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.presentation = PanePresentationState(
+            cwd: "/Users/peter/Development/Personal/zentty",
+            repoRoot: "/Users/peter/Development/Personal/zentty",
+            branch: "main",
+            branchDisplayText: "main",
+            lookupBranch: "main",
+            identityText: "zentty",
+            contextText: "main · …/zentty",
+            rememberedTitle: "zentty",
+            recognizedTool: .codex,
+            runtimePhase: .running,
+            statusText: "Running",
+            pullRequest: nil,
+            reviewChips: [],
+            attentionArtifactLink: nil,
+            updatedAt: Date(timeIntervalSince1970: 42),
+            isWorking: true,
+            interactionKind: nil
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main-codex-title-only"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.primaryText, "zentty")
         XCTAssertEqual(paneRow.statusText, "Running")
         XCTAssertEqual(paneRow.attentionState, .running)
         XCTAssertTrue(paneRow.isWorking)

@@ -202,6 +202,62 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentations[0].rememberedTitle, presentations[1].rememberedTitle)
     }
 
+    func test_normalize_infers_codex_from_spinner_title_without_process_name() {
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: PaneRawState(
+                metadata: TerminalMetadata(
+                    title: "Working ⠋ zentty",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: nil,
+                    gitBranch: "main"
+                ),
+                shellContext: nil,
+                agentStatus: nil,
+                terminalProgress: nil,
+                reviewState: nil,
+                gitContext: PaneGitContext(
+                    workingDirectory: "/tmp/project",
+                    repositoryRoot: "/tmp/project",
+                    reference: .branch("main")
+                )
+            ),
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.recognizedTool, .codex)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_normalize_does_not_infer_codex_from_generic_working_title_without_process_name() {
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: PaneRawState(
+                metadata: TerminalMetadata(
+                    title: "Working :: project",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: nil,
+                    gitBranch: "main"
+                ),
+                shellContext: nil,
+                agentStatus: nil,
+                terminalProgress: nil,
+                reviewState: nil,
+                gitContext: PaneGitContext(
+                    workingDirectory: "/tmp/project",
+                    repositoryRoot: "/tmp/project",
+                    reference: .branch("main")
+                )
+            ),
+            previous: nil
+        )
+
+        XCTAssertNil(presentation.recognizedTool)
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertNil(presentation.statusText)
+    }
+
     func test_normalize_lets_codex_working_title_override_attached_starting_state() {
         let raw = PaneRawState(
             metadata: TerminalMetadata(

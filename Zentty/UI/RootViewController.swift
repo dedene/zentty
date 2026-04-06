@@ -217,6 +217,13 @@ final class RootViewController: NSViewController {
         applyInitialState()
     }
 
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        if let window = view.window {
+            LibghosttyRuntime.shared.applyBackgroundBlur(to: window)
+        }
+    }
+
     // MARK: - View Setup
 
     private func setupSubviews() {
