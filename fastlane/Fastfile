@@ -569,7 +569,8 @@ def wrangler_put_file!(local_path:, object_key:, content_type:, cache_control:)
     "#{r2_bucket_name}/#{object_key}",
     "--file", local_path,
     "--content-type", content_type,
-    "--cache-control", cache_control
+    "--cache-control", cache_control,
+    "--remote"
   )
 end
 
