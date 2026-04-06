@@ -14,20 +14,6 @@ final class SentryErrorReportingClient: ErrorReportingClient {
             options.enableNetworkBreadcrumbs = configuration.enableNetworkBreadcrumbs
             options.enableWatchdogTerminationTracking = configuration.enableWatchdogTerminationTracking
             options.maxBreadcrumbs = configuration.maxBreadcrumbs
-            options.beforeSend = { event in
-                event.breadcrumbs = []
-                event.context = nil
-                event.extra = nil
-                event.request = nil
-                event.serverName = nil
-                event.tags = nil
-                event.transaction = nil
-                event.user = nil
-                return event
-            }
-            options.beforeBreadcrumb = { _ in
-                nil
-            }
         }
     }
 }

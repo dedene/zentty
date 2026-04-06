@@ -171,7 +171,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary.branch, "main")
     }
 
-    func test_summary_uses_branch_to_compact_worktree_focused_label_without_local_git_probe() {
+    func test_summary_uses_terminal_cwd_to_compact_worktree_label_when_branch_matches_title() {
         let paneID = PaneID("pane-shell")
         let branch = "feature/scaleway-transactional-mails"
         let worktreePath = "\(NSHomeDirectory())/Development/Zenjoy/Nimbu/Rails/worktrees/\(branch)"
@@ -185,7 +185,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
             metadataByPaneID: [
                 paneID: TerminalMetadata(
                     title: "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/\(branch)",
-                    currentWorkingDirectory: nil,
+                    currentWorkingDirectory: worktreePath,
                     processName: "zsh"
                 )
             ],

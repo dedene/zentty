@@ -88,12 +88,14 @@ enum AppAction: Equatable, Sendable {
 enum AppMenuSection: String, CaseIterable {
     case file = "File"
     case edit = "Edit"
+    case navigation = "Navigation"
     case view = "View"
 }
 
-enum AppMenuEntry {
+indirect enum AppMenuEntry {
     case separator
     case command(AppCommandID)
+    case submenu(String, [AppMenuEntry])
 }
 
 struct AppCommandMenuItem {
@@ -122,7 +124,7 @@ enum AppCommandRegistry {
             menuItem: AppCommandMenuItem(
                 section: .view,
                 title: "Toggle Sidebar",
-                selector: #selector(MainWindowController.toggleSidebar(_:))
+                selector: #selector(AppDelegate.toggleSidebarMenuItem(_:))
             )
         ),
         AppCommandDefinition(
@@ -132,7 +134,7 @@ enum AppCommandRegistry {
             defaultShortcut: .init(key: .character("["), modifiers: [.command]),
             action: .navigateBack,
             menuItem: AppCommandMenuItem(
-                section: .view,
+                section: .navigation,
                 title: "Navigate Back",
                 selector: #selector(MainWindowController.navigateBack(_:))
             )
@@ -144,7 +146,7 @@ enum AppCommandRegistry {
             defaultShortcut: .init(key: .character("]"), modifiers: [.command]),
             action: .navigateForward,
             menuItem: AppCommandMenuItem(
-                section: .view,
+                section: .navigation,
                 title: "Navigate Forward",
                 selector: #selector(MainWindowController.navigateForward(_:))
             )
@@ -388,7 +390,7 @@ enum AppCommandRegistry {
             defaultShortcut: .init(key: .upArrow, modifiers: [.command, .option]),
             action: .pane(.focusPreviousPaneBySidebarOrder),
             menuItem: AppCommandMenuItem(
-                section: .view,
+                section: .navigation,
                 title: "Focus Previous Pane",
                 selector: #selector(MainWindowController.focusPreviousPane(_:))
             )
@@ -400,7 +402,7 @@ enum AppCommandRegistry {
             defaultShortcut: .init(key: .downArrow, modifiers: [.command, .option]),
             action: .pane(.focusNextPaneBySidebarOrder),
             menuItem: AppCommandMenuItem(
-                section: .view,
+                section: .navigation,
                 title: "Focus Next Pane",
                 selector: #selector(MainWindowController.focusNextPane(_:))
             )
@@ -412,7 +414,7 @@ enum AppCommandRegistry {
             defaultShortcut: .init(key: .leftArrow, modifiers: [.command]),
             action: .pane(.focusLeft),
             menuItem: AppCommandMenuItem(
-                section: .view,
+                section: .navigation,
                 title: "Focus Left Pane",
                 selector: #selector(MainWindowController.focusLeftPane(_:))
             )
@@ -424,7 +426,7 @@ enum AppCommandRegistry {
             defaultShortcut: .init(key: .rightArrow, modifiers: [.command]),
             action: .pane(.focusRight),
             menuItem: AppCommandMenuItem(
-                section: .view,
+                section: .navigation,
                 title: "Focus Right Pane",
                 selector: #selector(MainWindowController.focusRightPane(_:))
             )
@@ -436,7 +438,7 @@ enum AppCommandRegistry {
             defaultShortcut: .init(key: .upArrow, modifiers: [.command]),
             action: .pane(.focusUp),
             menuItem: AppCommandMenuItem(
-                section: .view,
+                section: .navigation,
                 title: "Focus Up In Column",
                 selector: #selector(MainWindowController.focusUpInColumn(_:))
             )
@@ -448,7 +450,7 @@ enum AppCommandRegistry {
             defaultShortcut: .init(key: .downArrow, modifiers: [.command]),
             action: .pane(.focusDown),
             menuItem: AppCommandMenuItem(
-                section: .view,
+                section: .navigation,
                 title: "Focus Down In Column",
                 selector: #selector(MainWindowController.focusDownInColumn(_:))
             )
@@ -588,32 +590,9 @@ enum AppCommandRegistry {
         .edit: [
             .command(.copyFocusedPanePath),
         ],
-        .view: [
-            .command(.showCommandPalette),
-            .separator,
-            .command(.toggleSidebar),
-            .separator,
+        .navigation: [
             .command(.navigateBack),
             .command(.navigateForward),
-            .separator,
-            .command(.splitHorizontally),
-            .command(.splitVertically),
-            .separator,
-            .command(.arrangeWidthFull),
-            .command(.arrangeWidthHalves),
-            .command(.arrangeWidthThirds),
-            .command(.arrangeWidthQuarters),
-            .separator,
-            .command(.arrangeWidthGoldenFocusWide),
-            .command(.arrangeWidthGoldenFocusNarrow),
-            .separator,
-            .command(.arrangeHeightFull),
-            .command(.arrangeHeightTwoPerColumn),
-            .command(.arrangeHeightThreePerColumn),
-            .command(.arrangeHeightFourPerColumn),
-            .separator,
-            .command(.arrangeHeightGoldenFocusTall),
-            .command(.arrangeHeightGoldenFocusShort),
             .separator,
             .command(.focusPreviousPane),
             .command(.focusNextPane),
@@ -621,6 +600,33 @@ enum AppCommandRegistry {
             .command(.focusRightPane),
             .command(.focusUpInColumn),
             .command(.focusDownInColumn),
+        ],
+        .view: [
+            .command(.showCommandPalette),
+            .separator,
+            .command(.toggleSidebar),
+            .separator,
+            .command(.splitHorizontally),
+            .command(.splitVertically),
+            .separator,
+            .submenu("Arrange Width", [
+                .command(.arrangeWidthFull),
+                .command(.arrangeWidthHalves),
+                .command(.arrangeWidthThirds),
+                .command(.arrangeWidthQuarters),
+                .separator,
+                .command(.arrangeWidthGoldenFocusWide),
+                .command(.arrangeWidthGoldenFocusNarrow),
+            ]),
+            .submenu("Arrange Height", [
+                .command(.arrangeHeightFull),
+                .command(.arrangeHeightTwoPerColumn),
+                .command(.arrangeHeightThreePerColumn),
+                .command(.arrangeHeightFourPerColumn),
+                .separator,
+                .command(.arrangeHeightGoldenFocusTall),
+                .command(.arrangeHeightGoldenFocusShort),
+            ]),
             .separator,
             .command(.resizePaneLeft),
             .command(.resizePaneRight),

@@ -16,6 +16,65 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_default_worklane_shell_session_uses_opaque_runtime_ids_in_environment() throws {
+        let store = WorklaneStore()
+        let worklane = try XCTUnwrap(store.activeWorklane)
+        let pane = try XCTUnwrap(worklane.paneStripState.focusedPane)
+        let request = pane.sessionRequest
+
+        XCTAssertTrue(worklane.id.rawValue.hasPrefix("wl_"))
+        XCTAssertTrue(pane.id.rawValue.hasPrefix("pn_"))
+        XCTAssertEqual(request.environmentVariables["ZENTTY_WORKLANE_ID"], worklane.id.rawValue)
+        XCTAssertEqual(request.environmentVariables["ZENTTY_PANE_ID"], pane.id.rawValue)
+    }
+
+    func test_separate_default_stores_generate_distinct_runtime_ids() throws {
+        let firstStore = WorklaneStore()
+        let secondStore = WorklaneStore()
+
+        let firstWorklaneID = try XCTUnwrap(firstStore.activeWorklane?.id)
+        let secondWorklaneID = try XCTUnwrap(secondStore.activeWorklane?.id)
+        let firstPaneID = try XCTUnwrap(firstStore.activeWorklane?.paneStripState.focusedPaneID)
+        let secondPaneID = try XCTUnwrap(secondStore.activeWorklane?.paneStripState.focusedPaneID)
+
+        XCTAssertNotEqual(firstWorklaneID, secondWorklaneID)
+        XCTAssertNotEqual(firstPaneID, secondPaneID)
+    }
+
+    func test_payload_for_another_store_does_not_update_this_store() throws {
+        let sourceStore = WorklaneStore()
+        let targetStore = WorklaneStore()
+
+        let sourceWorklaneID = try XCTUnwrap(sourceStore.activeWorklane?.id)
+        let sourcePaneID = try XCTUnwrap(sourceStore.activeWorklane?.paneStripState.focusedPaneID)
+        let targetPaneID = try XCTUnwrap(targetStore.activeWorklane?.paneStripState.focusedPaneID)
+        let originalPath = targetStore.activeWorklane?.auxiliaryStateByPaneID[targetPaneID]?.shellContext?.path
+
+        targetStore.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: sourceWorklaneID,
+                paneID: sourcePaneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/foreign-store",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: "mbp"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(targetStore.activeWorklane?.auxiliaryStateByPaneID[targetPaneID]?.shellContext?.path, originalPath)
+    }
+
     func test_select_worklane_switches_active_worklane_without_resetting_other_worklane_state() throws {
         let store = WorklaneStore()
         store.createWorklane()
@@ -58,9 +117,9 @@ final class PaneStripStoreTests: XCTestCase {
 
     func test_split_after_inserts_adjacent_pane_and_inherits_focused_working_directory() throws {
         let store = WorklaneStore()
-        _ = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let focusedPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.updateMetadata(
-            paneID: PaneID("worklane-main-shell"),
+            paneID: focusedPaneID,
             metadata: TerminalMetadata(currentWorkingDirectory: "/tmp/project")
         )
 
@@ -75,7 +134,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertNil(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.inheritFromPaneID)
         XCTAssertEqual(
             store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
-            PaneID("worklane-main-shell")
+            focusedPaneID
         )
         XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.surfaceContext, .split)
     }
@@ -1396,11 +1455,15 @@ final class PaneStripStoreTests: XCTestCase {
 
     func test_default_worklane_shell_session_contains_agent_identity_environment() throws {
         let store = WorklaneStore()
+        let worklane = try XCTUnwrap(store.activeWorklane)
+        let pane = try XCTUnwrap(worklane.paneStripState.focusedPane)
 
-        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
+        let request = pane.sessionRequest
 
-        XCTAssertEqual(request.environmentVariables["ZENTTY_WORKLANE_ID"], "worklane-main")
-        XCTAssertEqual(request.environmentVariables["ZENTTY_PANE_ID"], "worklane-main-shell")
+        XCTAssertTrue(worklane.id.rawValue.hasPrefix("wl_"))
+        XCTAssertTrue(pane.id.rawValue.hasPrefix("pn_"))
+        XCTAssertEqual(request.environmentVariables["ZENTTY_WORKLANE_ID"], worklane.id.rawValue)
+        XCTAssertEqual(request.environmentVariables["ZENTTY_PANE_ID"], pane.id.rawValue)
         XCTAssertFalse((request.environmentVariables["ZENTTY_AGENT_BIN"] ?? "").isEmpty)
         XCTAssertEqual(request.environmentVariables["ZENTTY_AGENT_SIGNAL_COMMAND"], "\(request.environmentVariables["ZENTTY_AGENT_BIN"]!) agent-signal")
         XCTAssertEqual(request.environmentVariables["ZENTTY_CLAUDE_HOOK_COMMAND"], "\(request.environmentVariables["ZENTTY_AGENT_BIN"]!) claude-hook")
@@ -1458,6 +1521,78 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], "/tmp/local-project")
     }
 
+    func test_split_after_ignores_agent_working_directory_and_uses_terminal_cwd() throws {
+        let store = WorklaneStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: shellPaneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: NSHomeDirectory(),
+                    home: NSHomeDirectory(),
+                    user: "peter",
+                    host: "mbp"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.updateMetadata(
+            paneID: shellPaneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: NSHomeDirectory(),
+                processName: "zsh",
+                gitBranch: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: shellPaneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .commandRunning,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: shellPaneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .compatibility,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentWorkingDirectory: "/tmp/project"
+            )
+        )
+
+        store.send(.splitAfterFocusedPane)
+
+        let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
+        XCTAssertEqual(request.workingDirectory, NSHomeDirectory())
+        XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], NSHomeDirectory())
+    }
+
     func test_split_after_remote_pane_does_not_set_initial_working_directory_environment() throws {
         let store = WorklaneStore()
         let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -1489,6 +1624,91 @@ final class PaneStripStoreTests: XCTestCase {
         let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
         XCTAssertNil(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"])
         XCTAssertEqual(request.inheritFromPaneID, shellPaneID)
+    }
+
+    func test_split_after_remote_pane_seeds_remote_shell_context_for_child() throws {
+        let store = WorklaneStore()
+        let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: shellPaneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .remote,
+                    path: "/srv/remote-project",
+                    home: "/home/peter",
+                    user: "peter",
+                    host: "prod-box",
+                    gitBranch: "main"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.send(.splitAfterFocusedPane)
+
+        let childPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let childAuxiliaryState = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[childPaneID])
+        let childShellContext = try XCTUnwrap(childAuxiliaryState.shellContext)
+
+        XCTAssertEqual(childShellContext.scope, .remote)
+        XCTAssertEqual(childShellContext.path, "/srv/remote-project")
+        XCTAssertEqual(childShellContext.home, "/home/peter")
+        XCTAssertEqual(childShellContext.user, "peter")
+        XCTAssertEqual(childShellContext.host, "prod-box")
+        XCTAssertEqual(childShellContext.gitBranch, "main")
+    }
+
+    func test_second_split_from_remote_child_keeps_remote_inheritance_chain() throws {
+        let store = WorklaneStore()
+        let rootPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: rootPaneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .remote,
+                    path: "/srv/remote-project",
+                    home: "/home/peter",
+                    user: "peter",
+                    host: "prod-box"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.send(.splitAfterFocusedPane)
+
+        let firstChildPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let firstChildRequest = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
+        XCTAssertEqual(firstChildRequest.inheritFromPaneID, rootPaneID)
+
+        store.send(.splitAfterFocusedPane)
+
+        let secondChildPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let secondChildRequest = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
+        let secondChildShellContext = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[secondChildPaneID]?.shellContext)
+
+        XCTAssertEqual(secondChildRequest.inheritFromPaneID, firstChildPaneID)
+        XCTAssertNil(secondChildRequest.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"])
+        XCTAssertEqual(secondChildShellContext.scope, .remote)
+        XCTAssertEqual(secondChildShellContext.path, "/srv/remote-project")
     }
 
     func test_command_finished_does_not_promote_title_only_agent_to_unresolved_stop() throws {
@@ -3177,14 +3397,14 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext)
     }
 
-    func test_updating_metadata_clears_branch_derived_review_state_when_title_implies_new_working_directory() throws {
+    func test_updating_metadata_clears_branch_derived_review_state_when_terminal_reports_new_working_directory() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.updateMetadata(
             paneID: paneID,
             metadata: TerminalMetadata(
                 title: "peter@host:~/Development/project-a",
-                currentWorkingDirectory: nil,
+                currentWorkingDirectory: "/Users/peter/Development/project-a",
                 processName: "zsh",
                 gitBranch: nil
             )
@@ -3205,7 +3425,7 @@ final class PaneStripStoreTests: XCTestCase {
             paneID: paneID,
             metadata: TerminalMetadata(
                 title: "peter@host:~/Development/project-b",
-                currentWorkingDirectory: nil,
+                currentWorkingDirectory: "/Users/peter/Development/project-b",
                 processName: "zsh",
                 gitBranch: nil
             )

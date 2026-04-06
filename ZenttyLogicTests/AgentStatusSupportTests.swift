@@ -97,6 +97,34 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_zsh_shell_integration_emits_updated_pane_context_before_next_command_after_cd() throws {
+        let targetDirectory = try makeTemporaryDirectory(named: "shell-zsh-target")
+
+        let signals = try runShellIntegration(
+            shell: .zsh,
+            command: "cd \(shellQuoted(targetDirectory.path)) && :"
+        )
+
+        XCTAssertTrue(
+            signals.contains(where: { $0.contains("pane-context local --path \(targetDirectory.path)") }),
+            "Expected zsh integration to emit pane context for \(targetDirectory.path), got: \(signals)"
+        )
+    }
+
+    func test_bash_shell_integration_emits_updated_pane_context_before_next_command_after_cd() throws {
+        let targetDirectory = try makeTemporaryDirectory(named: "shell-bash-target")
+
+        let signals = try runShellIntegration(
+            shell: .bash,
+            command: "cd \(shellQuoted(targetDirectory.path)) && :"
+        )
+
+        XCTAssertTrue(
+            signals.contains(where: { $0.contains("pane-context local --path \(targetDirectory.path)") }),
+            "Expected bash integration to emit pane context for \(targetDirectory.path), got: \(signals)"
+        )
+    }
+
     func test_repository_codex_wrapper_exports_session_scoped_pid() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1490,6 +1518,71 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNil(decoded.agentWorkingDirectory)
         XCTAssertEqual(decoded, payload)
     }
+
+    private func runShellIntegration(shell: ShellIntegrationTestShell, command: String) throws -> [String] {
+        let scratchDirectory = try makeTemporaryDirectory(named: "shell-integration-scratch")
+        let fakeAgentURL = scratchDirectory.appendingPathComponent("fake-agent", isDirectory: false)
+        let logURL = scratchDirectory.appendingPathComponent("signals.log", isDirectory: false)
+
+        try """
+        #!/bin/sh
+        printf '%s\\n' "$*" >> "$LOG_FILE"
+        """.write(to: fakeAgentURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeAgentURL.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shell.executablePath)
+        process.arguments = shell.arguments(
+            for: "source \(shellQuoted(shell.integrationScriptURL.path)); \(command)"
+        )
+        process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+        process.environment = [
+            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
+            "LOG_FILE": logURL.path,
+            "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+            "USER": ProcessInfo.processInfo.environment["USER"] ?? "peter",
+            "ZENTTY_AGENT_BIN": fakeAgentURL.path,
+            "ZENTTY_PANE_ID": "pane-under-test",
+            "ZENTTY_SHELL_INTEGRATION": "1",
+            "ZENTTY_WORKLANE_ID": "worklane-under-test",
+            "ZENTTY_WRAPPER_BIN_DIR": scratchDirectory.path,
+        ]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+        let stderrText = String(data: stderrData, encoding: .utf8) ?? ""
+        XCTAssertEqual(process.terminationStatus, 0, stderrText)
+
+        guard FileManager.default.fileExists(atPath: logURL.path) else {
+            return []
+        }
+
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        return log
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+    }
+
+    private func makeTemporaryDirectory(named name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(name + "-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return url
+    }
+
+    private func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
 }
 
 private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUserNotificationCenter {
@@ -1505,5 +1598,45 @@ private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUser
 
     func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String, soundName: String) {
         requests.append(RequestRecord(identifier: identifier, title: title, body: body))
+    }
+}
+
+private enum ShellIntegrationTestShell {
+    case zsh
+    case bash
+
+    var executablePath: String {
+        switch self {
+        case .zsh:
+            return "/bin/zsh"
+        case .bash:
+            return "/bin/bash"
+        }
+    }
+
+    var integrationScriptURL: URL {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let filename: String
+        switch self {
+        case .zsh:
+            filename = "zentty-zsh-integration.zsh"
+        case .bash:
+            filename = "zentty-bash-integration.bash"
+        }
+        return repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("shell-integration", isDirectory: true)
+            .appendingPathComponent(filename, isDirectory: false)
+    }
+
+    func arguments(for command: String) -> [String] {
+        switch self {
+        case .zsh:
+            return ["-f", "-c", command]
+        case .bash:
+            return ["--noprofile", "--norc", "-c", command]
+        }
     }
 }

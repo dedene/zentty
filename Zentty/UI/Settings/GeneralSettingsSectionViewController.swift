@@ -18,6 +18,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let runtimeErrorReportingEnabled: Bool
     private var currentNotifications: AppConfig.Notifications = .default
     private var currentConfirmations: AppConfig.Confirmations = .default
+    private var currentUpdates: AppConfig.Updates = .default
     private var currentErrorReporting: AppConfig.ErrorReporting = .default
 
     private let statusLabel = NSTextField(labelWithString: "")
@@ -29,6 +30,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let closePaneSwitch = NSSwitch()
     private let closeWindowSwitch = NSSwitch()
     private let quitSwitch = NSSwitch()
+    private let updateChannelPopupButton = NSPopUpButton()
     private let errorReportingSwitch = NSSwitch()
     private let errorReportingStatusLabel = NSTextField(labelWithString: "")
     private let errorReportingSubtitleLabel = NSTextField(labelWithString: "")
@@ -50,6 +52,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         self.runtimeErrorReportingEnabled = runtimeErrorReportingEnabled
         self.currentNotifications = configStore.current.notifications
         self.currentConfirmations = configStore.current.confirmations
+        self.currentUpdates = configStore.current.updates
         self.currentErrorReporting = configStore.current.errorReporting
         super.init(nibName: nil, bundle: nil)
     }
@@ -99,6 +102,20 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
         stackView.addArrangedSubview(card)
         card.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        let updatesCard = SettingsCardView()
+        let updatesRow = makeUpdateChannelRow()
+        updatesCard.addSubview(updatesRow)
+        updatesRow.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            updatesRow.topAnchor.constraint(equalTo: updatesCard.topAnchor),
+            updatesRow.leadingAnchor.constraint(equalTo: updatesCard.leadingAnchor),
+            updatesRow.trailingAnchor.constraint(equalTo: updatesCard.trailingAnchor),
+            updatesRow.bottomAnchor.constraint(equalTo: updatesCard.bottomAnchor),
+        ])
+
+        stackView.addArrangedSubview(updatesCard)
+        updatesCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         let errorReportingCard = SettingsCardView()
         let errorReportingStack = NSStackView()
@@ -193,6 +210,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         closePaneSwitch.state = currentConfirmations.confirmBeforeClosingPane ? .on : .off
         closeWindowSwitch.state = currentConfirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = currentConfirmations.confirmBeforeQuitting ? .on : .off
+        selectUpdateChannelPopupItem(for: currentUpdates.channel)
         errorReportingSwitch.state = currentErrorReporting.enabled ? .on : .off
         refreshNotificationStatus()
         updateErrorReportingAvailability()
@@ -215,6 +233,11 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         closePaneSwitch.state = confirmations.confirmBeforeClosingPane ? .on : .off
         closeWindowSwitch.state = confirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = confirmations.confirmBeforeQuitting ? .on : .off
+    }
+
+    func apply(updates: AppConfig.Updates) {
+        currentUpdates = updates
+        selectUpdateChannelPopupItem(for: updates.channel)
     }
 
     func apply(errorReporting: AppConfig.ErrorReporting) {
@@ -361,6 +384,62 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         return container
     }
 
+    private func makeUpdateChannelRow() -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let leftStack = NSStackView()
+        leftStack.orientation = .vertical
+        leftStack.alignment = .leading
+        leftStack.spacing = 2
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = makeLabel(
+            text: "Update Channel",
+            font: .systemFont(ofSize: 13, weight: .semibold)
+        )
+        leftStack.addArrangedSubview(titleLabel)
+
+        let updatesSubtitle = makeLabel(
+            text: "Stable gets regular releases. Beta includes prerelease updates.",
+            font: .systemFont(ofSize: 12, weight: .regular)
+        )
+        updatesSubtitle.textColor = .secondaryLabelColor
+        leftStack.addArrangedSubview(updatesSubtitle)
+
+        let rightStack = NSStackView()
+        rightStack.orientation = .horizontal
+        rightStack.alignment = .centerY
+        rightStack.spacing = 8
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+
+        updateChannelPopupButton.removeAllItems()
+        for channel in AppUpdateChannel.allCases {
+            updateChannelPopupButton.addItem(withTitle: channel.displayName)
+            updateChannelPopupButton.lastItem?.representedObject = channel
+        }
+        updateChannelPopupButton.target = self
+        updateChannelPopupButton.action = #selector(handleUpdateChannelChanged(_:))
+        updateChannelPopupButton.setContentHuggingPriority(.required, for: .horizontal)
+        rightStack.addArrangedSubview(updateChannelPopupButton)
+
+        container.addSubview(leftStack)
+        container.addSubview(rightStack)
+        rightStack.setContentHuggingPriority(.required, for: .horizontal)
+
+        NSLayoutConstraint.activate([
+            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
+
+            rightStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            rightStack.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
+            rightStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+        ])
+
+        return container
+    }
+
     private func makeErrorReportingRow() -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -476,6 +555,18 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
             config.confirmations.confirmBeforeQuitting = sender.state == .on
         }
         currentConfirmations = configStore.current.confirmations
+    }
+
+    @objc
+    private func handleUpdateChannelChanged(_ sender: NSPopUpButton) {
+        guard let channel = sender.selectedItem?.representedObject as? AppUpdateChannel else {
+            return
+        }
+        try? configStore.update { config in
+            config.updates.channel = channel
+        }
+        currentUpdates = configStore.current.updates
+        selectUpdateChannelPopupItem(for: currentUpdates.channel)
     }
 
     @objc
@@ -600,6 +691,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         soundPopupButton.selectItem(at: index)
     }
 
+    private func selectUpdateChannelPopupItem(for channel: AppUpdateChannel) {
+        guard isViewLoaded else { return }
+        let index = updateChannelPopupButton.itemArray.firstIndex {
+            ($0.representedObject as? AppUpdateChannel) == channel
+        } ?? 0
+        updateChannelPopupButton.selectItem(at: index)
+    }
+
     private func makeSwitchRow(
         title: String,
         subtitle: String,
@@ -670,6 +769,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         (soundPopupButton.selectedItem?.representedObject as? String) ?? ""
     }
 
+    var selectedUpdateChannel: AppUpdateChannel {
+        (updateChannelPopupButton.selectedItem?.representedObject as? AppUpdateChannel) ?? .stable
+    }
+
+    var availableUpdateChannels: [AppUpdateChannel] {
+        updateChannelPopupButton.itemArray.compactMap { $0.representedObject as? AppUpdateChannel }
+    }
+
     var availableSoundNames: [String] {
         soundPopupButton.itemArray.compactMap { $0.representedObject as? String }
     }
@@ -700,6 +807,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
     func setErrorReportingEnabledForTesting(_ enabled: Bool) {
         requestErrorReportingChange(to: enabled)
+    }
+
+    func setUpdateChannelForTesting(_ channel: AppUpdateChannel) {
+        let index = updateChannelPopupButton.itemArray.firstIndex {
+            ($0.representedObject as? AppUpdateChannel) == channel
+        } ?? 0
+        updateChannelPopupButton.selectItem(at: index)
+        handleUpdateChannelChanged(updateChannelPopupButton)
     }
 }
 

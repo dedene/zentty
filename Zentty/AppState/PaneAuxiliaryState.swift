@@ -164,13 +164,89 @@ struct PaneRawState: Equatable, Sendable {
     var lastDesktopNotificationDate: Date?
 }
 
+struct PaneTerminalLocationSnapshot: Equatable, Sendable {
+    let scope: PaneShellContextScope?
+    let workingDirectory: String?
+    let isBootstrapOnly: Bool
+}
+
+enum PaneTerminalLocationResolver {
+    static func snapshot(
+        metadata: TerminalMetadata?,
+        shellContext: PaneShellContext?,
+        requestWorkingDirectory: String? = nil
+    ) -> PaneTerminalLocationSnapshot {
+        let metadataWorkingDirectory = WorklaneContextFormatter.trimmed(metadata?.currentWorkingDirectory)
+        let contextWorkingDirectory = WorklaneContextFormatter.trimmed(shellContext?.path)
+        let bootstrapWorkingDirectory = WorklaneContextFormatter.trimmed(requestWorkingDirectory)
+
+        let terminalWorkingDirectory: String?
+        if shellContext?.scope == .local {
+            terminalWorkingDirectory = localWorkingDirectory(
+                metadataWorkingDirectory: metadataWorkingDirectory,
+                contextWorkingDirectory: contextWorkingDirectory,
+                bootstrapWorkingDirectory: bootstrapWorkingDirectory
+            )
+        } else {
+            terminalWorkingDirectory = metadataWorkingDirectory ?? contextWorkingDirectory
+        }
+
+        if let terminalWorkingDirectory {
+            return PaneTerminalLocationSnapshot(
+                scope: shellContext?.scope,
+                workingDirectory: terminalWorkingDirectory,
+                isBootstrapOnly: false
+            )
+        }
+
+        return PaneTerminalLocationSnapshot(
+            scope: shellContext?.scope,
+            workingDirectory: bootstrapWorkingDirectory,
+            isBootstrapOnly: bootstrapWorkingDirectory != nil
+        )
+    }
+
+    private static func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private static func localWorkingDirectory(
+        metadataWorkingDirectory: String?,
+        contextWorkingDirectory: String?,
+        bootstrapWorkingDirectory: String?
+    ) -> String? {
+        guard let metadataWorkingDirectory else {
+            return contextWorkingDirectory ?? bootstrapWorkingDirectory
+        }
+
+        guard let contextWorkingDirectory else {
+            return metadataWorkingDirectory
+        }
+
+        if standardizedPath(metadataWorkingDirectory) == standardizedPath(contextWorkingDirectory) {
+            return metadataWorkingDirectory
+        }
+
+        if let bootstrapWorkingDirectory,
+           standardizedPath(contextWorkingDirectory) == standardizedPath(bootstrapWorkingDirectory) {
+            return metadataWorkingDirectory
+        }
+
+        return contextWorkingDirectory
+    }
+}
+
 enum PanePresentationNormalizer {
     static func normalize(
         paneTitle: String?,
         raw: PaneRawState,
-        previous: PanePresentationState?
+        previous: PanePresentationState?,
+        sessionRequestWorkingDirectory: String? = nil
     ) -> PanePresentationState {
-        let cwd = resolvedWorkingDirectory(from: raw)
+        let cwd = resolvedWorkingDirectory(
+            from: raw,
+            sessionRequestWorkingDirectory: sessionRequestWorkingDirectory
+        )
         let gitContext = normalizedGitContext(raw.gitContext, fallbackWorkingDirectory: cwd)
         let repoRoot = gitContext?.repoRoot
         let branchDisplayText = WorklaneContextFormatter.trimmed(gitContext?.branchDisplayText)
@@ -280,16 +356,15 @@ enum PanePresentationNormalizer {
         return WorklaneContextFormatter.displayBranch(shellContext?.gitBranch)
     }
 
-    private static func resolvedWorkingDirectory(from raw: PaneRawState) -> String? {
-        if let agentCwd = raw.agentStatus?.workingDirectory.flatMap(WorklaneContextFormatter.trimmed),
-           raw.agentStatus?.state == .running || raw.agentStatus?.state == .starting {
-            return agentCwd
-        }
-
-        return WorklaneContextFormatter.resolvedWorkingDirectory(
-            for: raw.metadata,
-            shellContext: raw.shellContext
-        ) ?? raw.gitContext.flatMap { WorklaneContextFormatter.trimmed($0.workingDirectory) }
+    private static func resolvedWorkingDirectory(
+        from raw: PaneRawState,
+        sessionRequestWorkingDirectory: String?
+    ) -> String? {
+        PaneTerminalLocationResolver.snapshot(
+            metadata: raw.metadata,
+            shellContext: raw.shellContext,
+            requestWorkingDirectory: sessionRequestWorkingDirectory
+        ).workingDirectory
     }
 
     private static func normalizedGitContext(
@@ -691,21 +766,15 @@ struct PaneAuxiliaryState: Equatable, Sendable {
     }
 
     var localReviewWorkingDirectory: String? {
-        guard raw.shellContext?.scope != .remote else {
+        let terminalLocation = PaneTerminalLocationResolver.snapshot(
+            metadata: raw.metadata,
+            shellContext: raw.shellContext
+        )
+        guard terminalLocation.scope != .remote else {
             return nil
         }
 
-        if let agentCwd = raw.agentStatus?.workingDirectory.flatMap(WorklaneContextFormatter.trimmed),
-           raw.agentStatus?.state == .running || raw.agentStatus?.state == .starting {
-            return agentCwd
-        }
-
-        let currentWorkingDirectory = WorklaneContextFormatter.resolvedWorkingDirectory(
-            for: raw.metadata,
-            shellContext: raw.shellContext
-        )
-
-        return currentWorkingDirectory ?? raw.gitContext?.workingDirectory
+        return terminalLocation.workingDirectory
     }
 }
 
@@ -718,7 +787,10 @@ extension WorklanePaneContext {
         return PanePresentationNormalizer.normalize(
             paneTitle: pane.title,
             raw: auxiliaryState?.raw ?? PaneRawState(),
-            previous: auxiliaryState?.presentation
+            previous: auxiliaryState?.presentation,
+            sessionRequestWorkingDirectory: pane.sessionRequest.inheritFromPaneID == nil
+                ? pane.sessionRequest.workingDirectory
+                : nil
         )
     }
 }

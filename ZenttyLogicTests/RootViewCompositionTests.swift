@@ -14,9 +14,11 @@ final class RootViewCompositionTests: XCTestCase {
         sidebarWidthDefaults: UserDefaults = SidebarWidthPreference.userDefaults(),
         sidebarVisibilityDefaults: UserDefaults = SidebarVisibilityPreference.userDefaults(),
         paneLayoutDefaults: UserDefaults = PaneLayoutPreferenceStore.userDefaults(),
+        appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         initialLayoutContext: PaneLayoutContext = .fallback
     ) -> RootViewController {
         RootViewController(
+            appUpdateStateStore: appUpdateStateStore,
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
             sidebarWidthDefaults: sidebarWidthDefaults,
             sidebarVisibilityDefaults: sidebarVisibilityDefaults,
@@ -104,6 +106,23 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertGreaterThan(chromeIndex, appCanvasIndex)
         XCTAssertGreaterThan(sidebarIndex, chromeIndex)
         XCTAssertGreaterThan(toggleIndex, sidebarIndex)
+    }
+
+    func test_root_controller_binds_sidebar_update_row_visibility_to_app_update_state() throws {
+        let appUpdateStateStore = AppUpdateStateStore()
+        let controller = makeController(appUpdateStateStore: appUpdateStateStore)
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView } as? SidebarView)
+        XCTAssertTrue(sidebarView.isUpdateRowHiddenForTesting)
+
+        appUpdateStateStore.setUpdateAvailable(true)
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(sidebarView.isUpdateRowHiddenForTesting)
+        XCTAssertEqual(sidebarView.updateAvailableRowHeightForTesting, 28, accuracy: 0.001)
     }
 
     func test_root_controller_places_arrange_button_between_sidebar_toggle_and_navigation_buttons() throws {
@@ -754,9 +773,9 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertGreaterThan(sidebarView.addWorklaneButtonWidth, 120)
         let buttonMaxX = sidebarView.addWorklaneButtonMinX + sidebarView.addWorklaneButtonWidth
         let expectedTrailing = sidebarView.bounds.width - ShellMetrics.sidebarContentInset
-        let expectedWidth = expectedTrailing - sidebarView.addWorklaneButtonMinX
-        XCTAssertEqual(sidebarView.addWorklaneWidthConstraintConstant, expectedWidth, accuracy: 1.0)
-        XCTAssertEqual(buttonMaxX, expectedTrailing, accuracy: 1.0)
+        let expectedMaxWidth = expectedTrailing - sidebarView.addWorklaneButtonMinX
+        XCTAssertEqual(sidebarView.addWorklaneWidthConstraintConstant, expectedMaxWidth, accuracy: 1.0)
+        XCTAssertLessThanOrEqual(buttonMaxX, expectedTrailing + 1.0)
         XCTAssertLessThan(sidebarView.addWorklaneIconAlpha, sidebarView.addWorklaneTitleAlpha)
     }
 
@@ -787,7 +806,11 @@ final class RootViewCompositionTests: XCTestCase {
             ShellMetrics.sidebarContentInset + ShellMetrics.sidebarCreateWorklaneHorizontalInset,
             accuracy: 0.001
         )
-        XCTAssertGreaterThan(sidebarView.addWorklaneButtonWidth, 260)
+        XCTAssertGreaterThan(sidebarView.addWorklaneButtonWidth, 120)
+        XCTAssertLessThanOrEqual(
+            sidebarView.addWorklaneButtonWidth,
+            sidebarView.bounds.width - (ShellMetrics.sidebarContentInset * 2) + 1.0
+        )
     }
 
     func test_sidebar_header_button_hover_adds_subtle_pill_state_and_pointer_affordance() {

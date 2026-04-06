@@ -269,11 +269,18 @@ enum WorklaneContextFormatter {
         metadata: TerminalMetadata?,
         fallbackTitle: String?,
         workingDirectory: String? = nil,
+        fallbackToMetadataWorkingDirectory: Bool = true,
         minimumPathSegments: Int = 1
     ) -> String? {
         let branch = displayBranch(metadata?.gitBranch)
         let compactDirectory = formattedWorkingDirectory(
-            workingDirectory ?? resolvedWorkingDirectory(for: metadata),
+            workingDirectory ?? {
+                guard fallbackToMetadataWorkingDirectory else {
+                    return nil
+                }
+
+                return resolvedWorkingDirectory(for: metadata)
+            }(),
             branch: branch
         )
         let fallback = meaningfulSidebarDetailRole(
@@ -298,11 +305,18 @@ enum WorklaneContextFormatter {
 
     static func singlePaneSidebarDetailLine(
         metadata: TerminalMetadata?,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        fallbackToMetadataWorkingDirectory: Bool = true
     ) -> String? {
         let branch = displayBranch(metadata?.gitBranch)
         let compactDirectory = formattedWorkingDirectory(
-            workingDirectory ?? resolvedWorkingDirectory(for: metadata),
+            workingDirectory ?? {
+                guard fallbackToMetadataWorkingDirectory else {
+                    return nil
+                }
+
+                return resolvedWorkingDirectory(for: metadata)
+            }(),
             branch: branch
         )
 

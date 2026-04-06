@@ -36,12 +36,16 @@ extension WorklaneState {
                 reviewState: reviewStateByPaneID[paneID],
                 gitContext: synthesizedGitContext
             )
-            let paneTitle = paneStripState.panes.first(where: { $0.id == paneID })?.title
+            let pane = paneStripState.panes.first(where: { $0.id == paneID })
+            let paneTitle = pane?.title
             var normalizedAuxiliaryState = auxiliaryState
             normalizedAuxiliaryState.presentation = PanePresentationNormalizer.normalize(
                 paneTitle: paneTitle,
                 raw: auxiliaryState.raw,
-                previous: auxiliaryState.presentation
+                previous: auxiliaryState.presentation,
+                sessionRequestWorkingDirectory: pane?.sessionRequest.inheritFromPaneID == nil
+                    ? pane?.sessionRequest.workingDirectory
+                    : nil
             )
             aux[paneID] = normalizedAuxiliaryState
         }
@@ -60,10 +64,10 @@ extension WorklaneState {
         shellContext: PaneShellContext?
     ) -> PaneGitContext? {
         guard
-            let workingDirectory = WorklaneContextFormatter.resolvedWorkingDirectory(
-                for: metadata,
+            let workingDirectory = PaneTerminalLocationResolver.snapshot(
+                metadata: metadata,
                 shellContext: shellContext
-            ),
+            ).workingDirectory,
             let branch = WorklaneContextFormatter.displayBranch(metadata?.gitBranch)
         else {
             return nil

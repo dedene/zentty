@@ -532,7 +532,7 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertNil(presentation.attentionArtifactLink)
     }
 
-    func test_normalize_prefers_agent_working_directory_over_shell_cwd_when_running() {
+    func test_normalize_ignores_agent_working_directory_and_keeps_terminal_cwd_when_running() {
         let raw = PaneRawState(
             metadata: TerminalMetadata(
                 title: "peter@MacBookPro:~",
@@ -566,7 +566,7 @@ final class PanePresentationStateTests: XCTestCase {
             previous: nil
         )
 
-        XCTAssertEqual(presentation.cwd, "/Users/peter/Development/my-project")
+        XCTAssertEqual(presentation.cwd, NSHomeDirectory())
     }
 
     func test_normalize_reverts_to_shell_cwd_after_agent_completes() {
@@ -604,6 +604,44 @@ final class PanePresentationStateTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.cwd, "/Users/peter/Development/other-project")
+    }
+
+    func test_normalize_keeps_terminal_cwd_even_when_agent_reports_a_different_working_directory() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: NSHomeDirectory(),
+                processName: "zsh",
+                gitBranch: nil
+            ),
+            shellContext: PaneShellContext(
+                scope: .local,
+                path: NSHomeDirectory(),
+                home: NSHomeDirectory(),
+                user: "peter",
+                host: "MacBookPro"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                workingDirectory: "/tmp/project"
+            ),
+            shellActivityState: .commandRunning,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.cwd, NSHomeDirectory())
     }
 
     func test_normalize_shows_command_title_during_execution_in_regular_shell() {

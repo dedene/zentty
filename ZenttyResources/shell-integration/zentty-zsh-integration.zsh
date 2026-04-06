@@ -53,6 +53,10 @@ _zentty_local_git_branch() {
     command git branch --show-current 2>/dev/null || true
 }
 
+_zentty_reset_title_to_cwd() {
+    builtin printf '\e]2;%s\a' "${PWD/#$HOME/~}"
+}
+
 _zentty_emit_pane_context() {
     local cwd_path="${PWD:-}"
     local home_path="${HOME:-}"
@@ -77,6 +81,11 @@ _zentty_emit_pane_context() {
         --git-branch "$git_branch"
 }
 
+_zentty_chpwd() {
+    _zentty_emit_pane_context
+    _zentty_reset_title_to_cwd
+}
+
 _zentty_precmd() {
     _zentty_ensure_wrapper_path
     _zentty_apply_initial_working_directory
@@ -87,8 +96,7 @@ _zentty_precmd() {
     builtin printf '\e[<99u'
     _zentty_report_shell_activity prompt
     _zentty_emit_pane_context
-    # Reset terminal title to CWD after command completes
-    builtin printf '\e]2;%s\a' "${PWD/#$HOME/~}"
+    _zentty_reset_title_to_cwd
 }
 
 _zentty_is_navigation_command() {
@@ -118,9 +126,11 @@ _zentty_preexec() {
 
 autoload -Uz add-zsh-hook 2>/dev/null || true
 if typeset -f add-zsh-hook >/dev/null 2>&1; then
+    add-zsh-hook chpwd _zentty_chpwd
     add-zsh-hook precmd _zentty_precmd
     add-zsh-hook preexec _zentty_preexec
 else
+    chpwd_functions+=(_zentty_chpwd)
     precmd_functions+=(_zentty_precmd)
     preexec_functions+=(_zentty_preexec)
 fi

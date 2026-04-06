@@ -1,9 +1,11 @@
 import XCTest
+@_spi(Private) import Sentry
 @testable import Zentty
 
 final class ErrorReportingBootstrapTests: XCTestCase {
     override func tearDown() {
         ErrorReportingRuntimeState.setEnabledForCurrentProcess(false)
+        SentrySDK.close()
         super.tearDown()
     }
 
@@ -68,6 +70,30 @@ final class ErrorReportingBootstrapTests: XCTestCase {
         XCTAssertEqual(configuration?.dsn, "https://public@example.com/1")
         XCTAssertEqual(configuration?.releaseName, "Zentty@1.2.3")
         XCTAssertEqual(configuration?.dist, "456")
+    }
+
+    @MainActor
+    func test_sentry_client_start_does_not_install_custom_event_or_breadcrumb_scrubbers() throws {
+        let client = SentryErrorReportingClient()
+
+        client.start(
+            configuration: ErrorReportingClientConfiguration(
+                dsn: "https://public@example.com/1",
+                releaseName: "Zentty@1.0",
+                dist: "167",
+                tracesSampleRate: 0,
+                sendDefaultPii: false,
+                enableAutoSessionTracking: false,
+                enableAutoPerformanceTracing: false,
+                enableNetworkBreadcrumbs: false,
+                enableWatchdogTerminationTracking: false,
+                maxBreadcrumbs: 0
+            )
+        )
+
+        let options = try XCTUnwrap(SentrySDK.startOption)
+        XCTAssertNil(options.beforeSend)
+        XCTAssertNil(options.beforeBreadcrumb)
     }
 }
 

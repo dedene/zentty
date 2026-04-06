@@ -56,6 +56,45 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.detailLines, [])
     }
 
+    func test_builder_ignores_agent_working_directory_and_shows_terminal_cwd() {
+        let paneID = PaneID("worklane-main-shell")
+        var auxiliaryState = PaneAuxiliaryState(
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: NSHomeDirectory(),
+                processName: "codex",
+                gitBranch: nil
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 10),
+                workingDirectory: "/tmp/from-agent"
+            )
+        )
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+
+        XCTAssertEqual(summary.primaryText, "~")
+    }
+
     func test_builder_prefers_more_specific_local_pane_context_over_stale_home_metadata() {
         let paneID = PaneID("worklane-main-shell")
         let projectPath = (NSHomeDirectory() as NSString).appendingPathComponent(
@@ -124,6 +163,51 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
         XCTAssertEqual(summary.primaryText, "main · …/k8s-zenjoy")
+        XCTAssertEqual(summary.detailLines.map(\.text), [])
+    }
+
+    func test_builder_ignores_agent_working_directory_until_terminal_reports_a_new_cwd() {
+        let paneID = PaneID("worklane-main-shell")
+        var worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "zsh",
+                    currentWorkingDirectory: NSHomeDirectory(),
+                    processName: "zsh",
+                    gitBranch: nil
+                )
+            ],
+            paneContextByPaneID: [
+                paneID: PaneShellContext(
+                    scope: .local,
+                    path: NSHomeDirectory(),
+                    home: NSHomeDirectory(),
+                    user: "peter",
+                    host: "m1-pro-peter"
+                )
+            ],
+            agentStatusByPaneID: [
+                paneID: PaneAgentStatus(
+                    tool: .codex,
+                    state: .idle,
+                    text: nil,
+                    artifactLink: nil,
+                    updatedAt: Date(),
+                    workingDirectory: "/tmp/project"
+                )
+            ]
+        )
+        worklane.auxiliaryStateByPaneID[paneID]?.shellActivityState = .commandRunning
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+
+        XCTAssertEqual(summary.primaryText, "~")
         XCTAssertEqual(summary.detailLines.map(\.text), [])
     }
 

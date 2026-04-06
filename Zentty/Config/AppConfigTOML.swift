@@ -18,6 +18,7 @@ enum AppConfigTOML {
         case shortcutBinding(Int)
         case notifications
         case confirmations
+        case updates
     }
 
     static func encode(_ config: AppConfig) -> String {
@@ -68,6 +69,10 @@ enum AppConfigTOML {
         lines.append("")
         lines.append("[error_reporting]")
         lines.append("enabled = \(config.errorReporting.enabled)")
+
+        lines.append("")
+        lines.append("[updates]")
+        lines.append("channel = \(encode(string: config.updates.channel.rawValue))")
 
         lines.append("")
         lines.append("[notifications]")
@@ -132,6 +137,10 @@ enum AppConfigTOML {
                 section = .confirmations
                 continue
             }
+            if line == "[updates]" {
+                section = .updates
+                continue
+            }
             guard let assignment = parseAssignment(line) else {
                 return nil
             }
@@ -175,6 +184,10 @@ enum AppConfigTOML {
                 }
             case .confirmations:
                 guard decodeConfirmationsAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .updates:
+                guard decodeUpdatesAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .root:
@@ -350,6 +363,24 @@ enum AppConfigTOML {
                 return false
             }
             config.notifications.soundName = value
+        default:
+            return true
+        }
+
+        return true
+    }
+
+    private static func decodeUpdatesAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "channel":
+            guard let raw = decodeString(assignment.value),
+                  let channel = AppUpdateChannel(rawValue: raw) else {
+                return false
+            }
+            config.updates.channel = channel
         default:
             return true
         }

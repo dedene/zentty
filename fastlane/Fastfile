@@ -1,164 +1,806 @@
+require "json"
+require "open3"
+require "shellwords"
+require "tempfile"
+require "yaml"
+
+require_relative "release_automation"
+
 default_platform(:mac)
 
-APP_NAME   = "Zentty"
-SCHEME     = "Zentty"
-PROJECT    = "Zentty.xcodeproj"
-INFO_PLIST = "Zentty/Info.plist"
-BUILD_DIR  = "build/release"
-APP_PATH   = "#{BUILD_DIR}/#{APP_NAME}.app"
+APP_NAME      = "Zentty"
+SCHEME        = "Zentty"
+PROJECT       = "Zentty.xcodeproj"
+PROJECT_SPEC  = "project.yml"
+APP_TARGET    = "Zentty"
+BUILD_DIR     = "build/release"
+APP_PATH      = "#{BUILD_DIR}/#{APP_NAME}.app"
+PROJECT_ROOT  = File.expand_path("..", __dir__)
+R2_CACHE_MAX  = "public, max-age=31536000, immutable"
+R2_CACHE_NO   = "no-cache"
 
-# Absolute project root for FileUtils (Fastlane cwd is fastlane/)
-PROJECT_ROOT = File.expand_path("..", __dir__)
+def project_root_path(*parts)
+  File.join(PROJECT_ROOT, *parts)
+end
+
+def run_command(*args, chdir: PROJECT_ROOT)
+  stdout, stderr, status = Open3.capture3(*args, chdir: chdir)
+  [stdout, stderr, status]
+end
+
+def capture_command!(*args, chdir: PROJECT_ROOT, error_message: nil)
+  stdout, stderr, status = run_command(*args, chdir: chdir)
+  return stdout if status.success?
+
+  message = error_message || "Command failed: #{args.join(" ")}"
+  message += "\n#{stderr.strip}" unless stderr.strip.empty?
+  UI.user_error!(message)
+end
+
+def command_success?(*args, chdir: PROJECT_ROOT)
+  _, _, status = run_command(*args, chdir: chdir)
+  status.success?
+end
+
+def one_password_reference?(value)
+  value.to_s.strip.start_with?("op://")
+end
+
+def ensure_one_password_ready!
+  capture_command!("op", "account", "list", error_message: "1Password CLI is not authenticated")
+end
+
+def read_one_password_reference!(reference, label:)
+  ensure_one_password_ready!
+  capture_command!("op", "read", "--no-newline", reference, error_message: "Failed to read #{label} from 1Password")
+end
+
+def release_env_item_name
+  ENV["OP_RELEASE_ENV_ITEM"].to_s.strip
+end
+
+def release_env_item_vault
+  ENV["OP_RELEASE_ENV_VAULT"].to_s.strip
+end
+
+def normalized_release_env_key(label)
+  label.to_s.strip.upcase.gsub(/[^A-Z0-9]+/, "_").gsub(/\A_+|_+\z/, "")
+end
+
+def hydrate_release_env_from_one_password_item!
+  item_name = release_env_item_name
+  return if item_name.empty?
+
+  ensure_one_password_ready!
+
+  args = ["op", "item", "get", item_name, "--format", "json", "--reveal"]
+  args += ["--vault", release_env_item_vault] unless release_env_item_vault.empty?
+  payload = JSON.parse(capture_command!(*args, error_message: "Failed to read release env item from 1Password"))
+
+  Array(payload["fields"]).each do |field|
+    next if field["purpose"] == "PASSWORD" || field["purpose"] == "NOTES"
+
+    env_key = normalized_release_env_key(field["label"] || field["id"])
+    next if env_key.empty?
+
+    value = field["value"].to_s
+    next if value.empty?
+
+    ENV[env_key] = value if ENV[env_key].to_s.empty?
+  end
+end
+
+def hydrate_release_env_from_one_password!
+  return if defined?(@release_env_from_one_password_loaded) && @release_env_from_one_password_loaded
+
+  @release_env_from_one_password_loaded = true
+  hydrate_release_env_from_one_password_item!
+
+  reference = ENV["OP_RELEASE_ENV_REF"].to_s.strip
+  return if reference.empty?
+
+  read_one_password_reference!(reference, label: "OP_RELEASE_ENV_REF").each_line do |line|
+    entry = line.strip
+    next if entry.empty? || entry.start_with?("#")
+
+    key, value = entry.split("=", 2)
+    next if key.to_s.strip.empty? || value.nil?
+
+    normalized_key = key.strip
+    ENV[normalized_key] = value if ENV[normalized_key].to_s.empty?
+  end
+end
+
+def resolved_env_value(name)
+  hydrate_release_env_from_one_password!
+
+  value = ENV[name].to_s.strip
+  return "" if value.empty?
+
+  return read_one_password_reference!(value, label: name).rstrip if one_password_reference?(value)
+
+  value
+end
+
+def required_env_value!(name)
+  value = resolved_env_value(name)
+  UI.user_error!("#{name} must be set") if value.empty?
+  value
+end
+
+def github_repo_name_with_owner
+  capture_command!("gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip
+end
+
+def github_release_records
+  output = capture_command!("gh", "release", "list", "--limit", "100", "--json", "tagName,isPrerelease,isDraft,publishedAt")
+  JSON.parse(output)
+rescue JSON::ParserError => e
+  UI.user_error!("Could not parse gh release list output: #{e.message}")
+end
+
+def latest_published_version(channel: nil)
+  releases = github_release_records
+  record =
+    case ReleaseAutomation.normalize_channel(channel)
+    when "stable"
+      releases.find { |release| !release["isPrerelease"] && !release["isDraft"] }
+    when "beta"
+      releases.find { |release| release["isPrerelease"] && !release["isDraft"] } ||
+        releases.find { |release| !release["isDraft"] }
+    else
+      releases.find { |release| !release["isDraft"] }
+    end
+
+  ReleaseAutomation.normalized_version(record && record["tagName"])
+rescue StandardError
+  nil
+end
+
+def latest_release_tag(excluding: nil)
+  releases = github_release_records
+  releases.each do |release|
+    tag = release["tagName"].to_s.strip
+    next if tag.empty?
+    next if ReleaseAutomation.normalized_version(tag) == ReleaseAutomation.normalized_version(excluding)
+    return tag
+  end
+  nil
+end
+
+def current_head_commit
+  capture_command!("git", "-C", PROJECT_ROOT, "rev-parse", "HEAD").strip
+end
+
+def local_tag_commit(tag_name)
+  capture_command!("git", "-C", PROJECT_ROOT, "rev-parse", "#{tag_name}^{commit}").strip
+rescue StandardError
+  nil
+end
+
+def git_tag_exists?(tag_name)
+  command_success?("git", "-C", PROJECT_ROOT, "rev-parse", "--verify", "--quiet", "refs/tags/#{tag_name}")
+end
+
+def remote_tag_exists?(tag_name)
+  stdout = capture_command!("git", "-C", PROJECT_ROOT, "ls-remote", "--tags", "origin", "refs/tags/#{tag_name}")
+  !stdout.strip.empty?
+rescue StandardError
+  false
+end
+
+def github_release_exists?(tag_name)
+  command_success?("gh", "release", "view", tag_name, "--json", "tagName", "--jq", ".tagName")
+end
+
+def ensure_release_not_conflicting!(tag_name)
+  if git_tag_exists?(tag_name)
+    tagged_commit = local_tag_commit(tag_name)
+    if tagged_commit != current_head_commit
+      UI.user_error!("Tag #{tag_name} already exists and points to #{tagged_commit}, not the release commit #{current_head_commit}")
+    end
+  end
+
+  if !git_tag_exists?(tag_name) && remote_tag_exists?(tag_name)
+    UI.user_error!("Tag #{tag_name} already exists on origin")
+  end
+
+  if github_release_exists?(tag_name)
+    UI.message("GitHub release #{tag_name} already exists; its notes body will be updated.")
+  end
+end
+
+def ensure_release_tools_ready!
+  hydrate_release_env_from_one_password!
+  capture_command!("gh", "auth", "status", "--hostname", "github.com", error_message: "gh is not authenticated")
+  capture_command!("wrangler", "whoami", error_message: "wrangler is not authenticated")
+  UI.user_error!("R2_PUBLIC_BASE_URL must be set") if r2_public_base_url.empty?
+  UI.user_error!("SPARKLE_PUBLIC_ED_KEY must be set") if sparkle_public_ed_key.empty?
+end
+
+def determine_release_channel(options)
+  requested = ReleaseAutomation.normalize_channel(options[:channel])
+  return requested if requested
+
+  return "stable" unless UI.interactive?
+
+  UI.select("Select the release channel", ReleaseAutomation::CHANNELS)
+end
+
+def determine_release_version(channel:, requested_version:)
+  default_version = ReleaseAutomation.suggested_version(
+    channel: channel,
+    latest_version: latest_published_version(channel: "stable") || "0.0.0"
+  )
+
+  if requested_version.to_s.strip.empty?
+    return default_version unless UI.interactive?
+
+    UI.message("Latest published stable version: #{latest_published_version(channel: "stable") || "none"}")
+    response = UI.input("Release version [default: #{default_version}]")
+    response = default_version if response.to_s.strip.empty?
+    return response.strip
+  end
+
+  requested_version.to_s.strip
+end
+
+def prompt_release_confirmation(channel:, version:)
+  return if !UI.interactive?
+
+  UI.message("Preparing #{channel} release #{version}")
+  UI.confirm("Continue with this release?") || UI.user_error!("Release cancelled")
+end
+
+def release_tag_name(version)
+  ReleaseAutomation.release_tag(version)
+end
+
+def release_title(version)
+  "Zentty #{version}"
+end
+
+def load_api_key
+  app_store_connect_api_key(
+    key_id: required_env_value!("ASC_KEY_ID"),
+    issuer_id: required_env_value!("ASC_ISSUER_ID"),
+    key_filepath: required_env_value!("ASC_KEY_FILEPATH")
+  )
+end
+
+def read_project_marketing_version
+  zentty_target_settings.fetch("MARKETING_VERSION").to_s
+end
+
+def read_project_build_number
+  zentty_target_settings.fetch("CURRENT_PROJECT_VERSION").to_s
+end
+
+def write_project_marketing_version(version:)
+  project_spec_path = File.join(PROJECT_ROOT, PROJECT_SPEC)
+  project_spec = File.read(project_spec_path)
+  updated_project_spec = project_spec.sub(/^(\s*MARKETING_VERSION:\s*).+$/, "\\1#{version}")
+
+  UI.user_error!("MARKETING_VERSION not found in #{PROJECT_SPEC}") if updated_project_spec == project_spec
+
+  File.write(project_spec_path, updated_project_spec)
+end
+
+def write_project_build_number(build_number:)
+  project_spec_path = File.join(PROJECT_ROOT, PROJECT_SPEC)
+  project_spec = File.read(project_spec_path)
+  updated_project_spec = project_spec.sub(/^(\s*CURRENT_PROJECT_VERSION:\s*).+$/, "\\1#{build_number}")
+
+  UI.user_error!("CURRENT_PROJECT_VERSION not found in #{PROJECT_SPEC}") if updated_project_spec == project_spec
+
+  File.write(project_spec_path, updated_project_spec)
+end
+
+def load_project_spec
+  YAML.load_file(File.join(PROJECT_ROOT, PROJECT_SPEC))
+end
+
+def zentty_target_settings
+  load_project_spec.fetch("targets").fetch(APP_TARGET).fetch("settings").fetch("base")
+end
+
+def validate_release_inputs!(channel:, version:)
+  ReleaseAutomation.validate_version!(channel: channel, version: version)
+rescue ArgumentError => e
+  UI.user_error!(e.message)
+end
+
+def release_build_number
+  (number_of_commits(all: true).to_i + 1).to_s
+end
+
+def sparkle_public_ed_key
+  resolved_env_value("SPARKLE_PUBLIC_ED_KEY")
+end
+
+def sparkle_private_ed_key_file
+  explicit_path = resolved_env_value("SPARKLE_PRIVATE_ED_KEY_FILE")
+  return explicit_path unless explicit_path.empty?
+
+  inline_key = resolved_env_value("SPARKLE_PRIVATE_ED_KEY")
+  return "" if inline_key.empty?
+
+  @sparkle_private_ed_key_tempfile ||= begin
+    file = Tempfile.new(["zentty-sparkle-private-ed25519", ".txt"])
+    file.write("#{inline_key}\n")
+    file.flush
+    File.chmod(0o600, file.path)
+    file
+  end
+
+  @sparkle_private_ed_key_tempfile.path
+end
+
+def sparkle_keychain_account
+  account = resolved_env_value("SPARKLE_KEYCHAIN_ACCOUNT")
+  account.empty? ? "zentty" : account
+end
+
+def sparkle_updates_dir
+  project_root_path("build", "updates")
+end
+
+def sparkle_appcast_path
+  File.join(sparkle_updates_dir, ReleaseAutomation.appcast_key)
+end
+
+def sparkle_feed_url
+  "#{r2_public_base_url.sub(%r{/+\z}, "")}/#{ReleaseAutomation.appcast_key}"
+end
+
+def xcargs_for_release(version:)
+  [
+    "MARKETING_VERSION=#{Shellwords.escape(version)}",
+    "SPARKLE_FEED_URL=#{Shellwords.escape(sparkle_feed_url)}",
+    "SPARKLE_PUBLIC_ED_KEY=#{Shellwords.escape(sparkle_public_ed_key)}"
+  ].join(" ")
+end
+
+def commit_release_metadata!(version:)
+  build_number = release_build_number
+  write_project_marketing_version(version: version)
+  write_project_build_number(build_number: build_number)
+  generate_project!
+  sh(
+    "git", "-C", PROJECT_ROOT,
+    "commit", "--only",
+    "-m", "release: #{version} (build #{build_number})",
+    "--", PROJECT_SPEC, PROJECT
+  )
+  build_number
+end
+
+def generate_project!
+  sh("xcodegen", "generate", "--spec", "../#{PROJECT_SPEC}")
+end
+
+def sync_signing!
+  match(
+    type: "developer_id",
+    platform: "macos",
+    readonly: true,
+    skip_provisioning_profiles: true
+  )
+end
+
+def archive_release!(version:)
+  build_mac_app(
+    project: PROJECT,
+    scheme: SCHEME,
+    configuration: "Release",
+    clean: true,
+    output_directory: BUILD_DIR,
+    output_name: APP_NAME,
+    export_method: "developer-id",
+    export_options: "fastlane/ExportOptions.plist",
+    xcargs: xcargs_for_release(version: version)
+  )
+end
+
+def notarize_app_bundle!
+  notarize(
+    package: APP_PATH,
+    bundle_id: CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier),
+    api_key: load_api_key,
+    print_log: true
+  )
+end
+
+def package_release_dmg!
+  built_info_plist = File.join(PROJECT_ROOT, APP_PATH, "Contents", "Info.plist")
+  version = get_info_plist_value(path: built_info_plist, key: "CFBundleShortVersionString")
+  build   = get_info_plist_value(path: built_info_plist, key: "CFBundleVersion")
+
+  dmg_name  = "#{APP_NAME}-#{version}-#{build}"
+  abs_build = File.join(PROJECT_ROOT, BUILD_DIR)
+  abs_app   = File.join(PROJECT_ROOT, APP_PATH)
+  abs_dmg   = File.join(abs_build, "#{dmg_name}.dmg")
+  bg_image  = File.join(PROJECT_ROOT, "assets", "dmg", "background.tiff")
+
+  FileUtils.rm_f(abs_dmg)
+
+  staging = File.join(abs_build, "dmg-staging")
+  FileUtils.rm_rf(staging)
+  FileUtils.mkdir_p(staging)
+  FileUtils.cp_r(abs_app, staging)
+
+  args = [
+    "create-dmg",
+    "--volname", APP_NAME,
+    "--window-pos", "200", "120",
+    "--window-size", "660", "400",
+    "--icon-size", "128",
+    "--text-size", "14",
+    "--icon", "#{APP_NAME}.app", "200", "170",
+    "--hide-extension", "#{APP_NAME}.app",
+    "--app-drop-link", "460", "170",
+    "--no-internet-enable",
+    "--format", "UDZO"
+  ]
+  args += ["--background", bg_image] if File.exist?(bg_image)
+  args += [abs_dmg, staging]
+
+  sh(*args)
+
+  FileUtils.rm_rf(staging)
+  UI.success("DMG created: #{abs_dmg}")
+
+  ENV["ZENTTY_DMG_PATH"] = abs_dmg
+end
+
+def package_release_zip!
+  built_info_plist = File.join(PROJECT_ROOT, APP_PATH, "Contents", "Info.plist")
+  version = get_info_plist_value(path: built_info_plist, key: "CFBundleShortVersionString")
+  build   = get_info_plist_value(path: built_info_plist, key: "CFBundleVersion")
+  basename = ReleaseAutomation.archive_basename(app_name: APP_NAME, version: version, build: build)
+  abs_build = File.join(PROJECT_ROOT, BUILD_DIR)
+  abs_app = File.join(PROJECT_ROOT, APP_PATH)
+  abs_zip = File.join(abs_build, "#{basename}.zip")
+
+  FileUtils.rm_f(abs_zip)
+  sh("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", abs_app, abs_zip)
+  UI.success("ZIP created: #{abs_zip}")
+
+  ENV["ZENTTY_ARCHIVE_BASENAME"] = basename
+  ENV["ZENTTY_ZIP_PATH"] = abs_zip
+end
+
+def notarize_release_dmg!
+  abs_build = File.join(PROJECT_ROOT, BUILD_DIR)
+  dmg_path = ENV["ZENTTY_DMG_PATH"] || Dir["#{abs_build}/*.dmg"].first
+  UI.user_error!("No DMG found in #{abs_build}") unless dmg_path && File.exist?(dmg_path)
+
+  notarize(
+    package: dmg_path,
+    bundle_id: CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier),
+    api_key: load_api_key,
+    print_log: true
+  )
+  UI.success("DMG notarized and stapled: #{dmg_path}")
+end
+
+def local_tag_release!(tag_name, version)
+  return if git_tag_exists?(tag_name) && local_tag_commit(tag_name) == current_head_commit
+
+  sh("git", "-C", PROJECT_ROOT, "tag", "-a", tag_name, "-m", release_title(version))
+end
+
+def push_release_tag!(tag_name)
+  sh("git", "-C", PROJECT_ROOT, "push", "origin", tag_name)
+end
+
+def release_notes_path(archive_basename:)
+  File.join(sparkle_updates_dir, "#{archive_basename}.md")
+end
+
+def previous_release_tag_for(tag_name)
+  latest_release_tag(excluding: tag_name)
+end
+
+def generated_release_notes(tag_name:, previous_tag_name:)
+  repo = github_repo_name_with_owner
+  args = ["gh", "api", "repos/#{repo}/releases/generate-notes", "-f", "tag_name=#{tag_name}"]
+  args += ["-f", "previous_tag_name=#{previous_tag_name}"] unless previous_tag_name.to_s.strip.empty?
+  stdout = capture_command!(*args)
+  JSON.parse(stdout).fetch("body")
+rescue JSON::ParserError => e
+  UI.user_error!("Could not parse generated release notes: #{e.message}")
+end
+
+def edit_text_in_editor!(initial_text, path_hint:)
+  FileUtils.mkdir_p(File.dirname(path_hint))
+  Tempfile.create(["zentty-release-notes-", ".md"], File.dirname(path_hint)) do |file|
+    file.write(initial_text)
+    file.flush
+
+    editor = Shellwords.split(ENV.fetch("EDITOR", "vi"))
+    UI.message("Opening #{path_hint} in #{editor.first}")
+    sh(*editor, file.path)
+
+    edited_text = File.read(file.path)
+    UI.user_error!("Release notes file was left empty") if edited_text.strip.empty?
+
+    File.write(path_hint, edited_text)
+    return edited_text
+  end
+end
+
+def r2_bucket_name
+  bucket = resolved_env_value("R2_BUCKET")
+  bucket.empty? ? "zentty" : bucket
+end
+
+def r2_public_base_url
+  base_url = resolved_env_value("R2_PUBLIC_BASE_URL")
+  base_url.empty? ? "https://releases.zentty.org" : base_url
+end
+
+def wrangler_put_file!(local_path:, object_key:, content_type:, cache_control:)
+  sh(
+    "wrangler", "r2", "object", "put",
+    "#{r2_bucket_name}/#{object_key}",
+    "--file", local_path,
+    "--content-type", content_type,
+    "--cache-control", cache_control
+  )
+end
+
+def upsert_github_release!(tag_name:, version:, channel:, notes_path:)
+  if github_release_exists?(tag_name)
+    sh(
+      "gh", "release", "edit", tag_name,
+      "--title", release_title(version),
+      "--notes-file", notes_path
+    )
+  else
+    args = [
+      "gh", "release", "create", tag_name,
+      "--title", release_title(version),
+      "--notes-file", notes_path,
+      "--verify-tag"
+    ]
+    args << "--prerelease" if channel == "beta"
+    args << "--latest" if channel == "stable"
+    sh(*args)
+  end
+end
+
+def prepare_release_notes!(tag_name:, archive_basename:)
+  previous_tag = previous_release_tag_for(tag_name)
+  generated = generated_release_notes(tag_name: tag_name, previous_tag_name: previous_tag.to_s)
+  edited_notes_path = release_notes_path(archive_basename: archive_basename)
+  edit_text_in_editor!(generated, path_hint: edited_notes_path)
+  edited_notes_path
+end
+
+def stage_release_archive!(zip_path:)
+  FileUtils.mkdir_p(sparkle_updates_dir)
+  destination = File.join(sparkle_updates_dir, File.basename(zip_path))
+  FileUtils.cp(zip_path, destination)
+  destination
+end
+
+def sparkle_checkout_path!
+  explicit_path = ENV["SPARKLE_PACKAGE_PATH"].to_s.strip
+  return explicit_path if !explicit_path.empty? && File.directory?(explicit_path)
+
+  candidates = Dir[File.join(Dir.home, "Library/Developer/Xcode/DerivedData", "*", "SourcePackages", "checkouts", "Sparkle")]
+  candidates += Dir["/tmp/zentty-agent-*/SourcePackages/checkouts/Sparkle"]
+  checkout = candidates
+    .select { |path| File.directory?(path) }
+    .max_by { |path| File.mtime(path) }
+
+  UI.user_error!("Could not locate Sparkle checkout. Set SPARKLE_PACKAGE_PATH if needed.") unless checkout
+
+  checkout
+end
+
+def sparkle_generate_appcast_binary!
+  explicit_bin = ENV["SPARKLE_GENERATE_APPCAST_BIN"].to_s.strip
+  return explicit_bin if !explicit_bin.empty? && File.executable?(explicit_bin)
+
+  checkout = sparkle_checkout_path!
+  capture_command!("swift", "build", "-c", "release", "--product", "generate_appcast", chdir: checkout, error_message: "Failed to build Sparkle generate_appcast tool")
+  File.join(checkout, ".build", "release", "generate_appcast")
+end
+
+def build_generate_appcast_arguments(channel:)
+  args = [
+    sparkle_generate_appcast_binary!,
+    "--download-url-prefix", r2_public_base_url,
+    "--release-notes-url-prefix", r2_public_base_url,
+    "--maximum-versions", "0"
+  ]
+  args += ["--ed-key-file", sparkle_private_ed_key_file] unless sparkle_private_ed_key_file.empty?
+  args += ["--account", sparkle_keychain_account] unless sparkle_keychain_account.empty?
+
+  sparkle_channel = ReleaseAutomation.sparkle_channel(channel)
+  args += ["--channel", sparkle_channel] if sparkle_channel
+  args << sparkle_updates_dir
+  args
+end
+
+def generate_sparkle_appcast!(channel:)
+  FileUtils.mkdir_p(sparkle_updates_dir)
+  capture_command!(*build_generate_appcast_arguments(channel: channel), error_message: "Failed to generate Sparkle appcast")
+  UI.user_error!("Expected #{sparkle_appcast_path} to exist after appcast generation") unless File.exist?(sparkle_appcast_path)
+end
+
+def r2_object_url(object_key)
+  base = r2_public_base_url
+  return nil if base.empty?
+
+  "#{base.sub(%r{/+\z}, "")}/#{object_key}"
+end
+
+def r2_content_type_for_path(path)
+  case File.extname(path).downcase
+  when ".xml"
+    "application/xml; charset=utf-8"
+  when ".zip"
+    "application/zip"
+  when ".dmg"
+    "application/x-apple-diskimage"
+  when ".html"
+    "text/html; charset=utf-8"
+  when ".md", ".markdown"
+    "text/markdown; charset=utf-8"
+  when ".txt"
+    "text/plain; charset=utf-8"
+  else
+    "application/octet-stream"
+  end
+end
+
+def r2_cache_control_for_path(path)
+  File.basename(path) == ReleaseAutomation.appcast_key ? R2_CACHE_NO : R2_CACHE_MAX
+end
+
+def upload_release_artifacts_to_r2!(dmg_path:)
+  staged_paths = Dir[File.join(sparkle_updates_dir, "*")].select { |path| File.file?(path) }
+  assets = staged_paths + [dmg_path]
+
+  assets.each do |local_path|
+    object_key = File.basename(local_path)
+    wrangler_put_file!(
+      local_path: local_path,
+      object_key: object_key,
+      content_type: r2_content_type_for_path(local_path),
+      cache_control: r2_cache_control_for_path(local_path)
+    )
+
+    url = r2_object_url(object_key)
+    UI.message("Uploaded #{object_key}#{url ? " -> #{url}" : ""}")
+  end
+end
+
+def run_local_bundle_pipeline
+  generate_project!
+  sync_signing!
+
+  build_number = number_of_commits(all: true).to_s
+  write_project_build_number(build_number: build_number)
+  generate_project!
+
+  sh(
+    "git", "-C", PROJECT_ROOT,
+    "commit", "--only",
+    "-m", "build: bump build number to #{build_number}",
+    "--", PROJECT_SPEC, PROJECT
+  )
+
+  archive_release!(version: read_project_marketing_version)
+  notarize_app_bundle!
+  package_release_dmg!
+  notarize_release_dmg!
+end
+
+def run_release_pipeline(options)
+  channel = determine_release_channel(options)
+  version = determine_release_version(channel: channel, requested_version: options[:version])
+  version = validate_release_inputs!(channel: channel, version: version)
+  tag_name = release_tag_name(version)
+
+  ensure_release_tools_ready!
+  UI.message("Latest published stable version: #{latest_published_version(channel: "stable") || "none"}")
+  UI.message("Current project version: #{read_project_marketing_version}")
+  UI.message("Release channel: #{channel}")
+  UI.message("Release version: #{version}")
+
+  ensure_release_not_conflicting!(tag_name)
+  prompt_release_confirmation(channel: channel, version: version)
+
+  build_number = commit_release_metadata!(version: version)
+  local_tag_release!(tag_name, version)
+
+  sync_signing!
+  archive_release!(version: version)
+  notarize_app_bundle!
+  package_release_zip!
+  package_release_dmg!
+  notarize_release_dmg!
+
+  push_release_tag!(tag_name)
+
+  archive_basename = ENV["ZENTTY_ARCHIVE_BASENAME"] || ReleaseAutomation.archive_basename(app_name: APP_NAME, version: version, build: build_number)
+  stage_release_archive!(zip_path: ENV.fetch("ZENTTY_ZIP_PATH"))
+  notes_path = prepare_release_notes!(tag_name: tag_name, archive_basename: archive_basename)
+  generate_sparkle_appcast!(channel: channel)
+  upload_release_artifacts_to_r2!(dmg_path: ENV.fetch("ZENTTY_DMG_PATH"))
+  upsert_github_release!(tag_name: tag_name, version: version, channel: channel, notes_path: notes_path)
+end
+
+lane :bundle do
+  run_local_bundle_pipeline
+end
+
+lane :release do |options|
+  run_release_pipeline(options)
+end
 
 platform :mac do
 
-  # ── Full pipeline ──────────────────────────────────────────────────
-
-  desc "Build, sign, notarize, and package Zentty for distribution"
-  lane :release do
-    generate_project
-    sync_signing
-    bump_build_number
-    commit_build_number
-    archive
-    notarize_app
-    package_dmg
-    notarize_dmg
-  end
-
-  # ── Individual lanes ───────────────────────────────────────────────
-
   desc "Regenerate Xcode project from project.yml"
   lane :generate_project do
-    sh("xcodegen", "generate", "--spec", "../project.yml")
+    generate_project!
   end
 
-  desc "Set build number to git commit count"
+  desc "Set CURRENT_PROJECT_VERSION in project.yml to git commit count"
   lane :bump_build_number do
-    build_number = number_of_commits(all: true)
-    set_info_plist_value(
-      path: INFO_PLIST,
-      key: "CFBundleVersion",
-      value: build_number.to_s
-    )
+    build_number = number_of_commits(all: true).to_s
+    write_project_build_number(build_number: build_number)
     UI.success("Build number set to #{build_number}")
   end
 
   desc "Commit the bumped build number"
   lane :commit_build_number do
-    build_number = get_info_plist_value(path: INFO_PLIST, key: "CFBundleVersion")
-    git_commit(
-      path: INFO_PLIST,
-      message: "build: bump build number to #{build_number}"
+    build_number = read_project_build_number
+    sh(
+      "git", "-C", PROJECT_ROOT,
+      "commit", "--only",
+      "-m", "build: bump build number to #{build_number}",
+      "--", PROJECT_SPEC, PROJECT
     )
   end
 
   desc "Sync Developer ID certificate via match"
   lane :sync_signing do
-    match(
-      type: "developer_id",
-      platform: "macos",
-      readonly: true,
-      skip_provisioning_profiles: true
-    )
+    sync_signing!
   end
 
   desc "Archive and export with Developer ID signing"
-  lane :archive do
-    build_mac_app(
-      project: PROJECT,
-      scheme: SCHEME,
-      configuration: "Release",
-      clean: true,
-      output_directory: BUILD_DIR,
-      output_name: APP_NAME,
-      export_method: "developer-id",
-      export_options: "fastlane/ExportOptions.plist"
-    )
+  lane :archive do |options|
+    version = options[:version] || read_project_marketing_version
+    archive_release!(version: version)
   end
 
   desc "Notarize the .app bundle"
   lane :notarize_app do
-    notarize(
-      package: APP_PATH,
-      bundle_id: CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier),
-      api_key: load_api_key,
-      print_log: true
-    )
+    notarize_app_bundle!
+  end
+
+  desc "Create Sparkle ZIP archive from the exported .app"
+  lane :package_zip do
+    package_release_zip!
   end
 
   desc "Create DMG from the exported .app"
   lane :package_dmg do
-    version = get_info_plist_value(path: INFO_PLIST, key: "CFBundleShortVersionString")
-    build   = get_info_plist_value(path: INFO_PLIST, key: "CFBundleVersion")
-
-    dmg_name  = "#{APP_NAME}-#{version}-#{build}"
-    abs_build = File.join(PROJECT_ROOT, BUILD_DIR)
-    abs_app   = File.join(PROJECT_ROOT, APP_PATH)
-    abs_dmg   = File.join(abs_build, "#{dmg_name}.dmg")
-    bg_image  = File.join(PROJECT_ROOT, "assets", "dmg", "background.tiff")
-
-    FileUtils.rm_f(abs_dmg)
-
-    # Stage the .app for create-dmg
-    staging = File.join(abs_build, "dmg-staging")
-    FileUtils.rm_rf(staging)
-    FileUtils.mkdir_p(staging)
-    FileUtils.cp_r(abs_app, staging)
-
-    args = [
-      "create-dmg",
-      "--volname", APP_NAME,
-      "--window-pos", "200", "120",
-      "--window-size", "660", "400",
-      "--icon-size", "128",
-      "--text-size", "14",
-      "--icon", "#{APP_NAME}.app", "200", "170",
-      "--hide-extension", "#{APP_NAME}.app",
-      "--app-drop-link", "460", "170",
-      "--no-internet-enable",
-      "--format", "UDZO"
-    ]
-    args += ["--background", bg_image] if File.exist?(bg_image)
-    args += [abs_dmg, staging]
-
-    sh(*args)
-
-    FileUtils.rm_rf(staging)
-    UI.success("DMG created: #{abs_dmg}")
-
-    ENV["ZENTTY_DMG_PATH"] = abs_dmg
+    package_release_dmg!
   end
 
   desc "Notarize the DMG"
   lane :notarize_dmg do
-    abs_build = File.join(PROJECT_ROOT, BUILD_DIR)
-    dmg_path = ENV["ZENTTY_DMG_PATH"] || Dir["#{abs_build}/*.dmg"].first
-    UI.user_error!("No DMG found in #{abs_build}") unless dmg_path && File.exist?(dmg_path)
-
-    notarize(
-      package: dmg_path,
-      bundle_id: CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier),
-      api_key: load_api_key,
-      print_log: true
-    )
-    UI.success("DMG notarized and stapled: #{dmg_path}")
+    notarize_release_dmg!
   end
-
-  # ── Optional ───────────────────────────────────────────────────────
 
   desc "Build GhosttyKit.xcframework from source"
   lane :build_ghosttykit do
     sh("../scripts/build_ghosttykit.sh")
-  end
-
-  # ── Helpers ────────────────────────────────────────────────────────
-
-  private_lane :load_api_key do
-    app_store_connect_api_key(
-      key_id: ENV.fetch("ASC_KEY_ID"),
-      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
-      key_filepath: ENV.fetch("ASC_KEY_FILEPATH")
-    )
   end
 end

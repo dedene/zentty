@@ -125,10 +125,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var isWindowKey = true
     private var shouldBypassNextCloseConfirmation = false
     var onWindowDidClose: ((MainWindowController) -> Void)?
+    var onWindowAppearanceDidChange: ((NSAppearance?) -> Void)?
+    var onCheckForUpdatesRequested: (() -> Void)?
 
     init(
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
         configStore: AppConfigStore? = nil,
+        appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         openWithService: OpenWithServing = OpenWithService(),
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
@@ -149,6 +152,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
         let rootViewController = RootViewController(
             configStore: resolvedConfigStore,
+            appUpdateStateStore: appUpdateStateStore,
             openWithService: openWithService,
             runtimeRegistry: runtimeRegistry,
             initialLayoutContext: initialLayoutContext
@@ -195,6 +199,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         rootViewController.onShowSettingsRequested = { [weak self] in
             self?.showSettingsWindow(section: .general, sender: nil)
+        }
+        rootViewController.onCheckForUpdatesRequested = { [weak self] in
+            self?.onCheckForUpdatesRequested?()
         }
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
@@ -564,6 +571,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         let appearance = terminalAppearance
         window.appearance = appearance
         settingsWindowController?.applyAppearance(appearance)
+        onWindowAppearanceDidChange?(appearance)
     }
 
     var worklaneTitles: [String] {
@@ -876,13 +884,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func injectFocusedPaneShellContextForTesting(path: String, scope: PaneShellContextScope = .local) {
-        guard let paneID = rootViewController.focusedPaneIDForTesting else {
+        guard let paneID = rootViewController.focusedPaneIDForTesting,
+              let worklaneID = rootViewController.activeWorklaneIDForTesting else {
             return
         }
 
         rootViewController.applyAgentStatusPayloadForTesting(
             AgentStatusPayload(
-                worklaneID: WorklaneID("worklane-main"),
+                worklaneID: worklaneID,
                 paneID: paneID,
                 signalKind: .paneContext,
                 state: nil,
@@ -905,6 +914,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     var rootViewControllerForTesting: RootViewController {
         rootViewController
+    }
+
+    var focusedPaneEnvironmentForTesting: [String: String]? {
+        rootViewController.paneStripStateForTesting.focusedPane?.sessionRequest.environmentVariables
     }
 
     func openWithMenuForTesting() -> NSMenu {

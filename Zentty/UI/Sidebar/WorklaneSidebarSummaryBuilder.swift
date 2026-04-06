@@ -345,7 +345,8 @@ enum WorklaneSidebarSummaryBuilder {
         guard WorklaneContextFormatter.paneDetailLine(
             metadata: metadata,
             fallbackTitle: paneContext.pane.title,
-            workingDirectory: cwdPath
+            workingDirectory: cwdPath,
+            fallbackToMetadataWorkingDirectory: false
         ) != nil else {
             return nil
         }
@@ -538,7 +539,8 @@ enum WorklaneSidebarSummaryBuilder {
         let branchPrefixedIdentity = WorklaneContextFormatter.paneDetailLine(
             metadata: metadata,
             fallbackTitle: fallbackTitle,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            fallbackToMetadataWorkingDirectory: false
         ) ?? stableIdentity
         return (branchPrefixedIdentity, true)
     }
@@ -615,15 +617,13 @@ enum WorklaneSidebarSummaryBuilder {
             metadata: candidate.metadata,
             fallbackTitle: candidate.fallbackTitle,
             workingDirectory: candidate.cwdPath,
+            fallbackToMetadataWorkingDirectory: false,
             minimumPathSegments: minimumPathSegments
         )
     }
 
     private static func resolvedWorkingDirectory(for paneContext: WorklanePaneContext) -> String? {
-        WorklaneContextFormatter.resolvedWorkingDirectory(
-            for: paneContext.metadata,
-            shellContext: paneContext.auxiliaryState?.shellContext
-        )
+        paneContext.presentation.cwd
     }
 
     private static func orderedPaneContexts(for worklane: WorklaneState) -> [WorklanePaneContext] {

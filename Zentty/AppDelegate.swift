@@ -6,26 +6,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let shouldOpenMainWindow: Bool
     private let configStore: AppConfigStore
     private let runtimeRegistryFactory: () -> PaneRuntimeRegistry
+    private let appUpdateController: AppUpdateControlling
     private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
+    private var aboutWindowController: AboutWindowController?
     private var configObserverID: UUID?
     private var nextWindowIndex = 0
 
     init(
         shouldOpenMainWindow: Bool = true,
         runtimeRegistryFactory: @escaping () -> PaneRuntimeRegistry = { PaneRuntimeRegistry() },
-        configStore: AppConfigStore = AppConfigStore()
+        configStore: AppConfigStore = AppConfigStore(),
+        appUpdateController: AppUpdateControlling? = nil
     ) {
         self.shouldOpenMainWindow = shouldOpenMainWindow
         self.runtimeRegistryFactory = runtimeRegistryFactory
         self.configStore = configStore
+        self.appUpdateController = appUpdateController
+            ?? makeDefaultAppUpdateController(configStore: configStore)
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        appUpdateController.start()
         AppMenuBuilder.installIfNeeded(on: NSApp, config: configStore.current)
-        configObserverID = configStore.addObserver { config in
+        configObserverID = configStore.addObserver { [weak self] config in
             Task { @MainActor in
+                guard let self else { return }
                 AppMenuBuilder.installIfNeeded(on: NSApp, config: config)
+                self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
             }
         }
         UNUserNotificationCenter.current().delegate = self
@@ -46,6 +54,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     func showSettingsWindow(_ sender: Any?) {
         keyWindowController?.showSettingsWindow(sender)
+    }
+
+    @objc
+    func toggleSidebarMenuItem(_ sender: Any?) {
+        keyWindowController?.toggleSidebar(sender)
+    }
+
+    @objc
+    func showAboutWindow(_ sender: Any?) {
+        let appearance = resolvedAboutAppearance
+        let controller = aboutWindowController ?? AboutWindowController(appearance: appearance)
+        aboutWindowController = controller
+        controller.applyAppearance(appearance)
+        controller.show(sender: sender)
+    }
+
+    @objc
+    func checkForUpdates(_ sender: Any?) {
+        appUpdateController.checkForUpdates()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -90,20 +117,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    // MARK: - Window Lifecycle
-
     private func makeWindowController() -> MainWindowController {
         let index = nextWindowIndex
         nextWindowIndex += 1
         let controller = MainWindowController(
             runtimeRegistry: runtimeRegistryFactory(),
             configStore: configStore,
+            appUpdateStateStore: appUpdateController.updateStateStore,
             windowIndex: index
         )
         let id = ObjectIdentifier(controller)
         windowControllers[id] = controller
         controller.onWindowDidClose = { [weak self] closedController in
             self?.handleWindowDidClose(closedController)
+        }
+        controller.onWindowAppearanceDidChange = { [weak self] _ in
+            guard let self else { return }
+            self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
+        }
+        controller.onCheckForUpdatesRequested = { [weak self] in
+            self?.checkForUpdates(nil)
         }
         return controller
     }
@@ -120,6 +153,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? windowControllers.values.first
     }
 
+    private var resolvedAboutAppearance: NSAppearance? {
+        keyWindowController?.terminalAppearance ?? NSApp.effectiveAppearance
+    }
+
     func windowController(containingWorklane worklaneID: WorklaneID) -> MainWindowController? {
         windowControllers.values.first { $0.containsWorklane(worklaneID) }
     }
@@ -129,6 +166,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     #if DEBUG
+    var aboutWindow: NSWindow? {
+        aboutWindowController?.window
+    }
+
+    var windowControllersForTesting: [MainWindowController] {
+        windowControllers.values.sorted { lhs, rhs in
+            lhs.window.windowNumber < rhs.window.windowNumber
+        }
+    }
+
     var settingsWindow: NSWindow? {
         keyWindowController?.settingsWindow
     }
@@ -137,6 +184,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowControllers.values.first
     }
     #endif
+}
+
+extension AppDelegate: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(checkForUpdates(_:)) {
+            return appUpdateController.canCheckForUpdates
+        }
+
+        return true
+    }
 }
 
 extension AppDelegate: UNUserNotificationCenterDelegate {

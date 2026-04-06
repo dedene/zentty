@@ -14,16 +14,27 @@ extension WorklaneStore {
         let previousWorklane = worklane
         let previousAuxiliaryState = worklane.auxiliaryStateByPaneID[paneID] ?? PaneAuxiliaryState()
         let previousMetadata = previousAuxiliaryState.metadata
+        let requestWorkingDirectory = nonInheritedSessionWorkingDirectory(for: paneID, in: worklane)
         let metadataChangeKind = TerminalMetadataChangeClassifier.classify(
             previous: previousMetadata,
             next: metadata
         )
         worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
         clearStaleDesktopNotificationIfNeeded(for: paneID, metadata: metadata, in: &worklane)
-        if branchContextDidChange(previous: previousMetadata, next: metadata) {
+        if branchContextDidChange(
+            previous: previousAuxiliaryState,
+            nextMetadata: metadata,
+            requestWorkingDirectory: requestWorkingDirectory
+        ) {
             clearBranchDerivedState(for: paneID, in: &worklane)
             worklane.auxiliaryStateByPaneID[paneID]?.gitContext = nil
-            invalidateCachedGitContext(path: WorklaneContextFormatter.resolvedWorkingDirectory(for: metadata))
+            invalidateCachedGitContext(
+                path: PaneTerminalLocationResolver.snapshot(
+                    metadata: metadata,
+                    shellContext: worklane.auxiliaryStateByPaneID[paneID]?.shellContext,
+                    requestWorkingDirectory: requestWorkingDirectory
+                ).workingDirectory
+            )
         }
         if
             let existingStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus,
@@ -145,14 +156,26 @@ extension WorklaneStore {
         }
     }
 
-    private func branchContextDidChange(previous: TerminalMetadata?, next: TerminalMetadata) -> Bool {
-        if WorklaneContextFormatter.resolvedWorkingDirectory(for: previous)
-            != WorklaneContextFormatter.resolvedWorkingDirectory(for: next) {
+    private func branchContextDidChange(
+        previous: PaneAuxiliaryState,
+        nextMetadata: TerminalMetadata,
+        requestWorkingDirectory: String?
+    ) -> Bool {
+        if PaneTerminalLocationResolver.snapshot(
+            metadata: previous.metadata,
+            shellContext: previous.shellContext,
+            requestWorkingDirectory: requestWorkingDirectory
+        ).workingDirectory
+            != PaneTerminalLocationResolver.snapshot(
+                metadata: nextMetadata,
+                shellContext: previous.shellContext,
+                requestWorkingDirectory: requestWorkingDirectory
+            ).workingDirectory {
             return true
         }
 
-        return WorklaneContextFormatter.displayBranch(previous?.gitBranch)
-            != WorklaneContextFormatter.displayBranch(next.gitBranch)
+        return WorklaneContextFormatter.displayBranch(previous.metadata?.gitBranch)
+            != WorklaneContextFormatter.displayBranch(nextMetadata.gitBranch)
     }
 
     private func shouldFastPathVolatileMetadataUpdate(
@@ -160,7 +183,6 @@ extension WorklaneStore {
         nextAuxiliaryState: PaneAuxiliaryState
     ) -> Bool {
         previousAuxiliaryState.presentation == nextAuxiliaryState.presentation
-            && previousAuxiliaryState.localReviewWorkingDirectory == nextAuxiliaryState.localReviewWorkingDirectory
             && previousAuxiliaryState.shellContext?.scope == nextAuxiliaryState.shellContext?.scope
             && gitContextRefreshHint(for: previousAuxiliaryState) == gitContextRefreshHint(for: nextAuxiliaryState)
     }
@@ -214,7 +236,8 @@ extension WorklaneStore {
         let previousAuxiliaryState = previousWorklane.auxiliaryStateByPaneID[paneID]
         let nextAuxiliaryState = nextWorklane.auxiliaryStateByPaneID[paneID]
 
-        return previousAuxiliaryState?.localReviewWorkingDirectory != nextAuxiliaryState?.localReviewWorkingDirectory
+        return localReviewWorkingDirectory(for: paneID, in: previousWorklane)
+            != localReviewWorkingDirectory(for: paneID, in: nextWorklane)
             || previousAuxiliaryState?.shellContext?.scope != nextAuxiliaryState?.shellContext?.scope
             || gitContextRefreshHint(for: previousAuxiliaryState) != gitContextRefreshHint(for: nextAuxiliaryState)
     }
@@ -255,12 +278,15 @@ extension WorklaneStore {
         worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].presentation = PanePresentationNormalizer.normalize(
             paneTitle: pane.title,
             raw: raw,
-            previous: previousPresentation
+            previous: previousPresentation,
+            sessionRequestWorkingDirectory: pane.sessionRequest.inheritFromPaneID == nil
+                ? pane.sessionRequest.workingDirectory
+                : nil
         )
     }
 
     func invalidateGitContextIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
-        let currentWorkingDirectory = worklane.auxiliaryStateByPaneID[paneID]?.localReviewWorkingDirectory
+        let currentWorkingDirectory = localReviewWorkingDirectory(for: paneID, in: worklane)
         if worklane.auxiliaryStateByPaneID[paneID]?.gitContext?.workingDirectory != currentWorkingDirectory {
             worklane.auxiliaryStateByPaneID[paneID]?.gitContext = nil
         }
@@ -280,7 +306,7 @@ extension WorklaneStore {
             return
         }
 
-        guard let workingDirectory = auxiliaryState?.localReviewWorkingDirectory else {
+        guard let workingDirectory = localReviewWorkingDirectory(for: paneReference.paneID, in: worklanes[worklaneIndex]) else {
             updateGitContext(paneID: paneReference.paneID, gitContext: nil)
             return
         }
@@ -343,9 +369,10 @@ extension WorklaneStore {
                 continue
             }
 
-            let currentWorkingDirectory = worklanes[worklaneIndex]
-                .auxiliaryStateByPaneID[paneReference.paneID]?
-                .localReviewWorkingDirectory
+            let currentWorkingDirectory = localReviewWorkingDirectory(
+                for: paneReference.paneID,
+                in: worklanes[worklaneIndex]
+            )
             guard currentWorkingDirectory == workingDirectory else {
                 refreshGitContextIfNeeded(for: paneReference)
                 continue

@@ -178,6 +178,22 @@ struct WorklaneChangeSubscription {
     fileprivate static let legacyID = UUID()
 }
 
+struct WorklaneRuntimeIdentity: Sendable {
+    var nextOpaqueValue: @Sendable () -> String
+
+    static let live = WorklaneRuntimeIdentity {
+        UUID().uuidString.lowercased()
+    }
+
+    func makeWorklaneID() -> WorklaneID {
+        WorklaneID("wl_\(nextOpaqueValue())")
+    }
+
+    func makePaneID() -> PaneID {
+        PaneID("pn_\(nextOpaqueValue())")
+    }
+}
+
 @MainActor
 final class WorklaneStore {
     struct PaneReference: Hashable {
@@ -203,6 +219,7 @@ final class WorklaneStore {
     var pendingGitContextPaths: Set<String> = []
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     private let processEnvironment: [String: String]
+    let runtimeIdentity: WorklaneRuntimeIdentity
     let focusHistoryController = PaneFocusHistoryController()
     private var isNavigatingHistory = false
 
@@ -239,22 +256,25 @@ final class WorklaneStore {
         activeWorklaneID: WorklaneID? = nil,
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        runtimeIdentity: WorklaneRuntimeIdentity = .live,
         terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
         self.gitContextResolver = gitContextResolver
         self.terminalDiagnostics = terminalDiagnostics
         self.layoutContext = layoutContext
         self.processEnvironment = processEnvironment
+        self.runtimeIdentity = runtimeIdentity
         let initialWorklanes = worklanes.isEmpty
             ? WorklaneStore.defaultWorklanes(
                 layoutContext: layoutContext,
-                processEnvironment: processEnvironment
+                processEnvironment: processEnvironment,
+                runtimeIdentity: runtimeIdentity
             )
             : worklanes
-        let requestedActiveWorklaneID = activeWorklaneID ?? initialWorklanes.first?.id ?? WorklaneID("worklane-main")
+        let requestedActiveWorklaneID = activeWorklaneID ?? initialWorklanes.first?.id ?? runtimeIdentity.makeWorklaneID()
         let resolvedActiveWorklaneID = initialWorklanes.contains(where: { $0.id == requestedActiveWorklaneID })
             ? requestedActiveWorklaneID
-            : initialWorklanes.first?.id ?? WorklaneID("worklane-main")
+            : initialWorklanes.first?.id ?? runtimeIdentity.makeWorklaneID()
         self.worklanes = initialWorklanes
         self.activeWorklaneID = resolvedActiveWorklaneID
         normalizeAllPanePresentationState()
@@ -797,7 +817,7 @@ final class WorklaneStore {
         let previousPaneRef = currentPaneReference
         let newIndex = nextWorklaneNumber()
         let title = "WS \(newIndex)"
-        let id = WorklaneID("worklane-\(newIndex)")
+        let id = runtimeIdentity.makeWorklaneID()
         let workingDirectory = resolveWorkingDirectoryForNewWorklane()
         let configInheritanceSourcePaneID = resolveConfigInheritanceSourcePaneIDForNewWorklane()
 
@@ -809,7 +829,8 @@ final class WorklaneStore {
                 workingDirectory: workingDirectory,
                 surfaceContext: .tab,
                 configInheritanceSourcePaneID: configInheritanceSourcePaneID,
-                processEnvironment: processEnvironment
+                processEnvironment: processEnvironment,
+                runtimeIdentity: runtimeIdentity
             )
         )
         activeWorklaneID = id
@@ -970,10 +991,10 @@ final class WorklaneStore {
     #if DEBUG
     func replaceWorklanes(_ worklanes: [WorklaneState], activeWorklaneID: WorklaneID? = nil) {
         self.worklanes = worklanes
-        let fallbackID = activeWorklaneID ?? worklanes.first?.id ?? WorklaneID("worklane-main")
+        let fallbackID = activeWorklaneID ?? worklanes.first?.id ?? runtimeIdentity.makeWorklaneID()
         self.activeWorklaneID = worklanes.contains(where: { $0.id == fallbackID })
             ? fallbackID
-            : worklanes.first?.id ?? WorklaneID("worklane-main")
+            : worklanes.first?.id ?? runtimeIdentity.makeWorklaneID()
         normalizeAllPanePresentationState()
         refreshLastFocusedLocalWorkingDirectory()
         refreshAllPaneGitContexts()
@@ -987,23 +1008,26 @@ final class WorklaneStore {
         }
 
         let title = "pane \(worklane.nextPaneNumber)"
-        let paneID = PaneID("\(worklane.id.rawValue)-pane-\(worklane.nextPaneNumber)")
-        let workingDirectory = resolveWorkingDirectoryForNewPane(in: worklane)
+        let paneID = runtimeIdentity.makePaneID()
+        let focusedPaneID = worklane.paneStripState.focusedPaneID
+        let launchContext = focusedPaneID.flatMap { resolveLaunchContext(for: $0, in: worklane) }
+        let workingDirectory = launchContext?.path
+            ?? lastFocusedLocalWorkingDirectory
+            ?? Self.defaultWorkingDirectory()
         let inheritFromPaneID = sourcePaneIDForSessionInheritance(in: worklane)
         let configInheritanceSourcePaneID = sourcePaneIDForConfigInheritance(in: worklane)
 
-        let initialShellContext = PaneShellContext(
-            scope: .local,
-            path: workingDirectory,
-            home: processEnvironment["HOME"],
-            user: processEnvironment["USER"],
-            host: nil
+        let initialShellContext = seededShellContext(
+            launchContext: launchContext,
+            sourceShellContext: inheritFromPaneID.flatMap { worklane.auxiliaryStateByPaneID[$0]?.shellContext },
+            fallbackWorkingDirectory: workingDirectory
         )
         let initialRaw = PaneRawState(shellContext: initialShellContext)
         let initialPresentation = PanePresentationNormalizer.normalize(
             paneTitle: title,
             raw: initialRaw,
-            previous: nil
+            previous: nil,
+            sessionRequestWorkingDirectory: inheritFromPaneID == nil ? workingDirectory : nil
         )
         worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
             raw: initialRaw,
@@ -1033,27 +1057,29 @@ final class WorklaneStore {
     func makePaneWithDirectory(
         in worklane: inout WorklaneState,
         existingPaneCount: Int,
-        workingDirectory: String?
+        workingDirectory: String?,
+        sourceShellContext: PaneShellContext? = nil
     ) -> PaneState {
         defer { worklane.nextPaneNumber += 1 }
 
         let title = "pane \(worklane.nextPaneNumber)"
-        let paneID = PaneID("\(worklane.id.rawValue)-pane-\(worklane.nextPaneNumber)")
+        let paneID = runtimeIdentity.makePaneID()
         let resolvedDirectory = workingDirectory ?? Self.defaultWorkingDirectory()
         let configSource = sourcePaneIDForConfigInheritance(in: worklane)
 
-        let initialShellContext = PaneShellContext(
-            scope: .local,
-            path: resolvedDirectory,
-            home: processEnvironment["HOME"],
-            user: processEnvironment["USER"],
-            host: nil
+        let initialShellContext = seededShellContext(
+            launchContext: sourceShellContext.map {
+                PaneLaunchContext(path: resolvedDirectory, scope: $0.scope)
+            },
+            sourceShellContext: sourceShellContext,
+            fallbackWorkingDirectory: resolvedDirectory
         )
         let initialRaw = PaneRawState(shellContext: initialShellContext)
         let initialPresentation = PanePresentationNormalizer.normalize(
             paneTitle: title,
             raw: initialRaw,
-            previous: nil
+            previous: nil,
+            sessionRequestWorkingDirectory: resolvedDirectory
         )
         worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
             raw: initialRaw,
@@ -1078,18 +1104,47 @@ final class WorklaneStore {
         )
     }
 
+    private func seededShellContext(
+        launchContext: PaneLaunchContext?,
+        sourceShellContext: PaneShellContext?,
+        fallbackWorkingDirectory: String
+    ) -> PaneShellContext {
+        let resolvedPath = launchContext?.path ?? sourceShellContext?.path ?? fallbackWorkingDirectory
+
+        if sourceShellContext?.scope == .remote || launchContext?.scope == .remote {
+            return PaneShellContext(
+                scope: .remote,
+                path: resolvedPath,
+                home: sourceShellContext?.home,
+                user: sourceShellContext?.user,
+                host: sourceShellContext?.host,
+                gitBranch: sourceShellContext?.gitBranch
+            )
+        }
+
+        return PaneShellContext(
+            scope: .local,
+            path: resolvedPath,
+            home: processEnvironment["HOME"],
+            user: processEnvironment["USER"],
+            host: nil
+        )
+    }
+
     private static func defaultWorklanes(
         layoutContext: PaneLayoutContext,
-        processEnvironment: [String: String]
+        processEnvironment: [String: String],
+        runtimeIdentity: WorklaneRuntimeIdentity
     ) -> [WorklaneState] {
         [
             makeDefaultWorklane(
-                id: WorklaneID("worklane-main"),
+                id: runtimeIdentity.makeWorklaneID(),
                 title: "MAIN",
                 layoutContext: layoutContext,
                 workingDirectory: Self.defaultWorkingDirectory(),
                 surfaceContext: .window,
-                processEnvironment: processEnvironment
+                processEnvironment: processEnvironment,
+                runtimeIdentity: runtimeIdentity
             ),
         ]
     }
@@ -1101,9 +1156,10 @@ final class WorklaneStore {
         workingDirectory: String,
         surfaceContext: TerminalSurfaceContext,
         configInheritanceSourcePaneID: PaneID? = nil,
-        processEnvironment: [String: String]
+        processEnvironment: [String: String],
+        runtimeIdentity: WorklaneRuntimeIdentity
     ) -> WorklaneState {
-        let shellPaneID = PaneID("\(id.rawValue)-shell")
+        let shellPaneID = runtimeIdentity.makePaneID()
         let initialShellContext = PaneShellContext(
             scope: .local,
             path: workingDirectory,
@@ -1115,7 +1171,8 @@ final class WorklaneStore {
         let initialPresentation = PanePresentationNormalizer.normalize(
             paneTitle: "shell",
             raw: initialRaw,
-            previous: nil
+            previous: nil,
+            sessionRequestWorkingDirectory: workingDirectory
         )
         return WorklaneState(
             id: id,
@@ -1226,16 +1283,6 @@ final class WorklaneStore {
         return environment
     }
 
-    private func resolveWorkingDirectoryForNewPane(in worklane: WorklaneState) -> String {
-        guard let focusedPaneID = worklane.paneStripState.focusedPaneID else {
-            return lastFocusedLocalWorkingDirectory ?? Self.defaultWorkingDirectory()
-        }
-
-        return resolveLaunchContext(for: focusedPaneID, in: worklane)?.path
-            ?? lastFocusedLocalWorkingDirectory
-            ?? Self.defaultWorkingDirectory()
-    }
-
     private func sourcePaneIDForSessionInheritance(in worklane: WorklaneState) -> PaneID? {
         guard let focusedPaneID = worklane.paneStripState.focusedPaneID else {
             return nil
@@ -1265,23 +1312,31 @@ final class WorklaneStore {
         for paneID: PaneID,
         in worklane: WorklaneState
     ) -> PaneLaunchContext? {
-        let paneContext = worklane.auxiliaryStateByPaneID[paneID]?.shellContext
-        let metadataWorkingDirectory = Self.trimmedWorkingDirectory(
-            worklane.auxiliaryStateByPaneID[paneID]?.metadata?.currentWorkingDirectory
+        let terminalLocation = PaneTerminalLocationResolver.snapshot(
+            metadata: worklane.auxiliaryStateByPaneID[paneID]?.metadata,
+            shellContext: worklane.auxiliaryStateByPaneID[paneID]?.shellContext,
+            requestWorkingDirectory: nonInheritedSessionWorkingDirectory(for: paneID, in: worklane)
         )
-        let requestWorkingDirectory = nonInheritedSessionWorkingDirectory(for: paneID, in: worklane)
 
-        if let paneContext {
-            return resolvedWorkingDirectory(
-                metadataWorkingDirectory: metadataWorkingDirectory,
-                paneContext: paneContext,
-                requestWorkingDirectory: requestWorkingDirectory
-            )
-                .map { PaneLaunchContext(path: $0, scope: paneContext.scope) }
+        return terminalLocation.workingDirectory.map {
+            PaneLaunchContext(path: $0, scope: terminalLocation.scope)
+        }
+    }
+
+    func localReviewWorkingDirectory(
+        for paneID: PaneID,
+        in worklane: WorklaneState
+    ) -> String? {
+        let terminalLocation = PaneTerminalLocationResolver.snapshot(
+            metadata: worklane.auxiliaryStateByPaneID[paneID]?.metadata,
+            shellContext: worklane.auxiliaryStateByPaneID[paneID]?.shellContext,
+            requestWorkingDirectory: nonInheritedSessionWorkingDirectory(for: paneID, in: worklane)
+        )
+        guard terminalLocation.scope != .remote else {
+            return nil
         }
 
-        return (metadataWorkingDirectory ?? requestWorkingDirectory)
-            .map { PaneLaunchContext(path: $0, scope: nil) }
+        return terminalLocation.workingDirectory
     }
 
     func focusedOpenWithContext(in worklane: WorklaneState) -> WorklaneOpenWithContext? {
@@ -1344,28 +1399,18 @@ final class WorklaneStore {
         using paneID: PaneID,
         in worklane: WorklaneState
     ) {
-        if let paneContext = worklane.auxiliaryStateByPaneID[paneID]?.shellContext {
-            guard paneContext.scope == .local else {
-                return
-            }
-
-            let metadataWorkingDirectory = Self.trimmedWorkingDirectory(
-                worklane.auxiliaryStateByPaneID[paneID]?.metadata?.currentWorkingDirectory
-            )
-            let requestWorkingDirectory = nonInheritedSessionWorkingDirectory(for: paneID, in: worklane)
-            lastFocusedLocalPaneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
-            lastFocusedLocalWorkingDirectory = resolvedWorkingDirectory(
-                metadataWorkingDirectory: metadataWorkingDirectory,
-                paneContext: paneContext,
-                requestWorkingDirectory: requestWorkingDirectory
-            )
+        let terminalLocation = PaneTerminalLocationResolver.snapshot(
+            metadata: worklane.auxiliaryStateByPaneID[paneID]?.metadata,
+            shellContext: worklane.auxiliaryStateByPaneID[paneID]?.shellContext,
+            requestWorkingDirectory: nonInheritedSessionWorkingDirectory(for: paneID, in: worklane)
+        )
+        guard terminalLocation.scope != .remote,
+              let workingDirectory = terminalLocation.workingDirectory else {
             return
         }
 
-        if let nonInheritedSessionWorkingDirectory = nonInheritedSessionWorkingDirectory(for: paneID, in: worklane) {
-            lastFocusedLocalPaneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
-            lastFocusedLocalWorkingDirectory = nonInheritedSessionWorkingDirectory
-        }
+        lastFocusedLocalPaneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
+        lastFocusedLocalWorkingDirectory = workingDirectory
     }
 
     private func clearReadyStatusForFocusedPane(in worklane: inout WorklaneState) {
@@ -1406,7 +1451,7 @@ final class WorklaneStore {
         return lastFocusedLocalPaneReference.paneID
     }
 
-    private func nonInheritedSessionWorkingDirectory(
+    func nonInheritedSessionWorkingDirectory(
         for paneID: PaneID,
         in worklane: WorklaneState
     ) -> String? {
@@ -1416,22 +1461,6 @@ final class WorklaneStore {
         }
 
         return Self.trimmedWorkingDirectory(pane.sessionRequest.workingDirectory)
-    }
-
-    private func resolvedWorkingDirectory(
-        metadataWorkingDirectory: String?,
-        paneContext: PaneShellContext,
-        requestWorkingDirectory: String?
-    ) -> String? {
-        let contextWorkingDirectory = Self.trimmedWorkingDirectory(paneContext.path)
-
-        if paneContext.scope == .local,
-           metadataWorkingDirectory == requestWorkingDirectory,
-           let contextWorkingDirectory {
-            return contextWorkingDirectory
-        }
-
-        return metadataWorkingDirectory ?? contextWorkingDirectory ?? requestWorkingDirectory
     }
 
     private func pane(for paneID: PaneID, in worklane: WorklaneState) -> PaneState? {
@@ -1472,9 +1501,9 @@ final class WorklaneStore {
 
     func nextWorklaneNumber() -> Int {
         let maxExisting = worklanes.compactMap { worklane -> Int? in
-            let raw = worklane.id.rawValue
-            guard raw.hasPrefix("worklane-"),
-                  let n = Int(raw.dropFirst("worklane-".count)) else { return nil }
+            let normalizedTitle = worklane.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard normalizedTitle.hasPrefix("WS "),
+                  let n = Int(normalizedTitle.dropFirst(3)) else { return nil }
             return n
         }.max() ?? 0
         return maxExisting + 1

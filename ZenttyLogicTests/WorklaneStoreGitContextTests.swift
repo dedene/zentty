@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 final class WorklaneStoreGitContextTests: XCTestCase {
-    func test_replace_worklanes_resolves_git_context_from_title_derived_working_directory() async throws {
+    func test_replace_worklanes_resolves_git_context_from_terminal_reported_working_directory() async throws {
         let homePath = NSHomeDirectory()
         let repoPath = "\(homePath)/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails"
         let resolver = StubPaneGitContextResolver(
@@ -17,7 +17,7 @@ final class WorklaneStoreGitContextTests: XCTestCase {
         )
         let store = WorklaneStore(gitContextResolver: resolver)
         let paneID = PaneID("pane-shell")
-        let updated = expectation(description: "git context resolved from title-derived cwd")
+        let updated = expectation(description: "git context resolved from terminal cwd")
 
         let subscription = store.subscribe { change in
             guard case .auxiliaryStateUpdated(_, let changedPaneID, _) = change, changedPaneID == paneID else {
@@ -43,7 +43,7 @@ final class WorklaneStoreGitContextTests: XCTestCase {
                 metadataByPaneID: [
                     paneID: TerminalMetadata(
                         title: "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
-                        currentWorkingDirectory: nil,
+                        currentWorkingDirectory: repoPath,
                         processName: "zsh"
                     )
                 ]

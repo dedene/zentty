@@ -63,6 +63,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.current.openWith.enabledTargetIDs, ["finder", "vscode", "cursor", "xcode"])
         XCTAssertEqual(store.current.openWith.primaryTargetID, "finder")
         XCTAssertTrue(store.current.errorReporting.enabled)
+        XCTAssertEqual(store.current.updates.channel, .stable)
 
         let persisted = try String(contentsOf: fileURL)
         XCTAssertTrue(persisted.contains("[sidebar]"))
@@ -74,6 +75,8 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(persisted.contains("enabled_target_ids = [\"finder\", \"vscode\", \"cursor\", \"xcode\"]"))
         XCTAssertTrue(persisted.contains("[error_reporting]"))
         XCTAssertTrue(persisted.contains("enabled = true"))
+        XCTAssertTrue(persisted.contains("[updates]"))
+        XCTAssertTrue(persisted.contains("channel = \"stable\""))
     }
 
     func test_store_prefers_existing_config_file_over_user_defaults_migration() throws {
@@ -161,6 +164,7 @@ final class AppConfigStoreTests: XCTestCase {
             config.openWith.primaryTargetID = "cursor"
             config.openWith.enabledTargetIDs = ["cursor", "finder"]
             config.errorReporting.enabled = false
+            config.updates.channel = .beta
             config.openWith.customApps = [
                 OpenWithCustomApp(
                     id: "custom:bbedit",
@@ -176,9 +180,12 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(persisted.contains("primary_target_id = \"cursor\""))
         XCTAssertTrue(persisted.contains("[error_reporting]"))
         XCTAssertTrue(persisted.contains("enabled = false"))
+        XCTAssertTrue(persisted.contains("[updates]"))
+        XCTAssertTrue(persisted.contains("channel = \"beta\""))
         XCTAssertTrue(persisted.contains("[[open_with.custom_apps]]"))
         XCTAssertTrue(persisted.contains("path = \"/Applications/BBEdit.app\""))
         XCTAssertFalse(store.current.errorReporting.enabled)
+        XCTAssertEqual(store.current.updates.channel, .beta)
         XCTAssertEqual(store.current.openWith.customApps.map(\.id), ["custom:bbedit"])
     }
 
@@ -210,6 +217,36 @@ final class AppConfigStoreTests: XCTestCase {
         )
 
         XCTAssertFalse(store.current.errorReporting.enabled)
+    }
+
+    func test_store_reads_update_channel_from_config_file() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [sidebar]
+        width = 260
+        visibility = "pinnedOpen"
+
+        [pane_layout]
+        laptop = "balanced"
+        large_display = "balanced"
+        ultrawide = "balanced"
+
+        [open_with]
+        primary_target_id = "finder"
+        enabled_target_ids = ["finder", "cursor"]
+
+        [updates]
+        channel = "beta"
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(store.current.updates.channel, .beta)
     }
 
     func test_store_writes_shortcut_overrides_and_unbound_entries() throws {

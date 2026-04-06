@@ -54,6 +54,7 @@ final class RootViewController: NSViewController {
 
     private let worklaneStore: WorklaneStore
     private let configStore: AppConfigStore
+    private let appUpdateStateStore: AppUpdateStateStore
     private let openWithService: OpenWithServing
     private let sidebarView = SidebarView()
     private let sidebarHoverRailView = SidebarHoverRailView()
@@ -91,14 +92,18 @@ final class RootViewController: NSViewController {
     private var notificationPanelView: NotificationPanelView?
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
     private let commandPaletteController = CommandPaletteController()
+    private var appUpdateObserverID: UUID?
+    private var isUpdateAvailable = false
     var onWindowChromeNeedsUpdate: (() -> Void)?
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
     var onShowSettingsRequested: (() -> Void)?
+    var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
 
     init(
         configStore: AppConfigStore,
+        appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         openWithService: OpenWithServing = OpenWithService(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
@@ -107,10 +112,12 @@ final class RootViewController: NSViewController {
     ) {
         self.runtimeRegistry = runtimeRegistry
         self.configStore = configStore
+        self.appUpdateStateStore = appUpdateStateStore
         self.openWithService = openWithService
         self.paneLayoutPreferences = configStore.current.paneLayout
         self.shortcutManager = ShortcutManager(shortcuts: configStore.current.shortcuts)
         self.currentPaneLayoutContext = initialLayoutContext
+        self.isUpdateAvailable = appUpdateStateStore.current.isUpdateAvailable
         self.sidebarMotionCoordinator = SidebarMotionCoordinator(
             configStore: configStore
         )
@@ -127,6 +134,9 @@ final class RootViewController: NSViewController {
             reviewStateResolver: reviewStateResolver
         )
         super.init(nibName: nil, bundle: nil)
+        appUpdateObserverID = appUpdateStateStore.addObserver { [weak self] state in
+            self?.handleAppUpdateAvailabilityChange(state.isUpdateAvailable)
+        }
         configStore.onChange = { [weak self] config in
             DispatchQueue.main.async {
                 self?.applyPersistedConfig(config)
@@ -137,6 +147,7 @@ final class RootViewController: NSViewController {
 
     convenience init(
         configStore: AppConfigStore? = nil,
+        appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         openWithService: OpenWithServing = OpenWithService(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
@@ -154,6 +165,7 @@ final class RootViewController: NSViewController {
                     sidebarVisibilityDefaults: sidebarVisibilityDefaults,
                     paneLayoutDefaults: paneLayoutDefaults
                 ),
+            appUpdateStateStore: appUpdateStateStore,
             openWithService: openWithService,
             runtimeRegistry: runtimeRegistry,
             reviewStateResolver: reviewStateResolver,
@@ -165,6 +177,14 @@ final class RootViewController: NSViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let appUpdateObserverID {
+            MainActor.assumeIsolated {
+                appUpdateStateStore.removeObserver(appUpdateObserverID)
+            }
+        }
     }
 
     override func loadView() {
@@ -204,6 +224,7 @@ final class RootViewController: NSViewController {
         view.addSubview(paneLayoutMenuButton)
         view.addSubview(paneNavigationButtons)
         view.addSubview(notificationBellButton)
+        sidebarView.setUpdateAvailable(isUpdateAvailable)
 
         let sidebarWidthConstraint = sidebarView.widthAnchor.constraint(
             equalToConstant: sidebarMotionCoordinator.currentSidebarWidth
@@ -477,6 +498,9 @@ final class RootViewController: NSViewController {
         }
         sidebarView.onNewWorklaneRequested = { [weak self] in
             self?.handle(.newWorklane)
+        }
+        sidebarView.onCheckForUpdatesRequested = { [weak self] in
+            self?.onCheckForUpdatesRequested?()
         }
         sidebarView.onResized = { [weak self] width in
             self?.handleSidebarWidthChange(width)
@@ -1522,6 +1546,14 @@ final class RootViewController: NSViewController {
     }
 
     #if DEBUG
+        var activeWorklaneIDForTesting: WorklaneID? {
+            worklaneStore.activeWorklane?.id
+        }
+
+        var focusedPaneEnvironmentForTesting: [String: String]? {
+            worklaneStore.activeWorklane?.paneStripState.focusedPane?.sessionRequest.environmentVariables
+        }
+
         func handleTerminalEventForTesting(paneID: PaneID, event: TerminalEvent) {
             handleTerminalEvent(paneID: paneID, event: event)
         }
@@ -1608,6 +1640,15 @@ final class RootViewController: NSViewController {
         }
         updatePaneLayoutContextIfNeeded(force: true)
         renderCoordinator.render()
+    }
+
+    private func handleAppUpdateAvailabilityChange(_ isUpdateAvailable: Bool) {
+        self.isUpdateAvailable = isUpdateAvailable
+        guard isViewLoaded else {
+            return
+        }
+
+        sidebarView.setUpdateAvailable(isUpdateAvailable)
     }
 
     private func applyPersistedConfig(_ config: AppConfig) {

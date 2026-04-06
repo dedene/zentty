@@ -15,6 +15,13 @@ settings:
   configs:
     Debug:
       OTHER_CODE_SIGN_FLAGS: "--timestamp=none"
+packages:
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: "9.9.0"
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.7.2"
 schemes:
   Zentty:
     build:
@@ -40,15 +47,33 @@ targets:
     platform: macOS
     sources:
       - path: Zentty
+        excludes:
+          - Updates/AppUpdateController.swift
+          - Updates/AppUpdateStateStore.swift
+          - Updates/SparkleAppUpdateController.swift
+      - path: Zentty/Updates/AppUpdateController.swift
+      - path: Zentty/Updates/AppUpdateStateStore.swift
+      - path: Zentty/Updates/SparkleAppUpdateController.swift
     resources:
       - path: ZenttyResources
     dependencies:
       - framework: FrameworksLocal/GhosttyKit.xcframework
         embed: false
+      - package: Sentry
+        product: Sentry
+      - package: Sparkle
+        product: Sparkle
     info:
       path: Zentty/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleIconFile: AppIcon
+        GlitchTipDSN: https://51c62f5ad43840f883b93d12a9321afd@errors.zenjoy.be/37
+        SUAutomaticallyUpdate: false
+        SUEnableAutomaticChecks: true
+        SUFeedURL: $(SPARKLE_FEED_URL)
+        SUPublicEDKey: $(SPARKLE_PUBLIC_ED_KEY)
     preBuildScripts:
       - name: Verify GhosttyKit
         script: |
@@ -70,10 +95,29 @@ targets:
           rsync -a --delete "${RESOURCES_SRC}/bin/" "${RESOURCES_DST}/bin/"
           rsync -a --delete "${RESOURCES_SRC}/shell-integration/" "${RESOURCES_DST}/shell-integration/"
         basedOnDependencyAnalysis: false
+      - name: Inject Git Commit Metadata
+        script: |
+          set -euo pipefail
+
+          INFO_PLIST="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+          COMMIT_HASH="$(git -C "${PROJECT_DIR}" rev-parse --short HEAD 2>/dev/null || true)"
+
+          if [ -z "${COMMIT_HASH}" ]; then
+            COMMIT_HASH="unknown"
+          fi
+
+          /usr/libexec/PlistBuddy -c "Delete :ZenttyGitCommit" "${INFO_PLIST}" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Add :ZenttyGitCommit string ${COMMIT_HASH}" "${INFO_PLIST}"
+        basedOnDependencyAnalysis: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty
+        CURRENT_PROJECT_VERSION: 180
+        MARKETING_VERSION: 0.1.0
+        VERSIONING_SYSTEM: apple-generic
         INFOPLIST_FILE: Zentty/Info.plist
+        SPARKLE_FEED_URL: ""
+        SPARKLE_PUBLIC_ED_KEY: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_ENTITLEMENTS: Zentty/Zentty.entitlements

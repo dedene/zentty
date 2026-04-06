@@ -63,7 +63,7 @@ final class WorklaneStoreOpenWithTests: XCTestCase {
         XCTAssertNil(store.focusedOpenWithContext)
     }
 
-    func test_focused_open_with_context_prefers_metadata_for_local_shell_context() throws {
+    func test_focused_open_with_context_prefers_local_shell_context_over_stale_metadata() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
@@ -98,7 +98,39 @@ final class WorklaneStoreOpenWithTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.focusedOpenWithContext?.workingDirectory, "/tmp/from-metadata")
+        XCTAssertEqual(store.focusedOpenWithContext?.workingDirectory, "/tmp/from-shell-context")
+    }
+
+    func test_focused_open_with_context_ignores_agent_working_directory_and_uses_terminal_cwd() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: "/tmp/from-terminal",
+                processName: "codex",
+                gitBranch: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .compatibility,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentWorkingDirectory: "/tmp/from-agent"
+            )
+        )
+
+        XCTAssertEqual(store.focusedOpenWithContext?.workingDirectory, "/tmp/from-terminal")
     }
 
     func test_focused_open_with_context_uses_non_inherited_session_request_before_shell_context_arrives() throws {

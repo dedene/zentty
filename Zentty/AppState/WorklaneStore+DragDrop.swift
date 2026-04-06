@@ -220,7 +220,7 @@ extension WorklaneStore {
         }
 
         let n = nextWorklaneNumber()
-        let newWorklaneID = WorklaneID("worklane-\(n)")
+        let newWorklaneID = runtimeIdentity.makeWorklaneID()
         let newWorklane = WorklaneState(
             id: newWorklaneID,
             title: "WS \(n)",
@@ -268,7 +268,8 @@ extension WorklaneStore {
         let newPane = makePaneWithDirectory(
             in: &targetWorklane,
             existingPaneCount: existingCount,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            sourceShellContext: auxiliaryState?.raw.shellContext
         )
 
         let targetColumnCount = targetWorklane.paneStripState.columns.count
@@ -300,7 +301,7 @@ extension WorklaneStore {
         singleColumnWidth: CGFloat
     ) {
         let n = nextWorklaneNumber()
-        let newWorklaneID = WorklaneID("worklane-\(n)")
+        let newWorklaneID = runtimeIdentity.makeWorklaneID()
         let newWorklane = WorklaneState(
             id: newWorklaneID,
             title: "WS \(n)",

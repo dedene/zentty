@@ -1,6 +1,20 @@
 import CoreGraphics
 import Foundation
 
+enum AppUpdateChannel: String, CaseIterable, Equatable, Sendable {
+    case stable
+    case beta
+
+    var displayName: String {
+        switch self {
+        case .stable:
+            "Stable"
+        case .beta:
+            "Beta"
+        }
+    }
+}
+
 struct AppConfig: Equatable, Sendable {
     struct Sidebar: Equatable, Sendable {
         var width: CGFloat
@@ -50,10 +64,17 @@ struct AppConfig: Equatable, Sendable {
         static let `default` = ErrorReporting(enabled: true)
     }
 
+    struct Updates: Equatable, Sendable {
+        var channel: AppUpdateChannel
+
+        static let `default` = Updates(channel: .stable)
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var openWith: OpenWith
     var errorReporting: ErrorReporting
+    var updates: Updates
     var shortcuts: Shortcuts
     var notifications: Notifications
     var confirmations: Confirmations
@@ -66,6 +87,7 @@ struct AppConfig: Equatable, Sendable {
         paneLayout: .default,
         openWith: .default,
         errorReporting: .default,
+        updates: .default,
         shortcuts: .default,
         notifications: .default,
         confirmations: .default
@@ -84,6 +106,7 @@ struct AppConfig: Equatable, Sendable {
             paneLayout: PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults),
             openWith: .default,
             errorReporting: .default,
+            updates: .default,
             shortcuts: .default,
             notifications: .default,
             confirmations: .default

@@ -1,8 +1,6 @@
 # Zentty
 
-Zentty is a native macOS terminal workspace for agent-heavy development.
-
-It combines Ghostty-based terminal rendering with multi-pane windowing, worklane-oriented navigation, command palette workflows, local app configuration, and bundled agent hook integration for tools like Claude Code.
+Zentty is a Ghostty-based native macOS terminal for agent-native development.
 
 ## Status
 

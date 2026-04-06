@@ -945,6 +945,61 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(generalController.selectedSoundName, "Glass")
     }
 
+    func test_general_section_defaults_update_channel_to_stable() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let generalController = try XCTUnwrap(
+            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        )
+
+        XCTAssertEqual(generalController.availableUpdateChannels, [.stable, .beta])
+        XCTAssertEqual(generalController.selectedUpdateChannel, .stable)
+    }
+
+    func test_general_section_persists_update_channel_to_config() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let generalController = try XCTUnwrap(
+            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        )
+
+        generalController.setUpdateChannelForTesting(.beta)
+
+        XCTAssertEqual(store.current.updates.channel, .beta)
+        XCTAssertEqual(generalController.selectedUpdateChannel, .beta)
+    }
+
     func test_general_section_confirms_error_reporting_change_before_persisting() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")

@@ -1,5 +1,8 @@
 import Darwin
 import Foundation
+import os
+
+private let worklaneStoreLogger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneStore")
 
 extension WorklaneStore {
     func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
@@ -108,6 +111,9 @@ extension WorklaneStore {
         } else if let fallback = worklanes.firstIndex(where: { worklane in
             worklane.paneStripState.panes.contains(where: { $0.id == payload.paneID })
         }) {
+            worklaneStoreLogger.debug(
+                "Agent status fallback routing payload pane=\(payload.paneID.rawValue, privacy: .public) payloadWorklane=\(payload.worklaneID.rawValue, privacy: .public) actualWorklane=\(self.worklanes[fallback].id.rawValue, privacy: .public)"
+            )
             worklaneIndex = fallback
         } else {
             return
@@ -319,20 +325,21 @@ extension WorklaneStore {
             }
 
             let previousAuxiliaryState = worklane.auxiliaryStateByPaneID[payload.paneID]
+            let requestWorkingDirectory = nonInheritedSessionWorkingDirectory(for: payload.paneID, in: worklane)
             worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].shellContext = paneContext
             if paneContextChangesBranchContext(
                 previous: previousAuxiliaryState,
                 next: paneContext,
-                metadata: worklane.auxiliaryStateByPaneID[payload.paneID]?.metadata
+                metadata: worklane.auxiliaryStateByPaneID[payload.paneID]?.metadata,
+                requestWorkingDirectory: requestWorkingDirectory
             ) {
                 clearBranchDerivedState(for: payload.paneID, in: &worklane)
                 worklane.auxiliaryStateByPaneID[payload.paneID]?.gitContext = nil
-                invalidateCachedGitContext(
-                    path: WorklaneContextFormatter.resolvedWorkingDirectory(
-                        for: worklane.auxiliaryStateByPaneID[payload.paneID]?.metadata,
-                        shellContext: paneContext
-                    )
-                )
+                invalidateCachedGitContext(path: PaneTerminalLocationResolver.snapshot(
+                    metadata: worklane.auxiliaryStateByPaneID[payload.paneID]?.metadata,
+                    shellContext: paneContext,
+                    requestWorkingDirectory: requestWorkingDirectory
+                ).workingDirectory)
             } else {
                 invalidateGitContextIfNeeded(for: payload.paneID, in: &worklane)
             }
@@ -345,8 +352,7 @@ extension WorklaneStore {
         if !impacts.isEmpty {
             notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, impacts))
         }
-        if auxiliaryUpdateRequiresGitContextRefresh(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
-            || payload.agentWorkingDirectory != nil {
+        if auxiliaryUpdateRequiresGitContextRefresh(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane) {
             refreshGitContextIfNeeded(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
         }
     }
@@ -354,7 +360,8 @@ extension WorklaneStore {
     private func paneContextChangesBranchContext(
         previous: PaneAuxiliaryState?,
         next: PaneShellContext,
-        metadata: TerminalMetadata?
+        metadata: TerminalMetadata?,
+        requestWorkingDirectory: String?
     ) -> Bool {
         let previousScope = previous?.shellContext?.scope
         if previousScope != next.scope {
@@ -365,11 +372,16 @@ extension WorklaneStore {
             return false
         }
 
-        let previousWorkingDirectory = previous?.localReviewWorkingDirectory
-        let nextWorkingDirectory = WorklaneContextFormatter.resolvedWorkingDirectory(
-            for: metadata,
-            shellContext: next
-        ) ?? WorklaneContextFormatter.trimmed(next.path)
+        let previousWorkingDirectory = PaneTerminalLocationResolver.snapshot(
+            metadata: previous?.metadata,
+            shellContext: previous?.shellContext,
+            requestWorkingDirectory: requestWorkingDirectory
+        ).workingDirectory
+        let nextWorkingDirectory = PaneTerminalLocationResolver.snapshot(
+            metadata: metadata,
+            shellContext: next,
+            requestWorkingDirectory: requestWorkingDirectory
+        ).workingDirectory
         if previousWorkingDirectory != nextWorkingDirectory {
             return true
         }

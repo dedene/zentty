@@ -223,7 +223,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         XCTAssertTrue(calls[3].arguments.contains(where: { $0.contains("feature/review-band") }))
     }
 
-    func test_root_controller_populates_header_when_title_contains_cwd_and_metadata_cwd_is_missing() async {
+    func test_root_controller_populates_header_when_terminal_reports_cwd() async {
         let homePath = NSHomeDirectory()
         let repoPath = "\(homePath)/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails"
         let runner = StubGHRunner(
@@ -257,14 +257,14 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
                 metadataByPaneID: [
                     paneID: TerminalMetadata(
                         title: "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
-                        currentWorkingDirectory: nil,
+                        currentWorkingDirectory: repoPath,
                         processName: "zsh"
                     ),
                 ]
             ),
         ])
 
-        let reviewLoaded = expectation(description: "review state loaded from title-derived cwd")
+        let reviewLoaded = expectation(description: "review state loaded from terminal cwd")
         Task { @MainActor in
             for _ in 0..<50 {
                 if controller.chromeView.pullRequestText == "PR #1413" {

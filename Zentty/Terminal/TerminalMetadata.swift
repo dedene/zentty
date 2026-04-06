@@ -78,11 +78,6 @@ enum TerminalMetadataChangeClassifier {
             return .meaningful
         }
 
-        guard WorklaneContextFormatter.resolvedWorkingDirectory(for: previous)
-            == WorklaneContextFormatter.resolvedWorkingDirectory(for: next) else {
-            return .meaningful
-        }
-
         let previousTool = AgentToolRecognizer.recognize(metadata: previous)
         let nextTool = AgentToolRecognizer.recognize(metadata: next)
         guard previousTool == nextTool else {

@@ -68,6 +68,10 @@ _zentty_local_git_branch() {
     command git branch --show-current 2>/dev/null || true
 }
 
+_zentty_reset_title_to_cwd() {
+    printf '\e]2;%s\a' "${PWD/#$HOME/\~}"
+}
+
 _zentty_emit_pane_context() {
     local cwd_path="${PWD:-}"
     local home_path="${HOME:-}"
@@ -92,6 +96,11 @@ _zentty_emit_pane_context() {
         --git-branch "$git_branch"
 }
 
+_zentty_report_directory_change() {
+    _zentty_emit_pane_context
+    _zentty_reset_title_to_cwd
+}
+
 _zentty_bash_original_prompt_command="${ZENTTY_BASH_ORIGINAL_PROMPT_COMMAND:-}"
 _zentty_bash_in_prompt=0
 
@@ -109,8 +118,7 @@ _zentty_bash_prompt_hook() {
     if [[ -n "$_zentty_bash_original_prompt_command" ]]; then
         eval "$_zentty_bash_original_prompt_command"
     fi
-    # Reset terminal title to CWD after command completes
-    printf '\e]2;%s\a' "${PWD/#$HOME/\~}"
+    _zentty_reset_title_to_cwd
     _zentty_bash_in_prompt=0
 }
 
@@ -120,6 +128,21 @@ _zentty_bash_preexec_hook() {
     _zentty_report_shell_activity running
     # Set terminal title to the running command (first line only)
     printf '\e]2;%s\a' "${BASH_COMMAND%%$'\n'*}"
+}
+
+cd() {
+    builtin cd "$@" || return
+    _zentty_report_directory_change
+}
+
+pushd() {
+    builtin pushd "$@" || return
+    _zentty_report_directory_change
+}
+
+popd() {
+    builtin popd "$@" || return
+    _zentty_report_directory_change
 }
 
 trap '_zentty_bash_preexec_hook' DEBUG
