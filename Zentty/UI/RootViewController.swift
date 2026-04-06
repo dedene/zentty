@@ -206,7 +206,20 @@ final class RootViewController: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        setupSubviews()
+        setupConstraints()
+        setupRenderCoordinator()
+        setupWorklaneStoreObserver()
+        setupToolbarButtons()
+        setupCanvasCallbacks()
+        setupSidebarCallbacks()
+        setupCoordinatorsAndServices()
+        applyInitialState()
+    }
 
+    // MARK: - View Setup
+
+    private func setupSubviews() {
         appCanvasView.translatesAutoresizingMaskIntoConstraints = false
         paneBorderContextOverlayView.translatesAutoresizingMaskIntoConstraints = false
         windowChromeView.translatesAutoresizingMaskIntoConstraints = false
@@ -227,7 +240,9 @@ final class RootViewController: NSViewController {
         view.addSubview(paneNavigationButtons)
         view.addSubview(notificationCoordinator.bellButton)
         sidebarView.setUpdateAvailable(isUpdateAvailable)
+    }
 
+    private func setupConstraints() {
         let sidebarWidthConstraint = sidebarView.widthAnchor.constraint(
             equalToConstant: sidebarMotionCoordinator.currentSidebarWidth
         )
@@ -340,7 +355,9 @@ final class RootViewController: NSViewController {
             notificationCoordinator.bellButton.heightAnchor.constraint(
                 equalToConstant: NotificationBellButton.buttonSize),
         ])
+    }
 
+    private func setupRenderCoordinator() {
         renderCoordinator.bind(
             to: WorklaneRenderCoordinator.ViewBindings(
                 sidebarView: sidebarView,
@@ -348,28 +365,11 @@ final class RootViewController: NSViewController {
                 appCanvasView: appCanvasView,
                 paneBorderContextOverlayView: paneBorderContextOverlayView
             ))
-        renderCoordinator.themeProvider = { [weak self] in
-            self?.currentTheme ?? ZenttyTheme.fallback(for: nil)
-        }
-        renderCoordinator.leadingInsetProvider = { [weak self] sidebarWidth in
-            self?.sidebarMotionCoordinator.effectiveLeadingInset(sidebarWidth: sidebarWidth) ?? 0
-        }
-        renderCoordinator.sidebarWidthProvider = { [weak self] in
-            self?.sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
-        }
-        renderCoordinator.windowStateProvider = { [weak self] in
-            guard let self else {
-                return (isVisible: false, isKeyWindow: false)
-            }
-            return (
-                isVisible: self.view.window?.isVisible ?? false,
-                isKeyWindow: self.view.window?.isKeyWindow ?? false
-            )
-        }
-        renderCoordinator.onNeedsSidebarSync = { [weak self] in
-            self?.syncSidebarVisibilityControls(animated: false)
-        }
+        renderCoordinator.environment = self
         renderCoordinator.startObserving()
+    }
+
+    private func setupWorklaneStoreObserver() {
         _ = worklaneStore.subscribe { [weak self] change in
             Task { @MainActor [weak self] in
                 guard let self else {
@@ -389,7 +389,9 @@ final class RootViewController: NSViewController {
                 }
             }
         }
+    }
 
+    private func setupToolbarButtons() {
         paneNavigationButtons.onBack = { [weak self] in
             self?.worklaneStore.navigateBack()
         }
@@ -417,7 +419,9 @@ final class RootViewController: NSViewController {
         paneBorderContextOverlayView.onPathClicked = { [weak self] paneID in
             self?.copyPath(forPaneID: paneID)
         }
+    }
 
+    private func setupCanvasCallbacks() {
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.worklaneStore.focusPane(id: paneID)
         }
@@ -460,6 +464,103 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onPaneStripStateRestoreRequested = { [weak self] state in
             self?.worklaneStore.restorePaneLayout(state)
         }
+        appCanvasView.paneStripView.onPaneReorderRequested = { [weak self] paneID, columnIndex in
+            guard let self else { return }
+            self.worklaneStore.reorderPane(
+                paneID: paneID,
+                toColumnIndex: columnIndex,
+                singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+            )
+        }
+        appCanvasView.paneStripView.onPaneSplitDropRequested = { [weak self] paneID, targetID, axis, leading in
+            guard let self else { return }
+            self.worklaneStore.splitDropPane(
+                paneID: paneID,
+                ontoTargetPaneID: targetID,
+                axis: axis,
+                leading: leading,
+                availableHeight: self.appCanvasView.bounds.height,
+                singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+            )
+        }
+        appCanvasView.paneStripView.onPaneCrossWorklaneDropRequested = { [weak self] paneID, worklaneID, isDuplicate in
+            guard let self else { return }
+            if isDuplicate {
+                self.worklaneStore.duplicatePaneToWorklane(
+                    paneID: paneID,
+                    targetWorklaneID: worklaneID,
+                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+                )
+            } else {
+                self.worklaneStore.transferPaneToWorklane(
+                    paneID: paneID,
+                    targetWorklaneID: worklaneID,
+                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+                )
+            }
+        }
+        appCanvasView.paneStripView.onPaneNewWorklaneDropRequested = { [weak self] paneID, isDuplicate in
+            guard let self else { return }
+            if isDuplicate {
+                self.worklaneStore.duplicatePaneToNewWorklane(
+                    paneID: paneID,
+                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+                )
+            } else {
+                self.worklaneStore.transferPaneToNewWorklane(
+                    paneID: paneID,
+                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+                )
+            }
+        }
+        appCanvasView.paneStripView.onNewWorklanePlaceholderVisibilityChanged = { [weak self] visible in
+            if visible {
+                self?.sidebarView.showNewWorklanePlaceholder()
+            } else {
+                self?.sidebarView.hideNewWorklanePlaceholder()
+            }
+        }
+        appCanvasView.paneStripView.onSidebarScrollRequested = { [weak self] delta in
+            self?.sidebarView.adjustScrollOffset(by: delta)
+        }
+        appCanvasView.paneStripView.sidebarWorklaneFrameProvider = { [weak self] in
+            guard let self else { return [] }
+            return self.sidebarView.worklaneRowFrames(in: self.appCanvasView)
+        }
+        appCanvasView.paneStripView.onDragApproachingSidebarEdge = { [weak self] approaching in
+            guard let self else { return }
+            self.sidebarMotionCoordinator.handle(approaching ? .hoverRailEntered : .hoverRailExited)
+            self.syncSidebarVisibilityControls(animated: true)
+        }
+        appCanvasView.paneStripView.onHoveredSidebarWorklaneChanged = { [weak self] worklaneID in
+            self?.sidebarView.setHighlightedDropTargetWorklane(worklaneID)
+        }
+        appCanvasView.paneStripView.onDragActiveChanged = { [weak self] active in
+            guard let self else { return }
+            if active {
+                self.paneBorderContextOverlayView.isHidden = true
+            } else {
+                self.sidebarMotionCoordinator.handle(.hoverRailExited)
+                self.syncSidebarVisibilityControls(animated: true)
+            }
+        }
+        appCanvasView.paneStripView.activeWorklaneIDProvider = { [weak self] in
+            self?.worklaneStore.activeWorklaneID
+        }
+        appCanvasView.paneStripView.sidebarBoundsProvider = { [weak self] in
+            guard let self else { return .zero }
+            return self.sidebarView.convert(self.sidebarView.bounds, to: self.appCanvasView.paneStripView)
+        }
+        appCanvasView.paneStripView.worklaneCountProvider = { [weak self] in
+            self?.worklaneStore.worklanes.count ?? 1
+        }
+        appCanvasView.paneStripView.sidebarWidthProvider = { [weak self] in
+            self?.sidebarMotionCoordinator.currentSidebarWidth ?? 0
+        }
+        appCanvasView.paneStripView.dragOverlayView = dragOverlayView
+    }
+
+    private func setupSidebarCallbacks() {
         sidebarView.onWorklaneSelected = { [weak self] id in
             self?.worklaneStore.selectWorklane(id: id)
         }
@@ -519,100 +620,9 @@ final class RootViewController: NSViewController {
             self?.sidebarMotionCoordinator.handle(.hoverRailExited)
             self?.syncSidebarVisibilityControls(animated: true)
         }
-        appCanvasView.paneStripView.onPaneReorderRequested = { [weak self] paneID, columnIndex in
-            guard let self else { return }
-            self.worklaneStore.reorderPane(
-                paneID: paneID,
-                toColumnIndex: columnIndex,
-                singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-            )
-        }
-        appCanvasView.paneStripView.onPaneSplitDropRequested = { [weak self] paneID, targetID, axis, leading in
-            guard let self else { return }
-            self.worklaneStore.splitDropPane(
-                paneID: paneID,
-                ontoTargetPaneID: targetID,
-                axis: axis,
-                leading: leading,
-                availableHeight: self.appCanvasView.bounds.height,
-                singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-            )
-        }
-        appCanvasView.paneStripView.onPaneCrossWorklaneDropRequested = { [weak self] paneID, worklaneID, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneToWorklane(
-                    paneID: paneID,
-                    targetWorklaneID: worklaneID,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.transferPaneToWorklane(
-                    paneID: paneID,
-                    targetWorklaneID: worklaneID,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
-        }
-        appCanvasView.paneStripView.sidebarWorklaneFrameProvider = { [weak self] in
-            guard let self else { return [] }
-            return self.sidebarView.worklaneRowFrames(in: self.appCanvasView)
-        }
-        appCanvasView.paneStripView.onDragApproachingSidebarEdge = { [weak self] approaching in
-            guard let self else { return }
-            self.sidebarMotionCoordinator.handle(approaching ? .hoverRailEntered : .hoverRailExited)
-            self.syncSidebarVisibilityControls(animated: true)
-        }
-        appCanvasView.paneStripView.onHoveredSidebarWorklaneChanged = { [weak self] worklaneID in
-            self?.sidebarView.setHighlightedDropTargetWorklane(worklaneID)
-        }
-        appCanvasView.paneStripView.onDragActiveChanged = { [weak self] active in
-            guard let self else { return }
-            if active {
-                self.paneBorderContextOverlayView.isHidden = true
-            } else {
-                self.sidebarMotionCoordinator.handle(.hoverRailExited)
-                self.syncSidebarVisibilityControls(animated: true)
-            }
-        }
-        appCanvasView.paneStripView.activeWorklaneIDProvider = { [weak self] in
-            self?.worklaneStore.activeWorklaneID
-        }
-        appCanvasView.paneStripView.sidebarBoundsProvider = { [weak self] in
-            guard let self else { return .zero }
-            return self.sidebarView.convert(self.sidebarView.bounds, to: self.appCanvasView.paneStripView)
-        }
-        appCanvasView.paneStripView.worklaneCountProvider = { [weak self] in
-            self?.worklaneStore.worklanes.count ?? 1
-        }
-        appCanvasView.paneStripView.onPaneNewWorklaneDropRequested = { [weak self] paneID, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneToNewWorklane(
-                    paneID: paneID,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.transferPaneToNewWorklane(
-                    paneID: paneID,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
-        }
-        appCanvasView.paneStripView.onNewWorklanePlaceholderVisibilityChanged = { [weak self] visible in
-            if visible {
-                self?.sidebarView.showNewWorklanePlaceholder()
-            } else {
-                self?.sidebarView.hideNewWorklanePlaceholder()
-            }
-        }
-        appCanvasView.paneStripView.onSidebarScrollRequested = { [weak self] delta in
-            self?.sidebarView.adjustScrollOffset(by: delta)
-        }
-        appCanvasView.paneStripView.sidebarWidthProvider = { [weak self] in
-            self?.sidebarMotionCoordinator.currentSidebarWidth ?? 0
-        }
-        appCanvasView.paneStripView.dragOverlayView = dragOverlayView
+    }
+
+    private func setupCoordinatorsAndServices() {
         sidebarToggleButton.target = self
         sidebarToggleButton.action = #selector(handleToggleSidebar)
         sidebarMotionCoordinator.onMotionStateDidChange = { [weak self] motionState, animated in
@@ -639,6 +649,9 @@ final class RootViewController: NSViewController {
             self?.worklaneStore.applyAgentStatusPayload(payload)
         }
         agentStatusCenter.start()
+    }
+
+    private func applyInitialState() {
         updateToggleButtonConstraints()
         syncSidebarVisibilityControls(animated: false)
         applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
@@ -1584,6 +1597,33 @@ private final class WindowContentView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         onEffectiveAppearanceDidChange?()
+    }
+}
+
+// MARK: - RenderEnvironmentProviding
+
+extension RootViewController: RenderEnvironmentProviding {
+    var renderTheme: ZenttyTheme {
+        currentTheme
+    }
+
+    var renderSidebarWidth: CGFloat {
+        sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth
+    }
+
+    func renderLeadingInset(sidebarWidth: CGFloat) -> CGFloat {
+        sidebarMotionCoordinator.effectiveLeadingInset(sidebarWidth: sidebarWidth)
+    }
+
+    var renderWindowState: (isVisible: Bool, isKeyWindow: Bool) {
+        (
+            isVisible: view.window?.isVisible ?? false,
+            isKeyWindow: view.window?.isKeyWindow ?? false
+        )
+    }
+
+    func renderSidebarSyncNeeded() {
+        syncSidebarVisibilityControls(animated: false)
     }
 }
 
