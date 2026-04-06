@@ -141,7 +141,7 @@ final class AgentWrapperTests: XCTestCase {
         )
 
         XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
-        let signalLines = try harness.readLines(named: "helper-args.log")
+        let signalLines = try waitForLines(named: "helper-args.log", in: harness)
         XCTAssertEqual(signalLines.count, 1)
 
         let realPID = try XCTUnwrap(try harness.readLines(named: "real-pid.log").first)
@@ -149,6 +149,142 @@ final class AgentWrapperTests: XCTestCase {
             try XCTUnwrap(signalLines[safe: 0]),
             "agent-signal pid attach \(realPID) --origin explicit-api --tool OpenCode"
         )
+    }
+
+    func test_opencode_wrapper_sets_overlay_config_dir_with_zentty_plugin() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["zentty-agent-wrapper"])
+        try harness.installHelperStub()
+
+        let supportPluginsURL = try harness.createDirectory(named: "opencode")
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: supportPluginsURL, withIntermediateDirectories: true)
+        try "export const ZenttyOpenCodePlugin = async () => ({})\n".write(
+            to: supportPluginsURL.appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let configDirLog = harness.logDirectoryURL.appendingPathComponent("opencode-config-dir.log", isDirectory: false)
+        let pluginLog = harness.logDirectoryURL.appendingPathComponent("opencode-plugin.log", isDirectory: false)
+
+        try harness.installRealBinary(
+            named: "opencode",
+            script: """
+            #!/bin/bash
+            set -euo pipefail
+            printf '%s\n' "${OPENCODE_CONFIG_DIR:-}" > "$OPENCODE_CONFIG_DIR_LOG"
+            if [[ -f "${OPENCODE_CONFIG_DIR:-}/plugins/zentty-opencode-zentty.js" ]]; then
+              printf '%s\n' present > "$OPENCODE_PLUGIN_LOG"
+            fi
+            """
+        )
+
+        let result = try harness.run(
+            tool: "zentty-agent-wrapper",
+            arguments: ["run", "hello"],
+            extraEnvironment: [
+                "ZENTTY_AGENT_TOOL": "opencode",
+                "ZENTTY_AGENT_BIN": harness.helperPath,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+                "OPENCODE_CONFIG_DIR_LOG": configDirLog.path,
+                "OPENCODE_PLUGIN_LOG": pluginLog.path,
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        let configDir = try XCTUnwrap(try String(contentsOf: configDirLog, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty)
+        XCTAssertNotEqual(configDir, "")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pluginLog.path))
+    }
+
+    func test_opencode_wrapper_preserves_existing_opencode_config_dir_contents_in_overlay() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["zentty-agent-wrapper"])
+        try harness.installHelperStub()
+
+        let supportPluginsURL = try harness.createDirectory(named: "opencode")
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: supportPluginsURL, withIntermediateDirectories: true)
+        try "export const ZenttyOpenCodePlugin = async () => ({})\n".write(
+            to: supportPluginsURL.appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sourceConfigURL = try harness.createDirectory(named: "source-opencode-config")
+        let sourceMarkersURL = sourceConfigURL.appendingPathComponent("markers", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceMarkersURL, withIntermediateDirectories: true)
+        try "user-config".write(
+            to: sourceMarkersURL.appendingPathComponent("user.txt", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let configDirLog = harness.logDirectoryURL.appendingPathComponent("opencode-config-dir.log", isDirectory: false)
+        let markerLog = harness.logDirectoryURL.appendingPathComponent("opencode-marker.log", isDirectory: false)
+
+        try harness.installRealBinary(
+            named: "opencode",
+            script: """
+            #!/bin/bash
+            set -euo pipefail
+            printf '%s\n' "${OPENCODE_CONFIG_DIR:-}" > "$OPENCODE_CONFIG_DIR_LOG"
+            if [[ -f "${OPENCODE_CONFIG_DIR:-}/markers/user.txt" ]]; then
+              cat "${OPENCODE_CONFIG_DIR}/markers/user.txt" > "$OPENCODE_MARKER_LOG"
+            fi
+            """
+        )
+
+        let result = try harness.run(
+            tool: "zentty-agent-wrapper",
+            arguments: ["run", "hello"],
+            extraEnvironment: [
+                "ZENTTY_AGENT_TOOL": "opencode",
+                "ZENTTY_AGENT_BIN": harness.helperPath,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+                "OPENCODE_CONFIG_DIR": sourceConfigURL.path,
+                "OPENCODE_CONFIG_DIR_LOG": configDirLog.path,
+                "OPENCODE_MARKER_LOG": markerLog.path,
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        let configDir = try XCTUnwrap(try String(contentsOf: configDirLog, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty)
+        XCTAssertNotEqual(configDir, sourceConfigURL.path)
+        XCTAssertEqual(try String(contentsOf: markerLog, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), "user-config")
+    }
+
+    func test_generic_wrapper_suppresses_helper_killed_message_when_signal_helper_dies() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["zentty-agent-wrapper"])
+        try harness.installRealBinary(
+            named: "opencode",
+            script: """
+            #!/bin/bash
+            set -euo pipefail
+            exit 0
+            """
+        )
+
+        try """
+        #!/bin/bash
+        kill -9 $$
+        """.write(to: harness.helperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: harness.helperURL.path)
+
+        let result = try harness.run(
+            tool: "zentty-agent-wrapper",
+            arguments: ["exec"],
+            extraEnvironment: [
+                "ZENTTY_AGENT_TOOL": "opencode",
+                "ZENTTY_AGENT_BIN": harness.helperPath,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        XCTAssertFalse(result.stderr.contains("Killed: 9"))
     }
 
     func test_codex_wrapper_injects_notify_hook_and_notify_helper_emits_completion_signal() throws {
@@ -340,6 +476,18 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertEqual(hooksJSON, invalidHooks)
         XCTAssertFalse(hooksJSON.contains("codex-hook stop"))
     }
+
+    private func waitForLines(named logName: String, in harness: WrapperHarness, timeout: TimeInterval = 2) throws -> [String] {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let lines = try harness.readLines(named: logName)
+            if !lines.isEmpty {
+                return lines
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return try harness.readLines(named: logName)
+    }
 }
 
 private struct WrapperHarness {
@@ -479,5 +627,11 @@ private struct ProcessResult {
 private extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

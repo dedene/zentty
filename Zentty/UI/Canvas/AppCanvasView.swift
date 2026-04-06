@@ -543,6 +543,10 @@ final class AppCanvasView: NSView {
         paneStripView.focusCurrentPaneIfNeeded()
     }
 
+    func cancelPendingPaneStripScrollSwitchGesture() {
+        paneStripView.cancelScrollSwitchGesture()
+    }
+
     func settlePaneStripPresentationNow() {
         paneStripView.settlePresentationNow()
     }

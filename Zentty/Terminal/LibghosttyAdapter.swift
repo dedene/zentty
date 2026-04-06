@@ -24,6 +24,9 @@ protocol LibghosttyRuntimeProviding: AnyObject {
         metadataDidChange: @escaping (TerminalMetadata) -> Void,
         eventDidOccur: @escaping (TerminalEvent) -> Void
     ) throws -> any LibghosttySurfaceControlling
+
+    func reloadConfig()
+    func applyBackgroundBlur(to window: NSWindow)
 }
 
 enum TerminalKeyAction: Equatable {

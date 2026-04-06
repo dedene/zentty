@@ -141,15 +141,15 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
                 statusText: "Needs input",
                 attentionState: .needsInput,
                 interactionKind: .question,
-                interactionLabel: "Question",
-                interactionSymbolName: "questionmark.circle"
+                interactionLabel: "Needs decision",
+                interactionSymbolName: "list.bullet"
             ),
             theme: ZenttyTheme.fallback(for: nil),
             animated: false
         )
 
-        XCTAssertEqual(row.statusTextForTesting, "Question")
-        XCTAssertEqual(row.statusSymbolNameForTesting, "questionmark.circle")
+        XCTAssertEqual(row.statusTextForTesting, "Needs decision")
+        XCTAssertEqual(row.statusSymbolNameForTesting, "list.bullet")
         let theme = ZenttyTheme.fallback(for: nil)
         XCTAssertEqual(
             row.statusTextColorForTesting.srgbClamped,
@@ -331,8 +331,8 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
                         statusText: "╰ Needs input",
                         attentionState: .needsInput,
                         interactionKind: .question,
-                        interactionLabel: "Question",
-                        interactionSymbolName: "questionmark.circle",
+                        interactionLabel: "Needs decision",
+                        interactionSymbolName: "list.bullet",
                         isFocused: true,
                         isWorking: false
                     ),
@@ -342,8 +342,8 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Question"])
-        XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["questionmark.circle"])
+        XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Needs decision"])
+        XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["list.bullet"])
         let theme = ZenttyTheme.fallback(for: nil)
         XCTAssertEqual(
             row.statusTextColorForTesting.srgbClamped,
@@ -633,7 +633,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(row.detailTextsForTesting, ["feature/scaleway-transactional-mails", "Personal"])
     }
 
-    func test_working_worklane_row_uses_dark_title_shimmer_overlay() {
+    func test_working_worklane_row_uses_bright_title_shimmer_overlay() {
         let row = makeRow()
         let theme = darkTheme(foreground: "#F0F3F6")
 
@@ -648,13 +648,13 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             animated: false
         )
 
-        XCTAssertLessThan(
+        XCTAssertGreaterThanOrEqual(
             row.shimmerColorForTesting.perceivedLuminance,
             row.primaryTextColorForTesting.perceivedLuminance
         )
-        XCTAssertLessThan(
-            colorDistance(row.primaryTextColorForTesting, theme.sidebarWorkingTextHighlight),
-            colorDistance(row.primaryTextColorForTesting, theme.sidebarGradientStart)
+        XCTAssertEqual(
+            row.primaryTextColorForTesting.srgbClamped,
+            theme.sidebarButtonInactiveText.srgbClamped
         )
     }
 
@@ -814,13 +814,9 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             animated: false
         )
 
-        XCTAssertGreaterThan(
-            row.topLabelColorForTesting.perceivedLuminance,
-            theme.tertiaryText.perceivedLuminance
-        )
-        XCTAssertLessThan(
-            colorDistance(row.topLabelColorForTesting, theme.sidebarWorkingTextHighlight),
-            colorDistance(row.topLabelColorForTesting, theme.tertiaryText)
+        XCTAssertEqual(
+            row.topLabelColorForTesting.srgbClamped,
+            theme.tertiaryText.srgbClamped
         )
     }
 

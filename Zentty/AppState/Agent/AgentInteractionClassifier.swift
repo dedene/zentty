@@ -27,11 +27,14 @@ enum AgentInteractionClassifier {
             "approval-requested",
             "approval requested",
             "question requested",
+            "questions requested",
             "plan-mode-prompt",
+            "plan mode prompt",
             "permission",
             "approve",
             "approval",
             "allow ",
+            "wants to edit",
             "confirm",
             "select ",
             "choose ",
@@ -42,6 +45,44 @@ enum AgentInteractionClassifier {
         ]
 
         return markers.contains { message.contains($0) }
+    }
+
+    static func interactionKind(forWaitingMessage message: String?) -> PaneAgentInteractionKind? {
+        guard let message = normalized(message) else {
+            return nil
+        }
+
+        if message.contains("plan-mode-prompt") || message.contains("plan mode prompt") {
+            return .decision
+        }
+
+        if message.contains("question requested") || message.contains("questions requested") {
+            return .question
+        }
+
+        if message.contains("log in") || message.contains("login") {
+            return .auth
+        }
+
+        let approvalMarkers = [
+            "approval-requested",
+            "approval requested",
+            "permission",
+            "approve",
+            "approval",
+            "allow ",
+            "grant access",
+            "wants to edit",
+        ]
+        if approvalMarkers.contains(where: { message.contains($0) }) {
+            return .approval
+        }
+
+        if requiresHumanInput(message: message) {
+            return .genericInput
+        }
+
+        return nil
     }
 
     static func isGenericNeedsInputMessage(_ message: String?) -> Bool {
@@ -57,6 +98,20 @@ enum AgentInteractionClassifier {
                 "claude needs your attention",
             ]
         )
+    }
+
+    static func isGenericNeedsInputContent(_ message: String?) -> Bool {
+        guard let message = normalized(message) else {
+            return false
+        }
+
+        let markers = [
+            "waiting for your input",
+            "waiting for input",
+            "needs your input",
+            "needs input",
+        ]
+        return markers.contains { message.contains($0) }
     }
 
     static func isGenericApprovalMessage(_ message: String?) -> Bool {
@@ -88,7 +143,7 @@ enum AgentInteractionClassifier {
             return .approval
         }
 
-        if requiresHumanInput(message: normalized) {
+        if interactionKind(forWaitingMessage: normalized) != nil {
             return .specific
         }
 

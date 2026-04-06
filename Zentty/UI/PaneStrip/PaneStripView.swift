@@ -272,7 +272,9 @@ final class PaneStripView: NSView {
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
         currentPaneBorderContextByPaneID = paneBorderContextByPaneID
+        let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
+        resetScrollSwitchGestureIfFocusChanged(from: previousFocusedPaneID, to: state.focusedPaneID)
         if let leadingVisibleInset {
             resolvedLeadingVisibleInset = leadingVisibleInset
         }
@@ -299,7 +301,9 @@ final class PaneStripView: NSView {
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
         currentPaneBorderContextByPaneID = paneBorderContextByPaneID
+        let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
+        resetScrollSwitchGestureIfFocusChanged(from: previousFocusedPaneID, to: state.focusedPaneID)
         resolvedLeadingVisibleInset = leadingVisibleInset
         renderGuard.resetResizeSuppression()
         guard bounds.size != .zero else {
@@ -318,6 +322,10 @@ final class PaneStripView: NSView {
 
     func focusCurrentPaneIfNeeded() {
         syncFocusedTerminal(with: currentState?.focusedPaneID, force: true)
+    }
+
+    func cancelScrollSwitchGesture() {
+        scrollSwitchHandler.reset()
     }
 
     func settlePresentationNow() {
@@ -1533,6 +1541,14 @@ final class PaneStripView: NSView {
 
         let targetColumn = currentState.columns[targetIndex]
         onFocusSettled?(targetColumn.focusedPaneID ?? targetColumn.panes.first?.id ?? focusedPaneID)
+    }
+
+    private func resetScrollSwitchGestureIfFocusChanged(from previousPaneID: PaneID?, to nextPaneID: PaneID?) {
+        guard previousPaneID != nextPaneID else {
+            return
+        }
+
+        cancelScrollSwitchGesture()
     }
 
     private var currentBackingScaleFactor: CGFloat {

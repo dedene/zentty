@@ -165,6 +165,63 @@ struct PaneAgentReducerState: Equatable, Sendable {
         return true
     }
 
+    @discardableResult
+    mutating func promoteExplicitCodexSessionFromUserInput(now: Date = Date()) -> Bool {
+        let candidateSessions = sessionsByID.values.filter { session in
+            session.tool == .codex
+                && session.source == .explicit
+                && session.origin != .shell
+                && (
+                    session.state == .needsInput
+                        || session.state == .starting
+                        || (session.state == .idle && session.hasObservedRunning)
+                )
+        }
+        guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
+              var session = sessionsByID[sessionID]
+        else {
+            return false
+        }
+
+        session.state = .running
+        session.text = nil
+        session.interactionKind = .none
+        session.completionCandidateDeadline = nil
+        session.idleVisibleUntil = nil
+        session.unresolvedStopVisibleUntil = nil
+        session.hasObservedRunning = true
+        session.updatedAt = now
+        sessionsByID[sessionID] = session
+        return true
+    }
+
+    @discardableResult
+    mutating func markExplicitCodexSessionIdleFromReadyTitle(now: Date = Date()) -> Bool {
+        let candidateSessions = sessionsByID.values.filter { session in
+            session.tool == .codex
+                && session.source == .explicit
+                && session.origin != .shell
+                && session.hasObservedRunning
+                && !session.interactionKind.requiresHumanAttention
+                && (session.state == .running || session.state == .starting)
+        }
+        guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
+              var session = sessionsByID[sessionID]
+        else {
+            return false
+        }
+
+        session.state = .idle
+        session.text = nil
+        session.interactionKind = .none
+        session.completionCandidateDeadline = nil
+        session.idleVisibleUntil = now.addingTimeInterval(Self.idleVisibilityWindow)
+        session.unresolvedStopVisibleUntil = nil
+        session.updatedAt = now
+        sessionsByID[sessionID] = session
+        return true
+    }
+
     func reducedStatus(now: Date = Date()) -> PaneAgentStatus? {
         let sessions = sessionsByID.values.filter { session in
             if session.state == .idle,
@@ -373,7 +430,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         }
 
         if shellActivityState == .commandRunning {
-            _ = promoteExplicitStartingCodexSessionFromShellActivity(now: now)
+            _ = promoteExplicitStartingSessionFromShellActivity(now: now)
             _ = resumeBlockedSessionFromActivity(now: now)
         } else if shellActivityState == .promptIdle {
             _ = markRunningSessionIdleFromPromptReturn(now: now)
@@ -381,10 +438,9 @@ struct PaneAgentReducerState: Equatable, Sendable {
     }
 
     @discardableResult
-    private mutating func promoteExplicitStartingCodexSessionFromShellActivity(now: Date) -> Bool {
+    private mutating func promoteExplicitStartingSessionFromShellActivity(now: Date) -> Bool {
         let candidateSessions = sessionsByID.values.filter { session in
-            session.tool == .codex
-                && session.state == .starting
+            session.state == .starting
                 && session.source == .explicit
                 && session.origin != .shell
         }

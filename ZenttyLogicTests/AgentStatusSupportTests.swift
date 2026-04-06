@@ -4,6 +4,29 @@ import XCTest
 
 @MainActor
 final class AgentStatusSupportTests: XCTestCase {
+    func test_agent_interaction_classifier_recognizes_codex_attention_notifications() {
+        let cases: [(message: String, kind: PaneAgentInteractionKind)] = [
+            ("Approval requested: npm publish", .approval),
+            ("Codex wants to edit Sources/App.swift", .approval),
+            ("Approval requested by docs", .approval),
+            ("Question requested: Choose deployment target", .question),
+            ("Questions requested: 2", .question),
+            ("Plan mode prompt: Implement this plan?", .decision),
+        ]
+
+        for testCase in cases {
+            XCTAssertTrue(
+                AgentInteractionClassifier.requiresHumanInput(message: testCase.message),
+                "Expected Codex attention message to require human input: \(testCase.message)"
+            )
+            XCTAssertEqual(
+                AgentInteractionClassifier.interactionKind(forWaitingMessage: testCase.message),
+                testCase.kind,
+                "Expected Codex attention message to infer the right interaction kind: \(testCase.message)"
+            )
+        }
+    }
+
     func test_agent_status_helper_returns_nil_when_resource_directories_are_missing() throws {
         let bundle = try makeTemporaryBundle(named: "MissingResources")
 
@@ -136,6 +159,34 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let script = try String(contentsOf: codexWrapperURL, encoding: .utf8)
         XCTAssertTrue(script.contains("export ZENTTY_CODEX_PID=$$"))
+    }
+
+    func test_copy_agent_resources_build_script_syncs_opencode_support_directory() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let projectFileURL = repositoryRoot.appendingPathComponent("Zentty.xcodeproj/project.pbxproj", isDirectory: false)
+
+        let project = try String(contentsOf: projectFileURL, encoding: .utf8)
+
+        XCTAssertTrue(project.contains("${RESOURCES_DST}/opencode/plugins"))
+        XCTAssertTrue(project.contains("${RESOURCES_SRC}/opencode/"))
+        XCTAssertTrue(project.contains("${RESOURCES_DST}/opencode/"))
+    }
+
+    func test_repository_opencode_plugin_exists_and_mentions_opencode_hook_bridge() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let pluginURL = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false)
+
+        let plugin = try String(contentsOf: pluginURL, encoding: .utf8)
+        XCTAssertTrue(plugin.contains("opencode-hook"))
+        XCTAssertTrue(plugin.contains("stdio: [\"pipe\", \"ignore\", \"ignore\"]"))
     }
 
     func test_agent_status_command_uses_env_defaults_and_round_trips_notification_payload() throws {
@@ -1181,6 +1232,145 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.state, .idle)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
+    }
+
+    func test_opencode_hook_session_status_busy_maps_to_running_payload() throws {
+        let input = try OpenCodeHookBridge.parseInput(
+            Data(
+                """
+                {"eventType":"session.status","sessionID":"session-1","cwd":"/tmp/project","status":"busy"}
+                """.utf8
+            )
+        )
+        let payload = try XCTUnwrap(
+            OpenCodeHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(
+            payload,
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("worklane-main-shell"),
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                lifecycleEvent: .update,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentWorkingDirectory: "/tmp/project"
+            )
+        )
+    }
+
+    func test_opencode_hook_permission_prompt_maps_to_needs_input_approval_payload() throws {
+        let input = try OpenCodeHookBridge.parseInput(
+            Data(
+                """
+                {"eventType":"permission.asked","sessionID":"session-1","cwd":"/tmp/project","title":"Allow file write?"}
+                """.utf8
+            )
+        )
+        let payload = try XCTUnwrap(
+            OpenCodeHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.toolName, "OpenCode")
+        XCTAssertEqual(payload.text, "Allow file write?")
+        XCTAssertEqual(payload.interactionKind, .approval)
+        XCTAssertEqual(payload.confidence, .explicit)
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_opencode_hook_question_prompt_with_options_maps_to_decision_payload() throws {
+        let input = try OpenCodeHookBridge.parseInput(
+            Data(
+                """
+                {"eventType":"question.asked","sessionID":"session-1","cwd":"/tmp/project","questions":[{"header":"Deployment","question":"Choose environment","options":[{"label":"Staging"},{"label":"Production"}]}]}
+                """.utf8
+            )
+        )
+        let payload = try XCTUnwrap(
+            OpenCodeHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.toolName, "OpenCode")
+        XCTAssertEqual(payload.text, "Choose environment\n[Staging] [Production]")
+        XCTAssertEqual(payload.interactionKind, .decision)
+        XCTAssertEqual(payload.confidence, .explicit)
+    }
+
+    func test_opencode_hook_permission_reply_maps_to_running_payload() throws {
+        let input = try OpenCodeHookBridge.parseInput(
+            Data(
+                """
+                {"eventType":"permission.replied","sessionID":"session-1","cwd":"/tmp/project"}
+                """.utf8
+            )
+        )
+        let payload = try XCTUnwrap(
+            OpenCodeHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.toolName, "OpenCode")
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_opencode_hook_session_idle_maps_to_idle_payload() throws {
+        let input = try OpenCodeHookBridge.parseInput(
+            Data(
+                """
+                {"eventType":"session.idle","sessionID":"session-1","cwd":"/tmp/project"}
+                """.utf8
+            )
+        )
+        let payload = try XCTUnwrap(
+            OpenCodeHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .idle)
+        XCTAssertEqual(payload.toolName, "OpenCode")
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
     func test_claude_hook_session_end_clears_status_pid_and_mapping() throws {

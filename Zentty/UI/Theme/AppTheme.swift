@@ -181,6 +181,12 @@ struct ZenttyTheme: Equatable {
         let accent = (resolvedTheme.cursorColor).srgbClamped
 
         let softnessHint = min(max((resolvedTheme.backgroundBlurRadius ?? 0) / 120, 0), 0.10)
+
+        // backgroundOpacity controls window translucency.
+        // Ghostty semantics: 1.0 = fully opaque, lower = more transparent.
+        // Unset defaults to 1.0 (fully opaque, no translucency).
+        let bgOpacity = min(max(resolvedTheme.backgroundOpacity ?? 1.0, 0), 1)
+
         let baseSidebar = background.isDarkThemeColor
             ? background
                 .mixed(towards: NSColor.black, amount: 0.24)
@@ -202,7 +208,8 @@ struct ZenttyTheme: Equatable {
         let readableForeground = foreground.ensuringTextContrast(on: background)
         let readableSidebarText = foreground.ensuringTextContrast(on: baseSidebar)
         let readableSidebarActiveText = foreground.ensuringTextContrast(on: sidebarRowSelectedBase)
-        let startupSurfaceBase = background.withAlphaComponent(1)
+        let isTranslucent = !reduceTransparency && bgOpacity < 1.0
+        let startupSurfaceBase = background.withAlphaComponent(isTranslucent ? bgOpacity : 1.0)
         let openWithChromeBase = accent
             .mixed(towards: startupSurfaceBase, amount: background.isDarkThemeColor ? 0.92 : 0.95)
         let openWithPopoverBase = baseSidebar
@@ -217,13 +224,15 @@ struct ZenttyTheme: Equatable {
 
         self.reducedTransparency = reduceTransparency
         sidebarGlassAppearance = background.isDarkThemeColor ? .dark : .light
-        startupSurface = startupSurfaceBase
+        startupSurface = isTranslucent ? .clear : startupSurfaceBase
         windowBackground = startupSurfaceBase
-        sidebarBackground = baseSidebar.withAlphaComponent(reduceTransparency ? 0.92 : (background.isDarkThemeColor ? 0.42 : 0.74))
+        let sidebarBaseAlpha: CGFloat = background.isDarkThemeColor ? 0.42 : 0.74
+        let sidebarAlpha = reduceTransparency ? 0.92 : sidebarBaseAlpha * min(bgOpacity / 0.8, 1.0)
+        sidebarBackground = baseSidebar.withAlphaComponent(sidebarAlpha)
         sidebarBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.10)
         sidebarShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.05)
-        canvasBackground = startupSurfaceBase
-        topChromeBackground = startupSurfaceBase
+        canvasBackground = isTranslucent ? .clear : startupSurfaceBase
+        topChromeBackground = isTranslucent ? .clear : startupSurfaceBase
         topChromeBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.06 : 0.08)
         canvasBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.14)
         canvasShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 + softnessHint : 0.06 + (softnessHint * 0.35))
@@ -240,8 +249,12 @@ struct ZenttyTheme: Equatable {
         tertiaryText = readableForeground.withAlphaComponent(0.54)
         paneBorderFocused = accent.withAlphaComponent(background.isDarkThemeColor ? 0.42 : 0.34)
         paneBorderUnfocused = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.13 : 0.10)
-        paneFillFocused = background.mixed(towards: accent, amount: 0.08).withAlphaComponent(0.98)
-        paneFillUnfocused = background.withAlphaComponent(0.96)
+        paneFillFocused = isTranslucent
+            ? .clear
+            : background.mixed(towards: accent, amount: 0.08).withAlphaComponent(0.98)
+        paneFillUnfocused = isTranslucent
+            ? .clear
+            : background.withAlphaComponent(0.96)
         paneShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.06)
         failureOverlayBackground = background.mixed(towards: foreground, amount: 0.08).withAlphaComponent(0.92)
         failurePrimaryText = readableForeground.withAlphaComponent(0.96)

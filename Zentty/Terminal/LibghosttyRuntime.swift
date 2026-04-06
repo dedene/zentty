@@ -248,6 +248,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         }
 
         ghostty_config_load_default_files(config)
+        Self.loadTransparentBackgroundOverride(config)
         ghostty_config_finalize(config)
         self.config = config
 
@@ -315,6 +316,56 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             metadataDidChange: metadataDidChange,
             eventDidOccur: eventDidOccur
         )
+    }
+
+    func reloadConfig() {
+        guard let app else {
+            return
+        }
+        guard let newConfig = ghostty_config_new() else {
+            return
+        }
+        ghostty_config_load_default_files(newConfig)
+        Self.loadTransparentBackgroundOverride(newConfig)
+        ghostty_config_finalize(newConfig)
+        ghostty_app_update_config(app, newConfig)
+        let oldConfig = self.config
+        self.config = newConfig
+        if let oldConfig {
+            ghostty_config_free(oldConfig)
+        }
+    }
+
+    func applyBackgroundBlur(to window: NSWindow) {
+        guard let app else { return }
+        ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
+    }
+
+    private static let overridePath = NSTemporaryDirectory() + "zentty-ghostty-override.conf"
+
+    private static func loadTransparentBackgroundOverride(_ config: ghostty_config_t) {
+        var lines = "background-opacity = 0\n"
+        if !userConfigContainsBackgroundBlur() {
+            lines += "background-blur = 20\n"
+        }
+        try? lines.write(toFile: overridePath, atomically: true, encoding: .utf8)
+        overridePath.withCString { ptr in
+            ghostty_config_load_file(config, ptr)
+        }
+    }
+
+    private static func userConfigContainsBackgroundBlur() -> Bool {
+        let configPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/ghostty/config")
+        guard let content = try? String(contentsOf: configPath, encoding: .utf8) else {
+            return false
+        }
+        return content.split(whereSeparator: \.isNewline).contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.hasPrefix("#"), !trimmed.hasPrefix("//") else { return false }
+            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            return parts.first?.trimmingCharacters(in: .whitespaces) == "background-blur"
+        }
     }
 
     static func makeRuntimeConfig(userdata: UnsafeMutableRawPointer?) -> ghostty_runtime_config_s {

@@ -72,7 +72,7 @@ final class GhosttyThemeResolverTests: XCTestCase {
         XCTAssertEqual(lightResolution.theme.background.themeHexString, "#FFFFFF")
     }
 
-    func test_derived_theme_stitches_main_shell_to_terminal_surface() {
+    func test_derived_theme_stitches_main_shell_to_terminal_surface_when_opaque() {
         let theme = ZenttyTheme(
             resolvedTheme: GhosttyResolvedTheme(
                 background: NSColor(hexString: "#0A0C10")!,
@@ -81,7 +81,7 @@ final class GhosttyThemeResolverTests: XCTestCase {
                 selectionBackground: nil,
                 selectionForeground: nil,
                 palette: [:],
-                backgroundOpacity: 0.9,
+                backgroundOpacity: 1.0,
                 backgroundBlurRadius: 25
             )
         )
@@ -90,6 +90,26 @@ final class GhosttyThemeResolverTests: XCTestCase {
         XCTAssertEqual(theme.canvasBackground.themeToken, theme.startupSurface.themeToken)
         XCTAssertEqual(theme.windowBackground.themeToken, theme.canvasBackground.themeToken)
         XCTAssertEqual(theme.topChromeBackground.themeToken, theme.canvasBackground.themeToken)
+    }
+
+    func test_derived_theme_clears_chrome_layers_when_translucent() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.8,
+                backgroundBlurRadius: 25
+            )
+        )
+
+        XCTAssertLessThan(theme.windowBackground.srgbClamped.alphaComponent, 1.0)
+        XCTAssertEqual(theme.canvasBackground, .clear)
+        XCTAssertEqual(theme.topChromeBackground, .clear)
+        XCTAssertLessThan(theme.startupSurface.srgbClamped.alphaComponent, 1.0)
     }
 
     func test_derived_theme_keeps_sidebar_distinct_from_main_window_background() {
@@ -127,7 +147,7 @@ final class GhosttyThemeResolverTests: XCTestCase {
         XCTAssertNotEqual(theme.sidebarBackground.themeToken, theme.canvasBackground.themeToken)
     }
 
-    func test_dark_theme_sidebar_uses_translucent_glass_fill_instead_of_opaque_slab() {
+    func test_dark_theme_sidebar_uses_translucent_glass_fill_when_opacity_is_low() {
         let theme = ZenttyTheme(
             resolvedTheme: GhosttyResolvedTheme(
                 background: NSColor(hexString: "#0A0C10")!,
@@ -136,7 +156,7 @@ final class GhosttyThemeResolverTests: XCTestCase {
                 selectionBackground: nil,
                 selectionForeground: nil,
                 palette: [:],
-                backgroundOpacity: 0.9,
+                backgroundOpacity: 0.3,
                 backgroundBlurRadius: 25
             )
         )

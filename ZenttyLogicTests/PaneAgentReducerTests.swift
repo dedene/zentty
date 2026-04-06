@@ -521,6 +521,69 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertEqual(Array(reducerState.sessionsByID.keys), ["session-1"])
     }
 
+    func test_shell_command_running_promotes_explicit_starting_opencode_session_to_running() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitAPI,
+                toolName: "OpenCode",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .starting,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(0.5)
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .commandRunning,
+                origin: .shell,
+                toolName: "OpenCode",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+
+        let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(1))
+        XCTAssertEqual(status?.state, .running)
+        XCTAssertEqual(status?.trackedPID, 4242)
+        XCTAssertTrue(status?.hasObservedRunning == true)
+        XCTAssertEqual(Array(reducerState.sessionsByID.keys), ["session-1"])
+    }
+
     func test_prompt_idle_clears_explicit_running_session_into_idle() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()

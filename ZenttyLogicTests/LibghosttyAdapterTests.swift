@@ -738,6 +738,8 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
     private(set) var lastSurfaceController: LibghosttySurfaceControllerSpy?
     private(set) var receivedConfigTemplates: [ghostty_surface_config_s?] = []
 
+    private(set) var reloadConfigCallCount = 0
+
     func makeSurface(
         for hostView: LibghosttyView,
         paneID _: PaneID,
@@ -756,6 +758,12 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
         lastSurfaceController = surfaceController
         return surfaceController
     }
+
+    func reloadConfig() {
+        reloadConfigCallCount += 1
+    }
+
+    func applyBackgroundBlur(to window: NSWindow) {}
 }
 
 private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling {

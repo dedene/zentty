@@ -166,11 +166,16 @@ private extension PaneShellContext {
 enum WorklaneChange: Equatable, Sendable {
     case paneStructure(WorklaneID)
     case focusChanged(WorklaneID)
-    case layoutResized(WorklaneID)
+    case layoutResized(WorklaneID, animation: WorklaneLayoutResizeAnimation)
     case auxiliaryStateUpdated(WorklaneID, PaneID, WorklaneAuxiliaryInvalidation)
     case activeWorklaneChanged
     case worklaneListChanged
     case historyChanged
+}
+
+enum WorklaneLayoutResizeAnimation: Equatable, Sendable {
+    case immediate
+    case splitCurve
 }
 
 struct WorklaneChangeSubscription {
@@ -455,7 +460,7 @@ final class WorklaneStore {
         }
 
         if didUpdateWorklaneState {
-            notify(.layoutResized(activeWorklaneID))
+            notifyLayoutResized(animation: .immediate)
         }
     }
 
@@ -575,7 +580,7 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
-        notify(.layoutResized(activeWorklaneID))
+        notifyLayoutResized(animation: .immediate)
     }
 
     func resize(
@@ -600,7 +605,7 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
-        notify(.layoutResized(activeWorklaneID))
+        notifyLayoutResized(animation: .immediate)
     }
 
     func equalizeDivider(
@@ -616,7 +621,7 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
-        notify(.layoutResized(activeWorklaneID))
+        notifyLayoutResized(animation: .splitCurve)
     }
 
     @discardableResult
@@ -642,7 +647,7 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
-        notify(.layoutResized(activeWorklaneID))
+        notifyLayoutResized(animation: .splitCurve)
         return true
     }
 
@@ -653,7 +658,7 @@ final class WorklaneStore {
 
         worklane.paneStripState = paneStripState
         activeWorklane = worklane
-        notify(.layoutResized(activeWorklaneID))
+        notifyLayoutResized(animation: .splitCurve)
     }
 
     func resetActiveWorklaneLayout() {
@@ -689,7 +694,7 @@ final class WorklaneStore {
             layoutSizing: layoutContext.sizing
         )
         activeWorklane = worklane
-        notify(.layoutResized(activeWorklaneID))
+        notifyLayoutResized(animation: .splitCurve)
     }
 
     func arrangeActiveWorklaneHorizontally(
@@ -710,7 +715,7 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
-        notify(.layoutResized(activeWorklaneID))
+        notifyLayoutResized(animation: .splitCurve)
     }
 
     func arrangeActiveWorklaneVertically(_ arrangement: PaneVerticalArrangement) {
@@ -724,7 +729,7 @@ final class WorklaneStore {
 
         activeWorklane = worklane
         refreshLastFocusedLocalWorkingDirectory()
-        notify(.layoutResized(activeWorklaneID))
+        notifyLayoutResized(animation: .splitCurve)
     }
 
     func arrangeActiveWorklaneGoldenWidth(
@@ -741,7 +746,7 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
-        notify(.layoutResized(activeWorklaneID))
+        notifyLayoutResized(animation: .splitCurve)
     }
 
     func arrangeActiveWorklaneGoldenHeight(
@@ -760,7 +765,7 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
-        notify(.layoutResized(activeWorklaneID))
+        notifyLayoutResized(animation: .splitCurve)
     }
 
     private func insertNewPaneHorizontally(into worklane: inout WorklaneState, placement: PanePlacement) {
@@ -934,8 +939,14 @@ final class WorklaneStore {
             return .closed
         }
 
+        let previousColumnCount = worklane.paneStripState.columns.count
         if let removal = worklane.paneStripState.removePane(id: paneID, singleColumnWidth: layoutContext.singlePaneWidth) {
             clearPaneState(for: removal.pane.id, in: &worklane)
+            applyColumnWidthNormalization(
+                &worklane,
+                previousColumnCount: previousColumnCount,
+                singleColumnWidth: layoutContext.singlePaneWidth
+            )
         }
         worklanes[worklaneIndex] = worklane
         refreshLastFocusedLocalWorkingDirectory()
@@ -979,8 +990,14 @@ final class WorklaneStore {
             return .closed
         }
 
+        let previousColumnCount = worklane.paneStripState.columns.count
         if let removedPane = worklane.paneStripState.closeFocusedPane(singleColumnWidth: layoutContext.singlePaneWidth) {
             clearPaneState(for: removedPane.id, in: &worklane)
+            applyColumnWidthNormalization(
+                &worklane,
+                previousColumnCount: previousColumnCount,
+                singleColumnWidth: layoutContext.singlePaneWidth
+            )
         }
 
         activeWorklane = worklane
@@ -1232,6 +1249,10 @@ final class WorklaneStore {
         for subscriber in subscribers {
             subscriber.handler(change)
         }
+    }
+
+    private func notifyLayoutResized(animation: WorklaneLayoutResizeAnimation) {
+        notify(.layoutResized(activeWorklaneID, animation: animation))
     }
 
     private func sessionEnvironment(

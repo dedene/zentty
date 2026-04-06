@@ -79,8 +79,8 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
             updatedAt: Date(timeIntervalSince1970: 42),
             isWorking: false,
             interactionKind: .question,
-            interactionLabel: "Question",
-            interactionSymbolName: "questionmark.circle"
+            interactionLabel: "Needs decision",
+            interactionSymbolName: "list.bullet"
         )
 
         let worklane = WorklaneState(
@@ -99,12 +99,12 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary?.tool, .codex)
         XCTAssertEqual(summary?.state, .needsInput)
         XCTAssertEqual(summary?.interactionKind, .question)
-        XCTAssertEqual(summary?.interactionLabel, "Question")
+        XCTAssertEqual(summary?.interactionLabel, "Needs decision")
         XCTAssertEqual(summary?.primaryText, "Test session setup")
-        XCTAssertEqual(summary?.statusText, "Needs input")
+        XCTAssertEqual(summary?.statusText, "Needs decision")
         XCTAssertEqual(summary?.contextText, "main · /tmp/project")
         XCTAssertEqual(summary?.artifactLink, expectedArtifact)
-        XCTAssertEqual(summary?.interactionSymbolName, "questionmark.circle")
+        XCTAssertEqual(summary?.interactionSymbolName, "list.bullet")
         XCTAssertEqual(summary?.updatedAt, Date(timeIntervalSince1970: 42))
     }
 

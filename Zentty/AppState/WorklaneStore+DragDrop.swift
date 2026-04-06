@@ -152,6 +152,7 @@ extension WorklaneStore {
         }
 
         var sourceWorklane = worklanes[sourceIndex]
+        let previousSourceColumnCount = sourceWorklane.paneStripState.columns.count
 
         guard let removal = sourceWorklane.paneStripState.removePane(
             id: paneID,
@@ -159,6 +160,12 @@ extension WorklaneStore {
         ) else {
             return
         }
+
+        applyColumnWidthNormalization(
+            &sourceWorklane,
+            previousColumnCount: previousSourceColumnCount,
+            singleColumnWidth: singleColumnWidth
+        )
 
         let auxiliaryState = sourceWorklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
         worklanes[sourceIndex] = sourceWorklane
@@ -321,7 +328,7 @@ extension WorklaneStore {
 
     // MARK: - Private — Column Width
 
-    private func applyColumnWidthNormalization(
+    func applyColumnWidthNormalization(
         _ worklane: inout WorklaneState,
         previousColumnCount: Int,
         singleColumnWidth: CGFloat
@@ -335,6 +342,26 @@ extension WorklaneStore {
 
         if previousColumnCount == 2, currentColumnCount == 1 {
             worklane.paneStripState.columns[0].width = max(1, singleColumnWidth)
+            return
         }
+
+        guard previousColumnCount > currentColumnCount, currentColumnCount > 1 else {
+            return
+        }
+
+        let targetTotalColumnWidth = max(
+            1,
+            layoutContext.sizing.readableWidth(
+                for: layoutContext.viewportWidth,
+                leadingVisibleInset: layoutContext.leadingVisibleInset
+            ) - (layoutContext.sizing.interPaneSpacing * CGFloat(currentColumnCount - 1))
+        )
+        let currentTotalColumnWidth = worklane.paneStripState.columns.reduce(0) { $0 + $1.width }
+        guard currentTotalColumnWidth > 0,
+              currentTotalColumnWidth < targetTotalColumnWidth - 0.001 else {
+            return
+        }
+
+        _ = worklane.paneStripState.scalePaneWidths(by: targetTotalColumnWidth / currentTotalColumnWidth)
     }
 }

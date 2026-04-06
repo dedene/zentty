@@ -159,6 +159,39 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
 
         // 15 alone is below 40 threshold
         XCTAssertEqual(result, .none)
+        let finishingChange = MockScrollEvent(
+            scrollingDeltaX: 50,
+            scrollingDeltaY: 0,
+            hasPreciseScrollingDeltas: true,
+            phase: .changed,
+            momentumPhase: [],
+            isDirectionInvertedFromDevice: false,
+            modifierFlags: []
+        )
+        XCTAssertEqual(handler.handle(scrollEvent: finishingChange.asNSEvent), .switchRight)
+
+        let ended = MockScrollEvent(
+            scrollingDeltaX: 0,
+            scrollingDeltaY: 0,
+            hasPreciseScrollingDeltas: true,
+            phase: .ended,
+            momentumPhase: [],
+            isDirectionInvertedFromDevice: false,
+            modifierFlags: []
+        )
+        XCTAssertEqual(handler.handle(scrollEvent: ended.asNSEvent), .none)
+
+        let changedWithoutBegan = MockScrollEvent(
+            scrollingDeltaX: 50,
+            scrollingDeltaY: 0,
+            hasPreciseScrollingDeltas: true,
+            phase: .changed,
+            momentumPhase: [],
+            isDirectionInvertedFromDevice: false,
+            modifierFlags: []
+        )
+
+        XCTAssertEqual(handler.handle(scrollEvent: changedWithoutBegan.asNSEvent), .none)
     }
 }
 

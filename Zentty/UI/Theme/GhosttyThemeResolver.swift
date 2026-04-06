@@ -83,6 +83,17 @@ final class GhosttyThemeResolver {
         self.additionalThemeDirectories = additionalThemeDirectories
     }
 
+    func currentThemeName(for appearance: NSAppearance?) -> String? {
+        let userConfig = parseConfig(at: configURL)
+        return userConfig.themeSpec.flatMap {
+            resolveThemeName(from: $0, appearance: appearance)
+        }
+    }
+
+    func currentBackgroundOpacity() -> CGFloat? {
+        parseConfig(at: configURL).backgroundOpacity
+    }
+
     func resolve(for appearance: NSAppearance?) -> GhosttyThemeResolution? {
         let userConfig = parseConfig(at: configURL)
         let resolvedThemeName = userConfig.themeSpec.flatMap {
@@ -264,9 +275,6 @@ final class GhosttyThemeWatcher {
 
     func watch(urls: [URL]) {
         let normalizedURLs = Set(urls.map { normalizedWatchURL(for: $0).path })
-        guard normalizedURLs != watchedPaths else {
-            return
-        }
 
         stop()
         watchedPaths = normalizedURLs

@@ -478,10 +478,10 @@ final class PanePresentationStateTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.runtimePhase, .needsInput)
-        XCTAssertEqual(presentation.statusText, "Needs input")
+        XCTAssertEqual(presentation.statusText, "Needs decision")
         XCTAssertEqual(presentation.interactionKind, .question)
-        XCTAssertEqual(presentation.interactionLabel, "Question")
-        XCTAssertEqual(presentation.interactionSymbolName, "questionmark.circle")
+        XCTAssertEqual(presentation.interactionLabel, "Needs decision")
+        XCTAssertEqual(presentation.interactionSymbolName, "list.bullet")
     }
 
     func test_normalize_does_not_expose_pull_request_artifacts_through_attention_channel() {

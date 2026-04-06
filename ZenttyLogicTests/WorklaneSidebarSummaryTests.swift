@@ -468,8 +468,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
             updatedAt: Date(timeIntervalSince1970: 42),
             isWorking: false,
             interactionKind: .question,
-            interactionLabel: "Question",
-            interactionSymbolName: "questionmark.circle"
+            interactionLabel: "Needs decision",
+            interactionSymbolName: "list.bullet"
         )
 
         let worklane = WorklaneState(
@@ -486,10 +486,10 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
         XCTAssertEqual(paneRow.attentionState, .needsInput)
-        XCTAssertEqual(paneRow.statusText, "Needs input")
+        XCTAssertEqual(paneRow.statusText, "Needs decision")
         XCTAssertEqual(paneRow.interactionKind, .question)
-        XCTAssertEqual(paneRow.interactionLabel, "Question")
-        XCTAssertEqual(paneRow.interactionSymbolName, "questionmark.circle")
+        XCTAssertEqual(paneRow.interactionLabel, "Needs decision")
+        XCTAssertEqual(paneRow.interactionSymbolName, "list.bullet")
     }
 
     func test_builder_uses_default_interaction_label_and_symbol_for_kind_only_metadata() {

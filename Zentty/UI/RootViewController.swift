@@ -423,9 +423,11 @@ final class RootViewController: NSViewController {
 
     private func setupCanvasCallbacks() {
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
+            self?.appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
             self?.worklaneStore.focusPane(id: paneID)
         }
         appCanvasView.paneStripView.onPaneSelected = { [weak self] paneID in
+            self?.appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
             self?.worklaneStore.focusPane(id: paneID)
         }
         appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
@@ -635,6 +637,9 @@ final class RootViewController: NSViewController {
         themeCoordinator.onThemeDidChange = { [weak self] theme, animated in
             self?.applyThemeToViews(theme, animated: animated)
         }
+        themeCoordinator.onTerminalConfigReload = {
+            LibghosttyRuntime.shared.reloadConfig()
+        }
         runtimeRegistry.onMetadataDidChange = { [weak self] paneID, metadata in
             guard let self else {
                 return
@@ -690,6 +695,7 @@ final class RootViewController: NSViewController {
         }
         syncSidebarWidthToAvailableWidth(persist: false)
         renderCoordinator.updateSurfaceActivities()
+        appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
         appCanvasView.focusCurrentPaneIfNeeded()
     }
 
@@ -768,6 +774,7 @@ final class RootViewController: NSViewController {
 
     func handle(_ action: AppAction, syncingFocusWith responder: NSResponder?) {
         syncFocusedPaneWithResponderIfNeeded(responder)
+        cancelPendingPaneStripScrollSwitchGestureIfNeeded(for: action)
 
         switch action {
         case .toggleSidebar:
@@ -1166,9 +1173,19 @@ final class RootViewController: NSViewController {
 
     @objc
     private func handleWindowStateDidChange() {
+        appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
         syncSidebarWidthToAvailableWidth(persist: false)
         updatePaneLayoutContextIfNeeded(force: true)
         renderCoordinator.updateSurfaceActivities()
+    }
+
+    private func cancelPendingPaneStripScrollSwitchGestureIfNeeded(for action: AppAction) {
+        switch action {
+        case .newWorklane, .nextWorklane, .previousWorklane, .navigateBack, .navigateForward, .pane(_):
+            appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
+        default:
+            break
+        }
     }
 
     func handleWindowDidResize() {
@@ -1213,6 +1230,9 @@ final class RootViewController: NSViewController {
         performThemeAnimation(animated: animated) {
             self.view.layer?.backgroundColor = theme.windowBackground.cgColor
             self.view.layer?.borderColor = theme.topChromeBorder.cgColor
+        }
+        if let window = view.window {
+            LibghosttyRuntime.shared.applyBackgroundBlur(to: window)
         }
     }
 

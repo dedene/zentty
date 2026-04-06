@@ -49,6 +49,12 @@ extension WorklaneStore {
             metadata: metadata,
             in: &worklane
         )
+        surfaceReadyCodexSessionIfTitleIndicatesIdle(
+            paneID: paneID,
+            previousMetadata: previousMetadata,
+            metadata: metadata,
+            in: &worklane
+        )
         invalidateGitContextIfNeeded(for: paneID, in: &worklane)
         recomputePresentation(for: paneID, in: &worklane)
 
@@ -126,6 +132,57 @@ extension WorklaneStore {
             auxiliaryState.agentReducerState.reducedStatus(),
             existingStatus: auxiliaryState.agentStatus
         )
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+    }
+
+    private func surfaceReadyCodexSessionIfTitleIndicatesIdle(
+        paneID: PaneID,
+        previousMetadata: TerminalMetadata?,
+        metadata: TerminalMetadata,
+        in worklane: inout WorklaneState
+    ) {
+        let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
+            ?? AgentToolRecognizer.recognize(metadata: metadata)
+        guard
+            recognizedTool == .codex,
+            let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+                metadata.title,
+                recognizedTool: recognizedTool
+            ),
+            signature.phase == .idle,
+            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+            auxiliaryState.agentStatus?.state != .needsInput
+        else {
+            return
+        }
+        let previousSignature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            previousMetadata?.title,
+            recognizedTool: recognizedTool
+        )
+        guard previousSignature?.phase != .idle else {
+            return
+        }
+
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            auxiliaryState.agentReducerState,
+            from: auxiliaryState.agentStatus
+        )
+        _ = auxiliaryState.agentReducerState.markExplicitCodexSessionIdleFromReadyTitle(now: Date())
+        let reducedStatus = Self.hydratedStatus(
+            auxiliaryState.agentReducerState.reducedStatus(),
+            existingStatus: auxiliaryState.agentStatus
+        )
+        guard let reducedStatus,
+              reducedStatus.tool == .codex,
+              reducedStatus.source == .explicit,
+              reducedStatus.state == .idle,
+              reducedStatus.hasObservedRunning
+        else {
+            return
+        }
+
+        auxiliaryState.agentStatus = reducedStatus
+        auxiliaryState.raw.showsReadyStatus = true
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
 

@@ -16,6 +16,9 @@ final class ThemeCoordinator {
     /// transition should be animated.
     var onThemeDidChange: ((ZenttyTheme, Bool) -> Void)?
 
+    /// Called when the terminal config should be reloaded to match the new theme.
+    var onTerminalConfigReload: (() -> Void)?
+
     // MARK: - Private state
 
     private let themeResolver: GhosttyThemeResolver
@@ -55,6 +58,9 @@ final class ThemeCoordinator {
         let didChange = theme != currentTheme
         currentTheme = theme
         onThemeDidChange?(theme, animated && didChange)
+        if didChange {
+            onTerminalConfigReload?()
+        }
         themeWatcher.watch(urls: resolution?.watchedURLs ?? [themeResolver.configURL])
     }
 

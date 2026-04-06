@@ -3,6 +3,7 @@ import Foundation
 import os
 
 private let worklaneStoreLogger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneStore")
+@MainActor private var loggedUnclassifiedCodexDesktopNotifications: Set<String> = []
 
 extension WorklaneStore {
     func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
@@ -16,24 +17,43 @@ extension WorklaneStore {
         let previousWorklane = worklane
         switch event {
         case .progressReport(let report):
+            let now = Date()
             if report.state == .remove {
                 worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
             } else {
+                let existingStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
+                let showsReadyStatus = worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
                 worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].terminalProgress = report
                 if report.state.indicatesActivity {
-                    clearReadyStatusIfNeeded(for: paneID, in: &worklane)
+                    if shouldClearReadyStatusForProgressReport(
+                        existingStatus: existingStatus,
+                        showsReadyStatus: showsReadyStatus
+                    ) {
+                        clearReadyStatusIfNeeded(for: paneID, in: &worklane)
+                    }
+                    promoteCodexAgentStateFromUserInput(
+                        paneID: paneID,
+                        now: now,
+                        in: &worklane
+                    )
                     resumeBlockedAgentStateIfWorkResumed(
                         paneID: paneID,
-                        now: Date(),
+                        now: now,
                         in: &worklane
                     )
                 }
             }
         case .userSubmittedInput:
+            let now = Date()
             clearReadyStatusIfNeeded(for: paneID, in: &worklane)
+            promoteCodexAgentStateFromUserInput(
+                paneID: paneID,
+                now: now,
+                in: &worklane
+            )
             resumeBlockedAgentStateIfWorkResumed(
                 paneID: paneID,
-                now: Date(),
+                now: now,
                 in: &worklane
             )
         case .commandFinished:
@@ -66,6 +86,9 @@ extension WorklaneStore {
             let body = AgentInteractionClassifier.trimmed(notification.body)
             let combined = [title, body].compactMap { $0 }.joined(separator: ": ")
             let notificationText: String? = combined.isEmpty ? nil : combined
+            let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
+                ?? AgentToolRecognizer.recognize(metadata: worklane.auxiliaryStateByPaneID[paneID]?.metadata)
+                ?? AgentTool.resolveKnown(named: title)
 
             if let notificationText {
                 var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
@@ -77,11 +100,20 @@ extension WorklaneStore {
                 worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
 
-            if let payload = terminalDesktopNotificationPayload(
+            let payload = terminalDesktopNotificationPayload(
                 paneID: paneID,
                 notification: notification,
                 in: worklane
-            ) {
+            )
+            logCodexDesktopNotificationIfNeeded(
+                paneID: paneID,
+                worklane: worklane,
+                recognizedTool: recognizedTool,
+                notificationText: notificationText,
+                interactionKind: payload?.interactionKind
+            )
+
+            if let payload {
                 var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
                 auxiliaryState.agentReducerState = Self.seededReducerState(
                     auxiliaryState.agentReducerState,
@@ -446,6 +478,18 @@ extension WorklaneStore {
         worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus = false
     }
 
+    private func shouldClearReadyStatusForProgressReport(
+        existingStatus: PaneAgentStatus?,
+        showsReadyStatus: Bool
+    ) -> Bool {
+        guard showsReadyStatus,
+              existingStatus?.state == .idle else {
+            return true
+        }
+
+        return false
+    }
+
     private func completionNotificationIndicatesReady(_ notificationText: String?) -> Bool {
         guard let notificationText = AgentInteractionClassifier.trimmed(notificationText)?.lowercased() else {
             return false
@@ -593,9 +637,13 @@ extension WorklaneStore {
         let existingStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
         let tool = existingStatus?.tool
             ?? AgentToolRecognizer.recognize(metadata: worklane.auxiliaryStateByPaneID[paneID]?.metadata)
+            ?? AgentTool.resolveKnown(named: title)
         guard let tool else {
             return nil
         }
+
+        let interactionKind = AgentInteractionClassifier.interactionKind(forWaitingMessage: combinedMessage)
+            ?? .genericInput
 
         return AgentStatusPayload(
             worklaneID: worklane.id,
@@ -605,13 +653,51 @@ extension WorklaneStore {
             origin: .heuristic,
             toolName: tool.displayName,
             text: body ?? combinedMessage,
-            interactionKind: .genericInput,
+            interactionKind: interactionKind,
             confidence: .strong,
             sessionID: existingStatus?.sessionID,
             parentSessionID: existingStatus?.parentSessionID,
             artifactKind: nil,
             artifactLabel: nil,
             artifactURL: nil
+        )
+    }
+
+    private func logCodexDesktopNotificationIfNeeded(
+        paneID: PaneID,
+        worklane: WorklaneState,
+        recognizedTool: AgentTool?,
+        notificationText: String?,
+        interactionKind: PaneAgentInteractionKind?
+    ) {
+        guard recognizedTool == .codex else {
+            return
+        }
+
+        let isActivelyViewed = worklane.id == activeWorklaneID
+            && worklane.paneStripState.focusedPaneID == paneID
+        let shellActivity = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.shellActivityState.rawValue ?? "unknown"
+        let progressState = worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress?.state
+        let progressLabel = progressState.map(String.init(describing:)) ?? "none"
+        let interactionLabel = interactionKind?.rawValue ?? "none"
+
+        worklaneStoreLogger.debug(
+            "Codex desktop notification pane=\(paneID.rawValue, privacy: .public) activelyViewed=\(isActivelyViewed, privacy: .public) shellActivity=\(shellActivity, privacy: .public) progress=\(progressLabel, privacy: .public) interaction=\(interactionLabel, privacy: .public)"
+        )
+
+        guard
+            interactionKind == .genericInput,
+            let notificationText = AgentInteractionClassifier.trimmed(notificationText),
+            !AgentInteractionClassifier.isGenericNeedsInputMessage(notificationText),
+            !AgentInteractionClassifier.isGenericNeedsInputContent(notificationText),
+            !loggedUnclassifiedCodexDesktopNotifications.contains(notificationText)
+        else {
+            return
+        }
+
+        loggedUnclassifiedCodexDesktopNotifications.insert(notificationText)
+        worklaneStoreLogger.notice(
+            "Unclassified Codex desktop notification text=\(notificationText, privacy: .public)"
         )
     }
 
@@ -635,6 +721,33 @@ extension WorklaneStore {
         }
 
         auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus(now: now)
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+    }
+
+    private func promoteCodexAgentStateFromUserInput(
+        paneID: PaneID,
+        now: Date,
+        in worklane: inout WorklaneState
+    ) {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+              auxiliaryState.agentStatus?.tool == .codex,
+              auxiliaryState.agentStatus?.source == .explicit
+        else {
+            return
+        }
+
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            auxiliaryState.agentReducerState,
+            from: auxiliaryState.agentStatus
+        )
+        guard auxiliaryState.agentReducerState.promoteExplicitCodexSessionFromUserInput(now: now) else {
+            return
+        }
+
+        auxiliaryState.agentStatus = Self.hydratedStatus(
+            auxiliaryState.agentReducerState.reducedStatus(now: now),
+            existingStatus: auxiliaryState.agentStatus
+        )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
 

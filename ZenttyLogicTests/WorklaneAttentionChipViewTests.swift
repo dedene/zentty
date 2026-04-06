@@ -10,7 +10,7 @@ final class WorklaneAttentionChipViewTests: XCTestCase {
 
         chip.render(
             presentation: WorklaneAttentionChipPresentation(
-                statusText: "Needs input",
+                statusText: "Needs decision",
                 toolText: "Claude Code",
                 artifactLabel: nil,
                 artifactURL: nil,
@@ -18,8 +18,8 @@ final class WorklaneAttentionChipViewTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(chip.stateTextForTesting, "Needs input")
-        XCTAssertEqual(chip.stateSymbolNameForTesting, "questionmark.circle")
+        XCTAssertEqual(chip.stateTextForTesting, "Needs decision")
+        XCTAssertEqual(chip.stateSymbolNameForTesting, "list.bullet")
         XCTAssertEqual(chip.toolTextForTesting, "Claude Code")
     }
 

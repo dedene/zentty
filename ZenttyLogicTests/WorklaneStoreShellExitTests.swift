@@ -19,6 +19,61 @@ final class WorklaneStoreShellExitTests: XCTestCase {
         XCTAssertFalse(store.activeWorklane?.paneStripState.panes.contains(where: { $0.id == paneToClose }) ?? true)
     }
 
+    func test_shell_exit_reexpands_remaining_columns_to_fill_readable_width() {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let worklaneID = WorklaneID("main")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("left"), title: "left")],
+                                width: 300,
+                                focusedPaneID: PaneID("left"),
+                                lastFocusedPaneID: PaneID("left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("middle"),
+                                panes: [PaneState(id: PaneID("middle"), title: "middle")],
+                                width: 500,
+                                focusedPaneID: PaneID("middle"),
+                                lastFocusedPaneID: PaneID("middle")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [PaneState(id: PaneID("right"), title: "right")],
+                                width: 700,
+                                focusedPaneID: PaneID("right"),
+                                lastFocusedPaneID: PaneID("right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("middle")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: worklaneID
+        )
+
+        let result = store.closePaneFromShellExit(id: PaneID("middle"))
+
+        XCTAssertEqual(result, .closed)
+        let widths = store.activeWorklane?.paneStripState.columns.map(\.width) ?? []
+        XCTAssertEqual(widths.count, 2)
+        XCTAssertEqual(widths[0] / widths[1], 3 / 7, accuracy: 0.001)
+        XCTAssertEqual(widths.reduce(0, +) + layoutContext.sizing.interPaneSpacing, layoutContext.availableWidth, accuracy: 0.001)
+    }
+
     // MARK: - Non-active worklane
 
     func test_shell_exit_removes_pane_from_non_active_worklane() throws {

@@ -121,7 +121,7 @@ enum PaneAgentInteractionKind: String, Equatable, Sendable {
         case .approval:
             return "Needs approval"
         case .question:
-            return "Question"
+            return "Needs decision"
         case .decision:
             return "Needs decision"
         case .auth:
@@ -138,7 +138,7 @@ enum PaneAgentInteractionKind: String, Equatable, Sendable {
         case .approval:
             return "checkmark.shield"
         case .question:
-            return "questionmark.circle"
+            return "list.bullet"
         case .decision:
             return "list.bullet"
         case .auth:

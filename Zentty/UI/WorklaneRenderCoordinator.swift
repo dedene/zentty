@@ -125,8 +125,8 @@ final class WorklaneRenderCoordinator {
         case .focusChanged:
             renderCurrentWorklane(animated: true)
             updateRuntimeSurfaceActivities()
-        case .layoutResized:
-            renderCurrentWorklane(animated: false)
+        case .layoutResized(_, let animation):
+            renderCurrentWorklane(animated: animation == .splitCurve)
         case .worklaneListChanged:
             needsRuntimeSynchronization = true
             renderCurrentWorklane(animated: false)

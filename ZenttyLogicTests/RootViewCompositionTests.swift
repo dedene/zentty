@@ -265,6 +265,24 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(rowFrame.minX, visibleLaneFrame.minX - 0.5)
     }
 
+    func test_root_controller_animates_width_preset_with_split_curve() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        XCTAssertTrue(appCanvasView.lastPaneStripRenderWasAnimatedForTesting)
+
+        controller.handle(.pane(.arrangeHorizontally(.halfWidth)))
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(appCanvasView.lastPaneStripRenderWasAnimatedForTesting)
+    }
+
     func test_chrome_geometry_derives_nested_radii_from_edge_to_edge_insets() {
         XCTAssertEqual(ChromeGeometry.contentShellRadius, ChromeGeometry.innerRadius(
             outerRadius: ChromeGeometry.outerWindowRadius,
@@ -952,8 +970,8 @@ final class RootViewCompositionTests: XCTestCase {
                 paneID: PaneID("pane-main"),
                 tool: .claudeCode,
                 interactionKind: .question,
-                interactionSymbolName: "questionmark.circle",
-                statusText: "Needs input",
+                interactionSymbolName: "list.bullet",
+                statusText: "Needs decision",
                 primaryText: "Review the plan",
                 createdAt: Date(timeIntervalSince1970: 42)
             )
@@ -985,8 +1003,8 @@ final class RootViewCompositionTests: XCTestCase {
                 paneID: PaneID("pane-main"),
                 tool: .claudeCode,
                 interactionKind: .question,
-                interactionSymbolName: "questionmark.circle",
-                statusText: "Needs input",
+                interactionSymbolName: "list.bullet",
+                statusText: "Needs decision",
                 primaryText: "Review the plan",
                 createdAt: Date(timeIntervalSince1970: 42)
             )
@@ -1009,8 +1027,8 @@ final class RootViewCompositionTests: XCTestCase {
                 paneID: PaneID("pane-main"),
                 tool: .claudeCode,
                 interactionKind: .question,
-                interactionSymbolName: "questionmark.circle",
-                statusText: "Needs input",
+                interactionSymbolName: "list.bullet",
+                statusText: "Needs decision",
                 primaryText: "Review the plan",
                 createdAt: Date(timeIntervalSince1970: 42)
             )
@@ -1052,8 +1070,8 @@ final class RootViewCompositionTests: XCTestCase {
                 paneID: PaneID("pane-main"),
                 tool: .claudeCode,
                 interactionKind: .question,
-                interactionSymbolName: "questionmark.circle",
-                statusText: "Needs input",
+                interactionSymbolName: "list.bullet",
+                statusText: "Needs decision",
                 primaryText: "Review the plan",
                 createdAt: Date(timeIntervalSince1970: 42)
             )

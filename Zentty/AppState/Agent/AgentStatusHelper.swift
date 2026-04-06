@@ -4,12 +4,20 @@ import Foundation
 enum AgentStatusHelper {
     static func runIfNeeded(arguments: [String], environment: [String: String]) -> Int32? {
         let subcommand = arguments.dropFirst().first
-        guard subcommand == "agent-status" || subcommand == "agent-signal" || subcommand == "codex-hook" else {
+        guard subcommand == "agent-status"
+            || subcommand == "agent-signal"
+            || subcommand == "codex-hook"
+            || subcommand == "opencode-hook"
+        else {
             return nil
         }
 
         if subcommand == "codex-hook" {
             return CodexHookBridge.runIfNeeded(arguments: arguments, environment: environment)
+        }
+
+        if subcommand == "opencode-hook" {
+            return OpenCodeHookBridge.runIfNeeded(arguments: arguments, environment: environment)
         }
 
         do {
@@ -138,6 +146,15 @@ struct CodexHookInput {
     let sessionID: String?
     let cwd: String?
     let lastAssistantMessage: String?
+}
+
+struct OpenCodeHookInput {
+    let eventType: String
+    let sessionID: String?
+    let cwd: String?
+    let status: String?
+    let title: String?
+    let questions: [[String: Any]]
 }
 
 enum CodexHookBridge {
@@ -332,6 +349,235 @@ enum CodexHookBridge {
             return nil
         }
         return Int32(rawPID)
+    }
+
+    private static func readStandardInput() -> Data {
+        FileHandle.standardInput.readDataToEndOfFile()
+    }
+
+    private static func firstString(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = object[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+
+        return nil
+    }
+}
+
+enum OpenCodeHookBridge {
+    static func runIfNeeded(arguments: [String], environment: [String: String]) -> Int32? {
+        guard arguments.dropFirst().first == "opencode-hook" else {
+            return nil
+        }
+
+        do {
+            let input = try parseInput(readStandardInput())
+            guard currentTargetIfAvailable(from: environment) != nil else {
+                return EXIT_SUCCESS
+            }
+
+            for payload in try makePayloads(from: input, environment: environment) {
+                AgentStatusHelper.post(payload)
+            }
+            return EXIT_SUCCESS
+        } catch {
+            AgentStatusHelper.writeError(error)
+            return EXIT_FAILURE
+        }
+    }
+
+    static func parseInput(_ data: Data) throws -> OpenCodeHookInput {
+        guard !data.isEmpty,
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let eventType = firstString(in: json, keys: ["eventType", "event_type", "type"]) else {
+            throw AgentStatusPayloadError.invalidHookPayload
+        }
+
+        return OpenCodeHookInput(
+            eventType: eventType,
+            sessionID: firstString(in: json, keys: ["sessionID", "sessionId", "session_id"]),
+            cwd: firstString(in: json, keys: ["cwd", "workingDirectory", "working_directory"]),
+            status: firstString(in: json, keys: ["status"]),
+            title: firstString(in: json, keys: ["title", "text", "message"]),
+            questions: (json["questions"] as? [[String: Any]]) ?? []
+        )
+    }
+
+    static func makePayloads(
+        from input: OpenCodeHookInput,
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        let target = try currentTarget(from: environment)
+
+        switch input.eventType {
+        case "session.status":
+            switch input.status?.lowercased() {
+            case "busy", "retry":
+                return [
+                    lifecyclePayload(
+                        worklaneID: target.worklaneID,
+                        paneID: target.paneID,
+                        state: .running,
+                        text: nil,
+                        interactionKind: .none,
+                        sessionID: input.sessionID,
+                        cwd: input.cwd
+                    ),
+                ]
+            case "idle":
+                return [
+                    lifecyclePayload(
+                        worklaneID: target.worklaneID,
+                        paneID: target.paneID,
+                        state: .idle,
+                        text: nil,
+                        interactionKind: .none,
+                        sessionID: input.sessionID,
+                        cwd: input.cwd
+                    ),
+                ]
+            default:
+                return []
+            }
+
+        case "session.idle":
+            return [
+                lifecyclePayload(
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: .idle,
+                    text: nil,
+                    interactionKind: .none,
+                    sessionID: input.sessionID,
+                    cwd: input.cwd
+                ),
+            ]
+
+        case "permission.asked", "permission.updated":
+            let text = input.title ?? "OpenCode needs your approval"
+            return [
+                lifecyclePayload(
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: .needsInput,
+                    text: text,
+                    interactionKind: .approval,
+                    sessionID: input.sessionID,
+                    cwd: input.cwd
+                ),
+            ]
+
+        case "question.asked":
+            guard let description = describeQuestion(input.questions) else {
+                return []
+            }
+            return [
+                lifecyclePayload(
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: .needsInput,
+                    text: description.text,
+                    interactionKind: description.interactionKind,
+                    sessionID: input.sessionID,
+                    cwd: input.cwd
+                ),
+            ]
+
+        case "permission.replied", "question.replied":
+            return [
+                lifecyclePayload(
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: .running,
+                    text: nil,
+                    interactionKind: .none,
+                    sessionID: input.sessionID,
+                    cwd: input.cwd
+                ),
+            ]
+
+        default:
+            return []
+        }
+    }
+
+    private static func lifecyclePayload(
+        worklaneID: WorklaneID,
+        paneID: PaneID,
+        state: PaneAgentState,
+        text: String?,
+        interactionKind: PaneAgentInteractionKind,
+        sessionID: String?,
+        cwd: String?
+    ) -> AgentStatusPayload {
+        AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .lifecycle,
+            state: state,
+            origin: .explicitHook,
+            toolName: AgentTool.openCode.displayName,
+            text: text,
+            lifecycleEvent: .update,
+            interactionKind: interactionKind,
+            confidence: .explicit,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil,
+            agentWorkingDirectory: cwd
+        )
+    }
+
+    private static func describeQuestion(_ questions: [[String: Any]]) -> (text: String, interactionKind: PaneAgentInteractionKind)? {
+        guard let first = questions.first else {
+            return nil
+        }
+
+        var lines: [String] = []
+        if let question = firstString(in: first, keys: ["question"]), !question.isEmpty {
+            lines.append(question)
+        } else if let header = firstString(in: first, keys: ["header"]), !header.isEmpty {
+            lines.append(header)
+        }
+
+        let options = (first["options"] as? [[String: Any]]) ?? []
+        let labels = options.compactMap { firstString(in: $0, keys: ["label"]) }
+        if !labels.isEmpty {
+            lines.append(labels.map { "[\($0)]" }.joined(separator: " "))
+        }
+
+        guard !lines.isEmpty else {
+            return nil
+        }
+
+        return (
+            text: lines.joined(separator: "\n"),
+            interactionKind: labels.isEmpty ? .question : .decision
+        )
+    }
+
+    private static func currentTarget(from environment: [String: String]) throws -> (worklaneID: WorklaneID, paneID: PaneID) {
+        guard let worklaneID = environment["ZENTTY_WORKLANE_ID"] else {
+            throw AgentStatusPayloadError.missingWorklaneID
+        }
+        guard let paneID = environment["ZENTTY_PANE_ID"] else {
+            throw AgentStatusPayloadError.missingPaneID
+        }
+        return (WorklaneID(worklaneID), PaneID(paneID))
+    }
+
+    private static func currentTargetIfAvailable(from environment: [String: String]) -> (worklaneID: WorklaneID, paneID: PaneID)? {
+        guard let worklaneID = environment["ZENTTY_WORKLANE_ID"],
+              let paneID = environment["ZENTTY_PANE_ID"] else {
+            return nil
+        }
+        return (WorklaneID(worklaneID), PaneID(paneID))
     }
 
     private static func readStandardInput() -> Data {

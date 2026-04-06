@@ -2,6 +2,7 @@ import AppKit
 
 enum SettingsSection: String, CaseIterable, Equatable, Sendable {
     case general
+    case appearance
     case shortcuts
     case openWith
     case paneLayout
@@ -10,6 +11,8 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .general:
             "General"
+        case .appearance:
+            "Appearance"
         case .shortcuts:
             "Shortcuts"
         case .openWith:
@@ -23,6 +26,8 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .general:
             "gearshape"
+        case .appearance:
+            "paintpalette"
         case .shortcuts:
             "keyboard"
         case .openWith:
@@ -36,6 +41,8 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .general:
             .systemGray
+        case .appearance:
+            .systemTeal
         case .shortcuts:
             .systemIndigo
         case .openWith:
@@ -159,6 +166,7 @@ final class SettingsViewController: NSTabViewController {
     private enum Layout {
         static let minimumContentHeight: CGFloat = 340
         static let maximumScreenHeightFraction: CGFloat = 2.0 / 3.0
+        static let toolbarIconBottomPadding: CGFloat = 4
     }
 
     static let preferredContentWidth: CGFloat = 760
@@ -184,6 +192,7 @@ final class SettingsViewController: NSTabViewController {
         errorReportingRestartHandler: errorReportingRestartHandler,
         runtimeErrorReportingEnabled: runtimeErrorReportingEnabled
     )
+    private lazy var appearanceViewController = AppearanceSettingsSectionViewController()
     private lazy var shortcutsViewController = ShortcutsSettingsSectionViewController(configStore: configStore)
     private lazy var paneLayoutViewController = PaneLayoutSettingsSectionViewController()
     private let openWithViewController: OpenWithSettingsSectionViewController
@@ -356,21 +365,34 @@ final class SettingsViewController: NSTabViewController {
                 systemSymbolName: section.symbolName,
                 accessibilityDescription: section.title
             )
-            if section == .openWith, let base = image?.withSymbolConfiguration(
-                .init(pointSize: 0, weight: .regular, scale: .medium)
-            ) {
-                let bottomPadding: CGFloat = 2
+            let baseImage: NSImage?
+            if section == .openWith {
+                baseImage = image?.withSymbolConfiguration(
+                    .init(pointSize: 0, weight: .regular, scale: .medium)
+                )
+            } else {
+                baseImage = image
+            }
+            if let baseImage {
                 let padded = NSImage(
-                    size: NSSize(width: base.size.width, height: base.size.height + bottomPadding),
+                    size: NSSize(
+                        width: baseImage.size.width,
+                        height: baseImage.size.height + Layout.toolbarIconBottomPadding
+                    ),
                     flipped: false
                 ) { _ in
-                    base.draw(in: NSRect(x: 0, y: bottomPadding, width: base.size.width, height: base.size.height))
+                    baseImage.draw(in: NSRect(
+                        x: 0,
+                        y: Layout.toolbarIconBottomPadding,
+                        width: baseImage.size.width,
+                        height: baseImage.size.height
+                    ))
                     return true
                 }
                 padded.isTemplate = true
                 tabViewItem.image = padded
             } else {
-                tabViewItem.image = image
+                tabViewItem.image = nil
             }
 
             addTabViewItem(tabViewItem)
@@ -397,6 +419,8 @@ final class SettingsViewController: NSTabViewController {
         switch section {
         case .general:
             generalViewController
+        case .appearance:
+            appearanceViewController
         case .shortcuts:
             shortcutsViewController
         case .openWith:

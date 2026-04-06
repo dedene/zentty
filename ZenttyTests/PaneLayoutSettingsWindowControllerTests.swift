@@ -28,7 +28,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(tabController.tabStyle, .toolbar)
         XCTAssertNotNil(controller.window?.toolbar)
         XCTAssertFalse(controller.window?.styleMask.contains(.resizable) == true)
-        XCTAssertEqual(contentController.sectionTitles, ["General", "Shortcuts", "Open With", "Pane Layout"])
+        XCTAssertEqual(contentController.sectionTitles, ["General", "Appearance", "Shortcuts", "Open With", "Pane Layout"])
         XCTAssertEqual(contentController.selectedSection, .paneLayout)
         XCTAssertEqual(controller.window?.title, "Pane Layout")
 
@@ -87,6 +87,31 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertNil(shortcutsController.selectedCommandDefaultShortcutForTesting)
         XCTAssertEqual(shortcutsController.displayString(for: .toggleSidebar), "⌘B")
         XCTAssertEqual(shortcutsController.displayString(for: .copyFocusedPanePath), "Unassigned")
+    }
+
+    func test_settings_window_toolbar_icons_include_bottom_padding_for_label_spacing() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        let tabController = try XCTUnwrap(controller.window?.contentViewController as? NSTabViewController)
+
+        for (index, section) in SettingsSection.allCases.enumerated() {
+            let tabItem = tabController.tabViewItems[index]
+            let image = try XCTUnwrap(tabItem.image)
+            let unpaddedImage = try XCTUnwrap(unpaddedToolbarImage(for: section))
+
+            XCTAssertGreaterThanOrEqual(
+                image.size.height,
+                unpaddedImage.size.height + 4,
+                "Expected \(section.title) toolbar icon to reserve label spacing"
+            )
+        }
     }
 
     func test_settings_window_auto_sizes_height_for_selected_pane_without_exceeding_screen_cap() throws {
@@ -1210,6 +1235,19 @@ private extension SettingsWindowControllerTests {
         let settled = expectation(description: description)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { settled.fulfill() }
         wait(for: [settled], timeout: 2.0)
+    }
+
+    func unpaddedToolbarImage(for section: SettingsSection) -> NSImage? {
+        let image = NSImage(
+            systemSymbolName: section.symbolName,
+            accessibilityDescription: section.title
+        )
+        if section == .openWith {
+            return image?.withSymbolConfiguration(
+                .init(pointSize: 0, weight: .regular, scale: .medium)
+            )
+        }
+        return image
     }
 }
 

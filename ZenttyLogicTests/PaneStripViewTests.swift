@@ -1664,14 +1664,18 @@ final class PaneStripViewTests: XCTestCase {
     @MainActor
     func test_subthreshold_horizontal_scroll_does_not_change_focus() throws {
         let paneStripView = makePaneStripView(width: 980)
-        paneStripView.render(makeScrollTestState(focusedPaneID: PaneID("editor")))
+        paneStripView.render(makeScrollTestState(focusedPaneID: PaneID("logs")))
         paneStripView.layoutSubtreeIfNeeded()
 
         var settledPaneIDs: [PaneID] = []
         paneStripView.onFocusSettled = { settledPaneIDs.append($0) }
 
-        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 12, phase: .began, precise: true))
-        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 12, phase: .ended, precise: true))
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 24, phase: .began, precise: true))
+
+        paneStripView.render(makeScrollTestState(focusedPaneID: PaneID("editor")))
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 24, phase: .changed, precise: true))
 
         XCTAssertTrue(settledPaneIDs.isEmpty)
     }
