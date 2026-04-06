@@ -2,6 +2,15 @@ import AppKit
 import QuartzCore
 
 @MainActor
+protocol RenderEnvironmentProviding: AnyObject {
+    var renderTheme: ZenttyTheme { get }
+    var renderSidebarWidth: CGFloat { get }
+    func renderLeadingInset(sidebarWidth: CGFloat) -> CGFloat
+    var renderWindowState: (isVisible: Bool, isKeyWindow: Bool) { get }
+    func renderSidebarSyncNeeded()
+}
+
+@MainActor
 final class WorklaneRenderCoordinator {
     private enum ReviewPolling {
         static let interval: TimeInterval = 30
@@ -28,11 +37,7 @@ final class WorklaneRenderCoordinator {
     private var hasBootstrappedReviewState = false
     private var needsRuntimeSynchronization = true
 
-    var onNeedsSidebarSync: (() -> Void)?
-    var themeProvider: (() -> ZenttyTheme)?
-    var leadingInsetProvider: ((_ sidebarWidth: CGFloat) -> CGFloat)?
-    var sidebarWidthProvider: (() -> CGFloat)?
-    var windowStateProvider: (() -> (isVisible: Bool, isKeyWindow: Bool))?
+    weak var environment: RenderEnvironmentProviding?
 
     init(
         worklaneStore: WorklaneStore,
@@ -104,7 +109,7 @@ final class WorklaneRenderCoordinator {
     // MARK: - Internal
 
     private var currentTheme: ZenttyTheme {
-        themeProvider?() ?? ZenttyTheme.fallback(for: nil)
+        environment?.renderTheme ?? ZenttyTheme.fallback(for: nil)
     }
 
     private var activePaneID: PaneID? {
@@ -158,7 +163,7 @@ final class WorklaneRenderCoordinator {
                     ),
                     theme: currentTheme
                 )
-                onNeedsSidebarSync?()
+                environment?.renderSidebarSyncNeeded()
 
                 guard let worklane = worklaneStore.activeWorklane else {
                     terminalDiagnostics.recordRender(.header, activePaneID: activePaneID)
@@ -179,7 +184,7 @@ final class WorklaneRenderCoordinator {
                 terminalDiagnostics.recordRender(.header, activePaneID: activePaneID)
                 renderWindowChrome(headerSummary, in: views)
                 renderCanvasForCurrentWorklane(animated: animated)
-                let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
+                let windowState = environment?.renderWindowState ?? (isVisible: false, isKeyWindow: false)
                 attentionNotificationCoordinator.update(
                     worklanes: worklaneStore.worklanes,
                     activeWorklaneID: worklaneStore.activeWorklaneID,
@@ -207,9 +212,9 @@ final class WorklaneRenderCoordinator {
                 return
             }
 
-            let sidebarWidth = sidebarWidthProvider?() ?? SidebarWidthPreference.defaultWidth
+            let sidebarWidth = environment?.renderSidebarWidth ?? SidebarWidthPreference.defaultWidth
             let effectiveInset = leadingVisibleInsetOverride
-                ?? leadingInsetProvider?(sidebarWidth)
+                ?? environment?.renderLeadingInset(sidebarWidth: sidebarWidth)
                 ?? 0
 
             terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.paneStripState.focusedPaneID)
@@ -233,7 +238,7 @@ final class WorklaneRenderCoordinator {
                 return
             }
 
-            let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
+            let windowState = environment?.renderWindowState ?? (isVisible: false, isKeyWindow: false)
             runtimeRegistry.updateSurfaceActivities(
                 worklanes: worklaneStore.worklanes,
                 activeWorklaneID: worklaneStore.activeWorklaneID,
@@ -302,7 +307,7 @@ final class WorklaneRenderCoordinator {
     }
 
     private func makeReviewPollingTarget() -> (worklaneID: WorklaneID, paneID: PaneID, repoRoot: String, branch: String)? {
-        let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
+        let windowState = environment?.renderWindowState ?? (isVisible: false, isKeyWindow: false)
         guard windowState.isVisible, windowState.isKeyWindow,
               let worklane = worklaneStore.activeWorklane,
               let paneID = worklane.paneStripState.focusedPaneID,
@@ -353,7 +358,7 @@ final class WorklaneRenderCoordinator {
                 ),
                 theme: currentTheme
             )
-            onNeedsSidebarSync?()
+            environment?.renderSidebarSyncNeeded()
         }
 
         if impacts.contains(.header) {
@@ -366,7 +371,7 @@ final class WorklaneRenderCoordinator {
         }
 
         if impacts.contains(.attention) {
-            let windowState = windowStateProvider?() ?? (isVisible: false, isKeyWindow: false)
+            let windowState = environment?.renderWindowState ?? (isVisible: false, isKeyWindow: false)
             attentionNotificationCoordinator.update(
                 worklanes: worklaneStore.worklanes,
                 activeWorklaneID: worklaneStore.activeWorklaneID,

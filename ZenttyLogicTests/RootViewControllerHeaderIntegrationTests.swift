@@ -3,6 +3,15 @@ import XCTest
 @testable import Zentty
 
 @MainActor
+private final class StubRenderEnvironment: RenderEnvironmentProviding {
+    var renderTheme: ZenttyTheme = .fallback(for: nil)
+    var renderSidebarWidth: CGFloat = 0
+    func renderLeadingInset(sidebarWidth: CGFloat) -> CGFloat { 0 }
+    var renderWindowState: (isVisible: Bool, isKeyWindow: Bool) = (true, true)
+    func renderSidebarSyncNeeded() {}
+}
+
+@MainActor
 final class RootViewControllerHeaderIntegrationTests: XCTestCase {
     func test_root_controller_renders_worklane_header_summary_for_active_worklane() {
         let controller = makeController()
@@ -584,12 +593,13 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         )
 
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() })
+        let renderEnvironment = StubRenderEnvironment()
         let coordinator = WorklaneRenderCoordinator(
             worklaneStore: store,
             runtimeRegistry: runtimeRegistry,
             notificationStore: NotificationStore()
         )
-        coordinator.windowStateProvider = { (isVisible: true, isKeyWindow: true) }
+        coordinator.environment = renderEnvironment
         coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
             sidebarView: SidebarView(),
             windowChromeView: WindowChromeView(),
@@ -620,12 +630,13 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
             adapterFactory.makeAdapter(for: paneID)
         })
+        let renderEnvironment = StubRenderEnvironment()
         let coordinator = WorklaneRenderCoordinator(
             worklaneStore: store,
             runtimeRegistry: runtimeRegistry,
             notificationStore: NotificationStore()
         )
-        coordinator.windowStateProvider = { (isVisible: true, isKeyWindow: true) }
+        coordinator.environment = renderEnvironment
         coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
             sidebarView: SidebarView(),
             windowChromeView: WindowChromeView(),
