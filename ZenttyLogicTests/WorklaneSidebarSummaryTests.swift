@@ -1248,6 +1248,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         )
         auxiliaryState.raw.lastDesktopNotificationText = "Agent run complete"
         auxiliaryState.raw.lastDesktopNotificationDate = Date(timeIntervalSince1970: 42)
+        auxiliaryState.raw.showsReadyStatus = true
         auxiliaryState.presentation = PanePresentationNormalizer.normalize(
             paneTitle: "agent",
             raw: auxiliaryState.raw,

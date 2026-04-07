@@ -35,6 +35,17 @@ private enum SidebarShimmerPhaseOffset {
 
 @MainActor
 final class SidebarWorklaneRowButton: NSButton {
+    private enum DropTargetHighlightAnimation {
+        static let scaleKey = "dropTargetScale"
+        static let shadowOpacityKey = "dropTargetShadowOpacity"
+        static let scale: CGFloat = 1.025
+        static let shadowOpacity: Float = 0.7
+        static let springMass: CGFloat = 1.0
+        static let springStiffness: CGFloat = 300
+        static let springDamping: CGFloat = 20
+        static let shadowFadeDuration: CFTimeInterval = 0.15
+    }
+
     private enum Layout {
         static let contentInset = min(
             ShellMetrics.sidebarPaneRowHorizontalInset,
@@ -303,59 +314,53 @@ final class SidebarWorklaneRowButton: NSButton {
         guard highlighted != isDropTargetHighlighted else { return }
         isDropTargetHighlighted = highlighted
 
+        let targetTransform = highlighted
+            ? CATransform3DMakeScale(
+                DropTargetHighlightAnimation.scale,
+                DropTargetHighlightAnimation.scale,
+                1
+            )
+            : CATransform3DIdentity
+        let targetShadowOpacity: Float = highlighted
+            ? DropTargetHighlightAnimation.shadowOpacity
+            : 0
+
+        layer.removeAnimation(forKey: DropTargetHighlightAnimation.scaleKey)
+        layer.removeAnimation(forKey: DropTargetHighlightAnimation.shadowOpacityKey)
         if highlighted {
-            // -- Glow --
             layer.shadowColor = NSColor.controlAccentColor.cgColor
-            layer.shadowOpacity = 0.7
             layer.shadowRadius = 8
             layer.shadowOffset = .zero
-
-            // -- Scale from center --
-            let center = CGPoint(x: bounds.midX, y: bounds.midY)
-            layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-            layer.position = center
-
-            let spring = CASpringAnimation(keyPath: "transform")
-            spring.mass = 1.0
-            spring.stiffness = 300
-            spring.damping = 20
-            spring.fromValue = CATransform3DIdentity
-            spring.toValue = CATransform3DMakeScale(1.025, 1.025, 1)
-            spring.fillMode = .forwards
-            spring.isRemovedOnCompletion = false
-            layer.add(spring, forKey: "dropTargetScale")
-        } else {
-            CATransaction.begin()
-            CATransaction.setCompletionBlock { [weak self] in
-                guard let self, let layer = self.layer else { return }
-                layer.removeAllAnimations()
-                layer.anchorPoint = .zero
-                layer.position = self.frame.origin
-                layer.transform = CATransform3DIdentity
-                layer.shadowOpacity = 0
-            }
-
-            // -- Fade shadow out --
-            let fade = CABasicAnimation(keyPath: "shadowOpacity")
-            fade.toValue = 0
-            fade.duration = 0.15
-            fade.fillMode = .forwards
-            fade.isRemovedOnCompletion = false
-            layer.add(fade, forKey: "dropTargetShadowFade")
-
-            // -- Scale back to identity --
-            let spring = CASpringAnimation(keyPath: "transform")
-            spring.mass = 1.0
-            spring.stiffness = 300
-            spring.damping = 20
-            spring.fromValue = CATransform3DMakeScale(1.025, 1.025, 1)
-            spring.toValue = CATransform3DIdentity
-            spring.fillMode = .forwards
-            spring.isRemovedOnCompletion = false
-            layer.add(spring, forKey: "dropTargetScale")
-
-            CATransaction.commit()
         }
+
+        let currentTransform = layer.presentation()?.transform ?? layer.transform
+        let currentShadowOpacity = layer.presentation()?.shadowOpacity ?? layer.shadowOpacity
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = targetTransform
+        layer.shadowOpacity = targetShadowOpacity
+        CATransaction.commit()
+
+        if reducedMotionProvider() {
+            return
+        }
+
+        let spring = CASpringAnimation(keyPath: "transform")
+        spring.mass = DropTargetHighlightAnimation.springMass
+        spring.stiffness = DropTargetHighlightAnimation.springStiffness
+        spring.damping = DropTargetHighlightAnimation.springDamping
+        spring.fromValue = currentTransform
+        spring.toValue = targetTransform
+        spring.isRemovedOnCompletion = true
+        layer.add(spring, forKey: DropTargetHighlightAnimation.scaleKey)
+
+        let fade = CABasicAnimation(keyPath: "shadowOpacity")
+        fade.fromValue = currentShadowOpacity
+        fade.toValue = targetShadowOpacity
+        fade.duration = DropTargetHighlightAnimation.shadowFadeDuration
+        fade.isRemovedOnCompletion = true
+        layer.add(fade, forKey: DropTargetHighlightAnimation.shadowOpacityKey)
     }
 
     override func updateTrackingAreas() {

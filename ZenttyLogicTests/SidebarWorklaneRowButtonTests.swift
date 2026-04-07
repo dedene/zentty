@@ -372,6 +372,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         )
         auxiliaryState.raw.lastDesktopNotificationText = "Agent run complete"
         auxiliaryState.raw.lastDesktopNotificationDate = Date(timeIntervalSince1970: 42)
+        auxiliaryState.raw.showsReadyStatus = true
         auxiliaryState.presentation = PanePresentationNormalizer.normalize(
             paneTitle: "agent",
             raw: auxiliaryState.raw,
@@ -1163,6 +1164,55 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         let buttons = try sidebarWorklaneButtons(in: sidebarView)
         XCTAssertFalse(sidebarView.shimmerDriverIsRunningForTesting)
         XCTAssertFalse(buttons.first?.shimmerIsAnimatingForTesting ?? true)
+    }
+
+    func test_drop_target_highlight_keeps_layer_geometry_stable() throws {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let row = makeRow(width: 280, height: 72)
+        row.frame.origin = CGPoint(x: 20, y: 44)
+        container.addSubview(row)
+        container.layoutSubtreeIfNeeded()
+        row.layoutSubtreeIfNeeded()
+
+        let layer = try XCTUnwrap(row.layer)
+        let originalAnchorPoint = layer.anchorPoint
+        let originalPosition = layer.position
+        let originalFrame = row.frame
+
+        row.setDropTargetHighlighted(true)
+
+        XCTAssertEqual(layer.anchorPoint.x, originalAnchorPoint.x, accuracy: 0.001)
+        XCTAssertEqual(layer.anchorPoint.y, originalAnchorPoint.y, accuracy: 0.001)
+        XCTAssertEqual(layer.position.x, originalPosition.x, accuracy: 0.001)
+        XCTAssertEqual(layer.position.y, originalPosition.y, accuracy: 0.001)
+        XCTAssertEqual(row.frame.origin.x, originalFrame.origin.x, accuracy: 0.001)
+        XCTAssertEqual(row.frame.origin.y, originalFrame.origin.y, accuracy: 0.001)
+        XCTAssertEqual(row.frame.size.width, originalFrame.size.width, accuracy: 0.001)
+        XCTAssertEqual(row.frame.size.height, originalFrame.size.height, accuracy: 0.001)
+    }
+
+    func test_clearing_drop_target_highlight_restores_visual_state_without_moving_layer_geometry() throws {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let row = makeRow(width: 280, height: 72)
+        row.frame.origin = CGPoint(x: 20, y: 44)
+        container.addSubview(row)
+        container.layoutSubtreeIfNeeded()
+        row.layoutSubtreeIfNeeded()
+
+        let layer = try XCTUnwrap(row.layer)
+        let originalAnchorPoint = layer.anchorPoint
+        let originalPosition = layer.position
+
+        row.setDropTargetHighlighted(true)
+        row.setDropTargetHighlighted(false)
+
+        XCTAssertEqual(layer.anchorPoint.x, originalAnchorPoint.x, accuracy: 0.001)
+        XCTAssertEqual(layer.anchorPoint.y, originalAnchorPoint.y, accuracy: 0.001)
+        XCTAssertEqual(layer.position.x, originalPosition.x, accuracy: 0.001)
+        XCTAssertEqual(layer.position.y, originalPosition.y, accuracy: 0.001)
+        XCTAssertEqual(layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertEqual(layer.transform.m11, 1, accuracy: 0.001)
+        XCTAssertEqual(layer.transform.m22, 1, accuracy: 0.001)
     }
 
     private func makeRow(width: CGFloat = 280, height: CGFloat = 72) -> SidebarWorklaneRowButton {
