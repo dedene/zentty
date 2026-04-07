@@ -1,4 +1,58 @@
+import AppKit
 import SwiftUI
+
+enum CommandPaletteLayoutMetrics {
+    static let panelWidth: CGFloat = 640
+    static let maximumPanelHeight: CGFloat = 393
+    static let searchFieldHeight: CGFloat = 52
+    static let dividerHeight: CGFloat = 1
+    static let rowSpacing: CGFloat = 2
+    static let resultsVerticalPadding: CGFloat = 12
+    static let visualOverflowAllowance: CGFloat = 2
+    static let scopedHeaderHeightWithSubtitle: CGFloat = lineHeight(for: .systemFont(ofSize: 11, weight: .semibold))
+        + lineHeight(for: .systemFont(ofSize: 11))
+        + rowSpacing
+        + 14
+    static let scopedHeaderHeightWithoutSubtitle: CGFloat = lineHeight(for: .systemFont(ofSize: 11, weight: .semibold))
+        + 14
+    static let singleLineRowHeight: CGFloat = lineHeight(for: .systemFont(ofSize: 13, weight: .medium))
+        + 16
+    static let doubleLineRowHeight: CGFloat = lineHeight(for: .systemFont(ofSize: 13, weight: .medium))
+        + lineHeight(for: .systemFont(ofSize: 11))
+        + rowSpacing
+        + 16
+    static let emptyStateHeight: CGFloat = lineHeight(for: .systemFont(ofSize: 13))
+        + 48
+
+    private static func lineHeight(for font: NSFont) -> CGFloat {
+        ceil(font.ascender - font.descender + font.leading)
+    }
+
+    static func preferredPanelHeight(
+        results: CommandPaletteResolvedResults
+    ) -> CGFloat {
+        let scopeHeight: CGFloat
+        if let scope = results.scope {
+            scopeHeight = (scope.subtitle?.isEmpty == false)
+                ? scopedHeaderHeightWithSubtitle
+                : scopedHeaderHeightWithoutSubtitle
+        } else {
+            scopeHeight = 0
+        }
+
+        let resultsHeight: CGFloat
+        if results.items.isEmpty {
+            resultsHeight = emptyStateHeight
+        } else {
+            resultsHeight = results.items.reduce(CGFloat.zero) { partial, item in
+                partial + (item.showsSubtitle ? doubleLineRowHeight : singleLineRowHeight)
+            } + resultsVerticalPadding + (CGFloat(max(results.items.count - 1, 0)) * rowSpacing) + visualOverflowAllowance
+        }
+
+        let totalHeight = searchFieldHeight + dividerHeight + scopeHeight + resultsHeight
+        return min(maximumPanelHeight, ceil(totalHeight))
+    }
+}
 
 struct CommandPaletteResolvedScope: Equatable {
     let family: CommandPaletteItemFamily
@@ -9,6 +63,7 @@ struct CommandPaletteResolvedScope: Equatable {
 struct CommandPaletteResolvedItem: Equatable {
     let item: CommandPaletteItem
     let showsSubtitle: Bool
+    let showsCategory: Bool
 }
 
 struct CommandPaletteResolvedResults: Equatable {
@@ -25,7 +80,7 @@ enum CommandPaletteResultsResolver {
         let normalizedQuery = normalized(searchText)
         guard !normalizedQuery.isEmpty else {
             return CommandPaletteResolvedResults(
-                items: recentItems.map { CommandPaletteResolvedItem(item: $0, showsSubtitle: true) },
+                items: recentItems.map { CommandPaletteResolvedItem(item: $0, showsSubtitle: true, showsCategory: true) },
                 scope: nil
             )
         }
@@ -51,7 +106,7 @@ enum CommandPaletteResultsResolver {
                 }
                 return lhs.score > rhs.score
             }
-            .map { CommandPaletteResolvedItem(item: $0.item, showsSubtitle: true) }
+            .map { CommandPaletteResolvedItem(item: $0.item, showsSubtitle: true, showsCategory: true) }
 
         return CommandPaletteResolvedResults(items: resolvedItems, scope: nil)
     }
@@ -118,7 +173,8 @@ enum CommandPaletteResultsResolver {
             items: orderedItems.map {
                 CommandPaletteResolvedItem(
                     item: $0.item,
-                    showsSubtitle: $0.item.family != family
+                    showsSubtitle: $0.item.family != family,
+                    showsCategory: $0.item.family != family
                 )
             },
             scope: CommandPaletteResolvedScope(
@@ -221,6 +277,7 @@ struct CommandPaletteView: View {
     let theme: CommandPaletteTheme
     let onExecute: (CommandPaletteItemID) -> Void
     let onDismiss: () -> Void
+    let onHeightChange: (CGFloat) -> Void
 
     @State private var searchText = ""
     @State private var selectedIndex = 0
@@ -238,6 +295,10 @@ struct CommandPaletteView: View {
         resolvedResults.items
     }
 
+    private var preferredPanelHeight: CGFloat {
+        CommandPaletteLayoutMetrics.preferredPanelHeight(results: resolvedResults)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             searchField
@@ -245,7 +306,13 @@ struct CommandPaletteView: View {
                 .opacity(0.3)
             resultsList
         }
-        .frame(width: 640)
+        .frame(width: CommandPaletteLayoutMetrics.panelWidth)
+        .onAppear {
+            onHeightChange(preferredPanelHeight)
+        }
+        .onChange(of: preferredPanelHeight) { _, newValue in
+            onHeightChange(newValue)
+        }
         .onKeyPress(.escape) {
             onDismiss()
             return .handled
@@ -311,6 +378,7 @@ struct CommandPaletteView: View {
                                     CommandPaletteResultRow(
                                         item: resolvedItem.item,
                                         showsSubtitle: resolvedItem.showsSubtitle,
+                                        showsCategory: resolvedItem.showsCategory,
                                         isSelected: index == selectedIndex,
                                         primaryColor: theme.primaryColor,
                                         secondaryColor: theme.secondaryColor,
@@ -326,7 +394,7 @@ struct CommandPaletteView: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 6)
                         }
-                        .frame(maxHeight: 340)
+                        .frame(maxHeight: CommandPaletteLayoutMetrics.maximumPanelHeight, alignment: .top)
                         .onChange(of: selectedIndex) {
                             if let item = results[safe: selectedIndex] {
                                 withAnimation(.easeOut(duration: 0.15)) {
@@ -350,6 +418,7 @@ struct CommandPaletteView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(theme.secondaryColor)
                     .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -67,7 +67,7 @@ enum CommandPaletteItemBuilder {
 
             return CommandPaletteItem(
                 id: .openWith(stableID: target.stableID),
-                title: "Open in \(target.displayName)",
+                title: target.displayName,
                 subtitle: path,
                 shortcutDisplay: nil,
                 category: "Open With",

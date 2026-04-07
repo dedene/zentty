@@ -3,6 +3,7 @@ import SwiftUI
 struct CommandPaletteResultRow: View {
     let item: CommandPaletteItem
     let showsSubtitle: Bool
+    let showsCategory: Bool
     let isSelected: Bool
     let primaryColor: Color
     let secondaryColor: Color
@@ -25,20 +26,25 @@ struct CommandPaletteResultRow: View {
                         .lineLimit(1)
                 }
             }
+            .layoutPriority(1)
             Spacer()
-            Text(item.category)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(isSelected ? .white.opacity(0.7) : secondaryColor)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill((isSelected ? Color.white : primaryColor).opacity(0.08))
-                )
+            if showsCategory {
+                Text(item.category)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(isSelected ? .white.opacity(0.7) : secondaryColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill((isSelected ? Color.white : primaryColor).opacity(0.08))
+                    )
+                    .fixedSize(horizontal: true, vertical: false)
+            }
             if let shortcut = item.shortcutDisplay {
                 Text(shortcut)
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(isSelected ? .white.opacity(0.85) : secondaryColor)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(.horizontal, 12)

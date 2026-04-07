@@ -3,9 +3,6 @@ import SwiftUI
 
 @MainActor
 final class CommandPaletteController {
-    private static let panelWidth: CGFloat = 640
-    private static let panelHeight: CGFloat = 393
-
     private var panel: CommandPalettePanel?
     private var hostingView: NSHostingView<CommandPaletteView>?
     private var glassSurface: GlassSurfaceView?
@@ -54,6 +51,12 @@ final class CommandPaletteController {
         let recentItems = recentCommands.recentItemIDs.compactMap { itemID in
             allItems.first { $0.id == itemID }
         }
+        let initialResults = CommandPaletteResultsResolver.resolve(
+            searchText: "",
+            items: allItems,
+            recentItems: recentItems
+        )
+        let initialPanelHeight = CommandPaletteLayoutMetrics.preferredPanelHeight(results: initialResults)
         let paletteTheme = CommandPaletteTheme(zenttyTheme: theme)
 
         let view = CommandPaletteView(
@@ -65,6 +68,9 @@ final class CommandPaletteController {
             },
             onDismiss: { [weak self] in
                 self?.close()
+            },
+            onHeightChange: { [weak self] height in
+                self?.resizePanel(to: height)
             }
         )
 
@@ -92,14 +98,14 @@ final class CommandPaletteController {
         ])
 
         let windowFrame = window.frame
-        let panelX = windowFrame.midX - Self.panelWidth / 2
-        let panelY = windowFrame.maxY - (windowFrame.height * 0.25) - Self.panelHeight
+        let panelX = windowFrame.midX - CommandPaletteLayoutMetrics.panelWidth / 2
+        let panelY = windowFrame.maxY - (windowFrame.height * 0.25) - initialPanelHeight
 
         let panelFrame = NSRect(
             x: panelX,
             y: panelY,
-            width: Self.panelWidth,
-            height: Self.panelHeight
+            width: CommandPaletteLayoutMetrics.panelWidth,
+            height: initialPanelHeight
         ).integral
 
         let newPanel = CommandPalettePanel(
@@ -180,6 +186,27 @@ final class CommandPaletteController {
             guard event.window !== panel else { return event }
             self.close()
             return event
+        }
+    }
+
+    private func resizePanel(to targetHeight: CGFloat) {
+        guard let panel else { return }
+
+        let clampedHeight = min(CommandPaletteLayoutMetrics.maximumPanelHeight, ceil(targetHeight))
+        let currentFrame = panel.frame
+        guard abs(currentFrame.height - clampedHeight) > 0.5 else { return }
+
+        let newFrame = NSRect(
+            x: currentFrame.minX,
+            y: currentFrame.maxY - clampedHeight,
+            width: currentFrame.width,
+            height: clampedHeight
+        ).integral
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.12
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().setFrame(newFrame, display: true)
         }
     }
 }
