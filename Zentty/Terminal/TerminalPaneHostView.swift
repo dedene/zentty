@@ -260,6 +260,12 @@ struct PaneRuntimeSnapshot: Equatable {
 
 private let terminalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "Terminal")
 
+private enum PaneSearchOwner: Equatable {
+    case none
+    case local
+    case global
+}
+
 @MainActor
 final class PaneRuntime {
     static let startupFailureMessage = "GhosttyKit could not start this pane. Check your shell environment and retry."
@@ -275,6 +281,10 @@ final class PaneRuntime {
     private var observers: [UUID: (PaneRuntimeSnapshot) -> Void] = [:]
     private var searchUpdateWorkItem: DispatchWorkItem?
     private var ignoreNextTerminalBlurForSearchFocus = false
+    private var searchOwner: PaneSearchOwner = .none
+    private var globalSearchNeedle = ""
+    private var globalSearchEventSink: ((PaneID, TerminalSearchEvent) -> Void)?
+    private var hasActiveGlobalSearchSession = false
 
     private(set) var metadata = TerminalMetadata() {
         didSet {
@@ -358,6 +368,11 @@ final class PaneRuntime {
         )
     }
 
+    var globalSearchDidChange: ((PaneID, TerminalSearchEvent) -> Void)? {
+        get { globalSearchEventSink }
+        set { globalSearchEventSink = newValue }
+    }
+
     func update(pane: PaneState) {
         sessionRequest = pane.sessionRequest
     }
@@ -379,6 +394,7 @@ final class PaneRuntime {
     }
 
     func showSearch() {
+        searchOwner = .local
         if search.hasRememberedSearch == false {
             (adapterValue as? any TerminalSearchControlling)?.showSearch()
         }
@@ -387,12 +403,14 @@ final class PaneRuntime {
     }
 
     func useSelectionForFind() {
+        searchOwner = .local
         search.isHUDVisible = true
         search.hasRememberedSearch = true
         (adapterValue as? any TerminalSearchControlling)?.useSelectionForFind()
     }
 
     func updateSearchNeedle(_ needle: String) {
+        searchOwner = .local
         search.needle = needle
         if needle.isEmpty == false {
             search.hasRememberedSearch = true
@@ -426,6 +444,7 @@ final class PaneRuntime {
             return
         }
 
+        searchOwner = .local
         search.isHUDVisible = true
         (adapterValue as? any TerminalSearchControlling)?.findNext()
     }
@@ -435,6 +454,7 @@ final class PaneRuntime {
             return
         }
 
+        searchOwner = .local
         search.isHUDVisible = true
         (adapterValue as? any TerminalSearchControlling)?.findPrevious()
     }
@@ -449,6 +469,10 @@ final class PaneRuntime {
 
     func endSearch() {
         searchUpdateWorkItem?.cancel()
+        searchOwner = .none
+        globalSearchNeedle = ""
+        globalSearchEventSink = nil
+        hasActiveGlobalSearchSession = false
         (adapterValue as? any TerminalSearchControlling)?.endSearch()
         search = clearedSearchState()
     }
@@ -486,6 +510,64 @@ final class PaneRuntime {
         search.hudCorner = corner
     }
 
+    func beginGlobalSearch(eventSink: @escaping (PaneID, TerminalSearchEvent) -> Void) {
+        searchUpdateWorkItem?.cancel()
+        searchOwner = .global
+        globalSearchEventSink = eventSink
+        guard !hasActiveGlobalSearchSession else {
+            return
+        }
+
+        hasActiveGlobalSearchSession = true
+        (adapterValue as? any TerminalSearchControlling)?.showSearch()
+    }
+
+    func updateGlobalSearchNeedle(_ needle: String) {
+        searchOwner = .global
+        globalSearchNeedle = needle
+        (adapterValue as? any TerminalSearchControlling)?.updateSearch(needle: needle)
+    }
+
+    func findNextInGlobalSearch() {
+        guard globalSearchEventSink != nil else {
+            return
+        }
+
+        searchOwner = .global
+        (adapterValue as? any TerminalSearchControlling)?.findNext()
+    }
+
+    func findPreviousInGlobalSearch() {
+        guard globalSearchEventSink != nil else {
+            return
+        }
+
+        searchOwner = .global
+        (adapterValue as? any TerminalSearchControlling)?.findPrevious()
+    }
+
+    func resetGlobalSearchSelection() {
+        guard globalSearchEventSink != nil else {
+            return
+        }
+
+        searchOwner = .global
+        (adapterValue as? any TerminalSearchControlling)?.updateSearch(needle: globalSearchNeedle)
+    }
+
+    func endGlobalSearch() {
+        searchUpdateWorkItem?.cancel()
+        guard hasActiveGlobalSearchSession || globalSearchEventSink != nil || searchOwner == .global else {
+            return
+        }
+
+        searchOwner = .none
+        globalSearchNeedle = ""
+        globalSearchEventSink = nil
+        hasActiveGlobalSearchSession = false
+        (adapterValue as? any TerminalSearchControlling)?.endSearch()
+    }
+
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         ZenttyPerformanceSignposts.interval("PaneRuntimeSetSurfaceActivity") {
             if activity.keepsRuntimeLive {
@@ -493,6 +575,10 @@ final class PaneRuntime {
             }
             hostViewValue.setSurfaceActivity(activity)
         }
+    }
+
+    func forceViewportSync() {
+        hostViewValue.forceViewportSync()
     }
 
     func prepareSessionStart(from sourceRuntime: PaneRuntime?) {
@@ -530,19 +616,27 @@ final class PaneRuntime {
     }
 
     private func handleSearchDidChange(_ event: TerminalSearchEvent) {
-        switch event {
-        case .started(let needle):
-            if let needle {
-                search.needle = needle
+        switch searchOwner {
+        case .none:
+            return
+        case .local:
+            switch event {
+            case .started(let needle):
+                if let needle {
+                    search.needle = needle
+                }
+                search.hasRememberedSearch = true
+                search.isHUDVisible = true
+            case .ended:
+                searchOwner = .none
+                search = clearedSearchState()
+            case .total(let total):
+                search.total = total
+            case .selected(let selected):
+                search.selected = selected
             }
-            search.hasRememberedSearch = true
-            search.isHUDVisible = true
-        case .ended:
-            search = clearedSearchState()
-        case .total(let total):
-            search.total = total
-        case .selected(let selected):
-            search.selected = selected
+        case .global:
+            globalSearchEventSink?(paneIDValue, event)
         }
     }
 
@@ -568,6 +662,7 @@ final class PaneRuntimeRegistry {
 
     var onMetadataDidChange: ((PaneID, TerminalMetadata) -> Void)?
     var onEventDidOccur: ((PaneID, TerminalEvent) -> Void)?
+    var onGlobalSearchDidChange: ((PaneID, TerminalSearchEvent) -> Void)?
 
     init(
         diagnostics: TerminalDiagnostics = .shared,
@@ -596,6 +691,9 @@ final class PaneRuntimeRegistry {
                     self?.onEventDidOccur?(paneID, event)
                 }
             )
+            runtime.globalSearchDidChange = { [weak self] paneID, event in
+                self?.onGlobalSearchDidChange?(paneID, event)
+            }
             runtimes[pane.id] = runtime
             return runtime
         }

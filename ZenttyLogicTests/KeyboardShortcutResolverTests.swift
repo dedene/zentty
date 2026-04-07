@@ -20,6 +20,11 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             AppCommandRegistry.definition(for: .find).defaultShortcut,
             .init(key: .character("f"), modifiers: [.command])
         )
+        XCTAssertEqual(AppCommandRegistry.definition(for: .globalFind).title, "Global Find")
+        XCTAssertEqual(
+            AppCommandRegistry.definition(for: .globalFind).defaultShortcut,
+            .init(key: .character("f"), modifiers: [.command, .shift])
+        )
         XCTAssertEqual(
             AppCommandRegistry.definition(for: .useSelectionForFind).defaultShortcut,
             .init(key: .character("e"), modifiers: [.command])
@@ -59,6 +64,13 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
+                .init(key: .character("f"), modifiers: [.command, .shift]),
+                shortcuts: .default
+            ),
+            .globalFind
+        )
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
                 .init(key: .character("e"), modifiers: [.command]),
                 shortcuts: .default
             ),
@@ -78,11 +90,12 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             ),
             .findPrevious
         )
-        XCTAssertNil(
+        XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
                 .init(key: .character("f"), modifiers: [.command, .shift]),
                 shortcuts: .default
-            )
+            ),
+            .globalFind
         )
     }
 
@@ -180,6 +193,19 @@ final class KeyboardShortcutResolverTests: XCTestCase {
 
         XCTAssertTrue(available.contains(.find))
         XCTAssertTrue(available.contains(.useSelectionForFind))
+        XCTAssertTrue(available.contains(.findNext))
+        XCTAssertTrue(available.contains(.findPrevious))
+    }
+
+    func test_command_availability_enables_search_navigation_when_global_search_has_remembered_search() {
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 1,
+            totalPaneCount: 1,
+            focusedPaneHasRememberedSearch: false,
+            globalSearchHasRememberedSearch: true
+        )
+
         XCTAssertTrue(available.contains(.findNext))
         XCTAssertTrue(available.contains(.findPrevious))
     }

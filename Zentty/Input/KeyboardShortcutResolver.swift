@@ -26,6 +26,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case nextWorklane = "worklane.next"
     case previousWorklane = "worklane.previous"
     case find = "pane.search.find"
+    case globalFind = "window.search.find"
     case useSelectionForFind = "pane.search.selection"
     case findNext = "pane.search.next"
     case findPrevious = "pane.search.previous"
@@ -78,6 +79,7 @@ enum AppAction: Equatable, Sendable {
     case nextWorklane
     case previousWorklane
     case find
+    case globalFind
     case useSelectionForFind
     case findNext
     case findPrevious
@@ -205,6 +207,18 @@ enum AppCommandRegistry {
                 section: .edit,
                 title: "Find…",
                 selector: #selector(MainWindowController.find(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .globalFind,
+            title: "Global Find",
+            category: .panes,
+            defaultShortcut: .init(key: .character("f"), modifiers: [.command, .shift]),
+            action: .globalFind,
+            menuItem: AppCommandMenuItem(
+                section: .edit,
+                title: "Global Find…",
+                selector: #selector(MainWindowController.globalFind(_:))
             )
         ),
         AppCommandDefinition(
@@ -646,6 +660,7 @@ enum AppCommandRegistry {
         .edit: [
             .submenu("Find", [
                 .command(.find),
+                .command(.globalFind),
                 .command(.findNext),
                 .command(.findPrevious),
                 .command(.useSelectionForFind),
@@ -731,6 +746,8 @@ extension AppCommandDefinition {
             "Move focus to the previous worklane so you can cycle backward through your active lanes."
         case .find:
             "Open find for the focused pane and place the insertion point in the search field."
+        case .globalFind:
+            "Open global find across all panes in the current window."
         case .useSelectionForFind:
             "Search the focused pane using the current selection and show the find HUD."
         case .findNext:

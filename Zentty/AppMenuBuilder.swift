@@ -105,6 +105,7 @@ enum AppMenuBuilder {
         editMenu.addItem(makeMenuItem(
             for: .submenu("Find", [
                 .command(.find),
+                .command(.globalFind),
                 .command(.findNext),
                 .command(.findPrevious),
                 .command(.useSelectionForFind),
@@ -232,6 +233,7 @@ enum AppMenuBuilder {
         ]
         let requiredFindEntries: [AppMenuEntry] = [
             .command(.find),
+            .command(.globalFind),
             .command(.findNext),
             .command(.findPrevious),
             .command(.useSelectionForFind),

@@ -27,6 +27,7 @@ final class CommandPaletteController {
         activePaneCount: Int,
         totalPaneCount: Int,
         focusedPaneHasRememberedSearch: Bool,
+        globalSearchHasRememberedSearch: Bool,
         focusedPanePath: String?,
         openWithTargets: [OpenWithResolvedTarget] = []
     ) {
@@ -41,7 +42,8 @@ final class CommandPaletteController {
             worklaneCount: worklaneCount,
             activePaneCount: activePaneCount,
             totalPaneCount: totalPaneCount,
-            focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch
+            focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
+            globalSearchHasRememberedSearch: globalSearchHasRememberedSearch
         )
         let commandItems = CommandPaletteItemBuilder.buildItems(
             availableCommandIDs: availableIDs,

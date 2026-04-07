@@ -137,19 +137,22 @@ final class AppDelegateTests: XCTestCase {
         ])
         XCTAssertEqual(findMenu?.items.map(\.title), [
             "Find…",
+            "Global Find…",
             "Find Next",
             "Find Previous",
             "Use Selection for Find",
         ])
         XCTAssertEqual(findMenu?.items.map(\.action), [
             #selector(MainWindowController.find(_:)),
+            #selector(MainWindowController.globalFind(_:)),
             #selector(MainWindowController.findNext(_:)),
             #selector(MainWindowController.findPrevious(_:)),
             #selector(MainWindowController.useSelectionForFind(_:)),
         ])
-        XCTAssertEqual(findMenu?.items.map(\.keyEquivalent), ["f", "g", "g", "e"])
+        XCTAssertEqual(findMenu?.items.map(\.keyEquivalent), ["f", "f", "g", "g", "e"])
         XCTAssertEqual(findMenu?.items.map(\.keyEquivalentModifierMask), [
             [.command],
+            [.command, .shift],
             [.command],
             [.command, .shift],
             [.command],

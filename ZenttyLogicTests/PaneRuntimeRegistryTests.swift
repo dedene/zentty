@@ -388,7 +388,7 @@ final class PaneRuntimeRegistryTests: XCTestCase {
             runtime.snapshot.search,
             PaneSearchState(
                 needle: "build",
-                selected: 0,
+                selected: -1,
                 total: 0,
                 hasRememberedSearch: true,
                 isHUDVisible: false,
@@ -454,6 +454,54 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         XCTAssertEqual(adapter.bindingActions, ["search_selection"])
         XCTAssertEqual(runtime.snapshot.search.isHUDVisible, true)
         XCTAssertEqual(runtime.snapshot.search.hasRememberedSearch, true)
+    }
+
+    func test_runtime_global_search_routes_events_to_global_sink_without_mutating_local_search_state() {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        var receivedEvents: [TerminalSearchEvent] = []
+
+        runtime.beginGlobalSearch { _, event in
+            receivedEvents.append(event)
+        }
+        runtime.updateGlobalSearchNeedle("build")
+        adapter.searchDidChange?(.total(2))
+        adapter.searchDidChange?(.selected(1))
+
+        XCTAssertEqual(
+            receivedEvents,
+            [
+                .started(needle: nil),
+                .total(2),
+                .selected(1),
+            ]
+        )
+        XCTAssertEqual(adapter.bindingActions, ["start_search", "search:build"])
+        XCTAssertEqual(runtime.snapshot.search, PaneSearchState())
+    }
+
+    func test_runtime_reset_global_search_selection_reissues_search_for_current_global_needle() {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+
+        runtime.beginGlobalSearch { _, _ in }
+        runtime.updateGlobalSearchNeedle("build")
+        runtime.resetGlobalSearchSelection()
+
+        XCTAssertEqual(adapter.bindingActions, ["start_search", "search:build", "search:build"])
+        XCTAssertEqual(runtime.snapshot.search, PaneSearchState())
     }
 }
 
