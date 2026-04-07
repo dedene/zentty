@@ -968,6 +968,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(generalController.availableSoundNames.contains("Ping"))
         XCTAssertTrue(generalController.isErrorReportingSwitchOn)
         XCTAssertTrue(generalController.isErrorReportingControlEnabled)
+        XCTAssertTrue(generalController.isErrorReportingAvailabilityHidden)
     }
 
     func test_general_section_persists_sound_name_to_config() throws {
@@ -1160,6 +1161,8 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
 
         XCTAssertFalse(generalController.isErrorReportingControlEnabled)
+        XCTAssertFalse(generalController.isErrorReportingAvailabilityHidden)
+        XCTAssertEqual(generalController.errorReportingAvailabilityText, "Unavailable")
         XCTAssertEqual(
             generalController.errorReportingStatusMessage,
             "Error reporting is unavailable in this build."
