@@ -228,6 +228,10 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         set { filteredThemes = newValue }
     }
 
+    var activeThemeNameForTesting: String? {
+        activeThemeName
+    }
+
     private func refreshActiveThemeName() {
         let appearance = view.window?.effectiveAppearance ?? NSApp.effectiveAppearance
         activeThemeName = currentThemeNameProvider(appearance)
@@ -246,6 +250,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
             }
         }
         tableView.reloadData()
+        updatePreviewForCurrentSelection()
     }
 
     private func applyTheme(_ name: String) {
@@ -272,6 +277,12 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
 
     func selectThemeForTesting(_ name: String) {
         applyTheme(name)
+    }
+
+    func setSearchQueryForTesting(_ query: String) {
+        searchField.stringValue = query
+        searchQuery = query
+        applyFilter()
     }
 
     // MARK: - Search

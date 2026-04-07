@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import GhosttyKit
 import XCTest
 @testable import Zentty
@@ -301,6 +302,49 @@ final class LibghosttyAdapterTests: XCTestCase {
         hostView.keyDown(with: try makeKeyEvent(characters: "\u{F700}", keyCode: 126))
 
         XCTAssertFalse(receivedEvents.contains(.userSubmittedInput))
+    }
+
+    func test_fn_control_left_arrow_bypasses_terminal_surface_input() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        _ = adapter.makeTerminalView()
+        try adapter.startSession(using: TerminalSessionRequest())
+
+        let hostView = try XCTUnwrap(runtime.lastHostView)
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+        let leftArrow = String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+
+        hostView.keyDown(
+            with: try makeKeyEvent(
+                characters: leftArrow,
+                keyCode: UInt16(kVK_LeftArrow),
+                modifierFlags: [.control, .function]
+            )
+        )
+
+        XCTAssertEqual(surfaceController.sendKeyCallCount, 0)
+    }
+
+    func test_fn_control_f_bypasses_terminal_surface_input() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        _ = adapter.makeTerminalView()
+        try adapter.startSession(using: TerminalSessionRequest())
+
+        let hostView = try XCTUnwrap(runtime.lastHostView)
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        hostView.keyDown(
+            with: try makeKeyEvent(
+                characters: "f",
+                keyCode: UInt16(kVK_ANSI_F),
+                modifierFlags: [.control, .function]
+            )
+        )
+
+        XCTAssertEqual(surfaceController.sendKeyCallCount, 0)
     }
 
     func test_prepare_session_start_uses_inherited_config_from_source_surface() throws {
@@ -774,12 +818,16 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     private(set) var focusValues: [Bool] = []
     private(set) var bindingActions: [String] = []
     private(set) var inheritedConfigRequests: [ghostty_surface_context_e] = []
+    private(set) var sendKeyCallCount = 0
     var selectionPresent = false
     var inheritedConfigContext: ghostty_surface_context_e?
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) { focusValues.append(isFocused) }
     func refresh() { refreshCallCount += 1 }
-    func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool { true }
+    func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool {
+        sendKeyCallCount += 1
+        return true
+    }
     func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {}
     func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags) {}
     func sendMouseButton(

@@ -71,12 +71,34 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(persisted.contains("visibility = \"hidden\""))
         XCTAssertTrue(persisted.contains("[pane_layout]"))
         XCTAssertTrue(persisted.contains("laptop = \"roomy\""))
+        XCTAssertTrue(persisted.contains("[panes]"))
+        XCTAssertTrue(persisted.contains("show_labels = true"))
+        XCTAssertTrue(persisted.contains("inactive_opacity = 0.7"))
         XCTAssertTrue(persisted.contains("[open_with]"))
         XCTAssertTrue(persisted.contains("enabled_target_ids = [\"finder\", \"vscode\", \"cursor\", \"xcode\"]"))
         XCTAssertTrue(persisted.contains("[error_reporting]"))
         XCTAssertTrue(persisted.contains("enabled = true"))
         XCTAssertTrue(persisted.contains("[updates]"))
         XCTAssertTrue(persisted.contains("channel = \"stable\""))
+    }
+
+    func test_store_reads_pane_settings_from_config_file_and_clamps_inactive_opacity() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [panes]
+        show_labels = false
+        inactive_opacity = 0.2
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertFalse(store.current.panes.showLabels)
+        XCTAssertEqual(store.current.panes.inactiveOpacity, 0.6, accuracy: 0.001)
     }
 
     func test_store_prefers_existing_config_file_over_user_defaults_migration() throws {

@@ -5,11 +5,13 @@ import XCTest
 @MainActor
 final class AppDelegateTests: XCTestCase {
     private var originalMainMenu: NSMenu?
+    private weak var originalWindowsMenu: NSMenu?
     private var originalWindows: [NSWindow] = []
 
     override func setUp() {
         super.setUp()
         originalMainMenu = NSApp.mainMenu
+        originalWindowsMenu = NSApp.windowsMenu
         originalWindows = NSApp.windows
     }
 
@@ -23,6 +25,7 @@ final class AppDelegateTests: XCTestCase {
         }
 
         NSApp.mainMenu = originalMainMenu
+        NSApp.windowsMenu = originalWindowsMenu
         super.tearDown()
     }
 
@@ -171,6 +174,27 @@ final class AppDelegateTests: XCTestCase {
         for action in requiredActions {
             XCTAssertTrue(actions.contains(action), "Navigation menu should contain action \(action)")
         }
+    }
+
+    func test_application_launch_installs_window_menu_and_registers_it_with_appkit() throws {
+        NSApp.mainMenu = nil
+        NSApp.windowsMenu = nil
+
+        let delegate = AppDelegate(shouldOpenMainWindow: false)
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+
+        let windowMenu = try XCTUnwrap(menu(named: "Window"))
+        let closeWindowItem = try XCTUnwrap(windowMenu.items.first(where: { $0.action == #selector(NSWindow.performClose(_:)) }))
+        let minimizeItem = try XCTUnwrap(windowMenu.items.first(where: { $0.action == #selector(NSWindow.performMiniaturize(_:)) }))
+
+        XCTAssertEqual(windowMenu.title, "Window")
+        XCTAssertEqual(closeWindowItem.keyEquivalent, "w")
+        XCTAssertEqual(closeWindowItem.keyEquivalentModifierMask, [.command])
+        XCTAssertEqual(minimizeItem.keyEquivalent, "m")
+        XCTAssertEqual(minimizeItem.keyEquivalentModifierMask, [.command])
+        XCTAssertNotNil(windowMenu.items.first(where: { $0.action == #selector(NSWindow.performZoom(_:)) }))
+        XCTAssertNotNil(windowMenu.items.first(where: { $0.action == #selector(NSApplication.arrangeInFront(_:)) }))
+        XCTAssertTrue(NSApp.windowsMenu === windowMenu)
     }
 
     func test_application_launch_installs_view_menu_with_arrange_submenus_and_layout_actions() throws {

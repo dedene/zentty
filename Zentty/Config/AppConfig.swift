@@ -33,6 +33,19 @@ struct AppConfig: Equatable, Sendable {
         )
     }
 
+    struct Panes: Equatable, Sendable {
+        var showLabels: Bool
+        var inactiveOpacity: CGFloat
+
+        static let minimumInactiveOpacity: CGFloat = 0.6
+        static let maximumInactiveOpacity: CGFloat = 1.0
+
+        static let `default` = Panes(
+            showLabels: true,
+            inactiveOpacity: 0.7
+        )
+    }
+
     struct Shortcuts: Equatable, Sendable {
         var bindings: [ShortcutBindingOverride]
 
@@ -72,6 +85,7 @@ struct AppConfig: Equatable, Sendable {
 
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
+    var panes: Panes
     var openWith: OpenWith
     var errorReporting: ErrorReporting
     var updates: Updates
@@ -85,6 +99,7 @@ struct AppConfig: Equatable, Sendable {
             visibility: .pinnedOpen
         ),
         paneLayout: .default,
+        panes: .default,
         openWith: .default,
         errorReporting: .default,
         updates: .default,
@@ -104,6 +119,7 @@ struct AppConfig: Equatable, Sendable {
                 visibility: SidebarVisibilityPreference.restoredVisibility(from: sidebarVisibilityDefaults)
             ),
             paneLayout: PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults),
+            panes: .default,
             openWith: .default,
             errorReporting: .default,
             updates: .default,
@@ -115,6 +131,7 @@ struct AppConfig: Equatable, Sendable {
 
     func normalized() -> AppConfig {
         var normalized = self
+        normalized.panes = normalized.panes.normalized()
         normalized.openWith = normalized.openWith.normalized()
         normalized.shortcuts = normalized.shortcuts.normalized()
         return normalized
@@ -195,6 +212,18 @@ extension AppConfig.Shortcuts {
                 from: bindings,
                 commandID: commandID,
                 shortcut: shortcut
+            )
+        )
+    }
+}
+
+extension AppConfig.Panes {
+    func normalized() -> AppConfig.Panes {
+        AppConfig.Panes(
+            showLabels: showLabels,
+            inactiveOpacity: min(
+                max(inactiveOpacity, AppConfig.Panes.minimumInactiveOpacity),
+                AppConfig.Panes.maximumInactiveOpacity
             )
         )
     }

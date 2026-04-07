@@ -6,6 +6,7 @@ struct AppNotification: Identifiable, Equatable, Sendable {
     let id: UUID
     let worklaneID: WorklaneID
     let paneID: PaneID
+    let state: WorklaneAttentionState
     let tool: AgentTool
     let interactionKind: PaneInteractionKind?
     let interactionSymbolName: String?
@@ -50,28 +51,40 @@ final class NotificationStore {
     func add(
         worklaneID: WorklaneID,
         paneID: PaneID,
+        state: WorklaneAttentionState,
         tool: AgentTool,
         interactionKind: PaneInteractionKind?,
         interactionSymbolName: String?,
         statusText: String,
-        primaryText: String
+        primaryText: String,
+        isDebounced: Bool = true
     ) {
         let key = PaneKey(worklaneID: worklaneID, paneID: paneID)
+        let now = Date()
 
         // Cancel any existing pending timer for this pane.
         cancelPending(for: key)
+        let resolvedExisting = resolveCommittedUnresolved(for: key, now: now)
 
         let notification = AppNotification(
             id: UUID(),
             worklaneID: worklaneID,
             paneID: paneID,
+            state: state,
             tool: tool,
             interactionKind: interactionKind,
             interactionSymbolName: interactionSymbolName,
             statusText: statusText,
             primaryText: primaryText,
-            createdAt: Date()
+            createdAt: now
         )
+
+        guard isDebounced else {
+            notifications.insert(notification, at: 0)
+            trimIfNeeded()
+            onChange?()
+            return
+        }
 
         pendingNotifications[key] = notification
 
@@ -82,6 +95,10 @@ final class NotificationStore {
             self?.commitPending(for: key)
         }
         pendingTasks[key] = task
+
+        if resolvedExisting {
+            onChange?()
+        }
     }
 
     func resolve(worklaneID: WorklaneID, paneID: PaneID) {
@@ -138,12 +155,27 @@ final class NotificationStore {
         pendingTasks[key] = nil
 
         notifications.insert(notification, at: 0)
+        trimIfNeeded()
 
-        // Cap at maximum items — drop oldest (last in array).
+        onChange?()
+    }
+
+    private func resolveCommittedUnresolved(for key: PaneKey, now: Date) -> Bool {
+        var changed = false
+        for i in notifications.indices where !notifications[i].isResolved
+            && notifications[i].worklaneID == key.worklaneID
+            && notifications[i].paneID == key.paneID
+        {
+            notifications[i].isResolved = true
+            notifications[i].resolvedAt = now
+            changed = true
+        }
+        return changed
+    }
+
+    private func trimIfNeeded() {
         if notifications.count > Self.maxItems {
             notifications.removeLast(notifications.count - Self.maxItems)
         }
-
-        onChange?()
     }
 }

@@ -28,16 +28,44 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(tabController.tabStyle, .toolbar)
         XCTAssertNotNil(controller.window?.toolbar)
         XCTAssertFalse(controller.window?.styleMask.contains(.resizable) == true)
-        XCTAssertEqual(contentController.sectionTitles, ["General", "Appearance", "Shortcuts", "Open With", "Pane Layout"])
+        XCTAssertEqual(contentController.sectionTitles, ["General", "Appearance", "Shortcuts", "Open With", "Panes"])
         XCTAssertEqual(contentController.selectedSection, .paneLayout)
-        XCTAssertEqual(controller.window?.title, "Pane Layout")
+        XCTAssertEqual(controller.window?.title, "Panes")
 
         let paneLayoutController = try XCTUnwrap(
             contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
         )
-        XCTAssertEqual(paneLayoutController.sectionTitles, ["Laptop", "Large Display", "Ultrawide Hybrid"])
-        XCTAssertEqual(paneLayoutController.presetSummary.count, paneLayoutController.sectionTitles.count)
-        XCTAssertTrue(paneLayoutController.presetSummary.allSatisfy { !$0.isEmpty })
+        XCTAssertTrue(paneLayoutController.showsPaneLabelsForTesting)
+        XCTAssertEqual(paneLayoutController.inactivePaneOpacityPercentageForTesting, 70)
+    }
+
+    func test_panes_section_reads_persisted_controls_from_config() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        try store.update { config in
+            config.panes.showLabels = false
+            config.panes.inactiveOpacity = 0.85
+        }
+
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let panesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
+        )
+
+        XCTAssertFalse(panesController.showsPaneLabelsForTesting)
+        XCTAssertEqual(panesController.inactivePaneOpacityPercentageForTesting, 85)
     }
 
     func test_settings_window_can_switch_to_shortcuts_section_and_read_effective_bindings() throws {

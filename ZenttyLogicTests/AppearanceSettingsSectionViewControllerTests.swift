@@ -107,9 +107,7 @@ final class AppearanceSettingsSectionViewControllerTests: XCTestCase {
         let (controller, _, _) = makeController(themes: themes)
         await loadAndWaitForThemes(controller)
 
-        let searchField = controller.value(forKey: "searchField") as? NSSearchField
-        searchField?.stringValue = "Dra"
-        searchField?.sendAction(searchField?.action, to: searchField?.target)
+        controller.setSearchQueryForTesting("Dra")
 
         XCTAssertEqual(controller.themes.count, 1)
         XCTAssertEqual(controller.themes.first?.name, "Dracula")
@@ -124,14 +122,10 @@ final class AppearanceSettingsSectionViewControllerTests: XCTestCase {
         let (controller, _, _) = makeController(themes: themes)
         await loadAndWaitForThemes(controller)
 
-        let searchField = controller.value(forKey: "searchField") as? NSSearchField
-
-        searchField?.stringValue = "Alpha"
-        searchField?.sendAction(searchField?.action, to: searchField?.target)
+        controller.setSearchQueryForTesting("Alpha")
         XCTAssertEqual(controller.themes.count, 1)
 
-        searchField?.stringValue = ""
-        searchField?.sendAction(searchField?.action, to: searchField?.target)
+        controller.setSearchQueryForTesting("")
         XCTAssertEqual(controller.themes.count, 2)
     }
 
@@ -174,8 +168,7 @@ final class AppearanceSettingsSectionViewControllerTests: XCTestCase {
         currentAppearanceTheme = "DarkTheme"
         controller.handleAppearanceChange()
 
-        let activeThemeName = controller.value(forKey: "activeThemeName") as? String
-        XCTAssertEqual(activeThemeName, "DarkTheme")
+        XCTAssertEqual(controller.activeThemeNameForTesting, "DarkTheme")
     }
 
     func testConformsToSettingsAppearanceUpdating() {

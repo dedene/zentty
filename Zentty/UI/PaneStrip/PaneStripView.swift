@@ -82,6 +82,8 @@ final class PaneStripView: NSView {
 
     private var currentState: PaneStripState?
     private var currentPaneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:]
+    private var currentShowsPaneLabels = AppConfig.Panes.default.showLabels
+    private var currentInactivePaneOpacity = AppConfig.Panes.default.inactiveOpacity
     private var currentPresentation: StripPresentation?
     private var paneViews: [PaneID: PaneContainerView] = [:]
     private var dragZoneViews: [PaneID: PaneDragZoneView] = [:]
@@ -266,12 +268,19 @@ final class PaneStripView: NSView {
     func render(
         _ state: PaneStripState,
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
+        showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
+        inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         leadingVisibleInset: CGFloat? = nil,
         animated: Bool = true,
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
         currentPaneBorderContextByPaneID = paneBorderContextByPaneID
+        currentShowsPaneLabels = showsPaneLabels
+        currentInactivePaneOpacity = max(
+            AppConfig.Panes.minimumInactiveOpacity,
+            min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
+        )
         let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
         resetScrollSwitchGestureIfFocusChanged(from: previousFocusedPaneID, to: state.focusedPaneID)
@@ -295,12 +304,19 @@ final class PaneStripView: NSView {
     func transition(
         to state: PaneStripState,
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
+        showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
+        inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         leadingVisibleInset: CGFloat,
         animated: Bool,
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
         currentPaneBorderContextByPaneID = paneBorderContextByPaneID
+        currentShowsPaneLabels = showsPaneLabels
+        currentInactivePaneOpacity = max(
+            AppConfig.Panes.minimumInactiveOpacity,
+            min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
+        )
         let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
         resetScrollSwitchGestureIfFocusChanged(from: previousFocusedPaneID, to: state.focusedPaneID)
@@ -620,7 +636,7 @@ final class PaneStripView: NSView {
                 useNeutralBackground: useNeutralBackground
             )
             let gapWidth = Self.borderLabelGapWidth(
-                for: currentPaneBorderContextByPaneID[panePresentation.paneID],
+                for: currentShowsPaneLabels ? currentPaneBorderContextByPaneID[panePresentation.paneID] : nil,
                 paneWidth: panePresentation.frame.width
             )
             paneView.setBorderLabelGap(width: gapWidth)
@@ -634,6 +650,7 @@ final class PaneStripView: NSView {
             } else {
                 targetAlpha = PaneContainerView.presentationAlpha(
                     forEmphasis: panePresentation.emphasis,
+                    inactiveOpacity: currentInactivePaneOpacity,
                     allowInactiveDimming: allowInactiveDimming
                 )
             }
@@ -718,7 +735,10 @@ final class PaneStripView: NSView {
                         dx: -resolvedOffset(initialOffset),
                         dy: 0
                     )
-                    paneView.alphaValue = PaneContainerView.presentationAlpha(forEmphasis: panePresentation.emphasis)
+                    paneView.alphaValue = PaneContainerView.presentationAlpha(
+                        forEmphasis: panePresentation.emphasis,
+                        inactiveOpacity: currentInactivePaneOpacity
+                    )
                 }
                 paneViews[panePresentation.paneID] = paneView
                 viewportView.addSubview(paneView)
@@ -878,7 +898,9 @@ final class PaneStripView: NSView {
                 frame: panePresentation.frame.offsetBy(dx: -resolvedOffset(offset), dy: 0),
                 isFocused: panePresentation.isFocused,
                 emphasis: panePresentation.emphasis,
-                borderContext: currentPaneBorderContextByPaneID[panePresentation.paneID]
+                borderContext: currentShowsPaneLabels
+                    ? currentPaneBorderContextByPaneID[panePresentation.paneID]
+                    : nil
             )
         }
     }

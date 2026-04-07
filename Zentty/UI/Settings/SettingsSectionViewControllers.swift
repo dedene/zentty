@@ -138,8 +138,23 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
 
 @MainActor
 final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionViewController {
-    private var preferences: PaneLayoutPreferences = .default
-    private var summaryLabelsByDisplayClass: [DisplayClass: NSTextField] = [:]
+    private let configStore: AppConfigStore
+    private var panes: AppConfig.Panes
+    private let showLabelsSwitch = NSSwitch()
+    private let inactiveOpacitySlider = NSSlider()
+    private let inactiveOpacityValueLabel = NSTextField(labelWithString: "")
+    private var isApplyingPanes = false
+
+    init(configStore: AppConfigStore) {
+        self.configStore = configStore
+        self.panes = configStore.current.panes
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     override func assembleContent(in contentView: NSView) {
         let stackView = NSStackView()
@@ -150,18 +165,18 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         contentView.addSubview(stackView)
 
         let subtitleLabel = makeLabel(
-            text: "Zentty uses explicit screen behavior presets so each split stays calm and predictable.",
+            text: "Fine-tune how pane context and focus cues show up in the canvas.",
             font: .systemFont(ofSize: 12, weight: .regular)
         )
         subtitleLabel.textColor = .secondaryLabelColor
         stackView.addArrangedSubview(subtitleLabel)
         subtitleLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
-        DisplayClass.allCases.forEach { displayClass in
-            let card = makeCardSection(for: displayClass)
-            stackView.addArrangedSubview(card)
-            card.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
-        }
+        let displayCard = makeDisplayCard()
+        stackView.addArrangedSubview(displayCard)
+        displayCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        configureInactiveOpacitySlider()
 
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -170,85 +185,176 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
             stackView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
         ])
 
-        apply(preferences: preferences)
+        apply(panes: panes)
     }
 
-    var sectionTitles: [String] {
-        DisplayClass.allCases.map(\.title)
+    var showsPaneLabelsForTesting: Bool {
+        showLabelsSwitch.state == .on
     }
 
-    var presetSummary: [String] {
-        DisplayClass.allCases.compactMap { summaryLabelsByDisplayClass[$0]?.stringValue }
+    var inactivePaneOpacityPercentageForTesting: Int {
+        Int(round(inactiveOpacitySlider.doubleValue * 100))
     }
 
-    func apply(preferences: PaneLayoutPreferences) {
-        self.preferences = preferences
-
-        for displayClass in DisplayClass.allCases {
-            summaryLabelsByDisplayClass[displayClass]?.stringValue = behaviorSummary(for: displayClass)
-        }
+    func apply(panes: AppConfig.Panes) {
+        self.panes = panes
+        guard isViewLoaded else { return }
+        isApplyingPanes = true
+        showLabelsSwitch.state = panes.showLabels ? .on : .off
+        inactiveOpacitySlider.doubleValue = Double(panes.inactiveOpacity)
+        updateInactiveOpacityLabel(panes.inactiveOpacity)
+        isApplyingPanes = false
     }
 
-    private func makeCardSection(for displayClass: DisplayClass) -> NSView {
+    private func makeDisplayCard() -> NSView {
         let card = SettingsCardView()
-
         let contentStack = NSStackView()
         contentStack.orientation = .vertical
         contentStack.alignment = .leading
-        contentStack.spacing = 8
+        contentStack.spacing = 0
         contentStack.translatesAutoresizingMaskIntoConstraints = false
-
-        contentStack.addArrangedSubview(makeLabel(
-            text: displayClass.title,
-            font: .systemFont(ofSize: 13, weight: .semibold)
-        ))
-
-        let descriptionLabel = makeLabel(
-            text: descriptionText(for: displayClass),
-            font: .systemFont(ofSize: 11, weight: .regular)
-        )
-        descriptionLabel.textColor = .secondaryLabelColor
-        contentStack.addArrangedSubview(descriptionLabel)
-
-        let presetSummary = makeLabel(
-            text: behaviorSummary(for: displayClass),
-            font: .systemFont(ofSize: 11, weight: .regular)
-        )
-        presetSummary.textColor = .secondaryLabelColor
-        summaryLabelsByDisplayClass[displayClass] = presetSummary
-        contentStack.addArrangedSubview(presetSummary)
-
         card.addSubview(contentStack)
-        NSLayoutConstraint.activate([
-            contentStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
-            contentStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
-            contentStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
-            contentStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
-        ])
 
+        let labelsRow = makeSwitchRow(
+            title: "Show pane labels",
+            subtitle: "Show the compact path label at the top left of each pane.",
+            toggle: showLabelsSwitch,
+            action: #selector(handleShowLabelsChanged(_:))
+        )
+        contentStack.addArrangedSubview(labelsRow)
+        labelsRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(separator)
+        separator.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        let inactiveOpacityRow = makeInactiveOpacityRow()
+        contentStack.addArrangedSubview(inactiveOpacityRow)
+        inactiveOpacityRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        NSLayoutConstraint.activate([
+            contentStack.topAnchor.constraint(equalTo: card.topAnchor),
+            contentStack.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+        ])
         return card
     }
 
-    private func descriptionText(for displayClass: DisplayClass) -> String {
-        switch displayClass {
-        case .laptop:
-            "Laptop behavior\nPreserve the active pane, then scroll horizontally."
-        case .largeDisplay:
-            "Large Display behavior\nPreserve the active pane with slightly denser columns."
-        case .ultrawide:
-            "Ultrawide Hybrid behavior\nFirst split is 50/50, then keep horizontal scrolling."
-        }
+    private func makeSwitchRow(
+        title: String,
+        subtitle: String,
+        toggle: NSSwitch,
+        action: Selector
+    ) -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let leftStack = NSStackView()
+        leftStack.orientation = .vertical
+        leftStack.alignment = .leading
+        leftStack.spacing = 2
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(leftStack)
+
+        let titleLabel = makeLabel(
+            text: title,
+            font: .systemFont(ofSize: 13, weight: .semibold)
+        )
+        leftStack.addArrangedSubview(titleLabel)
+
+        let subtitleLabel = makeLabel(
+            text: subtitle,
+            font: .systemFont(ofSize: 12, weight: .regular)
+        )
+        subtitleLabel.textColor = .secondaryLabelColor
+        leftStack.addArrangedSubview(subtitleLabel)
+        subtitleLabel.widthAnchor.constraint(equalTo: leftStack.widthAnchor).isActive = true
+
+        toggle.target = self
+        toggle.action = action
+        toggle.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(toggle)
+
+        NSLayoutConstraint.activate([
+            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+
+            toggle.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 16),
+            toggle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            toggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+
+            leftStack.trailingAnchor.constraint(lessThanOrEqualTo: toggle.leadingAnchor, constant: -16),
+        ])
+
+        return container
     }
 
-    private func behaviorSummary(for displayClass: DisplayClass) -> String {
-        switch displayClass {
-        case .laptop:
-            "Laptop behavior: preserve the active pane, then scroll horizontally."
-        case .largeDisplay:
-            "Large Display behavior: preserve the active pane with slightly denser columns."
-        case .ultrawide:
-            "Ultrawide Hybrid behavior: first split is 50/50, then keep horizontal scrolling."
-        }
+    private func makeInactiveOpacityRow() -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let stackView = NSStackView()
+        stackView.orientation = .vertical
+        stackView.alignment = .leading
+        stackView.spacing = 10
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stackView)
+
+        let titleLabel = makeLabel(
+            text: "Non-focused pane opacity",
+            font: .systemFont(ofSize: 13, weight: .semibold)
+        )
+        stackView.addArrangedSubview(titleLabel)
+
+        let subtitleLabel = makeLabel(
+            text: "Controls how strongly panes dim when they are not focused.",
+            font: .systemFont(ofSize: 12, weight: .regular)
+        )
+        subtitleLabel.textColor = .secondaryLabelColor
+        stackView.addArrangedSubview(subtitleLabel)
+        subtitleLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        let sliderRow = NSStackView()
+        sliderRow.orientation = .horizontal
+        sliderRow.alignment = .centerY
+        sliderRow.spacing = 12
+        sliderRow.translatesAutoresizingMaskIntoConstraints = false
+        stackView.addArrangedSubview(sliderRow)
+        sliderRow.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        inactiveOpacitySlider.translatesAutoresizingMaskIntoConstraints = false
+        sliderRow.addArrangedSubview(inactiveOpacitySlider)
+
+        inactiveOpacityValueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        inactiveOpacityValueLabel.alignment = .right
+        inactiveOpacityValueLabel.setContentHuggingPriority(.required, for: .horizontal)
+        inactiveOpacityValueLabel.widthAnchor.constraint(equalToConstant: 42).isActive = true
+        sliderRow.addArrangedSubview(inactiveOpacityValueLabel)
+
+        NSLayoutConstraint.activate([
+            stackView.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            stackView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            stackView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            stackView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+        ])
+
+        return container
+    }
+
+    private func configureInactiveOpacitySlider() {
+        inactiveOpacitySlider.minValue = Double(AppConfig.Panes.minimumInactiveOpacity)
+        inactiveOpacitySlider.maxValue = Double(AppConfig.Panes.maximumInactiveOpacity)
+        inactiveOpacitySlider.isContinuous = true
+        inactiveOpacitySlider.target = self
+        inactiveOpacitySlider.action = #selector(handleInactiveOpacityChanged(_:))
+    }
+
+    private func updateInactiveOpacityLabel(_ opacity: CGFloat) {
+        inactiveOpacityValueLabel.stringValue = "\(Int(round(opacity * 100)))%"
     }
 
     private func makeLabel(text: String, font: NSFont) -> NSTextField {
@@ -257,6 +363,24 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         label.lineBreakMode = .byWordWrapping
         label.maximumNumberOfLines = 0
         return label
+    }
+
+    @objc
+    private func handleShowLabelsChanged(_ sender: NSSwitch) {
+        guard !isApplyingPanes else { return }
+        try? configStore.update {
+            $0.panes.showLabels = sender.state == .on
+        }
+    }
+
+    @objc
+    private func handleInactiveOpacityChanged(_ sender: NSSlider) {
+        let opacity = CGFloat(sender.doubleValue)
+        updateInactiveOpacityLabel(opacity)
+        guard !isApplyingPanes else { return }
+        try? configStore.update {
+            $0.panes.inactiveOpacity = opacity
+        }
     }
 }
 

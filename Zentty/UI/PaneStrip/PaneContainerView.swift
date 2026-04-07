@@ -28,7 +28,6 @@ final class PaneContainerView: NSView {
         static let overlayInset: CGFloat = 18
         static let overlayButtonTopSpacing: CGFloat = 14
         static let overlayButtonHeight: CGFloat = 30
-        static let inactivePaneAlpha: CGFloat = 0.7
     }
 
     private enum StatusState: Equatable {
@@ -176,18 +175,34 @@ final class PaneContainerView: NSView {
     }
 
     static func presentationAlpha(forEmphasis emphasis: CGFloat) -> CGFloat {
-        presentationAlpha(forEmphasis: emphasis, allowInactiveDimming: true)
+        presentationAlpha(
+            forEmphasis: emphasis,
+            inactiveOpacity: AppConfig.Panes.default.inactiveOpacity,
+            allowInactiveDimming: true
+        )
     }
 
     static func presentationAlpha(
         forEmphasis emphasis: CGFloat,
+        inactiveOpacity: CGFloat
+    ) -> CGFloat {
+        presentationAlpha(
+            forEmphasis: emphasis,
+            inactiveOpacity: inactiveOpacity,
+            allowInactiveDimming: true
+        )
+    }
+
+    static func presentationAlpha(
+        forEmphasis emphasis: CGFloat,
+        inactiveOpacity: CGFloat,
         allowInactiveDimming: Bool
     ) -> CGFloat {
         guard allowInactiveDimming else {
             return 1
         }
 
-        return emphasis >= 0.999 ? 1 : Layout.inactivePaneAlpha
+        return emphasis >= 0.999 ? 1 : inactiveOpacity
     }
 
     func render(
@@ -487,6 +502,10 @@ final class PaneContainerView: NSView {
 
     var isTerminalAnimationFrozenForTesting: Bool {
         isTerminalAnimationFrozen
+    }
+
+    var borderLabelGapWidthForTesting: CGFloat {
+        currentBorderGapWidth
     }
 
     func setBorderLabelGap(width: CGFloat) {

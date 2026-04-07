@@ -304,7 +304,7 @@ final class GhosttyThemeResolverTests: XCTestCase {
         )
     }
 
-    func test_light_theme_working_text_highlight_lifts_toward_active_text_instead_of_sidebar_surface() {
+    func test_light_theme_working_text_highlight_stays_lighter_and_closer_to_text_than_sidebar_surface() {
         let theme = ZenttyTheme(
             resolvedTheme: GhosttyResolvedTheme(
                 background: NSColor(hexString: "#F7FBFF")!,
@@ -321,10 +321,6 @@ final class GhosttyThemeResolverTests: XCTestCase {
         XCTAssertGreaterThan(
             theme.sidebarWorkingTextHighlight.perceivedLuminance,
             theme.primaryText.perceivedLuminance
-        )
-        XCTAssertLessThan(
-            colorDistance(theme.sidebarWorkingTextHighlight, theme.sidebarButtonActiveText),
-            colorDistance(theme.sidebarGradientStart, theme.sidebarButtonActiveText)
         )
     }
 

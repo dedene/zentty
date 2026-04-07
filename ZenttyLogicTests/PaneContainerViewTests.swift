@@ -475,10 +475,22 @@ final class PaneContainerViewTests: XCTestCase {
         XCTAssertEqual(paneView.alphaValue, originalAlpha, accuracy: 0.001)
     }
 
-    func test_unfocused_presentation_alpha_uses_stronger_inactive_dimming() {
+    func test_unfocused_presentation_alpha_defaults_to_standard_inactive_dimming() {
         XCTAssertEqual(
             PaneContainerView.presentationAlpha(forEmphasis: 0.92),
             0.7,
+            accuracy: 0.001
+        )
+    }
+
+    func test_unfocused_presentation_alpha_uses_configured_inactive_opacity() {
+        XCTAssertEqual(
+            PaneContainerView.presentationAlpha(
+                forEmphasis: 0.92,
+                inactiveOpacity: 0.84,
+                allowInactiveDimming: true
+            ),
+            0.84,
             accuracy: 0.001
         )
     }

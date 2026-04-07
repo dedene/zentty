@@ -344,27 +344,43 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
     private static let overridePath = NSTemporaryDirectory() + "zentty-ghostty-override.conf"
 
     private static func loadTransparentBackgroundOverride(_ config: ghostty_config_t) {
-        var lines = "background-opacity = 0\n"
-        if !userConfigContainsBackgroundBlur() {
-            lines += "background-blur = 20\n"
+        guard let lines = transparentBackgroundOverrideContents(
+            userConfigContents: userConfigContents()
+        ) else {
+            return
         }
+
         try? lines.write(toFile: overridePath, atomically: true, encoding: .utf8)
         overridePath.withCString { ptr in
             ghostty_config_load_file(config, ptr)
         }
     }
 
-    private static func userConfigContainsBackgroundBlur() -> Bool {
+    static func transparentBackgroundOverrideContents(userConfigContents: String?) -> String? {
+        guard !userConfigContainsBackgroundBlur(userConfigContents) else {
+            return nil
+        }
+
+        return "background-blur-radius = 20\n"
+    }
+
+    private static func userConfigContents() -> String? {
         let configPath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/ghostty/config")
-        guard let content = try? String(contentsOf: configPath, encoding: .utf8) else {
+        return try? String(contentsOf: configPath, encoding: .utf8)
+    }
+
+    private static func userConfigContainsBackgroundBlur(_ content: String?) -> Bool {
+        guard let content else {
             return false
         }
+
         return content.split(whereSeparator: \.isNewline).contains { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.hasPrefix("#"), !trimmed.hasPrefix("//") else { return false }
             let parts = trimmed.split(separator: "=", maxSplits: 1)
-            return parts.first?.trimmingCharacters(in: .whitespaces) == "background-blur"
+            let key = parts.first?.trimmingCharacters(in: .whitespaces)
+            return key == "background-blur" || key == "background-blur-radius"
         }
     }
 

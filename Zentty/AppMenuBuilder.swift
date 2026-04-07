@@ -9,10 +9,12 @@ enum AppMenuBuilder {
     ) {
         guard hasRequiredMenuItems(in: application.mainMenu, appName: appName) == false else {
             applyConfiguredShortcuts(to: application.mainMenu, config: config)
+            application.windowsMenu = menu(named: "Window", in: application.mainMenu)
             return
         }
 
         application.mainMenu = makeMainMenu(appName: appName, config: config)
+        application.windowsMenu = menu(named: "Window", in: application.mainMenu)
     }
 
     static func makeMainMenu(appName: String, config: AppConfig = .default) -> NSMenu {
@@ -55,6 +57,7 @@ enum AppMenuBuilder {
         mainMenu.addItem(makeEditMenuItem(shortcutManager: shortcutManager))
         mainMenu.addItem(makeSectionMenuItem(section: .navigation, shortcutManager: shortcutManager))
         mainMenu.addItem(makeViewMenuItem(shortcutManager: shortcutManager))
+        mainMenu.addItem(makeWindowMenuItem())
 
         return mainMenu
     }
@@ -113,6 +116,28 @@ enum AppMenuBuilder {
 
     private static func makeViewMenuItem(shortcutManager: ShortcutManager) -> NSMenuItem {
         makeSectionMenuItem(section: .view, shortcutManager: shortcutManager)
+    }
+
+    private static func makeWindowMenuItem() -> NSMenuItem {
+        let menuItem = NSMenuItem()
+        let menu = NSMenu(title: "Window")
+
+        menu.addItem(makeStandardMenuActionItem(
+            title: "Close Window",
+            action: #selector(NSWindow.performClose(_:)),
+            keyEquivalent: "w"
+        ))
+        menu.addItem(makeStandardMenuActionItem(
+            title: "Minimize",
+            action: #selector(NSWindow.performMiniaturize(_:)),
+            keyEquivalent: "m"
+        ))
+        menu.addItem(NSMenuItem(title: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: ""))
+        menu.addItem(makeSeparatorItem())
+        menu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
+
+        menuItem.submenu = menu
+        return menuItem
     }
 
     private static func makeSectionMenuItem(
@@ -214,6 +239,7 @@ enum AppMenuBuilder {
         let editMenu = menu(named: AppMenuSection.edit.rawValue, in: mainMenu)
         let navigationMenu = menu(named: AppMenuSection.navigation.rawValue, in: mainMenu)
         let viewMenu = menu(named: AppMenuSection.view.rawValue, in: mainMenu)
+        let windowMenu = menu(named: "Window", in: mainMenu)
         let requiredEditItems: [(String, Selector)] = [
             ("Copy", #selector(NSText.copy(_:))),
             ("Copy Path", #selector(MainWindowController.copyFocusedPanePath(_:))),
@@ -230,6 +256,15 @@ enum AppMenuBuilder {
         let hasViewItems =
             viewMenu?.title == AppMenuSection.view.rawValue &&
             hasRequiredStructure(expectedEntries(for: .view), in: viewMenu)
+        let hasWindowItems =
+            windowMenu?.title == "Window" &&
+            hasRequiredItems([
+                ("Close Window", #selector(NSWindow.performClose(_:))),
+                ("Minimize", #selector(NSWindow.performMiniaturize(_:))),
+                ("Zoom", #selector(NSWindow.performZoom(_:))),
+                (nil, nil),
+                ("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
+            ], in: windowMenu)
 
         return hasAboutItem &&
             hasUpdatesItem &&
@@ -238,7 +273,8 @@ enum AppMenuBuilder {
             hasFileItems &&
             hasEditItems &&
             hasNavigationItems &&
-            hasViewItems
+            hasViewItems &&
+            hasWindowItems
     }
 
     private static func menu(named title: String, in mainMenu: NSMenu?) -> NSMenu? {

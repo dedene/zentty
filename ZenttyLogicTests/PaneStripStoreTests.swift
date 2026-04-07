@@ -678,12 +678,13 @@ final class PaneStripStoreTests: XCTestCase {
         let store = WorklaneStore(layoutContext: initialContext)
         var changes: [WorklaneChange] = []
         store.subscribe { changes.append($0) }
+        let activeWorklaneID = store.activeWorklaneID
 
         store.updateLayoutContext(updatedContext)
 
         XCTAssertEqual(
             changes,
-            [.layoutResized(WorklaneID("worklane-main"), animation: .immediate)]
+            [.layoutResized(activeWorklaneID, animation: .immediate)]
         )
     }
 
@@ -712,12 +713,13 @@ final class PaneStripStoreTests: XCTestCase {
         )
         var changes: [WorklaneChange] = []
         store.subscribe { changes.append($0) }
+        let activeWorklaneID = store.activeWorklaneID
 
         store.restorePaneLayout(restoredState)
 
         XCTAssertEqual(
             changes,
-            [.layoutResized(WorklaneID("worklane-main"), animation: .splitCurve)]
+            [.layoutResized(activeWorklaneID, animation: .splitCurve)]
         )
     }
 
@@ -2224,7 +2226,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.sessionID, "session-1")
     }
 
-    func test_desktop_notification_event_classifies_codex_approval_request_as_needs_approval() throws {
+    func test_desktop_notification_event_classifies_codex_approval_request_as_requires_approval() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
@@ -2252,7 +2254,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
-            "Needs approval"
+            "Requires approval"
         )
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.text,
@@ -2352,7 +2354,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
-    func test_desktop_notification_event_classifies_codex_plan_mode_prompt_as_decision() throws {
+    func test_desktop_notification_event_classifies_codex_plan_mode_prompt_as_approval() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
@@ -2379,11 +2381,11 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
-            .some(.decision)
+            .some(.approval)
         )
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
-            "Needs decision"
+            "Requires approval"
         )
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.text,
@@ -2509,6 +2511,48 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_ready_codex_title_after_meaningful_intermediate_title_surfaces_agent_ready() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Implemented the Pane Layout fix",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            )
+        )
 
         store.updateMetadata(
             paneID: paneID,
@@ -3238,7 +3282,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertTrue(changes.isEmpty)
     }
 
-    func test_user_input_after_completion_clears_agent_ready_back_to_idle() throws {
+    func test_user_input_after_completion_promotes_explicit_ready_codex_session_back_to_running() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
@@ -3281,7 +3325,9 @@ final class PaneStripStoreTests: XCTestCase {
             event: .userSubmittedInput
         )
 
-        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Idle")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
     func test_progress_report_after_completion_does_not_clear_agent_ready_without_new_running_state() throws {

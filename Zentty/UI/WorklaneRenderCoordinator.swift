@@ -27,6 +27,7 @@ final class WorklaneRenderCoordinator {
     let runtimeRegistry: PaneRuntimeRegistry
     let reviewStateResolver: WorklaneReviewStateResolver
     private let terminalDiagnostics: TerminalDiagnostics
+    private let configStore: AppConfigStore?
 
     private let attentionNotificationCoordinator: WorklaneAttentionNotificationCoordinator
 
@@ -51,6 +52,7 @@ final class WorklaneRenderCoordinator {
         self.runtimeRegistry = runtimeRegistry
         self.reviewStateResolver = reviewStateResolver
         self.terminalDiagnostics = terminalDiagnostics
+        self.configStore = configStore
         self.attentionNotificationCoordinator = WorklaneAttentionNotificationCoordinator(
             notificationStore: notificationStore,
             configStore: configStore
@@ -110,6 +112,10 @@ final class WorklaneRenderCoordinator {
 
     private var currentTheme: ZenttyTheme {
         environment?.renderTheme ?? ZenttyTheme.fallback(for: nil)
+    }
+
+    private var currentPaneSettings: AppConfig.Panes {
+        configStore?.current.panes ?? .default
     }
 
     private var activePaneID: PaneID? {
@@ -216,6 +222,7 @@ final class WorklaneRenderCoordinator {
             let effectiveInset = leadingVisibleInsetOverride
                 ?? environment?.renderLeadingInset(sidebarWidth: sidebarWidth)
                 ?? 0
+            let paneSettings = currentPaneSettings
 
             terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.paneStripState.focusedPaneID)
             views.appCanvasView.render(
@@ -223,6 +230,8 @@ final class WorklaneRenderCoordinator {
                 state: worklane.paneStripState,
                 metadataByPaneID: worklane.auxiliaryStateByPaneID.compactMapValues(\.metadata),
                 paneBorderContextByPaneID: worklane.paneBorderContextDisplayByPaneID,
+                showsPaneLabels: paneSettings.showLabels,
+                inactivePaneOpacity: paneSettings.inactiveOpacity,
                 theme: currentTheme,
                 leadingVisibleInset: effectiveInset,
                 animated: animated,

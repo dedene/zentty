@@ -11,7 +11,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ("Approval requested by docs", .approval),
             ("Question requested: Choose deployment target", .decision),
             ("Questions requested: 2", .decision),
-            ("Plan mode prompt: Implement this plan?", .decision),
+            ("Plan mode prompt: Implement this plan?", .approval),
         ]
 
         for testCase in cases {
@@ -1497,7 +1497,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(payloads.isEmpty)
     }
 
-    func test_notification_coordinator_does_not_fire_for_unresolved_stop() {
+    func test_notification_coordinator_fires_for_unresolved_stop_when_pane_is_not_actively_viewed() {
         let recorder = WorklaneAttentionNotificationRecorder()
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
         let paneID = PaneID("worklane-main-shell")
@@ -1527,7 +1527,17 @@ final class AgentStatusSupportTests: XCTestCase {
             windowIsKey: false
         )
 
-        XCTAssertTrue(recorder.requests.isEmpty)
+        XCTAssertEqual(
+            recorder.requests,
+            [
+                .init(
+                    identifier: recorder.requests.first?.identifier ?? "",
+                    title: "Stopped early",
+                    body: "Agent stopped early.",
+                    soundName: ""
+                )
+            ]
+        )
     }
 
     func test_notification_coordinator_fires_for_ready_when_pane_is_not_actively_viewed() {
@@ -1548,7 +1558,8 @@ final class AgentStatusSupportTests: XCTestCase {
                 .init(
                     identifier: recorder.requests.first?.identifier ?? "",
                     title: "Agent ready",
-                    body: "Implement push notifications"
+                    body: "Implement push notifications",
+                    soundName: ""
                 )
             ]
         )
@@ -1567,6 +1578,152 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
+    func test_notification_coordinator_tracks_ready_and_stopped_notifications_per_pane() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let store = NotificationStore(debounceInterval: 0.01)
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: store)
+        let readyPaneID = PaneID("worklane-main-ready")
+        let stoppedPaneID = PaneID("worklane-main-stopped")
+        let worklaneID = WorklaneID("worklane-main")
+
+        let committed = expectation(description: "notifications committed")
+        committed.expectedFulfillmentCount = 2
+        store.onChange = { committed.fulfill() }
+
+        coordinator.update(
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: readyPaneID,
+                    attentions: [
+                        .init(
+                            paneID: readyPaneID,
+                            title: "Implement notifications",
+                            state: .ready,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                        .init(
+                            paneID: stoppedPaneID,
+                            title: "Fix failure handling",
+                            state: .unresolvedStop,
+                            updatedAt: Date(timeIntervalSince1970: 100)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+
+        await fulfillment(of: [committed], timeout: 2)
+
+        XCTAssertEqual(Set(store.notifications.map(\.paneID)), [readyPaneID, stoppedPaneID])
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(recorder.requests.first?.title, "Stopped early")
+        XCTAssertEqual(recorder.requests.first?.soundName, "")
+    }
+
+    func test_notification_coordinator_resolves_live_notification_when_pane_becomes_focused() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let store = NotificationStore(debounceInterval: 0.01)
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: store)
+        let readyPaneID = PaneID("worklane-main-ready")
+        let otherPaneID = PaneID("worklane-main-other")
+        let worklaneID = WorklaneID("worklane-main")
+
+        let committed = expectation(description: "notification committed")
+        store.onChange = { committed.fulfill() }
+        coordinator.update(
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: otherPaneID,
+                    attentions: [
+                        .init(
+                            paneID: otherPaneID,
+                            title: "Keep working",
+                            state: .running,
+                            updatedAt: Date(timeIntervalSince1970: 10)
+                        ),
+                        .init(
+                            paneID: readyPaneID,
+                            title: "Implement notifications",
+                            state: .ready,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+        await fulfillment(of: [committed], timeout: 2)
+
+        let resolved = expectation(description: "notification resolved")
+        store.onChange = { resolved.fulfill() }
+        coordinator.update(
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: readyPaneID,
+                    attentions: [
+                        .init(
+                            paneID: readyPaneID,
+                            title: "Implement notifications",
+                            state: .ready,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+        await fulfillment(of: [resolved], timeout: 2)
+
+        XCTAssertEqual(store.notifications.count, 1)
+        XCTAssertTrue(store.notifications[0].isResolved)
+    }
+
+    func test_notification_coordinator_uses_sound_only_for_needs_input() throws {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let configURL = AppConfigStore.temporaryFileURL(prefix: "agent-notification-sound-tests")
+        let configStore = AppConfigStore(fileURL: configURL)
+        try configStore.update { config in
+            config.notifications.soundName = "Glass"
+        }
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            configStore: configStore
+        )
+        let paneID = PaneID("worklane-main-input")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: paneID,
+                    attentions: [
+                        .init(
+                            paneID: paneID,
+                            title: "Review plan",
+                            state: .needsInput,
+                            interactionKind: .decision,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(recorder.requests.first?.soundName, "Glass")
     }
 
     private func makeClaudeHookSessionStore() throws -> ClaudeHookSessionStore {
@@ -1629,6 +1786,91 @@ final class AgentStatusSupportTests: XCTestCase {
             ),
             auxiliaryStateByPaneID: [paneID: auxiliaryState]
         )
+    }
+
+    private struct AttentionFixture {
+        let paneID: PaneID
+        let title: String
+        let state: WorklaneAttentionState
+        var interactionKind: PaneInteractionKind? = nil
+        let updatedAt: Date
+    }
+
+    private func makeAttentionWorklane(
+        worklaneID: WorklaneID,
+        focusedPaneID: PaneID,
+        attentions: [AttentionFixture]
+    ) -> WorklaneState {
+        var auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:]
+        let panes = attentions.map { attention in
+            PaneState(id: attention.paneID, title: attention.title)
+        }
+
+        for attention in attentions {
+            var auxiliaryState = PaneAuxiliaryState()
+            auxiliaryState.presentation = PanePresentationState(
+                cwd: "/tmp/project",
+                repoRoot: "/tmp/project",
+                branch: "main",
+                branchDisplayText: "main",
+                lookupBranch: "main",
+                identityText: attention.title,
+                contextText: "main · /tmp/project",
+                rememberedTitle: attention.title,
+                recognizedTool: .claudeCode,
+                runtimePhase: runtimePhase(for: attention.state),
+                statusText: statusText(for: attention.state, interactionKind: attention.interactionKind),
+                pullRequest: nil,
+                reviewChips: [],
+                attentionArtifactLink: nil,
+                updatedAt: attention.updatedAt,
+                isWorking: false,
+                isReady: attention.state == .ready,
+                interactionKind: attention.interactionKind,
+                interactionLabel: attention.interactionKind?.defaultLabel,
+                interactionSymbolName: attention.interactionKind?.defaultSymbolName
+            )
+            auxiliaryStateByPaneID[attention.paneID] = auxiliaryState
+        }
+
+        return WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: panes,
+                focusedPaneID: focusedPaneID
+            ),
+            auxiliaryStateByPaneID: auxiliaryStateByPaneID
+        )
+    }
+
+    private func runtimePhase(for state: WorklaneAttentionState) -> PanePresentationPhase {
+        switch state {
+        case .needsInput:
+            return .needsInput
+        case .unresolvedStop:
+            return .unresolvedStop
+        case .ready:
+            return .idle
+        case .running:
+            return .running
+        }
+    }
+
+    private func statusText(
+        for state: WorklaneAttentionState,
+        interactionKind: PaneInteractionKind?
+    ) -> String {
+        switch state {
+        case .needsInput:
+            return interactionKind?.defaultLabel ?? "Needs input"
+        case .unresolvedStop:
+            return "Stopped early"
+        case .ready:
+            return "Agent ready"
+        case .running:
+            return "Running"
+        }
     }
 
     private func makeTemporaryBundleRoot(named name: String) throws -> URL {
@@ -1780,6 +2022,7 @@ private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUser
         let identifier: String
         let title: String
         let body: String
+        let soundName: String
     }
 
     private(set) var requests: [RequestRecord] = []
@@ -1787,7 +2030,7 @@ private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUser
     func requestAuthorizationIfNeeded() {}
 
     func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String, soundName: String) {
-        requests.append(RequestRecord(identifier: identifier, title: title, body: body))
+        requests.append(RequestRecord(identifier: identifier, title: title, body: body, soundName: soundName))
     }
 }
 

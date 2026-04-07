@@ -160,6 +160,10 @@ struct KeyboardShortcut: Hashable, Sendable {
 
     init?(event: NSEvent) {
         let sanitizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard sanitizedFlags.contains(.function) == false else {
+            return nil
+        }
+
         var modifiers = Set<KeyboardModifier>()
 
         if sanitizedFlags.contains(.command) {

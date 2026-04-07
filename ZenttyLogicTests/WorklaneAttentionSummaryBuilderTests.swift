@@ -201,4 +201,71 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary?.primaryText, "Implement ready notifications")
     }
 
+    func test_summaries_returns_all_attention_panes_sorted_by_priority_then_recency() {
+        let readyPaneID = PaneID("pane-ready")
+        let stoppedPaneID = PaneID("pane-stopped")
+
+        var readyAuxiliaryState = PaneAuxiliaryState()
+        readyAuxiliaryState.presentation = PanePresentationState(
+            cwd: "/tmp/project",
+            repoRoot: "/tmp/project",
+            branch: "main",
+            branchDisplayText: "main",
+            lookupBranch: "main",
+            identityText: "Implement notifications",
+            contextText: "main · /tmp/project",
+            rememberedTitle: "Implement notifications",
+            recognizedTool: .claudeCode,
+            runtimePhase: .idle,
+            statusText: "Agent ready",
+            pullRequest: nil,
+            reviewChips: [],
+            attentionArtifactLink: nil,
+            updatedAt: Date(timeIntervalSince1970: 50),
+            isWorking: false,
+            isReady: true
+        )
+
+        var stoppedAuxiliaryState = PaneAuxiliaryState()
+        stoppedAuxiliaryState.presentation = PanePresentationState(
+            cwd: "/tmp/project",
+            repoRoot: "/tmp/project",
+            branch: "main",
+            branchDisplayText: "main",
+            lookupBranch: "main",
+            identityText: "Fix failure handling",
+            contextText: "main · /tmp/project",
+            rememberedTitle: "Fix failure handling",
+            recognizedTool: .claudeCode,
+            runtimePhase: .unresolvedStop,
+            statusText: "Stopped early",
+            pullRequest: nil,
+            reviewChips: [],
+            attentionArtifactLink: nil,
+            updatedAt: Date(timeIntervalSince1970: 100),
+            isWorking: false
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: readyPaneID, title: "ready"),
+                    PaneState(id: stoppedPaneID, title: "stopped"),
+                ],
+                focusedPaneID: readyPaneID
+            ),
+            auxiliaryStateByPaneID: [
+                readyPaneID: readyAuxiliaryState,
+                stoppedPaneID: stoppedAuxiliaryState,
+            ]
+        )
+
+        let summaries = WorklaneAttentionSummaryBuilder.summaries(for: worklane)
+
+        XCTAssertEqual(summaries.map(\.paneID), [stoppedPaneID, readyPaneID])
+        XCTAssertEqual(summaries.map(\.state), [.unresolvedStop, .ready])
+    }
+
 }

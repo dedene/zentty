@@ -39,7 +39,12 @@ extension WorklaneStore {
         if
             let existingStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus,
             (existingStatus.source == .inferred || existingStatus.origin == .compatibility),
-            AgentToolRecognizer.recognize(metadata: metadata) == nil
+            AgentToolRecognizer.recognize(metadata: metadata) == nil,
+            !shouldPreserveCodexStatusContinuity(
+                existingStatus: existingStatus,
+                previousMetadata: previousMetadata,
+                nextMetadata: metadata
+            )
         {
             worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
             worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState = PaneAgentReducerState()
@@ -140,6 +145,10 @@ extension WorklaneStore {
             return
         }
 
+        if auxiliaryState.agentStatus?.state == .running {
+            return
+        }
+
         auxiliaryState.agentStatus = PaneAgentStatus(
             tool: .codex,
             state: .running,
@@ -158,6 +167,30 @@ extension WorklaneStore {
             parentSessionID: auxiliaryState.agentStatus?.parentSessionID
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+    }
+
+    private func shouldPreserveCodexStatusContinuity(
+        existingStatus: PaneAgentStatus,
+        previousMetadata: TerminalMetadata?,
+        nextMetadata: TerminalMetadata
+    ) -> Bool {
+        guard existingStatus.tool == .codex, existingStatus.hasObservedRunning else {
+            return false
+        }
+
+        let nextTitlePhase = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            nextMetadata.title,
+            recognizedTool: .codex
+        )?.phase
+        if nextTitlePhase == .idle {
+            return true
+        }
+
+        let previousTitlePhase = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            previousMetadata?.title,
+            recognizedTool: .codex
+        )?.phase
+        return previousTitlePhase == .running || previousTitlePhase == .starting
     }
 
     private func surfaceReadyCodexSessionIfTitleIndicatesIdle(

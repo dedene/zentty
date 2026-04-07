@@ -10,11 +10,16 @@ protocol WorklaneAttentionUserNotificationCenter: AnyObject {
 
 @MainActor
 final class WorklaneAttentionNotificationCoordinator {
+    private struct PaneKey: Hashable {
+        let worklaneID: WorklaneID
+        let paneID: PaneID
+    }
+
     private let center: any WorklaneAttentionUserNotificationCenter
     private let notificationStore: NotificationStore
     private let configStore: AppConfigStore?
-    private var lastSeenStates: [WorklaneID: WorklaneAttentionState] = [:]
-    private var lastSeenPaneIDs: [WorklaneID: PaneID] = [:]
+    private var lastSeenStates: [PaneKey: WorklaneAttentionState] = [:]
+    private var lastSeenActiveViews: [PaneKey: Bool] = [:]
 
     init(
         center: any WorklaneAttentionUserNotificationCenter = WorklaneAttentionUNCenter(),
@@ -32,82 +37,82 @@ final class WorklaneAttentionNotificationCoordinator {
         activeWorklaneID: WorklaneID,
         windowIsKey: Bool
     ) {
-        var nextSeenStates: [WorklaneID: WorklaneAttentionState] = [:]
-        var nextSeenPaneIDs: [WorklaneID: PaneID] = [:]
-        var visitedWorklaneIDs = Set<WorklaneID>()
+        var nextSeenStates: [PaneKey: WorklaneAttentionState] = [:]
+        var nextSeenActiveViews: [PaneKey: Bool] = [:]
+        var visitedPaneKeys = Set<PaneKey>()
 
         for worklane in worklanes {
-            visitedWorklaneIDs.insert(worklane.id)
-
-            guard let attention = WorklaneAttentionSummaryBuilder.summary(for: worklane) else {
-                // Worklane no longer has attention — resolve if it was previously needsInput.
-                if lastSeenStates[worklane.id] == .needsInput,
-                   let previousPaneID = lastSeenPaneIDs[worklane.id] {
-                    notificationStore.resolve(worklaneID: worklane.id, paneID: previousPaneID)
-                }
-                continue
-            }
-
-            nextSeenStates[worklane.id] = attention.state
-            nextSeenPaneIDs[worklane.id] = attention.paneID
-
-            let stateChanged = lastSeenStates[worklane.id] != attention.state
-            let paneChanged = lastSeenPaneIDs[worklane.id] != attention.paneID
-            let didChange = stateChanged || paneChanged
-
-            // Resolve in-app notification when leaving needsInput or when the attention pane changed.
-            if didChange,
-               lastSeenStates[worklane.id] == .needsInput,
-               let previousPaneID = lastSeenPaneIDs[worklane.id] {
-                notificationStore.resolve(worklaneID: worklane.id, paneID: previousPaneID)
-            }
-
-            // Add in-app notification when entering needsInput or when the attention pane changed.
-            if didChange, attention.state == .needsInput {
-                notificationStore.add(
-                    worklaneID: worklane.id,
+            for attention in WorklaneAttentionSummaryBuilder.summaries(for: worklane) {
+                let key = PaneKey(worklaneID: worklane.id, paneID: attention.paneID)
+                visitedPaneKeys.insert(key)
+                nextSeenStates[key] = attention.state
+                let isActivelyViewed = isPaneActivelyViewed(
                     paneID: attention.paneID,
-                    tool: attention.tool,
-                    interactionKind: attention.interactionKind,
-                    interactionSymbolName: attention.interactionSymbolName,
-                    statusText: attention.statusText,
-                    primaryText: attention.primaryText
+                    in: worklane,
+                    activeWorklaneID: activeWorklaneID,
+                    windowIsKey: windowIsKey
                 )
-            }
+                nextSeenActiveViews[key] = isActivelyViewed
 
-            guard didChange,
-                  shouldNotifySystemNotification(
+                if isActivelyViewed,
+                   lastSeenStates[key] == attention.state,
+                   lastSeenActiveViews[key] == false {
+                    notificationStore.resolve(worklaneID: worklane.id, paneID: attention.paneID)
+                }
+
+                let stateChanged = lastSeenStates[key] != attention.state
+                guard stateChanged else {
+                    continue
+                }
+
+                if isNotificationWorthy(attention.state) {
+                    notificationStore.add(
+                        worklaneID: worklane.id,
+                        paneID: attention.paneID,
+                        state: attention.state,
+                        tool: attention.tool,
+                        interactionKind: attention.interactionKind,
+                        interactionSymbolName: attention.interactionSymbolName,
+                        statusText: systemNotificationTitle(for: attention),
+                        primaryText: systemNotificationBody(for: attention, in: worklane),
+                        isDebounced: attention.state == .needsInput
+                    )
+                } else {
+                    notificationStore.resolve(worklaneID: worklane.id, paneID: attention.paneID)
+                }
+
+                guard shouldNotifySystemNotification(
                     for: attention,
                     in: worklane,
                     activeWorklaneID: activeWorklaneID,
                     windowIsKey: windowIsKey
-                  ) else {
-                continue
-            }
+                ) else {
+                    continue
+                }
 
-            center.add(
-                identifier: "\(worklane.id.rawValue)-\(attention.state.rawValue)-\(attention.updatedAt.timeIntervalSince1970)",
-                title: attention.statusText,
-                body: systemNotificationBody(for: attention, in: worklane),
-                worklaneID: worklane.id.rawValue,
-                paneID: attention.paneID.rawValue,
-                soundName: configStore?.current.notifications.soundName ?? ""
-            )
-            if attention.state == .needsInput, !windowIsKey {
-                NSApplication.shared.requestUserAttention(.informationalRequest)
+                center.add(
+                    identifier: "\(worklane.id.rawValue)-\(attention.paneID.rawValue)-\(attention.state.rawValue)-\(attention.updatedAt.timeIntervalSince1970)",
+                    title: systemNotificationTitle(for: attention),
+                    body: systemNotificationBody(for: attention, in: worklane),
+                    worklaneID: worklane.id.rawValue,
+                    paneID: attention.paneID.rawValue,
+                    soundName: systemNotificationSoundName(for: attention.state)
+                )
+                if attention.state == .needsInput, !windowIsKey {
+                    NSApplication.shared.requestUserAttention(.informationalRequest)
+                }
             }
         }
 
-        // Resolve any worklanes that were removed entirely (not in the worklanes array).
-        for (worklaneID, previousState) in lastSeenStates {
-            guard previousState == .needsInput,
-                  !visitedWorklaneIDs.contains(worklaneID),
-                  let previousPaneID = lastSeenPaneIDs[worklaneID] else { continue }
-            notificationStore.resolve(worklaneID: worklaneID, paneID: previousPaneID)
+        for (key, previousState) in lastSeenStates {
+            guard isNotificationWorthy(previousState), !visitedPaneKeys.contains(key) else {
+                continue
+            }
+            notificationStore.resolve(worklaneID: key.worklaneID, paneID: key.paneID)
         }
 
         lastSeenStates = nextSeenStates
-        lastSeenPaneIDs = nextSeenPaneIDs
+        lastSeenActiveViews = nextSeenActiveViews
     }
 
     private func shouldNotifySystemNotification(
@@ -116,19 +121,13 @@ final class WorklaneAttentionNotificationCoordinator {
         activeWorklaneID: WorklaneID,
         windowIsKey: Bool
     ) -> Bool {
-        switch attention.state {
-        case .needsInput:
-            return (worklane.id != activeWorklaneID) || !windowIsKey
-        case .ready:
-            return !isPaneActivelyViewed(
+        isNotificationWorthy(attention.state)
+            && !isPaneActivelyViewed(
                 paneID: attention.paneID,
                 in: worklane,
                 activeWorklaneID: activeWorklaneID,
                 windowIsKey: windowIsKey
             )
-        case .unresolvedStop, .running:
-            return false
-        }
     }
 
     private func isPaneActivelyViewed(
@@ -146,27 +145,83 @@ final class WorklaneAttentionNotificationCoordinator {
         for attention: WorklaneAttentionSummary,
         in worklane: WorklaneState
     ) -> String {
-        guard attention.state == .ready else {
+        switch attention.state {
+        case .needsInput:
+            return attention.primaryText
+        case .unresolvedStop:
+            if let presentation = worklane.paneContext(for: attention.paneID)?.presentation {
+                let meaningfulTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
+                    ?? WorklaneContextFormatter.trimmed(presentation.identityText)
+                if let meaningfulTitle,
+                   meaningfulTitle.caseInsensitiveCompare("shell") != .orderedSame {
+                    return meaningfulTitle
+                }
+
+                if let cwd = presentation.cwd,
+                   let compactPath = WorklaneContextFormatter.compactRepositorySidebarPath(cwd)
+                    ?? WorklaneContextFormatter.formattedWorkingDirectory(cwd, branch: nil) {
+                    return "Agent in \(compactPath) stopped early."
+                }
+            }
+
+            return "Agent stopped early."
+        case .ready:
+            if let presentation = worklane.paneContext(for: attention.paneID)?.presentation {
+                let meaningfulTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
+                    ?? WorklaneContextFormatter.trimmed(presentation.identityText)
+                if let meaningfulTitle,
+                   meaningfulTitle != presentation.contextText,
+                   meaningfulTitle.caseInsensitiveCompare("shell") != .orderedSame {
+                    return meaningfulTitle
+                }
+
+                if let cwd = presentation.cwd,
+                   let compactPath = WorklaneContextFormatter.compactRepositorySidebarPath(cwd)
+                    ?? WorklaneContextFormatter.formattedWorkingDirectory(cwd, branch: nil) {
+                    return "Agent in \(compactPath) is ready."
+                }
+            }
+
+            return "Agent is ready."
+        case .running:
             return attention.primaryText
         }
+    }
 
-        if let presentation = worklane.paneContext(for: attention.paneID)?.presentation {
-            let meaningfulTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
-                ?? WorklaneContextFormatter.trimmed(presentation.identityText)
-            if let meaningfulTitle,
-               meaningfulTitle != presentation.contextText,
-               meaningfulTitle.caseInsensitiveCompare("shell") != .orderedSame {
-                return meaningfulTitle
-            }
+    private func isNotificationWorthy(_ state: WorklaneAttentionState) -> Bool {
+        switch state {
+        case .needsInput, .ready, .unresolvedStop:
+            return true
+        case .running:
+            return false
+        }
+    }
 
-            if let cwd = presentation.cwd,
-               let compactPath = WorklaneContextFormatter.compactRepositorySidebarPath(cwd)
-                ?? WorklaneContextFormatter.formattedWorkingDirectory(cwd, branch: nil) {
-                return "Agent in \(compactPath) is ready."
-            }
+    private func systemNotificationTitle(for attention: WorklaneAttentionSummary) -> String {
+        let title = WorklaneContextFormatter.trimmed(attention.statusText)
+        if let title, !title.isEmpty {
+            return title
         }
 
-        return "Agent is ready."
+        switch attention.state {
+        case .needsInput:
+            return attention.interactionLabel ?? "Needs input"
+        case .ready:
+            return "Agent ready"
+        case .unresolvedStop:
+            return "Stopped early"
+        case .running:
+            return "Running"
+        }
+    }
+
+    private func systemNotificationSoundName(for state: WorklaneAttentionState) -> String {
+        switch state {
+        case .needsInput:
+            return configStore?.current.notifications.soundName ?? ""
+        case .ready, .unresolvedStop, .running:
+            return ""
+        }
     }
 }
 

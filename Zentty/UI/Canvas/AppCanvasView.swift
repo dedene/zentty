@@ -498,6 +498,8 @@ final class AppCanvasView: NSView {
         state: PaneStripState,
         metadataByPaneID: [PaneID: TerminalMetadata] = [:],
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
+        showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
+        inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         theme: ZenttyTheme,
         leadingVisibleInset: CGFloat? = nil,
         animated: Bool = true,
@@ -510,6 +512,8 @@ final class AppCanvasView: NSView {
             paneStripView.transition(
                 to: state,
                 paneBorderContextByPaneID: paneBorderContextByPaneID,
+                showsPaneLabels: showsPaneLabels,
+                inactivePaneOpacity: inactivePaneOpacity,
                 leadingVisibleInset: leadingVisibleInset,
                 animated: animated,
                 duration: duration,
@@ -519,6 +523,8 @@ final class AppCanvasView: NSView {
             paneStripView.render(
                 state,
                 paneBorderContextByPaneID: paneBorderContextByPaneID,
+                showsPaneLabels: showsPaneLabels,
+                inactivePaneOpacity: inactivePaneOpacity,
                 leadingVisibleInset: leadingVisibleInset,
                 animated: animated,
                 duration: duration,

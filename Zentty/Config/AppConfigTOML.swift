@@ -11,6 +11,7 @@ enum AppConfigTOML {
         case root
         case sidebar
         case paneLayout
+        case panes
         case openWith
         case errorReporting
         case customApp(Int)
@@ -32,6 +33,10 @@ enum AppConfigTOML {
         lines.append("laptop = \(encode(string: config.paneLayout.laptopPreset.rawValue))")
         lines.append("large_display = \(encode(string: config.paneLayout.largeDisplayPreset.rawValue))")
         lines.append("ultrawide = \(encode(string: config.paneLayout.ultrawidePreset.rawValue))")
+        lines.append("")
+        lines.append("[panes]")
+        lines.append("show_labels = \(config.panes.showLabels)")
+        lines.append("inactive_opacity = \(format(number: config.panes.inactiveOpacity))")
         lines.append("")
         lines.append("[open_with]")
         lines.append("primary_target_id = \(encode(string: config.openWith.primaryTargetID))")
@@ -107,6 +112,10 @@ enum AppConfigTOML {
                 section = .paneLayout
                 continue
             }
+            if line == "[panes]" {
+                section = .panes
+                continue
+            }
             if line == "[open_with]" {
                 section = .openWith
                 continue
@@ -152,6 +161,10 @@ enum AppConfigTOML {
                 }
             case .paneLayout:
                 guard decodePaneLayoutAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .panes:
+                guard decodePanesAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .openWith:
@@ -274,6 +287,28 @@ enum AppConfigTOML {
                 return false
             }
             config.openWith.enabledTargetIDs = values
+        default:
+            return true
+        }
+
+        return true
+    }
+
+    private static func decodePanesAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "show_labels":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.panes.showLabels = value
+        case "inactive_opacity":
+            guard let value = Double(assignment.value) else {
+                return false
+            }
+            config.panes.inactiveOpacity = CGFloat(value)
         default:
             return true
         }

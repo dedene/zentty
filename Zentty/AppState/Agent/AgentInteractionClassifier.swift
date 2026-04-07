@@ -53,7 +53,7 @@ enum AgentInteractionClassifier {
         }
 
         if message.contains("plan-mode-prompt") || message.contains("plan mode prompt") {
-            return .decision
+            return .approval
         }
 
         if message.contains("question requested") || message.contains("questions requested") {

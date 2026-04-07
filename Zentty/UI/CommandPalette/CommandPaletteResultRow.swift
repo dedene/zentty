@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CommandPaletteResultRow: View {
     let item: CommandPaletteItem
+    let showsSubtitle: Bool
     let isSelected: Bool
     let primaryColor: Color
     let secondaryColor: Color
@@ -17,10 +18,12 @@ struct CommandPaletteResultRow: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(isSelected ? .white : primaryColor)
                     .lineLimit(1)
-                Text(item.subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(isSelected ? .white.opacity(0.8) : secondaryColor)
-                    .lineLimit(1)
+                if showsSubtitle {
+                    Text(item.subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(isSelected ? .white.opacity(0.8) : secondaryColor)
+                        .lineLimit(1)
+                }
             }
             Spacer()
             Text(item.category)

@@ -97,4 +97,127 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
         XCTAssertTrue(items[0].searchText.contains("cursor"))
         XCTAssertTrue(items[0].searchText.contains("open with"))
     }
+
+    func testOpenWithItemsIncludeCuratedAliases() {
+        let targets = [
+            OpenWithResolvedTarget(stableID: "vscode", kind: .editor, displayName: "VS Code", builtInID: .vscode, appPath: nil),
+            OpenWithResolvedTarget(stableID: "finder", kind: .fileManager, displayName: "Finder", builtInID: .finder, appPath: nil),
+        ]
+        let items = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: targets,
+            focusedPanePath: "/tmp/project"
+        )
+
+        XCTAssertTrue(items[0].searchText.contains("visual studio code"))
+        XCTAssertEqual(items[0].family, .openWith)
+        XCTAssertTrue(items[0].familySearchText?.contains("visual studio code") == true)
+        XCTAssertTrue(items[1].familySearchText?.contains("file manager") == true)
+    }
+
+    func testScopedOpenWithQueryShowsAllTargetsAndUsesRecentOpenWithFirst() {
+        let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: [
+                OpenWithResolvedTarget(stableID: "vscode", kind: .editor, displayName: "VS Code", builtInID: .vscode, appPath: nil),
+                OpenWithResolvedTarget(stableID: "finder", kind: .fileManager, displayName: "Finder", builtInID: .finder, appPath: nil),
+                OpenWithResolvedTarget(stableID: "xcode", kind: .editor, displayName: "Xcode", builtInID: .xcode, appPath: nil),
+            ],
+            focusedPanePath: "/tmp/project"
+        )
+        let commandItems = CommandPaletteItemBuilder.buildItems(
+            availableCommandIDs: [.openSettings],
+            shortcutManager: shortcutManager
+        )
+
+        let resolved = CommandPaletteResultsResolver.resolve(
+            searchText: "open with",
+            items: commandItems + openWithItems,
+            recentItems: [
+                openWithItems[2],
+                commandItems[0],
+            ]
+        )
+
+        XCTAssertEqual(resolved.scope?.family, .openWith)
+        XCTAssertEqual(resolved.scope?.title, "Open With")
+        XCTAssertEqual(resolved.scope?.subtitle, "/tmp/project")
+        XCTAssertEqual(resolved.items.map(\.item.id), [
+            .openWith(stableID: "xcode"),
+            .openWith(stableID: "vscode"),
+            .openWith(stableID: "finder"),
+        ])
+        XCTAssertEqual(resolved.items.map(\.showsSubtitle), [false, false, false])
+    }
+
+    func testLeadingOpenAliasScopesWhenRemainderMatchesOpenWithTarget() {
+        let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: [
+                OpenWithResolvedTarget(stableID: "finder", kind: .fileManager, displayName: "Finder", builtInID: .finder, appPath: nil),
+                OpenWithResolvedTarget(stableID: "vscode", kind: .editor, displayName: "VS Code", builtInID: .vscode, appPath: nil),
+            ],
+            focusedPanePath: "/tmp/project"
+        )
+        let commandItems = CommandPaletteItemBuilder.buildItems(
+            availableCommandIDs: [.openSettings],
+            shortcutManager: shortcutManager
+        )
+
+        let resolved = CommandPaletteResultsResolver.resolve(
+            searchText: "open fi",
+            items: commandItems + openWithItems,
+            recentItems: []
+        )
+
+        XCTAssertEqual(resolved.scope?.family, .openWith)
+        XCTAssertEqual(resolved.items.map(\.item.id), [
+            .openWith(stableID: "finder"),
+            .openWith(stableID: "vscode"),
+        ])
+    }
+
+    func testLeadingOpenAliasDoesNotScopeWhenRemainderMatchesRegularCommandInstead() {
+        let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: [
+                OpenWithResolvedTarget(stableID: "finder", kind: .fileManager, displayName: "Finder", builtInID: .finder, appPath: nil),
+            ],
+            focusedPanePath: "/tmp/project"
+        )
+        let commandItems = CommandPaletteItemBuilder.buildItems(
+            availableCommandIDs: [.openSettings],
+            shortcutManager: shortcutManager
+        )
+
+        let resolved = CommandPaletteResultsResolver.resolve(
+            searchText: "open settings",
+            items: commandItems + openWithItems,
+            recentItems: []
+        )
+
+        XCTAssertNil(resolved.scope)
+        XCTAssertEqual(resolved.items.first?.item.id, .command(.openSettings))
+        XCTAssertEqual(resolved.items.first?.showsSubtitle, true)
+    }
+
+    func testScopedOpenWithQueryKeepsContextWhilePrioritizingMatches() {
+        let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: [
+                OpenWithResolvedTarget(stableID: "vscode", kind: .editor, displayName: "VS Code", builtInID: .vscode, appPath: nil),
+                OpenWithResolvedTarget(stableID: "finder", kind: .fileManager, displayName: "Finder", builtInID: .finder, appPath: nil),
+                OpenWithResolvedTarget(stableID: "xcode", kind: .editor, displayName: "Xcode", builtInID: .xcode, appPath: nil),
+            ],
+            focusedPanePath: "/tmp/project"
+        )
+
+        let resolved = CommandPaletteResultsResolver.resolve(
+            searchText: "open with fi",
+            items: openWithItems,
+            recentItems: []
+        )
+
+        XCTAssertEqual(resolved.scope?.family, .openWith)
+        XCTAssertEqual(resolved.items.map(\.item.id), [
+            .openWith(stableID: "finder"),
+            .openWith(stableID: "vscode"),
+            .openWith(stableID: "xcode"),
+        ])
+    }
 }
