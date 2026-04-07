@@ -627,12 +627,15 @@ def edit_text_in_editor!(initial_text, path_hint:)
 
     editor = Shellwords.split(ENV.fetch("EDITOR", "vi"))
     UI.message("Opening #{path_hint} in #{editor.first}")
+    UI.message("Waiting for #{editor.first} to close...")
     sh(*editor, file.path)
+    UI.success("#{editor.first} closed — capturing release notes")
 
     edited_text = File.read(file.path)
     UI.user_error!("Release notes file was left empty") if edited_text.strip.empty?
 
     File.write(path_hint, edited_text)
+    UI.message("Release notes saved (#{edited_text.lines.count} lines) -> #{path_hint}")
     return edited_text
   end
 end
@@ -732,6 +735,7 @@ def sparkle_generate_appcast_binary!
   return binary_path if File.executable?(binary_path)
 
   FileUtils.mkdir_p(build_dir)
+  UI.message("Building Sparkle generate_appcast tool (one-time, may take a minute)...")
   capture_command!(
     xcrun_path, "xcodebuild",
     "-project", File.join(checkout, "Sparkle.xcodeproj"),
@@ -745,6 +749,7 @@ def sparkle_generate_appcast_binary!
     error_message: "Failed to build Sparkle generate_appcast tool"
   )
   UI.user_error!("Expected generate_appcast at #{binary_path}") unless File.executable?(binary_path)
+  UI.success("Sparkle generate_appcast tool built")
   binary_path
 end
 
@@ -766,8 +771,11 @@ end
 
 def generate_sparkle_appcast!(channel:)
   FileUtils.mkdir_p(sparkle_updates_dir)
+  UI.message("Generating Sparkle appcast (signing artifacts and building deltas, this can take a moment)...")
+  started_at = Time.now
   capture_command!(*build_generate_appcast_arguments(channel: channel), error_message: "Failed to generate Sparkle appcast")
   UI.user_error!("Expected #{sparkle_appcast_path} to exist after appcast generation") unless File.exist?(sparkle_appcast_path)
+  UI.success("Sparkle appcast ready (#{(Time.now - started_at).round(1)}s) -> #{sparkle_appcast_path}")
 end
 
 def r2_object_url(object_key)
