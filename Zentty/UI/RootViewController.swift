@@ -792,6 +792,14 @@ final class RootViewController: NSViewController {
             worklaneStore.selectNextWorklane()
         case .previousWorklane:
             worklaneStore.selectPreviousWorklane()
+        case .find:
+            showFocusedPaneSearch()
+        case .useSelectionForFind:
+            useFocusedPaneSelectionForSearch()
+        case .findNext:
+            findNextInFocusedPane()
+        case .findPrevious:
+            findPreviousInFocusedPane()
         case .copyFocusedPanePath:
             copyFocusedPanePath()
         case .jumpToLatestNotification:
@@ -816,6 +824,22 @@ final class RootViewController: NSViewController {
         case .reloadConfig:
             configStore.reloadFromDisk()
         }
+    }
+
+    private func showFocusedPaneSearch() {
+        focusedPaneRuntime()?.showSearch()
+    }
+
+    private func useFocusedPaneSelectionForSearch() {
+        focusedPaneRuntime()?.useSelectionForFind()
+    }
+
+    private func findNextInFocusedPane() {
+        focusedPaneRuntime()?.findNext()
+    }
+
+    private func findPreviousInFocusedPane() {
+        focusedPaneRuntime()?.findPrevious()
     }
 
     private func handlePaneCommand(_ command: PaneCommand) {
@@ -1035,6 +1059,7 @@ final class RootViewController: NSViewController {
             worklaneCount: worklaneCount,
             activePaneCount: activePaneCount,
             totalPaneCount: totalPaneCount,
+            focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
             focusedPanePath: focusedPanePath,
             openWithTargets: openWithTargets
         )
@@ -1409,12 +1434,28 @@ final class RootViewController: NSViewController {
         worklaneStore.focusedOpenWithContext
     }
 
+    var focusedPaneHasRememberedSearch: Bool {
+        focusedPaneRuntime()?.snapshot.search.hasRememberedSearch ?? false
+    }
+
     var focusedPaneIDForTesting: PaneID? {
         worklaneStore.activeWorklane?.paneStripState.focusedPaneID
     }
 
+    var focusedPaneSearchStateForTesting: PaneSearchState? {
+        focusedPaneRuntime()?.snapshot.search
+    }
+
     var availableOpenWithTargets: [OpenWithResolvedTarget] {
         openWithService.availableTargets(preferences: configStore.current.openWith)
+    }
+
+    private func focusedPaneRuntime() -> PaneRuntime? {
+        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else {
+            return nil
+        }
+
+        return runtimeRegistry.runtime(for: paneID)
     }
 
     var primaryOpenWithTarget: OpenWithResolvedTarget? {

@@ -495,6 +495,26 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func find(_ sender: Any?) {
+        handle(.find)
+    }
+
+    @objc
+    func useSelectionForFind(_ sender: Any?) {
+        handle(.useSelectionForFind)
+    }
+
+    @objc
+    func findNext(_ sender: Any?) {
+        handle(.findNext)
+    }
+
+    @objc
+    func findPrevious(_ sender: Any?) {
+        handle(.findPrevious)
+    }
+
+    @objc
     func showCommandPalette(_ sender: Any?) {
         handle(.showCommandPalette)
     }
@@ -947,6 +967,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.isMovable
     }
     #endif
+}
+
+extension MainWindowController: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(findNext(_:)),
+             #selector(findPrevious(_:)):
+            return rootViewController.focusedPaneHasRememberedSearch
+        default:
+            return true
+        }
+    }
 }
 
 enum TrafficLightTintResolver {

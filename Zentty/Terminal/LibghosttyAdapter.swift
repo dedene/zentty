@@ -40,6 +40,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
     var hasScrollback: Bool { get }
     var cellWidth: CGFloat { get }
     var cellHeight: CGFloat { get }
+    var searchDidChange: ((TerminalSearchEvent) -> Void)? { get set }
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?)
     func setFocused(_ isFocused: Bool)
     func refresh()
@@ -59,7 +60,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
 }
 
 @MainActor
-final class LibghosttyAdapter: TerminalAdapter {
+final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling {
     private let runtime: any LibghosttyRuntimeProviding
     private let paneID: PaneID
     private let diagnostics: TerminalDiagnostics
@@ -79,6 +80,7 @@ final class LibghosttyAdapter: TerminalAdapter {
     var cellHeight: CGFloat { surfaceController?.cellHeight ?? 0 }
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
+    var searchDidChange: ((TerminalSearchEvent) -> Void)?
 
     init(
         paneID: PaneID = PaneID("unknown"),
@@ -117,6 +119,9 @@ final class LibghosttyAdapter: TerminalAdapter {
             )
 
             hostView.bind(surfaceController: surfaceController)
+            surfaceController.searchDidChange = { [weak self] event in
+                self?.searchDidChange?(event)
+            }
             self.surfaceController = surfaceController
             hasAppliedSurfaceActivity = false
             setSurfaceActivity(lastSurfaceActivity)
@@ -156,6 +161,30 @@ final class LibghosttyAdapter: TerminalAdapter {
                 surfaceController.refresh()
             }
         }
+    }
+
+    func showSearch() {
+        _ = surfaceController?.performBindingAction("start_search")
+    }
+
+    func useSelectionForFind() {
+        _ = surfaceController?.performBindingAction("search_selection")
+    }
+
+    func updateSearch(needle: String) {
+        _ = surfaceController?.performBindingAction("search:\(needle)")
+    }
+
+    func findNext() {
+        _ = surfaceController?.performBindingAction("navigate_search:next")
+    }
+
+    func findPrevious() {
+        _ = surfaceController?.performBindingAction("navigate_search:previous")
+    }
+
+    func endSearch() {
+        _ = surfaceController?.performBindingAction("end_search")
     }
 }
 

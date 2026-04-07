@@ -754,6 +754,10 @@ final class PaneStripView: NSView {
             dragZone.onDragCancelled = { [weak self] in
                 self?.dragCoordinator.cancelDrag()
             }
+            dragZone.isHidden = paneView.isSearchHUDVisible
+            paneView.onSearchHUDVisibilityDidChange = { [weak dragZone] isVisible in
+                dragZone?.isHidden = isVisible
+            }
             paneView.addSubview(dragZone)
             dragZoneViews[pane.id] = dragZone
             }

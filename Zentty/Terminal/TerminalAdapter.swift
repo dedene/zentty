@@ -83,6 +83,45 @@ enum TerminalEvent: Equatable, Sendable {
     case surfaceClosed
 }
 
+enum PaneSearchHUDCorner: String, CaseIterable, Equatable, Sendable {
+    case topLeading
+    case topTrailing
+    case bottomLeading
+    case bottomTrailing
+}
+
+struct PaneSearchState: Equatable, Sendable {
+    var needle: String
+    var selected: Int
+    var total: Int
+    var hasRememberedSearch: Bool
+    var isHUDVisible: Bool
+    var hudCorner: PaneSearchHUDCorner
+
+    init(
+        needle: String = "",
+        selected: Int = -1,
+        total: Int = 0,
+        hasRememberedSearch: Bool = false,
+        isHUDVisible: Bool = false,
+        hudCorner: PaneSearchHUDCorner = .topTrailing
+    ) {
+        self.needle = needle
+        self.selected = selected
+        self.total = total
+        self.hasRememberedSearch = hasRememberedSearch
+        self.isHUDVisible = isHUDVisible
+        self.hudCorner = hudCorner
+    }
+}
+
+enum TerminalSearchEvent: Equatable, Sendable {
+    case started(needle: String?)
+    case ended
+    case total(Int)
+    case selected(Int)
+}
+
 @MainActor
 protocol TerminalAdapter: AnyObject {
     var hasScrollback: Bool { get }
@@ -97,6 +136,17 @@ protocol TerminalAdapter: AnyObject {
 }
 
 @MainActor
+protocol TerminalSearchControlling: AnyObject {
+    var searchDidChange: ((TerminalSearchEvent) -> Void)? { get set }
+    func showSearch()
+    func useSelectionForFind()
+    func updateSearch(needle: String)
+    func findNext()
+    func findPrevious()
+    func endSearch()
+}
+
+@MainActor
 protocol TerminalFocusReporting: AnyObject {
     var onFocusDidChange: ((Bool) -> Void)? { get set }
 }
@@ -107,8 +157,18 @@ protocol TerminalFocusTargetProviding: AnyObject {
 }
 
 @MainActor
+protocol TerminalOverlayHosting: AnyObject {
+    var terminalOverlayHostView: NSView { get }
+}
+
+@MainActor
 protocol TerminalScrollRouting: AnyObject {
     var onScrollWheel: ((NSEvent) -> Bool)? { get set }
+}
+
+@MainActor
+protocol TerminalMouseInteractionSuppressionControlling: AnyObject {
+    func setMouseInteractionSuppressionRects(_ rects: [CGRect])
 }
 
 @MainActor

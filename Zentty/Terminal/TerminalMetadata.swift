@@ -788,7 +788,13 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "pwd"
         case .progressReport:
             return "progressReport"
-        case .commandFinished, .desktopNotification, .openURL:
+        case .commandFinished,
+             .desktopNotification,
+             .startSearch,
+             .endSearch,
+             .searchTotal,
+             .searchSelected,
+             .openURL:
             return "ordered"
         case .scrollbar:
             return "scrollbar"

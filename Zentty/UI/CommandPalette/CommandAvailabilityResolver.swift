@@ -4,11 +4,17 @@ enum CommandAvailabilityResolver {
     static func availableCommandIDs(
         worklaneCount: Int,
         activePaneCount: Int,
-        totalPaneCount: Int
+        totalPaneCount: Int,
+        focusedPaneHasRememberedSearch: Bool = false
     ) -> Set<AppCommandID> {
         var available = Set(AppCommandID.allCases)
 
         available.remove(.showCommandPalette)
+
+        if !focusedPaneHasRememberedSearch {
+            available.remove(.findNext)
+            available.remove(.findPrevious)
+        }
 
         if totalPaneCount <= 1 {
             available.remove(.focusPreviousPane)

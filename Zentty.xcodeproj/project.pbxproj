@@ -85,6 +85,7 @@
 		6D1FE5590C9482B094476836 /* LibghosttyRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 041FEB5F657A57B5668D9BFD /* LibghosttyRuntime.swift */; };
 		6E96BC22B94EF59BDF0E11E3 /* PaneStripView+Transitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28E15DDC0970C4214A4C9E5E /* PaneStripView+Transitions.swift */; };
 		720727A2DA0A0EA0C32EC86E /* ClaudeHookSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C344F4EE24498B605D2794B3 /* ClaudeHookSessionStore.swift */; };
+		731E192A944AF30FB531F314 /* PaneSearchHUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48BB45FB1B15B96A8C195343 /* PaneSearchHUDView.swift */; };
 		738453B16B8499ADFB4722CB /* WindowChromeRowLayoutPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86917D1F9201725F12438AD5 /* WindowChromeRowLayoutPlannerTests.swift */; };
 		74A2DE5A0880B028476E3D8D /* PaneStripMotionControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD7AA3458BBF1FAEFFC158A /* PaneStripMotionControllerTests.swift */; };
 		750B3753803EBABD25361C40 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 7B6C0F6F7A5305E09ECE2C65 /* Sentry */; };
@@ -276,6 +277,7 @@
 		45E5788E143BDA3D1DF37882 /* CommandAvailabilityResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandAvailabilityResolver.swift; sourceTree = "<group>"; };
 		470B2E9611ABBDDD841438E9 /* PaneDragInsertionLineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragInsertionLineView.swift; sourceTree = "<group>"; };
 		474B9A1AC6A427A707683CA3 /* PaneCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneCommand.swift; sourceTree = "<group>"; };
+		48BB45FB1B15B96A8C195343 /* PaneSearchHUDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneSearchHUDView.swift; sourceTree = "<group>"; };
 		48F435FA119C97C5F497FBD9 /* PaneLayoutSettingsWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutSettingsWindowControllerTests.swift; sourceTree = "<group>"; };
 		4AB3C0ACB087A96811645CE3 /* AppMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBuilder.swift; sourceTree = "<group>"; };
 		4C4740E3F7FBB64DB5815643 /* AppCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCanvasView.swift; sourceTree = "<group>"; };
@@ -697,6 +699,7 @@
 				470B2E9611ABBDDD841438E9 /* PaneDragInsertionLineView.swift */,
 				E1A2BC275D0F7E90ACD593C6 /* PaneDragSplitOverlayView.swift */,
 				3FAF5222B4D0E69865759FBD /* PaneDragZoneView.swift */,
+				48BB45FB1B15B96A8C195343 /* PaneSearchHUDView.swift */,
 				FEFFC2CAEA605772B62E73E5 /* PaneStripView.swift */,
 				28E15DDC0970C4214A4C9E5E /* PaneStripView+Transitions.swift */,
 				905DD9FD69FFEA7991390EA4 /* ScrollSwitchGestureHandler.swift */,
@@ -1191,6 +1194,7 @@
 				6407E321D23E068FFB2B995B /* PaneLayoutPreferences.swift in Sources */,
 				8000FFBB2A9BB2606A89CD92 /* PaneLayoutSizing.swift in Sources */,
 				4BB0E4171C495664EF0324FE /* PaneNavigationButtons.swift in Sources */,
+				731E192A944AF30FB531F314 /* PaneSearchHUDView.swift in Sources */,
 				13A456B3644AB1AA586D10E9 /* PaneShellContext.swift in Sources */,
 				C01A739643B858C0F3A69C88 /* PaneStripMotionController.swift in Sources */,
 				ED97F9FB42E05ECE3179E60D /* PaneStripState.swift in Sources */,

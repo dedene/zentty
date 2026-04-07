@@ -8,6 +8,10 @@ enum LibghosttySurfaceActionPayload: Equatable {
     case progressReport(TerminalProgressReport)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
     case desktopNotification(TerminalDesktopNotification)
+    case startSearch(String?)
+    case endSearch
+    case searchTotal(Int)
+    case searchSelected(Int)
     case scrollbar(total: UInt64, offset: UInt64, len: UInt64)
     case openURL(String)
     case mouseShape(ghostty_action_mouse_shape_e)
@@ -57,6 +61,15 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
         let title = notification.title.map { String(cString: $0) }
         let body = notification.body.map { String(cString: $0) }
         return .desktopNotification(TerminalDesktopNotification(title: title, body: body))
+    case GHOSTTY_ACTION_START_SEARCH:
+        let needle = action.action.start_search.needle.map { String(cString: $0) }
+        return .startSearch(needle)
+    case GHOSTTY_ACTION_END_SEARCH:
+        return .endSearch
+    case GHOSTTY_ACTION_SEARCH_TOTAL:
+        return .searchTotal(Int(action.action.search_total.total))
+    case GHOSTTY_ACTION_SEARCH_SELECTED:
+        return .searchSelected(Int(action.action.search_selected.selected))
     case GHOSTTY_ACTION_SCROLLBAR:
         let s = action.action.scrollbar
         return .scrollbar(total: s.total, offset: s.offset, len: s.len)

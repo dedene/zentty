@@ -82,7 +82,13 @@ final class LibghosttySurfaceActionCoalescer {
         case .mouseShape(let shape):
             state.mouseShape = .present(shape)
             state.record(.mouseShape)
-        case .commandFinished, .desktopNotification, .openURL:
+        case .commandFinished,
+             .desktopNotification,
+             .startSearch,
+             .endSearch,
+             .searchTotal,
+             .searchSelected,
+             .openURL:
             state.sequence.append(.ordered(payload))
         }
 
@@ -128,6 +134,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     private let eventDidOccur: (TerminalEvent) -> Void
     private weak var hostView: LibghosttyView?
     private(set) var hasScrollback = false
+    var searchDidChange: ((TerminalSearchEvent) -> Void)?
 
     var cellWidth: CGFloat {
         guard let surface else { return 0 }
@@ -472,6 +479,14 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             eventDidOccur(.commandFinished(exitCode: exitCode, durationNanoseconds: durationNanoseconds))
         case .desktopNotification(let notification):
             eventDidOccur(.desktopNotification(notification))
+        case .startSearch(let needle):
+            searchDidChange?(.started(needle: needle))
+        case .endSearch:
+            searchDidChange?(.ended)
+        case .searchTotal(let total):
+            searchDidChange?(.total(total))
+        case .searchSelected(let selected):
+            searchDidChange?(.selected(selected))
         case .scrollbar(let total, _, let len):
             hasScrollback = total > len
         case .openURL(let urlString):

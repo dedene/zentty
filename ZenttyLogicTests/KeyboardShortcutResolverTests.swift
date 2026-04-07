@@ -14,6 +14,26 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
     }
 
+    func test_registry_includes_find_commands_with_standard_shortcuts() {
+        XCTAssertEqual(AppCommandRegistry.definition(for: .find).title, "Find")
+        XCTAssertEqual(
+            AppCommandRegistry.definition(for: .find).defaultShortcut,
+            .init(key: .character("f"), modifiers: [.command])
+        )
+        XCTAssertEqual(
+            AppCommandRegistry.definition(for: .useSelectionForFind).defaultShortcut,
+            .init(key: .character("e"), modifiers: [.command])
+        )
+        XCTAssertEqual(
+            AppCommandRegistry.definition(for: .findNext).defaultShortcut,
+            .init(key: .character("g"), modifiers: [.command])
+        )
+        XCTAssertEqual(
+            AppCommandRegistry.definition(for: .findPrevious).defaultShortcut,
+            .init(key: .character("g"), modifiers: [.command, .shift])
+        )
+    }
+
     func test_resolves_default_shortcuts_from_registry() {
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
@@ -29,6 +49,40 @@ final class KeyboardShortcutResolverTests: XCTestCase {
                 shortcuts: .default
             ),
             .toggleSidebar
+        )
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .character("f"), modifiers: [.command]),
+                shortcuts: .default
+            ),
+            .find
+        )
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .character("e"), modifiers: [.command]),
+                shortcuts: .default
+            ),
+            .useSelectionForFind
+        )
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .character("g"), modifiers: [.command]),
+                shortcuts: .default
+            ),
+            .findNext
+        )
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .character("g"), modifiers: [.command, .shift]),
+                shortcuts: .default
+            ),
+            .findPrevious
+        )
+        XCTAssertNil(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .character("f"), modifiers: [.command, .shift]),
+                shortcuts: .default
+            )
         )
     }
 
@@ -104,13 +158,30 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         let available = CommandAvailabilityResolver.availableCommandIDs(
             worklaneCount: 2,
             activePaneCount: 1,
-            totalPaneCount: 2
+            totalPaneCount: 2,
+            focusedPaneHasRememberedSearch: false
         )
 
         XCTAssertTrue(available.contains(.focusPreviousPane))
         XCTAssertTrue(available.contains(.focusNextPane))
         XCTAssertTrue(available.contains(.focusUpInColumn))
         XCTAssertTrue(available.contains(.focusDownInColumn))
+        XCTAssertFalse(available.contains(.findNext))
+        XCTAssertFalse(available.contains(.findPrevious))
+    }
+
+    func test_command_availability_enables_search_navigation_when_focused_pane_has_remembered_search() {
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 1,
+            totalPaneCount: 1,
+            focusedPaneHasRememberedSearch: true
+        )
+
+        XCTAssertTrue(available.contains(.find))
+        XCTAssertTrue(available.contains(.useSelectionForFind))
+        XCTAssertTrue(available.contains(.findNext))
+        XCTAssertTrue(available.contains(.findPrevious))
     }
 
     func test_resolves_remapped_shortcuts_from_overrides() {
@@ -192,6 +263,57 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
 
         XCTAssertNil(action)
+    }
+
+    func test_left_hand_preset_reclaims_standard_find_shortcuts_and_rehomes_colliding_commands() {
+        let presetBindings = ShortcutPresetResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(
+                geometry: .ansi,
+                outputs: [
+                    .init(keyCode: UInt16(kVK_ANSI_B), modifiers: [], value: "b"),
+                    .init(keyCode: UInt16(kVK_ANSI_E), modifiers: [], value: "e"),
+                    .init(keyCode: UInt16(kVK_ANSI_F), modifiers: [], value: "f"),
+                    .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [], value: "g"),
+                    .init(keyCode: UInt16(kVK_ANSI_N), modifiers: [], value: "n"),
+                    .init(keyCode: UInt16(kVK_ANSI_R), modifiers: [], value: "r"),
+                    .init(keyCode: UInt16(kVK_ANSI_X), modifiers: [], value: "x"),
+                    .init(keyCode: UInt16(kVK_ANSI_LeftBracket), modifiers: [], value: "["),
+                    .init(keyCode: UInt16(kVK_ANSI_RightBracket), modifiers: [], value: "]"),
+                ]
+            )
+        ).resolve(.leftHand)
+        let manager = ShortcutManager(shortcuts: .init(bindings: presetBindings))
+
+        XCTAssertEqual(manager.shortcut(for: .find), .init(key: .character("f"), modifiers: [.command]))
+        XCTAssertEqual(manager.shortcut(for: .useSelectionForFind), .init(key: .character("e"), modifiers: [.command]))
+        XCTAssertEqual(manager.shortcut(for: .findNext), .init(key: .character("g"), modifiers: [.command]))
+        XCTAssertEqual(manager.shortcut(for: .findPrevious), .init(key: .character("g"), modifiers: [.command, .shift]))
+        XCTAssertEqual(manager.shortcut(for: .showCommandPalette), .init(key: .character("x"), modifiers: [.command]))
+        XCTAssertEqual(manager.shortcut(for: .toggleSidebar), .init(key: .character("b"), modifiers: [.command]))
+        XCTAssertEqual(manager.shortcut(for: .splitHorizontally), .init(key: .character("r"), modifiers: [.command]))
+        XCTAssertEqual(manager.shortcut(for: .splitVertically), .init(key: .character("r"), modifiers: [.command, .shift]))
+        XCTAssertEqual(manager.shortcut(for: .navigateBack), .init(key: .character("["), modifiers: [.command]))
+        XCTAssertEqual(manager.shortcut(for: .navigateForward), .init(key: .character("]"), modifiers: [.command]))
+        XCTAssertEqual(manager.shortcut(for: .newWorklane), .init(key: .character("n"), modifiers: [.command]))
+    }
+
+    func test_right_hand_preset_keeps_standard_find_shortcuts_active() {
+        let presetBindings = ShortcutPresetResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(
+                geometry: .ansi,
+                outputs: [
+                    .init(keyCode: UInt16(kVK_ANSI_E), modifiers: [], value: "e"),
+                    .init(keyCode: UInt16(kVK_ANSI_F), modifiers: [], value: "f"),
+                    .init(keyCode: UInt16(kVK_ANSI_G), modifiers: [], value: "g"),
+                ]
+            )
+        ).resolve(.rightHand)
+        let manager = ShortcutManager(shortcuts: .init(bindings: presetBindings))
+
+        XCTAssertEqual(manager.shortcut(for: .find), .init(key: .character("f"), modifiers: [.command]))
+        XCTAssertEqual(manager.shortcut(for: .useSelectionForFind), .init(key: .character("e"), modifiers: [.command]))
+        XCTAssertEqual(manager.shortcut(for: .findNext), .init(key: .character("g"), modifiers: [.command]))
+        XCTAssertEqual(manager.shortcut(for: .findPrevious), .init(key: .character("g"), modifiers: [.command, .shift]))
     }
 
     func test_preview_resolver_maps_option_modified_character_to_physical_key() {

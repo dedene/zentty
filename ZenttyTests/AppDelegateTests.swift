@@ -115,21 +115,43 @@ final class AppDelegateTests: XCTestCase {
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
         let editMenu = menu(named: "Edit")
-        let requiredItems = Array(editMenu?.items.prefix(4) ?? [])
+        let requiredItems = Array(editMenu?.items.prefix(5) ?? [])
+        let findMenu = editMenu?.items.first(where: { $0.title == "Find" })?.submenu
 
         XCTAssertEqual(editMenu?.title, "Edit")
-        XCTAssertEqual(requiredItems.map(\.title), ["Copy", "Copy Path", "Paste", "Select All"])
+        XCTAssertEqual(requiredItems.map(\.title), ["Copy", "Copy Path", "Paste", "Select All", "Find"])
         XCTAssertEqual(requiredItems.map(\.action), [
             #selector(NSText.copy(_:)),
             #selector(MainWindowController.copyFocusedPanePath(_:)),
             #selector(NSText.paste(_:)),
             #selector(NSResponder.selectAll(_:)),
+            Selector(("submenuAction:")),
         ])
-        XCTAssertEqual(requiredItems.map(\.keyEquivalent), ["c", "c", "v", "a"])
+        XCTAssertEqual(requiredItems.map(\.keyEquivalent), ["c", "c", "v", "a", ""])
         XCTAssertEqual(requiredItems.map(\.keyEquivalentModifierMask), [
             [.command],
             [.command, .shift],
             [.command],
+            [.command],
+            [],
+        ])
+        XCTAssertEqual(findMenu?.items.map(\.title), [
+            "Find…",
+            "Find Next",
+            "Find Previous",
+            "Use Selection for Find",
+        ])
+        XCTAssertEqual(findMenu?.items.map(\.action), [
+            #selector(MainWindowController.find(_:)),
+            #selector(MainWindowController.findNext(_:)),
+            #selector(MainWindowController.findPrevious(_:)),
+            #selector(MainWindowController.useSelectionForFind(_:)),
+        ])
+        XCTAssertEqual(findMenu?.items.map(\.keyEquivalent), ["f", "g", "g", "e"])
+        XCTAssertEqual(findMenu?.items.map(\.keyEquivalentModifierMask), [
+            [.command],
+            [.command],
+            [.command, .shift],
             [.command],
         ])
     }

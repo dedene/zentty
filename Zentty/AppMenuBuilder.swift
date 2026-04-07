@@ -102,6 +102,15 @@ enum AppMenuBuilder {
             action: #selector(NSResponder.selectAll(_:)),
             keyEquivalent: "a"
         ))
+        editMenu.addItem(makeMenuItem(
+            for: .submenu("Find", [
+                .command(.find),
+                .command(.findNext),
+                .command(.findPrevious),
+                .command(.useSelectionForFind),
+            ]),
+            shortcutManager: shortcutManager
+        ))
 
         editMenuItem.submenu = editMenu
         return editMenuItem
@@ -150,6 +159,7 @@ enum AppMenuBuilder {
             let submenu = NSMenu(title: title)
             addMenuEntries(entries, to: submenu, shortcutManager: shortcutManager)
             item.submenu = submenu
+            item.keyEquivalentModifierMask = []
             return item
         }
     }
@@ -220,10 +230,21 @@ enum AppMenuBuilder {
             ("Paste", #selector(NSText.paste(_:))),
             ("Select All", #selector(NSResponder.selectAll(_:))),
         ]
+        let requiredFindEntries: [AppMenuEntry] = [
+            .command(.find),
+            .command(.findNext),
+            .command(.findPrevious),
+            .command(.useSelectionForFind),
+        ]
         let hasFileItems = hasRequiredStructure(expectedEntries(for: .file), in: fileMenu)
         let hasEditItems =
             editMenu?.title == AppMenuSection.edit.rawValue &&
-            hasRequiredItems(requiredEditItems, in: editMenu)
+            hasRequiredItems(requiredEditItems, in: editMenu) &&
+            editMenu?.items.count ?? 0 >= requiredEditItems.count + 1 &&
+            matches(
+                item: editMenu?.items[requiredEditItems.count] ?? NSMenuItem(),
+                expected: .submenu("Find", requiredFindEntries)
+            )
         let hasNavigationItems =
             navigationMenu?.title == AppMenuSection.navigation.rawValue &&
             hasRequiredStructure(expectedEntries(for: .navigation), in: navigationMenu)
