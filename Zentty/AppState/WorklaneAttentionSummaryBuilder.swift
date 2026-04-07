@@ -2,12 +2,15 @@ import Foundation
 
 enum WorklaneAttentionSummaryBuilder {
     static func summary(for worklane: WorklaneState) -> WorklaneAttentionSummary? {
+        summaries(for: worklane).first
+    }
+
+    static func summaries(for worklane: WorklaneState) -> [WorklaneAttentionSummary] {
         worklane.paneStripState.panes
             .compactMap { pane in
                 summary(for: pane, in: worklane)
             }
             .sorted(by: preferred(lhs:rhs:))
-            .first
     }
 
     private static func summary(
@@ -33,7 +36,7 @@ enum WorklaneAttentionSummaryBuilder {
             interactionKind: presentation.interactionKind,
             interactionLabel: presentation.interactionLabel ?? presentation.interactionKind?.defaultLabel,
             primaryText: presentation.visibleIdentityText ?? "Shell",
-            statusText: presentation.statusText ?? "",
+            statusText: summaryStatusText(for: presentation),
             contextText: presentation.contextText ?? "",
             artifactLink: presentation.attentionArtifactLink,
             interactionSymbolName: presentation.interactionSymbolName ?? presentation.interactionKind?.defaultSymbolName,
@@ -56,6 +59,17 @@ enum WorklaneAttentionSummaryBuilder {
         case .unresolvedStop:
             return .unresolvedStop
         }
+    }
+
+    private static func summaryStatusText(for presentation: PanePresentationState) -> String {
+        if presentation.runtimePhase == .needsInput {
+            return presentation.interactionLabel
+                ?? presentation.interactionKind?.defaultLabel
+                ?? presentation.statusText
+                ?? ""
+        }
+
+        return presentation.statusText ?? ""
     }
 
     private static func preferred(lhs: WorklaneAttentionSummary, rhs: WorklaneAttentionSummary) -> Bool {

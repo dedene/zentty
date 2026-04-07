@@ -605,6 +605,11 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
             return
         }
 
+        if Self.shouldDeferToSystemWindowTiling(for: event) {
+            super.keyDown(with: event)
+            return
+        }
+
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let shouldEmitUserSubmittedInput = Self.shouldEmitUserSubmittedInput(for: event)
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
@@ -690,6 +695,25 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
 
         let characters = event.charactersIgnoringModifiers ?? event.characters
         return characters == "\r" || characters == "\n" || characters == "\u{3}"
+    }
+
+    private static func shouldDeferToSystemWindowTiling(for event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.control), flags.contains(.function), !flags.contains(.command) else {
+            return false
+        }
+
+        switch event.keyCode {
+        case 123, 124, 125, 126:
+            let allowedFlags: NSEvent.ModifierFlags = [.control, .function, .shift, .option]
+            return flags.subtracting(allowedFlags).isEmpty
+        default:
+            let requiredFlags: NSEvent.ModifierFlags = [.control, .function]
+            let normalizedCharacters = (event.charactersIgnoringModifiers ?? event.characters)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return flags == requiredFlags && normalizedCharacters.map { ["f", "c", "r"].contains($0) } == true
+        }
     }
 
     @IBAction func paste(_ sender: Any?) {

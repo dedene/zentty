@@ -31,10 +31,11 @@ final class NotificationStoreTests: XCTestCase {
         store.add(
             worklaneID: worklaneID ?? worklaneA,
             paneID: paneID ?? paneA,
+            state: .needsInput,
             tool: .claudeCode,
             interactionKind: .approval,
             interactionSymbolName: "exclamationmark.triangle",
-            statusText: "Needs approval",
+            statusText: "Requires approval",
             primaryText: primaryText
         )
         await fulfillment(of: [committed], timeout: 5)
@@ -48,10 +49,11 @@ final class NotificationStoreTests: XCTestCase {
         store.add(
             worklaneID: worklaneA,
             paneID: paneA,
+            state: .needsInput,
             tool: .claudeCode,
             interactionKind: .approval,
             interactionSymbolName: "exclamationmark.triangle",
-            statusText: "Needs approval",
+            statusText: "Requires approval",
             primaryText: "Run command?"
         )
 
@@ -75,10 +77,11 @@ final class NotificationStoreTests: XCTestCase {
         store.add(
             worklaneID: worklaneA,
             paneID: paneA,
+            state: .needsInput,
             tool: .claudeCode,
             interactionKind: .approval,
             interactionSymbolName: "exclamationmark.triangle",
-            statusText: "Needs approval",
+            statusText: "Requires approval",
             primaryText: "Should be suppressed"
         )
 
@@ -186,14 +189,57 @@ final class NotificationStoreTests: XCTestCase {
         store.add(
             worklaneID: worklaneA,
             paneID: paneA,
+            state: .needsInput,
             tool: .claudeCode,
             interactionKind: .approval,
             interactionSymbolName: "exclamationmark.triangle",
-            statusText: "Needs approval",
+            statusText: "Requires approval",
             primaryText: "Trigger onChange"
         )
 
         await fulfillment(of: [changeFired], timeout: 5)
         XCTAssertEqual(store.notifications.count, 1)
+    }
+
+    func test_immediate_notification_commits_without_debounce() {
+        let store = makeStore()
+
+        store.add(
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .ready,
+            tool: .claudeCode,
+            interactionKind: nil,
+            interactionSymbolName: nil,
+            statusText: "Agent ready",
+            primaryText: "Finished work",
+            isDebounced: false
+        )
+
+        XCTAssertEqual(store.notifications.count, 1)
+        XCTAssertEqual(store.notifications.first?.state, .ready)
+    }
+
+    func test_add_resolves_previous_unresolved_item_for_same_pane() async {
+        let store = makeStore()
+        await addAndWaitForCommit(store, primaryText: "Needs review")
+
+        store.add(
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .ready,
+            tool: .claudeCode,
+            interactionKind: nil,
+            interactionSymbolName: nil,
+            statusText: "Agent ready",
+            primaryText: "Finished work",
+            isDebounced: false
+        )
+
+        XCTAssertEqual(store.notifications.count, 2)
+        XCTAssertEqual(store.notifications[0].state, .ready)
+        XCTAssertFalse(store.notifications[0].isResolved)
+        XCTAssertEqual(store.notifications[1].state, .needsInput)
+        XCTAssertTrue(store.notifications[1].isResolved)
     }
 }

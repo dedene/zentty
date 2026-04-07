@@ -148,7 +148,11 @@ enum WorklaneSidebarSummaryBuilder {
     ) -> SidebarStatusPresentation {
         if let attention {
             return SidebarStatusPresentation(
-                statusText: plainStatusText(for: attention.state),
+                statusText: statusText(
+                    for: attention.state,
+                    interactionLabel: attention.interactionLabel,
+                    interactionKind: attention.interactionKind
+                ),
                 statusSymbolName: nil,
                 attentionState: attention.state,
                 interactionKind: attention.interactionKind,
@@ -456,7 +460,12 @@ enum WorklaneSidebarSummaryBuilder {
     private static func paneSidebarStatusPresentation(
         for presentation: PanePresentationState
     ) -> PaneSidebarStatusPresentation {
-        let statusText = presentation.statusText
+        let statusText = statusText(
+            for: attentionState(for: presentation),
+            interactionLabel: presentation.interactionLabel,
+            interactionKind: presentation.interactionKind,
+            fallback: presentation.statusText
+        )
         let attentionState = attentionState(for: presentation)
         guard statusText != nil
             || attentionState != nil
@@ -855,6 +864,23 @@ enum WorklaneSidebarSummaryBuilder {
         case .ready:
             return "checkmark.circle.fill"
         }
+    }
+
+    private static func statusText(
+        for attentionState: WorklaneAttentionState?,
+        interactionLabel: String?,
+        interactionKind: PaneInteractionKind?,
+        fallback: String? = nil
+    ) -> String? {
+        guard let attentionState else {
+            return fallback
+        }
+
+        if attentionState == .needsInput {
+            return interactionLabel ?? interactionKind?.defaultLabel ?? fallback ?? plainStatusText(for: attentionState)
+        }
+
+        return fallback ?? plainStatusText(for: attentionState)
     }
 
     private static func plainStatusText(for state: WorklaneAttentionState) -> String {

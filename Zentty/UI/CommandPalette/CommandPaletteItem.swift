@@ -5,6 +5,10 @@ enum CommandPaletteItemID: Hashable {
     case openWith(stableID: String)
 }
 
+enum CommandPaletteItemFamily: Hashable {
+    case openWith
+}
+
 struct CommandPaletteItem: Identifiable, Equatable {
     let id: CommandPaletteItemID
     let title: String
@@ -12,6 +16,9 @@ struct CommandPaletteItem: Identifiable, Equatable {
     let shortcutDisplay: String?
     let category: String
     let searchText: String
+    let family: CommandPaletteItemFamily?
+    let familySearchText: String?
+    let familyOrder: Int?
 }
 
 enum CommandPaletteItemBuilder {
@@ -34,7 +41,10 @@ enum CommandPaletteItemBuilder {
                 subtitle: subtitle,
                 shortcutDisplay: shortcut?.displayString,
                 category: definition.category.title,
-                searchText: definition.searchText
+                searchText: definition.searchText,
+                family: nil,
+                familySearchText: nil,
+                familyOrder: nil
             )
         }
     }
@@ -45,14 +55,26 @@ enum CommandPaletteItemBuilder {
     ) -> [CommandPaletteItem] {
         guard let path = focusedPanePath else { return [] }
 
-        return targets.map { target in
-            CommandPaletteItem(
+        return targets.enumerated().map { index, target in
+            let familySearchText = [
+                target.displayName,
+                target.kind.searchHint,
+                target.searchAliases,
+            ]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .lowercased()
+
+            return CommandPaletteItem(
                 id: .openWith(stableID: target.stableID),
                 title: "Open in \(target.displayName)",
                 subtitle: path,
                 shortcutDisplay: nil,
                 category: "Open With",
-                searchText: "open with \(target.displayName) editor \(target.kind.searchHint)".lowercased()
+                searchText: "open with open \(familySearchText)".lowercased(),
+                family: .openWith,
+                familySearchText: familySearchText,
+                familyOrder: index
             )
         }
     }
@@ -81,5 +103,54 @@ private extension OpenWithTargetKind {
         case .fileManager: "finder files"
         case .terminal: "terminal"
         }
+    }
+}
+
+private extension OpenWithResolvedTarget {
+    var searchAliases: String {
+        let aliases: [String] = switch builtInID {
+        case .vscode?:
+            ["code", "visual studio code", "visual studio"]
+        case .vscodeInsiders?:
+            ["code insiders", "visual studio code insiders", "visual studio"]
+        case .cursor?:
+            ["ai editor"]
+        case .zed?:
+            ["zed editor"]
+        case .windsurf?:
+            ["codeium", "ai editor"]
+        case .antigravity?:
+            ["ai editor"]
+        case .finder?:
+            ["files", "file manager"]
+        case .xcode?:
+            ["apple ide", "swift"]
+        case .androidStudio?:
+            ["jetbrains", "android"]
+        case .intellijIdea?:
+            ["jetbrains", "idea", "intellij"]
+        case .rider?:
+            ["jetbrains", "dotnet"]
+        case .goland?:
+            ["jetbrains", "go"]
+        case .rustrover?:
+            ["jetbrains", "rust"]
+        case .pycharm?:
+            ["jetbrains", "python"]
+        case .webstorm?:
+            ["jetbrains", "javascript", "typescript"]
+        case .phpstorm?:
+            ["jetbrains", "php"]
+        case .sublimeText?:
+            ["sublime"]
+        case .bbedit?:
+            ["bare bones"]
+        case .textmate?:
+            ["text mate"]
+        case nil:
+            []
+        }
+
+        return aliases.joined(separator: " ")
     }
 }

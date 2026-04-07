@@ -320,6 +320,34 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_render_omits_border_context_and_gap_when_pane_labels_are_hidden() throws {
+        let paneStripView = makePaneStripView()
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 420),
+                PaneState(id: PaneID("editor"), title: "editor", width: 420),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        var snapshots: [PaneBorderChromeSnapshot] = []
+        paneStripView.onBorderChromeSnapshotsDidChange = { newSnapshots, _ in snapshots = newSnapshots }
+
+        paneStripView.render(
+            state,
+            paneBorderContextByPaneID: [
+                PaneID("editor"): PaneBorderContextDisplayModel(text: "~/src/zentty")
+            ],
+            showsPaneLabels: false
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(snapshots.map(\.paneID), [PaneID("shell"), PaneID("editor")])
+        XCTAssertTrue(snapshots.allSatisfy { $0.borderContext == nil })
+        let editorPane = try XCTUnwrap(paneStripView.descendantPaneViews().first { $0.titleText == "editor" })
+        XCTAssertEqual(editorPane.borderLabelGapWidthForTesting, 0, accuracy: 0.001)
+    }
+
+    @MainActor
     func test_focus_change_repositions_visible_panes() {
         let paneStripView = makePaneStripView(width: 980)
         let editorFocused = PaneStripState(
@@ -393,6 +421,41 @@ final class PaneStripViewTests: XCTestCase {
             PaneContainerView.presentationAlpha(forEmphasis: 0.92),
             accuracy: 0.001
         )
+        XCTAssertEqual(try XCTUnwrap(paneViewsByTitle["tests"]).alphaValue, 1, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_focus_change_uses_configured_inactive_opacity_during_animated_transition() throws {
+        let paneStripView = makePaneStripView(width: 980)
+        let editorFocused = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        let testsFocused = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+                makePane("tests"),
+            ],
+            focusedPaneID: PaneID("tests")
+        )
+
+        paneStripView.render(editorFocused, inactivePaneOpacity: 0.82)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(testsFocused, inactivePaneOpacity: 0.82)
+
+        let paneViewsByTitle = Dictionary(uniqueKeysWithValues: try paneStripView.descendantPaneViews().map {
+            let title = try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText)
+            return (title, $0)
+        })
+
+        XCTAssertEqual(try XCTUnwrap(paneViewsByTitle["logs"]).alphaValue, 0.82, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(paneViewsByTitle["editor"]).alphaValue, 0.82, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(paneViewsByTitle["tests"]).alphaValue, 1, accuracy: 0.001)
     }
 

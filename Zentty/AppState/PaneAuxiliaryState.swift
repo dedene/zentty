@@ -80,7 +80,7 @@ extension PaneInteractionKind {
     var defaultLabel: String {
         switch self {
         case .approval:
-            return "Needs approval"
+            return "Requires approval"
         case .question:
             return "Needs decision"
         case .decision:

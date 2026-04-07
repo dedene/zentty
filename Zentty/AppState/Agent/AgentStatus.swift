@@ -119,7 +119,7 @@ enum PaneAgentInteractionKind: String, Equatable, Sendable {
         case .none:
             return "Needs input"
         case .approval:
-            return "Needs approval"
+            return "Requires approval"
         case .question:
             return "Needs decision"
         case .decision:

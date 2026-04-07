@@ -296,6 +296,10 @@ struct PaneAgentReducerState: Equatable, Sendable {
             unresolvedStopVisibleUntil: nil
         )
 
+        if payload.origin != .inferred {
+            mergeInferredSessions(into: &session, for: tool, excluding: sessionID)
+        }
+
         if !shouldApplyLifecycle(payload, over: session) {
             return
         }
@@ -363,6 +367,31 @@ struct PaneAgentReducerState: Equatable, Sendable {
         }
 
         sessionsByID[sessionID] = session
+    }
+
+    private mutating func mergeInferredSessions(
+        into session: inout PaneAgentSessionState,
+        for tool: AgentTool,
+        excluding sessionID: String
+    ) {
+        let inferredSessions = sessionsByID.values.filter { candidate in
+            candidate.sessionID != sessionID
+                && candidate.tool == tool
+                && candidate.source == .inferred
+        }
+        guard !inferredSessions.isEmpty else {
+            return
+        }
+
+        for inferredSession in inferredSessions {
+            session.hasObservedRunning = session.hasObservedRunning || inferredSession.hasObservedRunning
+            session.artifactLink = session.artifactLink ?? inferredSession.artifactLink
+            session.text = session.text ?? inferredSession.text
+            if inferredSession.updatedAt > session.updatedAt {
+                session.updatedAt = inferredSession.updatedAt
+            }
+            sessionsByID.removeValue(forKey: inferredSession.sessionID)
+        }
     }
 
     private mutating func applyPID(_ payload: AgentStatusPayload, now: Date) {

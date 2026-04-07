@@ -3,6 +3,26 @@ import XCTest
 @testable import Zentty
 
 final class KeyboardShortcutResolverTests: XCTestCase {
+    func test_event_shortcuts_with_function_modifier_are_not_bindable() throws {
+        let leftArrow = String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.control, .function],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: leftArrow,
+                charactersIgnoringModifiers: leftArrow,
+                isARepeat: false,
+                keyCode: UInt16(kVK_LeftArrow)
+            )
+        )
+
+        XCTAssertNil(KeyboardShortcut(event: event))
+    }
+
     func test_registry_includes_toggle_sidebar_command_with_general_category_and_command_s_default() {
         let definition = AppCommandRegistry.definition(for: .toggleSidebar)
 

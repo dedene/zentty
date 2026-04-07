@@ -653,6 +653,89 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         XCTAssertEqual(adapter.eventLog, ["prepare"])
     }
 
+    func test_render_coordinator_applies_updated_pane_display_settings_from_config_store() throws {
+        let logsPaneID = PaneID("logs")
+        let editorPaneID = PaneID("editor")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: logsPaneID, title: "logs", width: 420),
+                    PaneState(id: editorPaneID, title: "editor", width: 420),
+                ],
+                focusedPaneID: editorPaneID
+            ),
+            auxiliaryStateByPaneID: [
+                editorPaneID: PaneAuxiliaryState(
+                    shellContext: PaneShellContext(
+                        scope: .local,
+                        path: "/Users/peter/src/zentty",
+                        home: "/Users/peter",
+                        user: "peter",
+                        host: "zenbook"
+                    )
+                )
+            ]
+        )
+        let store = WorklaneStore()
+        store.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() })
+        let renderEnvironment = StubRenderEnvironment()
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.RenderCoordinator.Panes")
+        )
+        let appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
+        appCanvasView.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        appCanvasView.layoutSubtreeIfNeeded()
+        let overlayView = PaneBorderContextOverlayView(frame: appCanvasView.frame)
+        let coordinator = WorklaneRenderCoordinator(
+            worklaneStore: store,
+            runtimeRegistry: runtimeRegistry,
+            notificationStore: NotificationStore(),
+            configStore: configStore
+        )
+        coordinator.environment = renderEnvironment
+        coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
+            sidebarView: SidebarView(),
+            windowChromeView: WindowChromeView(),
+            appCanvasView: appCanvasView,
+            paneBorderContextOverlayView: overlayView
+        ))
+
+        coordinator.render()
+        appCanvasView.layoutSubtreeIfNeeded()
+        overlayView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(overlayView.paneContextTextsForTesting[editorPaneID], "~/src/zentty")
+        let initialPaneViewsByTitle = Dictionary(uniqueKeysWithValues: try appCanvasView.descendantPaneViews().map {
+            let title = try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText)
+            return (title, $0)
+        })
+        XCTAssertEqual(try XCTUnwrap(initialPaneViewsByTitle["logs"]).alphaValue, 0.7, accuracy: 0.001)
+
+        try configStore.update { config in
+            config.panes.showLabels = false
+            config.panes.inactiveOpacity = 0.82
+        }
+        coordinator.render()
+        appCanvasView.layoutSubtreeIfNeeded()
+        overlayView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(overlayView.paneContextTextsForTesting.isEmpty)
+        let updatedPaneViewsByTitle = Dictionary(uniqueKeysWithValues: try appCanvasView.descendantPaneViews().map {
+            let title = try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText)
+            return (title, $0)
+        })
+        XCTAssertEqual(try XCTUnwrap(updatedPaneViewsByTitle["logs"]).alphaValue, 0.82, accuracy: 0.001)
+        XCTAssertEqual(
+            try XCTUnwrap(updatedPaneViewsByTitle["editor"]).borderLabelGapWidthForTesting,
+            0,
+            accuracy: 0.001
+        )
+    }
+
     private func makeController(
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver()
@@ -704,6 +787,23 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
 
     private func requiredSingleLineWidth(of button: NSButton) -> CGFloat {
         ceil(max(button.fittingSize.width, button.intrinsicContentSize.width))
+    }
+}
+
+private extension NSView {
+    func descendantPaneViews() -> [PaneContainerView] {
+        var paneViews: [PaneContainerView] = []
+
+        func walk(_ view: NSView) {
+            if let paneView = view as? PaneContainerView {
+                paneViews.append(paneView)
+            }
+
+            view.subviews.forEach(walk)
+        }
+
+        walk(self)
+        return paneViews
     }
 }
 

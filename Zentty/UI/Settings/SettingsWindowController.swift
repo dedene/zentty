@@ -18,7 +18,7 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
         case .openWith:
             "Open With"
         case .paneLayout:
-            "Pane Layout"
+            "Panes"
         }
     }
 
@@ -194,7 +194,7 @@ final class SettingsViewController: NSTabViewController {
     )
     private lazy var appearanceViewController = AppearanceSettingsSectionViewController()
     private lazy var shortcutsViewController = ShortcutsSettingsSectionViewController(configStore: configStore)
-    private lazy var paneLayoutViewController = PaneLayoutSettingsSectionViewController()
+    private lazy var paneLayoutViewController = PaneLayoutSettingsSectionViewController(configStore: configStore)
     private let openWithViewController: OpenWithSettingsSectionViewController
     private let errorReportingBundleConfigurationProvider: ErrorReportingBundleConfigurationProvider
     private let errorReportingConfirmationPresenter: ErrorReportingConfirmationPresenter
@@ -410,7 +410,7 @@ final class SettingsViewController: NSTabViewController {
         generalViewController.apply(updates: config.updates)
         generalViewController.apply(errorReporting: config.errorReporting)
         shortcutsViewController.apply(shortcuts: config.shortcuts)
-        paneLayoutViewController.apply(preferences: config.paneLayout)
+        paneLayoutViewController.apply(panes: config.panes)
         openWithViewController.apply(preferences: config.openWith)
         synchronizeWindow(animated: false, transitionID: currentTransitionID)
     }
