@@ -543,7 +543,8 @@ def draft_release_notes_with_claude(tag_name:, previous_tag_name:, fallback_text
   git_log = capture_command!(
     "git", "-C", PROJECT_ROOT, "log",
     "#{previous_tag_name}..#{tag_name}",
-    "--pretty=format:%h %s%n%b%n---END---"
+    "--pretty=format:===%h %s===%n%b",
+    "--stat"
   )
   return fallback_text if git_log.strip.empty?
 
@@ -560,11 +561,24 @@ def draft_release_notes_with_claude(tag_name:, previous_tag_name:, fallback_text
     - Group changes under `## New`, `## Improved`, `## Fixed` (omit any empty section).
     - One bullet per change. Terse, direct, user-facing — describe what users notice,
       not how it was implemented.
-    - Skip release/snapshot/version-bump commits and pure-internal refactors that
-      have no user impact. Merge duplicates.
+    - Skip release/version-bump commits and pure-internal refactors that have no
+      user impact. Merge duplicates.
     - End the document with exactly: **Full Changelog**: #{compare_url}
 
-    Conventional commits between #{previous_tag_name} and #{tag_name}:
+    Important — interpreting commits:
+    - Each commit shows its message followed by a file-change stat (paths and line counts).
+    - When a commit message is vague (e.g. "snapshot", "wip", "chore"), DO NOT skip it.
+      Infer the user-facing impact from the file paths and line counts. A vague commit
+      touching CommandPalette/, Settings/, NotificationStore, AgentReducer etc. clearly
+      contains real features — describe each affected area as its own bullet. Group
+      related file changes into one user-facing bullet.
+    - Tests, .pbxproj, project.yml, fastlane/, and other build/infra paths do NOT count
+      as user-facing on their own — only mention them if they're the entire commit's
+      purpose (e.g. release tooling itself).
+    - When in doubt, lean toward including more detail rather than less. It's better to
+      over-list than to drop a feature.
+
+    Commits between #{previous_tag_name} and #{tag_name} (commit message followed by file stats):
 
     #{git_log}
   PROMPT
