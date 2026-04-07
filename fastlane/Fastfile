@@ -535,6 +535,61 @@ rescue JSON::ParserError => e
   UI.user_error!("Could not parse generated release notes: #{e.message}")
 end
 
+def draft_release_notes_with_claude(tag_name:, previous_tag_name:, fallback_text:)
+  return fallback_text if ENV["ZENTTY_RELEASE_NOTES_AI"] == "0"
+  return fallback_text if previous_tag_name.to_s.strip.empty?
+  return fallback_text unless command_success?("which", "claude")
+
+  git_log = capture_command!(
+    "git", "-C", PROJECT_ROOT, "log",
+    "#{previous_tag_name}..#{tag_name}",
+    "--pretty=format:%h %s%n%b%n---END---"
+  )
+  return fallback_text if git_log.strip.empty?
+
+  repo = github_repo_name_with_owner
+  compare_url = "https://github.com/#{repo}/compare/#{previous_tag_name}...#{tag_name}"
+
+  prompt = <<~PROMPT
+    Draft user-facing release notes for Zentty (a macOS terminal multiplexer with
+    Claude Code integration), for the release going from #{previous_tag_name} to #{tag_name}.
+
+    Output ONLY the markdown body. No preamble. No code fences. No "Here are the notes".
+
+    Style rules:
+    - Group changes under `## New`, `## Improved`, `## Fixed` (omit any empty section).
+    - One bullet per change. Terse, direct, user-facing — describe what users notice,
+      not how it was implemented.
+    - Skip release/snapshot/version-bump commits and pure-internal refactors that
+      have no user impact. Merge duplicates.
+    - End the document with exactly: **Full Changelog**: #{compare_url}
+
+    Conventional commits between #{previous_tag_name} and #{tag_name}:
+
+    #{git_log}
+  PROMPT
+
+  UI.message("Drafting release notes with Claude (#{previous_tag_name}..#{tag_name})...")
+  stdout, stderr, status = Open3.capture3(
+    "claude", "-p", prompt,
+    "--tools", "",
+    "--no-session-persistence",
+    chdir: PROJECT_ROOT
+  )
+
+  if status.success? && !stdout.strip.empty?
+    UI.success("Claude drafted release notes (#{stdout.lines.count} lines)")
+    "#{stdout.strip}\n"
+  else
+    UI.important("Claude draft failed; falling back to GitHub-generated notes")
+    UI.important(stderr.strip[0..300]) unless stderr.strip.empty?
+    fallback_text
+  end
+rescue StandardError => e
+  UI.important("Claude draft errored (#{e.message}); falling back to GitHub-generated notes")
+  fallback_text
+end
+
 def edit_text_in_editor!(initial_text, path_hint:)
   FileUtils.mkdir_p(File.dirname(path_hint))
   Tempfile.create(["zentty-release-notes-", ".md"], File.dirname(path_hint)) do |file|
@@ -606,8 +661,13 @@ end
 def prepare_release_notes!(tag_name:, archive_basename:)
   previous_tag = previous_release_tag_for(tag_name)
   generated = generated_release_notes(tag_name: tag_name, previous_tag_name: previous_tag.to_s)
+  initial_text = draft_release_notes_with_claude(
+    tag_name: tag_name,
+    previous_tag_name: previous_tag.to_s,
+    fallback_text: generated
+  )
   edited_notes_path = release_notes_path(archive_basename: archive_basename)
-  edit_text_in_editor!(generated, path_hint: edited_notes_path)
+  edit_text_in_editor!(initial_text, path_hint: edited_notes_path)
   edited_notes_path
 end
 
