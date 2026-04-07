@@ -114,6 +114,38 @@ final class MainWindowControllerTests: XCTestCase {
         wait(for: [settled], timeout: 2.0)
     }
 
+    private func sendMouseClick(at windowPoint: NSPoint, in controller: MainWindowController) throws {
+        let mouseDown = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: windowPoint,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: controller.window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+        let mouseUp = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseUp,
+                location: windowPoint,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: controller.window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+
+        NSApp.postEvent(mouseUp, atStart: false)
+        controller.window.sendEvent(mouseDown)
+    }
+
     private func readableWidth(for appCanvasView: AppCanvasView) -> CGFloat {
         PaneLayoutSizing.edgeAligned.readableWidth(
             for: appCanvasView.bounds.width,
@@ -1268,10 +1300,16 @@ final class MainWindowControllerTests: XCTestCase {
         )
         let outsidePoint = NSPoint(x: proxyPoint.x - 12, y: proxyPoint.y)
 
-        XCTAssertTrue(controller.shouldSuppressWindowDragForTesting(at: proxyPoint, eventType: .leftMouseDown))
-        XCTAssertTrue(controller.shouldSuppressWindowDragForTesting(at: proxyPoint, eventType: .leftMouseDragged))
-        XCTAssertFalse(controller.shouldSuppressWindowDragForTesting(at: proxyPoint, eventType: .leftMouseUp))
-        XCTAssertFalse(controller.shouldSuppressWindowDragForTesting(at: outsidePoint, eventType: .leftMouseDown))
+        XCTAssertEqual(
+            controller.windowDragSuppressionTargetForTesting(at: proxyPoint, eventType: .leftMouseDown),
+            .proxyIcon
+        )
+        XCTAssertEqual(
+            controller.windowDragSuppressionTargetForTesting(at: proxyPoint, eventType: .leftMouseDragged),
+            .proxyIcon
+        )
+        XCTAssertNil(controller.windowDragSuppressionTargetForTesting(at: proxyPoint, eventType: .leftMouseUp))
+        XCTAssertNil(controller.windowDragSuppressionTargetForTesting(at: outsidePoint, eventType: .leftMouseDown))
     }
 
     func test_proxy_window_drag_suppression_restores_window_movable_state() throws {
@@ -1293,6 +1331,92 @@ final class MainWindowControllerTests: XCTestCase {
 
         controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseUp)
         XCTAssertTrue(controller.isWindowMovableForTesting)
+    }
+
+    func test_global_search_hud_points_use_hud_drag_suppression_reason_not_proxy_icon() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.injectFocusedPaneShellContextForTesting(path: "/tmp/project-proxy-drag")
+        waitForLayout("proxy context settled", delay: 0.05)
+        controller.rootViewControllerForTesting.handle(.globalFind)
+        controller.rootViewControllerForTesting.updateGlobalSearchQueryForTesting("build")
+        waitForLayout("global search settled", delay: 0.05)
+
+        let nextPoint = try XCTUnwrap(
+            controller.rootViewControllerForTesting.globalSearchHUDButtonPointInWindowForTesting(.next)
+        )
+
+        XCTAssertEqual(
+            controller.windowDragSuppressionTargetForTesting(at: nextPoint, eventType: .leftMouseDown),
+            .globalSearchHUD
+        )
+    }
+
+    func test_clicking_global_search_next_button_navigates_search_even_when_proxy_icon_is_visible() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.injectFocusedPaneShellContextForTesting(path: "/tmp/project-proxy-drag")
+        waitForLayout("proxy context settled", delay: 0.05)
+        controller.rootViewControllerForTesting.handle(.globalFind)
+        controller.rootViewControllerForTesting.updateGlobalSearchQueryForTesting("build")
+        waitForLayout("global search settled", delay: 0.05)
+
+        let nextPoint = try XCTUnwrap(
+            controller.rootViewControllerForTesting.globalSearchHUDButtonPointInWindowForTesting(.next)
+        )
+        try sendMouseClick(at: nextPoint, in: controller)
+        waitForLayout("next click settled", delay: 0.05)
+
+        XCTAssertEqual(controller.rootViewControllerForTesting.globalSearchStateForTesting.selected, 0)
+    }
+
+    func test_clicking_global_search_close_button_hides_hud_even_when_proxy_icon_is_visible() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.injectFocusedPaneShellContextForTesting(path: "/tmp/project-proxy-drag")
+        waitForLayout("proxy context settled", delay: 0.05)
+        controller.rootViewControllerForTesting.handle(.globalFind)
+        controller.rootViewControllerForTesting.updateGlobalSearchQueryForTesting("build")
+        waitForLayout("global search settled", delay: 0.05)
+
+        let closePoint = try XCTUnwrap(
+            controller.rootViewControllerForTesting.globalSearchHUDButtonPointInWindowForTesting(.close)
+        )
+        try sendMouseClick(at: closePoint, in: controller)
+        waitForLayout("close click settled", delay: 0.05)
+
+        XCTAssertFalse(controller.rootViewControllerForTesting.isGlobalSearchHUDVisibleForTesting)
+    }
+
+    func test_find_next_menu_item_is_enabled_when_global_search_is_remembered() {
+        let controller = makeController()
+        let paneID = PaneID("pane-1")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-1"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            )
+        )
+
+        controller.rootViewControllerForTesting.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+        controller.rootViewControllerForTesting.handle(.globalFind)
+        controller.rootViewControllerForTesting.updateGlobalSearchQueryForTesting("build")
+
+        let menuItem = NSMenuItem(
+            title: "Find Next",
+            action: #selector(MainWindowController.findNext(_:)),
+            keyEquivalent: "g"
+        )
+
+        XCTAssertTrue(controller.validateMenuItem(menuItem))
     }
 }
 

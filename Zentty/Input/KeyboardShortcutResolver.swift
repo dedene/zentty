@@ -25,6 +25,11 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case newWorklane = "worklane.new"
     case nextWorklane = "worklane.next"
     case previousWorklane = "worklane.previous"
+    case find = "pane.search.find"
+    case globalFind = "window.search.find"
+    case useSelectionForFind = "pane.search.selection"
+    case findNext = "pane.search.next"
+    case findPrevious = "pane.search.previous"
     case copyFocusedPanePath = "pane.copy_path"
     case jumpToLatestNotification = "notifications.jump_latest"
     case splitHorizontally = "pane.split.horizontal"
@@ -73,6 +78,11 @@ enum AppAction: Equatable, Sendable {
     case newWorklane
     case nextWorklane
     case previousWorklane
+    case find
+    case globalFind
+    case useSelectionForFind
+    case findNext
+    case findPrevious
     case copyFocusedPanePath
     case jumpToLatestNotification
     case pane(PaneCommand)
@@ -185,6 +195,66 @@ enum AppCommandRegistry {
                 section: .file,
                 title: "Previous Worklane",
                 selector: #selector(MainWindowController.previousWorklane(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .find,
+            title: "Find",
+            category: .panes,
+            defaultShortcut: .init(key: .character("f"), modifiers: [.command]),
+            action: .find,
+            menuItem: AppCommandMenuItem(
+                section: .edit,
+                title: "Find…",
+                selector: #selector(MainWindowController.find(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .globalFind,
+            title: "Global Find",
+            category: .panes,
+            defaultShortcut: .init(key: .character("f"), modifiers: [.command, .shift]),
+            action: .globalFind,
+            menuItem: AppCommandMenuItem(
+                section: .edit,
+                title: "Global Find…",
+                selector: #selector(MainWindowController.globalFind(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .useSelectionForFind,
+            title: "Use Selection for Find",
+            category: .panes,
+            defaultShortcut: .init(key: .character("e"), modifiers: [.command]),
+            action: .useSelectionForFind,
+            menuItem: AppCommandMenuItem(
+                section: .edit,
+                title: "Use Selection for Find",
+                selector: #selector(MainWindowController.useSelectionForFind(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .findNext,
+            title: "Find Next",
+            category: .panes,
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command]),
+            action: .findNext,
+            menuItem: AppCommandMenuItem(
+                section: .edit,
+                title: "Find Next",
+                selector: #selector(MainWindowController.findNext(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .findPrevious,
+            title: "Find Previous",
+            category: .panes,
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .shift]),
+            action: .findPrevious,
+            menuItem: AppCommandMenuItem(
+                section: .edit,
+                title: "Find Previous",
+                selector: #selector(MainWindowController.findPrevious(_:))
             )
         ),
         AppCommandDefinition(
@@ -331,7 +401,7 @@ enum AppCommandRegistry {
             id: .arrangeWidthGoldenFocusWide,
             title: "Arrange Width: Golden — Focus Wide",
             category: .panes,
-            defaultShortcut: .init(key: .character("g"), modifiers: [.command]),
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .control]),
             action: .pane(.arrangeGoldenRatio(.focusWide)),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -343,7 +413,7 @@ enum AppCommandRegistry {
             id: .arrangeWidthGoldenFocusNarrow,
             title: "Arrange Width: Golden — Focus Narrow",
             category: .panes,
-            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .option]),
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .control, .option]),
             action: .pane(.arrangeGoldenRatio(.focusNarrow)),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -355,7 +425,7 @@ enum AppCommandRegistry {
             id: .arrangeHeightGoldenFocusTall,
             title: "Arrange Height: Golden — Focus Tall",
             category: .panes,
-            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .shift]),
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .control, .shift]),
             action: .pane(.arrangeGoldenRatio(.focusTall)),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -367,7 +437,7 @@ enum AppCommandRegistry {
             id: .arrangeHeightGoldenFocusShort,
             title: "Arrange Height: Golden — Focus Short",
             category: .panes,
-            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .shift, .option]),
+            defaultShortcut: .init(key: .character("g"), modifiers: [.command, .control, .shift, .option]),
             action: .pane(.arrangeGoldenRatio(.focusShort)),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -588,6 +658,13 @@ enum AppCommandRegistry {
             .command(.previousWorklane),
         ],
         .edit: [
+            .submenu("Find", [
+                .command(.find),
+                .command(.globalFind),
+                .command(.findNext),
+                .command(.findPrevious),
+                .command(.useSelectionForFind),
+            ]),
             .command(.copyFocusedPanePath),
         ],
         .navigation: [
@@ -667,6 +744,16 @@ extension AppCommandDefinition {
             "Move focus to the next worklane in sequence without leaving the keyboard."
         case .previousWorklane:
             "Move focus to the previous worklane so you can cycle backward through your active lanes."
+        case .find:
+            "Open find for the focused pane and place the insertion point in the search field."
+        case .globalFind:
+            "Open global find across all panes in the current window."
+        case .useSelectionForFind:
+            "Search the focused pane using the current selection and show the find HUD."
+        case .findNext:
+            "Jump to the next search result in the focused pane."
+        case .findPrevious:
+            "Jump to the previous search result in the focused pane."
         case .copyFocusedPanePath:
             "Copy the working path from the focused pane so you can paste it into another app or command."
         case .jumpToLatestNotification:

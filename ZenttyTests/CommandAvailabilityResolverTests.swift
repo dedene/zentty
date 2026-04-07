@@ -73,4 +73,17 @@ final class CommandAvailabilityResolverTests: XCTestCase {
         XCTAssertTrue(available.contains(.reloadConfig))
         XCTAssertTrue(available.contains(.newWorklane))
     }
+
+    func testGlobalSearchRememberedStateEnablesSearchNavigation() {
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 1,
+            totalPaneCount: 1,
+            focusedPaneHasRememberedSearch: false,
+            globalSearchHasRememberedSearch: true
+        )
+
+        XCTAssertTrue(available.contains(.findNext))
+        XCTAssertTrue(available.contains(.findPrevious))
+    }
 }

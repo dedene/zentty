@@ -57,6 +57,7 @@ private final class ScrollRoutingSurfaceSpy: LibghosttySurfaceControlling {
     var hasScrollback = false
     var cellWidth: CGFloat = 8
     var cellHeight: CGFloat = 16
+    var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var sentScrollEvents: [ScrollEvent] = []
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}

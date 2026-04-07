@@ -233,6 +233,30 @@ final class LibghosttyAdapterTests: XCTestCase {
         XCTAssertEqual(surfaceController.focusValues.last, false)
     }
 
+    func test_find_next_uses_navigate_search_binding_action() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        adapter.findNext()
+
+        XCTAssertEqual(surfaceController.bindingActions, ["navigate_search:next"])
+    }
+
+    func test_find_previous_uses_navigate_search_binding_action() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        adapter.findPrevious()
+
+        XCTAssertEqual(surfaceController.bindingActions, ["navigate_search:previous"])
+    }
+
     func test_hidden_live_surface_still_forwards_progress_events() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)
@@ -814,6 +838,7 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     var hasScrollback = false
     var cellWidth: CGFloat = 0
     var cellHeight: CGFloat = 0
+    var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var refreshCallCount = 0
     private(set) var focusValues: [Bool] = []
     private(set) var bindingActions: [String] = []

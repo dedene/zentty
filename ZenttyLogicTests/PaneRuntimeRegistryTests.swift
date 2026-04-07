@@ -368,6 +368,141 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         let adapter = try XCTUnwrap(adapterFactory.adaptersByPaneID[shell.id])
         XCTAssertEqual(adapter.eventLog, ["prepare", "start"])
     }
+
+    func test_runtime_blur_hides_search_hud_but_keeps_remembered_query() {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+
+        runtime.showSearch()
+        runtime.updateSearchNeedle("build")
+        runtime.handleTerminalFocusChange(false)
+
+        XCTAssertEqual(adapter.bindingActions, ["start_search", "search:build"])
+        XCTAssertEqual(
+            runtime.snapshot.search,
+            PaneSearchState(
+                needle: "build",
+                selected: -1,
+                total: 0,
+                hasRememberedSearch: true,
+                isHUDVisible: false,
+                hudCorner: .topTrailing
+            )
+        )
+    }
+
+    func test_runtime_find_next_reopens_hidden_search_without_restarting_search_session() {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+
+        runtime.showSearch()
+        runtime.updateSearchNeedle("build")
+        runtime.handleTerminalFocusChange(false)
+
+        runtime.findNext()
+
+        XCTAssertEqual(adapter.bindingActions, ["start_search", "search:build", "navigate_search:next"])
+        XCTAssertTrue(runtime.snapshot.search.isHUDVisible)
+        XCTAssertTrue(runtime.snapshot.search.hasRememberedSearch)
+    }
+
+    func test_runtime_ignores_terminal_blur_during_search_field_focus_transfer() {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+
+        runtime.showSearch()
+        runtime.prepareSearchFieldFocusTransfer()
+        runtime.handleTerminalFocusChange(false)
+
+        XCTAssertTrue(runtime.snapshot.search.isHUDVisible)
+
+        runtime.handleTerminalFocusChange(false)
+
+        XCTAssertFalse(runtime.snapshot.search.isHUDVisible)
+    }
+
+    func test_runtime_use_selection_for_find_opens_search_and_dispatches_selection_search() {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+
+        runtime.useSelectionForFind()
+
+        XCTAssertEqual(adapter.bindingActions, ["search_selection"])
+        XCTAssertEqual(runtime.snapshot.search.isHUDVisible, true)
+        XCTAssertEqual(runtime.snapshot.search.hasRememberedSearch, true)
+    }
+
+    func test_runtime_global_search_routes_events_to_global_sink_without_mutating_local_search_state() {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        var receivedEvents: [TerminalSearchEvent] = []
+
+        runtime.beginGlobalSearch { _, event in
+            receivedEvents.append(event)
+        }
+        runtime.updateGlobalSearchNeedle("build")
+        adapter.searchDidChange?(.total(2))
+        adapter.searchDidChange?(.selected(1))
+
+        XCTAssertEqual(
+            receivedEvents,
+            [
+                .started(needle: nil),
+                .total(2),
+                .selected(1),
+            ]
+        )
+        XCTAssertEqual(adapter.bindingActions, ["start_search", "search:build"])
+        XCTAssertEqual(runtime.snapshot.search, PaneSearchState())
+    }
+
+    func test_runtime_reset_global_search_selection_reissues_search_for_current_global_needle() {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+
+        runtime.beginGlobalSearch { _, _ in }
+        runtime.updateGlobalSearchNeedle("build")
+        runtime.resetGlobalSearchSelection()
+
+        XCTAssertEqual(adapter.bindingActions, ["start_search", "search:build", "search:build"])
+        XCTAssertEqual(runtime.snapshot.search, PaneSearchState())
+    }
 }
 
 @MainActor
@@ -388,7 +523,7 @@ private final class PaneRuntimeAdapterFactorySpy {
 }
 
 @MainActor
-private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSessionInheritanceConfiguring {
+private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSessionInheritanceConfiguring, TerminalSearchControlling {
     let paneID: PaneID
     let terminalView = NSView()
     var hasScrollback = false
@@ -396,11 +531,13 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
     var cellHeight: CGFloat = 0
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
+    var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var startSessionCallCount = 0
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: true, isFocused: false)
     private(set) weak var prepareSourceAdapter: PaneRuntimeTerminalAdapterSpy?
     private(set) var eventLog: [String] = []
     private(set) var preparedContexts: [TerminalSurfaceContext] = []
+    private(set) var bindingActions: [String] = []
 
     init(paneID: PaneID) {
         self.paneID = paneID
@@ -421,6 +558,33 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         lastSurfaceActivity = activity
+    }
+
+    func showSearch() {
+        bindingActions.append("start_search")
+        searchDidChange?(.started(needle: nil))
+    }
+
+    func useSelectionForFind() {
+        bindingActions.append("search_selection")
+        searchDidChange?(.started(needle: nil))
+    }
+
+    func updateSearch(needle: String) {
+        bindingActions.append("search:\(needle)")
+    }
+
+    func findNext() {
+        bindingActions.append("navigate_search:next")
+    }
+
+    func findPrevious() {
+        bindingActions.append("navigate_search:previous")
+    }
+
+    func endSearch() {
+        bindingActions.append("end_search")
+        searchDidChange?(.ended)
     }
 
     func prepareSessionStart(
