@@ -842,6 +842,56 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(heights?[2] ?? 0, 453.5555555555555, accuracy: 0.001)
     }
 
+    func test_movePane_updates_active_worklane_structure_and_focus() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("dragged"), title: "dragged")],
+                                width: 320,
+                                paneHeights: [280],
+                                focusedPaneID: PaneID("dragged"),
+                                lastFocusedPaneID: PaneID("dragged")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("stack"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 540,
+                                paneHeights: [500, 100],
+                                focusedPaneID: PaneID("top"),
+                                lastFocusedPaneID: PaneID("top")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.movePane(
+            paneID: PaneID("dragged"),
+            toColumnID: PaneColumnID("stack"),
+            toPaneIndex: 1
+        )
+
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.id), [PaneColumnID("stack")])
+        XCTAssertEqual(
+            store.activeWorklane?.paneStripState.columns[0].panes.map(\.id),
+            [PaneID("top"), PaneID("dragged"), PaneID("bottom")]
+        )
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns[0].paneHeights, [500, 280, 100])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.id, PaneID("dragged"))
+    }
+
     func test_resize_focused_pane_left_shrinks_only_the_focused_middle_column() {
         let store = WorklaneStore(
             worklanes: [
@@ -1500,6 +1550,65 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(widths.count, 2)
         XCTAssertEqual(widths[0] / widths[1], 3 / 7, accuracy: 0.001)
         XCTAssertEqual(widths.reduce(0, +) + layoutContext.sizing.interPaneSpacing, layoutContext.availableWidth, accuracy: 0.001)
+    }
+
+    func test_reorderPane_into_existing_column_moves_pane_into_stack_and_normalizes_widths() throws {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let worklaneID = WorklaneID("main")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("left"), title: "left")],
+                                width: 300,
+                                focusedPaneID: PaneID("left"),
+                                lastFocusedPaneID: PaneID("left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 700,
+                                paneHeights: [4, 6],
+                                focusedPaneID: PaneID("top"),
+                                lastFocusedPaneID: PaneID("top")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: worklaneID
+        )
+
+        store.reorderPane(
+            paneID: PaneID("left"),
+            toColumnID: PaneColumnID("right"),
+            atPaneIndex: 1,
+            singleColumnWidth: layoutContext.singlePaneWidth
+        )
+
+        let columns = try XCTUnwrap(store.activeWorklane?.paneStripState.columns)
+        XCTAssertEqual(columns.count, 1)
+        XCTAssertEqual(columns[0].id, PaneColumnID("right"))
+        XCTAssertEqual(columns[0].panes.map(\.id), [PaneID("top"), PaneID("left"), PaneID("bottom")])
+        XCTAssertEqual(columns[0].paneHeights, [4, 1, 6])
+        XCTAssertEqual(columns[0].width, layoutContext.singlePaneWidth, accuracy: 0.001)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.id, PaneID("left"))
     }
 
     func test_focus_commands_update_only_active_worklane() {

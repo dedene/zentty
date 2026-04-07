@@ -80,6 +80,122 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("top"), PaneID("bottom")])
     }
 
+    func test_movePane_within_same_column_preserves_heights_and_reorders_in_place() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "stack",
+                    paneIDs: ["top", "middle", "bottom"],
+                    paneHeights: [1, 2, 3],
+                    focusedPaneID: PaneID("middle"),
+                    lastFocusedPaneID: PaneID("middle")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        let didMove = state.movePane(
+            id: PaneID("top"),
+            toColumnID: PaneColumnID("stack"),
+            atPaneIndex: 3
+        )
+
+        XCTAssertTrue(didMove)
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("middle"), PaneID("bottom"), PaneID("top")])
+        XCTAssertEqual(state.columns[0].paneHeights, [2, 3, 1])
+        XCTAssertEqual(state.focusedPane?.id, PaneID("top"))
+    }
+
+    func test_movePane_within_same_column_uses_reduced_space_target_index_for_downward_moves() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "stack",
+                    paneIDs: ["top", "middle", "bottom"],
+                    paneHeights: [1, 2, 3],
+                    focusedPaneID: PaneID("top"),
+                    lastFocusedPaneID: PaneID("top")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        let didMove = state.movePane(
+            id: PaneID("top"),
+            toColumnID: PaneColumnID("stack"),
+            atPaneIndex: 1
+        )
+
+        XCTAssertTrue(didMove)
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("middle"), PaneID("top"), PaneID("bottom")])
+        XCTAssertEqual(state.columns[0].paneHeights, [2, 1, 3])
+        XCTAssertEqual(state.focusedPane?.id, PaneID("top"))
+    }
+
+    func test_movePane_within_same_column_same_slot_is_treated_as_handled_drop() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "stack",
+                    paneIDs: ["top", "middle", "bottom"],
+                    paneHeights: [1, 2, 3],
+                    focusedPaneID: PaneID("middle"),
+                    lastFocusedPaneID: PaneID("middle")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        let didMove = state.movePane(
+            id: PaneID("middle"),
+            toColumnID: PaneColumnID("stack"),
+            atPaneIndex: 1
+        )
+
+        XCTAssertTrue(didMove)
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("top"), PaneID("middle"), PaneID("bottom")])
+        XCTAssertEqual(state.columns[0].paneHeights, [1, 2, 3])
+        XCTAssertEqual(state.focusedPane?.id, PaneID("middle"))
+    }
+
+    func test_movePane_into_existing_column_preserves_dragged_height_ratio() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "source",
+                    paneIDs: ["alpha", "beta"],
+                    width: 320,
+                    paneHeights: [2, 3],
+                    focusedPaneID: PaneID("alpha"),
+                    lastFocusedPaneID: PaneID("alpha")
+                ),
+                makeColumn(
+                    "target",
+                    paneIDs: ["one", "two"],
+                    width: 420,
+                    paneHeights: [5, 7],
+                    focusedPaneID: PaneID("one"),
+                    lastFocusedPaneID: PaneID("one")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("source")
+        )
+
+        let didMove = state.movePane(
+            id: PaneID("alpha"),
+            toColumnID: PaneColumnID("target"),
+            atPaneIndex: 1
+        )
+
+        XCTAssertTrue(didMove)
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("beta")])
+        XCTAssertEqual(state.columns[0].paneHeights, [5])
+        XCTAssertEqual(state.columns[1].panes.map(\.id), [PaneID("one"), PaneID("alpha"), PaneID("two")])
+        XCTAssertEqual(state.columns[1].paneHeights, [5, 2, 7])
+        XCTAssertEqual(state.focusedColumn?.id, PaneColumnID("target"))
+        XCTAssertEqual(state.focusedPane?.id, PaneID("alpha"))
+    }
+
     func test_vertical_split_is_refused_when_equalized_height_would_violate_minimum() {
         var state = PaneStripState(
             columns: [
@@ -1101,4 +1217,5 @@ final class PaneStripStateTests: XCTestCase {
             lastFocusedPaneID: lastFocusedPaneID
         )
     }
+
 }

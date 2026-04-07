@@ -36,6 +36,8 @@ struct PaneDragActiveState: Equatable, Sendable {
 enum PaneDropTarget: Equatable, Sendable {
     /// Insert as a new column at the given index.
     case reorderGap(columnIndex: Int)
+    /// Insert within an existing column at the given pane index.
+    case reorderInColumn(columnID: PaneColumnID, paneIndex: Int)
     /// Split vertically onto a target pane (above or below).
     case verticalSplit(targetPaneID: PaneID, above: Bool)
     /// Split horizontally onto a target pane (leading or trailing).

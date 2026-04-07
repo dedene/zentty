@@ -39,6 +39,51 @@ extension WorklaneStore {
         notify(.paneStructure(activeWorklaneID))
     }
 
+    func reorderPane(
+        paneID: PaneID,
+        toColumnID: PaneColumnID,
+        atPaneIndex paneIndex: Int,
+        singleColumnWidth: CGFloat? = nil
+    ) {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        let resolvedSingleColumnWidth = singleColumnWidth ?? layoutContext.singlePaneWidth
+        let previousColumnCount = worklane.paneStripState.columns.count
+        guard worklane.paneStripState.movePane(
+            id: paneID,
+            toColumnID: toColumnID,
+            atPaneIndex: paneIndex
+        ) else {
+            return
+        }
+
+        applyColumnWidthNormalization(
+            &worklane,
+            previousColumnCount: previousColumnCount,
+            singleColumnWidth: resolvedSingleColumnWidth
+        )
+
+        activeWorklane = worklane
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(activeWorklaneID))
+    }
+
+    func movePane(
+        paneID: PaneID,
+        toColumnID: PaneColumnID,
+        toPaneIndex: Int,
+        singleColumnWidth: CGFloat? = nil
+    ) {
+        reorderPane(
+            paneID: paneID,
+            toColumnID: toColumnID,
+            atPaneIndex: toPaneIndex,
+            singleColumnWidth: singleColumnWidth
+        )
+    }
+
     // MARK: - Same-Worklane Split Drop
 
     func splitDropPane(

@@ -1,12 +1,67 @@
 import AppKit
 import QuartzCore
 
+enum PaneDragPreviewSizing {
+    static let sidebarWidthFraction: CGFloat = 0.25
+
+    static func sidebarScale(
+        originalPaneWidth: CGFloat,
+        sidebarBoundsWidth: CGFloat,
+        fallbackSidebarWidth: CGFloat?
+    ) -> CGFloat {
+        guard originalPaneWidth > 0 else {
+            return 1
+        }
+
+        let resolvedSidebarWidth: CGFloat
+        if sidebarBoundsWidth > 0 {
+            resolvedSidebarWidth = sidebarBoundsWidth
+        } else if let fallbackSidebarWidth, fallbackSidebarWidth > 0 {
+            resolvedSidebarWidth = fallbackSidebarWidth
+        } else {
+            resolvedSidebarWidth = SidebarWidthPreference.defaultWidth
+        }
+
+        let targetPreviewWidth = resolvedSidebarWidth * sidebarWidthFraction
+        return min(1, targetPreviewWidth / originalPaneWidth)
+    }
+}
+
+enum PaneDragColumnGapPreview {
+    static func shouldRefreshInsertionLine(
+        reducedIndex: Int,
+        currentReducedIndex: Int?,
+        currentStackGapHit: StackReorderGapHit?,
+        isInsertionLineHidden: Bool,
+        lineOrientation: PaneDragInsertionLineView.Orientation? = nil
+    ) -> Bool {
+        if reducedIndex != currentReducedIndex {
+            return true
+        }
+
+        if currentStackGapHit != nil {
+            return true
+        }
+
+        if isInsertionLineHidden {
+            return true
+        }
+
+        guard let lineOrientation else {
+            return false
+        }
+
+        return lineOrientation != .vertical
+    }
+}
+
 @MainActor
 final class PaneDragCoordinator {
 
     // MARK: - Callbacks
 
     var onReorder: ((PaneID, Int) -> Void)?
+    var onReorderInColumn: ((PaneID, PaneColumnID, Int) -> Void)?
     var onSplitDrop: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool) -> Void)?
     var onDragActiveChanged: ((Bool) -> Void)?
     var onSidebarDrop: ((PaneID, WorklaneID, Bool) -> Void)?
@@ -53,6 +108,7 @@ final class PaneDragCoordinator {
     private var currentReducedIndex: Int?
     /// Current original-space insertion index (for reorderPane).
     private var currentInsertionIndex: Int?
+    private var currentStackGapHit: StackReorderGapHit?
 
     private var edgeScrollTimer: Timer?
     /// Current scroll velocity in content-space pt/s. Smoothly tracks the target.
@@ -102,7 +158,6 @@ final class PaneDragCoordinator {
     // MARK: - Constants
 
     private static let popScale: CGFloat = 0.45
-    private static let sidebarPopScale: CGFloat = 0.2
     private static let gapScreenPt: CGFloat = 20
     private static let splitDwellDuration: TimeInterval = 0.25
     private static let sidebarDeadZoneScreenPt: CGFloat = 20
@@ -110,6 +165,7 @@ final class PaneDragCoordinator {
     // MARK: - Shared Visual Layout
 
     private struct DragVisualLayout {
+        let columns: [ColumnPresentation]
         let columnFrames: [CGRect]
         let paneFramesByID: [PaneID: CGRect]
         let gapCenters: [CGFloat]
@@ -118,6 +174,7 @@ final class PaneDragCoordinator {
     private func makeDragVisualLayout(
         presentation: StripPresentation,
         activeReducedGapIndex: Int?,
+        activeStackGap: StackReorderGapHit? = nil,
         zoomScale: CGFloat
     ) -> DragVisualLayout {
         let offset = paneStripView?.resolvedDragOffset(presentation.targetOffset) ?? 0
@@ -136,16 +193,39 @@ final class PaneDragCoordinator {
             shiftByColumnID[column.columnID] = shift
         }
 
-        let columnFrames = presentation.columns.map { column in
-            column.frame.offsetBy(dx: -offset + (shiftByColumnID[column.columnID] ?? 0), dy: 0)
+        let stackGapPaneShiftByID: [PaneID: CGFloat]
+        if let activeStackGap,
+           let targetColumn = presentation.columns.first(where: { $0.columnID == activeStackGap.columnID }) {
+            stackGapPaneShiftByID = Dictionary(
+                uniqueKeysWithValues: targetColumn.panes.enumerated().map { index, pane in
+                    let shift = index < activeStackGap.paneIndex ? extraGap / 2 : -extraGap / 2
+                    return (pane.paneID, shift)
+                }
+            )
+        } else {
+            stackGapPaneShiftByID = [:]
         }
 
-        var paneFramesByID: [PaneID: CGRect] = [:]
-        for pane in presentation.panes {
-            paneFramesByID[pane.paneID] = pane.frame.offsetBy(
-                dx: -offset + (shiftByColumnID[pane.columnID] ?? 0), dy: 0
-            )
+        let columns = presentation.columns.map { column in
+            let shiftedFrame = column.frame.offsetBy(dx: -offset + (shiftByColumnID[column.columnID] ?? 0), dy: 0)
+            let shiftedPanes = column.panes.map { pane in
+                PanePresentation(
+                    paneID: pane.paneID,
+                    columnID: pane.columnID,
+                    frame: pane.frame.offsetBy(
+                        dx: -offset + (shiftByColumnID[pane.columnID] ?? 0),
+                        dy: stackGapPaneShiftByID[pane.paneID] ?? 0
+                    ),
+                    emphasis: pane.emphasis,
+                    isFocused: pane.isFocused
+                )
+            }
+            return ColumnPresentation(columnID: column.columnID, frame: shiftedFrame, panes: shiftedPanes)
         }
+        let columnFrames = columns.map(\.frame)
+        let paneFramesByID = Dictionary(uniqueKeysWithValues: columns.flatMap { column in
+            column.panes.map { ($0.paneID, $0.frame) }
+        })
 
         var gapCenters: [CGFloat] = []
         if !columnFrames.isEmpty {
@@ -157,6 +237,7 @@ final class PaneDragCoordinator {
         }
 
         return DragVisualLayout(
+            columns: columns,
             columnFrames: columnFrames,
             paneFramesByID: paneFramesByID,
             gapCenters: gapCenters
@@ -394,6 +475,7 @@ final class PaneDragCoordinator {
         let layout = makeDragVisualLayout(
             presentation: reducedPresentation,
             activeReducedGapIndex: currentReducedIndex,
+            activeStackGap: currentStackGapHit,
             zoomScale: currentZoom
         )
 
@@ -413,10 +495,21 @@ final class PaneDragCoordinator {
             if currentSplitHit != nil {
                 clearSplitMode()
             }
+            let nextReducedIndex = gapHit?.reducedIndex
+            let shouldRefreshColumnLine = nextReducedIndex.map { reducedIndex in
+                PaneDragColumnGapPreview.shouldRefreshInsertionLine(
+                    reducedIndex: reducedIndex,
+                    currentReducedIndex: currentReducedIndex,
+                    currentStackGapHit: currentStackGapHit,
+                    isInsertionLineHidden: insertionLine?.isHidden ?? true,
+                    lineOrientation: insertionLine?.orientation
+                )
+            } ?? false
+            clearStackGapMode()
             cancelSplitDwell()
 
-            if gapHit?.reducedIndex != currentReducedIndex {
-                currentReducedIndex = gapHit?.reducedIndex
+            if nextReducedIndex != currentReducedIndex {
+                currentReducedIndex = nextReducedIndex
 
                 if let reducedIdx = currentReducedIndex {
                     let insertionIndex = reducedIdx >= activeState.sourceColumnIndex
@@ -429,21 +522,22 @@ final class PaneDragCoordinator {
                 // Re-apply layout with gap opening
                 applyVisualLayout(
                     activeReducedGapIndex: currentReducedIndex,
+                    activeStackGap: nil,
                     animated: true,
                     excludingPaneID: activeState.draggedPaneID
                 )
+            }
 
-                // Update insertion line
-                if let reducedIdx = currentReducedIndex {
-                    let openedLayout = makeDragVisualLayout(
-                        presentation: reducedPresentation,
-                        activeReducedGapIndex: reducedIdx,
-                        zoomScale: currentZoom
-                    )
-                    updateInsertionLine(layout: openedLayout, reducedIndex: reducedIdx, zoomScale: currentZoom)
-                } else {
-                    insertionLine?.isHidden = true
-                }
+            if shouldRefreshColumnLine, let reducedIdx = currentReducedIndex {
+                let openedLayout = makeDragVisualLayout(
+                    presentation: reducedPresentation,
+                    activeReducedGapIndex: reducedIdx,
+                    activeStackGap: nil,
+                    zoomScale: currentZoom
+                )
+                updateColumnInsertionLine(layout: openedLayout, reducedIndex: reducedIdx, zoomScale: currentZoom)
+            } else if currentReducedIndex == nil {
+                insertionLine?.isHidden = true
             }
 
             // Update insertion line proximity-based opacity
@@ -455,20 +549,55 @@ final class PaneDragCoordinator {
                 line.updateProximityOpacity(distance: distance)
             }
         } else {
-            // No gap hit — clear gap state if we were in one
-            if currentReducedIndex != nil {
-                currentReducedIndex = nil
-                currentInsertionIndex = nil
-                applyVisualLayout(
-                    activeReducedGapIndex: nil,
-                    animated: true,
-                    excludingPaneID: activeState.draggedPaneID
-                )
-                insertionLine?.isHidden = true
-            }
+            clearColumnGapMode(activeState: &activeState)
 
-            // Evaluate split target
-            evaluateSplitTarget(cursorInStrip: cursorInStrip)
+            let stackGapHit = PaneDragHitTest.stackReorderGapHit(
+                cursorInContent: cursorInContent,
+                visibleColumns: layout.columns,
+                zoomScale: currentZoom,
+                previousHit: currentStackGapHit
+            )
+
+            if let stackGapHit {
+                if currentSplitHit != nil {
+                    clearSplitMode()
+                }
+                cancelSplitDwell()
+
+                if stackGapHit != currentStackGapHit {
+                    currentStackGapHit = stackGapHit
+                    activeState.currentDropTarget = .reorderInColumn(
+                        columnID: stackGapHit.columnID,
+                        paneIndex: stackGapHit.paneIndex
+                    )
+                    applyVisualLayout(
+                        activeReducedGapIndex: nil,
+                        activeStackGap: stackGapHit,
+                        animated: true,
+                        excludingPaneID: activeState.draggedPaneID
+                    )
+
+                    let openedLayout = makeDragVisualLayout(
+                        presentation: reducedPresentation,
+                        activeReducedGapIndex: nil,
+                        activeStackGap: stackGapHit,
+                        zoomScale: currentZoom
+                    )
+                    updateStackInsertionLine(layout: openedLayout, stackGapHit: stackGapHit, zoomScale: currentZoom)
+                }
+
+                if let line = insertionLine, !line.isHidden {
+                    let lineYInStrip = viewportView.convert(
+                        CGPoint(x: 0, y: line.frame.midY),
+                        to: paneStripView
+                    ).y
+                    let distance = abs(cursorInStrip.y - lineYInStrip)
+                    line.updateProximityOpacity(distance: distance)
+                }
+            } else {
+                clearStackGapMode(activeState: &activeState)
+                evaluateSplitTarget(cursorInStrip: cursorInStrip)
+            }
         }
 
         // Sync activeState drop target with current split/reorder state
@@ -485,6 +614,12 @@ final class PaneDragCoordinator {
                 axis: hit.axis,
                 fraction: 0.5
             )
+        } else if let stackGapHit = currentStackGapHit {
+            activeState.currentDropTarget = .reorderInColumn(
+                columnID: stackGapHit.columnID,
+                paneIndex: stackGapHit.paneIndex
+            )
+            activeState.splitPreview = nil
         } else if currentReducedIndex == nil {
             activeState.currentDropTarget = .none
             activeState.splitPreview = nil
@@ -520,6 +655,8 @@ final class PaneDragCoordinator {
             completeSidebarDrop(targetWorklaneID: worklaneID)
         } else if case .newWorklane = activeState.currentDropTarget {
             completeSidebarNewWorklaneDrop()
+        } else if let stackGapHit = currentStackGapHit {
+            completeInColumnDrop(stackGapHit: stackGapHit)
         } else if let splitHit = currentSplitHit {
             completeSplitDrop(splitHit: splitHit)
         } else if let idx = currentInsertionIndex {
@@ -667,7 +804,16 @@ final class PaneDragCoordinator {
         }
 
         let paneCenter: CGPoint
-        let targetScale = isCursorInSidebarZone ? Self.sidebarPopScale : Self.popScale
+        let targetScale: CGFloat
+        if isCursorInSidebarZone {
+            targetScale = PaneDragPreviewSizing.sidebarScale(
+                originalPaneWidth: originalPaneFrame.width,
+                sidebarBoundsWidth: sidebarBoundsProvider?().width ?? 0,
+                fallbackSidebarWidth: sidebarWidthProvider?()
+            )
+        } else {
+            targetScale = Self.popScale
+        }
         let scaleMultiplier: CGFloat
 
         if isInOverlay, let dragHostView, let container = dragContainer {
@@ -733,12 +879,18 @@ final class PaneDragCoordinator {
 
     // MARK: - Private — Visual Layout Application
 
-    private func applyVisualLayout(activeReducedGapIndex: Int?, animated: Bool, excludingPaneID: PaneID) {
+    private func applyVisualLayout(
+        activeReducedGapIndex: Int?,
+        activeStackGap: StackReorderGapHit? = nil,
+        animated: Bool,
+        excludingPaneID: PaneID
+    ) {
         guard let paneStripView, let reducedPresentation else { return }
         let zoomScale = paneStripView.currentZoomScale()
         let layout = makeDragVisualLayout(
             presentation: reducedPresentation,
             activeReducedGapIndex: activeReducedGapIndex,
+            activeStackGap: activeStackGap,
             zoomScale: zoomScale
         )
 
@@ -813,6 +965,47 @@ final class PaneDragCoordinator {
         // 4. Fire state mutation — render coordinator is unblocked by isDropSettling,
         //    so the full render pipeline runs and fires the afterRender callback.
         onReorder?(paneID, columnIndex)
+    }
+
+    private func completeInColumnDrop(stackGapHit: StackReorderGapHit) {
+        guard let paneStripView else {
+            let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
+            onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex)
+            teardown()
+            return
+        }
+
+        guard let paneID = phase.activeState?.draggedPaneID else {
+            cancelDrag()
+            return
+        }
+
+        let stripView = paneStripView
+
+        prepareForDropSettle()
+        reparentPreviewToViewportForSettle()
+
+        stripView.beginDropSettle(paneID: paneID) { [weak self] in
+            guard let self else { return }
+
+            guard let landingFrame = stripView.livePaneFrame(paneID),
+                  let container = self.dragContainer else {
+                stripView.endDropSettle()
+                self.restoreDraggedPane()
+                self.teardown()
+                stripView.endDragWithZoomIn()
+                return
+            }
+
+            self.animateSettleTo(frame: landingFrame, container: container) {
+                stripView.endDropSettle()
+                self.restoreDraggedPane()
+                self.teardown()
+                stripView.endDragWithZoomIn()
+            }
+        }
+
+        onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex)
     }
 
     /// Animate the snapshot container's frame to match the landing pane frame.
@@ -1009,7 +1202,7 @@ final class PaneDragCoordinator {
 
     // MARK: - Private — Insertion Line
 
-    private func updateInsertionLine(
+    private func updateColumnInsertionLine(
         layout: DragVisualLayout,
         reducedIndex: Int,
         zoomScale: CGFloat
@@ -1021,6 +1214,7 @@ final class PaneDragCoordinator {
             return
         }
 
+        line.setOrientation(.vertical)
         let refFrame = layout.columnFrames[min(max(reducedIndex, 0), layout.columnFrames.count - 1)]
         // Keep line thickness roughly constant on screen
         let lineWidth: CGFloat = 6 / max(zoomScale, 0.01)
@@ -1032,6 +1226,43 @@ final class PaneDragCoordinator {
             y: refFrame.minY,
             width: lineWidth,
             height: refFrame.height
+        )
+        line.startPulsing()
+    }
+
+    private func updateStackInsertionLine(
+        layout: DragVisualLayout,
+        stackGapHit: StackReorderGapHit,
+        zoomScale: CGFloat
+    ) {
+        guard let line = insertionLine,
+              let column = layout.columns.first(where: { $0.columnID == stackGapHit.columnID }),
+              !column.panes.isEmpty else {
+            insertionLine?.isHidden = true
+            return
+        }
+
+        line.setOrientation(.horizontal)
+        let lineHeight: CGFloat = 6 / max(zoomScale, 0.01)
+        let lineY: CGFloat
+
+        switch stackGapHit.paneIndex {
+        case 0:
+            lineY = (column.frame.maxY + column.panes[0].frame.maxY) / 2
+        case column.panes.count:
+            lineY = (column.frame.minY + column.panes[column.panes.count - 1].frame.minY) / 2
+        default:
+            let upperPane = column.panes[stackGapHit.paneIndex - 1]
+            let lowerPane = column.panes[stackGapHit.paneIndex]
+            lineY = (upperPane.frame.minY + lowerPane.frame.maxY) / 2
+        }
+
+        line.isHidden = false
+        line.frame = CGRect(
+            x: column.frame.minX,
+            y: lineY - lineHeight / 2,
+            width: column.frame.width,
+            height: lineHeight
         )
         line.startPulsing()
     }
@@ -1182,6 +1413,10 @@ final class PaneDragCoordinator {
         // Do NOT reset splitDwellSatisfied — allow instant re-entry
     }
 
+    private func clearStackGapMode() {
+        currentStackGapHit = nil
+    }
+
     // MARK: - Private — Sidebar Zone Detection
 
     private func evaluateSidebarTarget(cursorInStrip: CGPoint, activeState: inout PaneDragActiveState) {
@@ -1238,21 +1473,38 @@ final class PaneDragCoordinator {
     }
 
     private func clearCanvasTargets(activeState: inout PaneDragActiveState) {
-        if currentReducedIndex != nil {
-            currentReducedIndex = nil
-            currentInsertionIndex = nil
-            applyVisualLayout(
-                activeReducedGapIndex: nil,
-                animated: true,
-                excludingPaneID: activeState.draggedPaneID
-            )
-            insertionLine?.isHidden = true
-        }
+        clearColumnGapMode(activeState: &activeState)
+        clearStackGapMode(activeState: &activeState)
         if currentSplitHit != nil {
             clearSplitMode()
         }
         cancelSplitDwell()
         stopEdgeScroll()
+    }
+
+    private func clearColumnGapMode(activeState: inout PaneDragActiveState) {
+        guard currentReducedIndex != nil else { return }
+        currentReducedIndex = nil
+        currentInsertionIndex = nil
+        applyVisualLayout(
+            activeReducedGapIndex: nil,
+            activeStackGap: currentStackGapHit,
+            animated: true,
+            excludingPaneID: activeState.draggedPaneID
+        )
+        insertionLine?.isHidden = true
+    }
+
+    private func clearStackGapMode(activeState: inout PaneDragActiveState) {
+        guard currentStackGapHit != nil else { return }
+        clearStackGapMode()
+        applyVisualLayout(
+            activeReducedGapIndex: currentReducedIndex,
+            activeStackGap: nil,
+            animated: true,
+            excludingPaneID: activeState.draggedPaneID
+        )
+        insertionLine?.isHidden = true
     }
 
     private func clearSidebarTargets(activeState: inout PaneDragActiveState) {
@@ -1577,6 +1829,7 @@ final class PaneDragCoordinator {
 
         splitOverlay?.removeFromSuperview()
         splitOverlay = nil
+        currentStackGapHit = nil
         cancelSplitDwell()
         splitDwellSatisfied = false
         currentSplitHit = nil
@@ -1605,6 +1858,7 @@ final class PaneDragCoordinator {
         // Remove overlay without animation during teardown
         splitOverlay?.removeFromSuperview()
         splitOverlay = nil
+        currentStackGapHit = nil
         cancelSplitDwell()
         splitDwellSatisfied = false
         currentSplitHit = nil

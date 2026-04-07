@@ -12,6 +12,11 @@ struct SplitZoneHit: Equatable {
     let leading: Bool
 }
 
+struct StackReorderGapHit: Equatable {
+    let columnID: PaneColumnID
+    let paneIndex: Int
+}
+
 enum SidebarHitResult: Equatable {
     case worklane(WorklaneID)
     case newWorklane
@@ -110,6 +115,106 @@ enum PaneDragHitTest {
     }
 
     // MARK: - Split Zone Detection
+
+    static func stackReorderGapHit(
+        cursorInContent: CGPoint,
+        visibleColumns: [ColumnPresentation],
+        zoomScale: CGFloat,
+        previousHit: StackReorderGapHit?
+    ) -> StackReorderGapHit? {
+        guard !visibleColumns.isEmpty else { return nil }
+
+        let activation: CGFloat = 16 / max(zoomScale, 0.01)
+        let retention: CGFloat = 24 / max(zoomScale, 0.01)
+
+        let candidates = stackGapCandidates(
+            from: visibleColumns,
+            activation: activation,
+            retention: retention
+        )
+
+        if let previousHit,
+           let candidate = candidates.first(where: {
+               $0.hit == previousHit
+               && $0.horizontalBand.contains(cursorInContent.x)
+               && $0.retentionBand.contains(cursorInContent.y)
+           }) {
+            return candidate.hit
+        }
+
+        let hits = candidates.filter {
+            $0.horizontalBand.contains(cursorInContent.x)
+            && $0.activationBand.contains(cursorInContent.y)
+        }
+        guard let best = hits.min(by: {
+            abs($0.centerY - cursorInContent.y) < abs($1.centerY - cursorInContent.y)
+        }) else {
+            return nil
+        }
+
+        return best.hit
+    }
+
+    private struct StackGapCandidate {
+        let hit: StackReorderGapHit
+        let centerY: CGFloat
+        let horizontalBand: ClosedRange<CGFloat>
+        let activationBand: ClosedRange<CGFloat>
+        let retentionBand: ClosedRange<CGFloat>
+    }
+
+    private static func stackGapCandidates(
+        from columns: [ColumnPresentation],
+        activation: CGFloat,
+        retention: CGFloat
+    ) -> [StackGapCandidate] {
+        var result: [StackGapCandidate] = []
+
+        for column in columns where !column.panes.isEmpty {
+            let horizontalBand = (column.frame.minX - activation)...(column.frame.maxX + activation)
+            let paneFrames = column.panes.map(\.frame)
+            let firstFrame = paneFrames[0]
+            let topGapCenterY = (column.frame.maxY + firstFrame.maxY) / 2
+            result.append(
+                StackGapCandidate(
+                    hit: StackReorderGapHit(columnID: column.columnID, paneIndex: 0),
+                    centerY: topGapCenterY,
+                    horizontalBand: horizontalBand,
+                    activationBand: (topGapCenterY - activation)...(topGapCenterY + activation),
+                    retentionBand: (topGapCenterY - retention)...(topGapCenterY + retention)
+                )
+            )
+
+            for index in 1..<paneFrames.count {
+                let upperFrame = paneFrames[index - 1]
+                let lowerFrame = paneFrames[index]
+                let centerY = (upperFrame.minY + lowerFrame.maxY) / 2
+                result.append(
+                    StackGapCandidate(
+                        hit: StackReorderGapHit(columnID: column.columnID, paneIndex: index),
+                        centerY: centerY,
+                        horizontalBand: horizontalBand,
+                        activationBand: (centerY - activation)...(centerY + activation),
+                        retentionBand: (centerY - retention)...(centerY + retention)
+                    )
+                )
+            }
+
+            let lastFrame = paneFrames[paneFrames.count - 1]
+            let bottomGapCenterY = (column.frame.minY + lastFrame.minY) / 2
+            result.append(
+                StackGapCandidate(
+                    hit: StackReorderGapHit(columnID: column.columnID, paneIndex: paneFrames.count),
+                    centerY: bottomGapCenterY,
+                    horizontalBand: horizontalBand,
+                    activationBand: (bottomGapCenterY - activation)...(bottomGapCenterY + activation),
+                    retentionBand: (bottomGapCenterY - retention)...(bottomGapCenterY + retention)
+                )
+            )
+        }
+
+        return result
+    }
 
     /// Detect whether the cursor is in a split activation zone on any eligible pane.
     /// Returns nil when cursor is in a pane's center dead zone, outside all panes,

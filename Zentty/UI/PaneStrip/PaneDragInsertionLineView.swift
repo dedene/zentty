@@ -5,8 +5,13 @@ import QuartzCore
 /// Added as a subview of viewportView so it scales automatically with zoom.
 @MainActor
 final class PaneDragInsertionLineView: NSView {
+    enum Orientation {
+        case vertical
+        case horizontal
+    }
 
     private var isPulsing = false
+    private(set) var orientation: Orientation = .vertical
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -18,6 +23,12 @@ final class PaneDragInsertionLineView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func setOrientation(_ orientation: Orientation) {
+        guard self.orientation != orientation else { return }
+        self.orientation = orientation
+        layer?.cornerRadius = 3
     }
 
     func startPulsing() {

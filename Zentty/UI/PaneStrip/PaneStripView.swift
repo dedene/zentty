@@ -49,6 +49,7 @@ final class PaneStripView: NSView {
     var onDividerEqualizeRequested: ((PaneDivider) -> Void)?
     var onPaneStripStateRestoreRequested: ((PaneStripState) -> Void)?
     var onPaneReorderRequested: ((PaneID, Int) -> Void)?
+    var onPaneReorderInColumnRequested: ((PaneID, PaneColumnID, Int) -> Void)?
     var onPaneSplitDropRequested: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool) -> Void)?
     var onPaneCrossWorklaneDropRequested: ((PaneID, WorklaneID, Bool) -> Void)?
     var sidebarWorklaneFrameProvider: (() -> [(WorklaneID, CGRect)])?
@@ -196,6 +197,9 @@ final class PaneStripView: NSView {
     private func setupDragCoordinator() {
         dragCoordinator.onReorder = { [weak self] paneID, columnIndex in
             self?.onPaneReorderRequested?(paneID, columnIndex)
+        }
+        dragCoordinator.onReorderInColumn = { [weak self] paneID, columnID, paneIndex in
+            self?.onPaneReorderInColumnRequested?(paneID, columnID, paneIndex)
         }
         dragCoordinator.onSplitDrop = { [weak self] paneID, targetPaneID, axis, leading in
             self?.onPaneSplitDropRequested?(paneID, targetPaneID, axis, leading)

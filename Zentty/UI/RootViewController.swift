@@ -481,6 +481,15 @@ final class RootViewController: NSViewController {
                 singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
             )
         }
+        appCanvasView.paneStripView.onPaneReorderInColumnRequested = { [weak self] paneID, columnID, paneIndex in
+            guard let self else { return }
+            self.worklaneStore.reorderPane(
+                paneID: paneID,
+                toColumnID: columnID,
+                atPaneIndex: paneIndex,
+                singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+            )
+        }
         appCanvasView.paneStripView.onPaneSplitDropRequested = { [weak self] paneID, targetID, axis, leading in
             guard let self else { return }
             self.worklaneStore.splitDropPane(
