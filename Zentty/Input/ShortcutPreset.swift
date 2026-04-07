@@ -179,8 +179,12 @@ extension ShortcutPreset {
         .init(commandID: .resizePaneRight, keyCode: UInt16(kVK_ANSI_D), keyKind: .character, modifiers: [.command, .shift]),
 
         // Panes
-        .init(commandID: .splitHorizontally, keyCode: UInt16(kVK_ANSI_E), keyKind: .character, modifiers: [.command]),
-        .init(commandID: .splitVertically, keyCode: UInt16(kVK_ANSI_R), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .useSelectionForFind, keyCode: UInt16(kVK_ANSI_E), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .find, keyCode: UInt16(kVK_ANSI_F), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .findNext, keyCode: UInt16(kVK_ANSI_G), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .findPrevious, keyCode: UInt16(kVK_ANSI_G), keyKind: .character, modifiers: [.command, .shift]),
+        .init(commandID: .splitHorizontally, keyCode: UInt16(kVK_ANSI_R), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .splitVertically, keyCode: UInt16(kVK_ANSI_R), keyKind: .character, modifiers: [.command, .shift]),
         .init(commandID: .closeFocusedPane, keyCode: UInt16(kVK_ANSI_C), keyKind: .character, modifiers: [.command]),
         .init(commandID: .copyFocusedPanePath, keyCode: UInt16(kVK_ANSI_C), keyKind: .character, modifiers: [.command, .shift]),
         .init(commandID: .toggleZoomOut, keyCode: UInt16(kVK_ANSI_V), keyKind: .character, modifiers: [.command, .shift]),
@@ -198,7 +202,6 @@ extension ShortcutPreset {
         .init(commandID: .arrangeHeightFourPerColumn, keyCode: UInt16(kVK_ANSI_4), keyKind: .character, modifiers: [.command, .option]),
 
         // Worklanes
-        .init(commandID: .newWorklane, keyCode: UInt16(kVK_ANSI_T), keyKind: .character, modifiers: [.command]),
         .init(commandID: .newWorklane, keyCode: UInt16(kVK_ANSI_N), keyKind: .character, modifiers: [.command]),
         .init(commandID: .nextWorklane, keyCode: UInt16(kVK_Tab), keyKind: .tab, modifiers: [.control]),
         .init(commandID: .previousWorklane, keyCode: UInt16(kVK_Tab), keyKind: .tab, modifiers: [.control, .shift]),
@@ -207,10 +210,10 @@ extension ShortcutPreset {
         .init(commandID: .newWindow, keyCode: UInt16(kVK_ANSI_N), keyKind: .character, modifiers: [.command, .shift]),
 
         // General
-        .init(commandID: .showCommandPalette, keyCode: UInt16(kVK_ANSI_F), keyKind: .character, modifiers: [.command]),
-        .init(commandID: .toggleSidebar, keyCode: UInt16(kVK_ANSI_G), keyKind: .character, modifiers: [.command]),
-        .init(commandID: .navigateBack, keyCode: UInt16(kVK_ANSI_Z), keyKind: .character, modifiers: [.command]),
-        .init(commandID: .navigateForward, keyCode: UInt16(kVK_ANSI_X), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .showCommandPalette, keyCode: UInt16(kVK_ANSI_X), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .toggleSidebar, keyCode: UInt16(kVK_ANSI_B), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .navigateBack, keyCode: UInt16(kVK_ANSI_LeftBracket), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .navigateForward, keyCode: UInt16(kVK_ANSI_RightBracket), keyKind: .character, modifiers: [.command]),
         .init(commandID: .jumpToLatestNotification, keyCode: UInt16(kVK_ANSI_J), keyKind: .character, modifiers: [.command]),
         .init(commandID: .openSettings, keyCode: UInt16(kVK_ANSI_Comma), keyKind: .character, modifiers: [.command]),
     ]
@@ -258,6 +261,10 @@ extension ShortcutPreset {
         .init(commandID: .newWindow, keyCode: UInt16(kVK_ANSI_N), keyKind: .character, modifiers: [.command, .shift]),
 
         // General
+        .init(commandID: .useSelectionForFind, keyCode: UInt16(kVK_ANSI_E), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .find, keyCode: UInt16(kVK_ANSI_F), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .findNext, keyCode: UInt16(kVK_ANSI_G), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .findPrevious, keyCode: UInt16(kVK_ANSI_G), keyKind: .character, modifiers: [.command, .shift]),
         .init(commandID: .showCommandPalette, keyCode: UInt16(kVK_ANSI_Semicolon), keyKind: .character, modifiers: [.command]),
         .init(commandID: .toggleSidebar, keyCode: UInt16(kVK_ANSI_H), keyKind: .character, modifiers: [.command]),
         .init(commandID: .navigateBack, keyCode: UInt16(kVK_ANSI_Comma), keyKind: .character, modifiers: [.command]),

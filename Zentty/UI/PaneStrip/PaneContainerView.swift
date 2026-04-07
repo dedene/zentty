@@ -58,8 +58,10 @@ final class PaneContainerView: NSView {
     private var currentEmphasis: CGFloat
     private var currentBorderGapWidth: CGFloat = 0
     private var currentIsFocused: Bool
+    private var lastRenderedSearchState = PaneSearchState()
     var onSelected: (() -> Void)?
     var onCloseRequested: (() -> Void)?
+    var onSearchHUDVisibilityDidChange: ((Bool) -> Void)?
     var onScrollWheel: ((NSEvent) -> Bool)? {
         didSet {
             terminalHostView.onScrollWheel = onScrollWheel
@@ -157,13 +159,35 @@ final class PaneContainerView: NSView {
         contentClipView.addSubview(statusOverlayView)
 
         terminalHostView.onFocusDidChange = { [weak self] isFocused in
-            guard isFocused else {
-                return
+            self?.runtime.handleTerminalFocusChange(isFocused)
+            if isFocused {
+                self?.onSelected?()
             }
-
-            self?.onSelected?()
         }
         terminalHostView.onScrollWheel = onScrollWheel
+        terminalHostView.onSearchQueryChange = { [weak self] query in
+            self?.runtime.updateSearchNeedle(query)
+        }
+        terminalHostView.onSearchNext = { [weak self] in
+            self?.runtime.findNext()
+        }
+        terminalHostView.onSearchPrevious = { [weak self] in
+            self?.runtime.findPrevious()
+        }
+        terminalHostView.onSearchHide = { [weak self] in
+            self?.runtime.hideSearchHUD()
+            self?.focusTerminal()
+        }
+        terminalHostView.onSearchClose = { [weak self] in
+            self?.runtime.endSearch()
+            self?.focusTerminal()
+        }
+        terminalHostView.onSearchCornerChange = { [weak self] corner in
+            self?.runtime.setSearchHUDCorner(corner)
+        }
+        terminalHostView.onSearchHUDFrameDidChange = { [weak self] in
+            self?.updateSearchHUDMouseSuppression()
+        }
         setupInsetBorderLayer()
         setupStatusOverlay()
         runtimeObserverID = runtime.addObserver { [weak self] snapshot in
@@ -281,6 +305,10 @@ final class PaneContainerView: NSView {
         super.mouseDown(with: event)
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        super.hitTest(point)
+    }
+
     override func scrollWheel(with event: NSEvent) {
         if onScrollWheel?(event) == true {
             return
@@ -298,6 +326,10 @@ final class PaneContainerView: NSView {
 
     func focusTerminal() {
         runtime.hostView.focusTerminal()
+    }
+
+    var isSearchHUDVisible: Bool {
+        lastRenderedSearchState.isHUDVisible
     }
 
     func activateSessionIfNeeded() {
@@ -383,6 +415,7 @@ final class PaneContainerView: NSView {
             updateInsetBorderLayer()
         }
         statusOverlayView.frame = bounds
+        updateSearchHUDMouseSuppression()
     }
 
     var hasScrollback: Bool {
@@ -411,6 +444,38 @@ final class PaneContainerView: NSView {
 
     var isCloseButtonHidden: Bool {
         closeButton.isHidden
+    }
+
+    var isSearchHUDHiddenForTesting: Bool {
+        terminalHostView.isSearchHUDHiddenForTesting
+    }
+
+    var searchHUDFrameForTesting: CGRect {
+        convert(terminalHostView.searchHUDFrameForTesting, from: terminalHostView)
+    }
+
+    var searchHUDCountTextForTesting: String {
+        terminalHostView.searchHUDCountTextForTesting
+    }
+
+    var searchHUDNextButtonForTesting: PaneSearchHUDButton {
+        terminalHostView.searchHUDNextButtonForTesting
+    }
+
+    var searchHUDPreviousButtonForTesting: PaneSearchHUDButton {
+        terminalHostView.searchHUDPreviousButtonForTesting
+    }
+
+    var searchHUDCloseButtonForTesting: PaneSearchHUDButton {
+        terminalHostView.searchHUDCloseButtonForTesting
+    }
+
+    var searchHUDQueryFieldForTesting: NSTextField {
+        terminalHostView.searchHUDQueryFieldForTesting
+    }
+
+    var isSearchHUDSnapAnimationInFlightForTesting: Bool {
+        terminalHostView.isSearchHUDSnapAnimationInFlightForTesting
     }
 
     var retryButtonForTesting: NSButton {
@@ -681,6 +746,8 @@ final class PaneContainerView: NSView {
     }
 
     private func handleRuntimeSnapshot(_ snapshot: PaneRuntimeSnapshot) {
+        updateSearchHUD(snapshot.search)
+
         if let startupFailureMessage = snapshot.startupFailureMessage {
             updateStatus(.startupFailure(message: startupFailureMessage))
             return
@@ -692,6 +759,37 @@ final class PaneContainerView: NSView {
         }
 
         handleMetadataDidChange(snapshot.metadata)
+    }
+
+    private func updateSearchHUD(_ search: PaneSearchState) {
+        let didVisibilityChange = lastRenderedSearchState.isHUDVisible != search.isHUDVisible
+        let didBecomeVisible = !lastRenderedSearchState.isHUDVisible && search.isHUDVisible
+        lastRenderedSearchState = search
+        terminalHostView.applySearchHUD(search)
+        updateSearchHUDMouseSuppression()
+        if didVisibilityChange {
+            onSearchHUDVisibilityDidChange?(search.isHUDVisible)
+        }
+
+        guard didBecomeVisible else {
+            return
+        }
+
+        runtime.prepareSearchFieldFocusTransfer()
+        DispatchQueue.main.async { [weak self] in
+            self?.terminalHostView.focusSearchField(selectAll: true)
+        }
+    }
+
+    private func updateSearchHUDMouseSuppression() {
+        let suppressionRects: [CGRect]
+        if lastRenderedSearchState.isHUDVisible {
+            suppressionRects = [terminalHostView.searchHUDFrameInHostCoordinates]
+        } else {
+            suppressionRects = []
+        }
+
+        terminalHostView.setMouseInteractionSuppressionRects(suppressionRects)
     }
 
     private func updateStatus(_ state: StatusState) {
@@ -762,5 +860,23 @@ final class PaneContainerView: NSView {
     @objc
     private func handleClose() {
         onCloseRequested?()
+    }
+    
+    func configureSearchHUDSnapAnimationForTesting(
+        _ runner: @escaping (CGPoint, @escaping () -> Void) -> Void
+    ) {
+        terminalHostView.configureSearchHUDSnapAnimationForTesting(runner)
+    }
+
+    func setSearchHUDOriginForTesting(_ origin: CGPoint) {
+        terminalHostView.setSearchHUDOriginForTesting(origin)
+    }
+
+    func snapSearchHUDToNearestCornerForTesting() {
+        terminalHostView.snapSearchHUDToNearestCornerForTesting()
+    }
+
+    func searchHUDFrame(for corner: PaneSearchHUDCorner) -> CGRect {
+        convert(terminalHostView.searchHUDFrame(for: corner), from: terminalHostView)
     }
 }

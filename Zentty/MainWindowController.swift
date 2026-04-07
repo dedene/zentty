@@ -1,5 +1,10 @@
 import AppKit
 
+enum WindowDragSuppressionTarget: Equatable {
+    case globalSearchHUD
+    case proxyIcon
+}
+
 @MainActor
 protocol ProxyWindowDragSuppressionControlling: AnyObject {
     var isProxyWindowDragSuppressionActive: Bool { get }
@@ -8,12 +13,12 @@ protocol ProxyWindowDragSuppressionControlling: AnyObject {
 
 @MainActor
 private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionControlling {
-    var shouldSuppressWindowDragAtPoint: ((NSPoint, NSEvent.EventType) -> Bool)?
+    var suppressionTargetAtPoint: ((NSPoint, NSEvent.EventType) -> WindowDragSuppressionTarget?)?
     var proxyMouseDownHandler: ((NSEvent) -> Void)?
-    var isProxyWindowDragSuppressionActive: Bool { didArmProxySuppression }
+    var isProxyWindowDragSuppressionActive: Bool { armedSuppressionTarget != nil }
 
     private var previousMovableState: Bool?
-    private var didArmProxySuppression = false
+    private var armedSuppressionTarget: WindowDragSuppressionTarget?
 
     override func sendEvent(_ event: NSEvent) {
         switch event.type {
@@ -29,7 +34,7 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
 
         switch event.type {
         case .leftMouseDown:
-            if didArmProxySuppression, let handler = proxyMouseDownHandler {
+            if armedSuppressionTarget == .proxyIcon, let handler = proxyMouseDownHandler {
                 handler(event)
             }
         case .leftMouseUp:
@@ -44,14 +49,14 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
     }
 
     private func maybeSuppressWindowDragging(for event: NSEvent) {
-        guard !didArmProxySuppression else {
+        guard armedSuppressionTarget == nil else {
             return
         }
-        guard shouldSuppressWindowDragAtPoint?(event.locationInWindow, event.type) == true else {
+        guard let suppressionTarget = suppressionTargetAtPoint?(event.locationInWindow, event.type) else {
             return
         }
 
-        didArmProxySuppression = true
+        armedSuppressionTarget = suppressionTarget
         previousMovableState = isMovable
         if isMovable {
             isMovable = false
@@ -61,7 +66,7 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
     private func restoreWindowDraggingIfNeeded() {
         defer {
             previousMovableState = nil
-            didArmProxySuppression = false
+            armedSuppressionTarget = nil
         }
 
         guard let previousMovableState else {
@@ -72,7 +77,8 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
         }
     }
 
-    func handleProxySuppressionEventForTesting(location: NSPoint, eventType: NSEvent.EventType) {
+    @discardableResult
+    func handleProxySuppressionEventForTesting(location: NSPoint, eventType: NSEvent.EventType) -> Bool {
         let event = NSEvent.mouseEvent(
             with: eventType,
             location: location,
@@ -85,16 +91,25 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
             pressure: 0
         )
 
+        var didInvokeProxyHandler = false
         switch eventType {
         case .leftMouseDown, .leftMouseDragged:
             if let event {
                 maybeSuppressWindowDragging(for: event)
+                if eventType == .leftMouseDown,
+                   armedSuppressionTarget == .proxyIcon,
+                   let handler = proxyMouseDownHandler {
+                    handler(event)
+                    didInvokeProxyHandler = true
+                }
             }
         case .leftMouseUp:
             restoreWindowDraggingIfNeeded()
         default:
             break
         }
+
+        return didInvokeProxyHandler
     }
 }
 
@@ -206,8 +221,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
         }
-        window.shouldSuppressWindowDragAtPoint = { [weak rootViewController] point, eventType in
-            rootViewController?.shouldSuppressWindowDrag(at: point, eventType: eventType) == true
+        window.suppressionTargetAtPoint = { [weak rootViewController] point, eventType in
+            rootViewController?.windowDragSuppressionTarget(at: point, eventType: eventType)
         }
         window.proxyMouseDownHandler = { [weak rootViewController] event in
             rootViewController?.deliverProxyMouseDown(event)
@@ -492,6 +507,31 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @objc
     func copyFocusedPanePath(_ sender: Any?) {
         handle(.copyFocusedPanePath)
+    }
+
+    @objc
+    func find(_ sender: Any?) {
+        handle(.find)
+    }
+
+    @objc
+    func globalFind(_ sender: Any?) {
+        handle(.globalFind)
+    }
+
+    @objc
+    func useSelectionForFind(_ sender: Any?) {
+        handle(.useSelectionForFind)
+    }
+
+    @objc
+    func findNext(_ sender: Any?) {
+        handle(.findNext)
+    }
+
+    @objc
+    func findPrevious(_ sender: Any?) {
+        handle(.findPrevious)
     }
 
     @objc
@@ -939,18 +979,42 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    func shouldSuppressWindowDragForTesting(at point: NSPoint, eventType: NSEvent.EventType) -> Bool {
-        rootViewController.shouldSuppressWindowDrag(at: point, eventType: eventType)
+    func windowDragSuppressionTargetForTesting(
+        at point: NSPoint,
+        eventType: NSEvent.EventType
+    ) -> WindowDragSuppressionTarget? {
+        rootViewController.windowDragSuppressionTarget(at: point, eventType: eventType)
     }
 
-    func handleProxySuppressionEventForTesting(location: NSPoint, eventType: NSEvent.EventType) {
-        (window as? ProxyAwareWindow)?.handleProxySuppressionEventForTesting(location: location, eventType: eventType)
+    @discardableResult
+    func handleProxySuppressionEventForTesting(location: NSPoint, eventType: NSEvent.EventType) -> Bool {
+        (window as? ProxyAwareWindow)?.handleProxySuppressionEventForTesting(
+            location: location,
+            eventType: eventType
+        ) ?? false
     }
 
     var isWindowMovableForTesting: Bool {
         window.isMovable
     }
     #endif
+}
+
+extension MainWindowController: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(findNext(_:)),
+             #selector(findPrevious(_:)):
+            return hasRememberedSearchSession
+        default:
+            return true
+        }
+    }
+
+    private var hasRememberedSearchSession: Bool {
+        rootViewController.focusedPaneHasRememberedSearch
+            || rootViewController.globalSearchHasRememberedSearch
+    }
 }
 
 enum TrafficLightTintResolver {

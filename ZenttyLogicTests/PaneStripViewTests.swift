@@ -1938,6 +1938,42 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertTrue(settledPaneIDs.isEmpty)
     }
 
+    @MainActor
+    func test_search_hud_close_button_hit_testing_beats_pane_drag_zone() throws {
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            PaneStripTerminalAdapterSpy(paneID: paneID)
+        })
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 980, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let state = PaneStripState(
+            panes: [pane],
+            focusedPaneID: pane.id
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+        let runtime = try XCTUnwrap(runtimeRegistry.runtime(for: pane.id))
+        runtime.showSearch()
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let paneView = try XCTUnwrap(paneStripView.descendantPaneViews().first)
+        let closePoint = paneStripView.convert(
+            CGPoint(
+                x: paneView.searchHUDCloseButtonForTesting.bounds.midX,
+                y: paneView.searchHUDCloseButtonForTesting.bounds.midY
+            ),
+            from: paneView.searchHUDCloseButtonForTesting
+        )
+
+        XCTAssertTrue(
+            paneStripView.hitTest(closePoint) === paneView.searchHUDCloseButtonForTesting,
+            "The search HUD must win hit testing over the pane drag strip when they overlap near the top edge"
+        )
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }

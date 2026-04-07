@@ -39,7 +39,7 @@ private final class LibghosttyScrollView: NSScrollView {
 }
 
 @MainActor
-final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalScrollRouting, LibghosttyScrollbarHandling {
+final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalMouseInteractionSuppressionControlling, LibghosttyScrollbarHandling {
     private struct ScrollHostSyncMetrics {
         let geometryApplied: Bool
         let documentHeightChanged: Bool
@@ -59,6 +59,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private let paneID: PaneID
     private let diagnostics: TerminalDiagnostics
     private let scrollView: LibghosttyScrollView
+    private let overlayHostView = NSView()
     private let documentView: NSView
     private let surfaceView: LibghosttyView
     private var isLiveScrolling = false
@@ -76,6 +77,10 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
     var terminalFocusTargetView: NSView {
         surfaceView
+    }
+
+    var terminalOverlayHostView: NSView {
+        overlayHostView
     }
 
     var onScrollWheel: ((NSEvent) -> Bool)? {
@@ -114,6 +119,10 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         scrollView.documentView = documentView
         documentView.addSubview(surfaceView)
         addSubview(scrollView)
+        overlayHostView.translatesAutoresizingMaskIntoConstraints = true
+        overlayHostView.autoresizingMask = [.width, .height]
+        overlayHostView.frame = bounds
+        addSubview(overlayHostView)
 
         surfaceView.scrollbarHandler = self
 
@@ -157,6 +166,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         ZenttyPerformanceSignposts.interval("LibghosttyScrollHostLayout") {
             super.layout()
             scrollView.frame = bounds
+            overlayHostView.frame = bounds
             surfaceView.frame.size = scrollView.bounds.size
             documentView.frame.size.width = scrollView.bounds.width
             recordScrollHostSync { synchronizeScrollView() }
@@ -173,6 +183,11 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         needsLayout = true
         layoutSubtreeIfNeeded()
         surfaceView.invalidateAndSyncViewport()
+    }
+
+    func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {
+        let surfaceRects = rects.map { surfaceView.convert($0, from: self) }
+        surfaceView.setMouseInteractionSuppressionRects(surfaceRects)
     }
 
     func applyScrollbarUpdate(_ update: LibghosttySurfaceScrollbarUpdate) {
@@ -433,6 +448,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     private var selectedTextStorageRange = NSRange(location: NSNotFound, length: 0)
     private var currentCursor: NSCursor = .iBeam
     private var mouseTrackingArea: NSTrackingArea?
+    private var mouseInteractionSuppressionRects: [CGRect] = []
     fileprivate weak var scrollbarHandler: (any LibghosttyScrollbarHandling)?
     var onFocusDidChange: ((Bool) -> Void)?
     var onLocalEventDidOccur: ((TerminalEvent) -> Void)?
@@ -513,6 +529,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
         forwardMousePosition(event)
     }
 
@@ -522,6 +541,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     }
 
     override func cursorUpdate(with event: NSEvent) {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
         currentCursor.set()
     }
 
@@ -553,11 +575,21 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
 
         guard cursor != currentCursor else { return }
         currentCursor = cursor
-        currentCursor.set()
+        if let window {
+            let location = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            if !isPointInsideSuppressedMouseRegion(location) {
+                currentCursor.set()
+            }
+        } else {
+            currentCursor.set()
+        }
         window?.invalidateCursorRects(for: self)
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
         window?.makeFirstResponder(self)
         forwardMousePosition(event)
         surfaceController?.sendMouseButton(
@@ -568,10 +600,16 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
         forwardMousePosition(event)
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
         forwardMousePosition(event)
         surfaceController?.sendMouseButton(
             state: GHOSTTY_MOUSE_RELEASE,
@@ -581,6 +619,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
         if onScrollWheel?(event) == true {
             return
         }
@@ -673,6 +714,15 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
                 self.keyTextAccumulator = ""
             }
         }
+    }
+
+    func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {
+        mouseInteractionSuppressionRects = rects
+        window?.invalidateCursorRects(for: self)
+    }
+
+    private func isPointInsideSuppressedMouseRegion(_ point: CGPoint) -> Bool {
+        mouseInteractionSuppressionRects.contains { $0.contains(point) }
     }
 
     @IBAction func copy(_ sender: Any?) {

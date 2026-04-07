@@ -15,6 +15,7 @@ final class CommandPaletteController {
 
     var isShown: Bool { panel != nil }
 
+    // Availability depends on focused-pane state for pane-local search commands.
     func show(
         in window: NSWindow,
         theme: ZenttyTheme,
@@ -22,6 +23,8 @@ final class CommandPaletteController {
         worklaneCount: Int,
         activePaneCount: Int,
         totalPaneCount: Int,
+        focusedPaneHasRememberedSearch: Bool,
+        globalSearchHasRememberedSearch: Bool,
         focusedPanePath: String?,
         openWithTargets: [OpenWithResolvedTarget] = []
     ) {
@@ -35,7 +38,9 @@ final class CommandPaletteController {
         let availableIDs = CommandAvailabilityResolver.availableCommandIDs(
             worklaneCount: worklaneCount,
             activePaneCount: activePaneCount,
-            totalPaneCount: totalPaneCount
+            totalPaneCount: totalPaneCount,
+            focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
+            globalSearchHasRememberedSearch: globalSearchHasRememberedSearch
         )
         let commandItems = CommandPaletteItemBuilder.buildItems(
             availableCommandIDs: availableIDs,

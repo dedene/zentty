@@ -59,6 +59,7 @@ final class RootViewController: NSViewController {
     private let sidebarView = SidebarView()
     private let sidebarHoverRailView = SidebarHoverRailView()
     private let sidebarToggleButton = SidebarToggleButton()
+    private let globalSearchHUDView = WindowSearchHUDView()
     private let runtimeRegistry: PaneRuntimeRegistry
     private let agentStatusCenter = AgentStatusCenter()
     private let sidebarMotionCoordinator: SidebarMotionCoordinator
@@ -88,6 +89,41 @@ final class RootViewController: NSViewController {
     private var pathCopiedToastView: PathCopiedToastView?
     private let paneNavigationButtons = PaneNavigationButtons()
     private let paneLayoutMenuCoordinator: PaneLayoutMenuCoordinator
+    private lazy var globalSearchCoordinator = GlobalSearchCoordinator(
+        orderedTargetsProvider: { [weak self] in
+            self?.worklaneStore.worklanes.flatMap { worklane in
+                worklane.paneStripState.panes.map { pane in
+                    GlobalSearchTarget(worklaneID: worklane.id, paneID: pane.id)
+                }
+            } ?? []
+        },
+        runtimeProvider: { [weak self] paneID in
+            self?.runtimeRegistry.runtime(for: paneID)
+        },
+        navigateToTarget: { [weak self] worklaneID, paneID, completion in
+            guard let self else {
+                return
+            }
+
+            self.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+            self.view.layoutSubtreeIfNeeded()
+            self.runtimeRegistry.runtime(for: paneID)?.forceViewportSync()
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                self.view.layoutSubtreeIfNeeded()
+                self.runtimeRegistry.runtime(for: paneID)?.forceViewportSync()
+                completion()
+                self.focusGlobalSearchField(selectAll: false)
+            }
+        },
+        endAllLocalSearches: { [weak self] in
+            self?.endAllLocalSearches()
+        }
+    )
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
     private let commandPaletteController = CommandPaletteController()
     private var appUpdateObserverID: UUID?
@@ -236,8 +272,10 @@ final class RootViewController: NSViewController {
         paneNavigationButtons.translatesAutoresizingMaskIntoConstraints = false
         paneLayoutMenuCoordinator.menuButton.translatesAutoresizingMaskIntoConstraints = false
         notificationCoordinator.bellButton.translatesAutoresizingMaskIntoConstraints = false
+        globalSearchHUDView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appCanvasView)
         view.addSubview(paneBorderContextOverlayView)
+        view.addSubview(globalSearchHUDView)
         view.addSubview(windowChromeView)
         view.addSubview(sidebarHoverRailView)
         view.addSubview(sidebarView)
@@ -296,6 +334,9 @@ final class RootViewController: NSViewController {
                 equalTo: view.trailingAnchor, constant: -ShellMetrics.canvasOuterInset),
             appCanvasView.bottomAnchor.constraint(
                 equalTo: view.bottomAnchor, constant: -ShellMetrics.canvasOuterInset),
+
+            globalSearchHUDView.topAnchor.constraint(equalTo: appCanvasView.topAnchor, constant: 14),
+            globalSearchHUDView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor, constant: -14),
 
             // Drag overlay matches canvas frame so coordinate conversion is identity
             dragOverlayView.topAnchor.constraint(equalTo: appCanvasView.topAnchor),
@@ -384,7 +425,16 @@ final class RootViewController: NSViewController {
                 }
 
                 switch change {
-                case .paneStructure, .focusChanged, .activeWorklaneChanged, .worklaneListChanged:
+                case .paneStructure, .worklaneListChanged:
+                    if self.isGlobalSearchSessionActive {
+                        self.globalSearchCoordinator.end()
+                    } else {
+                        self.globalSearchCoordinator.reconcileTargets(with: self.worklaneStore.worklanes)
+                    }
+                    self.updateOpenWithChromeState()
+                    self.updatePaneNavigationButtonState()
+                case .focusChanged, .activeWorklaneChanged:
+                    self.globalSearchCoordinator.reconcileTargets(with: self.worklaneStore.worklanes)
                     self.updateOpenWithChromeState()
                     self.updatePaneNavigationButtonState()
                 case .historyChanged:
@@ -399,6 +449,7 @@ final class RootViewController: NSViewController {
     }
 
     private func setupToolbarButtons() {
+        globalSearchHUDView.delegate = self
         paneNavigationButtons.onBack = { [weak self] in
             self?.worklaneStore.navigateBack()
         }
@@ -656,6 +707,9 @@ final class RootViewController: NSViewController {
         themeCoordinator.onTerminalConfigReload = {
             LibghosttyRuntime.shared.reloadConfig()
         }
+        globalSearchCoordinator.onStateDidChange = { [weak self] state in
+            self?.applyGlobalSearchState(state)
+        }
         runtimeRegistry.onMetadataDidChange = { [weak self] paneID, metadata in
             guard let self else {
                 return
@@ -665,6 +719,9 @@ final class RootViewController: NSViewController {
         }
         runtimeRegistry.onEventDidOccur = { [weak self] paneID, event in
             self?.handleTerminalEvent(paneID: paneID, event: event)
+        }
+        runtimeRegistry.onGlobalSearchDidChange = { [weak self] paneID, event in
+            self?.globalSearchCoordinator.handleSearchEvent(for: paneID, event: event)
         }
         agentStatusCenter.onPayload = { [weak self] payload in
             self?.worklaneStore.applyAgentStatusPayload(payload)
@@ -712,14 +769,31 @@ final class RootViewController: NSViewController {
         syncSidebarWidthToAvailableWidth(persist: false)
         renderCoordinator.updateSurfaceActivities()
         appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
-        appCanvasView.focusCurrentPaneIfNeeded()
+        if globalSearchCoordinator.state.isHUDVisible {
+            focusGlobalSearchField(selectAll: false)
+        } else {
+            appCanvasView.focusCurrentPaneIfNeeded()
+        }
     }
 
-    func shouldSuppressWindowDrag(at point: NSPoint, eventType: NSEvent.EventType) -> Bool {
+    func windowDragSuppressionTarget(
+        at point: NSPoint,
+        eventType: NSEvent.EventType
+    ) -> WindowDragSuppressionTarget? {
         guard eventType == .leftMouseDown || eventType == .leftMouseDragged else {
-            return false
+            return nil
         }
-        return windowChromeView.containsFocusedProxyIconPointInWindow(point)
+        if globalSearchCoordinator.state.isHUDVisible {
+            let localPoint = view.convert(point, from: nil)
+            if globalSearchHUDView.frame.contains(localPoint) {
+                return .globalSearchHUD
+            }
+        }
+        if windowChromeView.containsFocusedProxyIconPointInWindow(point) {
+            return .proxyIcon
+        }
+
+        return nil
     }
 
     func deliverProxyMouseDown(_ event: NSEvent) {
@@ -801,6 +875,16 @@ final class RootViewController: NSViewController {
             worklaneStore.selectNextWorklane()
         case .previousWorklane:
             worklaneStore.selectPreviousWorklane()
+        case .find:
+            showFocusedPaneSearch()
+        case .globalFind:
+            showGlobalSearch()
+        case .useSelectionForFind:
+            useFocusedPaneSelectionForSearch()
+        case .findNext:
+            findNextInFocusedPane()
+        case .findPrevious:
+            findPreviousInFocusedPane()
         case .copyFocusedPanePath:
             copyFocusedPanePath()
         case .jumpToLatestNotification:
@@ -825,6 +909,45 @@ final class RootViewController: NSViewController {
         case .reloadConfig:
             configStore.reloadFromDisk()
         }
+    }
+
+    private func showFocusedPaneSearch() {
+        if isGlobalSearchSessionActive {
+            globalSearchCoordinator.end()
+        }
+        focusedPaneRuntime()?.showSearch()
+    }
+
+    private func showGlobalSearch() {
+        globalSearchCoordinator.show()
+        focusGlobalSearchField(selectAll: true)
+    }
+
+    private func useFocusedPaneSelectionForSearch() {
+        if isGlobalSearchSessionActive {
+            globalSearchCoordinator.end()
+        }
+        focusedPaneRuntime()?.useSelectionForFind()
+    }
+
+    private func findNextInFocusedPane() {
+        if globalSearchHasRememberedSearch {
+            globalSearchCoordinator.findNext()
+            focusGlobalSearchField(selectAll: false)
+            return
+        }
+
+        focusedPaneRuntime()?.findNext()
+    }
+
+    private func findPreviousInFocusedPane() {
+        if globalSearchHasRememberedSearch {
+            globalSearchCoordinator.findPrevious()
+            focusGlobalSearchField(selectAll: false)
+            return
+        }
+
+        focusedPaneRuntime()?.findPrevious()
     }
 
     private func handlePaneCommand(_ command: PaneCommand) {
@@ -1019,6 +1142,26 @@ final class RootViewController: NSViewController {
         notificationCoordinator.store.resolve(worklaneID: worklaneID, paneID: paneID)
     }
 
+    private func endAllLocalSearches() {
+        for worklane in worklaneStore.worklanes {
+            for pane in worklane.paneStripState.panes {
+                runtimeRegistry.runtime(for: pane.id)?.endSearch()
+            }
+        }
+    }
+
+    private func applyGlobalSearchState(_ state: GlobalSearchState) {
+        globalSearchHUDView.apply(search: state)
+    }
+
+    private func focusGlobalSearchField(selectAll: Bool) {
+        guard globalSearchCoordinator.state.isHUDVisible else {
+            return
+        }
+
+        globalSearchHUDView.focusField(selectAll: selectAll && !globalSearchCoordinator.state.needle.isEmpty)
+    }
+
     private func showCommandPalette() {
         guard let window = view.window else { return }
 
@@ -1044,6 +1187,8 @@ final class RootViewController: NSViewController {
             worklaneCount: worklaneCount,
             activePaneCount: activePaneCount,
             totalPaneCount: totalPaneCount,
+            focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
+            globalSearchHasRememberedSearch: globalSearchHasRememberedSearch,
             focusedPanePath: focusedPanePath,
             openWithTargets: openWithTargets
         )
@@ -1418,12 +1563,36 @@ final class RootViewController: NSViewController {
         worklaneStore.focusedOpenWithContext
     }
 
+    var focusedPaneHasRememberedSearch: Bool {
+        focusedPaneRuntime()?.snapshot.search.hasRememberedSearch ?? false
+    }
+
+    var globalSearchHasRememberedSearch: Bool {
+        globalSearchCoordinator.state.hasRememberedSearch
+    }
+
+    private var isGlobalSearchSessionActive: Bool {
+        globalSearchCoordinator.state.isHUDVisible || globalSearchCoordinator.state.hasRememberedSearch
+    }
+
     var focusedPaneIDForTesting: PaneID? {
         worklaneStore.activeWorklane?.paneStripState.focusedPaneID
     }
 
+    var focusedPaneSearchStateForTesting: PaneSearchState? {
+        focusedPaneRuntime()?.snapshot.search
+    }
+
     var availableOpenWithTargets: [OpenWithResolvedTarget] {
         openWithService.availableTargets(preferences: configStore.current.openWith)
+    }
+
+    private func focusedPaneRuntime() -> PaneRuntime? {
+        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else {
+            return nil
+        }
+
+        return runtimeRegistry.runtime(for: paneID)
     }
 
     var primaryOpenWithTarget: OpenWithResolvedTarget? {
@@ -1486,6 +1655,32 @@ final class RootViewController: NSViewController {
             paneLayoutMenuCoordinator.makeMenu(worklaneStore: worklaneStore).items
                 .filter { !$0.isSeparatorItem }
                 .map(\.title)
+        }
+
+        var globalSearchStateForTesting: GlobalSearchState {
+            globalSearchCoordinator.state
+        }
+
+        var isGlobalSearchHUDVisibleForTesting: Bool {
+            !globalSearchHUDView.isHidden
+        }
+
+        func globalSearchHUDButtonPointInWindowForTesting(
+            _ button: WindowSearchHUDView.ButtonKind
+        ) -> NSPoint? {
+            globalSearchHUDView.buttonPointInWindowForTesting(button)
+        }
+
+        func updateGlobalSearchQueryForTesting(_ query: String) {
+            globalSearchCoordinator.updateQuery(query)
+        }
+
+        func performGlobalSearchNextForTesting() {
+            globalSearchCoordinator.findNext()
+        }
+
+        func performGlobalSearchPreviousForTesting() {
+            globalSearchCoordinator.findPrevious()
         }
 
         func paneLayoutSubmenuCommandTitlesForTesting(_ title: String) -> [String] {
@@ -1660,6 +1855,30 @@ extension RootViewController: RenderEnvironmentProviding {
 
     func renderSidebarSyncNeeded() {
         syncSidebarVisibilityControls(animated: false)
+    }
+}
+
+extension RootViewController: WindowSearchHUDViewDelegate {
+    func windowSearchHUDView(_ hudView: WindowSearchHUDView, didChangeQuery query: String) {
+        globalSearchCoordinator.updateQuery(query)
+    }
+
+    func windowSearchHUDViewDidRequestNext(_ hudView: WindowSearchHUDView) {
+        globalSearchCoordinator.findNext()
+    }
+
+    func windowSearchHUDViewDidRequestPrevious(_ hudView: WindowSearchHUDView) {
+        globalSearchCoordinator.findPrevious()
+    }
+
+    func windowSearchHUDViewDidRequestHide(_ hudView: WindowSearchHUDView) {
+        globalSearchCoordinator.hide()
+        focusedPaneRuntime()?.hostView.focusTerminal()
+    }
+
+    func windowSearchHUDViewDidRequestClose(_ hudView: WindowSearchHUDView) {
+        globalSearchCoordinator.end()
+        focusedPaneRuntime()?.hostView.focusTerminal()
     }
 }
 

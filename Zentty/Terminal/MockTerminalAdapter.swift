@@ -6,16 +6,18 @@ protocol TerminalPreviewRendering: AnyObject {
 }
 
 @MainActor
-final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering {
+final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering, TerminalSearchControlling {
     private let surfaceView = TerminalSurfaceMockView()
     private var metadata = TerminalMetadata()
     private var surfaceActivity = TerminalSurfaceActivity()
+    private var searchNeedle = ""
 
     var hasScrollback = false
     var cellWidth: CGFloat = 0
     var cellHeight: CGFloat = 0
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
+    var searchDidChange: ((TerminalSearchEvent) -> Void)?
 
     func makeTerminalView() -> NSView {
         surfaceView
@@ -38,6 +40,41 @@ final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering {
         surfaceView.render(title: title, isFocused: isFocused)
         metadata.title = title
         metadataDidChange?(metadata)
+    }
+
+    func showSearch() {
+        searchDidChange?(.started(needle: searchNeedle.isEmpty ? nil : searchNeedle))
+    }
+
+    func useSelectionForFind() {
+        searchDidChange?(.started(needle: searchNeedle.isEmpty ? nil : searchNeedle))
+    }
+
+    func updateSearch(needle: String) {
+        searchNeedle = needle
+        searchDidChange?(.total(needle.isEmpty ? 0 : 1))
+        searchDidChange?(.selected(-1))
+    }
+
+    func findNext() {
+        guard !searchNeedle.isEmpty else {
+            return
+        }
+
+        searchDidChange?(.selected(0))
+    }
+
+    func findPrevious() {
+        guard !searchNeedle.isEmpty else {
+            return
+        }
+
+        searchDidChange?(.selected(0))
+    }
+
+    func endSearch() {
+        searchNeedle = ""
+        searchDidChange?(.ended)
     }
 }
 

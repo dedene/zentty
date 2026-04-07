@@ -143,6 +143,29 @@ final class TerminalPaneHostViewTests: XCTestCase {
 
         XCTAssertEqual(routedEvents.count, 1)
     }
+
+    func test_search_hud_mounts_inside_terminal_provided_overlay_host() {
+        let terminalView = OverlayHostingTerminalView()
+        let adapter = TerminalAdapterSpy(terminalView: terminalView)
+        let hostView = TerminalPaneHostView(adapter: adapter)
+
+        hostView.frame = NSRect(x: 0, y: 0, width: 420, height: 320)
+        hostView.applySearchHUD(
+            PaneSearchState(
+                needle: "ansible",
+                selected: -1,
+                total: 1,
+                hasRememberedSearch: true,
+                isHUDVisible: true
+            )
+        )
+        hostView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            hostView.searchHUDCloseButtonForTesting.isDescendant(of: terminalView.overlayHostView),
+            "Search HUD should be mounted inside the terminal's overlay host, matching the app's overlay-hosted HUD pattern"
+        )
+    }
 }
 
 @MainActor
@@ -246,6 +269,42 @@ private final class LayoutTrackingTerminalView: NSView, TerminalFocusReporting {
     override func layout() {
         layoutCallCount += 1
         super.layout()
+    }
+}
+
+private final class OverlayHostingTerminalView: NSView, TerminalFocusReporting, TerminalOverlayHosting {
+    let overlayHostView = NSView()
+    var onFocusDidChange: ((Bool) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        overlayHostView.translatesAutoresizingMaskIntoConstraints = true
+        overlayHostView.autoresizingMask = [.width, .height]
+        overlayHostView.frame = bounds
+        addSubview(overlayHostView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        onFocusDidChange?(true)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        onFocusDidChange?(false)
+        return true
+    }
+
+    var terminalOverlayHostView: NSView {
+        overlayHostView
     }
 }
 

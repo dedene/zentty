@@ -91,6 +91,24 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertEqual(windowChromeView.frame.minY, appCanvasView.frame.maxY, accuracy: 0.5)
     }
 
+    func test_global_search_hud_is_positioned_inside_top_right_of_canvas_area() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.globalFind)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let rootSubviews = controller.view.subviews
+        let appCanvasView = try XCTUnwrap(rootSubviews.first { $0 is AppCanvasView })
+        let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView })
+        let globalSearchHUDView = try XCTUnwrap(rootSubviews.first { $0 is WindowSearchHUDView })
+
+        XCTAssertLessThanOrEqual(globalSearchHUDView.frame.maxY, appCanvasView.frame.maxY - 13.5)
+        XCTAssertGreaterThanOrEqual(globalSearchHUDView.frame.maxX, appCanvasView.frame.maxX - 14.5)
+        XCTAssertLessThan(globalSearchHUDView.frame.maxY, windowChromeView.frame.minY)
+    }
+
     func test_root_controller_layers_sidebar_above_chrome_and_toggle_above_sidebar() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
