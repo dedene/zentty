@@ -665,12 +665,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         errorReportingSwitch.isEnabled = isAvailable
 
         if isAvailable {
-            errorReportingStatusLabel.stringValue = currentErrorReporting.enabled ? "On" : "Off"
+            errorReportingStatusLabel.stringValue = ""
             errorReportingStatusLabel.textColor = .secondaryLabelColor
+            errorReportingStatusLabel.isHidden = true
             errorReportingSubtitleLabel.stringValue = "Send anonymous crash reports to help improve Zentty. Privacy-first by design."
         } else {
             errorReportingStatusLabel.stringValue = "Unavailable"
             errorReportingStatusLabel.textColor = .secondaryLabelColor
+            errorReportingStatusLabel.isHidden = false
             errorReportingSubtitleLabel.stringValue = "Error reporting is unavailable in this build."
         }
     }
@@ -795,6 +797,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
     var isErrorReportingControlEnabled: Bool {
         errorReportingSwitch.isEnabled
+    }
+
+    var isErrorReportingAvailabilityHidden: Bool {
+        errorReportingStatusLabel.isHidden
+    }
+
+    var errorReportingAvailabilityText: String {
+        errorReportingStatusLabel.stringValue
     }
 
     var errorReportingStatusMessage: String {
