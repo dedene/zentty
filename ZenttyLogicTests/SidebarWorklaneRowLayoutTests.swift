@@ -331,6 +331,29 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
         XCTAssertEqual(resizedHeight, initialHeight, accuracy: 0.5)
     }
 
+    func test_sidebar_row_height_grows_for_tight_pane_rows_when_title_wraps_and_metadata_reflows() throws {
+        let title = "Ready | zentty · Verify adaptive multiline sidebar rows while preserving repo context and status visibility"
+        let summary = makeSummary(
+            primaryText: "General coding assistance session",
+            paneRows: [
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-agent"),
+                    primaryText: title,
+                    trailingText: "feature/autoresearch/zsh-startup-2026-03-22",
+                    detailText: "…/zentty",
+                    statusText: "Agent ready",
+                    attentionState: .ready,
+                    isFocused: true,
+                    isWorking: false
+                ),
+            ]
+        )
+        let wideLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 900)
+        let narrowLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 220)
+
+        XCTAssertGreaterThan(narrowLayout.rowHeight, wideLayout.rowHeight + 0.5)
+    }
+
     private func makeSummary(
         topLabel: String? = nil,
         primaryText: String = "shell",

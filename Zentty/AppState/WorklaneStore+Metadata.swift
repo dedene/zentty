@@ -241,8 +241,8 @@ extension WorklaneStore {
             }
 
             auxiliaryState.agentStatus = reducedStatus
-            auxiliaryState.raw.showsReadyStatus = true
             worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+            requestReadyStatusIfNeeded(for: paneID, in: &worklane)
             return
         }
 
@@ -271,8 +271,8 @@ extension WorklaneStore {
             sessionID: existingStatus.sessionID,
             parentSessionID: existingStatus.parentSessionID
         )
-        auxiliaryState.raw.showsReadyStatus = true
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        requestReadyStatusIfNeeded(for: paneID, in: &worklane)
     }
 
     /// Clears stale desktop notification text when a Codex terminal title transitions to
@@ -298,7 +298,7 @@ extension WorklaneStore {
            signature.phase == .running || signature.phase == .starting {
             worklane.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationText = nil
             worklane.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationDate = nil
-            worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus = false
+            clearReadyStatusIfNeeded(for: paneID, in: &worklane)
         }
     }
 
@@ -328,9 +328,27 @@ extension WorklaneStore {
         previousAuxiliaryState: PaneAuxiliaryState,
         nextAuxiliaryState: PaneAuxiliaryState
     ) -> Bool {
-        previousAuxiliaryState.presentation == nextAuxiliaryState.presentation
+        if sidebarVisibleVolatileTitle(for: previousAuxiliaryState)
+            != sidebarVisibleVolatileTitle(for: nextAuxiliaryState) {
+            return false
+        }
+
+        return previousAuxiliaryState.presentation == nextAuxiliaryState.presentation
             && previousAuxiliaryState.shellContext?.scope == nextAuxiliaryState.shellContext?.scope
             && gitContextRefreshHint(for: previousAuxiliaryState) == gitContextRefreshHint(for: nextAuxiliaryState)
+    }
+
+    private func sidebarVisibleVolatileTitle(for auxiliaryState: PaneAuxiliaryState) -> String? {
+        guard auxiliaryState.presentation.recognizedTool == .codex,
+              let volatileTitle = WorklaneContextFormatter.trimmed(auxiliaryState.metadata?.title),
+              TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+                  volatileTitle,
+                  recognizedTool: .codex
+              ) else {
+            return nil
+        }
+
+        return volatileTitle
     }
 
     func auxiliaryInvalidation(

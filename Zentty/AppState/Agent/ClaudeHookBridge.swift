@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 struct ClaudeHookInput {
@@ -70,10 +69,12 @@ enum ClaudeHookBridge {
             return nil
         }
 
+        let inputData = readStandardInput()
         do {
-            let input = try parseInput(readStandardInput())
+            let input = try parseInput(inputData)
             let sessionStore = ClaudeHookSessionStore()
-            for payload in try makePayloads(from: input, environment: environment, sessionStore: sessionStore) {
+            let payloads = try makePayloads(from: input, environment: environment, sessionStore: sessionStore)
+            for payload in payloads {
                 AgentStatusHelper.post(payload)
             }
             return EXIT_SUCCESS
@@ -208,12 +209,12 @@ enum ClaudeHookBridge {
         case "PermissionRequest":
             let target = try resolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             let existing = try lookupRecord(for: input, sessionStore: sessionStore)
-            let candidateMessage = AgentInteractionClassifier.trimmed(input.message) ?? "Claude needs your approval"
+            let interaction = describePermissionRequest(input: input, existing: existing)
             let message = preferredStructuredInteractionText(
                 existingText: existing?.structuredInteractionText,
                 existingKind: existing?.structuredInteractionKind,
-                candidateText: candidateMessage,
-                candidateKind: .approval
+                candidateText: interaction.text,
+                candidateKind: interaction.interactionKind
             )
             if let sessionID = input.sessionID {
                 try sessionStore.rememberStructuredInteraction(
@@ -223,7 +224,7 @@ enum ClaudeHookBridge {
                     cwd: input.cwd ?? existing?.cwd,
                     pid: existing?.pid,
                     text: message,
-                    kind: .approval,
+                    kind: interaction.interactionKind,
                     confidence: .explicit
                 )
             }
@@ -233,7 +234,7 @@ enum ClaudeHookBridge {
                     paneID: target.paneID,
                     state: .needsInput,
                     text: message,
-                    interactionKind: .approval,
+                    interactionKind: interaction.interactionKind,
                     confidence: .explicit,
                     sessionID: input.sessionID
                 ),
@@ -512,6 +513,27 @@ enum ClaudeHookBridge {
 
     private static func readStandardInput() -> Data {
         FileHandle.standardInput.readDataToEndOfFile()
+    }
+
+    private static func describePermissionRequest(
+        input: ClaudeHookInput,
+        existing: ClaudeHookSessionRecord?
+    ) -> (text: String, interactionKind: PaneAgentInteractionKind) {
+        if input.toolName == "AskUserQuestion" {
+            if let prompt = describeAskUserQuestion(toolInput: input.toolInput) {
+                return prompt
+            }
+            if let existingText = existing?.structuredInteractionText,
+               existing?.structuredInteractionKind == .decision {
+                return (existingText, .decision)
+            }
+            return ("Claude is waiting for your decision", .decision)
+        }
+
+        return (
+            AgentInteractionClassifier.trimmed(input.message) ?? "Claude needs your approval",
+            .approval
+        )
     }
 
     private static func describeAskUserQuestion(toolInput: [String: Any]) -> (text: String, interactionKind: PaneAgentInteractionKind)? {

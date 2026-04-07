@@ -94,10 +94,10 @@ extension WorklaneStore {
                 var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
                 auxiliaryState.raw.lastDesktopNotificationText = notificationText
                 auxiliaryState.raw.lastDesktopNotificationDate = Date()
-                if completionNotificationIndicatesReady(notificationText) {
-                    auxiliaryState.raw.showsReadyStatus = true
-                }
                 worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+                if completionNotificationIndicatesReady(notificationText) {
+                    requestReadyStatusIfNeeded(for: paneID, in: &worklane)
+                }
             }
 
             let payload = terminalDesktopNotificationPayload(
@@ -159,9 +159,11 @@ extension WorklaneStore {
             auxiliaryState.agentReducerState = Self.seededReducerState(auxiliaryState.agentReducerState, from: auxiliaryState.agentStatus)
             auxiliaryState.agentReducerState.apply(payload)
             auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
+            auxiliaryState.raw.wantsReadyStatus = false
             auxiliaryState.raw.showsReadyStatus = false
             auxiliaryState.terminalProgress = nil
             worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
+            cancelPendingReadyStatus(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
             recomputePresentation(for: payload.paneID, in: &worklane)
             worklanes[worklaneIndex] = worklane
             let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
@@ -228,12 +230,13 @@ extension WorklaneStore {
                 existingStatus: existingStatus,
                 payloadWorkingDirectory: payload.agentWorkingDirectory
             )
+            worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             reconcileReadyStatus(
                 existingStatus: existingStatus,
                 payload: payload,
-                auxiliaryState: &auxiliaryState
+                paneID: payload.paneID,
+                in: &worklane
             )
-            worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
         case .shellState:
             guard let shellActivityState = payload.shellActivityState else {
                 return
@@ -276,14 +279,15 @@ extension WorklaneStore {
                     existingStatus: existingStatus,
                     payloadWorkingDirectory: payload.agentWorkingDirectory
                 )
-                reconcileReadyStatus(
-                    existingStatus: existingStatus,
-                    payload: payload,
-                    auxiliaryState: &auxiliaryState
-                )
             }
 
             worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
+            reconcileReadyStatus(
+                existingStatus: existingStatus,
+                payload: payload,
+                paneID: payload.paneID,
+                in: &worklane
+            )
         case .pid:
             guard let pidEvent = payload.pidEvent else {
                 return
@@ -328,12 +332,13 @@ extension WorklaneStore {
                     auxiliaryState.presentation.rememberedTitle = nil
                 }
                 auxiliaryState.agentStatus = status
+                worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
                 reconcileReadyStatus(
                     existingStatus: existingStatus,
                     payload: payload,
-                    auxiliaryState: &auxiliaryState
+                    paneID: payload.paneID,
+                    in: &worklane
                 )
-                worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             case .clear:
                 guard existingStatus != nil else {
                     return
@@ -344,12 +349,13 @@ extension WorklaneStore {
                     existingStatus: existingStatus,
                     payloadWorkingDirectory: payload.agentWorkingDirectory
                 )
+                worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
                 reconcileReadyStatus(
                     existingStatus: existingStatus,
                     payload: payload,
-                    auxiliaryState: &auxiliaryState
+                    paneID: payload.paneID,
+                    in: &worklane
                 )
-                worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
             }
         case .paneContext:
             guard let paneContext = payload.paneContext else {
@@ -431,17 +437,18 @@ extension WorklaneStore {
     private func reconcileReadyStatus(
         existingStatus: PaneAgentStatus?,
         payload: AgentStatusPayload,
-        auxiliaryState: inout PaneAuxiliaryState
+        paneID: PaneID,
+        in worklane: inout WorklaneState
     ) {
-        let nextStatus = auxiliaryState.agentStatus
+        let nextStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
 
         if shouldEnterReadyStatus(from: existingStatus, to: nextStatus) {
-            auxiliaryState.raw.showsReadyStatus = true
+            requestReadyStatusIfNeeded(for: paneID, in: &worklane)
             return
         }
 
         if shouldClearReadyStatus(for: nextStatus, payload: payload) {
-            auxiliaryState.raw.showsReadyStatus = false
+            clearReadyStatusIfNeeded(for: paneID, in: &worklane)
         }
     }
 
@@ -473,14 +480,6 @@ extension WorklaneStore {
         }
 
         return nextStatus.state != .idle
-    }
-
-    private func clearReadyStatusIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
-        guard worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true else {
-            return
-        }
-
-        worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus = false
     }
 
     private func shouldClearReadyStatusForProgressReport(

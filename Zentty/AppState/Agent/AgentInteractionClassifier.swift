@@ -44,7 +44,11 @@ enum AgentInteractionClassifier {
             "login",
         ]
 
-        return markers.contains { message.contains($0) }
+        if markers.contains(where: { message.contains($0) }) {
+            return true
+        }
+
+        return looksLikeQuestionPrompt(message)
     }
 
     static func interactionKind(forWaitingMessage message: String?) -> PaneAgentInteractionKind? {
@@ -76,6 +80,10 @@ enum AgentInteractionClassifier {
         ]
         if approvalMarkers.contains(where: { message.contains($0) }) {
             return .approval
+        }
+
+        if looksLikeQuestionPrompt(message) {
+            return containsDecisionOptions(message) ? .decision : .question
         }
 
         if requiresHumanInput(message: message) {
@@ -187,5 +195,30 @@ enum AgentInteractionClassifier {
 
     private static func hasAnyPrefix(_ message: String, prefixes: [String]) -> Bool {
         prefixes.contains { message.hasPrefix($0) }
+    }
+
+    private static func looksLikeQuestionPrompt(_ message: String) -> Bool {
+        message.contains("?")
+    }
+
+    private static func containsDecisionOptions(_ message: String) -> Bool {
+        if message.contains("[") && message.contains("]") {
+            return true
+        }
+
+        return message.split(separator: "\n").contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let dotIndex = trimmed.firstIndex(of: ".") else {
+                return false
+            }
+
+            let prefix = trimmed[..<dotIndex]
+            guard prefix.allSatisfy(\.isNumber) else {
+                return false
+            }
+
+            let remainder = trimmed[trimmed.index(after: dotIndex)...].trimmingCharacters(in: .whitespaces)
+            return remainder.isEmpty == false
+        }
     }
 }

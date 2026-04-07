@@ -357,11 +357,14 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
     }
 
     static func transparentBackgroundOverrideContents(userConfigContents: String?) -> String? {
+        var lines = "background-opacity = 0\n"
+
         guard !userConfigContainsBackgroundBlur(userConfigContents) else {
-            return nil
+            return lines
         }
 
-        return "background-blur-radius = 20\n"
+        lines += "background-blur-radius = 20\n"
+        return lines
     }
 
     private static func userConfigContents() -> String? {

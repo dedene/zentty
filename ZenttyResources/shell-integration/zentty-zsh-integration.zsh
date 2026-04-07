@@ -5,9 +5,34 @@ typeset -g ZENTTY_ZSH_INTEGRATION_LOADED=1
 typeset -g _zentty_shell_activity_last=""
 
 _zentty_ensure_wrapper_path() {
-    [[ -n "${ZENTTY_WRAPPER_BIN_DIR:-}" ]] || return 0
+    local wrapper_dirs="${ZENTTY_ALL_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIR:-}}}"
+    [[ -n "$wrapper_dirs" ]] || return 0
+    local -a wrappers cleaned_path enabled_wrappers
+    local wrapper entry tool_name
+    wrappers=("${(@s/:/)wrapper_dirs}")
+    cleaned_path=()
+    for entry in "${path[@]}"; do
+        (( ${wrappers[(I)$entry]} == 0 )) || continue
+        cleaned_path+=("$entry")
+    done
+    for wrapper in "${wrappers[@]}"; do
+        tool_name="${wrapper:t}"
+        for entry in "${cleaned_path[@]}"; do
+            [[ -x "${entry}/${tool_name}" ]] || continue
+            enabled_wrappers+=("$wrapper")
+            break
+        done
+    done
     typeset -gU path
-    path=("$ZENTTY_WRAPPER_BIN_DIR" "${path[@]}")
+    path=("${enabled_wrappers[@]}" "${cleaned_path[@]}")
+    if (( ${#enabled_wrappers[@]} > 0 )); then
+        export ZENTTY_WRAPPER_BIN_DIR="${enabled_wrappers[1]}"
+        export ZENTTY_WRAPPER_BIN_DIRS="${(j.:.)enabled_wrappers}"
+    else
+        unset ZENTTY_WRAPPER_BIN_DIR
+        unset ZENTTY_WRAPPER_BIN_DIRS
+    fi
+    rehash 2>/dev/null || true
     export PATH
 }
 

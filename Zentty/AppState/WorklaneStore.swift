@@ -223,7 +223,9 @@ final class WorklaneStore {
     var knownNonRepositoryPaths: Set<String> = []
     var pendingGitContextPaths: Set<String> = []
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
+    private var pendingReadyStatusTasks: [PaneReference: Task<Void, Never>] = [:]
     private let processEnvironment: [String: String]
+    private let readyStatusDebounceInterval: TimeInterval
     let runtimeIdentity: WorklaneRuntimeIdentity
     let focusHistoryController = PaneFocusHistoryController()
     private var isNavigatingHistory = false
@@ -261,6 +263,7 @@ final class WorklaneStore {
         activeWorklaneID: WorklaneID? = nil,
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        readyStatusDebounceInterval: TimeInterval = 0.25,
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
         terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
@@ -268,6 +271,7 @@ final class WorklaneStore {
         self.terminalDiagnostics = terminalDiagnostics
         self.layoutContext = layoutContext
         self.processEnvironment = processEnvironment
+        self.readyStatusDebounceInterval = readyStatusDebounceInterval
         self.runtimeIdentity = runtimeIdentity
         let initialWorklanes = worklanes.isEmpty
             ? WorklaneStore.defaultWorklanes(
@@ -864,6 +868,7 @@ final class WorklaneStore {
         let previousPaneRef = currentPaneReference
         let wasFocusedPaneID = worklane.paneStripState.focusedPaneID
         let hadReadyStatus = worklane.auxiliaryStateByPaneID[id]?.raw.showsReadyStatus == true
+            || worklane.auxiliaryStateByPaneID[id]?.raw.wantsReadyStatus == true
         if wasFocusedPaneID == id, !hadReadyStatus {
             return
         }
@@ -1290,10 +1295,8 @@ final class WorklaneStore {
         if let claudeHookCommand = AgentStatusHelper.claudeHookCommand() {
             environment["ZENTTY_CLAUDE_HOOK_COMMAND"] = claudeHookCommand
         }
-        if let wrapperBinPath = AgentStatusHelper.wrapperBinPath() {
-            environment["ZENTTY_WRAPPER_BIN_DIR"] = wrapperBinPath
-            let currentPath = processEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-            environment["PATH"] = "\(wrapperBinPath):\(currentPath)"
+        if let wrapperDirectories = AgentStatusHelper.wrapperDirectoryPaths() {
+            environment["ZENTTY_ALL_WRAPPER_BIN_DIRS"] = wrapperDirectories.joined(separator: ":")
         }
         if let shellIntegrationDirectory = AgentStatusHelper.shellIntegrationDirectoryPath() {
             environment["ZENTTY_SHELL_INTEGRATION_DIR"] = shellIntegrationDirectory
@@ -1453,13 +1456,121 @@ final class WorklaneStore {
         clearReadyStatusIfNeeded(for: focusedPaneID, in: &worklane)
     }
 
-    private func clearReadyStatusIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
-        guard worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true else {
+    func clearReadyStatusIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
+        let paneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
+        cancelPendingReadyStatus(for: paneReference)
+
+        guard worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
+            || worklane.auxiliaryStateByPaneID[paneID]?.raw.wantsReadyStatus == true
+        else {
             return
         }
 
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.wantsReadyStatus = false
         worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus = false
         recomputePresentation(for: paneID, in: &worklane)
+    }
+
+    func requestReadyStatusIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
+        let paneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
+        var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
+        auxiliaryState.raw.wantsReadyStatus = true
+        let shouldSchedule = auxiliaryState.raw.showsReadyStatus == false
+        if shouldSchedule,
+           readyStatusDebounceInterval <= 0,
+           readyStatusMayBecomeVisible(in: auxiliaryState) {
+            auxiliaryState.raw.showsReadyStatus = true
+        }
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+
+        guard shouldSchedule else {
+            cancelPendingReadyStatus(for: paneReference)
+            return
+        }
+
+        guard readyStatusDebounceInterval > 0 else {
+            cancelPendingReadyStatus(for: paneReference)
+            return
+        }
+
+        scheduleReadyStatusReveal(for: paneReference)
+    }
+
+    func cancelPendingReadyStatus(for paneReference: PaneReference) {
+        pendingReadyStatusTasks[paneReference]?.cancel()
+        pendingReadyStatusTasks[paneReference] = nil
+    }
+
+    private func scheduleReadyStatusReveal(for paneReference: PaneReference) {
+        cancelPendingReadyStatus(for: paneReference)
+
+        let debounceInterval = readyStatusDebounceInterval
+        guard debounceInterval > 0 else {
+            commitReadyStatusReveal(for: paneReference)
+            return
+        }
+
+        pendingReadyStatusTasks[paneReference] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(debounceInterval))
+            guard !Task.isCancelled else {
+                return
+            }
+
+            self?.commitReadyStatusReveal(for: paneReference)
+        }
+    }
+
+    private func commitReadyStatusReveal(for paneReference: PaneReference) {
+        pendingReadyStatusTasks[paneReference] = nil
+
+        guard let worklaneIndex = worklanes.firstIndex(where: { $0.id == paneReference.worklaneID }) else {
+            return
+        }
+
+        var worklane = worklanes[worklaneIndex]
+        let previousWorklane = worklane
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneReference.paneID],
+              readyStatusMayBecomeVisible(in: auxiliaryState),
+              auxiliaryState.raw.showsReadyStatus == false
+        else {
+            return
+        }
+
+        auxiliaryState.raw.showsReadyStatus = true
+        worklane.auxiliaryStateByPaneID[paneReference.paneID] = auxiliaryState
+        recomputePresentation(for: paneReference.paneID, in: &worklane)
+        worklanes[worklaneIndex] = worklane
+
+        let impacts = auxiliaryInvalidation(
+            for: paneReference.paneID,
+            previousWorklane: previousWorklane,
+            nextWorklane: worklane
+        )
+        if !impacts.isEmpty {
+            notify(.auxiliaryStateUpdated(worklane.id, paneReference.paneID, impacts))
+        }
+    }
+
+    private func readyStatusMayBecomeVisible(in auxiliaryState: PaneAuxiliaryState) -> Bool {
+        guard auxiliaryState.raw.wantsReadyStatus else {
+            return false
+        }
+
+        if let agentStatus = auxiliaryState.agentStatus,
+           agentStatus.state == .idle,
+           agentStatus.hasObservedRunning {
+            return true
+        }
+
+        guard let notificationText = WorklaneContextFormatter.trimmed(
+            auxiliaryState.raw.lastDesktopNotificationText
+        )?.lowercased() else {
+            return false
+        }
+
+        return notificationText.contains("agent run complete")
+            || notificationText.contains("agent ready")
+            || notificationText.contains("agent turn complete")
     }
 
     private func resolveWorkingDirectoryForNewWorklane() -> String {

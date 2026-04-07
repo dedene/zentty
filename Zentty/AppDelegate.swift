@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appUpdateController: AppUpdateControlling
     private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
     private var aboutWindowController: AboutWindowController?
+    private var lastKeyWindowControllerID: ObjectIdentifier?
     private var configObserverID: UUID?
     private var nextWindowIndex = 0
 
@@ -29,11 +30,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         appUpdateController.start()
         AppMenuBuilder.installIfNeeded(on: NSApp, config: configStore.current)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidBecomeKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil
+        )
         configObserverID = configStore.addObserver { [weak self] config in
             Task { @MainActor in
                 guard let self else { return }
                 AppMenuBuilder.installIfNeeded(on: NSApp, config: config)
                 self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
+                self.aboutWindowController?.applyTheme(self.resolvedAboutTheme)
             }
         }
         UNUserNotificationCenter.current().delegate = self
@@ -64,9 +72,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     func showAboutWindow(_ sender: Any?) {
         let appearance = resolvedAboutAppearance
-        let controller = aboutWindowController ?? AboutWindowController(appearance: appearance)
+        let theme = resolvedAboutTheme
+        let controller = aboutWindowController ?? AboutWindowController(
+            appearance: appearance,
+            theme: theme
+        )
         aboutWindowController = controller
         controller.applyAppearance(appearance)
+        controller.applyTheme(theme)
         controller.show(sender: sender)
     }
 
@@ -101,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
         for controller in windowControllers.values {
             controller.tearDownRuntime()
         }
@@ -129,12 +143,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let id = ObjectIdentifier(controller)
         windowControllers[id] = controller
+        if lastKeyWindowControllerID == nil {
+            lastKeyWindowControllerID = id
+        }
         controller.onWindowDidClose = { [weak self] closedController in
             self?.handleWindowDidClose(closedController)
         }
-        controller.onWindowAppearanceDidChange = { [weak self] _ in
+        controller.onWindowAppearanceDidChange = { [weak self] _, _ in
             guard let self else { return }
             self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
+            self.aboutWindowController?.applyTheme(self.resolvedAboutTheme)
         }
         controller.onCheckForUpdatesRequested = { [weak self] in
             self?.checkForUpdates(nil)
@@ -143,7 +161,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleWindowDidClose(_ controller: MainWindowController) {
-        windowControllers.removeValue(forKey: ObjectIdentifier(controller))
+        let controllerID = ObjectIdentifier(controller)
+        windowControllers.removeValue(forKey: controllerID)
+        if lastKeyWindowControllerID == controllerID {
+            lastKeyWindowControllerID = nil
+        }
+        aboutWindowController?.applyAppearance(resolvedAboutAppearance)
+        aboutWindowController?.applyTheme(resolvedAboutTheme)
         if windowControllers.isEmpty {
             NSApp.terminate(nil)
         }
@@ -154,8 +178,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? windowControllers.values.first
     }
 
+    private var aboutThemeSourceController: MainWindowController? {
+        if let keyController = windowControllers.values.first(where: { $0.window.isKeyWindow }) {
+            return keyController
+        }
+
+        if let lastKeyWindowControllerID, let lastKeyController = windowControllers[lastKeyWindowControllerID] {
+            return lastKeyController
+        }
+
+        return windowControllers.values.first
+    }
+
     private var resolvedAboutAppearance: NSAppearance? {
-        keyWindowController?.terminalAppearance ?? NSApp.effectiveAppearance
+        aboutThemeSourceController?.terminalAppearance ?? NSApp.effectiveAppearance
+    }
+
+    private var resolvedAboutTheme: ZenttyTheme {
+        aboutThemeSourceController?.currentWindowTheme
+            ?? ZenttyTheme.fallback(for: resolvedAboutAppearance)
+    }
+
+    @objc
+    private func windowDidBecomeKey(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else {
+            return
+        }
+
+        guard let controller = windowControllers.values.first(where: { $0.window === window }) else {
+            return
+        }
+
+        lastKeyWindowControllerID = ObjectIdentifier(controller)
+        aboutWindowController?.applyAppearance(resolvedAboutAppearance)
+        aboutWindowController?.applyTheme(resolvedAboutTheme)
     }
 
     func windowController(containingWorklane worklaneID: WorklaneID) -> MainWindowController? {

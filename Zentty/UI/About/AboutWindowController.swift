@@ -3,19 +3,24 @@ import AppKit
 @MainActor
 final class AboutWindowController: NSWindowController {
     private enum Layout {
-        static let windowSize = NSSize(width: 576, height: 544)
+        static let windowSize = NSSize(width: 500, height: 544)
     }
 
     private let aboutViewController: AboutViewController
+    private let runtime: any LibghosttyRuntimeProviding
 
     init(
         metadata: AboutMetadata = AboutMetadata.load(from: .main),
         urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
-        appearance: NSAppearance? = nil
+        appearance: NSAppearance? = nil,
+        theme: ZenttyTheme? = nil,
+        runtime: any LibghosttyRuntimeProviding = LibghosttyRuntime.shared
     ) {
+        let resolvedTheme = theme ?? ZenttyTheme.fallback(for: appearance)
         let aboutViewController = AboutViewController(
             metadata: metadata,
-            urlOpener: urlOpener
+            urlOpener: urlOpener,
+            theme: resolvedTheme
         )
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Layout.windowSize),
@@ -38,8 +43,10 @@ final class AboutWindowController: NSWindowController {
         window.contentMinSize = Layout.windowSize
 
         self.aboutViewController = aboutViewController
+        self.runtime = runtime
         super.init(window: window)
         aboutViewController.applyAppearance(appearance)
+        applyTheme(resolvedTheme)
     }
 
     @available(*, unavailable)
@@ -59,9 +66,20 @@ final class AboutWindowController: NSWindowController {
         aboutViewController.applyAppearance(appearance)
     }
 
+    func applyTheme(_ theme: ZenttyTheme) {
+        aboutViewController.applyTheme(theme)
+        if let window {
+            runtime.applyBackgroundBlur(to: window)
+        }
+    }
+
     var versionValueForTesting: String { aboutViewController.versionValueForTesting }
     var buildValueForTesting: String { aboutViewController.buildValueForTesting }
     var commitValueForTesting: String { aboutViewController.commitValueForTesting }
+    var surfaceBackgroundTokenForTesting: String { aboutViewController.surfaceBackgroundTokenForTesting }
+    var commitColorTokenForTesting: String { aboutViewController.commitColorTokenForTesting }
+    var docsButtonBackgroundTokenForTesting: String { aboutViewController.docsButtonBackgroundTokenForTesting }
+    var docsButtonTextColorTokenForTesting: String { aboutViewController.docsButtonTextColorTokenForTesting }
     var windowAppearanceMatchForTesting: NSAppearance.Name? {
         window?.appearance?.bestMatch(from: [.darkAqua, .aqua])
     }

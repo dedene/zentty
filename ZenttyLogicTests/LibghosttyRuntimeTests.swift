@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 final class LibghosttyRuntimeTests: XCTestCase {
-    func testTransparentBackgroundOverrideContents_preservesConfiguredOpacity() {
+    func testTransparentBackgroundOverrideContents_forcesTransparentEmbeddedSurfaceAndAddsFallbackBlur() {
         let contents = LibghosttyRuntime.transparentBackgroundOverrideContents(
             userConfigContents: """
             background-opacity = 0.95
@@ -11,11 +11,10 @@ final class LibghosttyRuntimeTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(contents, "background-blur-radius = 20\n")
-        XCTAssertFalse(contents?.contains("background-opacity") ?? false)
+        XCTAssertEqual(contents, "background-opacity = 0\nbackground-blur-radius = 20\n")
     }
 
-    func testTransparentBackgroundOverrideContents_skipsFallbackWhenBlurRadiusConfigured() {
+    func testTransparentBackgroundOverrideContents_keepsTransparencyOverrideWhenBlurRadiusConfigured() {
         let contents = LibghosttyRuntime.transparentBackgroundOverrideContents(
             userConfigContents: """
             background-opacity = 0.95
@@ -23,10 +22,10 @@ final class LibghosttyRuntimeTests: XCTestCase {
             """
         )
 
-        XCTAssertNil(contents)
+        XCTAssertEqual(contents, "background-opacity = 0\n")
     }
 
-    func testTransparentBackgroundOverrideContents_treatsLegacyBackgroundBlurAsConfigured() {
+    func testTransparentBackgroundOverrideContents_keepsTransparencyOverrideWhenLegacyBackgroundBlurConfigured() {
         let contents = LibghosttyRuntime.transparentBackgroundOverrideContents(
             userConfigContents: """
             background-opacity = 0.95
@@ -34,6 +33,6 @@ final class LibghosttyRuntimeTests: XCTestCase {
             """
         )
 
-        XCTAssertNil(contents)
+        XCTAssertEqual(contents, "background-opacity = 0\n")
     }
 }

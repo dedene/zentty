@@ -44,8 +44,6 @@ final class SidebarWorklaneRowButton: NSButton {
         static let textWrapperInset = max(0, textContentInset - contentInset)
         static let paneWrapperInset = max(0, ShellMetrics.sidebarPaneRowHorizontalInset - contentInset)
         static let primaryTextLeadingInset: CGFloat = 0
-        static let panePrimaryTrailingSpacing: CGFloat = 6
-        static let trailingSpillThresholdRatio: CGFloat = 0.5
     }
 
     let worklaneID: WorklaneID?
@@ -115,6 +113,16 @@ final class SidebarWorklaneRowButton: NSButton {
         super.setFrameSize(newSize)
 
         guard abs(previousWidth - newSize.width) > .ulpOfOne else {
+            return
+        }
+
+        applyResolvedSummary(animated: false)
+    }
+
+    override func layout() {
+        super.layout()
+
+        guard bounds.width > 0 else {
             return
         }
 
@@ -400,7 +408,7 @@ final class SidebarWorklaneRowButton: NSButton {
         defer { isApplyingResolvedSummary = false }
 
         let resolvedSummary = resolvedSummary(for: summary)
-        let layout = SidebarWorklaneRowLayout(summary: resolvedSummary)
+        let layout = SidebarWorklaneRowLayout(summary: resolvedSummary, availableWidth: bounds.width)
         applyTextStackVerticalInsets(hasPaneRows: resolvedSummary.paneRows.isEmpty == false)
 
         topLabel.stringValue = resolvedSummary.topLabel ?? ""
@@ -459,86 +467,7 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     private func resolvedSummary(for summary: WorklaneSidebarSummary) -> WorklaneSidebarSummary {
-        guard summary.paneRows.isEmpty == false else {
-            return summary
-        }
-
-        let resolvedPaneRows = summary.paneRows.map(resolvedPaneRow(_:))
-        guard resolvedPaneRows != summary.paneRows else {
-            return summary
-        }
-
-        return WorklaneSidebarSummary(
-            worklaneID: summary.worklaneID,
-            badgeText: summary.badgeText,
-            topLabel: summary.topLabel,
-            primaryText: summary.primaryText,
-            focusedPaneLineIndex: summary.focusedPaneLineIndex,
-            statusText: summary.statusText,
-            statusSymbolName: summary.statusSymbolName,
-            detailLines: summary.detailLines,
-            paneRows: resolvedPaneRows,
-            overflowText: summary.overflowText,
-            attentionState: summary.attentionState,
-            interactionKind: summary.interactionKind,
-            interactionLabel: summary.interactionLabel,
-            interactionSymbolName: summary.interactionSymbolName,
-            isWorking: summary.isWorking,
-            isActive: summary.isActive
-        )
-    }
-
-    private func resolvedPaneRow(_ paneRow: WorklaneSidebarPaneRow) -> WorklaneSidebarPaneRow {
-        guard let trailingText = WorklaneContextFormatter.trimmed(paneRow.trailingText),
-              WorklaneContextFormatter.trimmed(paneRow.detailText) == nil,
-              shouldSpillTrailingText(trailingText) else {
-            return paneRow
-        }
-
-        return WorklaneSidebarPaneRow(
-            paneID: paneRow.paneID,
-            primaryText: paneRow.primaryText,
-            trailingText: nil,
-            detailText: trailingText,
-            statusText: paneRow.statusText,
-            statusSymbolName: paneRow.statusSymbolName,
-            attentionState: paneRow.attentionState,
-            interactionKind: paneRow.interactionKind,
-            interactionLabel: paneRow.interactionLabel,
-            interactionSymbolName: paneRow.interactionSymbolName,
-            isFocused: paneRow.isFocused,
-            isWorking: paneRow.isWorking
-        )
-    }
-
-    private func shouldSpillTrailingText(_ trailingText: String) -> Bool {
-        let availableWidth =
-            bounds.width
-            - (ShellMetrics.sidebarPaneRowHorizontalInset * 2)
-            - (ShellMetrics.sidebarPaneButtonHorizontalInset * 2)
-        guard availableWidth > 0 else {
-            return false
-        }
-
-        let maxTrailingWidth =
-            (availableWidth * Layout.trailingSpillThresholdRatio)
-            - Layout.panePrimaryTrailingSpacing
-        guard maxTrailingWidth > 0 else {
-            return true
-        }
-
-        return measuredWidth(
-            for: trailingText,
-            font: ShellMetrics.sidebarDetailFont()
-        ) > maxTrailingWidth
-    }
-
-    private func measuredWidth(for text: String, font: NSFont) -> CGFloat {
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let line = CTLineCreateWithAttributedString(
-            NSAttributedString(string: text, attributes: attributes)
-        )
-        return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+        summary
     }
 
     private func configureDetailLabels(for detailLines: [WorklaneSidebarDetailLine]) {
@@ -595,9 +524,19 @@ final class SidebarWorklaneRowButton: NSButton {
 
         for (index, paneRow) in paneRows.enumerated() {
             let panePhaseOffset = SidebarShimmerPhaseOffset.forIdentifier(paneRow.paneID.rawValue)
+            let presentationMode = SidebarWorklaneRowLayout.paneRowPresentationMode(
+                for: paneRow,
+                availableWidth: bounds.width
+            )
+            let primaryLineCount = SidebarWorklaneRowLayout.paneRowPrimaryLineCount(
+                for: paneRow,
+                availableWidth: bounds.width
+            )
             panePrimaryRows[index].configure(
                 primaryText: paneRow.primaryText,
-                trailingText: paneRow.trailingText
+                trailingText: presentationMode == .inline ? paneRow.trailingText : nil,
+                presentationMode: presentationMode,
+                lineCount: primaryLineCount
             )
             panePrimaryRows[index].setShimmerPhaseOffset(panePhaseOffset)
             paneDetailLabels[index].stringValue = paneRow.detailText ?? ""
@@ -613,7 +552,8 @@ final class SidebarWorklaneRowButton: NSButton {
                     attentionState: paneRow.attentionState,
                     interactionKind: paneRow.interactionKind,
                     interactionSymbolName: paneRow.interactionSymbolName
-                )
+                ),
+                trailingText: presentationMode == .adaptive ? paneRow.trailingText : nil
             )
             paneStatusRows[index].setShimmerPhaseOffset(panePhaseOffset)
 
@@ -823,6 +763,10 @@ final class SidebarWorklaneRowButton: NSButton {
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor
             )
+            let presentationMode = SidebarWorklaneRowLayout.paneRowPresentationMode(
+                for: paneRow,
+                availableWidth: bounds.width
+            )
             let isActive = currentSummary?.isActive ?? false
             let paneShimmerTreatment: SidebarShimmerTreatment = isActive ? .shadow : .highlight
             panePrimaryRows[index].applyColors(
@@ -847,6 +791,7 @@ final class SidebarWorklaneRowButton: NSButton {
                     activeTextColor: activeTextColor,
                     inactiveTextColor: inactiveTextColor
                 ),
+                trailingTextColor: presentationMode == .adaptive ? trailingColor : nil,
                 isShimmering: paneRow.isWorking && paneRow.attentionState == .running,
                 shimmerColor: shimmerColor(
                     for: statusShimmerBaseColor(for: currentTheme.statusRunning),
@@ -1277,6 +1222,10 @@ final class SidebarWorklaneRowButton: NSButton {
 
     var firstPanePrimaryShimmerColorForTesting: NSColor? {
         panePrimaryRows.first?.shimmerColorForTesting
+    }
+
+    var firstPanePrimaryHeightForTesting: CGFloat? {
+        panePrimaryRows.first.map { max($0.bounds.height, $0.fittingSize.height) }
     }
 
     var firstPaneTrailingTextColorForTesting: NSColor? {
@@ -1999,6 +1948,9 @@ private final class SidebarPanePrimaryRowView: NSView {
     private let shimmerLabel = SidebarShimmerTextView()
     private let trailingLabelView = SidebarStaticLabel()
     private let stack = NSStackView()
+    private var heightConstraint: NSLayoutConstraint?
+    private var presentationMode: SidebarPaneRowPresentationMode = .inline
+    private var requestedLineCount: Int = 1
 
     private(set) var primaryText: String = ""
     private(set) var trailingText: String?
@@ -2017,6 +1969,13 @@ private final class SidebarPanePrimaryRowView: NSView {
         trailingLabelView.textColor ?? .clear
     }
 
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: heightConstraint?.constant ?? ShellMetrics.sidebarPrimaryLineHeight
+        )
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setup()
@@ -2027,8 +1986,15 @@ private final class SidebarPanePrimaryRowView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func layout() {
+        super.layout()
+        updateAdaptiveHeight()
+    }
+
     private func setup() {
         translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .vertical)
 
         textContainer.translatesAutoresizingMaskIntoConstraints = false
         textContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -2039,6 +2005,9 @@ private final class SidebarPanePrimaryRowView: NSView {
         baseLabel.font = ShellMetrics.sidebarPrimaryFont()
         baseLabel.lineBreakMode = .byTruncatingTail
         baseLabel.translatesAutoresizingMaskIntoConstraints = false
+        baseLabel.maximumNumberOfLines = 1
+        baseLabel.cell?.wraps = false
+        baseLabel.cell?.usesSingleLineMode = true
 
         shimmerLabel.font = ShellMetrics.sidebarPrimaryFont()
         shimmerLabel.lineHeight = ShellMetrics.sidebarPrimaryLineHeight
@@ -2052,13 +2021,15 @@ private final class SidebarPanePrimaryRowView: NSView {
         trailingLabelView.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 6
+        stack.alignment = .top
+        stack.spacing = SidebarPaneRowPresentationMode.inlineSpacing
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(textContainer)
         stack.addArrangedSubview(trailingLabelView)
         addSubview(stack)
 
+        let heightConstraint = heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarPrimaryLineHeight)
+        self.heightConstraint = heightConstraint
         NSLayoutConstraint.activate([
             baseLabel.topAnchor.constraint(equalTo: textContainer.topAnchor),
             baseLabel.leadingAnchor.constraint(equalTo: textContainer.leadingAnchor),
@@ -2072,17 +2043,25 @@ private final class SidebarPanePrimaryRowView: NSView {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarPrimaryLineHeight),
+            heightConstraint,
         ])
     }
 
-    func configure(primaryText: String, trailingText: String?) {
+    func configure(
+        primaryText: String,
+        trailingText: String?,
+        presentationMode: SidebarPaneRowPresentationMode,
+        lineCount: Int
+    ) {
         self.primaryText = primaryText
         self.trailingText = trailingText
+        self.presentationMode = presentationMode
+        requestedLineCount = lineCount
         baseLabel.stringValue = primaryText
         shimmerLabel.stringValue = primaryText
         trailingLabelView.stringValue = trailingText ?? ""
         trailingLabelView.isHidden = (trailingText?.isEmpty ?? true)
+        applyPresentationMode(lineCount: lineCount)
     }
 
     func applyColors(
@@ -2096,7 +2075,8 @@ private final class SidebarPanePrimaryRowView: NSView {
         self.trailingColor = trailingColor
         baseLabel.textColor = primaryColor
         trailingLabelView.textColor = trailingColor
-        shimmerLabel.isShimmering = isShimmering
+        shimmerLabel.isHidden = presentationMode == .adaptive
+        shimmerLabel.isShimmering = isShimmering && presentationMode == .inline
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor
     }
@@ -2116,6 +2096,42 @@ private final class SidebarPanePrimaryRowView: NSView {
     var shimmerPhaseOffsetForTesting: CGFloat {
         shimmerLabel.shimmerPhaseOffsetForTesting
     }
+
+    private func applyPresentationMode(lineCount: Int) {
+        let clampedLineCount = max(1, min(2, lineCount))
+        let wraps = presentationMode == .adaptive
+
+        baseLabel.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
+        baseLabel.maximumNumberOfLines = wraps ? clampedLineCount : 1
+        baseLabel.cell?.wraps = wraps
+        baseLabel.cell?.usesSingleLineMode = wraps == false
+        trailingLabelView.isHidden = wraps || (trailingText?.isEmpty ?? true)
+        stack.alignment = wraps ? .top : .centerY
+        heightConstraint?.constant = ShellMetrics.sidebarPrimaryLineHeight * CGFloat(clampedLineCount)
+        invalidateIntrinsicContentSize()
+    }
+
+    private func updateAdaptiveHeight() {
+        guard presentationMode == .adaptive else {
+            return
+        }
+
+        let availableWidth = max(0, textContainer.bounds.width)
+        guard availableWidth > 0 else {
+            heightConstraint?.constant = ShellMetrics.sidebarPrimaryLineHeight * CGFloat(requestedLineCount)
+            return
+        }
+
+        let boundingRect = (primaryText as NSString).boundingRect(
+            with: NSSize(width: availableWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: ShellMetrics.sidebarPrimaryFont()]
+        )
+        let measuredLineCount = Int(ceil(boundingRect.height / ShellMetrics.sidebarPrimaryLineHeight))
+        let resolvedLineCount = max(1, min(2, measuredLineCount))
+        heightConstraint?.constant = ShellMetrics.sidebarPrimaryLineHeight * CGFloat(resolvedLineCount)
+        invalidateIntrinsicContentSize()
+    }
 }
 
 @MainActor
@@ -2126,11 +2142,14 @@ private final class SidebarPaneTextRowView: NSView {
     private let textContainer = SidebarPrimaryTextContainerView()
     private let baseLabel = SidebarStaticLabel()
     private let shimmerLabel = SidebarShimmerTextView()
+    private let trailingLabelView = SidebarStaticLabel()
     private let contentStack = NSStackView()
 
     private(set) var text: String = ""
     private(set) var symbolName: String = ""
     private(set) var textColor: NSColor = .secondaryLabelColor
+    private(set) var trailingText: String?
+    private(set) var trailingTextColor: NSColor = .secondaryLabelColor
 
     init(font: NSFont, lineHeight: CGFloat) {
         super.init(frame: .zero)
@@ -2161,6 +2180,12 @@ private final class SidebarPaneTextRowView: NSView {
         contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         contentStack.addArrangedSubview(iconView)
         contentStack.addArrangedSubview(textContainer)
+        trailingLabelView.font = ShellMetrics.sidebarDetailFont()
+        trailingLabelView.alignment = .right
+        trailingLabelView.lineBreakMode = .byTruncatingHead
+        trailingLabelView.translatesAutoresizingMaskIntoConstraints = false
+        trailingLabelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        contentStack.addArrangedSubview(trailingLabelView)
         addSubview(contentStack)
 
         baseLabel.font = font
@@ -2191,9 +2216,10 @@ private final class SidebarPaneTextRowView: NSView {
         ])
     }
 
-    func configure(text: String, symbolName: String?) {
+    func configure(text: String, symbolName: String?, trailingText: String?) {
         self.text = text
         self.symbolName = symbolName ?? ""
+        self.trailingText = trailingText
         baseLabel.stringValue = text
         shimmerLabel.stringValue = text
         iconView.image = symbolName.flatMap {
@@ -2201,20 +2227,25 @@ private final class SidebarPaneTextRowView: NSView {
                 .withSymbolConfiguration(.init(pointSize: Self.symbolPointSize, weight: .semibold))
         }
         iconView.isHidden = iconView.image == nil
+        trailingLabelView.stringValue = trailingText ?? ""
+        trailingLabelView.isHidden = (trailingText?.isEmpty ?? true)
     }
 
     func applyColors(
         textColor: NSColor,
+        trailingTextColor: NSColor?,
         isShimmering: Bool,
         shimmerColor: NSColor,
         reducedMotion: Bool
     ) {
         self.textColor = textColor
+        self.trailingTextColor = trailingTextColor ?? .clear
         let dimmedColor = isShimmering
             ? textColor.withAlphaComponent(textColor.alphaComponent * 0.90)
             : textColor
         baseLabel.textColor = dimmedColor
         iconView.contentTintColor = dimmedColor
+        trailingLabelView.textColor = trailingTextColor
         shimmerLabel.isShimmering = isShimmering
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor
