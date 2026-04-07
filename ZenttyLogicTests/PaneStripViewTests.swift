@@ -289,6 +289,95 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_pane_drag_preview_uses_opaque_window_background_while_dragging() throws {
+        let theme = ZenttyTheme.fallback(for: nil)
+        let paneStripView = makePaneStripView(width: 980)
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 420),
+                PaneState(id: PaneID("editor"), title: "editor", width: 420),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        paneStripView.dragOverlayView = paneStripView
+        paneStripView.apply(theme: theme, animated: false)
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let paneView = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
+        )
+        let dragPoint = CGPoint(
+            x: paneView.frame.midX,
+            y: paneView.frame.maxY - (PaneContainerView.dragZoneHeight / 2)
+        )
+
+        paneStripView.beginPaneDragForTesting(
+            paneID: PaneID("shell"),
+            cursorInStrip: dragPoint
+        )
+
+        let backgroundColor = try XCTUnwrap(paneStripView.dragPreviewBackgroundColorForTesting)
+
+        XCTAssertLessThan(theme.windowBackground.srgbClamped.alphaComponent, 1.0)
+        XCTAssertEqual(
+            backgroundColor.themeToken,
+            theme.windowBackground.srgbClamped.withAlphaComponent(1).themeToken
+        )
+        XCTAssertEqual(backgroundColor.srgbClamped.alphaComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(paneView.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
+    }
+
+    @MainActor
+    func test_pane_drag_preview_samples_rendered_backdrop_color_when_available() throws {
+        let theme = ZenttyTheme.fallback(for: nil)
+        let sampledBackdrop = NSColor(srgbRed: 0.87, green: 0.42, blue: 0.26, alpha: 1)
+        let paneStripView = makePaneStripView(width: 980)
+        let backdropView = NSView(frame: paneStripView.bounds)
+        backdropView.wantsLayer = true
+        backdropView.layer?.backgroundColor = sampledBackdrop.cgColor
+        backdropView.autoresizingMask = [.width, .height]
+        paneStripView.addSubview(backdropView, positioned: .below, relativeTo: paneStripView.subviews.first)
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 420),
+                PaneState(id: PaneID("editor"), title: "editor", width: 420),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        paneStripView.dragOverlayView = paneStripView
+        paneStripView.apply(theme: theme, animated: false)
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let paneView = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
+        )
+        let dragPoint = CGPoint(
+            x: paneView.frame.midX,
+            y: paneView.frame.maxY - (PaneContainerView.dragZoneHeight / 2)
+        )
+
+        paneStripView.beginPaneDragForTesting(
+            paneID: PaneID("shell"),
+            cursorInStrip: dragPoint
+        )
+
+        let backgroundColor = try XCTUnwrap(paneStripView.dragPreviewBackgroundColorForTesting)
+
+        let resolvedBackground = backgroundColor.srgbClamped
+        let expectedBackdrop = sampledBackdrop.srgbClamped
+
+        XCTAssertEqual(resolvedBackground.redComponent, expectedBackdrop.redComponent, accuracy: 0.01)
+        XCTAssertEqual(resolvedBackground.greenComponent, expectedBackdrop.greenComponent, accuracy: 0.01)
+        XCTAssertEqual(resolvedBackground.blueComponent, expectedBackdrop.blueComponent, accuracy: 0.01)
+        XCTAssertNotEqual(
+            backgroundColor.themeToken,
+            theme.windowBackground.srgbClamped.withAlphaComponent(1).themeToken
+        )
+    }
+
+    @MainActor
     func test_render_publishes_border_chrome_snapshots_for_visible_panes() throws {
         let paneStripView = makePaneStripView()
         let state = PaneStripState(
@@ -1142,6 +1231,91 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertEqual(transition.side, .right)
         XCTAssertEqual(transition.paneID, PaneID("pane-1"))
         XCTAssertGreaterThan(transition.initialFrame.minX, editorFrame.maxX)
+    }
+
+    @MainActor
+    func test_drop_settle_suppresses_insertion_transition_inference() throws {
+        let paneStripView = makePaneStripView()
+        let previousState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        let nextState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("editor"), title: "editor"),
+                PaneState(id: PaneID("pane-1"), title: "pane 1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+
+        paneStripView.render(previousState)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.beginDropSettle(paneID: PaneID("editor")) {}
+
+        paneStripView.render(nextState)
+
+        XCTAssertNil(paneStripView.lastInsertionTransition)
+    }
+
+    @MainActor
+    func test_insertion_transition_ignores_duplicate_previous_column_ids() throws {
+        let paneStripView = makePaneStripView()
+        let previousState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("duplicate"),
+                    panes: [PaneState(id: PaneID("shell"), title: "shell")],
+                    width: 430,
+                    focusedPaneID: PaneID("shell"),
+                    lastFocusedPaneID: PaneID("shell")
+                ),
+                PaneColumnState(
+                    id: PaneColumnID("duplicate"),
+                    panes: [PaneState(id: PaneID("editor"), title: "editor")],
+                    width: 430,
+                    focusedPaneID: PaneID("editor"),
+                    lastFocusedPaneID: PaneID("editor")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("duplicate")
+        )
+        let nextState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("duplicate"),
+                    panes: [PaneState(id: PaneID("shell"), title: "shell")],
+                    width: 286,
+                    focusedPaneID: PaneID("shell"),
+                    lastFocusedPaneID: PaneID("shell")
+                ),
+                PaneColumnState(
+                    id: PaneColumnID("duplicate"),
+                    panes: [PaneState(id: PaneID("editor"), title: "editor")],
+                    width: 286,
+                    focusedPaneID: PaneID("editor"),
+                    lastFocusedPaneID: PaneID("editor")
+                ),
+                PaneColumnState(
+                    id: PaneColumnID("column-pane-1"),
+                    panes: [PaneState(id: PaneID("pane-1"), title: "pane 1")],
+                    width: 286,
+                    focusedPaneID: PaneID("pane-1"),
+                    lastFocusedPaneID: PaneID("pane-1")
+                ),
+            ],
+            focusedColumnID: PaneColumnID("column-pane-1")
+        )
+
+        paneStripView.render(previousState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(nextState)
+
+        XCTAssertNil(paneStripView.lastInsertionTransition)
     }
 
     @MainActor

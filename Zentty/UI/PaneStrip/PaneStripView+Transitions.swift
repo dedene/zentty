@@ -31,7 +31,9 @@ extension PaneStripView {
         }
 
         let nextColumn = nextPresentation.columns[insertedColumnIndex]
-        let previousColumnsByID = Dictionary(uniqueKeysWithValues: previousPresentation.columns.map { ($0.columnID, $0) })
+        guard let previousColumnsByID = uniqueColumnsByID(previousPresentation.columns) else {
+            return nil
+        }
 
         if let previousColumn = previousColumnsByID[nextColumn.columnID] {
             let spacing = nextColumn.panes.count > 1
@@ -161,5 +163,20 @@ extension PaneStripView {
         }
 
         return nil
+    }
+
+    private func uniqueColumnsByID(
+        _ columns: [ColumnPresentation]
+    ) -> [PaneColumnID: ColumnPresentation]? {
+        var columnsByID: [PaneColumnID: ColumnPresentation] = [:]
+        columnsByID.reserveCapacity(columns.count)
+
+        for column in columns {
+            guard columnsByID.updateValue(column, forKey: column.columnID) == nil else {
+                return nil
+            }
+        }
+
+        return columnsByID
     }
 }

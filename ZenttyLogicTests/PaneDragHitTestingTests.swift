@@ -112,4 +112,74 @@ final class PaneDragHitTestingTests: XCTestCase {
         XCTAssertEqual(gapHit, StackReorderGapHit(columnID: PaneColumnID("stack"), paneIndex: 0))
     }
 
+    func test_splitZoneHit_rejects_horizontal_split_on_multi_pane_stack() {
+        let paneID = PaneID("top")
+        let columnID = PaneColumnID("stack")
+
+        let hit = PaneDragHitTest.splitZoneHit(
+            cursorInContent: CGPoint(x: 10, y: 760),
+            paneFramesByID: [
+                paneID: CGRect(x: 0, y: 620, width: 320, height: 300)
+            ],
+            columnForPane: [paneID: columnID],
+            paneCountByColumn: [columnID: 2],
+            sourceColumnID: PaneColumnID("source"),
+            minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
+        )
+
+        XCTAssertNil(hit)
+    }
+
+    func test_splitZoneHit_falls_back_to_vertical_split_on_multi_pane_stack_corner() {
+        let paneID = PaneID("top")
+        let columnID = PaneColumnID("stack")
+
+        let hit = PaneDragHitTest.splitZoneHit(
+            cursorInContent: CGPoint(x: 10, y: 1010),
+            paneFramesByID: [
+                paneID: CGRect(x: 0, y: 620, width: 320, height: 400)
+            ],
+            columnForPane: [paneID: columnID],
+            paneCountByColumn: [columnID: 2],
+            sourceColumnID: PaneColumnID("source"),
+            minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
+        )
+
+        XCTAssertEqual(
+            hit,
+            SplitZoneHit(
+                targetPaneID: paneID,
+                targetColumnID: columnID,
+                axis: .vertical,
+                leading: true
+            )
+        )
+    }
+
+    func test_splitZoneHit_keeps_horizontal_split_for_single_pane_column() {
+        let paneID = PaneID("solo")
+        let columnID = PaneColumnID("single")
+
+        let hit = PaneDragHitTest.splitZoneHit(
+            cursorInContent: CGPoint(x: 10, y: 460),
+            paneFramesByID: [
+                paneID: CGRect(x: 0, y: 300, width: 320, height: 320)
+            ],
+            columnForPane: [paneID: columnID],
+            paneCountByColumn: [columnID: 1],
+            sourceColumnID: PaneColumnID("source"),
+            minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
+        )
+
+        XCTAssertEqual(
+            hit,
+            SplitZoneHit(
+                targetPaneID: paneID,
+                targetColumnID: columnID,
+                axis: .horizontal,
+                leading: true
+            )
+        )
+    }
+
 }

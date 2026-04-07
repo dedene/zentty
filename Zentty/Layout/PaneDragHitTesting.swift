@@ -223,6 +223,7 @@ enum PaneDragHitTest {
         cursorInContent: CGPoint,
         paneFramesByID: [PaneID: CGRect],
         columnForPane: [PaneID: PaneColumnID],
+        paneCountByColumn: [PaneColumnID: Int],
         sourceColumnID: PaneColumnID,
         minimumPaneHeight: CGFloat
     ) -> SplitZoneHit? {
@@ -261,34 +262,30 @@ enum PaneDragHitTest {
         let dBottom = ny           // bottom-left coords: low Y = bottom
         let dTop = 1 - ny         // high Y = top
 
-        let minHorizontal = min(dLeft, dRight)
-        let minVertical = min(dBottom, dTop)
+        let candidates: [(distance: CGFloat, axis: PaneSplitPreview.Axis, leading: Bool)] = [
+            (dLeft, .horizontal, true),
+            (dRight, .horizontal, false),
+            (dBottom, .vertical, false),
+            (dTop, .vertical, true),
+        ].sorted { $0.distance < $1.distance }
 
-        let axis: PaneSplitPreview.Axis
-        let leading: Bool
-
-        if minHorizontal < minVertical {
-            // Closer to left or right edge → horizontal split
-            axis = .horizontal
-            leading = dLeft < dRight
-        } else {
-            // Closer to top or bottom edge → vertical split
-            axis = .vertical
-            // "above" in UI = higher Y in bottom-left coords = near top edge
-            leading = dTop < dBottom
-
-            // Enforce minimum pane height for vertical splits
-            if hitFrame.height / 2 < minimumPaneHeight {
-                return nil
+        for candidate in candidates where candidate.distance <= edgeThreshold {
+            switch candidate.axis {
+            case .horizontal:
+                guard paneCountByColumn[targetColumnID] == 1 else { continue }
+            case .vertical:
+                guard hitFrame.height / 2 >= minimumPaneHeight else { continue }
             }
+
+            return SplitZoneHit(
+                targetPaneID: targetPaneID,
+                targetColumnID: targetColumnID,
+                axis: candidate.axis,
+                leading: candidate.leading
+            )
         }
 
-        return SplitZoneHit(
-            targetPaneID: targetPaneID,
-            targetColumnID: targetColumnID,
-            axis: axis,
-            leading: leading
-        )
+        return nil
     }
 
     // MARK: - Sidebar Row Detection

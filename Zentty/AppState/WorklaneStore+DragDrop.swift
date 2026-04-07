@@ -158,6 +158,18 @@ extension WorklaneStore {
                 return
             }
 
+            guard targetColumn.panes.count == 1 else {
+                worklane.paneStripState.insertPaneAsColumn(
+                    removal.pane,
+                    atColumnIndex: removal.columnIndex,
+                    width: removal.pane.width
+                )
+                activeWorklane = worklane
+                refreshLastFocusedLocalWorkingDirectory()
+                notify(.paneStructure(activeWorklaneID))
+                return
+            }
+
             let splitWidth = max(1, targetColumn.width / 2)
 
             if let targetIndex = worklane.paneStripState.columns.firstIndex(where: { $0.id == targetColumn.id }) {

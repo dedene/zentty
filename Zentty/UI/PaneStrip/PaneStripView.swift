@@ -96,6 +96,7 @@ final class PaneStripView: NSView {
     private(set) var lastRemovalTransition: PaneRemovalTransition?
     private(set) var lastRenderWasAnimated = false
     private var renderGuard = RenderGuard()
+    private var suppressDiffBasedTransitionsOnNextRender = false
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resolvedLeadingVisibleInset: CGFloat = 0
     private var hoveredDivider: PaneDivider?
@@ -424,6 +425,8 @@ final class PaneStripView: NSView {
         let previousPresentation = currentPresentation
         let previousOffset = currentOffset
         let targetOffsetOverride = pendingTargetOffsetOverride
+        let suppressDiffBasedTransitions = suppressDiffBasedTransitionsOnNextRender
+        suppressDiffBasedTransitionsOnNextRender = false
         pendingTargetOffsetOverride = nil
         let presentation = motionController.presentation(
             for: state,
@@ -431,7 +434,7 @@ final class PaneStripView: NSView {
             leadingVisibleInset: resolvedLeadingVisibleInset,
             backingScaleFactor: currentBackingScaleFactor
         )
-        let insertionTransition = insertionTransition(
+        let insertionTransition = suppressDiffBasedTransitions ? nil : insertionTransition(
             from: previousPresentation,
             previousOffset: previousOffset,
             to: presentation
@@ -457,7 +460,7 @@ final class PaneStripView: NSView {
             && !isResizeSuppressedRender
             && !isZoomedOut
         lastRenderWasAnimated = shouldAnimate
-        let removalTransition = shouldAnimate
+        let removalTransition = shouldAnimate && !suppressDiffBasedTransitions
             ? removalTransition(from: previousPresentation, to: presentation)
             : nil
         lastRemovalTransition = removalTransition
@@ -1280,6 +1283,7 @@ final class PaneStripView: NSView {
             state: state,
             presentation: presentation,
             motionController: motionController,
+            previewBackgroundColor: currentTheme.windowBackground.srgbClamped.withAlphaComponent(1),
             backingScaleFactor: currentBackingScaleFactor,
             leadingVisibleInset: resolvedLeadingVisibleInset
         )
@@ -1292,6 +1296,7 @@ final class PaneStripView: NSView {
         isDropSettling = true
         dropSettleCoveredPaneID = paneID
         afterNextRenderCallback = callback
+        suppressDiffBasedTransitionsOnNextRender = true
     }
 
     /// End the settling phase, reveal the covered pane.
@@ -1299,6 +1304,7 @@ final class PaneStripView: NSView {
         isDropSettling = false
         dropSettleCoveredPaneID = nil
         afterNextRenderCallback = nil
+        suppressDiffBasedTransitionsOnNextRender = false
     }
 
     /// Return the current frame of a live pane view in viewportView coordinates.
@@ -1536,6 +1542,27 @@ final class PaneStripView: NSView {
 
     func endDividerDragForTesting() {
         endDividerDrag()
+    }
+
+    func beginPaneDragForTesting(
+        paneID: PaneID,
+        cursorInStrip: CGPoint
+    ) {
+        handleDragActivated(paneID: paneID, origin: cursorInStrip)
+    }
+
+    var dragPreviewBackgroundColorForTesting: NSColor? {
+        let hostView = dragOverlayView ?? viewportView
+        guard let container = hostView.subviews.reversed().first(where: { $0 is PaneDragFloatingContainer })
+        else {
+            return nil
+        }
+
+        guard let cgColor = container.layer?.backgroundColor else {
+            return nil
+        }
+
+        return NSColor(cgColor: cgColor)
     }
     #endif
 

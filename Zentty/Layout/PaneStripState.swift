@@ -496,9 +496,15 @@ struct PaneStripState: Equatable, Sendable {
         layoutSizing: PaneLayoutSizing = .balanced,
         lastInteractedDivider: PaneDivider? = nil
     ) {
+        var usedColumnIDs: Set<PaneColumnID> = []
         let columns = panes.map { pane in
-            PaneColumnState(
-                id: PaneColumnID("column-\(pane.id.rawValue)"),
+            let columnID = Self.makeUniqueColumnID(
+                preferredID: PaneColumnID("column-\(pane.id.rawValue)"),
+                existingIDs: usedColumnIDs
+            )
+            usedColumnIDs.insert(columnID)
+            return PaneColumnState(
+                id: columnID,
                 panes: [pane],
                 width: pane.width,
                 focusedPaneID: pane.id,
@@ -665,9 +671,10 @@ struct PaneStripState: Equatable, Sendable {
         placement: PanePlacement = .afterFocused
     ) {
         guard !columns.isEmpty else {
+            let columnID = uniqueColumnID(for: pane)
             columns = [
                 PaneColumnState(
-                    id: PaneColumnID("column-\(pane.id.rawValue)"),
+                    id: columnID,
                     panes: [pane],
                     width: pane.width,
                     focusedPaneID: pane.id,
@@ -690,8 +697,9 @@ struct PaneStripState: Equatable, Sendable {
             insertionIndex = min(sourceIndex + 1, columns.count)
         }
 
+        let columnID = uniqueColumnID(for: pane)
         let newColumn = PaneColumnState(
-            id: PaneColumnID("column-\(pane.id.rawValue)"),
+            id: columnID,
             panes: [pane],
             width: sourceWidth,
             focusedPaneID: pane.id,
@@ -862,8 +870,9 @@ struct PaneStripState: Equatable, Sendable {
         width: CGFloat
     ) {
         let clampedIndex = max(0, min(index, columns.count))
+        let columnID = uniqueColumnID(for: pane)
         let newColumn = PaneColumnState(
-            id: PaneColumnID("column-\(pane.id.rawValue)"),
+            id: columnID,
             panes: [pane],
             width: width,
             focusedPaneID: pane.id,
@@ -1096,6 +1105,7 @@ struct PaneStripState: Equatable, Sendable {
         let previousWidths = previousColumns.map(\.width)
         let panesPerColumn = arrangement.panesPerColumn
         var rebuiltColumns: [PaneColumnState] = []
+        var usedColumnIDs: Set<PaneColumnID> = []
         rebuiltColumns.reserveCapacity(Int(ceil(Double(panesInReadingOrder.count) / Double(max(1, panesPerColumn)))))
 
         for startIndex in stride(from: 0, to: panesInReadingOrder.count, by: panesPerColumn) {
@@ -1118,9 +1128,14 @@ struct PaneStripState: Equatable, Sendable {
                 pane.width = inheritedWidth
                 return pane
             }
-            let columnID = rebuiltColumnIndex < previousColumns.count
+            let preferredColumnID = rebuiltColumnIndex < previousColumns.count
                 ? previousColumns[rebuiltColumnIndex].id
                 : PaneColumnID("column-\(firstPane.id.rawValue)")
+            let columnID = Self.makeUniqueColumnID(
+                preferredID: preferredColumnID,
+                existingIDs: usedColumnIDs
+            )
+            usedColumnIDs.insert(columnID)
 
             rebuiltColumns.append(
                 PaneColumnState(
@@ -1151,6 +1166,12 @@ struct PaneStripState: Equatable, Sendable {
         self = rebuiltState
         return true
     }
+
+    #if DEBUG
+    var hasUniqueColumnIDsForTesting: Bool {
+        Set(columns.map(\.id)).count == columns.count
+    }
+    #endif
 
     @discardableResult
     mutating func arrangeGoldenWidth(focusWide: Bool) -> Bool {
@@ -1823,6 +1844,31 @@ struct PaneStripState: Equatable, Sendable {
         }
 
         return columns.contains(where: { $0.id == preferredID }) ? preferredID : columns.first?.id
+    }
+
+    private func uniqueColumnID(for pane: PaneState) -> PaneColumnID {
+        Self.makeUniqueColumnID(
+            preferredID: PaneColumnID("column-\(pane.id.rawValue)"),
+            existingIDs: Set(columns.map(\.id))
+        )
+    }
+
+    private static func makeUniqueColumnID(
+        preferredID: PaneColumnID,
+        existingIDs: Set<PaneColumnID>
+    ) -> PaneColumnID {
+        guard existingIDs.contains(preferredID) else {
+            return preferredID
+        }
+
+        var suffix = 2
+        var candidate = PaneColumnID("\(preferredID.rawValue)-\(suffix)")
+        while existingIDs.contains(candidate) {
+            suffix += 1
+            candidate = PaneColumnID("\(preferredID.rawValue)-\(suffix)")
+        }
+
+        return candidate
     }
 
     private func resolvedPaneHeight(

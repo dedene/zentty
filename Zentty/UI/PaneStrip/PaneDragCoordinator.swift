@@ -255,6 +255,7 @@ final class PaneDragCoordinator {
         state: PaneStripState,
         presentation: StripPresentation,
         motionController: PaneStripMotionController,
+        previewBackgroundColor: NSColor,
         backingScaleFactor: CGFloat,
         leadingVisibleInset: CGFloat
     ) {
@@ -329,22 +330,27 @@ final class PaneDragCoordinator {
         let centerInHost = viewportView.convert(paneCenterInViewport, to: hostView)
 
         // Create snapshot image
-        let snapshot = NSImage(size: paneSize)
-        if let bitmapRep = paneView.bitmapImageRepForCachingDisplay(in: paneView.bounds) {
-            paneView.cacheDisplay(in: paneView.bounds, to: bitmapRep)
-            snapshot.addRepresentation(bitmapRep)
-        }
+        let snapshot = paneView.snapshotImage() ?? NSImage(size: paneSize)
+
+        // Sample before hiding the pane, then keep the original pane invisible
+        // in the hierarchy for the duration of the drag.
+        let resolvedPreviewBackgroundColor = sampledPreviewBackgroundColor(
+            for: paneView,
+            in: paneStripView,
+            fallback: previewBackgroundColor
+        ) ?? previewBackgroundColor
+        paneView.alphaValue = 0
 
         // Create a layer-hosting container with the snapshot
         let container = PaneDragFloatingContainer(frame: CGRect(origin: .zero, size: paneSize))
+        container.layer?.backgroundColor = resolvedPreviewBackgroundColor.cgColor
         container.layer?.contents = snapshot
         container.layer?.contentsGravity = .resizeAspectFill
         hostView.addSubview(container)
         self.dragContainer = container
 
-        // Make original pane invisible but keep it in the hierarchy
+        // Keep the original pane invisible in the hierarchy.
         // (isHidden = true would kill the gesture recognizer on the drag zone child)
-        paneView.alphaValue = 0
 
         // Position the container using frame (avoids macOS anchorPoint issues)
         let isOverlay = dragHostView != nil
@@ -409,6 +415,94 @@ final class PaneDragCoordinator {
         insertionLine = line
 
         positionDraggedPane(cursorInStrip: cursorInStrip, zoomScale: paneStripView.currentZoomScale())
+    }
+
+    private func sampledPreviewBackgroundColor(
+        for paneView: PaneContainerView,
+        in paneStripView: PaneStripView,
+        fallback: NSColor
+    ) -> NSColor? {
+        paneView.layoutSubtreeIfNeeded()
+        paneStripView.layoutSubtreeIfNeeded()
+        paneView.displayIfNeeded()
+        paneStripView.displayIfNeeded()
+
+        let paneBounds = paneView.bounds.integral
+        let paneFrameInStrip = paneView.convert(paneBounds, to: paneStripView).integral
+        let fallbackColor = fallback.srgbClamped.withAlphaComponent(1)
+
+        guard paneBounds.width >= 1,
+              paneBounds.height >= 1,
+              paneFrameInStrip.width >= 1,
+              paneFrameInStrip.height >= 1,
+              let paneBitmap = paneView.bitmapImageRepForCachingDisplay(in: paneBounds),
+              let stripBitmap = paneStripView.bitmapImageRepForCachingDisplay(in: paneFrameInStrip) else {
+            return nil
+        }
+
+        paneBitmap.size = paneBounds.size
+        stripBitmap.size = paneFrameInStrip.size
+        paneView.cacheDisplay(in: paneBounds, to: paneBitmap)
+        paneStripView.cacheDisplay(in: paneFrameInStrip, to: stripBitmap)
+
+        var redTotal: CGFloat = 0
+        var greenTotal: CGFloat = 0
+        var blueTotal: CGFloat = 0
+        var sampleCount: CGFloat = 0
+
+        for point in sampleGridPoints {
+            let paneX = sampleCoordinate(normalized: point.x, maxValue: paneBitmap.pixelsWide)
+            let paneY = sampleCoordinate(normalized: point.y, maxValue: paneBitmap.pixelsHigh)
+            guard let paneColor = paneBitmap.colorAt(x: paneX, y: paneY)?.srgbClamped,
+                  paneColor.alphaComponent <= 0.05 else {
+                continue
+            }
+
+            let stripX = sampleCoordinate(normalized: point.x, maxValue: stripBitmap.pixelsWide)
+            let stripY = sampleCoordinate(normalized: point.y, maxValue: stripBitmap.pixelsHigh)
+            guard let stripColor = stripBitmap.colorAt(x: stripX, y: stripY)?.srgbClamped else {
+                continue
+            }
+
+            let solidColor = stripColor.composited(over: fallbackColor).srgbClamped.withAlphaComponent(1)
+            redTotal += solidColor.redComponent
+            greenTotal += solidColor.greenComponent
+            blueTotal += solidColor.blueComponent
+            sampleCount += 1
+        }
+
+        guard sampleCount > 0 else {
+            return nil
+        }
+
+        return NSColor(
+            srgbRed: redTotal / sampleCount,
+            green: greenTotal / sampleCount,
+            blue: blueTotal / sampleCount,
+            alpha: 1
+        )
+    }
+
+    private var sampleGridPoints: [CGPoint] {
+        let samplesPerAxis = 4
+
+        return (0..<samplesPerAxis).flatMap { row in
+            (0..<samplesPerAxis).map { column in
+                CGPoint(
+                    x: CGFloat(column + 1) / CGFloat(samplesPerAxis + 1),
+                    y: CGFloat(row + 1) / CGFloat(samplesPerAxis + 1)
+                )
+            }
+        }
+    }
+
+    private func sampleCoordinate(normalized: CGFloat, maxValue: Int) -> Int {
+        guard maxValue > 1 else {
+            return 0
+        }
+
+        let clamped = min(max(normalized, 0), 1)
+        return min(maxValue - 1, max(0, Int(round(clamped * CGFloat(maxValue - 1)))))
     }
 
     // MARK: - Cursor Update
@@ -1320,11 +1414,15 @@ final class PaneDragCoordinator {
         for pane in reducedPresentation.panes {
             columnForPane[pane.paneID] = pane.columnID
         }
+        let paneCountByColumn = Dictionary(
+            uniqueKeysWithValues: reducedPresentation.columns.map { ($0.columnID, $0.panes.count) }
+        )
 
         let splitHit = PaneDragHitTest.splitZoneHit(
             cursorInContent: cursorInContent,
             paneFramesByID: layout.paneFramesByID,
             columnForPane: columnForPane,
+            paneCountByColumn: paneCountByColumn,
             sourceColumnID: activeState.sourceColumnID,
             minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
         )
