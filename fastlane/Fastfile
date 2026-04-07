@@ -334,7 +334,16 @@ rescue ArgumentError => e
 end
 
 def release_build_number
-  (number_of_commits(all: true).to_i + 1).to_s
+  head_count = capture_command!("git", "-C", PROJECT_ROOT, "rev-list", "--count", "HEAD").strip.to_i
+  highest_published = highest_existing_build_number
+  ([head_count + 1, highest_published + 1].max).to_s
+end
+
+def highest_existing_build_number
+  Dir[File.join(sparkle_updates_dir, "Zentty-*-*.zip")]
+    .map { |path| File.basename(path)[/-(\d+)\.zip\z/, 1].to_i }
+    .reject(&:zero?)
+    .max || 0
 end
 
 def sparkle_public_ed_key
