@@ -476,8 +476,10 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertNotEqual(readyRow.statusTextColorForTesting.srgbClamped, stoppedRow.statusTextColorForTesting.srgbClamped)
     }
 
-    func test_worklane_row_spills_long_branch_into_detail_line_when_width_is_tight() {
-        let row = makeRow(width: 220, height: 110)
+    func test_worklane_row_moves_long_branch_to_lower_metadata_row_when_width_is_tight() throws {
+        let row = makeRow(width: 220, height: 130)
+        let branch = "feature/autoresearch/zsh-startup-2026-03-22"
+        let status = "Running"
 
         row.configure(
             with: makeSummary(
@@ -486,9 +488,9 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
                     WorklaneSidebarPaneRow(
                         paneID: PaneID("worklane-main-agent"),
                         primaryText: "Fix zsh startup",
-                        trailingText: "feature/autoresearch/zsh-startup-2026-03-22",
+                        trailingText: branch,
                         detailText: nil,
-                        statusText: "Running",
+                        statusText: status,
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
@@ -501,7 +503,14 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
 
         XCTAssertEqual(row.primaryTextsForTesting, ["Fix zsh startup"])
         XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
-        XCTAssertEqual(row.detailTextsForTesting, ["feature/autoresearch/zsh-startup-2026-03-22"])
+        XCTAssertEqual(row.detailTextsForTesting, [])
+
+        let branchLabel = try XCTUnwrap(findLabel(withText: branch, in: row))
+        let statusLabel = try XCTUnwrap(findLabel(withText: status, in: row))
+        let branchMidY = row.convert(branchLabel.bounds, from: branchLabel).midY
+        let statusMidY = row.convert(statusLabel.bounds, from: statusLabel).midY
+
+        XCTAssertEqual(branchMidY, statusMidY, accuracy: 1.0)
     }
 
     func test_worklane_row_restores_long_branch_to_trailing_slot_after_growing_wider() {
@@ -528,7 +537,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         )
 
         XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
-        XCTAssertEqual(row.detailTextsForTesting, ["feature/autoresearch/zsh-startup-2026-03-22"])
+        XCTAssertEqual(row.detailTextsForTesting, [])
 
         row.frame.size.width = 720
         row.layoutSubtreeIfNeeded()
@@ -538,6 +547,61 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             ["feature/autoresearch/zsh-startup-2026-03-22"]
         )
         XCTAssertEqual(row.detailTextsForTesting, [])
+    }
+
+    func test_worklane_row_moves_long_branch_to_lower_metadata_row_when_detail_is_already_present() throws {
+        let row = makeRow(width: 220, height: 150)
+        let branch = "feature/autoresearch/zsh-startup-2026-03-22"
+        let status = "Agent ready"
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "General coding assistance session",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Ready | zentty · Verify adaptive multiline sidebar rows",
+                        trailingText: branch,
+                        detailText: "…/zentty",
+                        statusText: status,
+                        attentionState: .ready,
+                        isFocused: true,
+                        isWorking: false
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
+        XCTAssertEqual(row.detailTextsForTesting, ["…/zentty"])
+
+        let branchLabel = try XCTUnwrap(findLabel(withText: branch, in: row))
+        let statusLabel = try XCTUnwrap(findLabel(withText: status, in: row))
+        let branchMidY = row.convert(branchLabel.bounds, from: branchLabel).midY
+        let statusMidY = row.convert(statusLabel.bounds, from: statusLabel).midY
+
+        XCTAssertEqual(branchMidY, statusMidY, accuracy: 1.0)
+    }
+
+    func test_worklane_row_allows_tight_pane_titles_to_use_two_lines() throws {
+        let paneRow = WorklaneSidebarPaneRow(
+            paneID: PaneID("worklane-main-agent"),
+            primaryText: "Ready | zentty · Verify adaptive multiline sidebar rows while preserving repo context and status visibility",
+            trailingText: "feature/autoresearch/zsh-startup-2026-03-22",
+            detailText: "…/zentty",
+            statusText: "Agent ready",
+            attentionState: .ready,
+            isFocused: true,
+            isWorking: false
+        )
+
+        XCTAssertEqual(
+            SidebarWorklaneRowLayout.paneRowPrimaryLineCount(for: paneRow, availableWidth: 220),
+            2
+        )
     }
 
     func test_worklane_row_does_not_accumulate_duplicate_width_constraints_across_resizes() {
@@ -1215,5 +1279,19 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         var alpha: CGFloat = 0
         converted.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
         return (hue, saturation, brightness)
+    }
+
+    private func findLabel(withText text: String, in view: NSView) -> NSTextField? {
+        if let label = view as? NSTextField, label.stringValue == text {
+            return label
+        }
+
+        for subview in view.subviews {
+            if let label = findLabel(withText: text, in: subview) {
+                return label
+            }
+        }
+
+        return nil
     }
 }

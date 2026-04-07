@@ -159,6 +159,7 @@ struct PaneRawState: Equatable, Sendable {
     var terminalProgress: TerminalProgressReport?
     var reviewState: WorklaneReviewState?
     var gitContext: PaneGitContext?
+    var wantsReadyStatus = false
     var showsReadyStatus = false
     var lastDesktopNotificationText: String?
     var lastDesktopNotificationDate: Date?
@@ -279,7 +280,6 @@ enum PanePresentationNormalizer {
         )
         let agentInteractionKind = raw.agentStatus?.interactionKind ?? .none
         let showsReadyStatus = raw.showsReadyStatus
-            || completionNotificationIndicatesReady(raw.lastDesktopNotificationText)
         let hasObservedRunning = raw.agentStatus?.hasObservedRunning == true
             || titlePhase == .running
             || previous?.runtimePhase == .running

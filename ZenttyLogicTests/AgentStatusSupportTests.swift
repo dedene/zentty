@@ -27,14 +27,31 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_agent_interaction_classifier_recognizes_natural_language_question_prompts() {
+        let decisionMessage = "What should I ask you about?\n[Code] [Product] [Random]"
+        XCTAssertTrue(AgentInteractionClassifier.requiresHumanInput(message: decisionMessage))
+        XCTAssertEqual(
+            AgentInteractionClassifier.interactionKind(forWaitingMessage: decisionMessage),
+            .decision
+        )
+
+        let questionMessage = "What should Codex do next?"
+        XCTAssertTrue(AgentInteractionClassifier.requiresHumanInput(message: questionMessage))
+        XCTAssertEqual(
+            AgentInteractionClassifier.interactionKind(forWaitingMessage: questionMessage),
+            .question
+        )
+    }
+
     func test_agent_status_helper_returns_nil_when_resource_directories_are_missing() throws {
         let bundle = try makeTemporaryBundle(named: "MissingResources")
 
-        XCTAssertNil(AgentStatusHelper.wrapperBinPath(in: bundle))
+        XCTAssertNil(AgentStatusHelper.wrapperDirectoryPaths(in: bundle))
+        XCTAssertNil(AgentStatusHelper.wrapperSupportDirectoryPath(in: bundle))
         XCTAssertNil(AgentStatusHelper.shellIntegrationDirectoryPath(in: bundle))
     }
 
-    func test_agent_status_helper_requires_expected_resource_files() throws {
+    func test_agent_status_helper_requires_expected_wrapper_resource_layout() throws {
         let bundleRoot = try makeTemporaryBundleRoot(named: "CompleteResources")
         let resourcesURL = bundleRoot
             .appendingPathComponent("Contents", isDirectory: true)
@@ -42,11 +59,18 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["zentty-agent-wrapper", "claude", "codex", "opencode"] {
-            let fileURL = binURL.appendingPathComponent(name, isDirectory: false)
+        for name in ["claude", "codex", "opencode"] {
+            let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
+            let fileURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
             FileManager.default.createFile(atPath: fileURL.path, contents: Data("#!/bin/sh\n".utf8))
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
         }
+        let sharedURL = binURL.appendingPathComponent("shared", isDirectory: true)
+        try FileManager.default.createDirectory(at: sharedURL, withIntermediateDirectories: true)
+        let sharedWrapperURL = sharedURL.appendingPathComponent("zentty-agent-wrapper", isDirectory: false)
+        FileManager.default.createFile(atPath: sharedWrapperURL.path, contents: Data("#!/bin/sh\n".utf8))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapperURL.path)
 
         let shellURL = resourcesURL.appendingPathComponent("shell-integration", isDirectory: true)
         try FileManager.default.createDirectory(at: shellURL, withIntermediateDirectories: true)
@@ -56,7 +80,11 @@ final class AgentStatusSupportTests: XCTestCase {
         }
 
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
-        XCTAssertEqual(AgentStatusHelper.wrapperBinPath(in: bundle), binURL.path)
+        XCTAssertEqual(
+            AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
+            ["claude", "codex", "opencode"].map { binURL.appendingPathComponent($0, isDirectory: true).path }
+        )
+        XCTAssertEqual(AgentStatusHelper.wrapperSupportDirectoryPath(in: bundle), sharedURL.path)
         XCTAssertEqual(AgentStatusHelper.shellIntegrationDirectoryPath(in: bundle), shellURL.path)
     }
 
@@ -68,10 +96,19 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["zentty-agent-wrapper", "claude", "codex", "opencode"] {
-            let fileURL = binURL.appendingPathComponent(name, isDirectory: false)
+        for name in ["claude", "codex", "opencode"] {
+            let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
+            let fileURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
             try "#!/bin/sh\n".write(to: fileURL, atomically: true, encoding: .utf8)
         }
+        let sharedURL = binURL.appendingPathComponent("shared", isDirectory: true)
+        try FileManager.default.createDirectory(at: sharedURL, withIntermediateDirectories: true)
+        try "#!/bin/sh\n".write(
+            to: sharedURL.appendingPathComponent("zentty-agent-wrapper", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
 
         let shellURL = resourcesURL.appendingPathComponent("shell-integration", isDirectory: true)
         try FileManager.default.createDirectory(at: shellURL, withIntermediateDirectories: true)
@@ -81,8 +118,61 @@ final class AgentStatusSupportTests: XCTestCase {
         }
 
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
-        XCTAssertNil(AgentStatusHelper.wrapperBinPath(in: bundle))
+        XCTAssertNil(AgentStatusHelper.wrapperDirectoryPaths(in: bundle))
+        XCTAssertNil(AgentStatusHelper.wrapperSupportDirectoryPath(in: bundle))
         XCTAssertEqual(AgentStatusHelper.shellIntegrationDirectoryPath(in: bundle), shellURL.path)
+    }
+
+    func test_agent_status_helper_enables_only_wrappers_with_real_binaries_on_path() throws {
+        let bundleRoot = try makeTemporaryBundleRoot(named: "EnabledWrappers")
+        let resourcesURL = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+        let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
+
+        for name in ["claude", "codex", "opencode"] {
+            let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
+            let wrapperURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
+            try "#!/bin/sh\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+        }
+
+        let sharedURL = binURL.appendingPathComponent("shared", isDirectory: true)
+        try FileManager.default.createDirectory(at: sharedURL, withIntermediateDirectories: true)
+        let sharedWrapperURL = sharedURL.appendingPathComponent("zentty-agent-wrapper", isDirectory: false)
+        try "#!/bin/sh\n".write(to: sharedWrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapperURL.path)
+
+        let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
+        let realBinURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
+        for name in ["claude", "opencode"] {
+            let fileURL = realBinURL.appendingPathComponent(name, isDirectory: false)
+            try "#!/bin/sh\n".write(to: fileURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
+        }
+
+        let environment = [
+            "PATH": [
+                binURL.appendingPathComponent("claude", isDirectory: true).path,
+                binURL.appendingPathComponent("codex", isDirectory: true).path,
+                binURL.appendingPathComponent("opencode", isDirectory: true).path,
+                sharedURL.path,
+                realBinURL.path,
+                "/usr/bin",
+                "/bin",
+            ].joined(separator: ":")
+        ]
+
+        XCTAssertEqual(
+            AgentStatusHelper.enabledWrapperDirectoryPaths(in: bundle, processEnvironment: environment),
+            [
+                binURL.appendingPathComponent("claude", isDirectory: true).path,
+                binURL.appendingPathComponent("opencode", isDirectory: true).path,
+            ]
+        )
     }
 
     func test_repository_shell_integrations_emit_guarded_git_branch_signal() throws {
@@ -148,6 +238,70 @@ final class AgentStatusSupportTests: XCTestCase {
         )
     }
 
+    func test_zsh_shell_integration_enables_wrapper_after_real_binary_appears_on_path() throws {
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-zsh-wrapper-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrapperURL = wrapperDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-zsh-real-bin")
+        let realBinaryURL = realBinDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realBinaryURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .zsh,
+            command: """
+            PATH="/usr/bin:/bin"
+            export PATH
+            _zentty_ensure_wrapper_path
+            PATH="${PATH}:\(realBinDir.path)"
+            export PATH
+            _zentty_ensure_wrapper_path
+            command -v codex
+            """,
+            extraEnvironment: [
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+            ]
+        )
+
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
+    }
+
+    func test_bash_shell_integration_enables_wrapper_after_real_binary_appears_on_path() throws {
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-bash-wrapper-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrapperURL = wrapperDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-bash-real-bin")
+        let realBinaryURL = realBinDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realBinaryURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .bash,
+            command: """
+            PATH="/usr/bin:/bin"
+            export PATH
+            _zentty_ensure_wrapper_path
+            PATH="${PATH}:\(realBinDir.path)"
+            export PATH
+            _zentty_ensure_wrapper_path
+            command -v codex
+            """,
+            extraEnvironment: [
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+            ]
+        )
+
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
+    }
+
     func test_repository_codex_wrapper_exports_session_scoped_pid() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -155,6 +309,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let codexWrapperURL = repositoryRoot
             .appendingPathComponent("ZenttyResources", isDirectory: true)
             .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("codex", isDirectory: true)
             .appendingPathComponent("codex", isDirectory: false)
 
         let script = try String(contentsOf: codexWrapperURL, encoding: .utf8)
@@ -733,6 +888,71 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.state, .needsInput)
         XCTAssertEqual(payload.interactionKind, .decision)
         XCTAssertEqual(payload.text, "Ship this?")
+    }
+
+    func test_claude_hook_permission_request_for_ask_user_question_stays_decision() throws {
+        let store = try makeClaudeHookSessionStore()
+        try store.upsert(
+            sessionID: "session-1",
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            cwd: nil,
+            pid: 4242
+        )
+
+        let preToolUse = try ClaudeHookBridge.parseInput(
+            Data("""
+            {
+              "hook_event_name":"PreToolUse",
+              "session_id":"session-1",
+              "tool_name":"AskUserQuestion",
+              "tool_input":{
+                "questions":[
+                  {
+                    "question":"Ship this?",
+                    "options":[
+                      {"label":"Yes"},
+                      {"label":"No"}
+                    ]
+                  }
+                ]
+              }
+            }
+            """.utf8)
+        )
+        _ = try ClaudeHookBridge.makePayloads(
+            from: preToolUse,
+            environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ],
+            sessionStore: store
+        )
+
+        let permissionRequest = try ClaudeHookBridge.parseInput(
+            Data("""
+            {
+              "hook_event_name":"PermissionRequest",
+              "session_id":"session-1",
+              "tool_name":"AskUserQuestion"
+            }
+            """.utf8)
+        )
+
+        let payload = try XCTUnwrap(
+            ClaudeHookBridge.makePayloads(
+                from: permissionRequest,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ],
+                sessionStore: store
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .decision)
+        XCTAssertEqual(payload.text, "Ship this?\n[Yes] [No]")
     }
 
     func test_claude_hook_generic_notification_does_not_replace_permission_request_copy() throws {
@@ -1951,7 +2171,28 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(decoded, payload)
     }
 
-    private func runShellIntegration(shell: ShellIntegrationTestShell, command: String) throws -> [String] {
+    private func runShellIntegration(
+        shell: ShellIntegrationTestShell,
+        command: String,
+        extraEnvironment: [String: String] = [:]
+    ) throws -> [String] {
+        let result = try runShellIntegrationCommand(shell: shell, command: command, extraEnvironment: extraEnvironment)
+        let logURL = URL(fileURLWithPath: result.logPath)
+        guard FileManager.default.fileExists(atPath: logURL.path) else {
+            return []
+        }
+
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        return log
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+    }
+
+    private func runShellIntegrationCommand(
+        shell: ShellIntegrationTestShell,
+        command: String,
+        extraEnvironment: [String: String] = [:]
+    ) throws -> ShellIntegrationCommandResult {
         let scratchDirectory = try makeTemporaryDirectory(named: "shell-integration-scratch")
         let fakeAgentURL = scratchDirectory.appendingPathComponent("fake-agent", isDirectory: false)
         let logURL = scratchDirectory.appendingPathComponent("signals.log", isDirectory: false)
@@ -1968,7 +2209,7 @@ final class AgentStatusSupportTests: XCTestCase {
             for: "source \(shellQuoted(shell.integrationScriptURL.path)); \(command)"
         )
         process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-        process.environment = [
+        var environment = [
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "LOG_FILE": logURL.path,
             "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -1977,8 +2218,9 @@ final class AgentStatusSupportTests: XCTestCase {
             "ZENTTY_PANE_ID": "pane-under-test",
             "ZENTTY_SHELL_INTEGRATION": "1",
             "ZENTTY_WORKLANE_ID": "worklane-under-test",
-            "ZENTTY_WRAPPER_BIN_DIR": scratchDirectory.path,
         ]
+        extraEnvironment.forEach { environment[$0.key] = $0.value }
+        process.environment = environment
 
         let stdout = Pipe()
         let stderr = Pipe()
@@ -1990,16 +2232,15 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
         let stderrText = String(data: stderrData, encoding: .utf8) ?? ""
+        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+        let stdoutText = String(data: stdoutData, encoding: .utf8) ?? ""
         XCTAssertEqual(process.terminationStatus, 0, stderrText)
 
-        guard FileManager.default.fileExists(atPath: logURL.path) else {
-            return []
-        }
-
-        let log = try String(contentsOf: logURL, encoding: .utf8)
-        return log
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
+        return ShellIntegrationCommandResult(
+            stdout: stdoutText,
+            stderr: stderrText,
+            logPath: logURL.path
+        )
     }
 
     private func makeTemporaryDirectory(named name: String) throws -> URL {
@@ -2015,6 +2256,22 @@ final class AgentStatusSupportTests: XCTestCase {
     private func shellQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
+
+    private func lastAbsolutePath(in output: String) -> String {
+        let nsRange = NSRange(output.startIndex..<output.endIndex, in: output)
+        let regex = try? NSRegularExpression(pattern: #"/[^\s]+"#)
+        let matches = regex?.matches(in: output, range: nsRange) ?? []
+        guard let match = matches.last, let range = Range(match.range, in: output) else {
+            return ""
+        }
+        return String(output[range])
+    }
+}
+
+private struct ShellIntegrationCommandResult {
+    let stdout: String
+    let stderr: String
+    let logPath: String
 }
 
 private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUserNotificationCenter {

@@ -18,12 +18,16 @@ esac
 
 find_real_binary() {
     local self_dir
+    local wrapper_root
     self_dir="$(cd "$(dirname "$0")" && pwd)"
+    wrapper_root="$(cd "${self_dir}/.." && pwd)"
     local path_entry
     local IFS=:
     for path_entry in $PATH; do
         [[ -n "$path_entry" ]] || continue
         [[ "$path_entry" == "$self_dir" ]] && continue
+        [[ "$path_entry" == "$wrapper_root" ]] && continue
+        [[ "$path_entry" == "${wrapper_root}/${tool_basename}" ]] && continue
         [[ -x "$path_entry/$tool_basename" ]] || continue
         printf '%s\n' "$path_entry/$tool_basename"
         return 0
@@ -42,10 +46,10 @@ prepare_opencode_overlay_if_needed() {
     [[ "$tool_basename" == "opencode" ]] || return 0
     integration_is_available || return 0
 
-    local self_dir support_dir plugin_file overlay_dir source_config_dir
+    local self_dir resources_dir plugin_file overlay_dir source_config_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
-    support_dir="$(dirname "$self_dir")/opencode"
-    plugin_file="$support_dir/plugins/zentty-opencode-zentty.js"
+    resources_dir="$(cd "${self_dir}/../.." && pwd)"
+    plugin_file="${resources_dir}/opencode/plugins/zentty-opencode-zentty.js"
 
     [[ -r "$plugin_file" ]] || return 0
 

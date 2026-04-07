@@ -125,7 +125,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var isWindowKey = true
     private var shouldBypassNextCloseConfirmation = false
     var onWindowDidClose: ((MainWindowController) -> Void)?
-    var onWindowAppearanceDidChange: ((NSAppearance?) -> Void)?
+    var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
 
     init(
@@ -562,16 +562,20 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     var terminalAppearance: NSAppearance? {
-        let theme = rootViewController.currentWindowTheme
+        let theme = currentWindowTheme
         let isDark = theme.windowBackground.isDarkThemeColor
         return NSAppearance(named: isDark ? .darkAqua : .aqua)
+    }
+
+    var currentWindowTheme: ZenttyTheme {
+        rootViewController.currentWindowTheme
     }
 
     private func syncWindowAppearance() {
         let appearance = terminalAppearance
         window.appearance = appearance
         settingsWindowController?.applyAppearance(appearance)
-        onWindowAppearanceDidChange?(appearance)
+        onWindowAppearanceDidChange?(appearance, currentWindowTheme)
     }
 
     var worklaneTitles: [String] {

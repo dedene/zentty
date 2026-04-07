@@ -7,22 +7,55 @@ export ZENTTY_BASH_INTEGRATION_LOADED=1
 _zentty_shell_activity_last=""
 
 _zentty_ensure_wrapper_path() {
-    local wrapper="${ZENTTY_WRAPPER_BIN_DIR:-}"
-    [[ -n "$wrapper" ]] || return 0
+    local wrapper_dirs="${ZENTTY_ALL_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIR:-}}}"
+    [[ -n "$wrapper_dirs" ]] || return 0
 
-    local -a entries next_path
-    local entry
+    local -a wrappers entries cleaned_path next_path
+    local wrapper entry tool_name
+    IFS=: read -r -a wrappers <<< "$wrapper_dirs"
     IFS=: read -r -a entries <<< "${PATH:-}"
-    next_path=("$wrapper")
+    cleaned_path=()
     for entry in "${entries[@]}"; do
-        [[ -z "$entry" || "$entry" == "$wrapper" ]] && continue
-        next_path+=("$entry")
+        [[ -z "$entry" ]] && continue
+        for wrapper in "${wrappers[@]}"; do
+            if [[ "$entry" == "$wrapper" ]]; then
+                continue 2
+            fi
+        done
+        cleaned_path+=("$entry")
     done
+
+    next_path=()
+    for wrapper in "${wrappers[@]}"; do
+        [[ -n "$wrapper" ]] || continue
+        tool_name="${wrapper##*/}"
+        for entry in "${cleaned_path[@]}"; do
+            if [[ -x "${entry}/${tool_name}" ]]; then
+                next_path+=("$wrapper")
+                break
+            fi
+        done
+    done
+    next_path+=("${cleaned_path[@]}")
 
     PATH="$(
         local IFS=:
         printf '%s' "${next_path[*]}"
     )"
+    if (( ${#next_path[@]} > ${#cleaned_path[@]} )); then
+        local active_wrapper_count=$(( ${#next_path[@]} - ${#cleaned_path[@]} ))
+        local -a active_wrappers=("${next_path[@]:0:${active_wrapper_count}}")
+        ZENTTY_WRAPPER_BIN_DIR="${active_wrappers[0]}"
+        ZENTTY_WRAPPER_BIN_DIRS="$(
+            local IFS=:
+            printf '%s' "${active_wrappers[*]}"
+        )"
+        export ZENTTY_WRAPPER_BIN_DIR ZENTTY_WRAPPER_BIN_DIRS
+    else
+        unset ZENTTY_WRAPPER_BIN_DIR
+        unset ZENTTY_WRAPPER_BIN_DIRS
+    fi
+    hash -r 2>/dev/null || true
     export PATH
 }
 

@@ -1,11 +1,37 @@
 import AppKit
 
+private struct AboutButtonPalette {
+    let background: NSColor
+    let border: NSColor
+    let text: NSColor
+    let hoverBackground: NSColor
+    let pressedBackground: NSColor
+}
+
 private struct AboutPalette {
+    let border: NSColor
     let title: NSColor
     let subtitle: NSColor
     let metadataTitle: NSColor
     let metadataValue: NSColor
     let accent: NSColor
+    let button: AboutButtonPalette
+
+    init(theme: ZenttyTheme) {
+        border = theme.topChromeBorder
+        title = theme.primaryText.withAlphaComponent(0.98)
+        subtitle = theme.secondaryText.withAlphaComponent(0.90)
+        metadataTitle = theme.secondaryText.withAlphaComponent(0.92)
+        metadataValue = theme.primaryText.withAlphaComponent(0.88)
+        accent = theme.statusRunning.withAlphaComponent(0.96)
+        button = AboutButtonPalette(
+            background: theme.openWithChromeBackground,
+            border: theme.openWithChromeBorder,
+            text: theme.openWithChromePrimaryTint,
+            hoverBackground: theme.openWithChromeHoverBackground,
+            pressedBackground: theme.openWithChromePressedBackground
+        )
+    }
 }
 
 @MainActor
@@ -21,6 +47,7 @@ final class AboutViewController: NSViewController {
 
     private let metadata: AboutMetadata
     private let urlOpener: (URL) -> Void
+    private var currentTheme: ZenttyTheme
 
     private let versionTitleLabel = AboutViewController.makeMetadataTitleLabel(title: "Version")
     private let buildTitleLabel = AboutViewController.makeMetadataTitleLabel(title: "Build")
@@ -30,16 +57,13 @@ final class AboutViewController: NSViewController {
     private let buildValueLabel = AboutViewController.makeMetadataValueLabel()
     private let commitValueLabel = AboutViewController.makeMetadataValueLabel()
 
-    private lazy var docsButton = makeButton(title: "Docs", action: #selector(handleDocs(_:)))
-    private lazy var githubButton = makeButton(title: "GitHub", action: #selector(handleGitHub(_:)))
-    private lazy var licensesButton = makeButton(title: "Licenses", action: #selector(handleLicenses(_:)))
+    private lazy var docsButton = AboutActionButton(title: "Docs", target: self, action: #selector(handleDocs(_:)))
+    private lazy var githubButton = AboutActionButton(title: "GitHub", target: self, action: #selector(handleGitHub(_:)))
+    private lazy var licensesButton = AboutActionButton(title: "Licenses", target: self, action: #selector(handleLicenses(_:)))
 
     private lazy var rootSurfaceView: AboutSurfaceView = {
         let view = AboutSurfaceView()
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.onEffectiveAppearanceChanged = { [weak self] in
-            self?.applyTheme()
-        }
         return view
     }()
 
@@ -51,10 +75,12 @@ final class AboutViewController: NSViewController {
 
     init(
         metadata: AboutMetadata,
-        urlOpener: @escaping (URL) -> Void
+        urlOpener: @escaping (URL) -> Void,
+        theme: ZenttyTheme
     ) {
         self.metadata = metadata
         self.urlOpener = urlOpener
+        self.currentTheme = theme
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -118,12 +144,20 @@ final class AboutViewController: NSViewController {
             subtitleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: Layout.subtitleWidth),
         ])
 
-        applyTheme()
+        updateTheme(animated: false)
     }
 
     func applyAppearance(_ appearance: NSAppearance?) {
         view.appearance = appearance
-        applyTheme()
+    }
+
+    func applyTheme(_ theme: ZenttyTheme) {
+        currentTheme = theme
+        guard isViewLoaded else {
+            return
+        }
+
+        updateTheme(animated: true)
     }
 
     var versionValueForTesting: String { versionValueLabel.stringValue }
@@ -131,6 +165,18 @@ final class AboutViewController: NSViewController {
     var commitValueForTesting: String { commitValueLabel.stringValue }
     var appearanceMatchForTesting: NSAppearance.Name? {
         view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+    }
+    var surfaceBackgroundTokenForTesting: String {
+        rootSurfaceView.backgroundColorForTesting.themeToken
+    }
+    var commitColorTokenForTesting: String {
+        commitValueLabel.textColor?.themeToken ?? ""
+    }
+    var docsButtonBackgroundTokenForTesting: String {
+        docsButton.backgroundColorForTesting.themeToken
+    }
+    var docsButtonTextColorTokenForTesting: String {
+        docsButton.titleColorForTesting.themeToken
     }
 
     private func configureMetadataRows(in stackView: NSStackView) {
@@ -158,19 +204,10 @@ final class AboutViewController: NSViewController {
         return row
     }
 
-    private func makeButton(title: String, action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: self, action: action)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.bezelStyle = .rounded
-        button.controlSize = .regular
-        button.setContentHuggingPriority(.required, for: .horizontal)
-        return button
-    }
+    private func updateTheme(animated: Bool) {
+        let palette = AboutPalette(theme: currentTheme)
 
-    private func applyTheme() {
-        let palette = resolvedPalette()
-
-        rootSurfaceView.applyMaterial(for: appearanceMatchForTesting)
+        rootSurfaceView.apply(theme: currentTheme, borderColor: palette.border, animated: animated)
         titleLabel.textColor = palette.title
         subtitleLabel.textColor = palette.subtitle
 
@@ -181,29 +218,9 @@ final class AboutViewController: NSViewController {
         versionValueLabel.textColor = palette.metadataValue
         buildValueLabel.textColor = palette.metadataValue
         commitValueLabel.textColor = palette.accent
-    }
-
-    private func resolvedPalette() -> AboutPalette {
-        let match = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
-        let isDark = match != .aqua
-
-        if isDark {
-            return AboutPalette(
-                title: NSColor(white: 0.97, alpha: 1),
-                subtitle: NSColor(white: 0.86, alpha: 0.84),
-                metadataTitle: NSColor(white: 0.96, alpha: 0.9),
-                metadataValue: NSColor(white: 0.92, alpha: 0.82),
-                accent: NSColor(red: 0.29, green: 0.57, blue: 0.93, alpha: 1)
-            )
+        [docsButton, githubButton, licensesButton].forEach {
+            $0.apply(palette: palette.button, animated: animated)
         }
-
-        return AboutPalette(
-            title: NSColor(calibratedWhite: 0.18, alpha: 1),
-            subtitle: NSColor(calibratedWhite: 0.30, alpha: 0.8),
-            metadataTitle: NSColor(calibratedWhite: 0.18, alpha: 0.9),
-            metadataValue: NSColor(calibratedWhite: 0.28, alpha: 0.7),
-            accent: NSColor(red: 0.12, green: 0.42, blue: 0.83, alpha: 1)
-        )
     }
 
     private static func makeMetadataTitleLabel(title: String) -> NSTextField {
@@ -234,17 +251,18 @@ final class AboutViewController: NSViewController {
     }
 }
 
-private final class AboutSurfaceView: NSVisualEffectView {
-    var onEffectiveAppearanceChanged: (() -> Void)?
+private final class AboutSurfaceView: NSView {
+    var backgroundColorForTesting: NSColor {
+        layer?.backgroundColor.flatMap(NSColor.init(cgColor:)) ?? .clear
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        blendingMode = .withinWindow
-        state = .active
         wantsLayer = true
-        layer?.cornerRadius = 18
+        layer?.cornerRadius = ChromeGeometry.outerWindowRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
+        layer?.borderWidth = 1
     }
 
     @available(*, unavailable)
@@ -252,13 +270,177 @@ private final class AboutSurfaceView: NSVisualEffectView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func applyMaterial(for appearance: NSAppearance.Name?) {
-        let isDark = appearance != .aqua
-        material = isDark ? .hudWindow : .underWindowBackground
+    func apply(theme: ZenttyTheme, borderColor: NSColor, animated: Bool) {
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = theme.windowBackground.cgColor
+            self.layer?.borderColor = borderColor.cgColor
+        }
+    }
+}
+
+private final class AboutActionButton: NSButton {
+    private enum Layout {
+        static let horizontalInset: CGFloat = 12
+        static let verticalInset: CGFloat = 7
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        onEffectiveAppearanceChanged?()
+    private var displayTitle = ""
+    private let titleLabel = NSTextField(labelWithString: "")
+    private var trackingAreaValue: NSTrackingArea?
+    private var currentPalette = AboutButtonPalette(
+        background: .clear,
+        border: .clear,
+        text: .clear,
+        hoverBackground: .clear,
+        pressedBackground: .clear
+    )
+
+    private(set) var isHovered = false
+    private(set) var backgroundColorForTesting = NSColor.clear
+    private(set) var titleColorForTesting = NSColor.clear
+
+    override var mouseDownCanMoveWindow: Bool { false }
+    override var title: String {
+        get { displayTitle }
+        set {
+            displayTitle = newValue
+            super.title = ""
+            titleLabel.stringValue = newValue
+            setAccessibilityLabel(newValue)
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let titleSize = titleLabel.fittingSize
+        return NSSize(
+            width: ceil(titleSize.width + (Layout.horizontalInset * 2)),
+            height: ceil(titleSize.height + (Layout.verticalInset * 2))
+        )
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        commonInit()
+    }
+
+    convenience init(title: String, target: AnyObject?, action: Selector?) {
+        self.init(frame: .zero)
+        self.target = target
+        self.action = action
+        self.title = title
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingAreaValue {
+            removeTrackingArea(trackingAreaValue)
+        }
+
+        let trackingAreaValue = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingAreaValue)
+        self.trackingAreaValue = trackingAreaValue
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        super.cursorUpdate(with: event)
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard !isHovered else {
+            return
+        }
+
+        isHovered = true
+        applyCurrentAppearance(animated: true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard isHovered else {
+            return
+        }
+
+        isHovered = false
+        applyCurrentAppearance(animated: true)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        applyCurrentAppearance(animated: true, isPressed: true)
+        super.mouseDown(with: event)
+        applyCurrentAppearance(animated: true)
+    }
+
+    func apply(palette: AboutButtonPalette, animated: Bool) {
+        currentPalette = palette
+        applyCurrentAppearance(animated: animated)
+    }
+
+    private func commonInit() {
+        title = ""
+        isBordered = false
+        bezelStyle = .regularSquare
+        setButtonType(.momentaryChange)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.cornerRadius = ChromeGeometry.pillRadius
+        layer?.cornerCurve = .continuous
+        layer?.borderWidth = 1
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        addSubview(titleLabel)
+
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.horizontalInset),
+            trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: Layout.horizontalInset),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: Layout.verticalInset),
+            bottomAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Layout.verticalInset),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    private func applyCurrentAppearance(animated: Bool, isPressed: Bool = false) {
+        let backgroundColor: NSColor
+        if isPressed {
+            backgroundColor = currentPalette.pressedBackground
+        } else if isHovered {
+            backgroundColor = currentPalette.hoverBackground
+        } else {
+            backgroundColor = currentPalette.background
+        }
+
+        titleColorForTesting = currentPalette.text
+        backgroundColorForTesting = backgroundColor
+        titleLabel.textColor = currentPalette.text
+
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = backgroundColor.cgColor
+            self.layer?.borderColor = self.currentPalette.border.cgColor
+        }
     }
 }

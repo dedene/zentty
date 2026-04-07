@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 
 enum AgentStatusHelper {
+    private static let wrappedToolNames = ["claude", "codex", "opencode"]
+
     static func runIfNeeded(arguments: [String], environment: [String: String]) -> Int32? {
         let subcommand = arguments.dropFirst().first
         guard subcommand == "agent-status"
@@ -62,18 +64,70 @@ enum AgentStatusHelper {
         validatedDirectoryPath(
             bundle.resourceURL?.appendingPathComponent("bin", isDirectory: true),
             requiredRelativePaths: [
-                "zentty-agent-wrapper",
-                "claude",
-                "codex",
-                "opencode",
+                "claude/claude",
+                "codex/codex",
+                "opencode/opencode",
+                "shared/zentty-agent-wrapper",
             ],
             executableRelativePaths: [
-                "zentty-agent-wrapper",
-                "claude",
-                "codex",
-                "opencode",
+                "claude/claude",
+                "codex/codex",
+                "opencode/opencode",
+                "shared/zentty-agent-wrapper",
             ]
         )
+    }
+
+    static func wrapperDirectoryPaths(in bundle: Bundle = .main) -> [String]? {
+        guard let rootPath = wrapperBinPath(in: bundle) else {
+            return nil
+        }
+
+        return wrappedToolNames.map {
+            URL(fileURLWithPath: rootPath, isDirectory: true)
+                .appendingPathComponent($0, isDirectory: true)
+                .path
+        }
+    }
+
+    static func wrapperSupportDirectoryPath(in bundle: Bundle = .main) -> String? {
+        guard let rootPath = wrapperBinPath(in: bundle) else {
+            return nil
+        }
+
+        return URL(fileURLWithPath: rootPath, isDirectory: true)
+            .appendingPathComponent("shared", isDirectory: true)
+            .path
+    }
+
+    static func enabledWrapperDirectoryPaths(
+        in bundle: Bundle = .main,
+        processEnvironment: [String: String]
+    ) -> [String] {
+        guard let wrapperDirectories = wrapperDirectoryPaths(in: bundle) else {
+            return []
+        }
+
+        let supportDirectory = wrapperSupportDirectoryPath(in: bundle)
+        let rootDirectory = wrapperBinPath(in: bundle)
+        let excludedDirectories = Set(wrapperDirectories + [supportDirectory, rootDirectory].compactMap { $0 })
+        let pathEntries = (processEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
+            .split(separator: ":")
+            .map(String.init)
+
+        return wrapperDirectories.filter { wrapperDirectory in
+            let toolName = URL(fileURLWithPath: wrapperDirectory, isDirectory: true).lastPathComponent
+            return pathEntries.contains { entry in
+                guard !excludedDirectories.contains(entry) else {
+                    return false
+                }
+
+                let candidatePath = URL(fileURLWithPath: entry, isDirectory: true)
+                    .appendingPathComponent(toolName, isDirectory: false)
+                    .path
+                return FileManager.default.isExecutableFile(atPath: candidatePath)
+            }
+        }
     }
 
     static func shellIntegrationDirectoryPath(in bundle: Bundle = .main) -> String? {

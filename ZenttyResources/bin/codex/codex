@@ -102,7 +102,7 @@ integration_is_available() {
 codex_notify_helper() {
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
-    printf '%s\n' "${self_dir}/codex-notify"
+    printf '%s\n' "${self_dir}/../shared/codex-notify"
 }
 
 codex_hook_command() {
@@ -171,4 +171,4 @@ fi
 
 export ZENTTY_AGENT_TOOL="codex"
 export ZENTTY_CODEX_PID=$$
-exec "$(cd "$(dirname "$0")" && pwd)/zentty-agent-wrapper" "$@"
+exec "$(cd "$(dirname "$0")" && pwd)/../shared/zentty-agent-wrapper" "$@"

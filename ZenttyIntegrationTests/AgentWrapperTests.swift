@@ -512,8 +512,13 @@ private struct WrapperHarness {
         for scriptName in scriptNames {
             let sourceURL = Self.repoRootURL
                 .appendingPathComponent("ZenttyResources/bin", isDirectory: true)
-                .appendingPathComponent(scriptName, isDirectory: false)
-            let destinationURL = wrapperBinURL.appendingPathComponent(scriptName, isDirectory: false)
+                .appendingPathComponent(Self.scriptRelativePath(for: scriptName), isDirectory: false)
+            let destinationURL = wrapperBinURL
+                .appendingPathComponent(Self.scriptRelativePath(for: scriptName), isDirectory: false)
+            try FileManager.default.createDirectory(
+                at: destinationURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
             try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationURL.path)
         }
@@ -547,10 +552,17 @@ private struct WrapperHarness {
     ) throws -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [wrapperBinURL.appendingPathComponent(tool, isDirectory: false).path] + arguments
+        process.arguments = [executableURL(for: tool).path] + arguments
 
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "\(wrapperBinURL.path):\(realBinURL.path):/usr/bin:/bin"
+        let wrapperPaths = publicWrapperDirectories.map(\.path)
+        environment["PATH"] = (wrapperPaths + [realBinURL.path, "/usr/bin", "/bin"]).joined(separator: ":")
+        if let firstWrapperPath = wrapperPaths.first {
+            environment["ZENTTY_WRAPPER_BIN_DIR"] = firstWrapperPath
+        }
+        if !wrapperPaths.isEmpty {
+            environment["ZENTTY_WRAPPER_BIN_DIRS"] = wrapperPaths.joined(separator: ":")
+        }
         environment["REAL_ARGS_LOG"] = logDirectoryURL.appendingPathComponent("real-args.log", isDirectory: false).path
         environment["REAL_PID_LOG"] = logDirectoryURL.appendingPathComponent("real-pid.log", isDirectory: false).path
         environment["WRAPPER_PID_LOG"] = logDirectoryURL.appendingPathComponent("wrapper-pid.log", isDirectory: false).path
@@ -615,6 +627,33 @@ private struct WrapperHarness {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private var publicWrapperDirectories: [URL] {
+        ["claude", "codex", "opencode"]
+            .map { wrapperBinURL.appendingPathComponent($0, isDirectory: true) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private func executableURL(for scriptName: String) -> URL {
+        wrapperBinURL.appendingPathComponent(Self.scriptRelativePath(for: scriptName), isDirectory: false)
+    }
+
+    private static func scriptRelativePath(for scriptName: String) -> String {
+        switch scriptName {
+        case "claude":
+            return "claude/claude"
+        case "codex":
+            return "codex/codex"
+        case "codex-notify":
+            return "shared/codex-notify"
+        case "opencode":
+            return "opencode/opencode"
+        case "zentty-agent-wrapper":
+            return "shared/zentty-agent-wrapper"
+        default:
+            return scriptName
+        }
     }
 }
 
