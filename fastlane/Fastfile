@@ -248,9 +248,15 @@ def determine_release_version(channel:, requested_version:)
       UI.message("Latest published stable version: none")
       UI.message("Using current project version #{read_project_marketing_version} as the first release default")
     end
-    response = UI.input("Release version [default: #{default_version}]")
-    response = default_version if response.to_s.strip.empty?
-    return response.strip
+    UI.message("Suggested release version: #{default_version}")
+
+    return default_version if UI.confirm("Use #{default_version} as the release version?")
+
+    loop do
+      response = UI.input("Enter release version:").to_s.strip
+      return response unless response.empty?
+      UI.important("Version cannot be empty.")
+    end
   end
 
   requested_version.to_s.strip
@@ -794,11 +800,13 @@ def r2_cache_control_for_path(path)
   File.basename(path) == ReleaseAutomation.appcast_key ? R2_CACHE_NO : R2_CACHE_MAX
 end
 
-def upload_release_artifacts_to_r2!(dmg_path:)
+def upload_release_artifacts_to_r2!(dmg_path:, build_number:)
   staged_paths = Dir[File.join(sparkle_updates_dir, "*")].select { |path| File.file?(path) }
-  assets = staged_paths + [dmg_path]
+  fresh_paths = staged_paths.select { |path| release_artifact_for_build?(path, build_number) }
+  skipped = staged_paths - fresh_paths
+  UI.message("Skipping #{skipped.size} immutable historical artifact(s) already on R2") unless skipped.empty?
 
-  assets.each do |local_path|
+  (fresh_paths + [dmg_path]).each do |local_path|
     object_key = File.basename(local_path)
     wrangler_put_file!(
       local_path: local_path,
@@ -810,6 +818,17 @@ def upload_release_artifacts_to_r2!(dmg_path:)
     url = r2_object_url(object_key)
     UI.message("Uploaded #{object_key}#{url ? " -> #{url}" : ""}")
   end
+end
+
+def release_artifact_for_build?(path, build_number)
+  basename = File.basename(path)
+  return true if basename == ReleaseAutomation.appcast_key
+
+  build = Regexp.escape(build_number.to_s)
+  return true if basename =~ /\AZentty-[\d.]+-#{build}\.(zip|md)\z/
+  return true if basename =~ /\AZentty#{build}-\d+\.delta\z/
+
+  false
 end
 
 def run_local_bundle_pipeline
@@ -862,7 +881,7 @@ def run_release_pipeline(options)
   stage_release_archive!(zip_path: ENV.fetch("ZENTTY_ZIP_PATH"))
   notes_path = prepare_release_notes!(tag_name: tag_name, archive_basename: archive_basename)
   generate_sparkle_appcast!(channel: channel)
-  upload_release_artifacts_to_r2!(dmg_path: ENV.fetch("ZENTTY_DMG_PATH"))
+  upload_release_artifacts_to_r2!(dmg_path: ENV.fetch("ZENTTY_DMG_PATH"), build_number: build_number)
   push_release_tag!(tag_name)
   upsert_github_release!(
     tag_name: tag_name,
