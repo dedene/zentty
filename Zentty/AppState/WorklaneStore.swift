@@ -459,7 +459,10 @@ final class WorklaneStore {
         activeWorklane?.paneStripState ?? .pocDefault
     }
 
-    func updateLayoutContext(_ layoutContext: PaneLayoutContext) {
+    func updateLayoutContext(
+        _ layoutContext: PaneLayoutContext,
+        notifyLayoutResize: Bool = true
+    ) {
         let previousLayoutContext = self.layoutContext
         self.layoutContext = layoutContext
         var didUpdateWorklaneState = false
@@ -484,7 +487,7 @@ final class WorklaneStore {
             }
         }
 
-        if didUpdateWorklaneState {
+        if didUpdateWorklaneState, notifyLayoutResize {
             notifyLayoutResized(animation: .immediate)
         }
     }
@@ -608,29 +611,39 @@ final class WorklaneStore {
         notifyLayoutResized(animation: .immediate)
     }
 
+    @discardableResult
     func resize(
         _ target: PaneResizeTarget,
         delta: CGFloat,
         availableSize: CGSize,
         leadingVisibleInset: CGFloat = 0,
         minimumSizeByPaneID: [PaneID: PaneMinimumSize]
-    ) {
+    ) -> CGFloat {
         guard var worklane = activeWorklane else {
-            return
+            return 0
         }
 
-        guard worklane.paneStripState.resize(
+        let applied = worklane.paneStripState.resize(
             target,
             delta: delta,
             availableSize: availableSize,
             leadingVisibleInset: leadingVisibleInset,
             minimumSizeByPaneID: minimumSizeByPaneID
-        ) else {
-            return
+        )
+
+        guard abs(applied) > 0.001 else {
+            return 0
         }
 
         activeWorklane = worklane
         notifyLayoutResized(animation: .immediate)
+        return applied
+    }
+
+    func focusedHorizontalKeyboardResizeAction(
+        for delta: CGFloat
+    ) -> FocusedHorizontalKeyboardResizeAction? {
+        activeWorklane?.paneStripState.focusedHorizontalKeyboardResizeAction(for: delta)
     }
 
     func equalizeDivider(

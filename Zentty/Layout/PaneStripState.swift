@@ -46,6 +46,11 @@ struct PaneHorizontalResizeTarget: Equatable, Sendable {
     let divider: PaneDivider
 }
 
+enum FocusedHorizontalKeyboardResizeAction: Equatable, Sendable {
+    case interior
+    case edge(PaneHorizontalResizeTarget)
+}
+
 enum PaneResizeTarget: Equatable, Sendable {
     case divider(PaneDivider)
     case horizontalEdge(PaneHorizontalResizeTarget)
@@ -1334,15 +1339,16 @@ struct PaneStripState: Equatable, Sendable {
         availableSize: CGSize,
         leadingVisibleInset: CGFloat = 0,
         minimumSizeByPaneID: [PaneID: PaneMinimumSize] = [:]
-    ) -> Bool {
+    ) -> CGFloat {
         switch target {
         case .divider(let divider):
-            return resizeDivider(
+            let didResize = resizeDivider(
                 divider,
                 delta: delta,
                 availableSize: availableSize,
                 minimumSizeByPaneID: minimumSizeByPaneID
             )
+            return didResize ? delta : 0
         case .horizontalEdge(let horizontalTarget):
             return resizeHorizontalEdge(
                 horizontalTarget,
@@ -1453,23 +1459,25 @@ struct PaneStripState: Equatable, Sendable {
         switch axis {
         case .horizontal:
             if isFocusedColumnInteriorForHorizontalKeyboardResize {
-                return resizeFocusedInteriorColumn(
+                let applied = resizeFocusedInteriorColumn(
                     delta: delta,
                     availableSize: availableSize,
                     leadingVisibleInset: leadingVisibleInset,
                     minimumSizeByPaneID: minimumSizeByPaneID
                 )
+                return abs(applied) > 0.001
             }
             guard let target = focusedHorizontalResizeTarget(for: delta) else {
                 return false
             }
-            return resize(
+            let applied = resize(
                 target,
                 delta: delta,
                 availableSize: availableSize,
                 leadingVisibleInset: leadingVisibleInset,
                 minimumSizeByPaneID: minimumSizeByPaneID
             )
+            return abs(applied) > 0.001
         case .vertical:
             guard let divider = preferredDivider(for: axis) else {
                 return false
@@ -1596,6 +1604,19 @@ struct PaneStripState: Equatable, Sendable {
         }
     }
 
+    func focusedHorizontalKeyboardResizeAction(
+        for delta: CGFloat
+    ) -> FocusedHorizontalKeyboardResizeAction? {
+        if isFocusedColumnInteriorForHorizontalKeyboardResize {
+            return .interior
+        }
+        let preferredEdge: PaneHorizontalEdge = delta < 0 ? .left : .right
+        guard let target = focusedHorizontalResizeTarget(preferredEdge: preferredEdge) else {
+            return nil
+        }
+        return .edge(target)
+    }
+
     private func focusedHorizontalResizeTarget(for delta: CGFloat) -> PaneResizeTarget? {
         guard delta != 0 else {
             return nil
@@ -1665,9 +1686,9 @@ struct PaneStripState: Equatable, Sendable {
         availableSize: CGSize,
         leadingVisibleInset: CGFloat,
         minimumSizeByPaneID: [PaneID: PaneMinimumSize]
-    ) -> Bool {
+    ) -> CGFloat {
         guard delta != 0, let focusedColumnIndex else {
-            return false
+            return 0
         }
 
         let divider: PaneDivider = delta < 0
@@ -1691,19 +1712,19 @@ struct PaneStripState: Equatable, Sendable {
         availableSize: CGSize,
         leadingVisibleInset: CGFloat,
         minimumSizeByPaneID: [PaneID: PaneMinimumSize]
-    ) -> Bool {
+    ) -> CGFloat {
         guard let columnIndex = columns.firstIndex(where: { $0.id == target.columnID }) else {
-            return false
+            return 0
         }
 
         switch target.edge {
         case .left:
             guard columnIndex > 0 else {
-                return false
+                return 0
             }
         case .right:
             guard columnIndex + 1 < columns.count else {
-                return false
+                return 0
             }
         }
 
@@ -1726,7 +1747,7 @@ struct PaneStripState: Equatable, Sendable {
         availableSize: CGSize,
         leadingVisibleInset: CGFloat,
         minimumSizeByPaneID: [PaneID: PaneMinimumSize]
-    ) -> Bool {
+    ) -> CGFloat {
         let minimumWidth = minimumColumnWidth(
             for: columns[columnIndex],
             minimumSizeByPaneID: minimumSizeByPaneID
@@ -1751,13 +1772,14 @@ struct PaneStripState: Equatable, Sendable {
         let proposedWidth = columns[columnIndex].width + widthDelta
         let resolvedWidth = min(maximumWidth, max(effectiveMinimumWidth, proposedWidth))
 
-        guard abs(resolvedWidth - columns[columnIndex].width) > 0.001 else {
-            return false
+        let appliedDelta = resolvedWidth - columns[columnIndex].width
+        guard abs(appliedDelta) > 0.001 else {
+            return 0
         }
 
         columns[columnIndex].width = resolvedWidth
         lastInteractedDivider = divider
-        return true
+        return appliedDelta
     }
 
     private func adjustedResizeDelta(
