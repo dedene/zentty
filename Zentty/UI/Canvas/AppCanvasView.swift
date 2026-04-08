@@ -609,6 +609,10 @@ final class AppCanvasView: NSView {
         paneStripView.centerFocusedInteriorPaneOnNextRender()
     }
 
+    func shiftPaneStripTargetOffsetOnNextRender(by delta: CGFloat) {
+        paneStripView.shiftTargetOffsetOnNextRender(by: delta)
+    }
+
     func clearPendingPaneStripTargetOffsetOverride() {
         paneStripView.clearPendingTargetOffsetOverride()
     }

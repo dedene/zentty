@@ -45,7 +45,7 @@ final class PaneStripView: NSView {
     var onPaneCloseRequested: ((PaneID) -> Void)?
     var onBorderChromeSnapshotsDidChange: ((_ snapshots: [PaneBorderChromeSnapshot], _ animated: Bool) -> Void)?
     var onDividerInteraction: ((PaneDivider) -> Void)?
-    var onDividerResizeRequested: ((PaneResizeTarget, CGFloat) -> Void)?
+    var onDividerResizeRequested: ((PaneResizeTarget, CGFloat) -> CGFloat)?
     var onDividerEqualizeRequested: ((PaneDivider) -> Void)?
     var onPaneStripStateRestoreRequested: ((PaneStripState) -> Void)?
     var onPaneReorderRequested: ((PaneID, Int) -> Void)?
@@ -105,16 +105,32 @@ final class PaneStripView: NSView {
     private var dividerDragEscapeMonitor: Any?
     private var dividerDragSuspendedPaneIDs: Set<PaneID> = []
     private var pendingTargetOffsetOverride: PendingTargetOffsetOverride?
+    private var hostDrivenResizeRenderRequestPending = false
+    var prefersHostDrivenResizeRendering = false
+    var onHostDrivenResizeRenderRequested: (() -> Void)?
+    #if DEBUG
+        private(set) var renderSnapshotsForTesting: [RenderSnapshot] = []
+    #endif
 
     private struct DividerDragSession {
         let target: PaneResizeTarget
         let initialState: PaneStripState
+        let initialScrollOffsetX: CGFloat
         var lastTranslation: CGFloat
     }
 
-    private enum PendingTargetOffsetOverride {
+    private enum PendingTargetOffsetOverride: Equatable {
         case usePresentationTargetOffset
+        case shiftBy(CGFloat)
     }
+
+    #if DEBUG
+        struct RenderSnapshot: Equatable {
+            let boundsSize: CGSize
+            let leadingVisibleInset: CGFloat
+            let focusedPaneFrame: CGRect?
+        }
+    #endif
 
     var leadingVisibleInset: CGFloat {
         get { resolvedLeadingVisibleInset }
@@ -267,6 +283,19 @@ final class PaneStripView: NSView {
             return
         }
 
+        if prefersHostDrivenResizeRendering {
+            guard !hostDrivenResizeRenderRequestPending else {
+                return
+            }
+            hostDrivenResizeRenderRequestPending = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.hostDrivenResizeRenderRequestPending = false
+                self.onHostDrivenResizeRenderRequested?()
+            }
+            return
+        }
+
         renderCurrentState(currentState, animated: false)
     }
 
@@ -280,6 +309,7 @@ final class PaneStripView: NSView {
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
+        hostDrivenResizeRenderRequestPending = false
         currentPaneBorderContextByPaneID = paneBorderContextByPaneID
         currentShowsPaneLabels = showsPaneLabels
         currentInactivePaneOpacity = max(
@@ -316,6 +346,7 @@ final class PaneStripView: NSView {
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
+        hostDrivenResizeRenderRequestPending = false
         currentPaneBorderContextByPaneID = paneBorderContextByPaneID
         currentShowsPaneLabels = showsPaneLabels
         currentInactivePaneOpacity = max(
@@ -408,6 +439,11 @@ final class PaneStripView: NSView {
 
     func centerFocusedInteriorPaneOnNextRender() {
         pendingTargetOffsetOverride = .usePresentationTargetOffset
+    }
+
+    func shiftTargetOffsetOnNextRender(by delta: CGFloat) {
+        guard abs(delta) > 0.001 else { return }
+        pendingTargetOffsetOverride = .shiftBy(delta)
     }
 
     func clearPendingTargetOffsetOverride() {
@@ -569,6 +605,15 @@ final class PaneStripView: NSView {
             shouldAnimate
         )
         syncFocusedTerminal(with: state.focusedPaneID)
+        #if DEBUG
+            renderSnapshotsForTesting.append(
+                RenderSnapshot(
+                    boundsSize: bounds.size,
+                    leadingVisibleInset: resolvedLeadingVisibleInset,
+                    focusedPaneFrame: state.focusedPaneID.flatMap { paneViews[$0]?.frame }
+                )
+            )
+        #endif
 
         if let callback = afterNextRenderCallback {
             afterNextRenderCallback = nil
@@ -1045,7 +1090,11 @@ final class PaneStripView: NSView {
             )
             let delta = resolvedTranslation - dividerDragSession.lastTranslation
             if abs(delta) > 0.001 {
-                onDividerResizeRequested?(dividerDragSession.target, delta)
+                let appliedWidthDelta = onDividerResizeRequested?(dividerDragSession.target, delta) ?? 0
+                applyDividerDragScrollCompensation(
+                    target: dividerDragSession.target,
+                    appliedWidthDelta: appliedWidthDelta
+                )
                 dividerDragSession.lastTranslation = resolvedTranslation
                 self.dividerDragSession = dividerDragSession
             }
@@ -1086,6 +1135,7 @@ final class PaneStripView: NSView {
         dividerDragSession = DividerDragSession(
             target: target,
             initialState: state,
+            initialScrollOffsetX: dragScrollOffsetX,
             lastTranslation: 0
         )
         activeDivider = resolvedActiveDivider(for: target)
@@ -1444,8 +1494,26 @@ final class PaneStripView: NSView {
     private func cancelDividerDrag() {
         if let dividerDragSession {
             onPaneStripStateRestoreRequested?(dividerDragSession.initialState)
+            if abs(dragScrollOffsetX - dividerDragSession.initialScrollOffsetX) > 0.001 {
+                dragScrollOffsetX = dividerDragSession.initialScrollOffsetX
+                applyCurrentZoom()
+            }
         }
         endDividerDrag()
+    }
+
+    private func applyDividerDragScrollCompensation(
+        target: PaneResizeTarget,
+        appliedWidthDelta: CGFloat
+    ) {
+        guard case .horizontalEdge(let horizontalTarget) = target,
+              horizontalTarget.edge == .left,
+              abs(appliedWidthDelta) > 0.001 else {
+            return
+        }
+
+        dragScrollOffsetX += appliedWidthDelta
+        applyCurrentZoom()
     }
 
     private func installDividerDragEscapeMonitorIfNeeded() {
@@ -1560,6 +1628,31 @@ final class PaneStripView: NSView {
 
     func endDividerDragForTesting() {
         endDividerDrag()
+    }
+
+    func cancelDividerDragForTesting() {
+        cancelDividerDrag()
+    }
+
+    func handleDividerDragDeltaForTesting(_ delta: CGFloat) {
+        guard var session = dividerDragSession, abs(delta) > 0.001 else {
+            return
+        }
+        let appliedWidthDelta = onDividerResizeRequested?(session.target, delta) ?? 0
+        applyDividerDragScrollCompensation(
+            target: session.target,
+            appliedWidthDelta: appliedWidthDelta
+        )
+        session.lastTranslation += delta
+        dividerDragSession = session
+    }
+
+    var dragScrollOffsetXForTesting: CGFloat {
+        dragScrollOffsetX
+    }
+
+    var currentOffsetForTesting: CGFloat {
+        currentOffset
     }
 
     func beginPaneDragForTesting(
@@ -1684,7 +1777,8 @@ final class PaneStripView: NSView {
         previousOffset: CGFloat,
         targetOffsetOverride: PendingTargetOffsetOverride? = nil
     ) -> CGFloat {
-        if targetOffsetOverride == .usePresentationTargetOffset {
+        switch targetOffsetOverride {
+        case .usePresentationTargetOffset:
             let clampedTargetOffset = motionController.clampedOffset(
                 presentation.targetOffset,
                 contentWidth: presentation.contentWidth,
@@ -1696,6 +1790,20 @@ final class PaneStripView: NSView {
                 clampedTargetOffset,
                 backingScaleFactor: currentBackingScaleFactor
             )
+        case .shiftBy(let delta):
+            let proposedOffset = previousOffset + delta
+            let clamped = motionController.clampedOffset(
+                proposedOffset,
+                contentWidth: presentation.contentWidth,
+                viewportWidth: bounds.width,
+                leadingVisibleInset: resolvedLeadingVisibleInset
+            )
+            return motionController.snappedOffset(
+                clamped,
+                backingScaleFactor: currentBackingScaleFactor
+            )
+        case .none:
+            break
         }
 
         let visibleBorderInset = ChromeGeometry.paneBorderInset(

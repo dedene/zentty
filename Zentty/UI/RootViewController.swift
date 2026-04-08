@@ -491,6 +491,9 @@ final class RootViewController: NSViewController {
     }
 
     private func setupCanvasCallbacks() {
+        appCanvasView.paneStripView.onHostDrivenResizeRenderRequested = { [weak self] in
+            self?.renderCoordinator.renderCanvas(animated: false)
+        }
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
             self?.worklaneStore.focusPane(id: paneID)
@@ -515,9 +518,9 @@ final class RootViewController: NSViewController {
         }
         appCanvasView.paneStripView.onDividerResizeRequested = { [weak self] target, delta in
             guard let self else {
-                return
+                return 0
             }
-            self.worklaneStore.resize(
+            return self.worklaneStore.resize(
                 target,
                 delta: delta,
                 availableSize: self.appCanvasView.bounds.size,
@@ -761,8 +764,11 @@ final class RootViewController: NSViewController {
     override func viewDidLayout() {
         super.viewDidLayout()
         syncSidebarWidthToAvailableWidth(persist: false)
-        updatePaneLayoutContextIfNeeded()
+        _ = updatePaneLayoutContextIfNeeded(notifyLayoutResize: false)
         updatePaneViewportHeight()
+        if view.window == nil {
+            renderCoordinator.renderCanvas(animated: false)
+        }
         renderCoordinator.renderBorderOverlay()
     }
 
@@ -961,40 +967,48 @@ final class RootViewController: NSViewController {
         focusedPaneRuntime()?.findPrevious()
     }
 
+    private func handleHorizontalKeyboardResize(delta: CGFloat) {
+        guard let action = worklaneStore.focusedHorizontalKeyboardResizeAction(for: delta) else {
+            return
+        }
+        switch action {
+        case .interior:
+            let shouldCenterMiddlePane = shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize()
+            if shouldCenterMiddlePane {
+                appCanvasView.centerFocusedInteriorPaneOnNextRender()
+            }
+            let didResize = worklaneStore.resizeFocusedPane(
+                in: .horizontal,
+                delta: delta,
+                availableSize: appCanvasView.bounds.size,
+                leadingVisibleInset: appCanvasView.leadingVisibleInset,
+                minimumSizeByPaneID: paneMinimumSizesByPaneID()
+            )
+            if shouldCenterMiddlePane, !didResize {
+                appCanvasView.clearPendingPaneStripTargetOffsetOverride()
+            }
+        case .edge(let target):
+            let appliedWidthDelta = worklaneStore.resize(
+                .horizontalEdge(target),
+                delta: delta,
+                availableSize: appCanvasView.bounds.size,
+                leadingVisibleInset: appCanvasView.leadingVisibleInset,
+                minimumSizeByPaneID: paneMinimumSizesByPaneID()
+            )
+            if target.edge == .left, abs(appliedWidthDelta) > 0.001 {
+                appCanvasView.shiftPaneStripTargetOffsetOnNextRender(by: appliedWidthDelta)
+            }
+        }
+    }
+
     private func handlePaneCommand(_ command: PaneCommand) {
         switch command {
         case .resizeLeft:
             appCanvasView.settlePaneStripPresentationNow()
-            let shouldCenterMiddlePane = shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize()
-            if shouldCenterMiddlePane {
-                appCanvasView.centerFocusedInteriorPaneOnNextRender()
-            }
-            let didResize = worklaneStore.resizeFocusedPane(
-                in: .horizontal,
-                delta: -keyboardResizeStep(for: .horizontal),
-                availableSize: appCanvasView.bounds.size,
-                leadingVisibleInset: appCanvasView.leadingVisibleInset,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID()
-            )
-            if shouldCenterMiddlePane, !didResize {
-                appCanvasView.clearPendingPaneStripTargetOffsetOverride()
-            }
+            handleHorizontalKeyboardResize(delta: -keyboardResizeStep(for: .horizontal))
         case .resizeRight:
             appCanvasView.settlePaneStripPresentationNow()
-            let shouldCenterMiddlePane = shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize()
-            if shouldCenterMiddlePane {
-                appCanvasView.centerFocusedInteriorPaneOnNextRender()
-            }
-            let didResize = worklaneStore.resizeFocusedPane(
-                in: .horizontal,
-                delta: keyboardResizeStep(for: .horizontal),
-                availableSize: appCanvasView.bounds.size,
-                leadingVisibleInset: appCanvasView.leadingVisibleInset,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID()
-            )
-            if shouldCenterMiddlePane, !didResize {
-                appCanvasView.clearPendingPaneStripTargetOffsetOverride()
-            }
+            handleHorizontalKeyboardResize(delta: keyboardResizeStep(for: .horizontal))
         case .resizeUp:
             appCanvasView.settlePaneStripPresentationNow()
             worklaneStore.resizeFocusedPane(
@@ -1370,12 +1384,8 @@ final class RootViewController: NSViewController {
     }
 
     func handleWindowDidResize() {
-        view.layoutSubtreeIfNeeded()
-        syncSidebarWidthToAvailableWidth(persist: false)
-        updatePaneLayoutContextIfNeeded(force: true)
-        updatePaneViewportHeight()
-        renderCoordinator.renderCanvas(animated: false)
-        renderCoordinator.renderBorderOverlay()
+        // NSWindow.didResize follows AppKit layout. viewDidLayout handles pane relayout
+        // so we avoid forcing an additional resize render from the delegate path.
     }
 
     private func installStaleAgentSweepTimer() {
@@ -1814,17 +1824,22 @@ final class RootViewController: NSViewController {
 
     private func updatePaneLayoutContextIfNeeded(
         force: Bool = false,
-        leadingVisibleInsetOverride: CGFloat? = nil
-    ) {
+        leadingVisibleInsetOverride: CGFloat? = nil,
+        notifyLayoutResize: Bool = true
+    ) -> Bool {
         let resolvedContext = resolveCurrentPaneLayoutContext(
             leadingVisibleInsetOverride: leadingVisibleInsetOverride
         )
         guard force || resolvedContext != currentPaneLayoutContext else {
-            return
+            return false
         }
 
         currentPaneLayoutContext = resolvedContext
-        worklaneStore.updateLayoutContext(resolvedContext)
+        worklaneStore.updateLayoutContext(
+            resolvedContext,
+            notifyLayoutResize: notifyLayoutResize
+        )
+        return true
     }
 
     private func resolveCurrentPaneLayoutContext(

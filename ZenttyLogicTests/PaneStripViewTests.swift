@@ -2047,6 +2047,247 @@ final class PaneStripViewTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func test_left_edge_drag_compensates_scroll_by_applied_width_delta() throws {
+        let paneStripView = makePaneStripView(width: 1400, height: 720)
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("middle", paneIDs: ["middle"], width: 420),
+                makeColumn("right", paneIDs: ["right"], width: 520),
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+
+        var stateProxy = state
+        paneStripView.onDividerResizeRequested = { target, delta in
+            stateProxy.resize(
+                target,
+                delta: delta,
+                availableSize: CGSize(width: 1400, height: 720),
+                minimumSizeByPaneID: [
+                    PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+                ]
+            )
+        }
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let target = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("left")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+        if case .horizontalEdge(let horizontalTarget) = target {
+            XCTAssertEqual(horizontalTarget.edge, .left)
+        } else {
+            XCTFail("Expected horizontal-edge target, got \(target)")
+        }
+
+        let initialScroll = paneStripView.dragScrollOffsetXForTesting
+        paneStripView.handleDividerDragDeltaForTesting(-60)
+
+        XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting - initialScroll, 60, accuracy: 0.001)
+        paneStripView.endDividerDragForTesting()
+    }
+
+    @MainActor
+    func test_right_edge_drag_does_not_touch_drag_scroll_offset() throws {
+        let paneStripView = makePaneStripView(width: 1400, height: 720)
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("middle", paneIDs: ["middle"], width: 420),
+                makeColumn("right", paneIDs: ["right"], width: 520),
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+
+        var stateProxy = state
+        paneStripView.onDividerResizeRequested = { target, delta in
+            stateProxy.resize(
+                target,
+                delta: delta,
+                availableSize: CGSize(width: 1400, height: 720),
+                minimumSizeByPaneID: [
+                    PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+                ]
+            )
+        }
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        _ = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("middle")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+
+        let initialScroll = paneStripView.dragScrollOffsetXForTesting
+        paneStripView.handleDividerDragDeltaForTesting(60)
+
+        XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, initialScroll, accuracy: 0.001)
+        paneStripView.endDividerDragForTesting()
+    }
+
+    @MainActor
+    func test_left_edge_drag_skips_scroll_compensation_when_resize_is_clamped() throws {
+        let paneStripView = makePaneStripView(width: 900, height: 720)
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("middle", paneIDs: ["middle"], width: 900),
+                makeColumn("right", paneIDs: ["right"], width: 520),
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+
+        var stateProxy = state
+        paneStripView.onDividerResizeRequested = { target, delta in
+            stateProxy.resize(
+                target,
+                delta: delta,
+                availableSize: CGSize(width: 900, height: 720),
+                minimumSizeByPaneID: [
+                    PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+                ]
+            )
+        }
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        _ = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("left")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+
+        let initialScroll = paneStripView.dragScrollOffsetXForTesting
+        paneStripView.handleDividerDragDeltaForTesting(-100)
+
+        // Middle column was already at the readable-width ceiling; applied
+        // width delta is 0, so scroll must not move either.
+        XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, initialScroll, accuracy: 0.001)
+        paneStripView.endDividerDragForTesting()
+    }
+
+    @MainActor
+    func test_cancel_divider_drag_restores_initial_drag_scroll_offset() throws {
+        let paneStripView = makePaneStripView(width: 1400, height: 720)
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("middle", paneIDs: ["middle"], width: 420),
+                makeColumn("right", paneIDs: ["right"], width: 520),
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+
+        var stateProxy = state
+        paneStripView.onDividerResizeRequested = { target, delta in
+            stateProxy.resize(
+                target,
+                delta: delta,
+                availableSize: CGSize(width: 1400, height: 720),
+                minimumSizeByPaneID: [
+                    PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+                ]
+            )
+        }
+        paneStripView.onPaneStripStateRestoreRequested = { restored in
+            stateProxy = restored
+        }
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        _ = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("left")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+
+        let initialScroll = paneStripView.dragScrollOffsetXForTesting
+        paneStripView.handleDividerDragDeltaForTesting(-40)
+        XCTAssertNotEqual(paneStripView.dragScrollOffsetXForTesting, initialScroll, accuracy: 0.001)
+
+        paneStripView.cancelDividerDragForTesting()
+
+        XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, initialScroll, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_shift_target_offset_on_next_render_advances_offset_on_next_render() {
+        // Viewport narrower than content so there's headroom to scroll.
+        let paneStripView = makePaneStripView(width: 900, height: 720)
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 400),
+                makeColumn("middle", paneIDs: ["middle"], width: 420),
+                makeColumn("right", paneIDs: ["right"], width: 520),
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+        let offsetBefore = paneStripView.currentOffsetForTesting
+
+        // Simulate what happens when a keyboard "expand left edge" command
+        // lands on an edge column: the column width grows by 40 and the
+        // shift override fires so the strip scrolls in lockstep.
+        var grownState = state
+        grownState.columns[0].width = 440
+        paneStripView.shiftTargetOffsetOnNextRender(by: 40)
+        paneStripView.render(grownState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            paneStripView.currentOffsetForTesting - offsetBefore,
+            40,
+            accuracy: 0.5,
+            "Offset must advance by the requested shift (subject to snapping)"
+        )
+    }
+
+    @MainActor
+    func test_shift_target_offset_clamps_at_content_bounds() {
+        let paneStripView = makePaneStripView(width: 1400, height: 720)
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("middle", paneIDs: ["middle"], width: 420),
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        // Request a shift far larger than the content can scroll. The
+        // motion controller clamp prevents runaway offsets.
+        paneStripView.shiftTargetOffsetOnNextRender(by: 100_000)
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertLessThan(paneStripView.currentOffsetForTesting, 100_000)
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }
