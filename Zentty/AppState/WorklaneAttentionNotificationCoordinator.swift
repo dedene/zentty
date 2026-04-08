@@ -5,7 +5,15 @@ import UserNotifications
 @MainActor
 protocol WorklaneAttentionUserNotificationCenter: AnyObject {
     func requestAuthorizationIfNeeded()
-    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String, soundName: String)
+    func add(
+        identifier: String,
+        title: String,
+        body: String,
+        windowID: String,
+        worklaneID: String,
+        paneID: String,
+        soundName: String
+    )
 }
 
 @MainActor
@@ -33,6 +41,7 @@ final class WorklaneAttentionNotificationCoordinator {
     }
 
     func update(
+        windowID: WindowID,
         worklanes: [WorklaneState],
         activeWorklaneID: WorklaneID,
         windowIsKey: Bool
@@ -57,7 +66,11 @@ final class WorklaneAttentionNotificationCoordinator {
                 if isActivelyViewed,
                    lastSeenStates[key] == attention.state,
                    lastSeenActiveViews[key] == false {
-                    notificationStore.resolve(worklaneID: worklane.id, paneID: attention.paneID)
+                    notificationStore.resolve(
+                        windowID: windowID,
+                        worklaneID: worklane.id,
+                        paneID: attention.paneID
+                    )
                 }
 
                 let stateChanged = lastSeenStates[key] != attention.state
@@ -67,6 +80,7 @@ final class WorklaneAttentionNotificationCoordinator {
 
                 if isNotificationWorthy(attention.state) {
                     notificationStore.add(
+                        windowID: windowID,
                         worklaneID: worklane.id,
                         paneID: attention.paneID,
                         state: attention.state,
@@ -78,7 +92,11 @@ final class WorklaneAttentionNotificationCoordinator {
                         isDebounced: attention.state == .needsInput
                     )
                 } else {
-                    notificationStore.resolve(worklaneID: worklane.id, paneID: attention.paneID)
+                    notificationStore.resolve(
+                        windowID: windowID,
+                        worklaneID: worklane.id,
+                        paneID: attention.paneID
+                    )
                 }
 
                 guard shouldNotifySystemNotification(
@@ -91,9 +109,10 @@ final class WorklaneAttentionNotificationCoordinator {
                 }
 
                 center.add(
-                    identifier: "\(worklane.id.rawValue)-\(attention.paneID.rawValue)-\(attention.state.rawValue)-\(attention.updatedAt.timeIntervalSince1970)",
+                    identifier: "\(windowID.rawValue)-\(worklane.id.rawValue)-\(attention.paneID.rawValue)-\(attention.state.rawValue)-\(attention.updatedAt.timeIntervalSince1970)",
                     title: systemNotificationTitle(for: attention),
                     body: systemNotificationBody(for: attention, in: worklane),
+                    windowID: windowID.rawValue,
                     worklaneID: worklane.id.rawValue,
                     paneID: attention.paneID.rawValue,
                     soundName: systemNotificationSoundName(for: attention.state)
@@ -108,7 +127,7 @@ final class WorklaneAttentionNotificationCoordinator {
             guard isNotificationWorthy(previousState), !visitedPaneKeys.contains(key) else {
                 continue
             }
-            notificationStore.resolve(worklaneID: key.worklaneID, paneID: key.paneID)
+            notificationStore.resolve(windowID: windowID, worklaneID: key.worklaneID, paneID: key.paneID)
         }
 
         lastSeenStates = nextSeenStates
@@ -286,13 +305,21 @@ final class WorklaneAttentionUNCenter: NSObject, WorklaneAttentionUserNotificati
         center.setNotificationCategories([category])
     }
 
-    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String, soundName: String) {
+    func add(
+        identifier: String,
+        title: String,
+        body: String,
+        windowID: String,
+        worklaneID: String,
+        paneID: String,
+        soundName: String
+    ) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.categoryIdentifier = "agent-attention"
         content.threadIdentifier = worklaneID
-        content.userInfo = ["worklaneID": worklaneID, "paneID": paneID]
+        content.userInfo = ["windowID": windowID, "worklaneID": worklaneID, "paneID": paneID]
         content.sound = resolvedNotificationSound(for: soundName)
         let request = UNNotificationRequest(
             identifier: identifier,

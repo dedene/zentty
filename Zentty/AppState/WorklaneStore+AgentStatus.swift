@@ -134,6 +134,18 @@ extension WorklaneStore {
     }
 
     func applyAgentStatusPayload(_ payload: AgentStatusPayload) {
+        if let payloadWindowID = payload.windowID, payloadWindowID != windowID {
+            return
+        }
+
+        if payload.origin == .explicitAPI,
+           payload.state == .needsInput,
+           AgentTool.resolve(named: payload.toolName) == .codex {
+            worklaneStoreLogger.debug(
+                "Codex blocked signal pane=\(payload.paneID.rawValue, privacy: .public) interaction=\(payload.interactionKind?.rawValue ?? "none", privacy: .public)"
+            )
+        }
+
         let worklaneIndex: Int
         if let exact = worklanes.firstIndex(where: { worklane in
             worklane.id == payload.worklaneID
@@ -203,6 +215,7 @@ extension WorklaneStore {
             }
             auxiliaryState.agentReducerState.apply(
                 AgentStatusPayload(
+                    windowID: payload.windowID ?? windowID,
                     worklaneID: payload.worklaneID,
                     paneID: payload.paneID,
                     signalKind: payload.signalKind,
@@ -300,6 +313,7 @@ extension WorklaneStore {
                 }
                 auxiliaryState.agentReducerState.apply(
                     AgentStatusPayload(
+                        windowID: payload.windowID ?? windowID,
                         worklaneID: payload.worklaneID,
                         paneID: payload.paneID,
                         signalKind: .pid,
@@ -650,6 +664,7 @@ extension WorklaneStore {
             ?? .genericInput
 
         return AgentStatusPayload(
+            windowID: windowID,
             worklaneID: worklane.id,
             paneID: paneID,
             signalKind: .lifecycle,

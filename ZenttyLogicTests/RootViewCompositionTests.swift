@@ -984,6 +984,7 @@ final class RootViewCompositionTests: XCTestCase {
         panel.update(notifications: [
             AppNotification(
                 id: UUID(),
+                windowID: WindowID("window-main"),
                 worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-main"),
                 state: .needsInput,
@@ -1018,6 +1019,7 @@ final class RootViewCompositionTests: XCTestCase {
         panel.update(notifications: [
             AppNotification(
                 id: UUID(),
+                windowID: WindowID("window-main"),
                 worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-main"),
                 state: .needsInput,
@@ -1043,6 +1045,7 @@ final class RootViewCompositionTests: XCTestCase {
         panel.update(notifications: [
             AppNotification(
                 id: UUID(),
+                windowID: WindowID("window-main"),
                 worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-main"),
                 state: .needsInput,
@@ -1087,6 +1090,7 @@ final class RootViewCompositionTests: XCTestCase {
         panel.update(notifications: [
             AppNotification(
                 id: UUID(),
+                windowID: WindowID("window-main"),
                 worklaneID: WorklaneID("worklane-main"),
                 paneID: PaneID("pane-main"),
                 state: .needsInput,

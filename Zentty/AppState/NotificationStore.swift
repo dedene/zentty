@@ -1,9 +1,18 @@
 import Foundation
 
+struct WindowID: Hashable, Equatable, Sendable {
+    let rawValue: String
+
+    init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+}
+
 // MARK: - AppNotification
 
 struct AppNotification: Identifiable, Equatable, Sendable {
     let id: UUID
+    let windowID: WindowID
     let worklaneID: WorklaneID
     let paneID: PaneID
     let state: WorklaneAttentionState
@@ -24,6 +33,7 @@ final class NotificationStore {
 
     private(set) var notifications: [AppNotification] = []
     var onChange: (() -> Void)?
+    private var observers: [UUID: () -> Void] = [:]
 
     var unresolvedCount: Int {
         notifications.count(where: { !$0.isResolved })
@@ -32,6 +42,7 @@ final class NotificationStore {
     // MARK: - Pending debounce state
 
     private struct PaneKey: Hashable {
+        let windowID: WindowID
         let worklaneID: WorklaneID
         let paneID: PaneID
     }
@@ -49,6 +60,7 @@ final class NotificationStore {
     // MARK: - Public API
 
     func add(
+        windowID: WindowID,
         worklaneID: WorklaneID,
         paneID: PaneID,
         state: WorklaneAttentionState,
@@ -59,7 +71,7 @@ final class NotificationStore {
         primaryText: String,
         isDebounced: Bool = true
     ) {
-        let key = PaneKey(worklaneID: worklaneID, paneID: paneID)
+        let key = PaneKey(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
         let now = Date()
 
         // Cancel any existing pending timer for this pane.
@@ -68,6 +80,7 @@ final class NotificationStore {
 
         let notification = AppNotification(
             id: UUID(),
+            windowID: windowID,
             worklaneID: worklaneID,
             paneID: paneID,
             state: state,
@@ -82,7 +95,7 @@ final class NotificationStore {
         guard isDebounced else {
             notifications.insert(notification, at: 0)
             trimIfNeeded()
-            onChange?()
+            notifyChange()
             return
         }
 
@@ -97,22 +110,38 @@ final class NotificationStore {
         pendingTasks[key] = task
 
         if resolvedExisting {
-            onChange?()
+            notifyChange()
         }
     }
 
-    func resolve(worklaneID: WorklaneID, paneID: PaneID) {
-        let key = PaneKey(worklaneID: worklaneID, paneID: paneID)
+    func resolve(windowID: WindowID, worklaneID: WorklaneID, paneID: PaneID) {
+        let key = PaneKey(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
 
-        // If there's a pending notification, cancel and discard it silently.
         if pendingNotifications[key] != nil {
             cancelPending(for: key)
             return
         }
 
-        // Otherwise resolve all matching unresolved committed notifications.
         let now = Date()
         var changed = false
+        for i in notifications.indices where !notifications[i].isResolved
+            && notifications[i].windowID == windowID
+            && notifications[i].worklaneID == worklaneID
+            && notifications[i].paneID == paneID
+        {
+            notifications[i].isResolved = true
+            notifications[i].resolvedAt = now
+            changed = true
+        }
+        if changed { notifyChange() }
+    }
+
+    func resolve(worklaneID: WorklaneID, paneID: PaneID) {
+        let now = Date()
+        var changed = false
+        for key in pendingNotifications.keys where key.worklaneID == worklaneID && key.paneID == paneID {
+            cancelPending(for: key)
+        }
         for i in notifications.indices where !notifications[i].isResolved
             && notifications[i].worklaneID == worklaneID
             && notifications[i].paneID == paneID
@@ -121,24 +150,34 @@ final class NotificationStore {
             notifications[i].resolvedAt = now
             changed = true
         }
-        if changed { onChange?() }
+        if changed { notifyChange() }
     }
 
     func dismiss(id: UUID) {
         guard let index = notifications.firstIndex(where: { $0.id == id }) else { return }
         notifications.remove(at: index)
-        onChange?()
+        notifyChange()
     }
 
     func clearAll() {
         for key in pendingTasks.keys { cancelPending(for: key) }
         guard !notifications.isEmpty else { return }
         notifications.removeAll()
-        onChange?()
+        notifyChange()
     }
 
     func mostUrgentUnresolved() -> AppNotification? {
         notifications.first(where: { !$0.isResolved })
+    }
+
+    func addObserver(_ observer: @escaping () -> Void) -> UUID {
+        let id = UUID()
+        observers[id] = observer
+        return id
+    }
+
+    func removeObserver(_ id: UUID) {
+        observers.removeValue(forKey: id)
     }
 
     // MARK: - Private helpers
@@ -157,12 +196,13 @@ final class NotificationStore {
         notifications.insert(notification, at: 0)
         trimIfNeeded()
 
-        onChange?()
+        notifyChange()
     }
 
     private func resolveCommittedUnresolved(for key: PaneKey, now: Date) -> Bool {
         var changed = false
         for i in notifications.indices where !notifications[i].isResolved
+            && notifications[i].windowID == key.windowID
             && notifications[i].worklaneID == key.worklaneID
             && notifications[i].paneID == key.paneID
         {
@@ -176,6 +216,13 @@ final class NotificationStore {
     private func trimIfNeeded() {
         if notifications.count > Self.maxItems {
             notifications.removeLast(notifications.count - Self.maxItems)
+        }
+    }
+
+    private func notifyChange() {
+        onChange?()
+        for observer in observers.values {
+            observer()
         }
     }
 }

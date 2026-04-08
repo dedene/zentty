@@ -14,6 +14,8 @@ final class NotificationStoreTests: XCTestCase {
     private let worklaneB = WorklaneID("worklane-b")
     private let paneA = PaneID("pane-a")
     private let paneB = PaneID("pane-b")
+    private let windowA = WindowID("window-a")
+    private let windowB = WindowID("window-b")
 
     /// Adds a notification and waits for it to commit through the debounce window.
     private func addAndWaitForCommit(
@@ -29,6 +31,7 @@ final class NotificationStoreTests: XCTestCase {
             committed.fulfill()
         }
         store.add(
+            windowID: windowA,
             worklaneID: worklaneID ?? worklaneA,
             paneID: paneID ?? paneA,
             state: .needsInput,
@@ -47,6 +50,7 @@ final class NotificationStoreTests: XCTestCase {
         let store = makeStore()
 
         store.add(
+            windowID: windowA,
             worklaneID: worklaneA,
             paneID: paneA,
             state: .needsInput,
@@ -75,6 +79,7 @@ final class NotificationStoreTests: XCTestCase {
         store.onChange = { notCommitted.fulfill() }
 
         store.add(
+            windowID: windowA,
             worklaneID: worklaneA,
             paneID: paneA,
             state: .needsInput,
@@ -187,6 +192,7 @@ final class NotificationStoreTests: XCTestCase {
         store.onChange = { changeFired.fulfill() }
 
         store.add(
+            windowID: windowA,
             worklaneID: worklaneA,
             paneID: paneA,
             state: .needsInput,
@@ -205,6 +211,7 @@ final class NotificationStoreTests: XCTestCase {
         let store = makeStore()
 
         store.add(
+            windowID: windowA,
             worklaneID: worklaneA,
             paneID: paneA,
             state: .ready,
@@ -225,6 +232,7 @@ final class NotificationStoreTests: XCTestCase {
         await addAndWaitForCommit(store, primaryText: "Needs review")
 
         store.add(
+            windowID: windowA,
             worklaneID: worklaneA,
             paneID: paneA,
             state: .ready,
@@ -241,5 +249,86 @@ final class NotificationStoreTests: XCTestCase {
         XCTAssertFalse(store.notifications[0].isResolved)
         XCTAssertEqual(store.notifications[1].state, .needsInput)
         XCTAssertTrue(store.notifications[1].isResolved)
+    }
+
+    func test_resolve_window_scoped_notification_only_marks_matching_origin_resolved() {
+        let store = makeStore()
+
+        store.add(
+            windowID: windowA,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .ready,
+            tool: .claudeCode,
+            interactionKind: nil,
+            interactionSymbolName: nil,
+            statusText: "Agent ready",
+            primaryText: "Window A",
+            isDebounced: false
+        )
+        store.add(
+            windowID: windowB,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .ready,
+            tool: .claudeCode,
+            interactionKind: nil,
+            interactionSymbolName: nil,
+            statusText: "Agent ready",
+            primaryText: "Window B",
+            isDebounced: false
+        )
+
+        store.resolve(windowID: windowA, worklaneID: worklaneA, paneID: paneA)
+
+        XCTAssertEqual(store.notifications.count, 2)
+        XCTAssertTrue(store.notifications.first(where: { $0.windowID == windowA })?.isResolved == true)
+        XCTAssertTrue(store.notifications.first(where: { $0.windowID == windowB })?.isResolved == false)
+    }
+
+    func test_multiple_observers_receive_change_notifications() {
+        let store = makeStore()
+        var primaryCount = 0
+        var secondaryCount = 0
+
+        let primaryToken = store.addObserver {
+            primaryCount += 1
+        }
+        _ = store.addObserver {
+            secondaryCount += 1
+        }
+
+        store.add(
+            windowID: windowA,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .ready,
+            tool: .claudeCode,
+            interactionKind: nil,
+            interactionSymbolName: nil,
+            statusText: "Agent ready",
+            primaryText: "Shared store",
+            isDebounced: false
+        )
+
+        XCTAssertEqual(primaryCount, 1)
+        XCTAssertEqual(secondaryCount, 1)
+
+        store.removeObserver(primaryToken)
+        store.add(
+            windowID: windowA,
+            worklaneID: worklaneB,
+            paneID: paneB,
+            state: .ready,
+            tool: .claudeCode,
+            interactionKind: nil,
+            interactionSymbolName: nil,
+            statusText: "Agent ready",
+            primaryText: "Still shared",
+            isDebounced: false
+        )
+
+        XCTAssertEqual(primaryCount, 1)
+        XCTAssertEqual(secondaryCount, 2)
     }
 }

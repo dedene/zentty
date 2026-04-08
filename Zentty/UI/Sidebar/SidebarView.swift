@@ -247,6 +247,20 @@ final class SidebarView: NSView {
         return resizeHandleView
     }
 
+    /// Surgical label update for the volatile agent title fast path.
+    /// Routes the new text directly to the affected worklane row button,
+    /// bypassing summary rebuilds and full sidebar re-apply. Idempotent.
+    func setVolatilePaneTitle(
+        worklaneID: WorklaneID,
+        paneID: PaneID,
+        text: String
+    ) {
+        guard let button = worklaneButtons.first(where: { $0.worklaneID == worklaneID }) else {
+            return
+        }
+        button.setVolatilePaneTitle(paneID: paneID, text: text)
+    }
+
     func render(
         summaries: [WorklaneSidebarSummary],
         theme: ZenttyTheme

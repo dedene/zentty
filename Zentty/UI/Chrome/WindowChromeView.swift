@@ -222,6 +222,20 @@ final class WindowChromeView: NSView {
         render(openWith: currentOpenWithState)
     }
 
+    /// Surgical focused-label update for the volatile agent title fast path.
+    /// Writes `text` directly to `focusedLabel` without touching branch, PR,
+    /// attention chip, proxy icon, or forcing a full chrome layout pass.
+    /// The proxy icon is not re-rendered because its state depends on
+    /// `currentSummary.cwdPath`, which is unchanged on volatile title ticks.
+    func setFocusedLabelText(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard focusedLabel.stringValue != trimmed else {
+            return
+        }
+        focusedLabel.stringValue = trimmed
+        focusedLabel.isHidden = trimmed.isEmpty
+    }
+
     func render(summary: WorklaneChromeSummary) {
         currentSummary = summary
         pullRequestURL = summary.pullRequest?.url

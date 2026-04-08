@@ -19,6 +19,13 @@ enum WorklaneRowTextRow: Equatable {
     case overflow
 }
 
+struct SidebarPaneStatusTrailingLayout: Equatable {
+    let isVisible: Bool
+    let width: CGFloat
+
+    static let hidden = SidebarPaneStatusTrailingLayout(isVisible: false, width: 0)
+}
+
 struct WorklaneRowLayoutMetrics: Equatable {
     let topInset: CGFloat
     let bottomInset: CGFloat
@@ -153,14 +160,11 @@ struct SidebarWorklaneRowLayout: Equatable {
 
         self.mode = mode
         self.visibleTextRows = visibleTextRows
-        let computedHeight = metrics.height(
+        self.rowHeight = metrics.height(
             for: visibleTextRows,
             summary: summary,
             availableWidth: availableWidth
         )
-        self.rowHeight = mode == .compact && summary.paneRows.isEmpty
-            ? metrics.compactHeight
-            : computedHeight
     }
 
     static func mode(
@@ -174,6 +178,9 @@ struct SidebarWorklaneRowLayout: Equatable {
                 || summary.paneRows.contains(where: {
                     paneRowPresentationMode(for: $0, availableWidth: availableWidth) == .adaptive
                 })
+                || summary.paneRows.contains(where: {
+                    paneRowStatusLineCount(for: $0, availableWidth: availableWidth) > 1
+                })
                 || hasVisibleText(summary.overflowText)
                 ? .expanded
                 : .compact
@@ -183,8 +190,10 @@ struct SidebarWorklaneRowLayout: Equatable {
         let hasVisibleStatus = hasVisibleText(summary.statusText)
         let hasVisibleDetailLines = summary.detailLines.isEmpty == false
         let hasOverflow = hasVisibleText(summary.overflowText)
+        let wrapsPrimary = worklanePrimaryLineCount(for: summary, availableWidth: availableWidth) > 1
+        let wrapsStatus = worklaneStatusLineCount(for: summary, availableWidth: availableWidth) > 1
 
-        return hasVisibleTitle || hasVisibleStatus || hasVisibleDetailLines || hasOverflow
+        return hasVisibleTitle || hasVisibleStatus || hasVisibleDetailLines || hasOverflow || wrapsPrimary || wrapsStatus
             ? .expanded
             : .compact
     }
@@ -327,6 +336,58 @@ struct SidebarWorklaneRowLayout: Equatable {
         )
     }
 
+    static func worklanePrimaryLineCount(
+        for summary: WorklaneSidebarSummary,
+        availableWidth: CGFloat?,
+        metrics: WorklaneRowLayoutMetrics = .sidebar
+    ) -> Int {
+        guard let availableWidth else {
+            return 1
+        }
+
+        return lineCount(
+            for: summary.primaryText,
+            font: ShellMetrics.sidebarPrimaryFont(),
+            lineHeight: metrics.primaryLineHeight,
+            width: worklaneTextContentWidth(for: availableWidth),
+            maxLineCount: 2
+        )
+    }
+
+    static func worklaneStatusLineCount(
+        for summary: WorklaneSidebarSummary,
+        availableWidth: CGFloat?,
+        metrics: WorklaneRowLayoutMetrics = .sidebar
+    ) -> Int {
+        guard
+            let availableWidth,
+            let statusText = displayedStatusText(
+                statusText: summary.statusText,
+                attentionState: summary.attentionState,
+                interactionKind: summary.interactionKind,
+                interactionLabel: summary.interactionLabel
+            )
+        else {
+            return 1
+        }
+
+        return lineCount(
+            for: statusText,
+            font: ShellMetrics.sidebarStatusFont(),
+            lineHeight: metrics.statusLineHeight,
+            width: worklaneStatusTextContentWidth(
+                for: availableWidth,
+                hasIcon: displayedStatusSymbolName(
+                    statusSymbolName: summary.statusSymbolName,
+                    attentionState: summary.attentionState,
+                    interactionKind: summary.interactionKind,
+                    interactionSymbolName: summary.interactionSymbolName
+                ).isEmpty == false
+            ),
+            maxLineCount: 2
+        )
+    }
+
     static func paneRowShowsMetadataRow(
         _ paneRow: WorklaneSidebarPaneRow,
         availableWidth: CGFloat?
@@ -338,10 +399,188 @@ struct SidebarWorklaneRowLayout: Equatable {
             )
     }
 
+    static func paneRowStatusLineCount(
+        for paneRow: WorklaneSidebarPaneRow,
+        availableWidth: CGFloat?,
+        metrics: WorklaneRowLayoutMetrics = .sidebar
+    ) -> Int {
+        guard
+            let availableWidth,
+            let statusText = displayedStatusText(
+                statusText: paneRow.statusText,
+                attentionState: paneRow.attentionState,
+                interactionKind: paneRow.interactionKind,
+                interactionLabel: paneRow.interactionLabel
+            )
+        else {
+            return 1
+        }
+
+        let trailingLayout = paneRowPresentationMode(
+            for: paneRow,
+            availableWidth: availableWidth
+        ) == .adaptive
+            ? paneRowStatusTrailingLayout(
+                for: paneRow,
+                availableWidth: availableWidth,
+                metrics: metrics
+            )
+            : .hidden
+
+        return lineCount(
+            for: statusText,
+            font: ShellMetrics.sidebarStatusFont(),
+            lineHeight: metrics.statusLineHeight,
+            width: paneStatusTextContentWidth(
+                for: availableWidth,
+                trailingWidth: trailingLayout.isVisible ? trailingLayout.width : 0,
+                hasIcon: displayedStatusSymbolName(
+                    statusSymbolName: paneRow.statusSymbolName,
+                    attentionState: paneRow.attentionState,
+                    interactionKind: paneRow.interactionKind,
+                    interactionSymbolName: paneRow.interactionSymbolName
+                ).isEmpty == false
+            ),
+            maxLineCount: 2
+        )
+    }
+
+    static func paneRowStatusTrailingLayout(
+        for paneRow: WorklaneSidebarPaneRow,
+        availableWidth: CGFloat?,
+        metrics: WorklaneRowLayoutMetrics = .sidebar
+    ) -> SidebarPaneStatusTrailingLayout {
+        guard
+            let availableWidth,
+            hasVisibleText(paneRow.trailingText)
+        else {
+            return .hidden
+        }
+
+        let intrinsicTrailingWidth = measuredWidth(
+            for: paneRow.trailingText,
+            font: ShellMetrics.sidebarDetailFont()
+        )
+        guard intrinsicTrailingWidth > 0 else {
+            return .hidden
+        }
+
+        let contentWidth = paneRowContentWidth(for: availableWidth)
+        guard contentWidth > 0 else {
+            return .hidden
+        }
+
+        guard
+            let statusText = displayedStatusText(
+                statusText: paneRow.statusText,
+                attentionState: paneRow.attentionState,
+                interactionKind: paneRow.interactionKind,
+                interactionLabel: paneRow.interactionLabel
+            )
+        else {
+            return SidebarPaneStatusTrailingLayout(
+                isVisible: true,
+                width: min(intrinsicTrailingWidth, contentWidth)
+            )
+        }
+
+        let hasIcon = displayedStatusSymbolName(
+            statusSymbolName: paneRow.statusSymbolName,
+            attentionState: paneRow.attentionState,
+            interactionKind: paneRow.interactionKind,
+            interactionSymbolName: paneRow.interactionSymbolName
+        ).isEmpty == false
+        let iconWidth: CGFloat = hasIcon ? 11 + 4 : 0
+        let maximumStatusTextWidth = max(1, contentWidth - iconWidth)
+        let preferredStatusTextWidth = measuredWidth(
+            for: statusText,
+            font: ShellMetrics.sidebarStatusFont()
+        )
+
+        guard measuredLineCount(
+            for: statusText,
+            font: ShellMetrics.sidebarStatusFont(),
+            lineHeight: metrics.statusLineHeight,
+            width: maximumStatusTextWidth
+        ) == 1,
+        preferredStatusTextWidth <= maximumStatusTextWidth + 0.5
+        else {
+            return .hidden
+        }
+
+        let availableTrailingWidth =
+            contentWidth
+            - iconWidth
+            - preferredStatusTextWidth
+            - 4
+        let resolvedTrailingWidth = min(intrinsicTrailingWidth, max(0, availableTrailingWidth))
+        let minimumVisibleTrailingWidth = min(
+            intrinsicTrailingWidth,
+            paneStatusTrailingMinimumVisibleWidth()
+        )
+        let minimumComfortableTrailingWidth = min(
+            intrinsicTrailingWidth,
+            minimumVisibleTrailingWidth + paneStatusTrailingVisibilityBuffer()
+        )
+
+        guard resolvedTrailingWidth + 0.5 >= minimumComfortableTrailingWidth else {
+            return .hidden
+        }
+
+        let finalStatusTextWidth = paneStatusTextContentWidth(
+            for: availableWidth,
+            trailingWidth: resolvedTrailingWidth,
+            hasIcon: hasIcon
+        )
+        guard
+            preferredStatusTextWidth <= finalStatusTextWidth + 0.5,
+            measuredLineCount(
+                for: statusText,
+                font: ShellMetrics.sidebarStatusFont(),
+                lineHeight: metrics.statusLineHeight,
+                width: finalStatusTextWidth
+            ) == 1
+        else {
+            return .hidden
+        }
+
+        return SidebarPaneStatusTrailingLayout(
+            isVisible: true,
+            width: resolvedTrailingWidth
+        )
+    }
+
     private static func paneRowContentWidth(for availableWidth: CGFloat) -> CGFloat {
         availableWidth
             - (ShellMetrics.sidebarPaneRowHorizontalInset * 2)
             - (ShellMetrics.sidebarPaneButtonHorizontalInset * 2)
+    }
+
+    private static func worklaneTextContentWidth(for availableWidth: CGFloat) -> CGFloat {
+        availableWidth - (ShellMetrics.sidebarWorklaneTextHorizontalInset * 2)
+    }
+
+    private static func worklaneStatusTextContentWidth(
+        for availableWidth: CGFloat,
+        hasIcon: Bool
+    ) -> CGFloat {
+        let iconWidth = hasIcon ? (11 + 4) : 0
+        return max(0, worklaneTextContentWidth(for: availableWidth) - CGFloat(iconWidth))
+    }
+
+    private static func paneStatusTextContentWidth(
+        for availableWidth: CGFloat,
+        trailingWidth: CGFloat,
+        hasIcon: Bool
+    ) -> CGFloat {
+        var width = paneRowContentWidth(for: availableWidth)
+        if hasIcon {
+            width -= 11 + 4
+        }
+        if trailingWidth > 0 {
+            width -= trailingWidth + 4
+        }
+        return max(0, width)
     }
 
     private static func measuredWidth(for text: String?, font: NSFont) -> CGFloat {
@@ -354,6 +593,27 @@ struct SidebarWorklaneRowLayout: Equatable {
             NSAttributedString(string: text, attributes: attributes)
         )
         return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+    }
+
+    private static func lineCount(
+        for text: String,
+        font: NSFont,
+        lineHeight: CGFloat,
+        width: CGFloat,
+        maxLineCount: Int
+    ) -> Int {
+        max(
+            1,
+            min(
+                maxLineCount,
+                measuredLineCount(
+                    for: text,
+                    font: font,
+                    lineHeight: lineHeight,
+                    width: width
+                )
+            )
+        )
     }
 
     private static func measuredLineCount(
@@ -372,6 +632,61 @@ struct SidebarWorklaneRowLayout: Equatable {
             attributes: [.font: font]
         )
         return Int(ceil(boundingRect.height / lineHeight))
+    }
+
+    private static func paneStatusTrailingMinimumVisibleWidth() -> CGFloat {
+        max(44, measuredWidth(for: "…/tmp", font: ShellMetrics.sidebarDetailFont()))
+    }
+
+    private static func paneStatusTrailingVisibilityBuffer() -> CGFloat {
+        8
+    }
+
+    private static func displayedStatusText(
+        statusText: String?,
+        attentionState: WorklaneAttentionState?,
+        interactionKind: PaneInteractionKind?,
+        interactionLabel: String?
+    ) -> String? {
+        if shouldPreferInteractionPresentation(
+            attentionState: attentionState,
+            interactionKind: interactionKind
+        ) {
+            return interactionLabel ?? interactionKind?.defaultLabel ?? statusText
+        }
+
+        return statusText ?? interactionLabel ?? interactionKind?.defaultLabel
+    }
+
+    private static func displayedStatusSymbolName(
+        statusSymbolName: String?,
+        attentionState: WorklaneAttentionState?,
+        interactionKind: PaneInteractionKind?,
+        interactionSymbolName: String?
+    ) -> String {
+        if shouldPreferInteractionPresentation(
+            attentionState: attentionState,
+            interactionKind: interactionKind
+        ) {
+            return interactionSymbolName
+                ?? interactionKind?.defaultSymbolName
+                ?? statusSymbolName
+                ?? ""
+        }
+
+        return statusSymbolName
+            ?? interactionSymbolName
+            ?? interactionKind?.defaultSymbolName
+            ?? ""
+    }
+
+    private static func shouldPreferInteractionPresentation(
+        attentionState: WorklaneAttentionState?,
+        interactionKind: PaneInteractionKind?
+    ) -> Bool {
+        attentionState == .needsInput
+            && interactionKind != nil
+            && interactionKind != .genericInput
     }
 }
 
@@ -415,12 +730,39 @@ private extension WorklaneRowLayoutMetrics {
         availableWidth: CGFloat?
     ) -> CGFloat {
         switch row {
+        case .primary:
+            return primaryLineHeight * CGFloat(
+                SidebarWorklaneRowLayout.worklanePrimaryLineCount(
+                    for: summary,
+                    availableWidth: availableWidth,
+                    metrics: self
+                )
+            )
+        case .status:
+            return statusLineHeight * CGFloat(
+                SidebarWorklaneRowLayout.worklaneStatusLineCount(
+                    for: summary,
+                    availableWidth: availableWidth,
+                    metrics: self
+                )
+            )
         case .panePrimary(let index):
             guard summary.paneRows.indices.contains(index) else {
                 return primaryLineHeight
             }
             return primaryLineHeight * CGFloat(
                 SidebarWorklaneRowLayout.paneRowPrimaryLineCount(
+                    for: summary.paneRows[index],
+                    availableWidth: availableWidth,
+                    metrics: self
+                )
+            )
+        case .paneStatus(let index):
+            guard summary.paneRows.indices.contains(index) else {
+                return statusLineHeight
+            }
+            return statusLineHeight * CGFloat(
+                SidebarWorklaneRowLayout.paneRowStatusLineCount(
                     for: summary.paneRows[index],
                     availableWidth: availableWidth,
                     metrics: self

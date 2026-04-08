@@ -374,6 +374,31 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(decodedPayload, command.payload)
     }
 
+    func test_agent_signal_command_parses_lifecycle_interaction_kind() throws {
+        let command = try AgentSignalCommand.parse(
+            arguments: [
+                "zentty-agent",
+                "agent-signal",
+                "lifecycle",
+                "needs-input",
+                "--tool", "Codex",
+                "--text", "Plan mode prompt: Implement this plan?",
+                "--interaction-kind", "approval",
+                "--session-id", "session-1",
+            ],
+            environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
+        )
+
+        XCTAssertEqual(command.payload.state, .needsInput)
+        XCTAssertEqual(command.payload.toolName, "Codex")
+        XCTAssertEqual(command.payload.text, "Plan mode prompt: Implement this plan?")
+        XCTAssertEqual(command.payload.interactionKind, .approval)
+        XCTAssertEqual(command.payload.sessionID, "session-1")
+    }
+
     func test_agent_status_payload_decodes_legacy_notification_defaults_when_kind_and_origin_are_omitted() throws {
         let payload = try AgentStatusPayload(
             userInfo: [
@@ -595,6 +620,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
         let paneID = PaneID("worklane-main-shell")
         let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
 
         let needsInputWorklane = WorklaneState(
             id: worklaneID,
@@ -615,11 +641,13 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         coordinator.update(
+            windowID: windowID,
             worklanes: [needsInputWorklane],
             activeWorklaneID: worklaneID,
             windowIsKey: false
         )
         coordinator.update(
+            windowID: windowID,
             worklanes: [needsInputWorklane],
             activeWorklaneID: worklaneID,
             windowIsKey: false
@@ -636,11 +664,13 @@ final class AgentStatusSupportTests: XCTestCase {
             )
         )
         coordinator.update(
+            windowID: windowID,
             worklanes: [clearedWorklane],
             activeWorklaneID: worklaneID,
             windowIsKey: false
         )
         coordinator.update(
+            windowID: windowID,
             worklanes: [needsInputWorklane],
             activeWorklaneID: worklaneID,
             windowIsKey: false
@@ -1742,6 +1772,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         coordinator.update(
+            windowID: WindowID("window-main"),
             worklanes: [worklane],
             activeWorklaneID: worklaneID,
             windowIsKey: false
@@ -1754,6 +1785,7 @@ final class AgentStatusSupportTests: XCTestCase {
                     identifier: recorder.requests.first?.identifier ?? "",
                     title: "Stopped early",
                     body: "Agent stopped early.",
+                    windowID: "window-main",
                     soundName: ""
                 )
             ]
@@ -1765,8 +1797,10 @@ final class AgentStatusSupportTests: XCTestCase {
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
         let paneID = PaneID("worklane-main-shell")
         let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
 
         coordinator.update(
+            windowID: windowID,
             worklanes: [makeReadyWorklane(worklaneID: worklaneID, paneID: paneID, primaryText: "Implement push notifications")],
             activeWorklaneID: worklaneID,
             windowIsKey: false
@@ -1779,6 +1813,7 @@ final class AgentStatusSupportTests: XCTestCase {
                     identifier: recorder.requests.first?.identifier ?? "",
                     title: "Agent ready",
                     body: "Implement push notifications",
+                    windowID: "window-main",
                     soundName: ""
                 )
             ]
@@ -1792,6 +1827,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let worklaneID = WorklaneID("worklane-main")
 
         coordinator.update(
+            windowID: WindowID("window-main"),
             worklanes: [makeReadyWorklane(worklaneID: worklaneID, paneID: paneID, primaryText: "Implement push notifications")],
             activeWorklaneID: worklaneID,
             windowIsKey: true
@@ -1807,12 +1843,14 @@ final class AgentStatusSupportTests: XCTestCase {
         let readyPaneID = PaneID("worklane-main-ready")
         let stoppedPaneID = PaneID("worklane-main-stopped")
         let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
 
         let committed = expectation(description: "notifications committed")
         committed.expectedFulfillmentCount = 2
         store.onChange = { committed.fulfill() }
 
         coordinator.update(
+            windowID: windowID,
             worklanes: [
                 makeAttentionWorklane(
                     worklaneID: worklaneID,
@@ -1852,10 +1890,12 @@ final class AgentStatusSupportTests: XCTestCase {
         let readyPaneID = PaneID("worklane-main-ready")
         let otherPaneID = PaneID("worklane-main-other")
         let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
 
         let committed = expectation(description: "notification committed")
         store.onChange = { committed.fulfill() }
         coordinator.update(
+            windowID: windowID,
             worklanes: [
                 makeAttentionWorklane(
                     worklaneID: worklaneID,
@@ -1884,6 +1924,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let resolved = expectation(description: "notification resolved")
         store.onChange = { resolved.fulfill() }
         coordinator.update(
+            windowID: windowID,
             worklanes: [
                 makeAttentionWorklane(
                     worklaneID: worklaneID,
@@ -1923,6 +1964,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let worklaneID = WorklaneID("worklane-main")
 
         coordinator.update(
+            windowID: WindowID("window-main"),
             worklanes: [
                 makeAttentionWorklane(
                     worklaneID: worklaneID,
@@ -1944,6 +1986,22 @@ final class AgentStatusSupportTests: XCTestCase {
 
         XCTAssertEqual(recorder.requests.count, 1)
         XCTAssertEqual(recorder.requests.first?.soundName, "Glass")
+    }
+
+    func test_notification_coordinator_records_origin_window_id_on_system_notification() {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            windowID: WindowID("window-origin"),
+            worklanes: [makeReadyWorklane(worklaneID: worklaneID, paneID: paneID, primaryText: "Implement push notifications")],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        XCTAssertEqual(recorder.requests.first?.windowID, "window-origin")
     }
 
     private func makeClaudeHookSessionStore() throws -> ClaudeHookSessionStore {
@@ -2171,6 +2229,28 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(decoded, payload)
     }
 
+    func test_agent_status_payload_round_trips_window_id() throws {
+        let payload = AgentStatusPayload(
+            windowID: WindowID("window-main"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            signalKind: .lifecycle,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Claude Code",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+
+        let userInfo = try XCTUnwrap(payload.notificationUserInfo)
+        let decoded = try AgentStatusPayload(userInfo: userInfo)
+
+        XCTAssertEqual(decoded.windowID, WindowID("window-main"))
+        XCTAssertEqual(decoded, payload)
+    }
+
     private func runShellIntegration(
         shell: ShellIntegrationTestShell,
         command: String,
@@ -2279,6 +2359,7 @@ private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUser
         let identifier: String
         let title: String
         let body: String
+        let windowID: String
         let soundName: String
     }
 
@@ -2286,8 +2367,8 @@ private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUser
 
     func requestAuthorizationIfNeeded() {}
 
-    func add(identifier: String, title: String, body: String, worklaneID: String, paneID: String, soundName: String) {
-        requests.append(RequestRecord(identifier: identifier, title: title, body: body, soundName: soundName))
+    func add(identifier: String, title: String, body: String, windowID: String, worklaneID: String, paneID: String, soundName: String) {
+        requests.append(RequestRecord(identifier: identifier, title: title, body: body, windowID: windowID, soundName: soundName))
     }
 }
 

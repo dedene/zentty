@@ -19,8 +19,35 @@ extension WorklaneStore {
             previous: previousMetadata,
             next: metadata
         )
+
+        // Volatile-title fast path. When the classifier recognizes a pure
+        // volatile codex title tick (phase+subject signature unchanged, only
+        // elapsed time differs), skip the full promotion / inference /
+        // normalization pipeline below and emit a surgical
+        // `.volatileAgentTitleUpdated` for the coordinator to apply a direct
+        // label update. Both the sidebar row and the chrome focused label
+        // read `metadata.title` directly for codex volatile titles, so
+        // storing the new metadata is enough for correct rendering.
+        //
+        // Non-active worklanes are coalesced to ~0.5 Hz by
+        // `emitVolatileAgentTitleUpdateIfAllowed` so background agents don't
+        // swamp the main thread.
+        if metadataChangeKind == .volatileTitleOnly,
+           shouldTakeVolatileAgentTitleFastPath(in: previousAuxiliaryState) {
+            worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
+            worklanes[worklaneIndex] = worklane
+            emitVolatileAgentTitleUpdateIfAllowed(worklaneID: worklane.id, paneID: paneID)
+            return
+        }
+
         worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
         clearStaleDesktopNotificationIfNeeded(for: paneID, metadata: metadata, in: &worklane)
+        clearReadyStatusForBlockedCodexTitleIfNeeded(for: paneID, metadata: metadata, in: &worklane)
+        promoteCodexSessionIfTitleIndicatesNeedsInput(
+            paneID: paneID,
+            metadata: metadata,
+            in: &worklane
+        )
         if branchContextDidChange(
             previous: previousAuxiliaryState,
             nextMetadata: metadata,
@@ -89,6 +116,46 @@ extension WorklaneStore {
         updateMetadata(paneID: id, metadata: metadata)
     }
 
+    /// Gate for the volatile-title early fast path. Declines the fast path
+    /// when the current agent state requires human attention (e.g. approval,
+    /// question, auth prompts) so the reducer can re-evaluate via the full
+    /// slow path. Everything else (.running, .idle, no agent status) is safe
+    /// to short-circuit because the classifier already guarantees that
+    /// cwd, processName, gitBranch, recognized tool, and the volatile
+    /// phase+subject signature are unchanged across the tick.
+    private func shouldTakeVolatileAgentTitleFastPath(
+        in auxiliaryState: PaneAuxiliaryState
+    ) -> Bool {
+        if auxiliaryState.agentStatus?.interactionKind.requiresHumanAttention == true {
+            return false
+        }
+        return true
+    }
+
+    /// Emits a `.volatileAgentTitleUpdated` notification, coalescing updates
+    /// for non-active worklanes to `WorklaneStore.hiddenVolatileNotifyMinInterval`
+    /// so background agents don't churn the main thread. Active-worklane panes
+    /// clear their coalescing state so switching focus never leaves a pane
+    /// waiting out the throttle window.
+    private func emitVolatileAgentTitleUpdateIfAllowed(
+        worklaneID: WorklaneID,
+        paneID: PaneID
+    ) {
+        let isActiveWorklane = worklaneID == activeWorklaneID
+        if isActiveWorklane {
+            lastVolatileNotifyAt.removeValue(forKey: paneID)
+        } else {
+            let now = Date()
+            let lastAt = lastVolatileNotifyAt[paneID] ?? .distantPast
+            guard now.timeIntervalSince(lastAt) >= WorklaneStore.hiddenVolatileNotifyMinInterval else {
+                return
+            }
+            lastVolatileNotifyAt[paneID] = now
+        }
+        terminalDiagnostics.recordStoreFastPath(paneID: paneID)
+        notify(.volatileAgentTitleUpdated(worklaneID: worklaneID, paneID: paneID))
+    }
+
     func clearPaneState(for paneID: PaneID, in worklane: inout WorklaneState) {
         worklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
     }
@@ -103,6 +170,69 @@ extension WorklaneStore {
             status.artifactLink = nil
             worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = status
         }
+    }
+
+    private func clearReadyStatusForBlockedCodexTitleIfNeeded(
+        for paneID: PaneID,
+        metadata: TerminalMetadata,
+        in worklane: inout WorklaneState
+    ) {
+        let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.raw.agentStatus?.tool
+            ?? AgentToolRecognizer.recognize(metadata: metadata)
+        guard recognizedTool == .codex,
+              let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+                  metadata.title,
+                  recognizedTool: recognizedTool
+              ),
+              signature.phase == .needsInput else {
+            return
+        }
+
+        clearReadyStatusIfNeeded(for: paneID, in: &worklane)
+    }
+
+    private func promoteCodexSessionIfTitleIndicatesNeedsInput(
+        paneID: PaneID,
+        metadata: TerminalMetadata,
+        in worklane: inout WorklaneState
+    ) {
+        let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
+            ?? AgentToolRecognizer.recognize(metadata: metadata)
+        guard
+            recognizedTool == .codex,
+            let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+                metadata.title,
+                recognizedTool: recognizedTool
+            ),
+            signature.phase == .needsInput,
+            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID]
+        else {
+            return
+        }
+
+        if auxiliaryState.agentStatus?.state == .needsInput {
+            return
+        }
+
+        let existingStatus = auxiliaryState.agentStatus
+        auxiliaryState.agentStatus = PaneAgentStatus(
+            tool: .codex,
+            state: .needsInput,
+            text: existingStatus?.text,
+            artifactLink: existingStatus?.artifactLink,
+            updatedAt: Date(),
+            source: .inferred,
+            origin: .inferred,
+            interactionKind: .genericInput,
+            confidence: .weak,
+            shellActivityState: existingStatus?.shellActivityState ?? .unknown,
+            trackedPID: existingStatus?.trackedPID,
+            workingDirectory: existingStatus?.workingDirectory,
+            hasObservedRunning: existingStatus?.hasObservedRunning == true,
+            sessionID: existingStatus?.sessionID,
+            parentSessionID: existingStatus?.parentSessionID
+        )
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
 
     private func promoteCodexSessionIfTitleIndicatesRunning(

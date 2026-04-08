@@ -560,7 +560,14 @@ final class PaneStripView: NSView {
         if isResizeSuppressedRender {
             renderGuard.clearResizeSuppression(forGeneration: settleGeneration)
         }
-        onBorderChromeSnapshotsDidChange?(borderChromeSnapshots(for: presentation, offset: targetOffset), shouldAnimate)
+        onBorderChromeSnapshotsDidChange?(
+            borderChromeSnapshots(
+                for: presentation,
+                offset: targetOffset,
+                insertionTransition: insertionTransition
+            ),
+            shouldAnimate
+        )
         syncFocusedTerminal(with: state.focusedPaneID)
 
         if let callback = afterNextRenderCallback {
@@ -901,12 +908,19 @@ final class PaneStripView: NSView {
 
     private func borderChromeSnapshots(
         for presentation: StripPresentation,
-        offset: CGFloat
+        offset: CGFloat,
+        insertionTransition: PaneInsertionTransition? = nil
     ) -> [PaneBorderChromeSnapshot] {
         presentation.panes.map { panePresentation in
             PaneBorderChromeSnapshot(
                 paneID: panePresentation.paneID,
                 frame: panePresentation.frame.offsetBy(dx: -resolvedOffset(offset), dy: 0),
+                initialPaneFrame: insertionTransition.flatMap { transition in
+                    guard transition.paneID == panePresentation.paneID else {
+                        return nil
+                    }
+                    return transition.initialFrame
+                },
                 isFocused: panePresentation.isFocused,
                 emphasis: panePresentation.emphasis,
                 borderContext: currentShowsPaneLabels

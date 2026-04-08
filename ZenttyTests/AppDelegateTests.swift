@@ -490,6 +490,84 @@ final class AppDelegateTests: XCTestCase {
 
         XCTAssertNotEqual(firstEnvironment["ZENTTY_WORKLANE_ID"], secondEnvironment["ZENTTY_WORKLANE_ID"])
         XCTAssertNotEqual(firstEnvironment["ZENTTY_PANE_ID"], secondEnvironment["ZENTTY_PANE_ID"])
+        XCTAssertNotEqual(firstEnvironment["ZENTTY_WINDOW_ID"], secondEnvironment["ZENTTY_WINDOW_ID"])
+    }
+
+    func test_windows_share_notification_store() throws {
+        NSApp.mainMenu = nil
+
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) }
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        delegate.newWindow(nil)
+
+        let opened = expectation(description: "windows opened")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { opened.fulfill() }
+        wait(for: [opened], timeout: 2.0)
+
+        let controllers = delegate.windowControllersForTesting
+        XCTAssertEqual(controllers.count, 2)
+        XCTAssertTrue(
+            controllers[0].rootViewControllerForTesting.notificationStoreForTesting
+                === controllers[1].rootViewControllerForTesting.notificationStoreForTesting
+        )
+    }
+
+    func test_notification_navigation_targets_exact_origin_window_when_worklane_is_duplicated() throws {
+        NSApp.mainMenu = nil
+
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) }
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        delegate.newWindow(nil)
+
+        let opened = expectation(description: "windows opened")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { opened.fulfill() }
+        wait(for: [opened], timeout: 2.0)
+
+        let controllers = delegate.windowControllersForTesting
+        XCTAssertEqual(controllers.count, 2)
+
+        let worklaneID = WorklaneID("main")
+        let paneID = PaneID("main-shell")
+        let duplicatedWorklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            )
+        )
+
+        controllers[0].rootViewControllerForTesting.replaceWorklanes([duplicatedWorklane], activeWorklaneID: worklaneID)
+        controllers[1].rootViewControllerForTesting.replaceWorklanes([duplicatedWorklane], activeWorklaneID: worklaneID)
+
+        let replaced = expectation(description: "worklanes replaced")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { replaced.fulfill() }
+        wait(for: [replaced], timeout: 2.0)
+
+        delegate.navigateToNotification(
+            windowID: controllers[1].windowIDForTesting,
+            worklaneID: worklaneID,
+            paneID: paneID
+        )
+
+        let routed = expectation(description: "notification routed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { routed.fulfill() }
+        wait(for: [routed], timeout: 2.0)
+
+        XCTAssertEqual(controllers[1].rootViewControllerForTesting.activeWorklaneIDForTesting, worklaneID)
+        XCTAssertEqual(controllers[1].rootViewControllerForTesting.focusedPaneIDForTesting, paneID)
+        // Cannot assert window.isKeyWindow under the hosted test host's .prohibited
+        // activation policy. Instead verify that navigateToPane was invoked on the
+        // expected controller and not on the other, proving that the windowID-based
+        // routing targeted the correct window.
+        XCTAssertEqual(controllers[1].lastNavigateRequestWorklaneIDForTesting, worklaneID)
+        XCTAssertEqual(controllers[1].lastNavigateRequestPaneIDForTesting, paneID)
+        XCTAssertNil(controllers[0].lastNavigateRequestWorklaneIDForTesting)
+        XCTAssertNil(controllers[0].lastNavigateRequestPaneIDForTesting)
     }
 
     func test_application_launch_places_sidebar_toggle_beside_traffic_lights_without_resize() throws {

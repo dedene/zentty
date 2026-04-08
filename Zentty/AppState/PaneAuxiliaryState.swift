@@ -455,6 +455,8 @@ enum PanePresentationNormalizer {
                 return .running
             case .starting:
                 return .starting
+            case .needsInput:
+                return .needsInput
             case .idle:
                 return .idle
             }
@@ -470,6 +472,8 @@ enum PanePresentationNormalizer {
                 return .running
             case .starting:
                 return .starting
+            case .needsInput:
+                return .needsInput
             case .idle:
                 return .idle
             }

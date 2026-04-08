@@ -24,6 +24,7 @@ enum AgentPIDSignalEvent: String, Equatable, Sendable {
 }
 
 struct AgentStatusPayload: Equatable, Sendable {
+    let windowID: WindowID?
     let worklaneID: WorklaneID
     let paneID: PaneID
     let signalKind: AgentSignalKind
@@ -60,6 +61,9 @@ struct AgentStatusPayload: Equatable, Sendable {
             "kind": signalKind.rawValue,
             "origin": origin.rawValue,
         ]
+        if let windowID {
+            userInfo["windowID"] = windowID.rawValue
+        }
         if let state {
             userInfo["state"] = state.rawValue
         }
@@ -127,6 +131,7 @@ struct AgentStatusPayload: Equatable, Sendable {
     }
 
     init(
+        windowID: WindowID? = nil,
         worklaneID: WorklaneID,
         paneID: PaneID,
         signalKind: AgentSignalKind = .lifecycle,
@@ -148,6 +153,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         artifactURL: URL?,
         agentWorkingDirectory: String? = nil
     ) {
+        self.windowID = windowID
         self.worklaneID = worklaneID
         self.paneID = paneID
         self.signalKind = signalKind
@@ -199,6 +205,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         let artifactURL = (userInfo["artifactURL"] as? String).flatMap(URL.init(string:))
 
         self.init(
+            windowID: (userInfo["windowID"] as? String).map(WindowID.init),
             worklaneID: WorklaneID(worklaneID),
             paneID: PaneID(paneID),
             signalKind: signalKind,

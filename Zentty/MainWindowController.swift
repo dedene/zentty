@@ -128,6 +128,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     let window: NSWindow
+    let windowID: WindowID
     private let rootViewController: RootViewController
     private let runtimeRegistry: PaneRuntimeRegistry
     private let configStore: AppConfigStore
@@ -142,11 +143,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     var onWindowDidClose: ((MainWindowController) -> Void)?
     var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
+    var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
 
     init(
+        windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
         configStore: AppConfigStore? = nil,
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
+        notificationStore: NotificationStore = NotificationStore(),
         openWithService: OpenWithServing = OpenWithService(),
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
@@ -166,10 +170,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         )
 
         let rootViewController = RootViewController(
+            windowID: windowID,
             configStore: resolvedConfigStore,
             appUpdateStateStore: appUpdateStateStore,
             openWithService: openWithService,
             runtimeRegistry: runtimeRegistry,
+            notificationStore: notificationStore,
             initialLayoutContext: initialLayoutContext
         )
         rootViewController.loadViewIfNeeded()
@@ -196,6 +202,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
 
         self.rootViewController = rootViewController
+        self.windowID = windowID
         self.runtimeRegistry = runtimeRegistry
         self.configStore = resolvedConfigStore
         self.openWithService = openWithService
@@ -217,6 +224,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         rootViewController.onCheckForUpdatesRequested = { [weak self] in
             self?.onCheckForUpdatesRequested?()
+        }
+        rootViewController.onNavigateToNotificationRequested = { [weak self] windowID, worklaneID, paneID in
+            self?.onNavigateToNotificationRequested?(windowID, worklaneID, paneID)
         }
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
@@ -579,6 +589,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func navigateToPane(worklaneID: WorklaneID, paneID: PaneID) {
+        #if DEBUG
+        lastNavigateRequestWorklaneID = worklaneID
+        lastNavigateRequestPaneID = paneID
+        #endif
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         rootViewController.navigateToPane(worklaneID: worklaneID, paneID: paneID)
@@ -586,6 +600,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func containsWorklane(_ worklaneID: WorklaneID) -> Bool {
         rootViewController.containsWorklane(worklaneID)
+    }
+
+    func containsPane(worklaneID: WorklaneID, paneID: PaneID) -> Bool {
+        rootViewController.containsPane(worklaneID: worklaneID, paneID: paneID)
     }
 
     func tearDownRuntime() {
@@ -919,6 +937,17 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     #if DEBUG
+    private var lastNavigateRequestWorklaneID: WorklaneID?
+    private var lastNavigateRequestPaneID: PaneID?
+
+    var lastNavigateRequestWorklaneIDForTesting: WorklaneID? {
+        lastNavigateRequestWorklaneID
+    }
+
+    var lastNavigateRequestPaneIDForTesting: PaneID? {
+        lastNavigateRequestPaneID
+    }
+
     func performOpenWithPrimaryActionForTesting() {
         performOpenWithPrimaryAction()
     }
@@ -958,6 +987,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     var rootViewControllerForTesting: RootViewController {
         rootViewController
+    }
+
+    var windowIDForTesting: WindowID {
+        windowID
     }
 
     var focusedPaneEnvironmentForTesting: [String: String]? {

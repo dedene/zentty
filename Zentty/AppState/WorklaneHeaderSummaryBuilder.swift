@@ -2,7 +2,8 @@ enum WorklaneHeaderSummaryBuilder {
     static func summary(for worklane: WorklaneState) -> WorklaneChromeSummary {
         let focusedPaneContext = worklane.focusedPaneContext
         let presentation = focusedPaneContext?.presentation
-        let focusedLabel = visibleFocusedLabel(from: presentation)
+        let metadata = focusedPaneContext?.metadata
+        let focusedLabel = visibleFocusedLabel(from: presentation, metadata: metadata)
         let branch = visibleBranch(from: presentation)
 
         return WorklaneChromeSummary(
@@ -16,7 +17,24 @@ enum WorklaneHeaderSummaryBuilder {
         )
     }
 
-    private static func visibleFocusedLabel(from presentation: PanePresentationState?) -> String? {
+    private static func visibleFocusedLabel(
+        from presentation: PanePresentationState?,
+        metadata: TerminalMetadata?
+    ) -> String? {
+        // When the focused codex pane is in a volatile agent status state
+        // (e.g. "Working... (5s) · my-project"), surface the raw codex title
+        // in the chrome so the title bar ticks in realtime alongside the
+        // sidebar row. This mirrors WorklaneSidebarSummaryBuilder.paneIdentity
+        // which also reads metadata?.title directly for codex volatile titles.
+        if presentation?.recognizedTool == .codex,
+           let volatileTitle = WorklaneContextFormatter.trimmed(metadata?.title),
+           TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+               volatileTitle,
+               recognizedTool: .codex
+           ) {
+            return volatileTitle
+        }
+
         guard
             let presentation,
             let rememberedTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle)

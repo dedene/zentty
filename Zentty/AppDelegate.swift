@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let configStore: AppConfigStore
     private let runtimeRegistryFactory: () -> PaneRuntimeRegistry
     private let appUpdateController: AppUpdateControlling
+    private let notificationStore = NotificationStore()
     private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
     private var aboutWindowController: AboutWindowController?
     private var lastKeyWindowControllerID: ObjectIdentifier?
@@ -136,9 +137,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let index = nextWindowIndex
         nextWindowIndex += 1
         let controller = MainWindowController(
+            windowID: makeWindowID(),
             runtimeRegistry: runtimeRegistryFactory(),
             configStore: configStore,
             appUpdateStateStore: appUpdateController.updateStateStore,
+            notificationStore: notificationStore,
             windowIndex: index
         )
         let id = ObjectIdentifier(controller)
@@ -157,7 +160,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onCheckForUpdatesRequested = { [weak self] in
             self?.checkForUpdates(nil)
         }
+        controller.onNavigateToNotificationRequested = { [weak self] windowID, worklaneID, paneID in
+            self?.navigateToNotification(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
+        }
         return controller
+    }
+
+    private func makeWindowID() -> WindowID {
+        WindowID("wd_\(UUID().uuidString.lowercased())")
     }
 
     private func handleWindowDidClose(_ controller: MainWindowController) {
@@ -218,6 +228,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowControllers.values.first { $0.containsWorklane(worklaneID) }
     }
 
+    func navigateToNotification(windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID) {
+        let target = windowID.flatMap(windowController(with:))
+            .flatMap { controller in
+                controller.containsPane(worklaneID: worklaneID, paneID: paneID) ? controller : nil
+            }
+            ?? windowControllers.values.first {
+                $0.containsPane(worklaneID: worklaneID, paneID: paneID)
+            }
+
+        target?.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    private func windowController(with windowID: WindowID) -> MainWindowController? {
+        windowControllers.values.first { $0.windowID == windowID }
+    }
+
     var windowControllerCount: Int {
         windowControllers.count
     }
@@ -264,14 +290,15 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
               let paneRaw = userInfo["paneID"] as? String else {
             return
         }
+        let windowIDRaw = userInfo["windowID"] as? String
         let shouldJump = actionIdentifier == UNNotificationDefaultActionIdentifier
             || actionIdentifier == "JUMP"
 
         await MainActor.run {
             if shouldJump {
                 let worklaneID = WorklaneID(worklaneRaw)
-                let target = self.windowController(containingWorklane: worklaneID)
-                target?.navigateToPane(
+                self.navigateToNotification(
+                    windowID: windowIDRaw.map(WindowID.init),
                     worklaneID: worklaneID,
                     paneID: PaneID(paneRaw)
                 )

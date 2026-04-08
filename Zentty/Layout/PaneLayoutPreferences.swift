@@ -203,7 +203,8 @@ enum PaneDisplayClassResolver {
     private static let ultrawideThreshold: CGFloat = 2560
 
     static func resolve(screenWidth: CGFloat?, viewportWidth: CGFloat) -> DisplayClass {
-        let candidateWidth = screenWidth ?? viewportWidth
+        _ = screenWidth
+        let candidateWidth = viewportWidth
         if candidateWidth >= ultrawideThreshold {
             return .ultrawide
         }

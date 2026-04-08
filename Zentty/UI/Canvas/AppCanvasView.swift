@@ -4,6 +4,7 @@ import QuartzCore
 struct PaneBorderChromeSnapshot: Equatable {
     let paneID: PaneID
     let frame: CGRect
+    let initialPaneFrame: CGRect?
     let isFocused: Bool
     let emphasis: CGFloat
     let borderContext: PaneBorderContextDisplayModel?
@@ -25,6 +26,7 @@ final class PaneBorderContextOverlayView: NSView {
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private let backingScaleFactorProvider: () -> CGFloat
     private var itemViewsByPaneID: [PaneID: PaneBorderContextInsetView] = [:]
+    private var newlyAddedPaneIDs: Set<PaneID> = []
 
     init(
         frame frameRect: NSRect = .zero,
@@ -123,6 +125,7 @@ final class PaneBorderContextOverlayView: NSView {
     }
 
     private func reconcileItemViews() {
+        newlyAddedPaneIDs.removeAll()
         let nextSnapshots = currentSnapshots.filter { $0.borderContext != nil }
         let nextPaneIDs = Set(nextSnapshots.map(\.paneID))
         let obsoletePaneIDs = Set(itemViewsByPaneID.keys).subtracting(nextPaneIDs)
@@ -136,6 +139,7 @@ final class PaneBorderContextOverlayView: NSView {
             let itemView = PaneBorderContextInsetView()
             itemViewsByPaneID[snapshot.paneID] = itemView
             addSubview(itemView)
+            newlyAddedPaneIDs.insert(snapshot.paneID)
         }
     }
 
@@ -144,43 +148,83 @@ final class PaneBorderContextOverlayView: NSView {
         let borderInset = ChromeGeometry.paneBorderInset(backingScaleFactor: backingScaleFactor)
         let borderWidth: CGFloat = 1
 
+        typealias LayoutUpdate = (
+            itemView: PaneBorderContextInsetView,
+            text: String?,
+            isFocused: Bool,
+            targetFrame: CGRect?,
+            initialFrame: CGRect?,
+            isNewItem: Bool
+        )
+
+        let updates: [LayoutUpdate] = currentSnapshots.compactMap { snapshot in
+            guard let itemView = self.itemViewsByPaneID[snapshot.paneID] else {
+                return nil
+            }
+
+            guard let borderContext = snapshot.borderContext else {
+                return (itemView, nil, snapshot.isFocused, nil, nil, false)
+            }
+
+            let maxWidth = max(
+                0,
+                snapshot.frame.width - Layout.paneContextLeadingInset - Layout.paneContextTrailingGutter
+            )
+            guard maxWidth > 24 else {
+                return (itemView, nil, snapshot.isFocused, nil, nil, false)
+            }
+
+            let size = itemView.measure(text: borderContext.text, maxWidth: maxWidth)
+            let targetFrame = self.paneContextFrame(
+                for: snapshot.frame,
+                size: size,
+                borderInset: borderInset,
+                borderWidth: borderWidth
+            )
+            let initialFrame = snapshot.initialPaneFrame.map {
+                self.paneContextFrame(
+                    for: $0,
+                    size: size,
+                    borderInset: borderInset,
+                    borderWidth: borderWidth
+                )
+            }
+
+            return (
+                itemView,
+                borderContext.text,
+                snapshot.isFocused,
+                targetFrame,
+                initialFrame,
+                self.newlyAddedPaneIDs.contains(snapshot.paneID)
+            )
+        }
+
+        for update in updates where update.isNewItem {
+            guard let targetFrame = update.targetFrame else {
+                continue
+            }
+            update.itemView.frame = update.initialFrame ?? targetFrame
+        }
+
         let applyFrames = {
-            for snapshot in self.currentSnapshots {
-                guard let itemView = self.itemViewsByPaneID[snapshot.paneID] else {
-                    continue
-                }
+            for update in updates {
+                let itemView = update.itemView
 
-                guard let borderContext = snapshot.borderContext else {
+                guard let text = update.text, let targetFrame = update.targetFrame else {
                     itemView.isHidden = true
                     continue
                 }
 
-                let maxWidth = max(
-                    0,
-                    snapshot.frame.width - Layout.paneContextLeadingInset - Layout.paneContextTrailingGutter
-                )
-                guard maxWidth > 24 else {
-                    itemView.isHidden = true
-                    continue
-                }
-
-                let size = itemView.measure(text: borderContext.text, maxWidth: maxWidth)
-                let borderLineY = snapshot.frame.maxY - borderInset - (borderWidth / 2)
-                let targetFrame = CGRect(
-                    x: snapshot.frame.minX + Layout.paneContextLeadingInset,
-                    y: borderLineY - (size.height / 2),
-                    width: size.width,
-                    height: size.height
-                )
-                if animated {
+                if animated, !update.isNewItem || update.initialFrame != nil {
                     itemView.animator().frame = targetFrame
                 } else {
                     itemView.frame = targetFrame
                 }
                 itemView.isHidden = false
                 itemView.render(
-                    text: borderContext.text,
-                    isFocused: snapshot.isFocused,
+                    text: text,
+                    isFocused: update.isFocused,
                     theme: self.currentTheme,
                     backingScaleFactor: backingScaleFactor
                 )
@@ -197,10 +241,26 @@ final class PaneBorderContextOverlayView: NSView {
         } else {
             applyFrames()
         }
+        newlyAddedPaneIDs.removeAll()
 
         if onPathClicked != nil {
             window?.invalidateCursorRects(for: self)
         }
+    }
+
+    private func paneContextFrame(
+        for paneFrame: CGRect,
+        size: CGSize,
+        borderInset: CGFloat,
+        borderWidth: CGFloat
+    ) -> CGRect {
+        let borderLineY = paneFrame.maxY - borderInset - (borderWidth / 2)
+        return CGRect(
+            x: paneFrame.minX + Layout.paneContextLeadingInset,
+            y: borderLineY - (size.height / 2),
+            width: size.width,
+            height: size.height
+        )
     }
 
     private final class PaneBorderContextInsetView: NSView {

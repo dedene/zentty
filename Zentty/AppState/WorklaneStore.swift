@@ -1,5 +1,8 @@
 import Darwin
 import Foundation
+import os
+
+private let worklaneReadyLogger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneReady")
 
 struct WorklaneID: Hashable, Equatable, Sendable {
     let rawValue: String
@@ -168,6 +171,12 @@ enum WorklaneChange: Equatable, Sendable {
     case focusChanged(WorklaneID)
     case layoutResized(WorklaneID, animation: WorklaneLayoutResizeAnimation)
     case auxiliaryStateUpdated(WorklaneID, PaneID, WorklaneAuxiliaryInvalidation)
+    /// Emitted by WorklaneStore.updateMetadata's volatile-title fast path when
+    /// a codex pane's terminal title changes in a way that the classifier
+    /// recognizes as `.volatileTitleOnly`. Consumers should call the surgical
+    /// sidebar/chrome label setters (not a full render) to update the UI
+    /// without re-running summary builders or auxiliary invalidation.
+    case volatileAgentTitleUpdated(worklaneID: WorklaneID, paneID: PaneID)
     case activeWorklaneChanged
     case worklaneListChanged
     case historyChanged
@@ -226,6 +235,7 @@ final class WorklaneStore {
     private var pendingReadyStatusTasks: [PaneReference: Task<Void, Never>] = [:]
     private let processEnvironment: [String: String]
     private let readyStatusDebounceInterval: TimeInterval
+    let windowID: WindowID
     let runtimeIdentity: WorklaneRuntimeIdentity
     let focusHistoryController = PaneFocusHistoryController()
     private var isNavigatingHistory = false
@@ -234,6 +244,14 @@ final class WorklaneStore {
 
     private var subscribers: [(id: UUID, handler: (WorklaneChange) -> Void)] = []
     private var isBatching = false
+
+    /// Per-pane timestamp of the last emitted `.volatileAgentTitleUpdated`
+    /// notification. Used by the volatile-title fast path to coalesce volatile
+    /// ticks for non-active worklanes to ~0.5 Hz, reducing main-thread churn
+    /// when multiple background worklanes run agents simultaneously. Active
+    /// worklanes bypass the throttle so their spinner never visibly lags.
+    var lastVolatileNotifyAt: [PaneID: Date] = [:]
+    static let hiddenVolatileNotifyMinInterval: TimeInterval = 2.0
 
     @discardableResult
     func subscribe(_ handler: @escaping (WorklaneChange) -> Void) -> WorklaneChangeSubscription {
@@ -258,6 +276,7 @@ final class WorklaneStore {
     }
 
     init(
+        windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         worklanes: [WorklaneState] = [],
         layoutContext: PaneLayoutContext = .fallback,
         activeWorklaneID: WorklaneID? = nil,
@@ -267,6 +286,7 @@ final class WorklaneStore {
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
         terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
+        self.windowID = windowID
         self.gitContextResolver = gitContextResolver
         self.terminalDiagnostics = terminalDiagnostics
         self.layoutContext = layoutContext
@@ -275,6 +295,7 @@ final class WorklaneStore {
         self.runtimeIdentity = runtimeIdentity
         let initialWorklanes = worklanes.isEmpty
             ? WorklaneStore.defaultWorklanes(
+                windowID: windowID,
                 layoutContext: layoutContext,
                 processEnvironment: processEnvironment,
                 runtimeIdentity: runtimeIdentity
@@ -845,6 +866,7 @@ final class WorklaneStore {
             Self.makeDefaultWorklane(
                 id: id,
                 title: title,
+                windowID: windowID,
                 layoutContext: layoutContext,
                 workingDirectory: workingDirectory,
                 surfaceContext: .tab,
@@ -1165,6 +1187,7 @@ final class WorklaneStore {
     }
 
     private static func defaultWorklanes(
+        windowID: WindowID,
         layoutContext: PaneLayoutContext,
         processEnvironment: [String: String],
         runtimeIdentity: WorklaneRuntimeIdentity
@@ -1173,6 +1196,7 @@ final class WorklaneStore {
             makeDefaultWorklane(
                 id: runtimeIdentity.makeWorklaneID(),
                 title: "MAIN",
+                windowID: windowID,
                 layoutContext: layoutContext,
                 workingDirectory: Self.defaultWorkingDirectory(),
                 surfaceContext: .window,
@@ -1185,6 +1209,7 @@ final class WorklaneStore {
     private static func makeDefaultWorklane(
         id: WorklaneID,
         title: String,
+        windowID: WindowID,
         layoutContext: PaneLayoutContext,
         workingDirectory: String,
         surfaceContext: TerminalSurfaceContext,
@@ -1220,6 +1245,7 @@ final class WorklaneStore {
                             configInheritanceSourcePaneID: configInheritanceSourcePaneID,
                             surfaceContext: surfaceContext,
                             environmentVariables: Self.sessionEnvironment(
+                                windowID: windowID,
                                 worklaneID: id,
                                 paneID: shellPaneID,
                                 initialWorkingDirectory: workingDirectory,
@@ -1266,6 +1292,7 @@ final class WorklaneStore {
         initialWorkingDirectory: String? = nil
     ) -> [String: String] {
         Self.sessionEnvironment(
+            windowID: windowID,
             worklaneID: worklaneID,
             paneID: paneID,
             initialWorkingDirectory: initialWorkingDirectory,
@@ -1274,12 +1301,14 @@ final class WorklaneStore {
     }
 
     private static func sessionEnvironment(
+        windowID: WindowID,
         worklaneID: WorklaneID,
         paneID: PaneID,
         initialWorkingDirectory: String? = nil,
         processEnvironment: [String: String]
     ) -> [String: String] {
         var environment: [String: String] = [
+            "ZENTTY_WINDOW_ID": windowID.rawValue,
             "ZENTTY_WORKLANE_ID": worklaneID.rawValue,
             "ZENTTY_PANE_ID": paneID.rawValue,
         ]
@@ -1468,6 +1497,10 @@ final class WorklaneStore {
 
         worklane.auxiliaryStateByPaneID[paneID]?.raw.wantsReadyStatus = false
         worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus = false
+        let worklaneIDRaw = worklane.id.rawValue
+        worklaneReadyLogger.debug(
+            "Cleared ready status worklane=\(worklaneIDRaw, privacy: .public) pane=\(paneID.rawValue, privacy: .public)"
+        )
         recomputePresentation(for: paneID, in: &worklane)
     }
 
@@ -1482,6 +1515,11 @@ final class WorklaneStore {
             auxiliaryState.raw.showsReadyStatus = true
         }
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        let worklaneIDRaw = worklane.id.rawValue
+        let showsReadyImmediately = auxiliaryState.raw.showsReadyStatus
+        worklaneReadyLogger.debug(
+            "Requested ready status worklane=\(worklaneIDRaw, privacy: .public) pane=\(paneID.rawValue, privacy: .public) immediate=\(showsReadyImmediately, privacy: .public)"
+        )
 
         guard shouldSchedule else {
             cancelPendingReadyStatus(for: paneReference)
@@ -1538,6 +1576,9 @@ final class WorklaneStore {
 
         auxiliaryState.raw.showsReadyStatus = true
         worklane.auxiliaryStateByPaneID[paneReference.paneID] = auxiliaryState
+        worklaneReadyLogger.debug(
+            "Committed ready status worklane=\(paneReference.worklaneID.rawValue, privacy: .public) pane=\(paneReference.paneID.rawValue, privacy: .public)"
+        )
         recomputePresentation(for: paneReference.paneID, in: &worklane)
         worklanes[worklaneIndex] = worklane
 

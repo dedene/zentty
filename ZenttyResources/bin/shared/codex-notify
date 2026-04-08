@@ -35,32 +35,159 @@ for key in ("session_id", "sessionId"):
 PY
 }
 
+extract_signal_args() {
+    local payload="${1:-}"
+
+    /usr/bin/python3 - "$payload" <<'PY'
+import json
+import sys
+
+
+def first_string(value):
+    if isinstance(value, str):
+        value = " ".join(value.split())
+        if value:
+            return value
+    return None
+
+
+def lookup_string(obj, *keys):
+    for key in keys:
+        value = first_string(obj.get(key))
+        if value:
+            return value
+    return None
+
+
+def contains_decision_options(message: str) -> bool:
+    if "[" in message and "]" in message:
+        return True
+
+    for line in message.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        prefix, dot, remainder = line.partition(".")
+        if dot and prefix.isdigit() and remainder.strip():
+            return True
+
+    return False
+
+
+def classify_interaction(message: str, payload_type: str):
+    normalized = message.lower()
+    payload_type = payload_type.lower()
+
+    if any(marker in normalized for marker in ("log in", "login", "sign in", "sign-in")):
+        return "auth"
+
+    if "permission" in payload_type:
+        return "approval"
+
+    if any(marker in normalized for marker in (
+        "plan-mode-prompt",
+        "plan mode prompt",
+        "approval requested",
+        "approval-requested",
+        "approval",
+        "permission",
+        "approve",
+        "allow ",
+        "grant access",
+        "wants to edit",
+    )):
+        return "approval"
+
+    if "question" in payload_type or "?" in normalized:
+        return "decision" if contains_decision_options(message) else "question"
+
+    if any(marker in normalized for marker in (
+        "waiting for your input",
+        "waiting for input",
+        "needs your input",
+        "needs input",
+        "press enter",
+    )):
+        return "generic-input"
+
+    return None
+
+
+try:
+    payload = json.loads(sys.argv[1] or "{}")
+except Exception:
+    sys.exit(0)
+
+payload_type = lookup_string(payload, "type", "event_type", "eventType") or ""
+session_id = lookup_string(payload, "session_id", "sessionId")
+
+if payload_type == "agent-turn-complete":
+    print("idle")
+    if session_id:
+        print("--session-id")
+        print(session_id)
+    sys.exit(0)
+
+message = (
+    lookup_string(payload, "title", "message", "body", "text", "prompt", "description")
+    or lookup_string(payload, "last_assistant_message", "lastAssistantMessage")
+)
+
+if not message:
+    if "permission" in payload_type:
+        message = "Codex needs your approval"
+    elif "question" in payload_type:
+        message = "Codex is waiting for your input"
+
+if not message:
+    sys.exit(0)
+
+interaction_kind = classify_interaction(message, payload_type)
+if not interaction_kind:
+    sys.exit(0)
+
+print("needs-input")
+print("--text")
+print(message)
+print("--interaction-kind")
+print(interaction_kind)
+if session_id:
+    print("--session-id")
+    print(session_id)
+PY
+}
+
 notify_agent() {
     local payload
-    local session_id
+    local -a signal_args
+    local state
+    local -a extra_args
     payload="$(read_payload "${1:-}")"
     [[ "${ZENTTY_SHELL_INTEGRATION:-1}" != "0" ]] || return 0
-    [[ "$payload" == *"agent-turn-complete"* ]] || return 0
     [[ -n "${ZENTTY_AGENT_BIN:-}" ]] || return 0
     [[ -x "${ZENTTY_AGENT_BIN}" ]] || return 0
     [[ -n "${ZENTTY_WORKLANE_ID:-}" ]] || return 0
     [[ -n "${ZENTTY_PANE_ID:-}" ]] || return 0
 
-    session_id="$(extract_session_id "$payload")"
+    while IFS= read -r line; do
+        signal_args+=("$line")
+    done < <(extract_signal_args "$payload")
+    [[ "${#signal_args[@]}" -gt 0 ]] || return 0
+
+    state="${signal_args[0]}"
+    extra_args=("${signal_args[@]:1}")
 
     local -a command=(
         "$ZENTTY_AGENT_BIN"
         agent-signal
         lifecycle
-        idle
+        "$state"
         --origin
         explicit-api
         --tool
         Codex
+        "${extra_args[@]}"
     )
-    if [[ -n "$session_id" ]]; then
-        command+=(--session-id "$session_id")
-    fi
 
     "${command[@]}" >/dev/null 2>&1 || true
 }

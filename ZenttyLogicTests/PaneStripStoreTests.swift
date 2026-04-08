@@ -1927,6 +1927,7 @@ final class PaneStripStoreTests: XCTestCase {
 
         XCTAssertTrue(worklane.id.rawValue.hasPrefix("wl_"))
         XCTAssertTrue(pane.id.rawValue.hasPrefix("pn_"))
+        XCTAssertTrue((request.environmentVariables["ZENTTY_WINDOW_ID"] ?? "").hasPrefix("wd_"))
         XCTAssertEqual(request.environmentVariables["ZENTTY_WORKLANE_ID"], worklane.id.rawValue)
         XCTAssertEqual(request.environmentVariables["ZENTTY_PANE_ID"], pane.id.rawValue)
         XCTAssertFalse((request.environmentVariables["ZENTTY_AGENT_BIN"] ?? "").isEmpty)
@@ -3163,6 +3164,86 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
+    func test_waiting_codex_title_clears_stale_ready_and_surfaces_needs_input() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Waiting · zentty main",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Needs input")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.runtimePhase, .needsInput)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_waiting_codex_title_preserves_specific_blocked_prompt_copy() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .needsInput,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: "Plan mode prompt: Implement this plan?",
+                interactionKind: .approval,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Waiting · zentty main",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Requires approval")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind, .approval)
+    }
+
     func test_completion_notification_phrase_agent_turn_complete_surfaces_agent_ready() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -3779,6 +3860,50 @@ final class PaneStripStoreTests: XCTestCase {
             "Agent ready"
         )
         XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_idle_codex_signal_does_not_downgrade_active_approval_state() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .needsInput,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: "Approval requested: edit Sources/App.swift",
+                interactionKind: .approval,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind, .approval)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Requires approval")
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
     func test_shell_command_running_alone_does_not_create_running_agent_status() throws {
@@ -4812,12 +4937,28 @@ final class PaneStripStoreTests: XCTestCase {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.knownNonRepositoryPaths.insert("/tmp/project")
-        var recordedImpacts: [WorklaneAuxiliaryInvalidation] = []
+        // Notification can arrive via either channel:
+        //   1. `.auxiliaryStateUpdated(.sidebar)` via the slow path (e.g. for
+        //      meaningful changes like cwd/branch/phase transitions)
+        //   2. `.volatileAgentTitleUpdated` via the fast path when the
+        //      classifier recognizes a pure codex spinner variant tick
+        // Both channels ultimately update the sidebar row label for the
+        // changed pane. The test asserts the intent — "sidebar is notified
+        // of the spinner change" — without binding to the specific channel.
+        var sidebarNotified = false
+        var headerNotified = false
         let subscription = store.subscribe { change in
-            guard case .auxiliaryStateUpdated(_, let changedPaneID, let impacts) = change, changedPaneID == paneID else {
-                return
+            switch change {
+            case let .auxiliaryStateUpdated(_, changedPaneID, impacts)
+                where changedPaneID == paneID:
+                if impacts.contains(.sidebar) { sidebarNotified = true }
+                if impacts.contains(.header) { headerNotified = true }
+            case let .volatileAgentTitleUpdated(_, changedPaneID)
+                where changedPaneID == paneID:
+                sidebarNotified = true
+            default:
+                break
             }
-            recordedImpacts.append(impacts)
         }
         defer { store.unsubscribe(subscription) }
 
@@ -4830,7 +4971,8 @@ final class PaneStripStoreTests: XCTestCase {
                 gitBranch: "main"
             )
         )
-        recordedImpacts.removeAll()
+        sidebarNotified = false
+        headerNotified = false
 
         store.updateMetadata(
             paneID: paneID,
@@ -4842,9 +4984,11 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        let impacts = try XCTUnwrap(recordedImpacts.last)
-        XCTAssertTrue(impacts.contains(.sidebar))
-        XCTAssertFalse(impacts.contains(.header))
+        XCTAssertTrue(sidebarNotified, "sidebar must be notified of the spinner variant change")
+        XCTAssertFalse(
+            headerNotified,
+            "chrome header must not be structurally invalidated for a pure spinner tick"
+        )
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.metadata?.title,
             "Working ⠙ zentty"
