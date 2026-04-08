@@ -525,6 +525,184 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertFalse(hooksJSON.contains("codex-hook stop"))
     }
 
+    func test_copilot_wrapper_preserves_existing_config_and_appends_zentty_hooks() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["copilot", "zentty-agent-wrapper"])
+        try harness.installHelperStub()
+        try harness.installRealBinary(
+            named: "copilot",
+            script: """
+            #!/bin/bash
+            set -euo pipefail
+            printf '%s\n' "$$" > "$REAL_PID_LOG"
+            printf '%s\n' "${COPILOT_HOME:-}" > "$COPILOT_HOME_LOG"
+            if [[ -n "${COPILOT_HOME:-}" ]] && [[ -f "${COPILOT_HOME}/config.json" ]]; then
+              cat "${COPILOT_HOME}/config.json" > "$CONFIG_LOG"
+            fi
+            """
+        )
+
+        let sourceCopilotHome = try harness.createDirectory(named: "source-copilot-home")
+        try """
+        {
+          // user comment
+          "model": "gpt-5.4",
+          "hooks": {
+            "userPromptSubmitted": [
+              {
+                "type": "command",
+                "bash": "echo user-prompt-submitted",
+                "timeoutSec": 3
+              }
+            ]
+          }
+        }
+        """.write(
+            to: sourceCopilotHome.appendingPathComponent("config.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let result = try harness.run(
+            tool: "copilot",
+            arguments: ["--prompt", "hello"],
+            extraEnvironment: [
+                "COPILOT_HOME": sourceCopilotHome.path,
+                "ZENTTY_AGENT_BIN": harness.helperPath,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        let copilotHome = try XCTUnwrap(
+            try String(contentsOf: harness.logDirectoryURL.appendingPathComponent("copilot-home.log"), encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty
+        )
+        XCTAssertNotEqual(copilotHome, sourceCopilotHome.path)
+
+        let configData = try XCTUnwrap(
+            try String(contentsOf: harness.logDirectoryURL.appendingPathComponent("config.json.log"), encoding: .utf8)
+                .data(using: .utf8)
+        )
+        let configJSON = try XCTUnwrap(try JSONSerialization.jsonObject(with: configData) as? [String: Any])
+        XCTAssertEqual(configJSON["model"] as? String, "gpt-5.4")
+        XCTAssertEqual(configJSON["version"] as? Int, 1)
+        XCTAssertNil(configJSON["disableAllHooks"])
+
+        let hooks = try XCTUnwrap(configJSON["hooks"] as? [String: Any])
+        let userPromptHooks = try XCTUnwrap(hooks["userPromptSubmitted"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(userPromptHooks.count, 2)
+
+        let serialized = String(data: configData, encoding: .utf8) ?? ""
+        XCTAssertTrue(serialized.contains("echo user-prompt-submitted"))
+        XCTAssertTrue(serialized.contains("copilot-hook session-start"))
+        XCTAssertTrue(serialized.contains("copilot-hook session-end"))
+        XCTAssertTrue(serialized.contains("copilot-hook user-prompt-submitted"))
+        XCTAssertTrue(serialized.contains("copilot-hook pre-tool-use"))
+        XCTAssertTrue(serialized.contains("copilot-hook post-tool-use"))
+        XCTAssertTrue(serialized.contains("copilot-hook error-occurred"))
+        XCTAssertFalse(serialized.contains("copilot-hook notification"))
+        XCTAssertFalse(serialized.contains("copilot-hook permission-request"))
+        XCTAssertFalse(serialized.contains("copilot-hook agent-stop"))
+        XCTAssertFalse(serialized.contains("copilot-hook subagent-stop"))
+
+        // Copilot's lifecycle is driven by its own hook bridge (sessionStart
+        // emits pidPayload), so the wrapper must NOT send an agent-signal
+        // pid attach — that path is reserved for tools without a hook bridge.
+        let signalLines = try harness.readLines(named: "helper-args.log")
+        XCTAssertTrue(
+            signalLines.isEmpty,
+            "expected no agent-signal pid attach for copilot, got: \(signalLines)"
+        )
+    }
+
+    func test_copilot_wrapper_uses_config_dir_override_as_overlay_source() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["copilot", "zentty-agent-wrapper"])
+        try harness.installHelperStub()
+        try harness.installRealBinary(
+            named: "copilot",
+            script: """
+            #!/bin/bash
+            set -euo pipefail
+            printf '%s\n' "${COPILOT_HOME:-}" > "$COPILOT_HOME_LOG"
+            if [[ -n "${COPILOT_HOME:-}" ]] && [[ -f "${COPILOT_HOME}/config.json" ]]; then
+              cat "${COPILOT_HOME}/config.json" > "$CONFIG_LOG"
+            fi
+            printf '%s\n' "$*" > "$REAL_ARGS_LOG"
+            """
+        )
+
+        let sourceCopilotHome = try harness.createDirectory(named: "config-dir-override-home")
+        try #"{"theme":"dark"}"#.write(
+            to: sourceCopilotHome.appendingPathComponent("config.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let result = try harness.run(
+            tool: "copilot",
+            arguments: ["--config-dir", sourceCopilotHome.path, "--prompt", "hello"],
+            extraEnvironment: [
+                "ZENTTY_AGENT_BIN": harness.helperPath,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+
+        let configData = try XCTUnwrap(
+            try String(contentsOf: harness.logDirectoryURL.appendingPathComponent("config.json.log"), encoding: .utf8)
+                .data(using: .utf8)
+        )
+        let configJSON = try XCTUnwrap(try JSONSerialization.jsonObject(with: configData) as? [String: Any])
+        XCTAssertEqual(configJSON["theme"] as? String, "dark")
+        XCTAssertFalse((try harness.readLines(named: "real-args.log").first ?? "").contains("--config-dir"))
+    }
+
+    func test_copilot_wrapper_preserves_invalid_existing_config_without_clobbering() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["copilot", "zentty-agent-wrapper"])
+        try harness.installHelperStub()
+        try harness.installRealBinary(
+            named: "copilot",
+            script: """
+            #!/bin/bash
+            set -euo pipefail
+            if [[ -n "${COPILOT_HOME:-}" ]] && [[ -f "${COPILOT_HOME}/config.json" ]]; then
+              cat "${COPILOT_HOME}/config.json" > "$CONFIG_LOG"
+            fi
+            """
+        )
+
+        let sourceCopilotHome = try harness.createDirectory(named: "invalid-copilot-home")
+        let invalidConfig = "{not valid json"
+        try invalidConfig.write(
+            to: sourceCopilotHome.appendingPathComponent("config.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let result = try harness.run(
+            tool: "copilot",
+            arguments: ["--prompt", "hello"],
+            extraEnvironment: [
+                "COPILOT_HOME": sourceCopilotHome.path,
+                "ZENTTY_AGENT_BIN": harness.helperPath,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        let configJSON = try String(
+            contentsOf: harness.logDirectoryURL.appendingPathComponent("config.json.log"),
+            encoding: .utf8
+        )
+        XCTAssertEqual(configJSON, invalidConfig)
+        XCTAssertFalse(configJSON.contains("copilot-hook session-start"))
+    }
+
     private func waitForLines(named logName: String, in harness: WrapperHarness, timeout: TimeInterval = 2) throws -> [String] {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -617,6 +795,8 @@ private struct WrapperHarness {
         environment["HELPER_ARGS_LOG"] = logDirectoryURL.appendingPathComponent("helper-args.log", isDirectory: false).path
         environment["CODEX_HOME_LOG"] = logDirectoryURL.appendingPathComponent("codex-home.log", isDirectory: false).path
         environment["HOOKS_LOG"] = logDirectoryURL.appendingPathComponent("hooks.json.log", isDirectory: false).path
+        environment["COPILOT_HOME_LOG"] = logDirectoryURL.appendingPathComponent("copilot-home.log", isDirectory: false).path
+        environment["CONFIG_LOG"] = logDirectoryURL.appendingPathComponent("config.json.log", isDirectory: false).path
         extraEnvironment.forEach { environment[$0.key] = $0.value }
         process.environment = environment
 
@@ -678,7 +858,7 @@ private struct WrapperHarness {
     }
 
     private var publicWrapperDirectories: [URL] {
-        ["claude", "codex", "opencode"]
+        ["claude", "codex", "copilot", "opencode"]
             .map { wrapperBinURL.appendingPathComponent($0, isDirectory: true) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
@@ -695,6 +875,8 @@ private struct WrapperHarness {
             return "codex/codex"
         case "codex-notify":
             return "shared/codex-notify"
+        case "copilot":
+            return "copilot/copilot"
         case "opencode":
             return "opencode/opencode"
         case "zentty-agent-wrapper":

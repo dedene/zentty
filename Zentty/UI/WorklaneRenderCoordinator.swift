@@ -20,7 +20,6 @@ final class WorklaneRenderCoordinator {
         let sidebarView: SidebarView
         let windowChromeView: WindowChromeView
         let appCanvasView: AppCanvasView
-        let paneBorderContextOverlayView: PaneBorderContextOverlayView
     }
 
     let worklaneStore: WorklaneStore
@@ -33,7 +32,6 @@ final class WorklaneRenderCoordinator {
     private let attentionNotificationCoordinator: WorklaneAttentionNotificationCoordinator
 
     private var views: ViewBindings?
-    private var currentPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] = []
     private var reviewPollingTimer: Timer?
     private var reviewPollingTarget: (worklaneID: WorklaneID, paneID: PaneID, repoRoot: String, branch: String)?
     private var hasBootstrappedReviewState = false
@@ -64,10 +62,6 @@ final class WorklaneRenderCoordinator {
 
     func bind(to views: ViewBindings) {
         self.views = views
-        views.appCanvasView.paneStripView.onBorderChromeSnapshotsDidChange = { [weak self] snapshots, animated in
-            self?.currentPaneBorderChromeSnapshots = snapshots
-            self?.renderPaneBorderContextOverlay(animated: animated)
-        }
     }
 
     func startObserving() {
@@ -99,10 +93,6 @@ final class WorklaneRenderCoordinator {
     func updateSurfaceActivities() {
         updateReviewPolling()
         updateRuntimeSurfaceActivities()
-    }
-
-    func renderBorderOverlay() {
-        renderPaneBorderContextOverlay()
     }
 
     #if DEBUG
@@ -285,42 +275,6 @@ final class WorklaneRenderCoordinator {
                 windowIsKey: windowState.isKeyWindow
             )
         }
-    }
-
-    var translatedPaneBorderChromeSnapshots: [PaneBorderChromeSnapshot] {
-        guard let views else {
-            return []
-        }
-
-        return currentPaneBorderChromeSnapshots.map { snapshot in
-            PaneBorderChromeSnapshot(
-                paneID: snapshot.paneID,
-                frame: snapshot.frame.offsetBy(
-                    dx: views.appCanvasView.frame.minX,
-                    dy: views.appCanvasView.frame.minY
-                ),
-                initialPaneFrame: snapshot.initialPaneFrame?.offsetBy(
-                    dx: views.appCanvasView.frame.minX,
-                    dy: views.appCanvasView.frame.minY
-                ),
-                isFocused: snapshot.isFocused,
-                emphasis: snapshot.emphasis,
-                borderContext: snapshot.borderContext
-            )
-        }
-    }
-
-    private func renderPaneBorderContextOverlay(animated: Bool = false) {
-        guard let views else { return }
-        if views.paneBorderContextOverlayView.isHidden,
-           !views.appCanvasView.paneStripView.isDragActive {
-            views.paneBorderContextOverlayView.isHidden = false
-        }
-        views.paneBorderContextOverlayView.render(
-            snapshots: translatedPaneBorderChromeSnapshots,
-            theme: currentTheme,
-            animated: animated
-        )
     }
 
     private func updateReviewPolling() {

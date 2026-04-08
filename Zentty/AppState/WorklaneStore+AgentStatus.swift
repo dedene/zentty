@@ -205,6 +205,13 @@ extension WorklaneStore {
         let tool = AgentTool.resolve(named: payload.toolName)
             ?? existingStatus?.tool
             ?? AgentToolRecognizer.recognize(metadata: worklane.auxiliaryStateByPaneID[payload.paneID]?.metadata)
+        if shouldClearReadyStatusForSupersededTool(
+            existingStatus: existingStatus,
+            incomingTool: tool,
+            payload: payload
+        ) {
+            clearReadyStatusIfNeeded(for: payload.paneID, in: &worklane)
+        }
         var auxiliaryState = worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
         auxiliaryState.agentReducerState = Self.seededReducerState(auxiliaryState.agentReducerState, from: existingStatus)
 
@@ -506,6 +513,30 @@ extension WorklaneStore {
         }
 
         return false
+    }
+
+    private func shouldClearReadyStatusForSupersededTool(
+        existingStatus: PaneAgentStatus?,
+        incomingTool: AgentTool?,
+        payload: AgentStatusPayload
+    ) -> Bool {
+        guard let existingTool = existingStatus?.tool,
+              let incomingTool,
+              existingTool != incomingTool else {
+            return false
+        }
+
+        switch payload.signalKind {
+        case .lifecycle:
+            guard let state = payload.state else {
+                return false
+            }
+            return state == .starting || state == .running || state == .needsInput
+        case .pid:
+            return payload.pidEvent == .attach
+        case .shellState, .paneContext:
+            return false
+        }
     }
 
     private func completionNotificationIndicatesReady(_ notificationText: String?) -> Bool {

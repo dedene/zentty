@@ -123,29 +123,23 @@ final class PaneLayoutMenuCoordinator {
     }
 
     private func isCommandEnabled(_ commandID: AppCommandID, worklaneStore: WorklaneStore) -> Bool {
+        CommandAvailabilityResolver.isCommandAvailable(
+            commandID,
+            for: commandAvailabilityContext(worklaneStore: worklaneStore)
+        )
+    }
+
+    private func commandAvailabilityContext(worklaneStore: WorklaneStore) -> CommandAvailabilityContext {
         let paneStripState = worklaneStore.activeWorklane?.paneStripState
-        let paneCount = paneStripState?.panes.count ?? 0
-        switch commandID {
-        case .splitHorizontally, .splitVertically:
-            return paneCount > 0
-        case .arrangeWidthFull,
-            .arrangeWidthHalves,
-            .arrangeWidthThirds,
-            .arrangeWidthQuarters,
-            .arrangeHeightFull,
-            .arrangeHeightTwoPerColumn,
-            .arrangeHeightThreePerColumn,
-            .arrangeHeightFourPerColumn:
-            return paneCount > 1
-        case .arrangeWidthGoldenFocusWide,
-            .arrangeWidthGoldenFocusNarrow:
-            return (paneStripState?.columns.count ?? 0) >= 2
-        case .arrangeHeightGoldenFocusTall,
-            .arrangeHeightGoldenFocusShort:
-            return (paneStripState?.focusedColumn?.panes.count ?? 0) >= 2
-        default:
-            return true
-        }
+        return CommandAvailabilityContext(
+            worklaneCount: worklaneStore.worklanes.count,
+            activePaneCount: paneStripState?.panes.count ?? 0,
+            totalPaneCount: worklaneStore.worklanes.reduce(0) { $0 + $1.paneStripState.panes.count },
+            activeColumnCount: paneStripState?.columns.count ?? 0,
+            focusedColumnPaneCount: paneStripState?.focusedColumn?.panes.count ?? 0,
+            focusedPaneHasRememberedSearch: false,
+            globalSearchHasRememberedSearch: false
+        )
     }
 
     private func apply(_ shortcut: KeyboardShortcut?, to item: NSMenuItem) {

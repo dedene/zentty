@@ -458,7 +458,7 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertNil(status?.text)
     }
 
-    func test_shell_command_running_promotes_explicit_starting_codex_session_to_running() {
+    func test_shell_command_running_does_not_promote_explicit_starting_codex_session_to_running() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()
 
@@ -515,13 +515,13 @@ final class PaneAgentReducerTests: XCTestCase {
         )
 
         let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(1))
-        XCTAssertEqual(status?.state, .running)
+        XCTAssertEqual(status?.state, .starting)
         XCTAssertEqual(status?.trackedPID, 4242)
-        XCTAssertTrue(status?.hasObservedRunning == true)
+        XCTAssertFalse(status?.hasObservedRunning == true)
         XCTAssertEqual(Array(reducerState.sessionsByID.keys), ["session-1"])
     }
 
-    func test_shell_command_running_promotes_explicit_starting_opencode_session_to_running() {
+    func test_shell_command_running_does_not_promote_explicit_starting_opencode_session_to_running() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()
 
@@ -578,9 +578,9 @@ final class PaneAgentReducerTests: XCTestCase {
         )
 
         let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(1))
-        XCTAssertEqual(status?.state, .running)
+        XCTAssertEqual(status?.state, .starting)
         XCTAssertEqual(status?.trackedPID, 4242)
-        XCTAssertTrue(status?.hasObservedRunning == true)
+        XCTAssertFalse(status?.hasObservedRunning == true)
         XCTAssertEqual(Array(reducerState.sessionsByID.keys), ["session-1"])
     }
 

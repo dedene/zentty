@@ -92,13 +92,7 @@ final class GlobalSearchCoordinator {
     }
 
     func hide() {
-        pendingNavigationDirection = nil
-        guard state.hasRememberedSearch, !state.needle.isEmpty else {
-            end()
-            return
-        }
-
-        state.isHUDVisible = false
+        end()
     }
 
     func end() {

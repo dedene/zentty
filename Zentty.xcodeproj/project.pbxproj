@@ -127,6 +127,7 @@
 		9D7CF3435362B15C9801875B /* PaneFocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54894343178398AA618315E4 /* PaneFocusHistory.swift */; };
 		A313F3492C53D5CEF8A025F5 /* PaneFocusHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FE6D2FE3D589C3CEF772F6 /* PaneFocusHistoryTests.swift */; };
 		A31E0FD93C75D6B6059E3809 /* SidebarMotionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 162C940D9CBDBBB47552AA86 /* SidebarMotionCoordinator.swift */; };
+		A414792FBD72D8EA7BB37916 /* CopilotHookBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E509A45EF17A2149CBE28DA9 /* CopilotHookBridge.swift */; };
 		A4F9BA4052B89971F4897D09 /* ShortcutsSettingsSectionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF02658BAF6F6B57713BBD05 /* ShortcutsSettingsSectionViewController.swift */; };
 		A524DA357EFACE58D38A111D /* WindowChromeRowLayoutPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7017B142217423B1126B8E2A /* WindowChromeRowLayoutPlanner.swift */; };
 		A6A1F413A649AAE4E833DE30 /* GlobalSearchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5AA4E83079005D5C787066 /* GlobalSearchCoordinator.swift */; };
@@ -413,6 +414,7 @@
 		E101FFDD49FF6625AC16DDED /* PaneAuxiliaryState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneAuxiliaryState.swift; sourceTree = "<group>"; };
 		E1A2BC275D0F7E90ACD593C6 /* PaneDragSplitOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragSplitOverlayView.swift; sourceTree = "<group>"; };
 		E469BF2F5A021DBF256E8D20 /* PaneStripStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripStateTests.swift; sourceTree = "<group>"; };
+		E509A45EF17A2149CBE28DA9 /* CopilotHookBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotHookBridge.swift; sourceTree = "<group>"; };
 		E58967CFFAB97F7D24A62733 /* WorklaneContextFormatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneContextFormatterTests.swift; sourceTree = "<group>"; };
 		E5BD40F90473F37867AB07AF /* WorklaneStoreOpenWithTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreOpenWithTests.swift; sourceTree = "<group>"; };
 		E5BDEE21BACB5E0E7AB95AE0 /* ZenttyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZenttyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -643,6 +645,7 @@
 				B79972CCAB3361277D4E949C /* AgentStatusPayload.swift */,
 				873301C3643C70777575BF64 /* ClaudeHookBridge.swift */,
 				C344F4EE24498B605D2794B3 /* ClaudeHookSessionStore.swift */,
+				E509A45EF17A2149CBE28DA9 /* CopilotHookBridge.swift */,
 				EB869749410CBF86B97FA142 /* PaneAgentReducer.swift */,
 				B3D36140C30599601062D9BF /* ProcessCWDResolver.swift */,
 			);
@@ -1070,7 +1073,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n\nRESOURCES_SRC=\"${PROJECT_DIR}/ZenttyResources\"\nRESOURCES_DST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n\nmkdir -p \"${RESOURCES_DST}/bin\" \"${RESOURCES_DST}/shell-integration\" \"${RESOURCES_DST}/opencode/plugins\"\nrsync -a --delete \"${RESOURCES_SRC}/bin/\" \"${RESOURCES_DST}/bin/\"\nrsync -a --delete \"${RESOURCES_SRC}/shell-integration/\" \"${RESOURCES_DST}/shell-integration/\"\nrsync -a --delete \"${RESOURCES_SRC}/opencode/\" \"${RESOURCES_DST}/opencode/\"\n";
+			shellScript = "set -euo pipefail\n\nRESOURCES_SRC=\"${PROJECT_DIR}/ZenttyResources\"\nRESOURCES_DST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n\nmkdir -p \"${RESOURCES_DST}/bin\" \"${RESOURCES_DST}/shell-integration\" \"${RESOURCES_DST}/opencode/plugins\"\nrsync -a --delete \"${RESOURCES_SRC}/bin/\" \"${RESOURCES_DST}/bin/\"\nfind \"${RESOURCES_DST}/bin\" -type f \\( -path \"*/claude/claude\" -o -path \"*/codex/codex\" -o -path \"*/copilot/copilot\" -o -path \"*/opencode/opencode\" -o -path \"*/shared/zentty-agent-wrapper\" \\) -exec chmod 755 {} +\nrsync -a --delete \"${RESOURCES_SRC}/shell-integration/\" \"${RESOURCES_DST}/shell-integration/\"\nrsync -a --delete \"${RESOURCES_SRC}/opencode/\" \"${RESOURCES_DST}/opencode/\"\n";
 		};
 		C7055FCE2E5119172F74E931 /* Verify GhosttyKit */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1190,6 +1193,7 @@
 				30B9ACBE47351D6E5EF639C5 /* CommandPalettePanel.swift in Sources */,
 				371FB2F8A67CC747CF1FFD4F /* CommandPaletteResultRow.swift in Sources */,
 				F41BF0F2213D63594DF10864 /* CommandPaletteView.swift in Sources */,
+				A414792FBD72D8EA7BB37916 /* CopilotHookBridge.swift in Sources */,
 				DA4EBB588176E3DEB4B96C6E /* ErrorReporting.swift in Sources */,
 				CC3E9AE062D12B88458DA88B /* FuzzyMatcher.swift in Sources */,
 				43F75CCFD2060C335CEAEC51 /* GeneralSettingsSectionViewController.swift in Sources */,
@@ -1466,7 +1470,7 @@
 		3AE4188A3B35FCCB273A783F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
+				BUNDLE_LOADER = "";
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = ZenttyIntegrationTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1482,14 +1486,14 @@
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyIntegrationTests;
 				PRODUCT_NAME = ZenttyIntegrationTests;
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
+				TEST_HOST = "";
 			};
 			name = Debug;
 		};
 		4B21389852DB717B430B61BD /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
+				BUNDLE_LOADER = "";
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = ZenttyLogicTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1505,14 +1509,14 @@
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyLogicTests;
 				PRODUCT_NAME = ZenttyLogicTests;
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
+				TEST_HOST = "";
 			};
 			name = Debug;
 		};
 		780A5A031DDFAD3062A46858 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
+				BUNDLE_LOADER = "";
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = ZenttyIntegrationTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1523,7 +1527,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyIntegrationTests;
 				PRODUCT_NAME = ZenttyIntegrationTests;
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
+				TEST_HOST = "";
 			};
 			name = Release;
 		};
@@ -1548,7 +1552,7 @@
 		90275BC43130F3EAE5285FB4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
+				BUNDLE_LOADER = "";
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = ZenttyLogicTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1559,7 +1563,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyLogicTests;
 				PRODUCT_NAME = ZenttyLogicTests;
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
+				TEST_HOST = "";
 			};
 			name = Release;
 		};

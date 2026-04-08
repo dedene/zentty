@@ -182,7 +182,7 @@ final class PaneContainerViewTests: XCTestCase {
         XCTAssertTrue(paneView.isStatusOverlayHidden)
     }
 
-    func test_pane_container_keeps_border_context_chrome_outside_pane_ownership() {
+    func test_pane_container_renders_border_context_inside_pane_ownership() throws {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")
         let runtime = PaneRuntime(
@@ -205,11 +205,106 @@ final class PaneContainerViewTests: XCTestCase {
         paneView.render(
             pane: pane,
             emphasis: 1,
-            isFocused: true
+            isFocused: true,
+            borderContext: PaneBorderContextDisplayModel(text: "~/src/zentty")
+        )
+        paneView.layoutSubtreeIfNeeded()
+
+        let frame = try XCTUnwrap(paneView.paneBorderContextFrameForTesting)
+
+        XCTAssertTrue(paneView.hasPaneContextChrome)
+        XCTAssertEqual(paneView.paneBorderContextTextForTesting, "~/src/zentty")
+        XCTAssertEqual(
+            frame.minX,
+            paneView.insetBorderFrame.minX
+                + (PaneBorderContextInsetView.Layout.paneContextLeadingInset - paneView.insetBorderInset),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(frame.midY, paneView.insetBorderFrame.maxY - 0.5, accuracy: 0.001)
+        XCTAssertEqual(paneView.borderLabelGapWidthForTesting, frame.width, accuracy: 0.001)
+    }
+
+    func test_pane_container_hides_border_context_and_gap_when_context_is_missing() {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil),
+            backingScaleFactorProvider: { 2 }
+        )
+
+        paneView.render(
+            pane: pane,
+            emphasis: 1,
+            isFocused: true,
+            borderContext: PaneBorderContextDisplayModel(text: "~/src/zentty")
+        )
+        paneView.layoutSubtreeIfNeeded()
+
+        paneView.render(
+            pane: pane,
+            emphasis: 1,
+            isFocused: true,
+            borderContext: nil
         )
         paneView.layoutSubtreeIfNeeded()
 
         XCTAssertFalse(paneView.hasPaneContextChrome)
+        XCTAssertNil(paneView.paneBorderContextFrameForTesting)
+        XCTAssertEqual(paneView.borderLabelGapWidthForTesting, 0, accuracy: 0.001)
+    }
+
+    func test_pane_container_clamps_border_context_width_to_available_pane_width() throws {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 120,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil),
+            backingScaleFactorProvider: { 1 }
+        )
+
+        paneView.render(
+            pane: pane,
+            emphasis: 1,
+            isFocused: true,
+            borderContext: PaneBorderContextDisplayModel(
+                text: "/Users/peter/Development/Personal/zentty/very/long/path"
+            )
+        )
+        paneView.layoutSubtreeIfNeeded()
+
+        let frame = try XCTUnwrap(paneView.paneBorderContextFrameForTesting)
+
+        XCTAssertEqual(
+            frame.width,
+            paneView.bounds.width
+                - PaneBorderContextInsetView.Layout.paneContextLeadingInset
+                - PaneBorderContextInsetView.Layout.paneContextTrailingGutter,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(paneView.paneBorderContextTextTruncationModeForTesting, .middle)
     }
 
     func test_render_updates_content_without_mutating_frame() {
@@ -640,17 +735,97 @@ final class PaneContainerViewTests: XCTestCase {
         runtime.showSearch()
         paneView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(terminalView.mouseInteractionSuppressionRects.count, 1)
-        XCTAssertEqual(
-            terminalView.mouseInteractionSuppressionRects[0],
-            paneView.searchHUDFrameForTesting,
-            "The live terminal should suppress mouse handling inside the visible HUD rect"
+        let dragZoneRect = CGRect(
+            x: 0,
+            y: paneView.bounds.height - PaneContainerView.dragZoneHeight,
+            width: paneView.bounds.width,
+            height: PaneContainerView.dragZoneHeight
+        )
+        XCTAssertEqual(terminalView.mouseInteractionSuppressionRects.count, 2)
+        XCTAssertTrue(
+            terminalView.mouseInteractionSuppressionRects.contains(dragZoneRect),
+            "The drag strip must always reserve the top band from terminal mouse handling"
+        )
+        XCTAssertTrue(
+            terminalView.mouseInteractionSuppressionRects.contains(paneView.searchHUDFrameForTesting),
+            "The live terminal should also suppress mouse handling inside the visible HUD rect"
         )
 
         runtime.hideSearchHUD()
         paneView.layoutSubtreeIfNeeded()
 
-        XCTAssertTrue(terminalView.mouseInteractionSuppressionRects.isEmpty)
+        XCTAssertEqual(terminalView.mouseInteractionSuppressionRects, [dragZoneRect])
+    }
+
+    func test_drag_strip_suppresses_terminal_mouse_interaction_when_search_hud_is_hidden() {
+        let terminalView = OverlayHostingTerminalView()
+        let adapter = PaneContainerTerminalAdapterSpy(terminalView: terminalView)
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        paneView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(terminalView.mouseInteractionSuppressionRects.count, 1)
+        XCTAssertEqual(
+            terminalView.mouseInteractionSuppressionRects[0],
+            CGRect(
+                x: 0,
+                y: paneView.bounds.height - PaneContainerView.dragZoneHeight,
+                width: paneView.bounds.width,
+                height: PaneContainerView.dragZoneHeight
+            )
+        )
+    }
+
+    func test_search_hud_and_drag_strip_both_suppress_terminal_mouse_interaction() {
+        let terminalView = OverlayHostingTerminalView()
+        let adapter = PaneContainerTerminalAdapterSpy(terminalView: terminalView)
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        runtime.showSearch()
+        paneView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(terminalView.mouseInteractionSuppressionRects.count, 2)
+        XCTAssertTrue(
+            terminalView.mouseInteractionSuppressionRects.contains(
+                CGRect(
+                    x: 0,
+                    y: paneView.bounds.height - PaneContainerView.dragZoneHeight,
+                    width: paneView.bounds.width,
+                    height: PaneContainerView.dragZoneHeight
+                )
+            )
+        )
+        XCTAssertTrue(terminalView.mouseInteractionSuppressionRects.contains(paneView.searchHUDFrameForTesting))
     }
 
     func test_search_hud_drag_updates_terminal_mouse_suppression_rects() {
@@ -679,11 +854,22 @@ final class PaneContainerViewTests: XCTestCase {
         let displacedOrigin = CGPoint(x: 24, y: 18)
         paneView.setSearchHUDOriginForTesting(displacedOrigin)
 
-        XCTAssertEqual(terminalView.mouseInteractionSuppressionRects.count, 1)
-        XCTAssertEqual(
-            terminalView.mouseInteractionSuppressionRects[0].origin,
-            displacedOrigin,
-            "Dragging the HUD should keep the terminal suppression rect aligned with the live HUD frame"
+        XCTAssertEqual(terminalView.mouseInteractionSuppressionRects.count, 2)
+        XCTAssertTrue(
+            terminalView.mouseInteractionSuppressionRects.contains(
+                CGRect(
+                    x: 0,
+                    y: paneView.bounds.height - PaneContainerView.dragZoneHeight,
+                    width: paneView.bounds.width,
+                    height: PaneContainerView.dragZoneHeight
+                )
+            )
+        )
+        XCTAssertTrue(
+            terminalView.mouseInteractionSuppressionRects.contains(where: { rect in
+                rect.origin == displacedOrigin
+            }),
+            "Dragging the HUD should keep the HUD suppression rect aligned with the live HUD frame"
         )
     }
 

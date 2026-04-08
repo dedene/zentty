@@ -603,8 +603,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
             sidebarView: SidebarView(),
             windowChromeView: WindowChromeView(),
-            appCanvasView: AppCanvasView(runtimeRegistry: runtimeRegistry),
-            paneBorderContextOverlayView: PaneBorderContextOverlayView()
+            appCanvasView: AppCanvasView(runtimeRegistry: runtimeRegistry)
         ))
         coordinator.startObserving()
         coordinator.render()
@@ -640,8 +639,7 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
             sidebarView: SidebarView(),
             windowChromeView: WindowChromeView(),
-            appCanvasView: AppCanvasView(runtimeRegistry: runtimeRegistry),
-            paneBorderContextOverlayView: PaneBorderContextOverlayView()
+            appCanvasView: AppCanvasView(runtimeRegistry: runtimeRegistry)
         ))
 
         coordinator.render()
@@ -689,7 +687,6 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         let appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
         appCanvasView.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         appCanvasView.layoutSubtreeIfNeeded()
-        let overlayView = PaneBorderContextOverlayView(frame: appCanvasView.frame)
         let coordinator = WorklaneRenderCoordinator(
             worklaneStore: store,
             runtimeRegistry: runtimeRegistry,
@@ -700,19 +697,19 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
             sidebarView: SidebarView(),
             windowChromeView: WindowChromeView(),
-            appCanvasView: appCanvasView,
-            paneBorderContextOverlayView: overlayView
+            appCanvasView: appCanvasView
         ))
 
         coordinator.render()
         appCanvasView.layoutSubtreeIfNeeded()
-        overlayView.layoutSubtreeIfNeeded()
-
-        XCTAssertEqual(overlayView.paneContextTextsForTesting[editorPaneID], "~/src/zentty")
         let initialPaneViewsByTitle = Dictionary(uniqueKeysWithValues: try appCanvasView.descendantPaneViews().map {
             let title = try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText)
             return (title, $0)
         })
+        XCTAssertEqual(
+            try XCTUnwrap(initialPaneViewsByTitle["editor"]).paneBorderContextTextForTesting,
+            "~/src/zentty"
+        )
         XCTAssertEqual(try XCTUnwrap(initialPaneViewsByTitle["logs"]).alphaValue, 0.7, accuracy: 0.001)
 
         try configStore.update { config in
@@ -721,19 +718,58 @@ final class RootViewControllerHeaderIntegrationTests: XCTestCase {
         }
         coordinator.render()
         appCanvasView.layoutSubtreeIfNeeded()
-        overlayView.layoutSubtreeIfNeeded()
-
-        XCTAssertTrue(overlayView.paneContextTextsForTesting.isEmpty)
         let updatedPaneViewsByTitle = Dictionary(uniqueKeysWithValues: try appCanvasView.descendantPaneViews().map {
             let title = try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText)
             return (title, $0)
         })
+        XCTAssertNil(try XCTUnwrap(updatedPaneViewsByTitle["editor"]).paneBorderContextTextForTesting)
         XCTAssertEqual(try XCTUnwrap(updatedPaneViewsByTitle["logs"]).alphaValue, 0.82, accuracy: 0.001)
         XCTAssertEqual(
             try XCTUnwrap(updatedPaneViewsByTitle["editor"]).borderLabelGapWidthForTesting,
             0,
             accuracy: 0.001
         )
+    }
+
+    func test_root_controller_keeps_in_pane_context_aligned_with_border_gap_when_sidebar_is_pinned() throws {
+        SidebarVisibilityPreference.persist(.pinnedOpen, in: SidebarVisibilityPreference.userDefaults())
+
+        let controller = makeController()
+        let paneID = PaneID("pane-editor")
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "editor")],
+                    focusedPaneID: paneID
+                ),
+                auxiliaryStateByPaneID: [
+                    paneID: PaneAuxiliaryState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/Users/peter/src/zentty",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: "zenbook"
+                        )
+                    )
+                ]
+            ),
+        ])
+        controller.view.layoutSubtreeIfNeeded()
+
+        let sidebarView = try XCTUnwrap(
+            controller.view.subviews.first(where: { $0 is SidebarView }) as? SidebarView
+        )
+        let paneView = try XCTUnwrap(controller.view.descendantPaneViews().first)
+        let labelFrame = try XCTUnwrap(paneView.paneBorderContextFrameForTesting)
+        let expectedMinX = paneView.insetBorderFrame.minX + (24 - paneView.insetBorderInset)
+        let expectedMidY = paneView.insetBorderFrame.maxY - 0.5
+
+        XCTAssertEqual(labelFrame.minX, expectedMinX, accuracy: 0.001)
+        XCTAssertEqual(labelFrame.midY, expectedMidY, accuracy: 0.001)
+        XCTAssertGreaterThan(paneView.convert(labelFrame, to: controller.view).minX, sidebarView.frame.maxX)
     }
 
     private func makeController(

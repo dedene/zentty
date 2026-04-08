@@ -43,7 +43,7 @@ final class PaneStripView: NSView {
     var onFocusSettled: ((PaneID) -> Void)?
     var onPaneSelected: ((PaneID) -> Void)?
     var onPaneCloseRequested: ((PaneID) -> Void)?
-    var onBorderChromeSnapshotsDidChange: ((_ snapshots: [PaneBorderChromeSnapshot], _ animated: Bool) -> Void)?
+    var onPaneBorderContextClicked: ((PaneID) -> Void)?
     var onDividerInteraction: ((PaneDivider) -> Void)?
     var onDividerResizeRequested: ((PaneResizeTarget, CGFloat) -> CGFloat)?
     var onDividerEqualizeRequested: ((PaneDivider) -> Void)?
@@ -596,14 +596,6 @@ final class PaneStripView: NSView {
         if isResizeSuppressedRender {
             renderGuard.clearResizeSuppression(forGeneration: settleGeneration)
         }
-        onBorderChromeSnapshotsDidChange?(
-            borderChromeSnapshots(
-                for: presentation,
-                offset: targetOffset,
-                insertionTransition: insertionTransition
-            ),
-            shouldAnimate
-        )
         syncFocusedTerminal(with: state.focusedPaneID)
         #if DEBUG
             renderSnapshotsForTesting.append(
@@ -691,14 +683,12 @@ final class PaneStripView: NSView {
                 pane: pane,
                 emphasis: panePresentation.emphasis,
                 isFocused: panePresentation.isFocused,
+                borderContext: currentShowsPaneLabels
+                    ? currentPaneBorderContextByPaneID[panePresentation.paneID]
+                    : nil,
                 animated: animated,
                 useNeutralBackground: useNeutralBackground
             )
-            let gapWidth = Self.borderLabelGapWidth(
-                for: currentShowsPaneLabels ? currentPaneBorderContextByPaneID[panePresentation.paneID] : nil,
-                paneWidth: panePresentation.frame.width
-            )
-            paneView.setBorderLabelGap(width: gapWidth)
             let targetFrame = panePresentation.frame.offsetBy(
                 dx: -resolvedOffset(offset),
                 dy: 0
@@ -781,6 +771,9 @@ final class PaneStripView: NSView {
                 }
                 paneView.onCloseRequested = { [weak self] in
                     self?.onPaneCloseRequested?(pane.id)
+                }
+                paneView.onBorderContextClicked = { [weak self] paneID in
+                    self?.onPaneBorderContextClicked?(paneID)
                 }
                 paneView.onScrollWheel = { [weak self] event in
                     self?.handlePaneSwitchScroll(event) ?? false
@@ -924,55 +917,6 @@ final class PaneStripView: NSView {
 
     var leadingMaskMinX: CGFloat {
         0
-    }
-
-    private static let borderLabelFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
-
-    private static func borderLabelGapWidth(
-        for context: PaneBorderContextDisplayModel?,
-        paneWidth: CGFloat
-    ) -> CGFloat {
-        guard let context, !context.text.isEmpty else { return 0 }
-        let padding: CGFloat = 7
-        let leadingInset: CGFloat = 24
-        let trailingGutter: CGFloat = 16
-        let maxWidth = max(0, paneWidth - leadingInset - trailingGutter)
-        guard maxWidth > 24 else { return 0 }
-        let naturalWidth = ceil(
-            NSAttributedString(
-                string: context.text,
-                attributes: [.font: borderLabelFont]
-            ).boundingRect(
-                with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                context: nil
-            ).width
-        )
-        return min(maxWidth, naturalWidth + padding * 2)
-    }
-
-    private func borderChromeSnapshots(
-        for presentation: StripPresentation,
-        offset: CGFloat,
-        insertionTransition: PaneInsertionTransition? = nil
-    ) -> [PaneBorderChromeSnapshot] {
-        presentation.panes.map { panePresentation in
-            PaneBorderChromeSnapshot(
-                paneID: panePresentation.paneID,
-                frame: panePresentation.frame.offsetBy(dx: -resolvedOffset(offset), dy: 0),
-                initialPaneFrame: insertionTransition.flatMap { transition in
-                    guard transition.paneID == panePresentation.paneID else {
-                        return nil
-                    }
-                    return transition.initialFrame
-                },
-                isFocused: panePresentation.isFocused,
-                emphasis: panePresentation.emphasis,
-                borderContext: currentShowsPaneLabels
-                    ? currentPaneBorderContextByPaneID[panePresentation.paneID]
-                    : nil
-            )
-        }
     }
 
     private func reconcileDividerViews(
@@ -1508,6 +1452,9 @@ final class PaneStripView: NSView {
     ) {
         guard case .horizontalEdge(let horizontalTarget) = target,
               horizontalTarget.edge == .left,
+              let currentState,
+              let columnIndex = currentState.columns.firstIndex(where: { $0.id == horizontalTarget.columnID }),
+              columnIndex + 1 < currentState.columns.count,
               abs(appliedWidthDelta) > 0.001 else {
             return
         }

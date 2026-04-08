@@ -1,0 +1,312 @@
+#!/usr/bin/env bash
+
+set -u
+
+find_real_copilot() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local path_entry
+    local IFS=:
+    for path_entry in $PATH; do
+        [[ -n "$path_entry" ]] || continue
+        [[ "$path_entry" == "$self_dir" ]] && continue
+        [[ -x "$path_entry/copilot" ]] || continue
+        printf '%s\n' "$path_entry/copilot"
+        return 0
+    done
+    return 1
+}
+
+integration_is_available() {
+    [[ "${ZENTTY_COPILOT_HOOKS_DISABLED:-0}" != "1" ]] || return 1
+    [[ -n "${ZENTTY_AGENT_BIN:-}" ]] || return 1
+    [[ -x "${ZENTTY_AGENT_BIN}" ]] || return 1
+    [[ -n "${ZENTTY_WORKLANE_ID:-}" ]] || return 1
+    [[ -n "${ZENTTY_PANE_ID:-}" ]] || return 1
+}
+
+json_escape() {
+    local value="${1//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    printf '%s' "$value"
+}
+
+copilot_hook_command() {
+    local event="$1"
+    local command
+    command="\"${ZENTTY_AGENT_BIN}\" copilot-hook ${event} || true"
+    printf '%s' "$command"
+}
+
+write_zentty_config_json() {
+    local destination="$1"
+    cat >"$destination" <<EOF
+{"version":1,"hooks":{"sessionStart":[{"type":"command","bash":"$(json_escape "$(copilot_hook_command "session-start")")","timeoutSec":10}],"sessionEnd":[{"type":"command","bash":"$(json_escape "$(copilot_hook_command "session-end")")","timeoutSec":10}],"userPromptSubmitted":[{"type":"command","bash":"$(json_escape "$(copilot_hook_command "user-prompt-submitted")")","timeoutSec":10}],"preToolUse":[{"type":"command","bash":"$(json_escape "$(copilot_hook_command "pre-tool-use")")","timeoutSec":5}],"postToolUse":[{"type":"command","bash":"$(json_escape "$(copilot_hook_command "post-tool-use")")","timeoutSec":5}],"errorOccurred":[{"type":"command","bash":"$(json_escape "$(copilot_hook_command "error-occurred")")","timeoutSec":10}]}}
+EOF
+}
+
+merge_copilot_config_json() {
+    local source_path="$1"
+    local destination_path="$2"
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        return 1
+    fi
+
+    python3 - "$source_path" "$destination_path" \
+        "$(copilot_hook_command "session-start")" \
+        "$(copilot_hook_command "session-end")" \
+        "$(copilot_hook_command "user-prompt-submitted")" \
+        "$(copilot_hook_command "pre-tool-use")" \
+        "$(copilot_hook_command "post-tool-use")" \
+        "$(copilot_hook_command "error-occurred")" <<'PY'
+import json
+import sys
+
+(
+    source_path,
+    destination_path,
+    session_start_cmd,
+    session_end_cmd,
+    user_prompt_submitted_cmd,
+    pre_tool_use_cmd,
+    post_tool_use_cmd,
+    error_occurred_cmd,
+) = sys.argv[1:]
+
+
+def strip_jsonc_comments(text: str) -> str:
+    output = []
+    in_string = False
+    escape = False
+    index = 0
+
+    while index < len(text):
+        char = text[index]
+
+        if in_string:
+            output.append(char)
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == "\"":
+                in_string = False
+            index += 1
+            continue
+
+        if char == "\"":
+            in_string = True
+            output.append(char)
+            index += 1
+            continue
+
+        if char == "/" and index + 1 < len(text):
+            next_char = text[index + 1]
+            if next_char == "/":
+                index += 2
+                while index < len(text) and text[index] not in "\r\n":
+                    index += 1
+                continue
+            if next_char == "*":
+                index += 2
+                while index + 1 < len(text) and not (text[index] == "*" and text[index + 1] == "/"):
+                    index += 1
+                index += 2
+                continue
+
+        output.append(char)
+        index += 1
+
+    return "".join(output)
+
+
+def strip_trailing_commas(text: str) -> str:
+    output = []
+    in_string = False
+    escape = False
+    index = 0
+
+    while index < len(text):
+        char = text[index]
+
+        if in_string:
+            output.append(char)
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == "\"":
+                in_string = False
+            index += 1
+            continue
+
+        if char == "\"":
+            in_string = True
+            output.append(char)
+            index += 1
+            continue
+
+        if char == ",":
+            lookahead = index + 1
+            while lookahead < len(text) and text[lookahead].isspace():
+                lookahead += 1
+            if lookahead < len(text) and text[lookahead] in "}]":
+                index += 1
+                continue
+
+        output.append(char)
+        index += 1
+
+    return "".join(output)
+
+
+with open(source_path, "r", encoding="utf-8") as fh:
+    raw_source = fh.read()
+
+parsed_source = strip_trailing_commas(strip_jsonc_comments(raw_source))
+existing = json.loads(parsed_source)
+
+if not isinstance(existing, dict):
+    raise SystemExit(1)
+
+if existing.get("version") != 1:
+    existing["version"] = 1
+hooks = existing.get("hooks")
+if hooks is None:
+    hooks = {}
+    existing["hooks"] = hooks
+elif not isinstance(hooks, dict):
+    hooks = None
+
+
+def append_command(event_name: str, command: str, timeout_sec: int) -> None:
+    if hooks is None:
+        return
+
+    entries = hooks.get(event_name)
+    if entries is None:
+        entries = []
+        hooks[event_name] = entries
+    elif not isinstance(entries, list):
+        return
+
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("type") == "command" and entry.get("bash") == command:
+            return
+
+    entries.append(
+        {
+            "type": "command",
+            "bash": command,
+            "timeoutSec": timeout_sec,
+        }
+    )
+
+
+append_command("sessionStart", session_start_cmd, 10)
+append_command("sessionEnd", session_end_cmd, 10)
+append_command("userPromptSubmitted", user_prompt_submitted_cmd, 10)
+append_command("preToolUse", pre_tool_use_cmd, 5)
+append_command("postToolUse", post_tool_use_cmd, 5)
+append_command("errorOccurred", error_occurred_cmd, 10)
+
+with open(destination_path, "w", encoding="utf-8") as fh:
+    json.dump(existing, fh, separators=(",", ":"))
+PY
+}
+
+cleanup_overlay_when_parent_exits() {
+    local overlay_path="$1"
+    (
+        local parent_pid="$$"
+        while kill -0 "$parent_pid" >/dev/null 2>&1; do
+            sleep 5
+        done
+        rm -rf "$overlay_path"
+    ) >/dev/null 2>&1 &
+}
+
+install_copilot_overlay() {
+    local source_home="$1"
+    local overlay_home
+    local source_config_path
+    local overlay_config_path
+
+    overlay_home="$(mktemp -d "${TMPDIR:-/tmp}/zentty-copilot-home.XXXXXX")" || return 1
+    source_config_path="${source_home}/config.json"
+    overlay_config_path="${overlay_home}/config.json"
+
+    if [[ -d "$source_home" ]]; then
+        local entry
+        local base_name
+        shopt -s dotglob nullglob
+        for entry in "$source_home"/*; do
+            base_name="$(basename "$entry")"
+            [[ "$base_name" == "config.json" ]] && continue
+            ln -s "$entry" "$overlay_home/$base_name" 2>/dev/null || true
+        done
+        shopt -u dotglob nullglob
+    fi
+
+    if [[ -f "$source_config_path" ]]; then
+        if ! merge_copilot_config_json "$source_config_path" "$overlay_config_path"; then
+            cp "$source_config_path" "$overlay_config_path"
+        fi
+    else
+        write_zentty_config_json "$overlay_config_path"
+    fi
+
+    export COPILOT_HOME="$overlay_home"
+    cleanup_overlay_when_parent_exits "$overlay_home"
+}
+
+extract_config_dir_override() {
+    local -a remaining=()
+    local arg
+
+    while (($#)); do
+        arg="$1"
+        shift
+
+        case "$arg" in
+            --config-dir)
+                if (($#)); then
+                    ZENTTY_COPILOT_SOURCE_HOME="$1"
+                    shift
+                else
+                    remaining+=("$arg")
+                fi
+                ;;
+            --config-dir=*)
+                ZENTTY_COPILOT_SOURCE_HOME="${arg#--config-dir=}"
+                ;;
+            *)
+                remaining+=("$arg")
+                ;;
+        esac
+    done
+
+    COPILOT_FORWARDED_ARGS=("${remaining[@]}")
+}
+
+real_copilot="$(find_real_copilot)" || {
+    echo "Error: copilot not found in PATH" >&2
+    exit 127
+}
+
+if ! integration_is_available; then
+    exec "$real_copilot" "$@"
+fi
+
+declare -a COPILOT_FORWARDED_ARGS
+ZENTTY_COPILOT_SOURCE_HOME=""
+extract_config_dir_override "$@"
+
+if ! install_copilot_overlay "${ZENTTY_COPILOT_SOURCE_HOME:-${COPILOT_HOME:-${HOME}/.copilot}}"; then
+    COPILOT_FORWARDED_ARGS=("$@")
+fi
+
+export ZENTTY_AGENT_TOOL="copilot"
+export ZENTTY_COPILOT_PID=$$
+exec "$(cd "$(dirname "$0")" && pwd)/../shared/zentty-agent-wrapper" "${COPILOT_FORWARDED_ARGS[@]}"

@@ -715,6 +715,9 @@ enum AppCommandRegistry {
     ]
 
     private static let definitionsByID = Dictionary(uniqueKeysWithValues: definitions.map { ($0.id, $0) })
+    private static let commandIDByMenuAction = Dictionary(uniqueKeysWithValues: definitions.compactMap { definition in
+        definition.menuItem.map { (NSStringFromSelector($0.selector), definition.id) }
+    })
 
     static func definition(for id: AppCommandID) -> AppCommandDefinition {
         guard let definition = definitionsByID[id] else {
@@ -726,6 +729,10 @@ enum AppCommandRegistry {
 
     static func commands(in category: ShortcutCategory) -> [AppCommandDefinition] {
         definitions.filter { $0.category == category }
+    }
+
+    static func commandID(forMenuAction selector: Selector) -> AppCommandID? {
+        commandIDByMenuAction[NSStringFromSelector(selector)]
     }
 }
 

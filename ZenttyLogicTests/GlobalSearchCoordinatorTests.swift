@@ -263,6 +263,36 @@ final class GlobalSearchCoordinatorTests: XCTestCase {
         )
     }
 
+    func test_hide_ends_global_search_and_clears_all_pane_searches() {
+        let paneID1 = PaneID("pane-1")
+        let paneID2 = PaneID("pane-2")
+        let runtime1 = makeRuntime(paneID: paneID1)
+        let runtime2 = makeRuntime(paneID: paneID2)
+
+        let coordinator = makeCoordinator(
+            targets: [
+                GlobalSearchTarget(worklaneID: WorklaneID("worklane-1"), paneID: paneID1),
+                GlobalSearchTarget(worklaneID: WorklaneID("worklane-2"), paneID: paneID2),
+            ],
+            runtimes: [
+                paneID1: runtime1.runtime,
+                paneID2: runtime2.runtime,
+            ],
+            navigateToTarget: { _, _, _ in },
+            endAllLocalSearches: {}
+        )
+
+        coordinator.updateQuery("build")
+        coordinator.handleSearchEvent(for: paneID1, event: .total(2))
+        coordinator.handleSearchEvent(for: paneID2, event: .total(1))
+
+        coordinator.hide()
+
+        XCTAssertEqual(runtime1.adapter.bindingActions, ["start_search", "search:build", "end_search"])
+        XCTAssertEqual(runtime2.adapter.bindingActions, ["start_search", "search:build", "end_search"])
+        XCTAssertEqual(coordinator.state, GlobalSearchState())
+    }
+
     private func makeCoordinator(
         targets: [GlobalSearchTarget],
         runtimes: [PaneID: PaneRuntime],

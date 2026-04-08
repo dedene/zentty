@@ -43,6 +43,11 @@ final class AgentStatusSupportTests: XCTestCase {
         )
     }
 
+    func test_agent_tool_keeps_copilot_metadata_unrecognized_without_explicit_hook_payloads() {
+        XCTAssertEqual(AgentTool.resolve(named: "copilot"), .copilot)
+        XCTAssertNil(AgentTool.resolveKnown(named: "copilot"))
+    }
+
     func test_agent_status_helper_returns_nil_when_resource_directories_are_missing() throws {
         let bundle = try makeTemporaryBundle(named: "MissingResources")
 
@@ -59,7 +64,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["claude", "codex", "opencode"] {
+        for name in ["claude", "codex", "copilot", "opencode"] {
             let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
             let fileURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
@@ -82,7 +87,9 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["claude", "codex", "opencode"].map { binURL.appendingPathComponent($0, isDirectory: true).path }
+            ["claude", "codex", "copilot", "opencode"].map {
+                binURL.appendingPathComponent($0, isDirectory: true).path
+            }
         )
         XCTAssertEqual(AgentStatusHelper.wrapperSupportDirectoryPath(in: bundle), sharedURL.path)
         XCTAssertEqual(AgentStatusHelper.shellIntegrationDirectoryPath(in: bundle), shellURL.path)
@@ -96,7 +103,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["claude", "codex", "opencode"] {
+        for name in ["claude", "codex", "copilot", "opencode"] {
             let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
             let fileURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
@@ -131,7 +138,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
 
-        for name in ["claude", "codex", "opencode"] {
+        for name in ["claude", "codex", "copilot", "opencode"] {
             let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
             let wrapperURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
@@ -158,6 +165,7 @@ final class AgentStatusSupportTests: XCTestCase {
             "PATH": [
                 binURL.appendingPathComponent("claude", isDirectory: true).path,
                 binURL.appendingPathComponent("codex", isDirectory: true).path,
+                binURL.appendingPathComponent("copilot", isDirectory: true).path,
                 binURL.appendingPathComponent("opencode", isDirectory: true).path,
                 sharedURL.path,
                 realBinURL.path,
@@ -1462,7 +1470,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
     }
 
-    func test_codex_hook_stop_maps_to_idle_payload() throws {
+    func test_codex_hook_stop_maps_to_stop_candidate_payload() throws {
         let input = try CodexHookBridge.parseInput(
             Data("""
             {"hook_event_name":"Stop","session_id":"session-1","last_assistant_message":"Done"}
@@ -1480,8 +1488,168 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .idle)
+        XCTAssertEqual(payload.lifecycleEvent, .stopCandidate)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
+    }
+
+    func test_copilot_hook_session_start_emits_pid_attach_and_idle_seed_payloads() throws {
+        let input = try CopilotHookBridge.parseInput(
+            Data("""
+            {"cwd":"/tmp/project"}
+            """.utf8),
+            defaultHookEventName: "sessionStart"
+        )
+
+        let payloads = try CopilotHookBridge.makePayloads(
+            from: input,
+            environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+                "ZENTTY_COPILOT_PID": "4242",
+            ]
+        )
+
+        XCTAssertEqual(payloads.count, 2)
+        let pidPayload = payloads[0]
+        XCTAssertEqual(pidPayload.signalKind, .pid)
+        XCTAssertEqual(pidPayload.pid, 4242)
+        XCTAssertEqual(pidPayload.pidEvent, .attach)
+        XCTAssertEqual(pidPayload.toolName, "Copilot")
+        XCTAssertEqual(pidPayload.origin, .explicitHook)
+
+        // Seed at .idle — the normalizer's copilot OSC fallthrough promotes
+        // to .running based on terminal-progress activity, then drops back
+        // to .idle when quiet. Seeding at .starting would short-circuit that.
+        let lifecyclePayload = payloads[1]
+        XCTAssertEqual(lifecyclePayload.signalKind, .lifecycle)
+        XCTAssertEqual(lifecyclePayload.state, .idle)
+        XCTAssertEqual(lifecyclePayload.toolName, "Copilot")
+        XCTAssertEqual(lifecyclePayload.origin, .explicitHook)
+        XCTAssertEqual(lifecyclePayload.confidence, .explicit)
+        XCTAssertEqual(lifecyclePayload.interactionKind, PaneAgentInteractionKind.none)
+        XCTAssertEqual(lifecyclePayload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_copilot_hook_user_prompt_submitted_is_noop() throws {
+        let input = try CopilotHookBridge.parseInput(
+            Data("""
+            {"cwd":"/tmp/project","prompt":"fix the bug"}
+            """.utf8),
+            defaultHookEventName: "userPromptSubmitted"
+        )
+
+        let payloads = try CopilotHookBridge.makePayloads(
+            from: input,
+            environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
+        )
+
+        // Running state is driven by OSC 9;4 progress, not by this hook.
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
+    func test_copilot_hook_pre_tool_use_ask_user_question_emits_needs_input() throws {
+        let input = try CopilotHookBridge.parseInput(
+            Data("""
+            {"cwd":"/tmp/project","toolName":"askuserquestiontool","toolArgs":"{\\"question\\":\\"Which option do you want?\\"}"}
+            """.utf8),
+            defaultHookEventName: "preToolUse"
+        )
+
+        let payload = try XCTUnwrap(
+            CopilotHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.toolName, "Copilot")
+        XCTAssertEqual(payload.text, "Which option do you want?")
+        XCTAssertEqual(payload.interactionKind, .question)
+        XCTAssertEqual(payload.confidence, .explicit)
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_copilot_hook_pre_tool_use_non_question_tool_is_noop() throws {
+        let input = try CopilotHookBridge.parseInput(
+            Data("""
+            {"cwd":"/tmp/project","toolName":"bash","toolArgs":"{\\"command\\":\\"ls\\"}"}
+            """.utf8),
+            defaultHookEventName: "preToolUse"
+        )
+
+        let payloads = try CopilotHookBridge.makePayloads(
+            from: input,
+            environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
+        )
+
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
+    func test_copilot_hook_post_tool_use_ask_user_question_clears_needs_input() throws {
+        let input = try CopilotHookBridge.parseInput(
+            Data("""
+            {"cwd":"/tmp/project","toolName":"askUserQuestion","toolArgs":"{}"}
+            """.utf8),
+            defaultHookEventName: "postToolUse"
+        )
+
+        let payload = try XCTUnwrap(
+            CopilotHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .idle)
+        XCTAssertEqual(payload.interactionKind, PaneAgentInteractionKind.none)
+        XCTAssertEqual(payload.toolName, "Copilot")
+    }
+
+    func test_copilot_hook_session_end_emits_clear_status_payload() throws {
+        let input = try CopilotHookBridge.parseInput(
+            Data("""
+            {"cwd":"/tmp/project","reason":"user-quit"}
+            """.utf8),
+            defaultHookEventName: "sessionEnd"
+        )
+
+        let payload = try XCTUnwrap(
+            CopilotHookBridge.makePayloads(
+                from: input,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.signalKind, .lifecycle)
+        XCTAssertNil(payload.state)
+        XCTAssertTrue(payload.clearsStatus)
+        XCTAssertEqual(payload.toolName, "Copilot")
+    }
+
+    func test_copilot_hook_parse_input_rejects_unknown_event() {
+        XCTAssertThrowsError(
+            try CopilotHookBridge.parseInput(
+                Data("{}".utf8),
+                defaultHookEventName: "permissionRequest"
+            )
+        )
     }
 
     func test_opencode_hook_session_status_busy_maps_to_running_payload() throws {
@@ -2002,6 +2170,27 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(recorder.requests.first?.windowID, "window-origin")
+    }
+
+    func test_notification_coordinator_default_center_is_safe_under_xctest() {
+        let store = NotificationStore()
+        let coordinator = WorklaneAttentionNotificationCoordinator(notificationStore: store)
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            windowID: WindowID("window-main"),
+            worklanes: [makeReadyWorklane(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                primaryText: "Implement push notifications"
+            )],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        XCTAssertEqual(store.notifications.count, 1)
+        XCTAssertEqual(store.notifications.first?.statusText, "Agent ready")
     }
 
     private func makeClaudeHookSessionStore() throws -> ClaudeHookSessionStore {

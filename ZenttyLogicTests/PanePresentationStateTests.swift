@@ -928,4 +928,330 @@ final class PanePresentationStateTests: XCTestCase {
 
         XCTAssertEqual(presentation.runtimePhase, .idle)
     }
+
+    func test_normalize_copilot_idle_with_osc_activity_resolves_to_running() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "GitHub Copilot",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "copilot",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .copilot,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 100)
+            ),
+            terminalProgress: TerminalProgressReport(state: .indeterminate, progress: nil),
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Copilot",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+        XCTAssertTrue(presentation.isWorking)
+    }
+
+    func test_normalize_copilot_asking_title_resolves_to_needs_input_with_question_kind() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Asking question",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "copilot",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .copilot,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 100)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Copilot",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .question)
+        XCTAssertEqual(presentation.statusText, "Needs decision")
+        XCTAssertEqual(presentation.interactionLabel, "Needs decision")
+        XCTAssertFalse(presentation.isWorking)
+    }
+
+    func test_normalize_copilot_asking_title_beats_osc_activity() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Asking user",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "copilot",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .copilot,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 100)
+            ),
+            terminalProgress: TerminalProgressReport(state: .indeterminate, progress: nil),
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Copilot",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .question)
+    }
+
+    func test_normalize_copilot_non_asking_title_with_osc_activity_resolves_to_running() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "GitHub Copilot",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "copilot",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .copilot,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 100)
+            ),
+            terminalProgress: TerminalProgressReport(state: .indeterminate, progress: nil),
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Copilot",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertNil(presentation.interactionKind)
+    }
+
+    func test_normalize_copilot_idle_with_osc_removed_stays_idle() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "GitHub Copilot",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "copilot",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .copilot,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 100)
+            ),
+            terminalProgress: TerminalProgressReport(state: .remove, progress: nil),
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Copilot",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertFalse(presentation.isWorking)
+    }
+
+    // MARK: - Copilot "Needs input" title detection without hooks
+
+    func test_normalize_copilot_asking_title_without_hook_resolves_to_needs_input() {
+        // Live-app regression: CopilotHookBridge may not have fired yet,
+        // so agentStatus is nil. The normalizer must still detect the
+        // "Asking ..." title via metadata.processName (not recognizedTool,
+        // which uses resolveKnown and excludes copilot by design).
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Asking user question",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "copilot",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: TerminalProgressReport(state: .indeterminate, progress: nil),
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Copilot",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .question)
+        XCTAssertEqual(presentation.statusText, "Needs decision")
+    }
+
+    func test_normalize_copilot_awaiting_title_without_hook_resolves_to_needs_input() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Awaiting user response",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "copilot",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Copilot",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .question)
+    }
+
+    func test_normalize_copilot_requesting_title_without_hook_resolves_to_needs_input() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Requesting user input",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "copilot",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Copilot",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .question)
+    }
+
+    func test_normalize_copilot_title_with_trailing_question_word_resolves_to_needs_input() {
+        // Secondary fallback: any title mentioning "question" as a word
+        // should trip the matcher, even if the leading verb isn't in the
+        // allow-list (e.g. the LLM gets creative with phrasing).
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Posing a clarifying question",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "copilot",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Copilot",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .question)
+    }
+
+    func test_normalize_copilot_analyzing_title_without_hook_stays_idle() {
+        // Negative case: non-question gerunds must not trip the matcher.
+        // Without a hook-driven agentStatus and without the "Asking ..."
+        // pattern, Copilot falls through to the OSC-driven idle/running
+        // path — here OSC is silent, so the pane is idle.
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Analyzing codebase",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "copilot",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Copilot",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertNil(presentation.interactionKind)
+    }
+
+    func test_normalize_non_copilot_pane_with_asking_title_stays_unaffected() {
+        // Negative case: the matcher must only fire for copilot panes.
+        // A shell pane whose title happens to start with "Asking" must
+        // not be flagged as needs-input.
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Asking the oracle",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "bash",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "bash",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertNotEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertNil(presentation.interactionKind)
+    }
 }

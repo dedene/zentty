@@ -39,6 +39,7 @@ final class PaneContainerView: NSView {
     private let contentClipView = NSView()
     private let terminalAnchorView = TerminalAnchorView()
     private let terminalHostView: TerminalPaneHostView
+    private let borderContextView = PaneBorderContextInsetView()
     private let backingScaleFactorProvider: () -> CGFloat
     private let insetBorderLayer = CALayer()
     private let borderGapMaskLayer = CAShapeLayer()
@@ -57,10 +58,23 @@ final class PaneContainerView: NSView {
     private var currentTheme: ZenttyTheme
     private var currentEmphasis: CGFloat
     private var currentBorderGapWidth: CGFloat = 0
+    private var currentBorderContext: PaneBorderContextDisplayModel?
     private var currentIsFocused: Bool
     private var lastRenderedSearchState = PaneSearchState()
     var onSelected: (() -> Void)?
     var onCloseRequested: (() -> Void)?
+    var onBorderContextClicked: ((PaneID) -> Void)? {
+        didSet {
+            if onBorderContextClicked == nil {
+                borderContextView.onClick = nil
+            } else {
+                borderContextView.onClick = { [weak self] in
+                    guard let self else { return }
+                    self.onBorderContextClicked?(self.paneID)
+                }
+            }
+        }
+    }
     var onSearchHUDVisibilityDidChange: ((Bool) -> Void)?
     var onScrollWheel: ((NSEvent) -> Bool)? {
         didSet {
@@ -154,6 +168,10 @@ final class PaneContainerView: NSView {
         statusOverlayView.autoresizingMask = [.width, .height]
         statusOverlayView.frame = bounds
         addSubview(contentClipView)
+        borderContextView.translatesAutoresizingMaskIntoConstraints = true
+        borderContextView.autoresizingMask = []
+        borderContextView.isHidden = true
+        addSubview(borderContextView)
         contentClipView.addSubview(terminalAnchorView)
         terminalAnchorView.addSubview(terminalHostView)
         contentClipView.addSubview(statusOverlayView)
@@ -233,12 +251,14 @@ final class PaneContainerView: NSView {
         pane: PaneState,
         emphasis: CGFloat,
         isFocused: Bool,
+        borderContext: PaneBorderContextDisplayModel? = nil,
         animated: Bool
     ) {
         render(
             pane: pane,
             emphasis: emphasis,
             isFocused: isFocused,
+            borderContext: borderContext,
             animated: animated,
             useNeutralBackground: false
         )
@@ -248,6 +268,7 @@ final class PaneContainerView: NSView {
         pane: PaneState,
         emphasis: CGFloat,
         isFocused: Bool,
+        borderContext: PaneBorderContextDisplayModel? = nil,
         animated: Bool,
         useNeutralBackground: Bool = false
     ) {
@@ -255,6 +276,7 @@ final class PaneContainerView: NSView {
             pane: pane,
             emphasis: emphasis,
             isFocused: isFocused,
+            borderContext: borderContext,
             animatedVisualState: animated,
             useNeutralBackground: useNeutralBackground
         )
@@ -263,12 +285,14 @@ final class PaneContainerView: NSView {
     func render(
         pane: PaneState,
         emphasis: CGFloat,
-        isFocused: Bool
+        isFocused: Bool,
+        borderContext: PaneBorderContextDisplayModel? = nil
     ) {
         render(
             pane: pane,
             emphasis: emphasis,
             isFocused: isFocused,
+            borderContext: borderContext,
             animatedVisualState: false,
             useNeutralBackground: false
         )
@@ -278,6 +302,7 @@ final class PaneContainerView: NSView {
         pane: PaneState,
         emphasis: CGFloat,
         isFocused: Bool,
+        borderContext: PaneBorderContextDisplayModel?,
         animatedVisualState: Bool,
         useNeutralBackground: Bool
     ) {
@@ -285,8 +310,10 @@ final class PaneContainerView: NSView {
         titleTextStorage = pane.title
         currentEmphasis = emphasis
         currentIsFocused = isFocused
+        currentBorderContext = borderContext
         runtime.update(pane: pane)
         updateInsetBorderLayer()
+        updateBorderContextView()
         applyVisualState(animated: animatedVisualState, useNeutralBackground: useNeutralBackground)
     }
 
@@ -415,6 +442,7 @@ final class PaneContainerView: NSView {
             updateInsetBorderLayer()
         }
         statusOverlayView.frame = bounds
+        updateBorderContextView()
         updateSearchHUDMouseSuppression()
     }
 
@@ -536,7 +564,7 @@ final class PaneContainerView: NSView {
     }
 
     var hasPaneContextChrome: Bool {
-        false
+        !borderContextView.isHidden
     }
 
     var statusOverlayFrame: CGRect {
@@ -571,6 +599,31 @@ final class PaneContainerView: NSView {
 
     var borderLabelGapWidthForTesting: CGFloat {
         currentBorderGapWidth
+    }
+
+    var paneBorderContextTextForTesting: String? {
+        guard !borderContextView.isHidden else { return nil }
+        return borderContextView.textForTesting
+    }
+
+    var paneBorderContextFrameForTesting: CGRect? {
+        guard !borderContextView.isHidden else { return nil }
+        return borderContextView.frame
+    }
+
+    var paneBorderContextTextFrameForTesting: CGRect? {
+        guard !borderContextView.isHidden else { return nil }
+        return borderContextView.textFrameForTesting
+    }
+
+    var paneBorderContextNaturalTextWidthForTesting: CGFloat? {
+        guard !borderContextView.isHidden else { return nil }
+        return borderContextView.naturalTextWidthForTesting
+    }
+
+    var paneBorderContextTextTruncationModeForTesting: CATextLayerTruncationMode? {
+        guard !borderContextView.isHidden else { return nil }
+        return borderContextView.truncationModeForTesting
     }
 
     func setBorderLabelGap(width: CGFloat) {
@@ -666,6 +719,59 @@ final class PaneContainerView: NSView {
         borderGapMaskLayer.frame = borderBounds
         borderGapMaskLayer.path = path
         CATransaction.commit()
+    }
+
+    private func updateBorderContextView() {
+        guard !bounds.isEmpty else {
+            borderContextView.isHidden = true
+            setBorderLabelGap(width: 0)
+            return
+        }
+
+        guard let borderContext = currentBorderContext, !borderContext.text.isEmpty else {
+            borderContextView.isHidden = true
+            setBorderLabelGap(width: 0)
+            return
+        }
+
+        let maxWidth = max(
+            0,
+            bounds.width
+                - PaneBorderContextInsetView.Layout.paneContextLeadingInset
+                - PaneBorderContextInsetView.Layout.paneContextTrailingGutter
+        )
+        guard maxWidth > 24 else {
+            borderContextView.isHidden = true
+            setBorderLabelGap(width: 0)
+            return
+        }
+
+        let size = borderContextView.measure(text: borderContext.text, maxWidth: maxWidth)
+        borderContextView.frame = paneBorderContextFrame(for: size)
+        borderContextView.isHidden = false
+        borderContextView.render(
+            text: borderContext.text,
+            isFocused: currentIsFocused,
+            theme: currentTheme,
+            backingScaleFactor: resolvedBackingScaleFactor
+        )
+        setBorderLabelGap(width: size.width)
+        if borderContextView.onClick != nil {
+            window?.invalidateCursorRects(for: borderContextView)
+        }
+    }
+
+    private func paneBorderContextFrame(for size: CGSize) -> CGRect {
+        let borderLineY = insetBorderLayer.frame.maxY - (Layout.borderWidth / 2)
+        let borderInset = ChromeGeometry.paneBorderInset(backingScaleFactor: resolvedBackingScaleFactor)
+        let minX = insetBorderLayer.frame.minX
+            + (PaneBorderContextInsetView.Layout.paneContextLeadingInset - borderInset)
+        return CGRect(
+            x: minX,
+            y: borderLineY - (size.height / 2),
+            width: size.width,
+            height: size.height
+        )
     }
 
     private var resolvedBackingScaleFactor: CGFloat {
@@ -782,14 +888,21 @@ final class PaneContainerView: NSView {
     }
 
     private func updateSearchHUDMouseSuppression() {
-        let suppressionRects: [CGRect]
+        var suppressionRects = [dragZoneSuppressionRect]
         if lastRenderedSearchState.isHUDVisible {
-            suppressionRects = [terminalHostView.searchHUDFrameInHostCoordinates]
-        } else {
-            suppressionRects = []
+            suppressionRects.append(terminalHostView.searchHUDFrameInHostCoordinates)
         }
 
         terminalHostView.setMouseInteractionSuppressionRects(suppressionRects)
+    }
+
+    private var dragZoneSuppressionRect: CGRect {
+        CGRect(
+            x: 0,
+            y: bounds.height - Self.dragZoneHeight,
+            width: bounds.width,
+            height: Self.dragZoneHeight
+        )
     }
 
     private func updateStatus(_ state: StatusState) {

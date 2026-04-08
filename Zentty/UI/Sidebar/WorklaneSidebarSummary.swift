@@ -58,6 +58,7 @@ struct WorklaneSidebarSummary: Equatable {
     let badgeText: String
     let topLabel: String?
     let primaryText: String
+    let contextPrefixText: String?
     let focusedPaneLineIndex: Int
     let statusText: String?
     let statusSymbolName: String?
@@ -88,6 +89,7 @@ struct WorklaneSidebarSummary: Equatable {
         badgeText: String,
         topLabel: String? = nil,
         primaryText: String,
+        contextPrefixText: String? = nil,
         focusedPaneLineIndex: Int = 0,
         statusText: String? = nil,
         statusSymbolName: String? = nil,
@@ -105,6 +107,7 @@ struct WorklaneSidebarSummary: Equatable {
         self.badgeText = badgeText
         self.topLabel = topLabel
         self.primaryText = primaryText
+        self.contextPrefixText = contextPrefixText
         self.focusedPaneLineIndex = focusedPaneLineIndex
         self.statusText = statusText
         self.statusSymbolName = statusSymbolName

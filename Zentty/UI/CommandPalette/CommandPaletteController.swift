@@ -20,11 +20,7 @@ final class CommandPaletteController {
         in window: NSWindow,
         theme: ZenttyTheme,
         shortcutManager: ShortcutManager,
-        worklaneCount: Int,
-        activePaneCount: Int,
-        totalPaneCount: Int,
-        focusedPaneHasRememberedSearch: Bool,
-        globalSearchHasRememberedSearch: Bool,
+        availabilityContext: CommandAvailabilityContext,
         focusedPanePath: String?,
         openWithTargets: [OpenWithResolvedTarget] = []
     ) {
@@ -35,13 +31,7 @@ final class CommandPaletteController {
 
         lastFocusedPanePath = focusedPanePath
 
-        let availableIDs = CommandAvailabilityResolver.availableCommandIDs(
-            worklaneCount: worklaneCount,
-            activePaneCount: activePaneCount,
-            totalPaneCount: totalPaneCount,
-            focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
-            globalSearchHasRememberedSearch: globalSearchHasRememberedSearch
-        )
+        let availableIDs = CommandAvailabilityResolver.availableCommandIDs(for: availabilityContext)
         let commandItems = CommandPaletteItemBuilder.buildItems(
             availableCommandIDs: availableIDs,
             shortcutManager: shortcutManager,

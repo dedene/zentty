@@ -3,6 +3,7 @@ import Foundation
 enum AgentTool: Equatable, Sendable {
     case claudeCode
     case codex
+    case copilot
     case openCode
     case custom(String)
 
@@ -12,6 +13,8 @@ enum AgentTool: Equatable, Sendable {
             return "Claude Code"
         case .codex:
             return "Codex"
+        case .copilot:
+            return "Copilot"
         case .openCode:
             return "OpenCode"
         case .custom(let name):
@@ -29,6 +32,9 @@ enum AgentTool: Equatable, Sendable {
         }
         if normalized.contains("codex") {
             return .codex
+        }
+        if normalized.contains("copilot") {
+            return .copilot
         }
         if normalized.contains("opencode") || normalized.contains("open code") {
             return .openCode
@@ -56,6 +62,8 @@ enum AgentTool: Equatable, Sendable {
             return .openCode
         }
 
+        // Keep Copilot hook-driven only for metadata recognition so generic
+        // terminal-progress fallback still shows Running when hooks are absent.
         return nil
     }
 

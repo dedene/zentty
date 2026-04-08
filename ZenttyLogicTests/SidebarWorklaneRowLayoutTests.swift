@@ -331,38 +331,83 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
         XCTAssertEqual(resizedHeight, initialHeight, accuracy: 0.5)
     }
 
-    func test_sidebar_row_height_grows_for_tight_pane_rows_when_title_wraps_and_metadata_reflows() throws {
+    func test_sidebar_row_pane_primary_stays_single_line_across_widths() throws {
+        // Regression: pane row primaries must stay single-line with tail
+        // truncation so the shimmer overlay keeps drawing when an agent is
+        // running. Wrapping would force the shimmer to be hidden.
         let title = "Ready | zentty · Verify adaptive multiline sidebar rows while preserving repo context and status visibility"
-        let summary = makeSummary(
-            primaryText: "General coding assistance session",
-            paneRows: [
-                WorklaneSidebarPaneRow(
-                    paneID: PaneID("worklane-main-agent"),
-                    primaryText: title,
-                    trailingText: "feature/autoresearch/zsh-startup-2026-03-22",
-                    detailText: "…/zentty",
-                    statusText: "Agent ready",
-                    attentionState: .ready,
-                    isFocused: true,
-                    isWorking: false
-                ),
-            ]
+        let paneRow = WorklaneSidebarPaneRow(
+            paneID: PaneID("worklane-main-agent"),
+            primaryText: title,
+            trailingText: "feature/autoresearch/zsh-startup-2026-03-22",
+            detailText: "…/zentty",
+            statusText: "Agent ready",
+            attentionState: .ready,
+            isFocused: true,
+            isWorking: false
         )
-        let wideLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 900)
-        let narrowLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 220)
 
-        XCTAssertGreaterThan(narrowLayout.rowHeight, wideLayout.rowHeight + 0.5)
+        XCTAssertEqual(
+            SidebarWorklaneRowLayout.paneRowPrimaryLineCount(
+                for: paneRow,
+                availableWidth: 220
+            ),
+            1
+        )
+        XCTAssertEqual(
+            SidebarWorklaneRowLayout.paneRowPrimaryLineCount(
+                for: paneRow,
+                availableWidth: 900
+            ),
+            1
+        )
     }
 
-    func test_sidebar_row_height_grows_for_tight_worklane_rows_when_primary_wraps() {
+    func test_sidebar_row_worklane_primary_stays_single_line_across_widths() {
+        // Regression: worklane primary rows must stay single-line with tail
+        // truncation so the shimmer overlay (`SidebarShimmerTextView`) keeps
+        // drawing when an agent is running. Wrapping the primary would force
+        // the shimmer view to be hidden.
         let summary = makeSummary(
-            primaryText: "Requires approval for a longer sidebar copy check that should wrap to a second line in tight widths"
+            primaryText: "Requires approval for a longer sidebar copy check that would have wrapped to a second line in tight widths"
         )
 
         let wideLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 900)
         let narrowLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 220)
 
-        XCTAssertGreaterThan(narrowLayout.rowHeight, wideLayout.rowHeight + 0.5)
+        XCTAssertEqual(narrowLayout.rowHeight, wideLayout.rowHeight, accuracy: 0.001)
+        XCTAssertEqual(narrowLayout.rowHeight, ShellMetrics.sidebarCompactRowHeight, accuracy: 0.001)
+        XCTAssertEqual(narrowLayout.visibleTextRows, [.primary])
+        XCTAssertEqual(narrowLayout.mode, .compact)
+    }
+
+    func test_sidebar_row_inserts_context_prefix_between_primary_and_status() {
+        let summary = makeSummary(
+            primaryText: "main · zentty",
+            contextPrefixText: "…/Development",
+            statusText: "Running"
+        )
+
+        let layout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 320)
+
+        XCTAssertEqual(layout.mode, .expanded)
+        XCTAssertEqual(
+            layout.visibleTextRows,
+            [.primary, .contextPrefix, .status]
+        )
+        XCTAssertGreaterThan(layout.rowHeight, ShellMetrics.sidebarCompactRowHeight + 0.5)
+    }
+
+    func test_sidebar_row_expands_for_context_prefix_even_without_status() {
+        let summary = makeSummary(
+            primaryText: "main · zentty",
+            contextPrefixText: "…/Development"
+        )
+
+        let layout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 320)
+
+        XCTAssertEqual(layout.mode, .expanded)
+        XCTAssertEqual(layout.visibleTextRows, [.primary, .contextPrefix])
     }
 
     func test_sidebar_row_height_grows_for_tight_worklane_rows_when_status_wraps() {
@@ -468,6 +513,7 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
     private func makeSummary(
         topLabel: String? = nil,
         primaryText: String = "shell",
+        contextPrefixText: String? = nil,
         focusedPaneLineIndex: Int = 0,
         statusText: String? = nil,
         detailLines: [WorklaneSidebarDetailLine] = [],
@@ -479,6 +525,7 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
             badgeText: "M",
             topLabel: topLabel,
             primaryText: primaryText,
+            contextPrefixText: contextPrefixText,
             focusedPaneLineIndex: focusedPaneLineIndex,
             statusText: statusText,
             detailLines: detailLines,

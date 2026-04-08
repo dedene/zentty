@@ -63,6 +63,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private let primaryTextContainer = SidebarPrimaryTextContainerView()
     private let primaryBaseLabel = SidebarStaticLabel()
     private let primaryLabel = SidebarShimmerTextView()
+    private let contextPrefixLabel = SidebarStaticLabel()
     private let statusIconView = NSImageView()
     private let statusTextContainer = SidebarPrimaryTextContainerView()
     private let statusBaseLabel = SidebarStaticLabel()
@@ -216,6 +217,11 @@ final class SidebarWorklaneRowButton: NSButton {
         configureLabel(
             overflowLabel,
             font: ShellMetrics.sidebarOverflowFont(),
+            lineBreakMode: .byTruncatingTail
+        )
+        configureLabel(
+            contextPrefixLabel,
+            font: ShellMetrics.sidebarDetailFont(),
             lineBreakMode: .byTruncatingTail
         )
 
@@ -473,15 +479,11 @@ final class SidebarWorklaneRowButton: NSButton {
 
         topLabel.stringValue = resolvedSummary.topLabel ?? ""
         overflowLabel.stringValue = resolvedSummary.overflowText ?? ""
+        contextPrefixLabel.stringValue = resolvedSummary.contextPrefixText ?? ""
         if resolvedSummary.paneRows.isEmpty {
             primaryBaseLabel.stringValue = resolvedSummary.primaryText
             primaryLabel.stringValue = resolvedSummary.primaryText
-            applyWorklanePrimaryPresentation(
-                lineCount: SidebarWorklaneRowLayout.worklanePrimaryLineCount(
-                    for: resolvedSummary,
-                    availableWidth: bounds.width
-                )
-            )
+            applyWorklanePrimaryPresentation()
             let statusCopy = resolvedStatusCopy(
                 statusText: resolvedSummary.statusText,
                 attentionState: resolvedSummary.attentionState,
@@ -539,17 +541,20 @@ final class SidebarWorklaneRowButton: NSButton {
             : -ShellMetrics.sidebarRowBottomInset
     }
 
-    private func applyWorklanePrimaryPresentation(lineCount: Int) {
-        let clampedLineCount = max(1, min(2, lineCount))
-        let wraps = clampedLineCount > 1
-
-        primaryBaseLabel.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
-        primaryBaseLabel.maximumNumberOfLines = wraps ? clampedLineCount : 1
-        primaryBaseLabel.cell?.wraps = wraps
-        primaryBaseLabel.cell?.usesSingleLineMode = wraps == false
-        primaryLabel.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
-        primaryLabel.isHidden = wraps
-        primaryTextHeightConstraint?.constant = ShellMetrics.sidebarPrimaryLineHeight * CGFloat(clampedLineCount)
+    private func applyWorklanePrimaryPresentation() {
+        // The worklane primary row is intentionally single-line with tail
+        // truncation. The shimmer overlay (`SidebarShimmerTextView`) is a
+        // single-line CoreText renderer, so keeping this label one line wide
+        // is what allows running agents to shimmer. Long paths expose their
+        // disambiguation prefix on the dedicated `.contextPrefix` row via
+        // `WorklaneSidebarSummary.contextPrefixText`.
+        primaryBaseLabel.lineBreakMode = .byTruncatingTail
+        primaryBaseLabel.maximumNumberOfLines = 1
+        primaryBaseLabel.cell?.wraps = false
+        primaryBaseLabel.cell?.usesSingleLineMode = true
+        primaryLabel.lineBreakMode = .byTruncatingTail
+        primaryLabel.isHidden = false
+        primaryTextHeightConstraint?.constant = ShellMetrics.sidebarPrimaryLineHeight
         primaryTextContainer.invalidateIntrinsicContentSize()
     }
 
@@ -733,6 +738,10 @@ final class SidebarWorklaneRowButton: NSButton {
             statusBaseLabel.textColor = statusTextColor(for: summary)
             statusIconView.contentTintColor =
                 statusBaseLabel.textColor ?? currentTheme.secondaryText
+            contextPrefixLabel.textColor = detailTextColor(
+                for: .secondary,
+                summary: summary
+            )
 
             for (index, detailLabel) in detailLabels.enumerated() {
                 guard summary.detailLines.indices.contains(index) else {
@@ -827,11 +836,9 @@ final class SidebarWorklaneRowButton: NSButton {
             activeTextColor: activeTextColor,
             inactiveTextColor: inactiveTextColor
         )
-        let primaryWraps = SidebarWorklaneRowLayout.worklanePrimaryLineCount(
-            for: summary,
-            availableWidth: bounds.width
-        ) > 1
-        primaryLabel.isShimmering = isWorking && primaryWraps == false
+        // Primary is always rendered single-line (see `applyWorklanePrimaryPresentation`),
+        // so the shimmer view can always animate while the agent is working.
+        primaryLabel.isShimmering = isWorking
         primaryLabel.reducedMotion = reducedMotionProvider()
         let primaryShimmerTreatment: SidebarShimmerTreatment = isActive ? .shadow : .highlight
         primaryLabel.shimmerColor = shimmerColor(
@@ -1181,6 +1188,10 @@ final class SidebarWorklaneRowButton: NSButton {
     private func groupedViews(for layout: SidebarWorklaneRowLayout) -> [NSView] {
         var views: [NSView] = []
         var currentPaneIndex: Int?
+        // Track whether the context prefix has already been bundled into a
+        // pane row button so the fallback branch (paneRows.isEmpty) and the
+        // adjacency check in `.contextPrefix` below know to skip it.
+        var contextPrefixConsumed = false
 
         for row in layout.visibleTextRows {
             switch row {
@@ -1192,6 +1203,9 @@ final class SidebarWorklaneRowButton: NSButton {
                         switch next {
                         case .paneDetail(let i) where i == index:
                             subViews.append(paneDetailLabels[i])
+                        case .contextPrefix where index == 0:
+                            subViews.append(contextPrefixLabel)
+                            contextPrefixConsumed = true
                         case .paneStatus(let i) where i == index:
                             subViews.append(paneStatusRows[i])
                         default:
@@ -1203,6 +1217,13 @@ final class SidebarWorklaneRowButton: NSButton {
                 }
             case .paneDetail, .paneStatus:
                 break
+            case .contextPrefix:
+                // Skip when the pane row bundle already absorbed it. This
+                // only fires in the standalone (paneRows.isEmpty) fallback.
+                if contextPrefixConsumed == false {
+                    currentPaneIndex = nil
+                    views.append(insetWrappedView(for: label(for: row)))
+                }
             default:
                 currentPaneIndex = nil
                 views.append(insetWrappedView(for: label(for: row)))
@@ -1226,6 +1247,8 @@ final class SidebarWorklaneRowButton: NSButton {
             topLabel
         case .primary:
             primaryTextContainer
+        case .contextPrefix:
+            contextPrefixLabel
         case .status:
             statusContentStack
         case .panePrimary(let index):
@@ -1293,6 +1316,24 @@ final class SidebarWorklaneRowButton: NSButton {
 
     var shimmerIsAnimatingForTesting: Bool {
         primaryLabel.shimmerIsAnimating
+    }
+
+    var primaryShimmerViewIsHiddenForTesting: Bool {
+        primaryLabel.isHidden
+    }
+
+    var primaryBaseLabelMaximumNumberOfLinesForTesting: Int {
+        primaryBaseLabel.maximumNumberOfLines
+    }
+
+    var contextPrefixTextForTesting: String {
+        contextPrefixLabel.stringValue
+    }
+
+    var contextPrefixRowIsVisibleForTesting: Bool {
+        textStack.arrangedSubviews.contains { view in
+            view === contextPrefixLabel || view.containsDescendant(contextPrefixLabel)
+        }
     }
 
     var statusShimmerIsAnimatingForTesting: Bool {
@@ -2218,8 +2259,12 @@ private final class SidebarPanePrimaryRowView: NSView {
         self.trailingColor = trailingColor
         baseLabel.textColor = primaryColor
         trailingLabelView.textColor = trailingColor
-        shimmerLabel.isHidden = presentationMode == .adaptive
-        shimmerLabel.isShimmering = isShimmering && presentationMode == .inline
+        // The pane row primary stays single-line with tail truncation (see
+        // `applyPresentationMode`) so the shimmer overlay always has a line
+        // to clip against — hiding it on wrap would kill the shimmer on
+        // running agents.
+        shimmerLabel.isHidden = false
+        shimmerLabel.isShimmering = isShimmering
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor
     }
@@ -2241,39 +2286,29 @@ private final class SidebarPanePrimaryRowView: NSView {
     }
 
     private func applyPresentationMode(lineCount: Int) {
-        let clampedLineCount = max(1, min(2, lineCount))
-        let wraps = presentationMode == .adaptive
-
-        baseLabel.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
-        baseLabel.maximumNumberOfLines = wraps ? clampedLineCount : 1
-        baseLabel.cell?.wraps = wraps
-        baseLabel.cell?.usesSingleLineMode = wraps == false
-        trailingLabelView.isHidden = wraps || (trailingText?.isEmpty ?? true)
-        stack.alignment = wraps ? .top : .centerY
-        heightConstraint?.constant = ShellMetrics.sidebarPrimaryLineHeight * CGFloat(clampedLineCount)
+        // The pane row primary is intentionally single-line with tail
+        // truncation. `SidebarShimmerTextView` is a single-line CoreText
+        // renderer, so keeping this label one line wide is what allows
+        // running agents to shimmer. Long titles simply truncate.
+        //
+        // Note: we still honour `presentationMode == .adaptive` for the
+        // inline trailing label. In adaptive mode the branch moves to the
+        // status row (via `paneRowStatusTrailingLayout`), so hiding the
+        // inline trailing here prevents it from appearing in both places.
+        let movesTrailingToStatusRow = presentationMode == .adaptive
+        baseLabel.lineBreakMode = .byTruncatingTail
+        baseLabel.maximumNumberOfLines = 1
+        baseLabel.cell?.wraps = false
+        baseLabel.cell?.usesSingleLineMode = true
+        trailingLabelView.isHidden =
+            movesTrailingToStatusRow || (trailingText?.isEmpty ?? true)
+        stack.alignment = .centerY
+        heightConstraint?.constant = ShellMetrics.sidebarPrimaryLineHeight
         invalidateIntrinsicContentSize()
     }
 
     private func updateAdaptiveHeight() {
-        guard presentationMode == .adaptive else {
-            return
-        }
-
-        let availableWidth = max(0, textContainer.bounds.width)
-        guard availableWidth > 0 else {
-            heightConstraint?.constant = ShellMetrics.sidebarPrimaryLineHeight * CGFloat(requestedLineCount)
-            return
-        }
-
-        let boundingRect = (primaryText as NSString).boundingRect(
-            with: NSSize(width: availableWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: ShellMetrics.sidebarPrimaryFont()]
-        )
-        let measuredLineCount = Int(ceil(boundingRect.height / ShellMetrics.sidebarPrimaryLineHeight))
-        let resolvedLineCount = max(1, min(2, measuredLineCount))
-        heightConstraint?.constant = ShellMetrics.sidebarPrimaryLineHeight * CGFloat(resolvedLineCount)
-        invalidateIntrinsicContentSize()
+        // The pane row primary is always single-line — no adaptive height.
     }
 }
 
@@ -2330,7 +2365,7 @@ private final class SidebarPaneTextRowView: NSView {
         contentStack.addArrangedSubview(textContainer)
         trailingLabelView.font = ShellMetrics.sidebarDetailFont()
         trailingLabelView.alignment = .right
-        trailingLabelView.lineBreakMode = .byTruncatingHead
+        trailingLabelView.lineBreakMode = .byTruncatingMiddle
         trailingLabelView.translatesAutoresizingMaskIntoConstraints = false
         trailingLabelView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         trailingLabelView.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -2397,16 +2432,19 @@ private final class SidebarPaneTextRowView: NSView {
         self.text = text
         self.symbolName = symbolName ?? ""
         self.trailingText = trailingText
-        baseLabel.stringValue = text
-        shimmerLabel.stringValue = text
+        let showsTrailingTextInLeadingSlot = rendersTrailingTextInLeadingSlot
+        let leadingText = showsTrailingTextInLeadingSlot ? (trailingText ?? "") : text
+
+        baseLabel.stringValue = leadingText
+        shimmerLabel.stringValue = leadingText
         iconView.image = symbolName.flatMap {
             NSImage(systemSymbolName: $0, accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: Self.symbolPointSize, weight: .semibold))
         }
-        iconView.isHidden = iconView.image == nil
-        trailingLabelView.stringValue = trailingText ?? ""
-        trailingLabelView.isHidden = (trailingText?.isEmpty ?? true)
-        trailingWidthConstraint?.constant = trailingText == nil ? 0 : trailingWidth
+        iconView.isHidden = showsTrailingTextInLeadingSlot || iconView.image == nil
+        trailingLabelView.stringValue = showsTrailingTextInLeadingSlot ? "" : (trailingText ?? "")
+        trailingLabelView.isHidden = showsTrailingTextInLeadingSlot || (trailingText?.isEmpty ?? true)
+        trailingWidthConstraint?.constant = showsTrailingTextInLeadingSlot || trailingText == nil ? 0 : trailingWidth
         applyPresentation(lineCount: lineCount)
     }
 
@@ -2422,10 +2460,13 @@ private final class SidebarPaneTextRowView: NSView {
         let dimmedColor = isShimmering
             ? textColor.withAlphaComponent(textColor.alphaComponent * 0.90)
             : textColor
-        baseLabel.textColor = dimmedColor
+        let leadingTextColor = rendersTrailingTextInLeadingSlot
+            ? (trailingTextColor ?? textColor)
+            : dimmedColor
+        baseLabel.textColor = leadingTextColor
         iconView.contentTintColor = dimmedColor
         trailingLabelView.textColor = trailingTextColor
-        shimmerLabel.isShimmering = isShimmering && lineCount == 1
+        shimmerLabel.isShimmering = isShimmering && lineCount == 1 && rendersTrailingTextInLeadingSlot == false
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor
     }
@@ -2461,13 +2502,18 @@ private final class SidebarPaneTextRowView: NSView {
         baseLabel.cell?.usesSingleLineMode = wraps == false
         shimmerLabel.isHidden = wraps
         contentStack.alignment = wraps ? .top : .centerY
-        trailingLabelView.isHidden = wraps || (trailingText?.isEmpty ?? true)
+        trailingLabelView.isHidden = wraps || rendersTrailingTextInLeadingSlot || (trailingText?.isEmpty ?? true)
         heightConstraint?.constant = rowLineHeight * CGFloat(clampedLineCount)
         invalidateIntrinsicContentSize()
     }
 
     private func updateResolvedTrailingVisibility() {
         guard let trailingText, trailingText.isEmpty == false else {
+            trailingLabelView.isHidden = true
+            return
+        }
+
+        guard rendersTrailingTextInLeadingSlot == false else {
             trailingLabelView.isHidden = true
             return
         }
@@ -2519,6 +2565,18 @@ private final class SidebarPaneTextRowView: NSView {
             attributes: [.font: font]
         )
         return Int(ceil(boundingRect.height / lineHeight))
+    }
+
+    private var rendersTrailingTextInLeadingSlot: Bool {
+        Self.hasVisibleText(text) == false && Self.hasVisibleText(trailingText)
+    }
+
+    private static func hasVisibleText(_ text: String?) -> Bool {
+        guard let text else {
+            return false
+        }
+
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 }
 

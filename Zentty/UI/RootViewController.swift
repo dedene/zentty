@@ -69,7 +69,6 @@ final class RootViewController: NSViewController {
     private let renderCoordinator: WorklaneRenderCoordinator
     private var staleAgentSweepTimer: Timer?
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
-    private let paneBorderContextOverlayView = PaneBorderContextOverlayView()
     private let dragOverlayView: HitTransparentView = {
         let view = HitTransparentView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -275,7 +274,6 @@ final class RootViewController: NSViewController {
 
     private func setupSubviews() {
         appCanvasView.translatesAutoresizingMaskIntoConstraints = false
-        paneBorderContextOverlayView.translatesAutoresizingMaskIntoConstraints = false
         windowChromeView.translatesAutoresizingMaskIntoConstraints = false
         sidebarView.translatesAutoresizingMaskIntoConstraints = false
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
@@ -285,7 +283,6 @@ final class RootViewController: NSViewController {
         notificationCoordinator.bellButton.translatesAutoresizingMaskIntoConstraints = false
         globalSearchHUDView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appCanvasView)
-        view.addSubview(paneBorderContextOverlayView)
         view.addSubview(globalSearchHUDView)
         view.addSubview(windowChromeView)
         view.addSubview(sidebarHoverRailView)
@@ -355,11 +352,6 @@ final class RootViewController: NSViewController {
             dragOverlayView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
             dragOverlayView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
 
-            paneBorderContextOverlayView.topAnchor.constraint(equalTo: view.topAnchor),
-            paneBorderContextOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            paneBorderContextOverlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            paneBorderContextOverlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
             windowChromeView.topAnchor.constraint(
                 equalTo: view.topAnchor, constant: ShellMetrics.outerInset),
             windowChromeView.leadingAnchor.constraint(
@@ -421,8 +413,7 @@ final class RootViewController: NSViewController {
             to: WorklaneRenderCoordinator.ViewBindings(
                 sidebarView: sidebarView,
                 windowChromeView: windowChromeView,
-                appCanvasView: appCanvasView,
-                paneBorderContextOverlayView: paneBorderContextOverlayView
+                appCanvasView: appCanvasView
             ))
         renderCoordinator.environment = self
         renderCoordinator.startObserving()
@@ -485,7 +476,7 @@ final class RootViewController: NSViewController {
             self?.navigateToNotification(notification)
         }
 
-        paneBorderContextOverlayView.onPathClicked = { [weak self] paneID in
+        appCanvasView.paneStripView.onPaneBorderContextClicked = { [weak self] paneID in
             self?.copyPath(forPaneID: paneID)
         }
     }
@@ -620,9 +611,7 @@ final class RootViewController: NSViewController {
         }
         appCanvasView.paneStripView.onDragActiveChanged = { [weak self] active in
             guard let self else { return }
-            if active {
-                self.paneBorderContextOverlayView.isHidden = true
-            } else {
+            if !active {
                 self.sidebarMotionCoordinator.handle(.hoverRailExited)
                 self.syncSidebarVisibilityControls(animated: true)
             }
@@ -764,12 +753,8 @@ final class RootViewController: NSViewController {
     override func viewDidLayout() {
         super.viewDidLayout()
         syncSidebarWidthToAvailableWidth(persist: false)
-        _ = updatePaneLayoutContextIfNeeded(notifyLayoutResize: false)
+        _ = updatePaneLayoutContextIfNeeded()
         updatePaneViewportHeight()
-        if view.window == nil {
-            renderCoordinator.renderCanvas(animated: false)
-        }
-        renderCoordinator.renderBorderOverlay()
     }
 
     func activateWindowBindingsIfNeeded() {
@@ -870,6 +855,10 @@ final class RootViewController: NSViewController {
                 return event
             }
 
+            guard self.isCommandAvailable(commandID) else {
+                return event
+            }
+
             self.handle(AppCommandRegistry.definition(for: commandID).action)
             return nil
         }
@@ -882,6 +871,10 @@ final class RootViewController: NSViewController {
     func handle(_ action: AppAction, syncingFocusWith responder: NSResponder?) {
         syncFocusedPaneWithResponderIfNeeded(responder)
         cancelPendingPaneStripScrollSwitchGestureIfNeeded(for: action)
+
+        if let commandID = commandID(for: action), isCommandAvailable(commandID) == false {
+            return
+        }
 
         switch action {
         case .toggleSidebar:
@@ -1200,11 +1193,7 @@ final class RootViewController: NSViewController {
         guard let window = view.window else { return }
 
         let activeWorklane = worklaneStore.activeWorklane
-        let worklaneCount = worklaneStore.worklanes.count
-        let activePaneCount = activeWorklane?.paneStripState.panes.count ?? 0
-        let totalPaneCount = worklaneStore.worklanes.reduce(0) { partialResult, worklane in
-            partialResult + worklane.paneStripState.panes.count
-        }
+        let availabilityContext = commandAvailabilityContext()
         let focusedPanePath: String? = {
             guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
@@ -1218,11 +1207,7 @@ final class RootViewController: NSViewController {
             in: window,
             theme: currentTheme,
             shortcutManager: shortcutManager,
-            worklaneCount: worklaneCount,
-            activePaneCount: activePaneCount,
-            totalPaneCount: totalPaneCount,
-            focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
-            globalSearchHasRememberedSearch: globalSearchHasRememberedSearch,
+            availabilityContext: availabilityContext,
             focusedPanePath: focusedPanePath,
             openWithTargets: openWithTargets
         )
@@ -1284,6 +1269,31 @@ final class RootViewController: NSViewController {
         case .vertical:
             return max(1, minimumSize.height / PaneResize.minimumRows)
         }
+    }
+
+    private func commandAvailabilityContext() -> CommandAvailabilityContext {
+        let activeWorklane = worklaneStore.activeWorklane
+        let paneStripState = activeWorklane?.paneStripState
+        let totalPaneCount = worklaneStore.worklanes.reduce(0) { partialResult, worklane in
+            partialResult + worklane.paneStripState.panes.count
+        }
+        return CommandAvailabilityContext(
+            worklaneCount: worklaneStore.worklanes.count,
+            activePaneCount: paneStripState?.panes.count ?? 0,
+            totalPaneCount: totalPaneCount,
+            activeColumnCount: paneStripState?.columns.count ?? 0,
+            focusedColumnPaneCount: paneStripState?.focusedColumn?.panes.count ?? 0,
+            focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
+            globalSearchHasRememberedSearch: globalSearchHasRememberedSearch
+        )
+    }
+
+    func isCommandAvailable(_ commandID: AppCommandID) -> Bool {
+        CommandAvailabilityResolver.isCommandAvailable(commandID, for: commandAvailabilityContext())
+    }
+
+    private func commandID(for action: AppAction) -> AppCommandID? {
+        AppCommandRegistry.definitions.first(where: { $0.action == action })?.id
     }
 
     private func resolvedVerticalKeyboardResizeDelta(_ delta: CGFloat) -> CGFloat {
@@ -1413,7 +1423,6 @@ final class RootViewController: NSViewController {
         windowChromeView.apply(theme: theme, animated: animated)
         appCanvasView.apply(theme: theme, animated: animated)
         applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
-        renderCoordinator.renderBorderOverlay()
         onWindowChromeNeedsUpdate?()
     }
 

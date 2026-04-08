@@ -1418,6 +1418,68 @@ final class MainWindowControllerTests: XCTestCase {
 
         XCTAssertTrue(controller.validateMenuItem(menuItem))
     }
+
+    func test_arrange_width_thirds_menu_item_is_disabled_when_active_worklane_has_two_panes() {
+        let controller = makeController()
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-1"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: PaneID("pane-1"), title: "left"),
+                    PaneState(id: PaneID("pane-2"), title: "right"),
+                ],
+                focusedPaneID: PaneID("pane-1")
+            )
+        )
+
+        controller.rootViewControllerForTesting.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+
+        let menuItem = NSMenuItem(
+            title: "Arrange Width: Thirds",
+            action: #selector(MainWindowController.arrangePaneWidthThirds(_:)),
+            keyEquivalent: "3"
+        )
+
+        XCTAssertFalse(controller.validateMenuItem(menuItem))
+    }
+
+    func test_invalid_arrange_width_quarters_command_is_ignored_when_active_worklane_has_two_panes() {
+        let controller = makeController()
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-1"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                columns: [
+                    PaneColumnState(
+                        id: PaneColumnID("left"),
+                        panes: [PaneState(id: PaneID("pane-1"), title: "left")],
+                        width: 720,
+                        focusedPaneID: PaneID("pane-1"),
+                        lastFocusedPaneID: PaneID("pane-1")
+                    ),
+                    PaneColumnState(
+                        id: PaneColumnID("right"),
+                        panes: [PaneState(id: PaneID("pane-2"), title: "right")],
+                        width: 480,
+                        focusedPaneID: PaneID("pane-2"),
+                        lastFocusedPaneID: PaneID("pane-2")
+                    ),
+                ],
+                focusedColumnID: PaneColumnID("left")
+            )
+        )
+
+        controller.rootViewControllerForTesting.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+        let initialWidths = controller.rootViewControllerForTesting.paneStripStateForTesting.columns.map(\.width)
+
+        controller.rootViewControllerForTesting.handle(.pane(.arrangeHorizontally(.quarters)))
+
+        XCTAssertEqual(
+            controller.rootViewControllerForTesting.paneStripStateForTesting.columns.map(\.width),
+            initialWidths
+        )
+    }
 }
 
 @MainActor

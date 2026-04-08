@@ -777,6 +777,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "claude"
         case .codex:
             return "codex"
+        case .copilot:
+            return "copilot"
         case .openCode:
             return "opencode"
         case .custom(let name):

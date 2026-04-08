@@ -459,7 +459,6 @@ struct PaneAgentReducerState: Equatable, Sendable {
         }
 
         if shellActivityState == .commandRunning {
-            _ = promoteExplicitStartingSessionToRunning(now: now)
             _ = resumeBlockedSessionFromActivity(now: now)
         } else if shellActivityState == .promptIdle {
             _ = markRunningSessionIdleFromPromptReturn(now: now)
@@ -572,6 +571,10 @@ struct PaneAgentReducerState: Equatable, Sendable {
     private static func sessionPriority(_ session: PaneAgentSessionState) -> Int {
         if session.interactionKind.requiresHumanAttention || session.state == .needsInput {
             return 500 + session.interactionKind.priority
+        }
+
+        if session.completionCandidateDeadline != nil {
+            return 225
         }
 
         switch session.state {

@@ -8,6 +8,9 @@ case "$tool_basename" in
     codex)
         display_name="Codex"
         ;;
+    copilot)
+        display_name="Copilot"
+        ;;
     opencode)
         display_name="OpenCode"
         ;;
@@ -86,7 +89,7 @@ real_binary="$(find_real_binary)" || {
 
 prepare_opencode_overlay_if_needed
 
-if [[ "$tool_basename" != "codex" ]]; then
+if [[ "$tool_basename" != "codex" && "$tool_basename" != "copilot" ]]; then
     send_signal pid attach "$$"
 fi
 

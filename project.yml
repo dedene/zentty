@@ -93,6 +93,7 @@ targets:
 
           mkdir -p "${RESOURCES_DST}/bin" "${RESOURCES_DST}/shell-integration" "${RESOURCES_DST}/opencode/plugins"
           rsync -a --delete "${RESOURCES_SRC}/bin/" "${RESOURCES_DST}/bin/"
+          find "${RESOURCES_DST}/bin" -type f \( -path "*/claude/claude" -o -path "*/codex/codex" -o -path "*/copilot/copilot" -o -path "*/opencode/opencode" -o -path "*/shared/zentty-agent-wrapper" \) -exec chmod 755 {} +
           rsync -a --delete "${RESOURCES_SRC}/shell-integration/" "${RESOURCES_DST}/shell-integration/"
           rsync -a --delete "${RESOURCES_SRC}/opencode/" "${RESOURCES_DST}/opencode/"
         basedOnDependencyAnalysis: false
@@ -167,7 +168,8 @@ targets:
         PRODUCT_NAME: ZenttyIntegrationTests
         PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zenttyIntegrationTests
         INFOPLIST_FILE: ZenttyIntegrationTests/Info.plist
-        BUNDLE_LOADER: "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty"
+        TEST_HOST: ""
+        BUNDLE_LOADER: ""
       configs:
         Debug:
           LD_RUNPATH_SEARCH_PATHS:
@@ -192,7 +194,8 @@ targets:
         PRODUCT_NAME: ZenttyLogicTests
         PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zenttyLogicTests
         INFOPLIST_FILE: ZenttyLogicTests/Info.plist
-        BUNDLE_LOADER: "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty"
+        TEST_HOST: ""
+        BUNDLE_LOADER: ""
       configs:
         Debug:
           LD_RUNPATH_SEARCH_PATHS:

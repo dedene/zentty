@@ -1,18 +1,9 @@
 import AppKit
 import QuartzCore
 
-struct PaneBorderChromeSnapshot: Equatable {
-    let paneID: PaneID
-    let frame: CGRect
-    let initialPaneFrame: CGRect?
-    let isFocused: Bool
-    let emphasis: CGFloat
-    let borderContext: PaneBorderContextDisplayModel?
-}
-
 @MainActor
-final class PaneBorderContextOverlayView: NSView {
-    private enum Layout {
+final class PaneBorderContextInsetView: NSView {
+    enum Layout {
         static let paneContextLeadingInset: CGFloat = 24
         static let paneContextTrailingGutter: CGFloat = 16
         static let paneContextHorizontalPadding: CGFloat = 7
@@ -20,19 +11,25 @@ final class PaneBorderContextOverlayView: NSView {
         static let paneContextFontSize: CGFloat = 10
     }
 
-    var onPathClicked: ((PaneID) -> Void)?
+    private enum TextLayout {
+        static let topInset: CGFloat = 5
+        static let bottomInset: CGFloat = 4
+        static let verticalSafety: CGFloat = 2
+    }
 
-    private var currentSnapshots: [PaneBorderChromeSnapshot] = []
-    private var currentTheme = ZenttyTheme.fallback(for: nil)
-    private let backingScaleFactorProvider: () -> CGFloat
-    private var itemViewsByPaneID: [PaneID: PaneBorderContextInsetView] = [:]
-    private var newlyAddedPaneIDs: Set<PaneID> = []
+    var onClick: (() -> Void)?
 
-    init(
-        frame frameRect: NSRect = .zero,
-        backingScaleFactorProvider: @escaping () -> CGFloat = { NSScreen.main?.backingScaleFactor ?? 1 }
-    ) {
-        self.backingScaleFactorProvider = backingScaleFactorProvider
+    private let textContentLayer = CALayer()
+    private let leftBorderLineLayer = CALayer()
+    private let rightBorderLineLayer = CALayer()
+    private let textFont = NSFont.systemFont(ofSize: Layout.paneContextFontSize, weight: .semibold)
+    private var textColorToken = ""
+    private var naturalTextWidth: CGFloat = 0
+    private var currentAttributedText = NSAttributedString(string: "")
+    private var currentTextRect: CGRect = .zero
+    private let currentTruncationMode: CATextLayerTruncationMode = .middle
+
+    override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setup()
     }
@@ -43,465 +40,228 @@ final class PaneBorderContextOverlayView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard onPathClicked != nil else { return nil }
-        let localPoint = convert(point, from: superview)
-        for (_, itemView) in itemViewsByPaneID where !itemView.isHidden {
-            if itemView.frame.contains(localPoint) {
-                return self
-            }
+        guard onClick != nil, bounds.contains(point) else {
+            return nil
         }
-        return nil
+        return self
     }
 
     override func mouseDown(with event: NSEvent) {
-        let localPoint = convert(event.locationInWindow, from: nil)
-        for (paneID, itemView) in itemViewsByPaneID where !itemView.isHidden {
-            if itemView.frame.contains(localPoint) {
-                onPathClicked?(paneID)
-                return
-            }
-        }
+        onClick?()
     }
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        guard onPathClicked != nil else { return }
-        for (_, itemView) in itemViewsByPaneID where !itemView.isHidden {
-            addCursorRect(itemView.frame, cursor: .pointingHand)
-        }
+        guard onClick != nil else { return }
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 
-    func render(snapshots: [PaneBorderChromeSnapshot], theme: ZenttyTheme, animated: Bool = false) {
-        currentSnapshots = snapshots
-        currentTheme = theme
-        reconcileItemViews()
-        layoutItemViews(animated: animated)
+    override var isFlipped: Bool {
+        true
     }
 
-    override func layout() {
-        super.layout()
-        layoutItemViews()
+    override var wantsUpdateLayer: Bool {
+        true
     }
 
-    var paneContextTextsForTesting: [PaneID: String] {
-        itemViewsByPaneID.mapValues(\.textForTesting)
+    override func updateLayer() {}
+
+    func measure(text: String, maxWidth: CGFloat) -> CGSize {
+        naturalTextWidth = ceil(Self.naturalTextWidth(for: text, font: textFont))
+        let textHeight = ceil(Self.textLineHeight(for: textFont))
+        return CGSize(
+            width: min(maxWidth, naturalTextWidth + (Layout.paneContextHorizontalPadding * 2)),
+            height: max(
+                Layout.paneContextMinHeight,
+                textHeight + TextLayout.topInset + TextLayout.bottomInset + TextLayout.verticalSafety
+            )
+        )
     }
 
-    var paneContextFramesForTesting: [PaneID: CGRect] {
-        itemViewsByPaneID.mapValues(\.frame)
+    func render(
+        text: String,
+        isFocused: Bool,
+        theme: ZenttyTheme,
+        backingScaleFactor: CGFloat
+    ) {
+        let textColor = (isFocused
+            ? theme.paneBorderFocused
+            : theme.paneBorderUnfocused).brightenedForLabel
+        let textHeight = ceil(Self.textLineHeight(for: textFont))
+        let attributedText = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: textFont,
+                .foregroundColor: textColor,
+            ]
+        )
+
+        let borderColor = (isFocused
+            ? theme.paneBorderFocused
+            : theme.paneBorderUnfocused).cgColor
+        let lineHeight = max(1, 1 / backingScaleFactor)
+        textColorToken = textColor.themeToken
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.backgroundColor = NSColor.clear.cgColor
+        let lineY = (bounds.height - lineHeight) / 2
+        leftBorderLineLayer.frame = CGRect(
+            x: 0,
+            y: lineY,
+            width: 0,
+            height: lineHeight
+        )
+        rightBorderLineLayer.frame = CGRect(
+            x: bounds.width,
+            y: lineY,
+            width: 0,
+            height: lineHeight
+        )
+        leftBorderLineLayer.backgroundColor = borderColor
+        rightBorderLineLayer.backgroundColor = borderColor
+        currentAttributedText = attributedText
+        let availableHeight = max(0, bounds.height - TextLayout.topInset - TextLayout.bottomInset)
+        let drawingHeight = min(availableHeight, textHeight + TextLayout.verticalSafety)
+        let drawingY = TextLayout.topInset + max(0, floor((availableHeight - drawingHeight) / 2))
+        currentTextRect = Self.alignedRect(
+            CGRect(
+                x: Layout.paneContextHorizontalPadding,
+                y: drawingY,
+                width: max(0, bounds.width - (Layout.paneContextHorizontalPadding * 2)),
+                height: drawingHeight
+            ),
+            scale: backingScaleFactor
+        )
+        textContentLayer.frame = currentTextRect
+        textContentLayer.contentsScale = backingScaleFactor
+        textContentLayer.contents = Self.renderTextImage(
+            attributedText,
+            size: currentTextRect.size,
+            scale: backingScaleFactor
+        )
+        CATransaction.commit()
     }
 
-    var paneContextTextColorTokensForTesting: [PaneID: String] {
-        itemViewsByPaneID.mapValues(\.textColorTokenForTesting)
+    var textForTesting: String {
+        currentAttributedText.string
     }
 
-    var paneContextTextFramesForTesting: [PaneID: CGRect] {
-        itemViewsByPaneID.mapValues(\.textFrameForTesting)
+    var textColorTokenForTesting: String {
+        textColorToken
     }
 
-    var paneContextNaturalTextWidthsForTesting: [PaneID: CGFloat] {
-        itemViewsByPaneID.mapValues(\.naturalTextWidthForTesting)
+    var textFrameForTesting: CGRect {
+        currentTextRect
     }
 
-    var paneContextTextTruncationModesForTesting: [PaneID: CATextLayerTruncationMode] {
-        itemViewsByPaneID.mapValues(\.truncationModeForTesting)
+    var naturalTextWidthForTesting: CGFloat {
+        naturalTextWidth
     }
 
-    var paneContextLeftBorderFramesForTesting: [PaneID: CGRect] {
-        itemViewsByPaneID.mapValues(\.leftBorderFrameForTesting)
+    var leftBorderFrameForTesting: CGRect {
+        leftBorderLineLayer.frame
     }
 
-    var paneContextRightBorderFramesForTesting: [PaneID: CGRect] {
-        itemViewsByPaneID.mapValues(\.rightBorderFrameForTesting)
+    var rightBorderFrameForTesting: CGRect {
+        rightBorderLineLayer.frame
     }
 
-    var paneContextUsesCATextLayerForTesting: [PaneID: Bool] {
-        itemViewsByPaneID.mapValues(\.usesCATextLayerForTesting)
+    var truncationModeForTesting: CATextLayerTruncationMode {
+        currentTruncationMode
+    }
+
+    var usesCATextLayerForTesting: Bool {
+        layer?.sublayers?.contains(where: { $0 is CATextLayer }) ?? false
     }
 
     private func setup() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.masksToBounds = false
+
+        textContentLayer.zPosition = 1
+        leftBorderLineLayer.zPosition = 1
+        rightBorderLineLayer.zPosition = 1
+        layer?.addSublayer(textContentLayer)
+        layer?.addSublayer(leftBorderLineLayer)
+        layer?.addSublayer(rightBorderLineLayer)
     }
 
-    private func reconcileItemViews() {
-        newlyAddedPaneIDs.removeAll()
-        let nextSnapshots = currentSnapshots.filter { $0.borderContext != nil }
-        let nextPaneIDs = Set(nextSnapshots.map(\.paneID))
-        let obsoletePaneIDs = Set(itemViewsByPaneID.keys).subtracting(nextPaneIDs)
-
-        for paneID in obsoletePaneIDs {
-            itemViewsByPaneID[paneID]?.removeFromSuperview()
-            itemViewsByPaneID.removeValue(forKey: paneID)
-        }
-
-        for snapshot in nextSnapshots where itemViewsByPaneID[snapshot.paneID] == nil {
-            let itemView = PaneBorderContextInsetView()
-            itemViewsByPaneID[snapshot.paneID] = itemView
-            addSubview(itemView)
-            newlyAddedPaneIDs.insert(snapshot.paneID)
-        }
+    private static func naturalTextWidth(for text: String, font: NSFont) -> CGFloat {
+        NSAttributedString(
+            string: text,
+            attributes: [.font: font]
+        ).boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        ).width
     }
 
-    private func layoutItemViews(animated: Bool = false) {
-        let backingScaleFactor = max(1, window?.backingScaleFactor ?? backingScaleFactorProvider())
-        let borderInset = ChromeGeometry.paneBorderInset(backingScaleFactor: backingScaleFactor)
-        let borderWidth: CGFloat = 1
-
-        typealias LayoutUpdate = (
-            itemView: PaneBorderContextInsetView,
-            text: String?,
-            isFocused: Bool,
-            targetFrame: CGRect?,
-            initialFrame: CGRect?,
-            isNewItem: Bool
-        )
-
-        let updates: [LayoutUpdate] = currentSnapshots.compactMap { snapshot in
-            guard let itemView = self.itemViewsByPaneID[snapshot.paneID] else {
-                return nil
-            }
-
-            guard let borderContext = snapshot.borderContext else {
-                return (itemView, nil, snapshot.isFocused, nil, nil, false)
-            }
-
-            let maxWidth = max(
-                0,
-                snapshot.frame.width - Layout.paneContextLeadingInset - Layout.paneContextTrailingGutter
-            )
-            guard maxWidth > 24 else {
-                return (itemView, nil, snapshot.isFocused, nil, nil, false)
-            }
-
-            let size = itemView.measure(text: borderContext.text, maxWidth: maxWidth)
-            let targetFrame = self.paneContextFrame(
-                for: snapshot.frame,
-                size: size,
-                borderInset: borderInset,
-                borderWidth: borderWidth
-            )
-            let initialFrame = snapshot.initialPaneFrame.map {
-                self.paneContextFrame(
-                    for: $0,
-                    size: size,
-                    borderInset: borderInset,
-                    borderWidth: borderWidth
-                )
-            }
-
-            return (
-                itemView,
-                borderContext.text,
-                snapshot.isFocused,
-                targetFrame,
-                initialFrame,
-                self.newlyAddedPaneIDs.contains(snapshot.paneID)
-            )
-        }
-
-        for update in updates where update.isNewItem {
-            guard let targetFrame = update.targetFrame else {
-                continue
-            }
-            update.itemView.frame = update.initialFrame ?? targetFrame
-        }
-
-        let applyFrames = {
-            for update in updates {
-                let itemView = update.itemView
-
-                guard let text = update.text, let targetFrame = update.targetFrame else {
-                    itemView.isHidden = true
-                    continue
-                }
-
-                if animated, !update.isNewItem || update.initialFrame != nil {
-                    itemView.animator().frame = targetFrame
-                } else {
-                    itemView.frame = targetFrame
-                }
-                itemView.isHidden = false
-                itemView.render(
-                    text: text,
-                    isFocused: update.isFocused,
-                    theme: self.currentTheme,
-                    backingScaleFactor: backingScaleFactor
-                )
-            }
-        }
-
-        if animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = PaneStripMotionController.defaultAnimationDuration
-                context.timingFunction = PaneStripMotionController.defaultAnimationTimingFunction
-                context.allowsImplicitAnimation = true
-                applyFrames()
-            }
-        } else {
-            applyFrames()
-        }
-        newlyAddedPaneIDs.removeAll()
-
-        if onPathClicked != nil {
-            window?.invalidateCursorRects(for: self)
-        }
+    private static func textLineHeight(for font: NSFont) -> CGFloat {
+        font.ascender - font.descender + font.leading
     }
 
-    private func paneContextFrame(
-        for paneFrame: CGRect,
+    private static func renderTextImage(
+        _ attributedText: NSAttributedString,
         size: CGSize,
-        borderInset: CGFloat,
-        borderWidth: CGFloat
-    ) -> CGRect {
-        let borderLineY = paneFrame.maxY - borderInset - (borderWidth / 2)
-        return CGRect(
-            x: paneFrame.minX + Layout.paneContextLeadingInset,
-            y: borderLineY - (size.height / 2),
-            width: size.width,
-            height: size.height
-        )
+        scale: CGFloat
+    ) -> CGImage? {
+        let pixelWidth = Int(ceil(size.width * scale))
+        let pixelHeight = Int(ceil(size.height * scale))
+        guard pixelWidth > 0, pixelHeight > 0 else {
+            return nil
+        }
+
+        guard let context = CGContext(
+            data: nil,
+            width: pixelWidth,
+            height: pixelHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        ) else {
+            return nil
+        }
+
+        context.scaleBy(x: scale, y: scale)
+
+        let line = CTLineCreateWithAttributedString(attributedText)
+        let availableWidth = Double(size.width)
+        let drawLine: CTLine
+        if CTLineGetTypographicBounds(line, nil, nil, nil) > availableWidth {
+            let truncAttrs = attributedText.attributes(at: 0, effectiveRange: nil)
+            let token = NSAttributedString(string: "\u{2026}", attributes: truncAttrs)
+            let tokenLine = CTLineCreateWithAttributedString(token)
+            drawLine = CTLineCreateTruncatedLine(line, availableWidth, .middle, tokenLine) ?? line
+        } else {
+            drawLine = line
+        }
+
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        CTLineGetTypographicBounds(drawLine, &ascent, &descent, nil)
+        let lineHeight = ascent + descent
+        let bottomPadding = max(0, (size.height - lineHeight) / 2)
+
+        context.textMatrix = .identity
+        context.textPosition = CGPoint(x: 0, y: bottomPadding + descent)
+        CTLineDraw(drawLine, context)
+
+        return context.makeImage()
     }
 
-    private final class PaneBorderContextInsetView: NSView {
-        private let textContentLayer = CALayer()
-        private let leftBorderLineLayer = CALayer()
-        private let rightBorderLineLayer = CALayer()
-        private let textFont = NSFont.systemFont(ofSize: Layout.paneContextFontSize, weight: .semibold)
-        private var textColorToken = ""
-        private var naturalTextWidth: CGFloat = 0
-        private var currentAttributedText = NSAttributedString(string: "")
-        private var currentTextRect: CGRect = .zero
-        private let currentTruncationMode: CATextLayerTruncationMode = .middle
-
-        private enum TextLayout {
-            static let topInset: CGFloat = 5
-            static let bottomInset: CGFloat = 4
-            static let verticalSafety: CGFloat = 2
-            static let borderCoverTopBleed: CGFloat = 1
+    private static func alignedRect(_ rect: CGRect, scale: CGFloat) -> CGRect {
+        guard scale > 0 else {
+            return rect.integral
         }
 
-        override init(frame frameRect: NSRect) {
-            super.init(frame: frameRect)
-            setup()
-        }
-
-        @available(*, unavailable)
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            nil
-        }
-
-        override var isFlipped: Bool {
-            true
-        }
-
-        override var wantsUpdateLayer: Bool {
-            true
-        }
-
-        override func updateLayer() {}
-
-        func measure(text: String, maxWidth: CGFloat) -> CGSize {
-            naturalTextWidth = ceil(Self.naturalTextWidth(for: text, font: textFont))
-            let textHeight = ceil(Self.textLineHeight(for: textFont))
-            return CGSize(
-                width: min(maxWidth, naturalTextWidth + (Layout.paneContextHorizontalPadding * 2)),
-                height: max(
-                    Layout.paneContextMinHeight,
-                    textHeight + TextLayout.topInset + TextLayout.bottomInset + TextLayout.verticalSafety
-                )
-            )
-        }
-
-        func render(
-            text: String,
-            isFocused: Bool,
-            theme: ZenttyTheme,
-            backingScaleFactor: CGFloat
-        ) {
-            let textColor = (isFocused
-                ? theme.paneBorderFocused
-                : theme.paneBorderUnfocused).brightenedForLabel
-            let textHeight = ceil(Self.textLineHeight(for: textFont))
-            let attributedText = NSAttributedString(
-                string: text,
-                attributes: [
-                    .font: textFont,
-                    .foregroundColor: textColor,
-                ]
-            )
-
-            let borderColor = (isFocused
-                ? theme.paneBorderFocused
-                : theme.paneBorderUnfocused).cgColor
-            let lineHeight = max(1, 1 / backingScaleFactor)
-            textColorToken = textColor.themeToken
-
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer?.backgroundColor = NSColor.clear.cgColor
-            let lineY = (bounds.height - lineHeight) / 2
-            leftBorderLineLayer.frame = CGRect(
-                x: 0,
-                y: lineY,
-                width: 0,
-                height: lineHeight
-            )
-            rightBorderLineLayer.frame = CGRect(
-                x: bounds.width,
-                y: lineY,
-                width: 0,
-                height: lineHeight
-            )
-            leftBorderLineLayer.backgroundColor = borderColor
-            rightBorderLineLayer.backgroundColor = borderColor
-            currentAttributedText = attributedText
-            let availableHeight = max(0, bounds.height - TextLayout.topInset - TextLayout.bottomInset)
-            let drawingHeight = min(availableHeight, textHeight + TextLayout.verticalSafety)
-            let drawingY = TextLayout.topInset + max(0, floor((availableHeight - drawingHeight) / 2))
-            currentTextRect = Self.alignedRect(
-                CGRect(
-                    x: Layout.paneContextHorizontalPadding,
-                    y: drawingY,
-                    width: max(0, bounds.width - (Layout.paneContextHorizontalPadding * 2)),
-                    height: drawingHeight
-                ),
-                scale: backingScaleFactor
-            )
-            textContentLayer.frame = currentTextRect
-            textContentLayer.contentsScale = backingScaleFactor
-            textContentLayer.contents = Self.renderTextImage(
-                attributedText,
-                size: currentTextRect.size,
-                scale: backingScaleFactor
-            )
-            CATransaction.commit()
-        }
-
-        var textForTesting: String {
-            currentAttributedText.string
-        }
-
-        var textColorTokenForTesting: String {
-            textColorToken
-        }
-
-        var textFrameForTesting: CGRect {
-            currentTextRect
-        }
-
-        var naturalTextWidthForTesting: CGFloat {
-            naturalTextWidth
-        }
-
-        var leftBorderFrameForTesting: CGRect {
-            leftBorderLineLayer.frame
-        }
-
-        var rightBorderFrameForTesting: CGRect {
-            rightBorderLineLayer.frame
-        }
-
-        var truncationModeForTesting: CATextLayerTruncationMode {
-            currentTruncationMode
-        }
-
-        var usesCATextLayerForTesting: Bool {
-            layer?.sublayers?.contains(where: { $0 is CATextLayer }) ?? false
-        }
-
-        private func setup() {
-            wantsLayer = true
-            layer?.masksToBounds = false
-
-            textContentLayer.zPosition = 1
-            leftBorderLineLayer.zPosition = 1
-            rightBorderLineLayer.zPosition = 1
-            layer?.addSublayer(textContentLayer)
-            layer?.addSublayer(leftBorderLineLayer)
-            layer?.addSublayer(rightBorderLineLayer)
-        }
-
-        private static func naturalTextWidth(for text: String, font: NSFont) -> CGFloat {
-            NSAttributedString(
-                string: text,
-                attributes: [.font: font]
-            ).boundingRect(
-                with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                context: nil
-            ).width
-        }
-
-        private static func textLineHeight(for font: NSFont) -> CGFloat {
-            font.ascender - font.descender + font.leading
-        }
-
-        private static func renderTextImage(
-            _ attributedText: NSAttributedString,
-            size: CGSize,
-            scale: CGFloat
-        ) -> CGImage? {
-            let pixelWidth = Int(ceil(size.width * scale))
-            let pixelHeight = Int(ceil(size.height * scale))
-            guard pixelWidth > 0, pixelHeight > 0 else {
-                return nil
-            }
-
-            guard let context = CGContext(
-                data: nil,
-                width: pixelWidth,
-                height: pixelHeight,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-            ) else {
-                return nil
-            }
-
-            context.scaleBy(x: scale, y: scale)
-
-            let line = CTLineCreateWithAttributedString(attributedText)
-            let availableWidth = Double(size.width)
-            let drawLine: CTLine
-            if CTLineGetTypographicBounds(line, nil, nil, nil) > availableWidth {
-                let truncAttrs = attributedText.attributes(at: 0, effectiveRange: nil)
-                let token = NSAttributedString(string: "\u{2026}", attributes: truncAttrs)
-                let tokenLine = CTLineCreateWithAttributedString(token)
-                drawLine = CTLineCreateTruncatedLine(line, availableWidth, .middle, tokenLine) ?? line
-            } else {
-                drawLine = line
-            }
-
-            var ascent: CGFloat = 0
-            var descent: CGFloat = 0
-            CTLineGetTypographicBounds(drawLine, &ascent, &descent, nil)
-            let lineHeight = ascent + descent
-            let bottomPadding = max(0, (size.height - lineHeight) / 2)
-
-            context.textMatrix = .identity
-            context.textPosition = CGPoint(x: 0, y: bottomPadding + descent)
-            CTLineDraw(drawLine, context)
-
-            return context.makeImage()
-        }
-
-        private static func alignedRect(_ rect: CGRect, scale: CGFloat) -> CGRect {
-            guard scale > 0 else {
-                return rect.integral
-            }
-
-            let minX = (rect.minX * scale).rounded(.down) / scale
-            let minY = (rect.minY * scale).rounded(.down) / scale
-            let maxX = (rect.maxX * scale).rounded(.up) / scale
-            let maxY = (rect.maxY * scale).rounded(.up) / scale
-            return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-        }
+        let minX = (rect.minX * scale).rounded(.down) / scale
+        let minY = (rect.minY * scale).rounded(.down) / scale
+        let maxX = (rect.maxX * scale).rounded(.up) / scale
+        let maxY = (rect.maxY * scale).rounded(.up) / scale
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
 

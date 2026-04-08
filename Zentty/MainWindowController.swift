@@ -1035,18 +1035,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
 extension MainWindowController: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        switch menuItem.action {
-        case #selector(findNext(_:)),
-             #selector(findPrevious(_:)):
-            return hasRememberedSearchSession
-        default:
-            return true
+        if let action = menuItem.action,
+           let commandID = AppCommandRegistry.commandID(forMenuAction: action) {
+            return rootViewController.isCommandAvailable(commandID)
         }
-    }
-
-    private var hasRememberedSearchSession: Bool {
-        rootViewController.focusedPaneHasRememberedSearch
-            || rootViewController.globalSearchHasRememberedSearch
+        return true
     }
 }
 

@@ -33,6 +33,11 @@ enum WorklaneSidebarSummaryBuilder {
         let detailText: String?
     }
 
+    private enum PaneIdentityStyle {
+        case worklaneSummary
+        case paneRow
+    }
+
     private struct PaneDetailCandidate {
         let paneID: PaneID
         let metadata: TerminalMetadata?
@@ -208,6 +213,7 @@ enum WorklaneSidebarSummaryBuilder {
                 metadata: paneContext.metadata,
                 for: paneContext.presentation,
                 isSinglePane: isSinglePane,
+                style: .paneRow,
                 fallbackTitle: paneContext.pane.title
             )
 
@@ -374,6 +380,7 @@ enum WorklaneSidebarSummaryBuilder {
             metadata: paneContext.metadata,
             for: presentation,
             isSinglePane: isSinglePane,
+            style: .worklaneSummary,
             fallbackTitle: paneContext.pane.title
         )
         let primaryText = paneIdentity.primaryText
@@ -390,6 +397,7 @@ enum WorklaneSidebarSummaryBuilder {
         metadata: TerminalMetadata?,
         for presentation: PanePresentationState,
         isSinglePane: Bool,
+        style: PaneIdentityStyle,
         fallbackTitle: String?
     ) -> PaneSidebarIdentity {
         let branch = presentation.branchDisplayText
@@ -404,7 +412,7 @@ enum WorklaneSidebarSummaryBuilder {
             return PaneSidebarIdentity(
                 primaryText: volatileTitle,
                 trailingText: branch,
-                detailText: nil
+                detailText: workingDirectory
             )
         }
 
@@ -413,7 +421,7 @@ enum WorklaneSidebarSummaryBuilder {
                 return PaneSidebarIdentity(
                     primaryText: rememberedTitle,
                     trailingText: branch,
-                    detailText: nil
+                    detailText: workingDirectory
                 )
             }
 
@@ -427,6 +435,14 @@ enum WorklaneSidebarSummaryBuilder {
         }
 
         if let branch, let workingDirectory {
+            if style == .paneRow {
+                return PaneSidebarIdentity(
+                    primaryText: workingDirectory,
+                    trailingText: branch,
+                    detailText: nil
+                )
+            }
+
             return PaneSidebarIdentity(
                 primaryText: isSinglePane ? "\(branch) · \(workingDirectory)" : "\(branch) • \(workingDirectory)",
                 trailingText: nil,
@@ -802,46 +818,35 @@ enum WorklaneSidebarSummaryBuilder {
         }
 
         return zip(worklanes, summaries).map { worklane, summary in
-            let disambiguatedPrimaryText = disambiguatedPrimaryText(
+            let contextPrefixText = disambiguationContextPrefix(
                 for: summary,
                 pathsByWorklaneID: pathsByWorklaneID,
                 requiredSegmentCountByWorklaneID: requiredSegmentCountByWorklaneID
-            ) ?? summary.primaryText
-            let paneRows = summary.paneRows.map { paneRow in
-                guard paneRow.isFocused,
-                      paneRow.primaryText.caseInsensitiveCompare(summary.primaryText) == .orderedSame else {
-                    return paneRow
-                }
+            )
 
-                return WorklaneSidebarPaneRow(
-                    paneID: paneRow.paneID,
-                    primaryText: disambiguatedPrimaryText,
-                    trailingText: paneRow.trailingText,
-                    detailText: paneRow.detailText,
-                    statusText: paneRow.statusText,
-                    statusSymbolName: paneRow.statusSymbolName,
-                    attentionState: paneRow.attentionState,
-                    interactionKind: paneRow.interactionKind,
-                    interactionLabel: paneRow.interactionLabel,
-                    interactionSymbolName: paneRow.interactionSymbolName,
-                    isFocused: paneRow.isFocused,
-                    isWorking: paneRow.isWorking
-                )
-            }
-
+            // Keep the primary text un-expanded and surface the disambiguation
+            // delta on a dedicated small-font `contextPrefixText` line so the
+            // worklane row primary stays single-line — that's what allows the
+            // shimmer overlay (`SidebarShimmerTextView`, single-line only) to
+            // render when an agent is running. The `paneRows` array is
+            // unchanged: the focused pane's inline rendering continues to use
+            // the original (un-expanded) text, and the disambiguation prefix
+            // is carried alongside it so the layout can surface it on its own
+            // row between the pane primary and status.
             return WorklaneSidebarSummary(
                 worklaneID: summary.worklaneID,
                 badgeText: summary.badgeText,
                 topLabel: visibleTopLabel(
                     worklane.title,
-                    primaryText: disambiguatedPrimaryText
+                    primaryText: summary.primaryText
                 ),
-                primaryText: disambiguatedPrimaryText,
+                primaryText: summary.primaryText,
+                contextPrefixText: contextPrefixText,
                 focusedPaneLineIndex: summary.focusedPaneLineIndex,
                 statusText: summary.statusText,
                 statusSymbolName: summary.statusSymbolName,
                 detailLines: summary.detailLines,
-                paneRows: paneRows,
+                paneRows: summary.paneRows,
                 overflowText: summary.overflowText,
                 attentionState: summary.attentionState,
                 interactionKind: summary.interactionKind,
@@ -948,6 +953,58 @@ enum WorklaneSidebarSummaryBuilder {
         }
 
         return summary.primaryText.replacingCharacters(in: range, with: expandedCompactPrimaryText)
+    }
+
+    /// Returns the disambiguation path prefix for a summary (e.g. `"…/Development"`),
+    /// intended to be rendered on a dedicated small-font line above the status row.
+    /// Returns `nil` when no disambiguation expansion was required.
+    private static func disambiguationContextPrefix(
+        for summary: WorklaneSidebarSummary,
+        pathsByWorklaneID: [WorklaneID: String],
+        requiredSegmentCountByWorklaneID: [WorklaneID: Int]
+    ) -> String? {
+        guard summary.attentionState == nil,
+              let path = pathsByWorklaneID[summary.worklaneID] else {
+            return nil
+        }
+
+        let requiredSegmentCount = requiredSegmentCountByWorklaneID[summary.worklaneID] ?? 1
+        guard requiredSegmentCount > 1 else {
+            return nil
+        }
+
+        let expandedPath =
+            WorklaneContextFormatter.compactRepositorySidebarPath(
+                path,
+                minimumSegments: requiredSegmentCount
+            )
+            ?? WorklaneContextFormatter.compactSidebarPath(
+                path,
+                minimumSegments: requiredSegmentCount
+            )
+        guard let expandedPath else {
+            return nil
+        }
+
+        return extractContextPrefix(fromExpandedPath: expandedPath)
+    }
+
+    /// Strips the trailing leaf path component from an expanded sidebar path and
+    /// returns the head, normalized to the `"…/…"` ellipsis convention. Returns
+    /// `nil` when the head is empty or carries no useful path information.
+    private static func extractContextPrefix(fromExpandedPath expandedPath: String) -> String? {
+        guard let slashIndex = expandedPath.lastIndex(of: "/") else {
+            return nil
+        }
+        let head = String(expandedPath[..<slashIndex])
+        let trimmed = head.trimmingCharacters(in: .whitespaces)
+        guard trimmed.isEmpty == false, trimmed != "…" else {
+            return nil
+        }
+        if trimmed.hasPrefix("…/") || trimmed == "~" || trimmed.hasPrefix("~/") {
+            return trimmed
+        }
+        return "…/" + trimmed
     }
 
     private static func badge(for title: String) -> String {

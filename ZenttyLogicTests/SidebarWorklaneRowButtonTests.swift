@@ -28,6 +28,51 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertFalse(row.statusShimmerIsAnimatingForTesting)
     }
 
+    func test_working_worklane_row_keeps_primary_single_line_and_exposes_context_prefix_row() throws {
+        // Regression: commit 191703a added wrap support for the primary text
+        // and hid `primaryLabel` (the shimmer overlay) when the text wrapped,
+        // which killed the shimmer animation on running agents. We instead
+        // keep the primary single-line with tail truncation and surface the
+        // disambiguation delta on a dedicated small-font row.
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 240))
+        sidebarView.render(
+            summaries: [
+                WorklaneSidebarSummary(
+                    worklaneID: WorklaneID("worklane-main"),
+                    badgeText: "1",
+                    primaryText: "feature/shimmer-regression · zentty",
+                    contextPrefixText: "…/Development",
+                    statusText: "Running",
+                    attentionState: .running,
+                    isWorking: true,
+                    isActive: true
+                ),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        let window = makeVisibleWindow(containing: sidebarView)
+        addTeardownBlock { @MainActor in
+            window.orderOut(nil)
+            window.close()
+        }
+        sidebarView.updateShimmerVisibilityForTesting()
+        sidebarView.layoutSubtreeIfNeeded()
+
+        let row = try XCTUnwrap(
+            sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton
+        )
+
+        XCTAssertTrue(row.isWorkingForTesting)
+        XCTAssertFalse(
+            row.primaryShimmerViewIsHiddenForTesting,
+            "primary shimmer view must stay visible on running rows — this is the 191703a regression"
+        )
+        XCTAssertEqual(row.primaryBaseLabelMaximumNumberOfLinesForTesting, 1)
+        XCTAssertTrue(row.shimmerIsAnimatingForTesting)
+        XCTAssertTrue(row.contextPrefixRowIsVisibleForTesting)
+        XCTAssertEqual(row.contextPrefixTextForTesting, "…/Development")
+    }
+
     func test_idle_worklane_row_stays_static_when_it_is_not_hosted_in_a_visible_sidebar() {
         let row = makeRow()
 
@@ -428,6 +473,36 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(row.detailTextsForTesting, [])
     }
 
+    func test_worklane_row_renders_path_primary_with_branch_in_trailing_slot() {
+        let row = makeRow(width: 320, height: 88)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "zentty",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-path"),
+                        primaryText: "…/zentty",
+                        trailingText: "main",
+                        detailText: nil,
+                        statusText: nil,
+                        attentionState: nil,
+                        isFocused: true,
+                        isWorking: false
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(row.primaryTextsForTesting, ["…/zentty"])
+        XCTAssertEqual(row.primaryTrailingTextsForTesting, ["main"])
+        XCTAssertEqual(row.detailTextsForTesting, [])
+        XCTAssertEqual(row.paneStatusTextsForTesting, [])
+    }
+
     func test_agent_ready_and_stopped_early_use_distinct_status_colors() {
         let readyRow = makeRow(width: 320, height: 110)
         let stoppedRow = makeRow(width: 320, height: 110)
@@ -655,7 +730,78 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(branchMidY, statusMidY, accuracy: 1.0)
     }
 
-    func test_worklane_row_allows_tight_pane_titles_to_use_two_lines() throws {
+    func test_worklane_row_renders_branch_only_metadata_row_flush_left() throws {
+        let row = makeRow(width: 220, height: 120)
+        let branch = "feature/automatic-api-docs"
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Ready | automatic-api-docs · Verify the adaptive sidebar branch row",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Ready | automatic-api-docs · Verify the adaptive sidebar branch row",
+                        trailingText: branch,
+                        detailText: nil,
+                        statusText: nil,
+                        attentionState: nil,
+                        isFocused: true,
+                        isWorking: false
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
+        XCTAssertEqual(row.paneStatusTrailingTextsForTesting, [])
+        XCTAssertEqual(row.paneStatusTextsForTesting, [])
+
+        let branchLabel = try XCTUnwrap(findLabel(withText: branch, in: row))
+        let branchFrame = row.convert(branchLabel.bounds, from: branchLabel)
+        let paneRowMinX = try XCTUnwrap(row.firstPaneRowMinXForTesting)
+        let paneContentMinX = try XCTUnwrap(row.firstPaneRowContentMinXForTesting)
+
+        XCTAssertLessThanOrEqual(branchFrame.minX, paneRowMinX + paneContentMinX + 0.5)
+    }
+
+    func test_worklane_row_uses_middle_truncation_for_branch_in_shared_metadata_row() throws {
+        let row = makeRow(width: 280, height: 150)
+        let branch = "feature/automatic-api-docs"
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Use AskUserQuestionTool",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Use AskUserQuestionTool",
+                        trailingText: branch,
+                        detailText: nil,
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        let branchLabel = try XCTUnwrap(findLabel(withText: branch, in: row))
+
+        XCTAssertEqual(row.paneStatusTrailingTextsForTesting, [branch])
+        XCTAssertEqual(branchLabel.lineBreakMode, .byTruncatingMiddle)
+    }
+
+    func test_worklane_row_keeps_tight_pane_titles_single_line_for_shimmer() throws {
+        // Regression: the pane row primary stays single-line with tail
+        // truncation so the shimmer overlay keeps drawing on running agents.
+        // Wrapping would hide the shimmer view.
         let paneRow = WorklaneSidebarPaneRow(
             paneID: PaneID("worklane-main-agent"),
             primaryText: "Ready | zentty · Verify adaptive multiline sidebar rows while preserving repo context and status visibility",
@@ -669,7 +815,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
 
         XCTAssertEqual(
             SidebarWorklaneRowLayout.paneRowPrimaryLineCount(for: paneRow, availableWidth: 220),
-            2
+            1
         )
     }
 
@@ -1428,6 +1574,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
     private func makeSummary(
         topLabel: String? = nil,
         primaryText: String,
+        contextPrefixText: String? = nil,
         focusedPaneLineIndex: Int = 0,
         statusText: String? = nil,
         detailLines: [WorklaneSidebarDetailLine] = [],
@@ -1444,6 +1591,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             badgeText: "1",
             topLabel: topLabel,
             primaryText: primaryText,
+            contextPrefixText: contextPrefixText,
             focusedPaneLineIndex: focusedPaneLineIndex,
             statusText: statusText,
             detailLines: detailLines,

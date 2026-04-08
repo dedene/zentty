@@ -2,16 +2,21 @@ import Darwin
 import Foundation
 
 enum AgentStatusHelper {
-    private static let wrappedToolNames = ["claude", "codex", "opencode"]
+    private static let wrappedToolNames = ["claude", "codex", "copilot", "opencode"]
 
     static func runIfNeeded(arguments: [String], environment: [String: String]) -> Int32? {
         let subcommand = arguments.dropFirst().first
         guard subcommand == "agent-status"
             || subcommand == "agent-signal"
+            || subcommand == "copilot-hook"
             || subcommand == "codex-hook"
             || subcommand == "opencode-hook"
         else {
             return nil
+        }
+
+        if subcommand == "copilot-hook" {
+            return CopilotHookBridge.runIfNeeded(arguments: arguments, environment: environment)
         }
 
         if subcommand == "codex-hook" {
@@ -66,12 +71,14 @@ enum AgentStatusHelper {
             requiredRelativePaths: [
                 "claude/claude",
                 "codex/codex",
+                "copilot/copilot",
                 "opencode/opencode",
                 "shared/zentty-agent-wrapper",
             ],
             executableRelativePaths: [
                 "claude/claude",
                 "codex/codex",
+                "copilot/copilot",
                 "opencode/opencode",
                 "shared/zentty-agent-wrapper",
             ]
@@ -314,6 +321,7 @@ enum CodexHookBridge {
                     worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .idle,
+                    lifecycleEvent: .stopCandidate,
                     sessionID: input.sessionID,
                     cwd: input.cwd
                 ),
@@ -359,6 +367,7 @@ enum CodexHookBridge {
         worklaneID: WorklaneID,
         paneID: PaneID,
         state: PaneAgentState,
+        lifecycleEvent: AgentLifecycleEvent = .update,
         sessionID: String?,
         cwd: String?
     ) -> AgentStatusPayload {
@@ -371,7 +380,7 @@ enum CodexHookBridge {
             origin: .explicitHook,
             toolName: AgentTool.codex.displayName,
             text: nil,
-            lifecycleEvent: .update,
+            lifecycleEvent: lifecycleEvent,
             confidence: .explicit,
             sessionID: sessionID,
             artifactKind: nil,

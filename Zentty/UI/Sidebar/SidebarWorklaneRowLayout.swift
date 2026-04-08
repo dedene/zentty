@@ -10,6 +10,7 @@ enum WorklaneRowMode: Equatable {
 enum WorklaneRowTextRow: Equatable {
     case topLabel
     case primary
+    case contextPrefix
     case status
     case panePrimary(Int)
     case paneDetail(Int)
@@ -127,6 +128,8 @@ struct WorklaneRowLayoutMetrics: Equatable {
             return titleLineHeight
         case .primary:
             return primaryLineHeight
+        case .contextPrefix:
+            return detailLineHeight
         case .status:
             return statusLineHeight
         case .panePrimary:
@@ -190,10 +193,10 @@ struct SidebarWorklaneRowLayout: Equatable {
         let hasVisibleStatus = hasVisibleText(summary.statusText)
         let hasVisibleDetailLines = summary.detailLines.isEmpty == false
         let hasOverflow = hasVisibleText(summary.overflowText)
-        let wrapsPrimary = worklanePrimaryLineCount(for: summary, availableWidth: availableWidth) > 1
+        let hasVisibleContextPrefix = hasVisibleText(summary.contextPrefixText)
         let wrapsStatus = worklaneStatusLineCount(for: summary, availableWidth: availableWidth) > 1
 
-        return hasVisibleTitle || hasVisibleStatus || hasVisibleDetailLines || hasOverflow || wrapsPrimary || wrapsStatus
+        return hasVisibleTitle || hasVisibleStatus || hasVisibleDetailLines || hasOverflow || hasVisibleContextPrefix || wrapsStatus
             ? .expanded
             : .compact
     }
@@ -213,12 +216,24 @@ struct SidebarWorklaneRowLayout: Equatable {
                 rows.append(.topLabel)
             }
 
+            // Surface the disambiguation context prefix as a small-font row
+            // between the primary and the status of the (single) pane row.
+            // For multi-pane worklanes the prefix is implied by the pane row
+            // layout itself, so we skip it to avoid noise.
+            let shouldShowContextPrefix =
+                summary.paneRows.count == 1
+                && hasVisibleText(summary.contextPrefixText)
+
             for index in summary.paneRows.indices {
                 let paneRow = summary.paneRows[index]
                 rows.append(.panePrimary(index))
 
                 if hasVisibleText(paneRow.detailText) {
                     rows.append(.paneDetail(index))
+                }
+
+                if shouldShowContextPrefix && index == 0 {
+                    rows.append(.contextPrefix)
                 }
 
                 if paneRowShowsMetadataRow(paneRow, availableWidth: availableWidth) {
@@ -252,6 +267,10 @@ struct SidebarWorklaneRowLayout: Equatable {
                 rows.append(.detail(detailIndex))
                 detailIndex += 1
             }
+        }
+
+        if hasVisibleText(summary.contextPrefixText) {
+            rows.append(.contextPrefix)
         }
 
         if hasVisibleText(summary.statusText) {
@@ -312,28 +331,11 @@ struct SidebarWorklaneRowLayout: Equatable {
         availableWidth: CGFloat?,
         metrics: WorklaneRowLayoutMetrics = .sidebar
     ) -> Int {
-        guard paneRowPresentationMode(for: paneRow, availableWidth: availableWidth) == .adaptive,
-              let availableWidth else {
-            return 1
-        }
-
-        let contentWidth = paneRowContentWidth(for: availableWidth)
-        guard contentWidth > 0 else {
-            return 1
-        }
-
-        return max(
-            1,
-            min(
-                2,
-                measuredLineCount(
-                    for: paneRow.primaryText,
-                    font: ShellMetrics.sidebarPrimaryFont(),
-                    lineHeight: metrics.primaryLineHeight,
-                    width: contentWidth
-                )
-            )
-        )
+        // Pane row primaries render single-line with tail truncation so the
+        // shimmer overlay can animate. Row height no longer grows for long
+        // titles; the disambiguation delta is surfaced on the
+        // `.contextPrefix` row instead.
+        1
     }
 
     static func worklanePrimaryLineCount(
@@ -731,13 +733,10 @@ private extension WorklaneRowLayoutMetrics {
     ) -> CGFloat {
         switch row {
         case .primary:
-            return primaryLineHeight * CGFloat(
-                SidebarWorklaneRowLayout.worklanePrimaryLineCount(
-                    for: summary,
-                    availableWidth: availableWidth,
-                    metrics: self
-                )
-            )
+            // Worklane primary is always single-line with tail truncation so the
+            // shimmer overlay can render. Long titles surface their disambiguation
+            // prefix on a dedicated `.contextPrefix` row instead of wrapping.
+            return primaryLineHeight
         case .status:
             return statusLineHeight * CGFloat(
                 SidebarWorklaneRowLayout.worklaneStatusLineCount(

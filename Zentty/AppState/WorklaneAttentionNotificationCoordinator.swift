@@ -18,6 +18,10 @@ protocol WorklaneAttentionUserNotificationCenter: AnyObject {
 
 @MainActor
 final class WorklaneAttentionNotificationCoordinator {
+    private enum Runtime {
+        static let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     private struct PaneKey: Hashable {
         let worklaneID: WorklaneID
         let paneID: PaneID
@@ -30,14 +34,21 @@ final class WorklaneAttentionNotificationCoordinator {
     private var lastSeenActiveViews: [PaneKey: Bool] = [:]
 
     init(
-        center: any WorklaneAttentionUserNotificationCenter = WorklaneAttentionUNCenter(),
+        center: (any WorklaneAttentionUserNotificationCenter)? = nil,
         notificationStore: NotificationStore,
         configStore: AppConfigStore? = nil
     ) {
-        self.center = center
+        self.center = center ?? Self.makeDefaultNotificationCenter()
         self.notificationStore = notificationStore
         self.configStore = configStore
-        center.requestAuthorizationIfNeeded()
+        self.center.requestAuthorizationIfNeeded()
+    }
+
+    private static func makeDefaultNotificationCenter() -> any WorklaneAttentionUserNotificationCenter {
+        if Runtime.isRunningTests {
+            return NoOpWorklaneAttentionUserNotificationCenter()
+        }
+        return WorklaneAttentionUNCenter()
     }
 
     func update(
@@ -242,6 +253,21 @@ final class WorklaneAttentionNotificationCoordinator {
             return ""
         }
     }
+}
+
+@MainActor
+private final class NoOpWorklaneAttentionUserNotificationCenter: WorklaneAttentionUserNotificationCenter {
+    func requestAuthorizationIfNeeded() {}
+
+    func add(
+        identifier: String,
+        title: String,
+        body: String,
+        windowID: String,
+        worklaneID: String,
+        paneID: String,
+        soundName: String
+    ) {}
 }
 
 @MainActor

@@ -273,12 +273,18 @@ enum PanePresentationNormalizer {
             rememberedTitle = nil
         }
         let titlePhase = codexTitlePhase(from: raw.metadata, recognizedTool: recognizedTool)
+        let copilotTitleNeedsInput = copilotTitleIndicatesNeedsInput(
+            metadata: raw.metadata
+        )
         let runtimePhase = normalizedRuntimePhase(
             from: raw,
             recognizedTool: recognizedTool,
-            titlePhase: titlePhase
+            titlePhase: titlePhase,
+            copilotTitleNeedsInput: copilotTitleNeedsInput
         )
-        let agentInteractionKind = raw.agentStatus?.interactionKind ?? .none
+        let agentInteractionKind: PaneAgentInteractionKind = copilotTitleNeedsInput
+            ? .question
+            : (raw.agentStatus?.interactionKind ?? .none)
         let showsReadyStatus = raw.showsReadyStatus
         let hasObservedRunning = raw.agentStatus?.hasObservedRunning == true
             || titlePhase == .running
@@ -292,12 +298,23 @@ enum PanePresentationNormalizer {
             notificationDate: raw.lastDesktopNotificationDate
         )
         let interactionKind = PaneInteractionKind(agentInteractionKind)
-        let interactionLabel = runtimePhase == .needsInput ? raw.agentStatus?.statusLabel : nil
+        let interactionLabel: String?
+        let interactionSymbolName: String?
+        if copilotTitleNeedsInput {
+            // Copilot's hook-driven agentStatus is still .idle when the
+            // title flips to "Asking ..."; derive labels from the override
+            // instead of agentStatus to avoid showing "Idle" next to the
+            // needs-input state.
+            interactionLabel = agentInteractionKind.statusLabel
+            interactionSymbolName = agentInteractionKind.symbolName
+        } else {
+            interactionLabel = runtimePhase == .needsInput ? raw.agentStatus?.statusLabel : nil
+            interactionSymbolName = runtimePhase == .needsInput ? raw.agentStatus?.statusSymbolName : nil
+        }
         let statusSymbolName = statusSymbolName(
             for: runtimePhase,
             showsReadyStatus: showsReadyStatus
         )
-        let interactionSymbolName = runtimePhase == .needsInput ? raw.agentStatus?.statusSymbolName : nil
         let pullRequest = derivePullRequest(
             from: raw,
             repoRoot: repoRoot,
@@ -398,8 +415,17 @@ enum PanePresentationNormalizer {
     private static func normalizedRuntimePhase(
         from raw: PaneRawState,
         recognizedTool: AgentTool?,
-        titlePhase: PanePresentationPhase?
+        titlePhase: PanePresentationPhase?,
+        copilotTitleNeedsInput: Bool
     ) -> PanePresentationPhase {
+        // Copilot sets the terminal title to "Asking ..." when an
+        // askuserquestion-style tool is active. Detect that directly —
+        // it's more reliable than the preToolUse hook and must win over
+        // both OSC activity and any stale hook state.
+        if copilotTitleNeedsInput {
+            return .needsInput
+        }
+
         if let agentState = raw.agentStatus?.state {
             if recognizedTool == .codex,
                agentState == .starting,
@@ -413,6 +439,17 @@ enum PanePresentationNormalizer {
                agentState == .running,
                titlePhase == .idle {
                 return .idle
+            }
+
+            // Copilot emits OSC 9;4 progress sequences via libghostty.
+            // CopilotHookBridge seeds agentStatus at .idle on sessionStart;
+            // this fallthrough lets OSC flip to Running for the duration of
+            // a turn, then back to idle. Copilot has no "turn complete"
+            // hook, so OSC is the source of truth for Running.
+            if recognizedTool == .copilot,
+               agentState == .idle,
+               raw.terminalProgress?.state.indicatesActivity == true {
+                return .running
             }
 
             switch agentState {
@@ -440,6 +477,43 @@ enum PanePresentationNormalizer {
         }
 
         return .idle
+    }
+
+    /// Detects Copilot CLI's "Asking ..."-style terminal title, emitted
+    /// while an askuserquestion-style tool is awaiting user input. Copilot's
+    /// LLM generates the phrase itself (gerund form), so we accept a set of
+    /// common question verbs as the first word OR the word "question"
+    /// anywhere in the title.
+    ///
+    /// Detection is driven off `metadata.processName` via the full
+    /// `AgentTool.resolve(named:)` — not `AgentToolRecognizer.recognize`,
+    /// which uses `resolveKnown` and deliberately excludes copilot so the
+    /// OSC fallback stays alive when hooks aren't firing. Without this we'd
+    /// only match copilot panes that already have an explicit hook-driven
+    /// `agentStatus`, defeating the point of the title-based heuristic.
+    private static func copilotTitleIndicatesNeedsInput(
+        metadata: TerminalMetadata?
+    ) -> Bool {
+        guard AgentTool.resolve(named: metadata?.processName) == .copilot,
+              let rawTitle = WorklaneContextFormatter.trimmed(metadata?.title) else {
+            return false
+        }
+        let normalized = rawTitle.lowercased()
+        let firstWord = String(normalized.prefix(while: { $0.isLetter }))
+        let questionVerbs: Set<String> = [
+            "asking",
+            "awaiting",
+            "waiting",
+            "requesting",
+            "prompting",
+            "confirming",
+            "needing",
+        ]
+        if questionVerbs.contains(firstWord) {
+            return true
+        }
+        let words = normalized.split(whereSeparator: { !$0.isLetter }).map(String.init)
+        return words.contains("question")
     }
 
     private static func codexTitlePhase(
@@ -621,6 +695,8 @@ enum PanePresentationNormalizer {
             return ["claude", "claude code"].contains(normalized)
         case .codex:
             return ["codex"].contains(normalized)
+        case .copilot:
+            return ["copilot"].contains(normalized)
         case .openCode:
             return ["opencode", "open code"].contains(normalized)
         case .custom(let name):

@@ -8,7 +8,9 @@ final class CommandAvailabilityResolverTests: XCTestCase {
             activePaneCount: 1,
             totalPaneCount: 1
         )
-        XCTAssertFalse(available.contains(.closeFocusedPane))
+        // `closeFocusedPane` stays available: closing the last pane in the
+        // last worklane closes the window, which is a legitimate action.
+        XCTAssertTrue(available.contains(.closeFocusedPane))
         XCTAssertFalse(available.contains(.focusLeftPane))
         XCTAssertFalse(available.contains(.focusRightPane))
         XCTAssertFalse(available.contains(.focusPreviousPane))
@@ -29,6 +31,40 @@ final class CommandAvailabilityResolverTests: XCTestCase {
         XCTAssertTrue(available.contains(.focusNextPane))
         XCTAssertTrue(available.contains(.resizePaneLeft))
         XCTAssertTrue(available.contains(.resetPaneLayout))
+    }
+
+    func testTwoPaneWorklaneHidesThirdsAndQuartersPresets() {
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 2,
+            totalPaneCount: 2,
+            activeColumnCount: 2,
+            focusedColumnPaneCount: 1
+        )
+
+        XCTAssertTrue(available.contains(.arrangeWidthFull))
+        XCTAssertTrue(available.contains(.arrangeWidthHalves))
+        XCTAssertFalse(available.contains(.arrangeWidthThirds))
+        XCTAssertFalse(available.contains(.arrangeWidthQuarters))
+        XCTAssertTrue(available.contains(.arrangeHeightFull))
+        XCTAssertTrue(available.contains(.arrangeHeightTwoPerColumn))
+        XCTAssertFalse(available.contains(.arrangeHeightThreePerColumn))
+        XCTAssertFalse(available.contains(.arrangeHeightFourPerColumn))
+    }
+
+    func testThreePaneWorklaneEnablesThirdsButNotQuartersPresets() {
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 3,
+            totalPaneCount: 3,
+            activeColumnCount: 3,
+            focusedColumnPaneCount: 3
+        )
+
+        XCTAssertTrue(available.contains(.arrangeWidthThirds))
+        XCTAssertFalse(available.contains(.arrangeWidthQuarters))
+        XCTAssertTrue(available.contains(.arrangeHeightThreePerColumn))
+        XCTAssertFalse(available.contains(.arrangeHeightFourPerColumn))
     }
 
     func testSingleWorklaneHidesWorklaneNavigation() {

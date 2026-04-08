@@ -503,6 +503,30 @@ final class PaneRuntimeRegistryTests: XCTestCase {
         XCTAssertEqual(adapter.bindingActions, ["start_search", "search:build", "search:build"])
         XCTAssertEqual(runtime.snapshot.search, PaneSearchState())
     }
+
+    func test_runtime_end_global_search_dispatches_end_search_and_clears_global_session() {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        var receivedEvents: [TerminalSearchEvent] = []
+
+        runtime.beginGlobalSearch { _, event in
+            receivedEvents.append(event)
+        }
+        runtime.updateGlobalSearchNeedle("build")
+
+        runtime.endGlobalSearch()
+        adapter.searchDidChange?(.total(2))
+
+        XCTAssertEqual(adapter.bindingActions, ["start_search", "search:build", "end_search"])
+        XCTAssertEqual(receivedEvents, [.started(needle: nil)])
+        XCTAssertEqual(runtime.snapshot.search, PaneSearchState())
+    }
 }
 
 @MainActor

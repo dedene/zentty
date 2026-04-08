@@ -14,12 +14,8 @@ final class PaneDragZoneView: NSView {
     var onDragCancelled: (() -> Void)?
 
     private var trackingArea: NSTrackingArea?
-    private var dragOrigin: CGPoint?
-    private var dragTimestamp: CFTimeInterval?
-    private var isDragActivated = false
-
-    private static let activationDistance: CGFloat = 4
-    private static let activationDelay: TimeInterval = 0.15
+    private var isPointerInside = false
+    private var isDragActive = false
 
     private let highlightLayer = CALayer()
     private let gripImageView = NSImageView()
@@ -48,9 +44,6 @@ final class PaneDragZoneView: NSView {
         gripImageView.alphaValue = 0
         gripImageView.imageScaling = .scaleNone
         addSubview(gripImageView)
-
-        let recognizer = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        addGestureRecognizer(recognizer)
     }
 
     @available(*, unavailable)
@@ -86,7 +79,7 @@ final class PaneDragZoneView: NSView {
         }
         let trackingArea = NSTrackingArea(
             rect: bounds,
-            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate, .enabledDuringMouseDrag],
             owner: self,
             userInfo: nil
         )
@@ -94,16 +87,22 @@ final class PaneDragZoneView: NSView {
         self.trackingArea = trackingArea
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        NSCursor.openHand.push()
+        isPointerInside = true
         animateHover(visible: true)
+        invalidatePointerAffordances()
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        NSCursor.pop()
-        animateHover(visible: false)
+        isPointerInside = false
+        animateHover(visible: isDragActive)
+        invalidatePointerAffordances()
     }
 
     private func animateHover(visible: Bool) {
@@ -123,6 +122,16 @@ final class PaneDragZoneView: NSView {
         }
     }
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: resolvedCursor)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        super.cursorUpdate(with: event)
+        resolvedCursor.set()
+    }
+
     // MARK: - Hit Testing
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -130,55 +139,77 @@ final class PaneDragZoneView: NSView {
         return bounds.contains(local) ? self : nil
     }
 
-    // MARK: - Pan Gesture
+    override func mouseDown(with event: NSEvent) {
+        isPointerInside = bounds.contains(convert(event.locationInWindow, from: nil))
+        activateDrag(at: event.locationInWindow)
+    }
 
-    @objc
-    private func handlePan(_ recognizer: NSPanGestureRecognizer) {
-
-        switch recognizer.state {
-        case .began:
-            dragOrigin = recognizer.location(in: nil)
-            dragTimestamp = CACurrentMediaTime()
-            isDragActivated = false
-
-        case .changed:
-            guard let origin = dragOrigin else { return }
-
-            if !isDragActivated {
-                let translation = recognizer.translation(in: self)
-                let distance = hypot(translation.x, translation.y)
-                let elapsed = CACurrentMediaTime() - (dragTimestamp ?? CACurrentMediaTime())
-
-                guard distance >= Self.activationDistance || elapsed >= Self.activationDelay else {
-                    return
-                }
-
-                isDragActivated = true
-                onDragActivated?(paneID, origin)
-            }
-
-            onDragMoved?(recognizer.location(in: nil))
-
-        case .ended:
-            if isDragActivated {
-                onDragEnded?(recognizer.location(in: nil))
-            }
-            resetDragState()
-
-        case .cancelled, .failed:
-            if isDragActivated {
-                onDragCancelled?()
-            }
-            resetDragState()
-
-        default:
-            break
+    override func mouseDragged(with event: NSEvent) {
+        isPointerInside = bounds.contains(convert(event.locationInWindow, from: nil))
+        guard isDragActive else {
+            return
         }
+        onDragMoved?(event.locationInWindow)
+        invalidatePointerAffordances()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        isPointerInside = bounds.contains(convert(event.locationInWindow, from: nil))
+        guard isDragActive else {
+            return
+        }
+        onDragEnded?(event.locationInWindow)
+        resetDragState()
+    }
+
+    override func mouseCancelled(with event: NSEvent?) {
+        guard isDragActive else {
+            return
+        }
+        onDragCancelled?()
+        resetDragState()
+    }
+
+    private func activateDrag(at windowPoint: CGPoint) {
+        guard !isDragActive else {
+            return
+        }
+        isDragActive = true
+        animateHover(visible: true)
+        invalidatePointerAffordances()
+        onDragActivated?(paneID, windowPoint)
     }
 
     private func resetDragState() {
-        dragOrigin = nil
-        dragTimestamp = nil
-        isDragActivated = false
+        isDragActive = false
+        animateHover(visible: isPointerInside)
+        invalidatePointerAffordances()
     }
+
+    private var resolvedCursor: NSCursor {
+        isDragActive ? .closedHand : .openHand
+    }
+
+    private func invalidatePointerAffordances() {
+        discardCursorRects()
+        window?.invalidateCursorRects(for: self)
+
+        guard isPointerInside else {
+            return
+        }
+
+        resolvedCursor.set()
+    }
+
+    #if DEBUG
+    var cursorDescriptionForTesting: String {
+        if isDragActive {
+            "closedHand"
+        } else if isPointerInside {
+            "openHand"
+        } else {
+            "openHand"
+        }
+    }
+    #endif
 }

@@ -226,6 +226,58 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_drag_zone_mouse_down_activates_drag_immediately_and_mouse_up_ends_drag() throws {
+        let paneID = PaneID("shell")
+        let dragZone = PaneDragZoneView(paneID: paneID)
+        dragZone.frame = CGRect(x: 0, y: 0, width: 320, height: PaneDragZoneView.height)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+        window.contentView = dragZone
+        window.makeKeyAndOrderFront(nil)
+
+        var activatedPaneID: PaneID?
+        var activatedPoint: CGPoint?
+        var movedPoints: [CGPoint] = []
+        var endedPoint: CGPoint?
+
+        dragZone.onDragActivated = { receivedPaneID, point in
+            activatedPaneID = receivedPaneID
+            activatedPoint = point
+        }
+        dragZone.onDragMoved = { movedPoints.append($0) }
+        dragZone.onDragEnded = { endedPoint = $0 }
+
+        let mouseDown = try XCTUnwrap(
+            makeDragZoneMouseEvent(type: .leftMouseDown, at: CGPoint(x: 120, y: 8), in: dragZone, window: window)
+        )
+        let mouseDragged = try XCTUnwrap(
+            makeDragZoneMouseEvent(type: .leftMouseDragged, at: CGPoint(x: 168, y: 8), in: dragZone, window: window)
+        )
+        let mouseUp = try XCTUnwrap(
+            makeDragZoneMouseEvent(type: .leftMouseUp, at: CGPoint(x: 168, y: 8), in: dragZone, window: window)
+        )
+
+        dragZone.mouseDown(with: mouseDown)
+
+        XCTAssertEqual(activatedPaneID, paneID)
+        XCTAssertEqual(activatedPoint, mouseDown.locationInWindow)
+        XCTAssertEqual(dragZone.cursorDescriptionForTesting, "closedHand")
+
+        dragZone.mouseDragged(with: mouseDragged)
+        dragZone.mouseUp(with: mouseUp)
+
+        XCTAssertEqual(movedPoints, [mouseDragged.locationInWindow])
+        XCTAssertEqual(endedPoint, mouseUp.locationInWindow)
+        XCTAssertEqual(dragZone.cursorDescriptionForTesting, "openHand")
+    }
+
+    @MainActor
     func test_double_click_equalize_clears_divider_highlight_state() {
         let paneStripView = makePaneStripView()
         let divider = PaneDivider.column(afterColumnID: PaneColumnID("column-left"))
@@ -378,7 +430,7 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
-    func test_render_publishes_border_chrome_snapshots_for_visible_panes() throws {
+    func test_render_applies_border_context_to_visible_pane_views() throws {
         let paneStripView = makePaneStripView()
         let state = PaneStripState(
             panes: [
@@ -387,8 +439,6 @@ final class PaneStripViewTests: XCTestCase {
             ],
             focusedPaneID: PaneID("editor")
         )
-        var snapshots: [PaneBorderChromeSnapshot] = []
-        paneStripView.onBorderChromeSnapshotsDidChange = { newSnapshots, _ in snapshots = newSnapshots }
 
         paneStripView.render(
             state,
@@ -398,14 +448,17 @@ final class PaneStripViewTests: XCTestCase {
         )
         paneStripView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(snapshots.map(\.paneID), [PaneID("shell"), PaneID("editor")])
-        XCTAssertNil(snapshots[0].borderContext)
-        XCTAssertEqual(snapshots[1].borderContext?.text, "~/src/zentty")
-        XCTAssertTrue(snapshots[1].isFocused)
+        let paneViewsByTitle = Dictionary(uniqueKeysWithValues: try paneStripView.descendantPaneViews().map {
+            let title = try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText)
+            return (title, $0)
+        })
+
+        XCTAssertNil(try XCTUnwrap(paneViewsByTitle["shell"]).paneBorderContextTextForTesting)
         XCTAssertEqual(
-            snapshots[1].frame,
-            try XCTUnwrap(paneStripView.descendantPaneViews().first { $0.titleText == "editor" }?.frame)
+            try XCTUnwrap(paneViewsByTitle["editor"]).paneBorderContextTextForTesting,
+            "~/src/zentty"
         )
+        XCTAssertTrue(try XCTUnwrap(paneViewsByTitle["editor"]).hasPaneContextChrome)
     }
 
     @MainActor
@@ -418,8 +471,6 @@ final class PaneStripViewTests: XCTestCase {
             ],
             focusedPaneID: PaneID("editor")
         )
-        var snapshots: [PaneBorderChromeSnapshot] = []
-        paneStripView.onBorderChromeSnapshotsDidChange = { newSnapshots, _ in snapshots = newSnapshots }
 
         paneStripView.render(
             state,
@@ -430,37 +481,66 @@ final class PaneStripViewTests: XCTestCase {
         )
         paneStripView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(snapshots.map(\.paneID), [PaneID("shell"), PaneID("editor")])
-        XCTAssertTrue(snapshots.allSatisfy { $0.borderContext == nil })
         let editorPane = try XCTUnwrap(paneStripView.descendantPaneViews().first { $0.titleText == "editor" })
+        XCTAssertNil(editorPane.paneBorderContextTextForTesting)
         XCTAssertEqual(editorPane.borderLabelGapWidthForTesting, 0, accuracy: 0.001)
     }
 
     @MainActor
-    func test_new_border_context_view_does_not_animate_from_overlay_origin_without_insertion_transition() throws {
-        let overlayView = PaneBorderContextOverlayView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
-        let snapshot = PaneBorderChromeSnapshot(
-            paneID: PaneID("editor"),
-            frame: CGRect(x: 240, y: 120, width: 520, height: 420),
-            initialPaneFrame: nil,
-            isFocused: true,
-            emphasis: 1,
-            borderContext: PaneBorderContextDisplayModel(text: "~/src/zentty")
+    func test_left_edge_drag_keeps_in_pane_border_context_aligned_to_live_border_gap() throws {
+        let paneStripView = makePaneStripView(width: 1400, height: 720)
+        let paneBorderContextByPaneID = [
+            PaneID("middle"): PaneBorderContextDisplayModel(text: "~/src/zentty")
+        ]
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("middle", paneIDs: ["middle"], width: 420),
+                makeColumn("right", paneIDs: ["right"], width: 520),
+            ],
+            focusedColumnID: PaneColumnID("middle")
         )
 
-        overlayView.render(
-            snapshots: [snapshot],
-            theme: .fallback(for: nil),
-            animated: true
+        var stateProxy = state
+        paneStripView.onDividerResizeRequested = { target, delta in
+            stateProxy.resize(
+                target,
+                delta: delta,
+                availableSize: CGSize(width: 1400, height: 720),
+                minimumSizeByPaneID: [
+                    PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+                ]
+            )
+        }
+
+        paneStripView.render(state, paneBorderContextByPaneID: paneBorderContextByPaneID)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        _ = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("left")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
         )
-        overlayView.layoutSubtreeIfNeeded()
+        paneStripView.handleDividerDragDeltaForTesting(-60)
+        paneStripView.render(stateProxy, paneBorderContextByPaneID: paneBorderContextByPaneID)
+        paneStripView.layoutSubtreeIfNeeded()
 
-        let itemView = try XCTUnwrap(overlayView.subviews.first)
-        let itemFrame = try XCTUnwrap(overlayView.paneContextFramesForTesting[PaneID("editor")])
+        let middlePaneView = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "middle" })
+        )
+        let labelFrame = try XCTUnwrap(middlePaneView.paneBorderContextFrameForTesting)
+        let borderFrame = middlePaneView.insetBorderFrame
+        let expectedMinX = borderFrame.minX + (24 - middlePaneView.insetBorderInset)
+        let expectedMidY = borderFrame.maxY - 0.5
 
-        XCTAssertTrue(itemView.layer?.animationKeys()?.isEmpty ?? true)
-        XCTAssertGreaterThan(itemFrame.minX, 200)
-        XCTAssertGreaterThan(itemFrame.minY, 500)
+        XCTAssertEqual(labelFrame.minX, expectedMinX, accuracy: 0.001)
+        XCTAssertEqual(labelFrame.midY, expectedMidY, accuracy: 0.001)
+        XCTAssertEqual(middlePaneView.borderLabelGapWidthForTesting, labelFrame.width, accuracy: 0.001)
+
+        paneStripView.endDividerDragForTesting()
     }
 
     @MainActor
@@ -1261,7 +1341,7 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
-    func test_split_publishes_inserted_pane_initial_frame_in_border_chrome_snapshot() throws {
+    func test_split_renders_border_context_for_inserted_pane() throws {
         let paneStripView = makePaneStripView()
         paneStripView.leadingVisibleInset = sidebarInset
         let singlePane = PaneStripState(
@@ -1277,10 +1357,6 @@ final class PaneStripViewTests: XCTestCase {
             ],
             focusedPaneID: PaneID("pane-1")
         )
-        var snapshots: [PaneBorderChromeSnapshot] = []
-        paneStripView.onBorderChromeSnapshotsDidChange = { newSnapshots, _ in
-            snapshots = newSnapshots
-        }
 
         paneStripView.render(
             singlePane,
@@ -1297,13 +1373,17 @@ final class PaneStripViewTests: XCTestCase {
                 PaneID("pane-1"): PaneBorderContextDisplayModel(text: "~/src/new-pane")
             ]
         )
+        paneStripView.layoutSubtreeIfNeeded()
 
-        let transition = try XCTUnwrap(paneStripView.lastInsertionTransition)
-        let insertedSnapshot = try XCTUnwrap(snapshots.first(where: { $0.paneID == PaneID("pane-1") }))
-        let existingSnapshot = try XCTUnwrap(snapshots.first(where: { $0.paneID == PaneID("shell") }))
+        let insertedPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "pane 1" })
+        )
+        let existingPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
+        )
 
-        XCTAssertEqual(insertedSnapshot.initialPaneFrame, transition.initialFrame)
-        XCTAssertNil(existingSnapshot.initialPaneFrame)
+        XCTAssertEqual(insertedPane.paneBorderContextTextForTesting, "~/src/new-pane")
+        XCTAssertEqual(existingPane.paneBorderContextTextForTesting, "~/src/zentty")
     }
 
     @MainActor
@@ -2184,6 +2264,58 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_last_column_left_edge_drag_does_not_apply_scroll_compensation() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        paneStripView.leadingVisibleInset = sidebarInset
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("right", paneIDs: ["right"], width: 420),
+            ],
+            focusedColumnID: PaneColumnID("right")
+        )
+
+        var stateProxy = state
+        paneStripView.onDividerResizeRequested = { target, delta in
+            stateProxy.resize(
+                target,
+                delta: delta,
+                availableSize: CGSize(width: 1200, height: 720),
+                leadingVisibleInset: paneStripView.leadingVisibleInset,
+                minimumSizeByPaneID: [
+                    PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+                ]
+            )
+        }
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        _ = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("left")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+
+        let initialScroll = paneStripView.dragScrollOffsetXForTesting
+        paneStripView.handleDividerDragDeltaForTesting(-60)
+        paneStripView.render(stateProxy)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let paneViews = paneStripView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        let expectedLeftVisibleMinX = sidebarInset + paneViews[0].insetBorderInset
+
+        XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, initialScroll, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(
+            paneViews[0].visibleInsetBorderFrameForTesting.minX,
+            expectedLeftVisibleMinX - 0.001
+        )
+        paneStripView.endDividerDragForTesting()
+    }
+
+    @MainActor
     func test_cancel_divider_drag_restores_initial_drag_scroll_offset() throws {
         let paneStripView = makePaneStripView(width: 1400, height: 720)
         let state = PaneStripState(
@@ -2229,6 +2361,62 @@ final class PaneStripViewTests: XCTestCase {
         paneStripView.cancelDividerDragForTesting()
 
         XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, initialScroll, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_left_edge_drag_keeps_logical_pane_width_and_live_border_position() throws {
+        let paneStripView = makePaneStripView(width: 1400, height: 720)
+        let paneBorderContextByPaneID = [
+            PaneID("middle"): PaneBorderContextDisplayModel(text: "~/src/zentty")
+        ]
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("middle", paneIDs: ["middle"], width: 420),
+                makeColumn("right", paneIDs: ["right"], width: 520),
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+        var stateProxy = state
+        paneStripView.onDividerResizeRequested = { target, delta in
+            stateProxy.resize(
+                target,
+                delta: delta,
+                availableSize: CGSize(width: 1400, height: 720),
+                minimumSizeByPaneID: [
+                    PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+                ]
+            )
+        }
+
+        paneStripView.render(state, paneBorderContextByPaneID: paneBorderContextByPaneID)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        _ = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("left")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+        paneStripView.handleDividerDragDeltaForTesting(-60)
+        paneStripView.render(stateProxy, paneBorderContextByPaneID: paneBorderContextByPaneID)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let middlePaneView = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "middle" })
+        )
+        let labelFrame = try XCTUnwrap(middlePaneView.paneBorderContextFrameForTesting)
+        let expectedWidth = try XCTUnwrap(
+            stateProxy.columns.first(where: { $0.id == PaneColumnID("middle") })?.width
+        )
+
+        XCTAssertEqual(middlePaneView.frame.width, expectedWidth, accuracy: 0.001)
+        XCTAssertEqual(labelFrame.width, middlePaneView.borderLabelGapWidthForTesting, accuracy: 0.001)
+        XCTAssertEqual(labelFrame.minX, 24, accuracy: 0.001)
+        XCTAssertEqual(labelFrame.midY, middlePaneView.insetBorderFrame.maxY - 0.5, accuracy: 0.001)
+        paneStripView.endDividerDragForTesting()
     }
 
     @MainActor
@@ -2405,6 +2593,25 @@ private extension PaneContainerView {
     var visibleInsetBorderFrameForTesting: CGRect {
         insetBorderFrame.offsetBy(dx: frame.minX, dy: frame.minY)
     }
+}
+
+private func makeDragZoneMouseEvent(
+    type: NSEvent.EventType,
+    at point: CGPoint,
+    in view: NSView,
+    window: NSWindow
+) -> NSEvent? {
+    NSEvent.mouseEvent(
+        with: type,
+        location: view.convert(point, to: nil),
+        modifierFlags: [],
+        timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: window.windowNumber,
+        context: nil,
+        eventNumber: 0,
+        clickCount: 1,
+        pressure: 1
+    )
 }
 
 private func makeScrollEvent(

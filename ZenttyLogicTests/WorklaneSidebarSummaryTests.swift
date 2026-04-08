@@ -492,6 +492,47 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.interactionSymbolName, "list.bullet")
     }
 
+    func test_builder_surfaces_cwd_as_pane_row_detail_text_for_single_pane_with_remembered_title() {
+        let paneID = PaneID("worklane-main-agent")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.presentation = PanePresentationState(
+            cwd: "/tmp/project",
+            repoRoot: "/tmp/project",
+            branch: "main",
+            branchDisplayText: "main",
+            lookupBranch: "main",
+            identityText: "Claude Code",
+            contextText: "main · /tmp/project",
+            rememberedTitle: "Claude Code",
+            recognizedTool: .claudeCode,
+            runtimePhase: .idle,
+            statusText: nil,
+            pullRequest: nil,
+            reviewChips: [],
+            attentionArtifactLink: nil,
+            updatedAt: Date(timeIntervalSince1970: 42),
+            isWorking: false,
+            interactionKind: nil
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.primaryText, "Claude Code")
+        XCTAssertEqual(paneRow.trailingText, "main")
+        XCTAssertEqual(paneRow.detailText, "…/project")
+    }
+
     func test_builder_uses_default_interaction_label_and_symbol_for_kind_only_metadata() {
         let paneID = PaneID("worklane-main-agent")
         var auxiliaryState = PaneAuxiliaryState()
@@ -872,6 +913,100 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summaries.map(\.primaryText), ["main · …/api", "feature/sidebar · …/api"])
     }
 
+    func test_summaries_surface_disambiguation_prefix_on_dedicated_context_line() {
+        // Two worklanes point at branchless directories that share the same
+        // leaf ("api") in different parents — the disambiguation pass should
+        // expand each path and surface the extra parent segment on a
+        // dedicated `contextPrefixText` line so the single-line primary
+        // (which drives the shimmer overlay) stays short.
+        //
+        // Note: single-pane summaries only become `isCwdDerived` when the
+        // primary text is derived directly from the working directory (i.e.
+        // no git branch), so the test intentionally omits `gitBranch`.
+        let firstWorklaneID = WorklaneID("worklane-one")
+        let secondWorklaneID = WorklaneID("worklane-two")
+        let worklanes = [
+            WorklaneState(
+                id: firstWorklaneID,
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: PaneID("worklane-one-shell"), title: "shell")],
+                    focusedPaneID: PaneID("worklane-one-shell")
+                ),
+                metadataByPaneID: [
+                    PaneID("worklane-one-shell"): TerminalMetadata(
+                        title: "zsh",
+                        currentWorkingDirectory: "/tmp/alpha/api",
+                        processName: "zsh",
+                        gitBranch: nil
+                    )
+                ]
+            ),
+            WorklaneState(
+                id: secondWorklaneID,
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: PaneID("worklane-two-shell"), title: "shell")],
+                    focusedPaneID: PaneID("worklane-two-shell")
+                ),
+                metadataByPaneID: [
+                    PaneID("worklane-two-shell"): TerminalMetadata(
+                        title: "zsh",
+                        currentWorkingDirectory: "/tmp/beta/api",
+                        processName: "zsh",
+                        gitBranch: nil
+                    )
+                ]
+            ),
+        ]
+
+        let summaries = WorklaneSidebarSummaryBuilder.summaries(
+            for: worklanes,
+            activeWorklaneID: firstWorklaneID
+        )
+
+        // Primaries stay un-expanded — the shimmer overlay is single-line only
+        // and would be hidden if these wrapped.
+        XCTAssertEqual(
+            summaries.map(\.primaryText),
+            ["…/api", "…/api"]
+        )
+        // The disambiguation delta lands on the dedicated context prefix slot,
+        // one segment deeper per worklane.
+        let prefixes = summaries.map(\.contextPrefixText)
+        XCTAssertEqual(prefixes.count, 2)
+        XCTAssertEqual(prefixes[0], "…/alpha")
+        XCTAssertEqual(prefixes[1], "…/beta")
+    }
+
+    func test_summaries_leave_context_prefix_nil_when_no_disambiguation_is_needed() {
+        let worklaneID = WorklaneID("worklane-solo")
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: PaneID("worklane-solo-shell"), title: "shell")],
+                focusedPaneID: PaneID("worklane-solo-shell")
+            ),
+            metadataByPaneID: [
+                PaneID("worklane-solo-shell"): TerminalMetadata(
+                    title: "zsh",
+                    currentWorkingDirectory: "/tmp/zentty",
+                    processName: "zsh",
+                    gitBranch: nil
+                )
+            ]
+        )
+
+        let summaries = WorklaneSidebarSummaryBuilder.summaries(
+            for: [worklane],
+            activeWorklaneID: worklaneID
+        )
+
+        let summary = try! XCTUnwrap(summaries.first)
+        XCTAssertNil(summary.contextPrefixText)
+    }
+
     func test_builder_marks_worklane_as_working_when_background_terminal_progress_exists() {
         let shellPaneID = PaneID("worklane-main-shell")
         let backgroundPaneID = PaneID("worklane-main-background")
@@ -1099,7 +1234,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.paneRows.count, 1)
         XCTAssertEqual(paneRow.primaryText, "Test session setup")
         XCTAssertEqual(paneRow.trailingText, "main")
-        XCTAssertNil(paneRow.detailText)
+        XCTAssertEqual(paneRow.detailText, "…/nimbu")
         XCTAssertEqual(paneRow.statusText, "Running")
         XCTAssertEqual(paneRow.attentionState, .running)
         XCTAssertTrue(paneRow.isWorking)
@@ -1138,7 +1273,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         XCTAssertEqual(paneRow.primaryText, "Working ⠋ Investigate pane title updates")
         XCTAssertEqual(paneRow.trailingText, "main")
-        XCTAssertNil(paneRow.detailText)
+        XCTAssertEqual(paneRow.detailText, "…/zentty")
         XCTAssertEqual(paneRow.statusText, "Running")
         XCTAssertEqual(paneRow.attentionState, .running)
         XCTAssertTrue(paneRow.isWorking)
@@ -1222,7 +1357,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.paneID, paneID)
         XCTAssertEqual(paneRow.primaryText, "General coding assistance session")
         XCTAssertEqual(paneRow.trailingText, "main")
-        XCTAssertNil(paneRow.detailText)
+        XCTAssertEqual(paneRow.detailText, "…/nimbu")
         XCTAssertEqual(paneRow.statusText, "Idle")
         XCTAssertNil(paneRow.attentionState)
         XCTAssertFalse(paneRow.isWorking)
@@ -1305,13 +1440,13 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         XCTAssertEqual(paneRow.primaryText, "Test session setup")
         XCTAssertEqual(paneRow.trailingText, "main")
-        XCTAssertNil(paneRow.detailText)
+        XCTAssertEqual(paneRow.detailText, "…/nimbu")
         XCTAssertNil(paneRow.statusText)
         XCTAssertNil(paneRow.attentionState)
         XCTAssertFalse(paneRow.isWorking)
     }
 
-    func test_builder_does_not_surface_path_like_title_for_idle_single_pane_agent_row() {
+    func test_builder_moves_branch_to_trailing_for_idle_single_pane_agent_path_identity() {
         let paneID = PaneID("worklane-main-agent-path")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-path"),
@@ -1343,8 +1478,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
-        XCTAssertEqual(paneRow.primaryText, "main · …/nimbu")
-        XCTAssertNil(paneRow.trailingText)
+        XCTAssertEqual(paneRow.primaryText, "…/nimbu")
+        XCTAssertEqual(paneRow.trailingText, "main")
         XCTAssertNil(paneRow.detailText)
         XCTAssertEqual(paneRow.statusText, "Idle")
     }
@@ -1435,6 +1570,54 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneRow = try! XCTUnwrap(summary.paneRows.first { $0.paneID == agentPaneID })
 
         XCTAssertEqual(paneRow.primaryText, "Test session setup · …/nimbu")
+        XCTAssertEqual(paneRow.trailingText, "feature/sidebar")
+        XCTAssertNil(paneRow.detailText)
+        XCTAssertEqual(paneRow.statusText, "Idle")
+    }
+
+    func test_builder_moves_branch_to_trailing_for_multi_pane_agent_path_identity() {
+        let shellPaneID = PaneID("worklane-main-shell")
+        let agentPaneID = PaneID("worklane-main-agent-path")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main-path-multi"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: shellPaneID, title: "shell"),
+                    PaneState(id: agentPaneID, title: "agent"),
+                ],
+                focusedPaneID: shellPaneID
+            ),
+            metadataByPaneID: [
+                shellPaneID: TerminalMetadata(
+                    title: "zsh",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "zsh",
+                    gitBranch: "main"
+                ),
+                agentPaneID: TerminalMetadata(
+                    title: "/Users/peter",
+                    currentWorkingDirectory: "/Users/peter/Development/Zenjoy/Internal/nimbu",
+                    processName: "claude",
+                    gitBranch: "feature/sidebar"
+                ),
+            ],
+            agentStatusByPaneID: [
+                agentPaneID: PaneAgentStatus(
+                    tool: .claudeCode,
+                    state: .idle,
+                    text: nil,
+                    artifactLink: nil,
+                    updatedAt: Date(timeIntervalSince1970: 42),
+                    hasObservedRunning: true
+                )
+            ]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first { $0.paneID == agentPaneID })
+
+        XCTAssertEqual(paneRow.primaryText, "…/nimbu")
         XCTAssertEqual(paneRow.trailingText, "feature/sidebar")
         XCTAssertNil(paneRow.detailText)
         XCTAssertEqual(paneRow.statusText, "Idle")
