@@ -44,6 +44,7 @@ final class SidebarView: NSView {
     private var listBottomConstraint: NSLayoutConstraint?
     private var updateRowHeightConstraint: NSLayoutConstraint?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private(set) var renderInvocationCountForTesting: Int = 0
     private var headerPinnedContentMinX = Layout.defaultHeaderContentMinX
     private var headerVisibilityMode: SidebarVisibilityMode = .pinnedOpen
     private var resizeStartWidth: CGFloat = SidebarWidthPreference.defaultWidth
@@ -250,6 +251,13 @@ final class SidebarView: NSView {
         summaries: [WorklaneSidebarSummary],
         theme: ZenttyTheme
     ) {
+        if summaries == worklaneSummaries,
+           theme == currentTheme,
+           worklaneButtons.map(\.worklaneID) == summaries.map(\.worklaneID) {
+            return
+        }
+
+        renderInvocationCountForTesting &+= 1
         let previousActiveID = worklaneSummaries.first(where: \.isActive)?.worklaneID
         worklaneSummaries = summaries
 
