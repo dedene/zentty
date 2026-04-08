@@ -354,6 +354,117 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
         XCTAssertGreaterThan(narrowLayout.rowHeight, wideLayout.rowHeight + 0.5)
     }
 
+    func test_sidebar_row_height_grows_for_tight_worklane_rows_when_primary_wraps() {
+        let summary = makeSummary(
+            primaryText: "Requires approval for a longer sidebar copy check that should wrap to a second line in tight widths"
+        )
+
+        let wideLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 900)
+        let narrowLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 220)
+
+        XCTAssertGreaterThan(narrowLayout.rowHeight, wideLayout.rowHeight + 0.5)
+    }
+
+    func test_sidebar_row_height_grows_for_tight_worklane_rows_when_status_wraps() {
+        let summary = makeSummary(
+            primaryText: "Claude Code",
+            statusText: "Needs approval from Peter before continuing with the longer follow-up action in this row"
+        )
+
+        let wideLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 900)
+        let narrowLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 220)
+
+        XCTAssertGreaterThan(narrowLayout.rowHeight, wideLayout.rowHeight + 0.5)
+    }
+
+    func test_sidebar_row_height_grows_for_tight_pane_rows_when_status_wraps() {
+        let summary = makeSummary(
+            primaryText: "General coding assistance session",
+            paneRows: [
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-agent"),
+                    primaryText: "Claude Code",
+                    trailingText: nil,
+                    detailText: nil,
+                    statusText: "Needs approval from Peter before continuing with the longer follow-up action in this pane row",
+                    attentionState: .needsInput,
+                    isFocused: true,
+                    isWorking: false
+                ),
+            ]
+        )
+
+        let wideLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 900)
+        let narrowLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 220)
+
+        XCTAssertGreaterThan(narrowLayout.rowHeight, wideLayout.rowHeight + 0.5)
+    }
+
+    func test_sidebar_row_hides_long_branch_in_status_measurement_when_status_needs_the_width() {
+        let status = "Run fix/tmpdir-redirect-to-shared-tmp-files"
+        let summaryWithBranch = makeSummary(
+            primaryText: "General coding assistance session",
+            paneRows: [
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-agent"),
+                    primaryText: "Debug Claude API review failure in GitHub Actions",
+                    trailingText: "fix/tmpdir-redirect-to-shared-tmp-files",
+                    detailText: "…/nimbu",
+                    statusText: status,
+                    attentionState: .running,
+                    isFocused: true,
+                    isWorking: true
+                ),
+            ]
+        )
+        let summaryWithoutBranch = makeSummary(
+            primaryText: "General coding assistance session",
+            paneRows: [
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-agent"),
+                    primaryText: "Debug Claude API review failure in GitHub Actions",
+                    trailingText: nil,
+                    detailText: "…/nimbu",
+                    statusText: status,
+                    attentionState: .running,
+                    isFocused: true,
+                    isWorking: true
+                ),
+            ]
+        )
+
+        let withBranch = SidebarWorklaneRowLayout(summary: summaryWithBranch, availableWidth: 220)
+        let withoutBranch = SidebarWorklaneRowLayout(summary: summaryWithoutBranch, availableWidth: 220)
+
+        XCTAssertEqual(withBranch.rowHeight, withoutBranch.rowHeight, accuracy: 0.5)
+    }
+
+    func test_sidebar_row_status_trailing_layout_hides_long_branch_when_narrow_and_restores_when_wider() {
+        let paneRow = WorklaneSidebarPaneRow(
+            paneID: PaneID("worklane-main-agent"),
+            primaryText: "Debug Claude API review failure in GitHub Actions",
+            trailingText: "fix/tmpdir-redirect-to-shared-tmp-files",
+            detailText: "…/nimbu",
+            statusText: "Run fix/tmpdir-redirect-to-shared-tmp-files",
+            attentionState: .running,
+            isFocused: true,
+            isWorking: true
+        )
+
+        let narrowLayout = SidebarWorklaneRowLayout.paneRowStatusTrailingLayout(
+            for: paneRow,
+            availableWidth: 220
+        )
+        let wideLayout = SidebarWorklaneRowLayout.paneRowStatusTrailingLayout(
+            for: paneRow,
+            availableWidth: 360
+        )
+
+        XCTAssertEqual(narrowLayout, .hidden)
+        XCTAssertTrue(wideLayout.isVisible)
+        XCTAssertGreaterThan(wideLayout.width, 0)
+    }
+
     private func makeSummary(
         topLabel: String? = nil,
         primaryText: String = "shell",

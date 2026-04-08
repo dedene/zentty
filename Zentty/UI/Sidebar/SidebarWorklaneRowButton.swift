@@ -79,6 +79,8 @@ final class SidebarWorklaneRowButton: NSButton {
     private var paneRowContainers: [SidebarInsetContainerView] = []
     private var currentSummary: WorklaneSidebarSummary?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var lastAppliedBoundsWidth: CGFloat = -1
+    private(set) var configureApplyCountForTesting: Int = 0
     private var currentStatusSymbolName = ""
     private var isHovered = false
     private var isPaneRowHovered = false
@@ -86,6 +88,9 @@ final class SidebarWorklaneRowButton: NSButton {
     private var heightConstraint: NSLayoutConstraint?
     private var textStackTopConstraint: NSLayoutConstraint?
     private var textStackBottomConstraint: NSLayoutConstraint?
+    private var primaryTextHeightConstraint: NSLayoutConstraint?
+    private var statusTextHeightConstraint: NSLayoutConstraint?
+    private var statusContentHeightConstraint: NSLayoutConstraint?
     private var isWorking = false
     private var isApplyingResolvedSummary = false
     private var shimmerCoordinator: SidebarShimmerCoordinator?
@@ -117,6 +122,13 @@ final class SidebarWorklaneRowButton: NSButton {
 
     override var allowsVibrancy: Bool {
         false
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: heightConstraint?.constant ?? NSView.noIntrinsicMetric
+        )
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -251,6 +263,18 @@ final class SidebarWorklaneRowButton: NSButton {
             constant: -ShellMetrics.sidebarRowBottomInset
         )
         self.textStackBottomConstraint = textStackBottomConstraint
+        let primaryTextHeightConstraint = primaryTextContainer.heightAnchor.constraint(
+            equalToConstant: ShellMetrics.sidebarPrimaryLineHeight
+        )
+        self.primaryTextHeightConstraint = primaryTextHeightConstraint
+        let statusTextHeightConstraint = statusTextContainer.heightAnchor.constraint(
+            equalToConstant: ShellMetrics.sidebarStatusLineHeight
+        )
+        self.statusTextHeightConstraint = statusTextHeightConstraint
+        let statusContentHeightConstraint = statusContentStack.heightAnchor.constraint(
+            equalToConstant: ShellMetrics.sidebarStatusLineHeight
+        )
+        self.statusContentHeightConstraint = statusContentHeightConstraint
 
         NSLayoutConstraint.activate([
             heightConstraint,
@@ -260,12 +284,9 @@ final class SidebarWorklaneRowButton: NSButton {
             textStack.trailingAnchor.constraint(
                 equalTo: trailingAnchor, constant: -Layout.contentInset),
             textStackBottomConstraint,
-            primaryTextContainer.heightAnchor.constraint(
-                equalToConstant: ShellMetrics.sidebarPrimaryLineHeight),
-            statusTextContainer.heightAnchor.constraint(
-                equalToConstant: ShellMetrics.sidebarStatusLineHeight),
-            statusContentStack.heightAnchor.constraint(
-                equalToConstant: ShellMetrics.sidebarStatusLineHeight),
+            primaryTextHeightConstraint,
+            statusTextHeightConstraint,
+            statusContentHeightConstraint,
         ])
     }
 
@@ -395,13 +416,47 @@ final class SidebarWorklaneRowButton: NSButton {
         theme: ZenttyTheme,
         animated: Bool
     ) {
+        if summary == currentSummary,
+           theme == currentTheme,
+           bounds.width == lastAppliedBoundsWidth {
+            return
+        }
         currentSummary = summary
         currentTheme = theme
         isWorking = summary.isWorking
         let worklanePhaseOffset = SidebarShimmerPhaseOffset.forIdentifier(summary.worklaneID.rawValue)
         primaryLabel.shimmerPhaseOffset = worklanePhaseOffset
         statusLabel.shimmerPhaseOffset = worklanePhaseOffset
+        lastAppliedBoundsWidth = bounds.width
+        configureApplyCountForTesting &+= 1
         applyResolvedSummary(animated: animated)
+    }
+
+    /// Surgical label update for the volatile agent title fast path.
+    /// Writes the new text directly to the affected primary labels without
+    /// reconfiguring the row, rebuilding the layout, or invalidating autolayout.
+    /// Does not mutate `currentSummary` — the next slow-path configure will
+    /// reconcile from the authoritative summary if a structural change arrives.
+    func setVolatilePaneTitle(paneID: PaneID, text: String) {
+        guard let summary = currentSummary else {
+            return
+        }
+
+        if summary.paneRows.isEmpty {
+            // Single-pane worklane — the volatile title lives in the worklane row's
+            // top-level primary labels.
+            guard primaryBaseLabel.stringValue != text else { return }
+            primaryBaseLabel.stringValue = text
+            primaryLabel.stringValue = text
+            return
+        }
+
+        guard let rowIndex = summary.paneRows.firstIndex(where: { $0.paneID == paneID }),
+              panePrimaryRows.indices.contains(rowIndex)
+        else {
+            return
+        }
+        panePrimaryRows[rowIndex].setPrimaryText(text)
     }
 
     private func applyResolvedSummary(animated: Bool) {
@@ -421,6 +476,12 @@ final class SidebarWorklaneRowButton: NSButton {
         if resolvedSummary.paneRows.isEmpty {
             primaryBaseLabel.stringValue = resolvedSummary.primaryText
             primaryLabel.stringValue = resolvedSummary.primaryText
+            applyWorklanePrimaryPresentation(
+                lineCount: SidebarWorklaneRowLayout.worklanePrimaryLineCount(
+                    for: resolvedSummary,
+                    availableWidth: bounds.width
+                )
+            )
             let statusCopy = resolvedStatusCopy(
                 statusText: resolvedSummary.statusText,
                 attentionState: resolvedSummary.attentionState,
@@ -441,6 +502,12 @@ final class SidebarWorklaneRowButton: NSButton {
                 : NSImage(systemSymbolName: currentStatusSymbolName, accessibilityDescription: nil)?
                     .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
             statusIconView.isHidden = statusIconView.image == nil
+            applyWorklaneStatusPresentation(
+                lineCount: SidebarWorklaneRowLayout.worklaneStatusLineCount(
+                    for: resolvedSummary,
+                    availableWidth: bounds.width
+                )
+            )
             configureDetailLabels(for: resolvedSummary.detailLines)
         } else {
             primaryBaseLabel.stringValue = ""
@@ -458,6 +525,7 @@ final class SidebarWorklaneRowButton: NSButton {
             in: .top
         )
         heightConstraint?.constant = layout.rowHeight
+        invalidateIntrinsicContentSize()
 
         applyCurrentAppearance(animated: animated)
     }
@@ -469,6 +537,38 @@ final class SidebarWorklaneRowButton: NSButton {
         textStackBottomConstraint?.constant = hasPaneRows
             ? -ShellMetrics.sidebarPaneRowVerticalInset
             : -ShellMetrics.sidebarRowBottomInset
+    }
+
+    private func applyWorklanePrimaryPresentation(lineCount: Int) {
+        let clampedLineCount = max(1, min(2, lineCount))
+        let wraps = clampedLineCount > 1
+
+        primaryBaseLabel.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
+        primaryBaseLabel.maximumNumberOfLines = wraps ? clampedLineCount : 1
+        primaryBaseLabel.cell?.wraps = wraps
+        primaryBaseLabel.cell?.usesSingleLineMode = wraps == false
+        primaryLabel.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
+        primaryLabel.isHidden = wraps
+        primaryTextHeightConstraint?.constant = ShellMetrics.sidebarPrimaryLineHeight * CGFloat(clampedLineCount)
+        primaryTextContainer.invalidateIntrinsicContentSize()
+    }
+
+    private func applyWorklaneStatusPresentation(lineCount: Int) {
+        let clampedLineCount = max(1, min(2, lineCount))
+        let wraps = clampedLineCount > 1
+
+        statusBaseLabel.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
+        statusBaseLabel.maximumNumberOfLines = wraps ? clampedLineCount : 1
+        statusBaseLabel.cell?.wraps = wraps
+        statusBaseLabel.cell?.usesSingleLineMode = wraps == false
+        statusLabel.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
+        statusLabel.isHidden = wraps
+        statusContentStack.alignment = wraps ? .top : .centerY
+        let statusHeight = ShellMetrics.sidebarStatusLineHeight * CGFloat(clampedLineCount)
+        statusTextHeightConstraint?.constant = statusHeight
+        statusContentHeightConstraint?.constant = statusHeight
+        statusTextContainer.invalidateIntrinsicContentSize()
+        statusContentStack.invalidateIntrinsicContentSize()
     }
 
     private func resolvedSummary(for summary: WorklaneSidebarSummary) -> WorklaneSidebarSummary {
@@ -533,6 +633,12 @@ final class SidebarWorklaneRowButton: NSButton {
                 for: paneRow,
                 availableWidth: bounds.width
             )
+            let statusTrailingLayout = presentationMode == .adaptive
+                ? SidebarWorklaneRowLayout.paneRowStatusTrailingLayout(
+                    for: paneRow,
+                    availableWidth: bounds.width
+                )
+                : .hidden
             let primaryLineCount = SidebarWorklaneRowLayout.paneRowPrimaryLineCount(
                 for: paneRow,
                 availableWidth: bounds.width
@@ -558,7 +664,12 @@ final class SidebarWorklaneRowButton: NSButton {
                     interactionKind: paneRow.interactionKind,
                     interactionSymbolName: paneRow.interactionSymbolName
                 ),
-                trailingText: presentationMode == .adaptive ? paneRow.trailingText : nil
+                trailingText: statusTrailingLayout.isVisible ? paneRow.trailingText : nil,
+                trailingWidth: statusTrailingLayout.width,
+                lineCount: SidebarWorklaneRowLayout.paneRowStatusLineCount(
+                    for: paneRow,
+                    availableWidth: bounds.width
+                )
             )
             paneStatusRows[index].setShimmerPhaseOffset(panePhaseOffset)
 
@@ -716,7 +827,11 @@ final class SidebarWorklaneRowButton: NSButton {
             activeTextColor: activeTextColor,
             inactiveTextColor: inactiveTextColor
         )
-        primaryLabel.isShimmering = isWorking
+        let primaryWraps = SidebarWorklaneRowLayout.worklanePrimaryLineCount(
+            for: summary,
+            availableWidth: bounds.width
+        ) > 1
+        primaryLabel.isShimmering = isWorking && primaryWraps == false
         primaryLabel.reducedMotion = reducedMotionProvider()
         let primaryShimmerTreatment: SidebarShimmerTreatment = isActive ? .shadow : .highlight
         primaryLabel.shimmerColor = shimmerColor(
@@ -724,9 +839,14 @@ final class SidebarWorklaneRowButton: NSButton {
             treatment: primaryShimmerTreatment,
             isActive: isActive
         )
+        let statusWraps = SidebarWorklaneRowLayout.worklaneStatusLineCount(
+            for: summary,
+            availableWidth: bounds.width
+        ) > 1
         let shimmersStatus =
             summary.attentionState == .running
             && summary.statusText == "Running"
+            && statusWraps == false
         statusLabel.isShimmering = shimmersStatus
         statusLabel.reducedMotion = reducedMotionProvider()
         let shimmerBase = statusShimmerBaseColor(for: currentTheme.statusRunning)
@@ -1249,6 +1369,13 @@ final class SidebarWorklaneRowButton: NSButton {
         paneStatusRows.prefix(currentSummary?.paneRows.count ?? 0)
             .map(\.text)
             .filter { $0.isEmpty == false }
+    }
+
+    var paneStatusTrailingTextsForTesting: [String] {
+        paneStatusRows.prefix(currentSummary?.paneRows.count ?? 0)
+            .compactMap { row in
+                row.isTrailingVisibleForTesting ? row.trailingText : nil
+            }
     }
 
     var paneStatusSymbolNamesForTesting: [String] {
@@ -2034,6 +2161,7 @@ private final class SidebarPanePrimaryRowView: NSView {
         addSubview(stack)
 
         let heightConstraint = heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarPrimaryLineHeight)
+        heightConstraint.priority = .defaultHigh
         self.heightConstraint = heightConstraint
         NSLayoutConstraint.activate([
             baseLabel.topAnchor.constraint(equalTo: textContainer.topAnchor),
@@ -2050,6 +2178,16 @@ private final class SidebarPanePrimaryRowView: NSView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             heightConstraint,
         ])
+    }
+
+    /// Surgical primary-text update for the volatile agent title fast path.
+    /// Writes the new text into baseLabel and shimmerLabel without touching
+    /// trailing text, presentation mode, line count, or layout. Idempotent.
+    func setPrimaryText(_ text: String) {
+        guard primaryText != text else { return }
+        primaryText = text
+        baseLabel.stringValue = text
+        shimmerLabel.stringValue = text
     }
 
     func configure(
@@ -2155,6 +2293,10 @@ private final class SidebarPaneTextRowView: NSView {
     private(set) var textColor: NSColor = .secondaryLabelColor
     private(set) var trailingText: String?
     private(set) var trailingTextColor: NSColor = .secondaryLabelColor
+    private var rowLineHeight: CGFloat = ShellMetrics.sidebarStatusLineHeight
+    private var heightConstraint: NSLayoutConstraint?
+    private var trailingWidthConstraint: NSLayoutConstraint?
+    private var lineCount = 1
 
     init(font: NSFont, lineHeight: CGFloat) {
         super.init(frame: .zero)
@@ -2167,6 +2309,7 @@ private final class SidebarPaneTextRowView: NSView {
     }
 
     private func setup(font: NSFont, lineHeight: CGFloat) {
+        rowLineHeight = lineHeight
         translatesAutoresizingMaskIntoConstraints = false
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyDown
@@ -2174,7 +2317,7 @@ private final class SidebarPaneTextRowView: NSView {
         iconView.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         textContainer.translatesAutoresizingMaskIntoConstraints = false
-        textContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textContainer.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         textContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         textContainer.addSubview(baseLabel)
         textContainer.addSubview(shimmerLabel)
@@ -2189,18 +2332,28 @@ private final class SidebarPaneTextRowView: NSView {
         trailingLabelView.alignment = .right
         trailingLabelView.lineBreakMode = .byTruncatingHead
         trailingLabelView.translatesAutoresizingMaskIntoConstraints = false
-        trailingLabelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        trailingLabelView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        trailingLabelView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         contentStack.addArrangedSubview(trailingLabelView)
         addSubview(contentStack)
 
         baseLabel.font = font
         baseLabel.lineBreakMode = .byTruncatingTail
         baseLabel.translatesAutoresizingMaskIntoConstraints = false
+        baseLabel.maximumNumberOfLines = 1
+        baseLabel.cell?.wraps = false
+        baseLabel.cell?.usesSingleLineMode = true
 
         shimmerLabel.font = font
         shimmerLabel.lineHeight = lineHeight
         shimmerLabel.lineBreakMode = .byTruncatingTail
         shimmerLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let heightConstraint = heightAnchor.constraint(equalToConstant: lineHeight)
+        heightConstraint.priority = .defaultHigh
+        self.heightConstraint = heightConstraint
+        let trailingWidthConstraint = trailingLabelView.widthAnchor.constraint(equalToConstant: 0)
+        self.trailingWidthConstraint = trailingWidthConstraint
 
         NSLayoutConstraint.activate([
             iconView.widthAnchor.constraint(equalToConstant: Self.symbolPointSize),
@@ -2217,11 +2370,30 @@ private final class SidebarPaneTextRowView: NSView {
             contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: lineHeight),
+            heightConstraint,
+            trailingWidthConstraint,
         ])
     }
 
-    func configure(text: String, symbolName: String?, trailingText: String?) {
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: heightConstraint?.constant ?? rowLineHeight
+        )
+    }
+
+    override func layout() {
+        super.layout()
+        updateResolvedTrailingVisibility()
+    }
+
+    func configure(
+        text: String,
+        symbolName: String?,
+        trailingText: String?,
+        trailingWidth: CGFloat,
+        lineCount: Int
+    ) {
         self.text = text
         self.symbolName = symbolName ?? ""
         self.trailingText = trailingText
@@ -2234,6 +2406,8 @@ private final class SidebarPaneTextRowView: NSView {
         iconView.isHidden = iconView.image == nil
         trailingLabelView.stringValue = trailingText ?? ""
         trailingLabelView.isHidden = (trailingText?.isEmpty ?? true)
+        trailingWidthConstraint?.constant = trailingText == nil ? 0 : trailingWidth
+        applyPresentation(lineCount: lineCount)
     }
 
     func applyColors(
@@ -2251,7 +2425,7 @@ private final class SidebarPaneTextRowView: NSView {
         baseLabel.textColor = dimmedColor
         iconView.contentTintColor = dimmedColor
         trailingLabelView.textColor = trailingTextColor
-        shimmerLabel.isShimmering = isShimmering
+        shimmerLabel.isShimmering = isShimmering && lineCount == 1
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor
     }
@@ -2270,6 +2444,81 @@ private final class SidebarPaneTextRowView: NSView {
 
     var shimmerPhaseOffsetForTesting: CGFloat {
         shimmerLabel.shimmerPhaseOffsetForTesting
+    }
+
+    var isTrailingVisibleForTesting: Bool {
+        trailingLabelView.isHidden == false
+    }
+
+    private func applyPresentation(lineCount: Int) {
+        let clampedLineCount = max(1, min(2, lineCount))
+        let wraps = clampedLineCount > 1
+
+        self.lineCount = clampedLineCount
+        baseLabel.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
+        baseLabel.maximumNumberOfLines = wraps ? clampedLineCount : 1
+        baseLabel.cell?.wraps = wraps
+        baseLabel.cell?.usesSingleLineMode = wraps == false
+        shimmerLabel.isHidden = wraps
+        contentStack.alignment = wraps ? .top : .centerY
+        trailingLabelView.isHidden = wraps || (trailingText?.isEmpty ?? true)
+        heightConstraint?.constant = rowLineHeight * CGFloat(clampedLineCount)
+        invalidateIntrinsicContentSize()
+    }
+
+    private func updateResolvedTrailingVisibility() {
+        guard let trailingText, trailingText.isEmpty == false else {
+            trailingLabelView.isHidden = true
+            return
+        }
+
+        guard lineCount == 1 else {
+            trailingLabelView.isHidden = true
+            return
+        }
+
+        let availableTextWidth = max(0, textContainer.bounds.width)
+        guard availableTextWidth > 0 else {
+            trailingLabelView.isHidden = false
+            return
+        }
+
+        let font = baseLabel.font ?? ShellMetrics.sidebarStatusFont()
+        let measuredTextWidth = Self.measuredWidth(for: text, font: font)
+        let measuredLineCount = Self.measuredLineCount(
+            for: text,
+            font: font,
+            lineHeight: rowLineHeight,
+            width: availableTextWidth
+        )
+        trailingLabelView.isHidden =
+            measuredTextWidth > availableTextWidth + 0.5
+            || measuredLineCount > 1
+    }
+
+    private static func measuredWidth(for text: String, font: NSFont) -> CGFloat {
+        let line = CTLineCreateWithAttributedString(
+            NSAttributedString(string: text, attributes: [.font: font])
+        )
+        return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+    }
+
+    private static func measuredLineCount(
+        for text: String,
+        font: NSFont,
+        lineHeight: CGFloat,
+        width: CGFloat
+    ) -> Int {
+        guard width > 0, text.isEmpty == false else {
+            return 1
+        }
+
+        let boundingRect = (text as NSString).boundingRect(
+            with: NSSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        return Int(ceil(boundingRect.height / lineHeight))
     }
 }
 

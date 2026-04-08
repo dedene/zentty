@@ -37,19 +37,19 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertEqual(preferences.ultrawidePreset, .compact)
     }
 
-    func test_display_class_resolution_prefers_screen_width_when_available() {
+    func test_display_class_resolution_uses_viewport_width_even_when_screen_is_wider() {
         let displayClass = PaneDisplayClassResolver.resolve(
             screenWidth: 1728,
             viewportWidth: 1180
         )
 
-        XCTAssertEqual(displayClass, .largeDisplay)
+        XCTAssertEqual(displayClass, .laptop)
     }
 
-    func test_display_class_resolution_uses_ultrawide_threshold() {
+    func test_display_class_resolution_uses_viewport_ultrawide_threshold() {
         let displayClass = PaneDisplayClassResolver.resolve(
             screenWidth: 3440,
-            viewportWidth: 1920
+            viewportWidth: 2880
         )
 
         XCTAssertEqual(displayClass, .ultrawide)

@@ -277,6 +277,7 @@ enum CodexHookBridge {
             if let pid {
                 payloads.append(
                     pidPayload(
+                        windowID: target.windowID,
                         worklaneID: target.worklaneID,
                         paneID: target.paneID,
                         pid: pid,
@@ -286,6 +287,7 @@ enum CodexHookBridge {
             }
             payloads.append(
                 lifecyclePayload(
+                    windowID: target.windowID,
                     worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .starting,
@@ -297,6 +299,7 @@ enum CodexHookBridge {
         case "UserPromptSubmit":
             return [
                 lifecyclePayload(
+                    windowID: target.windowID,
                     worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .running,
@@ -307,6 +310,7 @@ enum CodexHookBridge {
         case "Stop":
             return [
                 lifecyclePayload(
+                    windowID: target.windowID,
                     worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .idle,
@@ -332,25 +336,26 @@ enum CodexHookBridge {
         }
     }
 
-    private static func currentTarget(from environment: [String: String]) throws -> (worklaneID: WorklaneID, paneID: PaneID) {
+    private static func currentTarget(from environment: [String: String]) throws -> (windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID) {
         guard let worklaneID = environment["ZENTTY_WORKLANE_ID"] else {
             throw AgentStatusPayloadError.missingWorklaneID
         }
         guard let paneID = environment["ZENTTY_PANE_ID"] else {
             throw AgentStatusPayloadError.missingPaneID
         }
-        return (WorklaneID(worklaneID), PaneID(paneID))
+        return ((environment["ZENTTY_WINDOW_ID"]).map(WindowID.init), WorklaneID(worklaneID), PaneID(paneID))
     }
 
-    private static func currentTargetIfAvailable(from environment: [String: String]) -> (worklaneID: WorklaneID, paneID: PaneID)? {
+    private static func currentTargetIfAvailable(from environment: [String: String]) -> (windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID)? {
         guard let worklaneID = environment["ZENTTY_WORKLANE_ID"],
               let paneID = environment["ZENTTY_PANE_ID"] else {
             return nil
         }
-        return (WorklaneID(worklaneID), PaneID(paneID))
+        return ((environment["ZENTTY_WINDOW_ID"]).map(WindowID.init), WorklaneID(worklaneID), PaneID(paneID))
     }
 
     private static func lifecyclePayload(
+        windowID: WindowID?,
         worklaneID: WorklaneID,
         paneID: PaneID,
         state: PaneAgentState,
@@ -358,6 +363,7 @@ enum CodexHookBridge {
         cwd: String?
     ) -> AgentStatusPayload {
         AgentStatusPayload(
+            windowID: windowID,
             worklaneID: worklaneID,
             paneID: paneID,
             signalKind: .lifecycle,
@@ -376,12 +382,14 @@ enum CodexHookBridge {
     }
 
     private static func pidPayload(
+        windowID: WindowID?,
         worklaneID: WorklaneID,
         paneID: PaneID,
         pid: Int32,
         sessionID: String?
     ) -> AgentStatusPayload {
         AgentStatusPayload(
+            windowID: windowID,
             worklaneID: worklaneID,
             paneID: paneID,
             signalKind: .pid,
@@ -474,6 +482,7 @@ enum OpenCodeHookBridge {
             case "busy", "retry":
                 return [
                     lifecyclePayload(
+                        windowID: target.windowID,
                         worklaneID: target.worklaneID,
                         paneID: target.paneID,
                         state: .running,
@@ -486,6 +495,7 @@ enum OpenCodeHookBridge {
             case "idle":
                 return [
                     lifecyclePayload(
+                        windowID: target.windowID,
                         worklaneID: target.worklaneID,
                         paneID: target.paneID,
                         state: .idle,
@@ -502,6 +512,7 @@ enum OpenCodeHookBridge {
         case "session.idle":
             return [
                 lifecyclePayload(
+                    windowID: target.windowID,
                     worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .idle,
@@ -516,6 +527,7 @@ enum OpenCodeHookBridge {
             let text = input.title ?? "OpenCode needs your approval"
             return [
                 lifecyclePayload(
+                    windowID: target.windowID,
                     worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .needsInput,
@@ -532,6 +544,7 @@ enum OpenCodeHookBridge {
             }
             return [
                 lifecyclePayload(
+                    windowID: target.windowID,
                     worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .needsInput,
@@ -545,6 +558,7 @@ enum OpenCodeHookBridge {
         case "permission.replied", "question.replied":
             return [
                 lifecyclePayload(
+                    windowID: target.windowID,
                     worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     state: .running,
@@ -561,6 +575,7 @@ enum OpenCodeHookBridge {
     }
 
     private static func lifecyclePayload(
+        windowID: WindowID?,
         worklaneID: WorklaneID,
         paneID: PaneID,
         state: PaneAgentState,
@@ -570,6 +585,7 @@ enum OpenCodeHookBridge {
         cwd: String?
     ) -> AgentStatusPayload {
         AgentStatusPayload(
+            windowID: windowID,
             worklaneID: worklaneID,
             paneID: paneID,
             signalKind: .lifecycle,
@@ -616,22 +632,22 @@ enum OpenCodeHookBridge {
         )
     }
 
-    private static func currentTarget(from environment: [String: String]) throws -> (worklaneID: WorklaneID, paneID: PaneID) {
+    private static func currentTarget(from environment: [String: String]) throws -> (windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID) {
         guard let worklaneID = environment["ZENTTY_WORKLANE_ID"] else {
             throw AgentStatusPayloadError.missingWorklaneID
         }
         guard let paneID = environment["ZENTTY_PANE_ID"] else {
             throw AgentStatusPayloadError.missingPaneID
         }
-        return (WorklaneID(worklaneID), PaneID(paneID))
+        return ((environment["ZENTTY_WINDOW_ID"]).map(WindowID.init), WorklaneID(worklaneID), PaneID(paneID))
     }
 
-    private static func currentTargetIfAvailable(from environment: [String: String]) -> (worklaneID: WorklaneID, paneID: PaneID)? {
+    private static func currentTargetIfAvailable(from environment: [String: String]) -> (windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID)? {
         guard let worklaneID = environment["ZENTTY_WORKLANE_ID"],
               let paneID = environment["ZENTTY_PANE_ID"] else {
             return nil
         }
-        return (WorklaneID(worklaneID), PaneID(paneID))
+        return ((environment["ZENTTY_WINDOW_ID"]).map(WindowID.init), WorklaneID(worklaneID), PaneID(paneID))
     }
 
     private static func readStandardInput() -> Data {

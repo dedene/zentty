@@ -50,6 +50,7 @@ enum TerminalMetadataChangeClassifier {
     enum VolatileAgentStatusPhase: Equatable {
         case running
         case starting
+        case needsInput
         case idle
     }
 
@@ -109,6 +110,7 @@ enum TerminalMetadataChangeClassifier {
                   normalized,
                   runningWords: ["working", "thinking"],
                   startingWords: ["starting"],
+                  needsInputWords: ["waiting"],
                   idleWords: ["ready"]
               ) else {
             return nil
@@ -130,6 +132,7 @@ enum TerminalMetadataChangeClassifier {
                   normalized,
                   runningWords: ["working", "thinking"],
                   startingWords: ["starting"],
+                  needsInputWords: ["waiting"],
                   idleWords: ["ready"]
               ) else {
             return nil
@@ -205,6 +208,7 @@ enum TerminalMetadataChangeClassifier {
         _ normalized: String,
         runningWords: Set<String>,
         startingWords: Set<String>,
+        needsInputWords: Set<String> = [],
         idleWords: Set<String>
     ) -> ParsedVolatileAgentStatusTitle? {
         let firstWord = normalized.prefix(while: { $0.isLetter }).lowercased()
@@ -213,6 +217,8 @@ enum TerminalMetadataChangeClassifier {
             phase = .running
         } else if startingWords.contains(firstWord) {
             phase = .starting
+        } else if needsInputWords.contains(firstWord) {
+            phase = .needsInput
         } else if idleWords.contains(firstWord) {
             phase = .idle
         } else {

@@ -7,12 +7,21 @@ final class NotificationChromeCoordinator {
     private var panelView: NotificationPanelView?
     private weak var parentView: NSView?
     private var currentTheme: ZenttyTheme?
+    private var storeObserverID: UUID?
 
-    var onNavigateToPane: ((WorklaneID, PaneID) -> Void)?
+    var onNavigateToNotification: ((AppNotification) -> Void)?
 
     init(store: NotificationStore = NotificationStore(), bellButton: NotificationBellButton = NotificationBellButton()) {
         self.store = store
         self.bellButton = bellButton
+    }
+
+    deinit {
+        if let storeObserverID {
+            MainActor.assumeIsolated {
+                store.removeObserver(storeObserverID)
+            }
+        }
     }
 
     func setup(parentView: NSView, theme: ZenttyTheme) {
@@ -22,12 +31,16 @@ final class NotificationChromeCoordinator {
         bellButton.onClick = { [weak self] in
             self?.togglePanel()
         }
-        bellButton.update(count: 0, theme: theme)
+        bellButton.update(count: store.unresolvedCount, theme: theme)
         bellButton.configure(theme: theme, animated: false)
 
-        store.onChange = { [weak self] in
+        if let storeObserverID {
+            store.removeObserver(storeObserverID)
+        }
+        storeObserverID = store.addObserver { [weak self] in
             self?.handleStoreChange()
         }
+        handleStoreChange()
     }
 
     func applyTheme(_ theme: ZenttyTheme, animated: Bool) {
@@ -74,7 +87,7 @@ final class NotificationChromeCoordinator {
         }
         panel.onJumpToNotification = { [weak self] notification in
             self?.closePanel()
-            self?.onNavigateToPane?(notification.worklaneID, notification.paneID)
+            self?.onNavigateToNotification?(notification)
         }
         panel.onClosePanel = { [weak self] in
             self?.closePanel()
@@ -87,6 +100,6 @@ final class NotificationChromeCoordinator {
     private func jumpToLatestNotification() {
         guard let notification = store.mostUrgentUnresolved() else { return }
         closePanel()
-        onNavigateToPane?(notification.worklaneID, notification.paneID)
+        onNavigateToNotification?(notification)
     }
 }

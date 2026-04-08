@@ -381,6 +381,54 @@ final class AgentWrapperTests: XCTestCase {
         ])
     }
 
+    func test_codex_notify_emits_approval_needs_input_signal() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["codex-notify"])
+        try harness.installHelperStub()
+
+        let helperResult = try harness.run(
+            tool: "codex-notify",
+            arguments: [
+                "{\"type\":\"permission-requested\",\"session_id\":\"session-approval\",\"title\":\"Approval requested: edit Sources/App.swift\"}"
+            ],
+            extraEnvironment: [
+                "ZENTTY_AGENT_BIN": harness.helperPath,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
+        )
+
+        XCTAssertEqual(helperResult.exitCode, 0, "\(helperResult.stderr)\n\(helperResult.stdout)")
+
+        let helperSignals = try harness.readLines(named: "helper-args.log")
+        XCTAssertEqual(helperSignals, [
+            "agent-signal lifecycle needs-input --origin explicit-api --tool Codex --text Approval requested: edit Sources/App.swift --interaction-kind approval --session-id session-approval"
+        ])
+    }
+
+    func test_codex_notify_emits_decision_needs_input_signal_for_question_prompt() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["codex-notify"])
+        try harness.installHelperStub()
+
+        let helperResult = try harness.run(
+            tool: "codex-notify",
+            arguments: [
+                "{\"type\":\"question-requested\",\"session_id\":\"session-question\",\"title\":\"What should Codex do next? [Implement the plan] [Stay in Plan mode]\"}"
+            ],
+            extraEnvironment: [
+                "ZENTTY_AGENT_BIN": harness.helperPath,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
+        )
+
+        XCTAssertEqual(helperResult.exitCode, 0, "\(helperResult.stderr)\n\(helperResult.stdout)")
+
+        let helperSignals = try harness.readLines(named: "helper-args.log")
+        XCTAssertEqual(helperSignals, [
+            "agent-signal lifecycle needs-input --origin explicit-api --tool Codex --text What should Codex do next? [Implement the plan] [Stay in Plan mode] --interaction-kind decision --session-id session-question"
+        ])
+    }
+
     func test_codex_wrapper_preserves_existing_hooks_and_appends_zentty_hooks() throws {
         let harness = try WrapperHarness(copyingScriptsNamed: ["codex", "zentty-agent-wrapper"])
         try harness.installHelperStub()

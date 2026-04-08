@@ -53,6 +53,7 @@ final class RootViewController: NSViewController {
     }
 
     private let worklaneStore: WorklaneStore
+    private let windowID: WindowID
     private let configStore: AppConfigStore
     private let appUpdateStateStore: AppUpdateStateStore
     private let openWithService: OpenWithServing
@@ -134,16 +135,20 @@ final class RootViewController: NSViewController {
     var onShowSettingsRequested: (() -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
+    var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
 
     init(
+        windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         configStore: AppConfigStore,
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         openWithService: OpenWithServing = OpenWithService(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
+        notificationStore: NotificationStore = NotificationStore(),
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         initialLayoutContext: PaneLayoutContext = .fallback
     ) {
+        self.windowID = windowID
         self.runtimeRegistry = runtimeRegistry
         self.configStore = configStore
         self.appUpdateStateStore = appUpdateStateStore
@@ -156,18 +161,20 @@ final class RootViewController: NSViewController {
             configStore: configStore
         )
         self.themeCoordinator = ThemeCoordinator()
-        self.notificationCoordinator = NotificationChromeCoordinator()
+        self.notificationCoordinator = NotificationChromeCoordinator(store: notificationStore)
         self.paneLayoutMenuCoordinator = PaneLayoutMenuCoordinator(
             shortcutManager: shortcutManager
         )
         self.worklaneStore = WorklaneStore(
+            windowID: windowID,
             layoutContext: initialLayoutContext,
             gitContextResolver: gitContextResolver
         )
         self.renderCoordinator = WorklaneRenderCoordinator(
+            windowID: windowID,
             worklaneStore: worklaneStore,
             runtimeRegistry: runtimeRegistry,
-            notificationStore: notificationCoordinator.store,
+            notificationStore: notificationStore,
             configStore: configStore,
             reviewStateResolver: reviewStateResolver
         )
@@ -184,10 +191,12 @@ final class RootViewController: NSViewController {
     }
 
     convenience init(
+        windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         configStore: AppConfigStore? = nil,
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         openWithService: OpenWithServing = OpenWithService(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
+        notificationStore: NotificationStore = NotificationStore(),
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         sidebarWidthDefaults: UserDefaults = .standard,
@@ -196,6 +205,7 @@ final class RootViewController: NSViewController {
         initialLayoutContext: PaneLayoutContext = .fallback
     ) {
         self.init(
+            windowID: windowID,
             configStore: configStore
                 ?? AppConfigStore(
                     fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.RootViewController"),
@@ -206,6 +216,7 @@ final class RootViewController: NSViewController {
             appUpdateStateStore: appUpdateStateStore,
             openWithService: openWithService,
             runtimeRegistry: runtimeRegistry,
+            notificationStore: notificationStore,
             reviewStateResolver: reviewStateResolver,
             gitContextResolver: gitContextResolver,
             initialLayoutContext: initialLayoutContext
@@ -470,8 +481,8 @@ final class RootViewController: NSViewController {
         }
 
         notificationCoordinator.setup(parentView: view, theme: currentTheme)
-        notificationCoordinator.onNavigateToPane = { [weak self] worklaneID, paneID in
-            self?.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+        notificationCoordinator.onNavigateToNotification = { [weak self] notification in
+            self?.navigateToNotification(notification)
         }
 
         paneBorderContextOverlayView.onPathClicked = { [weak self] paneID in
@@ -890,7 +901,7 @@ final class RootViewController: NSViewController {
         case .jumpToLatestNotification:
             if let notification = notificationCoordinator.store.mostUrgentUnresolved() {
                 notificationCoordinator.closePanel()
-                navigateToPane(worklaneID: notification.worklaneID, paneID: notification.paneID)
+                navigateToNotification(notification)
             }
         case .pane(let command):
             handlePaneCommand(command)
@@ -1139,7 +1150,16 @@ final class RootViewController: NSViewController {
 
     func navigateToPane(worklaneID: WorklaneID, paneID: PaneID) {
         worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
-        notificationCoordinator.store.resolve(worklaneID: worklaneID, paneID: paneID)
+        notificationCoordinator.store.resolve(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
+    }
+
+    private func navigateToNotification(_ notification: AppNotification) {
+        if notification.windowID == windowID {
+            navigateToPane(worklaneID: notification.worklaneID, paneID: notification.paneID)
+            return
+        }
+
+        onNavigateToNotificationRequested?(notification.windowID, notification.worklaneID, notification.paneID)
     }
 
     private func endAllLocalSearches() {
@@ -1543,6 +1563,13 @@ final class RootViewController: NSViewController {
         worklaneStore.worklanes.contains { $0.id == worklaneID }
     }
 
+    func containsPane(worklaneID: WorklaneID, paneID: PaneID) -> Bool {
+        worklaneStore.worklanes.contains { worklane in
+            worklane.id == worklaneID
+                && worklane.paneStripState.panes.contains(where: { $0.id == paneID })
+        }
+    }
+
     var worklaneTitles: [String] {
         worklaneStore.worklanes.map(\.title)
     }
@@ -1614,6 +1641,10 @@ final class RootViewController: NSViewController {
 
         var focusedPaneEnvironmentForTesting: [String: String]? {
             worklaneStore.activeWorklane?.paneStripState.focusedPane?.sessionRequest.environmentVariables
+        }
+
+        var notificationStoreForTesting: NotificationStore {
+            notificationCoordinator.store
         }
 
         func handleTerminalEventForTesting(paneID: PaneID, event: TerminalEvent) {

@@ -437,6 +437,33 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_new_border_context_view_does_not_animate_from_overlay_origin_without_insertion_transition() throws {
+        let overlayView = PaneBorderContextOverlayView(frame: NSRect(x: 0, y: 0, width: 1200, height: 680))
+        let snapshot = PaneBorderChromeSnapshot(
+            paneID: PaneID("editor"),
+            frame: CGRect(x: 240, y: 120, width: 520, height: 420),
+            initialPaneFrame: nil,
+            isFocused: true,
+            emphasis: 1,
+            borderContext: PaneBorderContextDisplayModel(text: "~/src/zentty")
+        )
+
+        overlayView.render(
+            snapshots: [snapshot],
+            theme: .fallback(for: nil),
+            animated: true
+        )
+        overlayView.layoutSubtreeIfNeeded()
+
+        let itemView = try XCTUnwrap(overlayView.subviews.first)
+        let itemFrame = try XCTUnwrap(overlayView.paneContextFramesForTesting[PaneID("editor")])
+
+        XCTAssertTrue(itemView.layer?.animationKeys()?.isEmpty ?? true)
+        XCTAssertGreaterThan(itemFrame.minX, 200)
+        XCTAssertGreaterThan(itemFrame.minY, 500)
+    }
+
+    @MainActor
     func test_focus_change_repositions_visible_panes() {
         let paneStripView = makePaneStripView(width: 980)
         let editorFocused = PaneStripState(
@@ -1231,6 +1258,52 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertEqual(transition.side, .right)
         XCTAssertEqual(transition.paneID, PaneID("pane-1"))
         XCTAssertGreaterThan(transition.initialFrame.minX, editorFrame.maxX)
+    }
+
+    @MainActor
+    func test_split_publishes_inserted_pane_initial_frame_in_border_chrome_snapshot() throws {
+        let paneStripView = makePaneStripView()
+        paneStripView.leadingVisibleInset = sidebarInset
+        let singlePane = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let splitState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+                PaneState(id: PaneID("pane-1"), title: "pane 1"),
+            ],
+            focusedPaneID: PaneID("pane-1")
+        )
+        var snapshots: [PaneBorderChromeSnapshot] = []
+        paneStripView.onBorderChromeSnapshotsDidChange = { newSnapshots, _ in
+            snapshots = newSnapshots
+        }
+
+        paneStripView.render(
+            singlePane,
+            paneBorderContextByPaneID: [
+                PaneID("shell"): PaneBorderContextDisplayModel(text: "~/src/zentty")
+            ]
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(
+            splitState,
+            paneBorderContextByPaneID: [
+                PaneID("shell"): PaneBorderContextDisplayModel(text: "~/src/zentty"),
+                PaneID("pane-1"): PaneBorderContextDisplayModel(text: "~/src/new-pane")
+            ]
+        )
+
+        let transition = try XCTUnwrap(paneStripView.lastInsertionTransition)
+        let insertedSnapshot = try XCTUnwrap(snapshots.first(where: { $0.paneID == PaneID("pane-1") }))
+        let existingSnapshot = try XCTUnwrap(snapshots.first(where: { $0.paneID == PaneID("shell") }))
+
+        XCTAssertEqual(insertedSnapshot.initialPaneFrame, transition.initialFrame)
+        XCTAssertNil(existingSnapshot.initialPaneFrame)
     }
 
     @MainActor

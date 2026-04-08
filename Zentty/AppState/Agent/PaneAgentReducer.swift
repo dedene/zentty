@@ -521,6 +521,12 @@ struct PaneAgentReducerState: Equatable, Sendable {
         _ payload: AgentStatusPayload,
         over existingSession: PaneAgentSessionState
     ) -> Bool {
+        if existingSession.state == .needsInput,
+           existingSession.interactionKind.requiresHumanAttention,
+           payload.state == .idle {
+            return false
+        }
+
         if payload.origin.priority > existingSession.origin.priority {
             return true
         }

@@ -36,9 +36,11 @@ struct AgentStatusCommand {
         guard let paneID = options["pane-id"] ?? environment["ZENTTY_PANE_ID"] else {
             throw AgentStatusPayloadError.missingPaneID
         }
+        let windowID = options["window-id"] ?? environment["ZENTTY_WINDOW_ID"]
 
         return AgentStatusCommand(
             payload: AgentStatusPayload(
+                windowID: windowID.map(WindowID.init),
                 worklaneID: WorklaneID(worklaneID),
                 paneID: PaneID(paneID),
                 signalKind: .lifecycle,
@@ -110,8 +112,11 @@ struct AgentSignalCommand {
         guard let paneID = options["pane-id"] ?? environment["ZENTTY_PANE_ID"] else {
             throw AgentStatusPayloadError.missingPaneID
         }
+        let windowID = options["window-id"] ?? environment["ZENTTY_WINDOW_ID"]
 
         let origin = options["origin"].flatMap(AgentSignalOrigin.init(rawValue:)) ?? defaultOrigin(for: kind)
+        let interactionKind = options["interaction-kind"].flatMap(PaneAgentInteractionKind.init(rawValue:))
+        let confidence = options["confidence"].flatMap(AgentSignalConfidence.init(rawValue:))
 
         switch kind {
         case .lifecycle:
@@ -135,6 +140,7 @@ struct AgentSignalCommand {
 
             return AgentSignalCommand(
                 payload: AgentStatusPayload(
+                    windowID: windowID.map(WindowID.init),
                     worklaneID: WorklaneID(worklaneID),
                     paneID: PaneID(paneID),
                     signalKind: .lifecycle,
@@ -142,6 +148,8 @@ struct AgentSignalCommand {
                     origin: origin,
                     toolName: options["tool"],
                     text: options["text"],
+                    interactionKind: interactionKind,
+                    confidence: confidence,
                     sessionID: options["session-id"],
                     parentSessionID: options["parent-session-id"],
                     artifactKind: options["artifact-kind"].flatMap(WorklaneArtifactKind.init(rawValue:)),
@@ -168,6 +176,7 @@ struct AgentSignalCommand {
 
             return AgentSignalCommand(
                 payload: AgentStatusPayload(
+                    windowID: windowID.map(WindowID.init),
                     worklaneID: WorklaneID(worklaneID),
                     paneID: PaneID(paneID),
                     signalKind: .shellState,
@@ -204,6 +213,7 @@ struct AgentSignalCommand {
 
             return AgentSignalCommand(
                 payload: AgentStatusPayload(
+                    windowID: windowID.map(WindowID.init),
                     worklaneID: WorklaneID(worklaneID),
                     paneID: PaneID(paneID),
                     signalKind: .pid,
@@ -228,6 +238,7 @@ struct AgentSignalCommand {
             if rawScope == "clear" {
                 return AgentSignalCommand(
                     payload: AgentStatusPayload(
+                        windowID: windowID.map(WindowID.init),
                         worklaneID: WorklaneID(worklaneID),
                         paneID: PaneID(paneID),
                         signalKind: .paneContext,
@@ -249,6 +260,7 @@ struct AgentSignalCommand {
 
             return AgentSignalCommand(
                 payload: AgentStatusPayload(
+                    windowID: windowID.map(WindowID.init),
                     worklaneID: WorklaneID(worklaneID),
                     paneID: PaneID(paneID),
                     signalKind: .paneContext,

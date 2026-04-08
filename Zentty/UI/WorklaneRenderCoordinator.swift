@@ -26,6 +26,7 @@ final class WorklaneRenderCoordinator {
     let worklaneStore: WorklaneStore
     let runtimeRegistry: PaneRuntimeRegistry
     let reviewStateResolver: WorklaneReviewStateResolver
+    let windowID: WindowID
     private let terminalDiagnostics: TerminalDiagnostics
     private let configStore: AppConfigStore?
 
@@ -41,6 +42,7 @@ final class WorklaneRenderCoordinator {
     weak var environment: RenderEnvironmentProviding?
 
     init(
+        windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         worklaneStore: WorklaneStore,
         runtimeRegistry: PaneRuntimeRegistry,
         notificationStore: NotificationStore,
@@ -48,6 +50,7 @@ final class WorklaneRenderCoordinator {
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
         terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
+        self.windowID = windowID
         self.worklaneStore = worklaneStore
         self.runtimeRegistry = runtimeRegistry
         self.reviewStateResolver = reviewStateResolver
@@ -144,8 +147,34 @@ final class WorklaneRenderCoordinator {
             bootstrapReviewRefresh(force: true)
         case .auxiliaryStateUpdated(let worklaneID, let paneID, let impacts):
             handleAuxiliaryStateUpdate(worklaneID: worklaneID, paneID: paneID, impacts: impacts)
+        case .volatileAgentTitleUpdated(let worklaneID, let paneID):
+            handleVolatileAgentTitleUpdate(worklaneID: worklaneID, paneID: paneID)
         case .historyChanged:
             break
+        }
+    }
+
+    private func handleVolatileAgentTitleUpdate(
+        worklaneID: WorklaneID,
+        paneID: PaneID
+    ) {
+        guard let views,
+              let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }),
+              let metadata = worklane.auxiliaryStateByPaneID[paneID]?.metadata,
+              let titleText = WorklaneContextFormatter.trimmed(metadata.title)
+        else {
+            return
+        }
+
+        views.sidebarView.setVolatilePaneTitle(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            text: titleText
+        )
+
+        if worklaneID == worklaneStore.activeWorklaneID,
+           worklane.paneStripState.focusedPaneID == paneID {
+            views.windowChromeView.setFocusedLabelText(titleText)
         }
     }
 
@@ -192,6 +221,7 @@ final class WorklaneRenderCoordinator {
                 renderCanvasForCurrentWorklane(animated: animated)
                 let windowState = environment?.renderWindowState ?? (isVisible: false, isKeyWindow: false)
                 attentionNotificationCoordinator.update(
+                    windowID: windowID,
                     worklanes: worklaneStore.worklanes,
                     activeWorklaneID: worklaneStore.activeWorklaneID,
                     windowIsKey: windowState.isKeyWindow
@@ -266,6 +296,10 @@ final class WorklaneRenderCoordinator {
             PaneBorderChromeSnapshot(
                 paneID: snapshot.paneID,
                 frame: snapshot.frame.offsetBy(
+                    dx: views.appCanvasView.frame.minX,
+                    dy: views.appCanvasView.frame.minY
+                ),
+                initialPaneFrame: snapshot.initialPaneFrame?.offsetBy(
                     dx: views.appCanvasView.frame.minX,
                     dy: views.appCanvasView.frame.minY
                 ),
@@ -383,6 +417,7 @@ final class WorklaneRenderCoordinator {
         if impacts.contains(.attention) {
             let windowState = environment?.renderWindowState ?? (isVisible: false, isKeyWindow: false)
             attentionNotificationCoordinator.update(
+                windowID: windowID,
                 worklanes: worklaneStore.worklanes,
                 activeWorklaneID: worklaneStore.activeWorklaneID,
                 windowIsKey: windowState.isKeyWindow

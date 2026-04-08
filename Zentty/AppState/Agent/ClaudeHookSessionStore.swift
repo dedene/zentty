@@ -53,6 +53,7 @@ final class ClaudeHookSessionStore {
 
     func upsert(
         sessionID: String,
+        windowID: WindowID? = nil,
         worklaneID: WorklaneID,
         paneID: PaneID,
         cwd: String?,
@@ -69,6 +70,7 @@ final class ClaudeHookSessionStore {
             let now = Date().timeIntervalSince1970
             var record = state.sessions[normalizedSessionID] ?? ClaudeHookSessionRecord(
                 sessionID: normalizedSessionID,
+                windowIDRawValue: windowID?.rawValue,
                 worklaneIDRawValue: worklaneID.rawValue,
                 paneIDRawValue: paneID.rawValue,
                 cwd: nil,
@@ -81,6 +83,7 @@ final class ClaudeHookSessionStore {
                 lastNotificationText: nil,
                 updatedAt: now
             )
+            record.windowIDRawValue = windowID?.rawValue
             record.worklaneIDRawValue = worklaneID.rawValue
             record.paneIDRawValue = paneID.rawValue
             if let cwd = normalizedOptional(cwd) {
@@ -102,6 +105,7 @@ final class ClaudeHookSessionStore {
 
     func rememberStructuredInteraction(
         sessionID: String,
+        windowID: WindowID? = nil,
         worklaneID: WorklaneID,
         paneID: PaneID,
         cwd: String?,
@@ -119,6 +123,7 @@ final class ClaudeHookSessionStore {
             let now = Date().timeIntervalSince1970
             var record = state.sessions[normalizedSessionID] ?? ClaudeHookSessionRecord(
                 sessionID: normalizedSessionID,
+                windowIDRawValue: windowID?.rawValue,
                 worklaneIDRawValue: worklaneID.rawValue,
                 paneIDRawValue: paneID.rawValue,
                 cwd: nil,
@@ -131,6 +136,7 @@ final class ClaudeHookSessionStore {
                 lastNotificationText: nil,
                 updatedAt: now
             )
+            record.windowIDRawValue = windowID?.rawValue
             record.worklaneIDRawValue = worklaneID.rawValue
             record.paneIDRawValue = paneID.rawValue
             if let cwd = normalizedOptional(cwd) {
@@ -190,6 +196,7 @@ final class ClaudeHookSessionStore {
     @discardableResult
     func consume(
         sessionID: String?,
+        fallbackWindowID: WindowID? = nil,
         fallbackWorklaneID: WorklaneID?,
         fallbackPaneID: PaneID?
     ) throws -> ClaudeHookSessionRecord? {
@@ -205,7 +212,10 @@ final class ClaudeHookSessionStore {
 
             let matchingKeys = state.sessions
                 .filter { _, record in
-                    record.worklaneIDRawValue == fallbackWorklaneID.rawValue
+                    if let fallbackWindowID, record.windowID != fallbackWindowID {
+                        return false
+                    }
+                    return record.worklaneIDRawValue == fallbackWorklaneID.rawValue
                         && record.paneIDRawValue == fallbackPaneID.rawValue
                 }
                 .map(\.key)

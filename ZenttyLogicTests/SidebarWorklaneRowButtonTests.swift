@@ -4,6 +4,8 @@ import XCTest
 
 @MainActor
 final class SidebarWorklaneRowButtonTests: XCTestCase {
+    private var rowWidthConstraints: [ObjectIdentifier: NSLayoutConstraint] = [:]
+
     func test_working_worklane_row_does_not_animate_until_it_is_hosted_in_a_visible_sidebar() {
         let row = makeRow()
 
@@ -514,6 +516,37 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(branchMidY, statusMidY, accuracy: 1.0)
     }
 
+    func test_worklane_row_hides_long_branch_in_status_row_before_crushing_status_text() {
+        let row = makeRow(width: 220, height: 130)
+        let branch = "fix/tmpdir-redirect-to-shared-tmp-files"
+        let status = "Run fix/tmpdir-redirect-to-shared-tmp-files"
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Debug Claude API review failure in GitHub Actions",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Debug Claude API review failure in GitHub Actions",
+                        trailingText: branch,
+                        detailText: "…/nimbu",
+                        statusText: status,
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
+        XCTAssertEqual(row.paneStatusTrailingTextsForTesting, [])
+        XCTAssertEqual(row.paneStatusTextsForTesting, [status])
+    }
+
     func test_worklane_row_restores_long_branch_to_trailing_slot_after_growing_wider() {
         let row = makeRow(width: 220, height: 110)
 
@@ -540,7 +573,7 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
         XCTAssertEqual(row.detailTextsForTesting, [])
 
-        row.frame.size.width = 720
+        setRowWidth(row, to: 720)
         row.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(
@@ -548,6 +581,41 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
             ["feature/autoresearch/zsh-startup-2026-03-22"]
         )
         XCTAssertEqual(row.detailTextsForTesting, [])
+    }
+
+    func test_worklane_row_restores_long_branch_in_status_row_after_growing_wider() {
+        let row = makeRow(width: 220, height: 130)
+        let branch = "fix/tmpdir-redirect-to-shared-tmp-files"
+        let status = "Run fix/tmpdir-redirect-to-shared-tmp-files"
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Debug Claude API review failure in GitHub Actions",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Debug Claude API review failure in GitHub Actions",
+                        trailingText: branch,
+                        detailText: "…/nimbu",
+                        statusText: status,
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true
+                    ),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(row.paneStatusTrailingTextsForTesting, [])
+
+        setRowWidth(row, to: 360)
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(row.paneStatusTrailingTextsForTesting, [branch])
+        XCTAssertEqual(row.paneStatusTextsForTesting, [status])
     }
 
     func test_worklane_row_moves_long_branch_to_lower_metadata_row_when_detail_is_already_present() throws {
@@ -605,6 +673,79 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         )
     }
 
+    func test_sidebar_view_grows_worklane_row_to_keep_wrapped_worklane_labels_inside_bounds() throws {
+        let primaryText =
+            "Requires approval for a longer sidebar copy check that should wrap to a second line in tight widths"
+        let statusText =
+            "Needs approval from Peter before continuing with the longer follow-up action in this row"
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 220, height: 320))
+
+        sidebarView.render(
+            summaries: [
+                WorklaneSidebarSummary(
+                    worklaneID: WorklaneID("worklane-main"),
+                    badgeText: "1",
+                    primaryText: primaryText,
+                    statusText: statusText,
+                    attentionState: .needsInput,
+                    isActive: true
+                ),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        sidebarView.layoutSubtreeIfNeeded()
+
+        let row = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton)
+        let primaryLabel = try XCTUnwrap(findLabel(withText: primaryText, in: row))
+        let statusLabel = try XCTUnwrap(findLabel(withText: statusText, in: row))
+        let primaryFrame = row.convert(primaryLabel.bounds, from: primaryLabel)
+        let statusFrame = row.convert(statusLabel.bounds, from: statusLabel)
+
+        XCTAssertGreaterThan(row.frame.height, ShellMetrics.sidebarCompactRowHeight + 0.5)
+        XCTAssertLessThanOrEqual(primaryFrame.maxY, row.bounds.maxY + 0.5)
+        XCTAssertLessThanOrEqual(statusFrame.maxY, row.bounds.maxY + 0.5)
+    }
+
+    func test_sidebar_view_grows_pane_row_to_keep_wrapped_status_inside_bounds() throws {
+        let primaryText = "Ready | zentty"
+        let statusText =
+            "Needs approval from Peter before continuing with the longer follow-up action in this pane row"
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 220, height: 320))
+
+        sidebarView.render(
+            summaries: [
+                WorklaneSidebarSummary(
+                    worklaneID: WorklaneID("worklane-main"),
+                    badgeText: "1",
+                    primaryText: primaryText,
+                    paneRows: [
+                        WorklaneSidebarPaneRow(
+                            paneID: PaneID("worklane-main-agent"),
+                            primaryText: primaryText,
+                            trailingText: nil,
+                            detailText: nil,
+                            statusText: statusText,
+                            attentionState: .needsInput,
+                            isFocused: true,
+                            isWorking: false
+                        ),
+                    ],
+                    attentionState: .needsInput,
+                    isActive: true
+                ),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        sidebarView.layoutSubtreeIfNeeded()
+
+        let row = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton)
+        let statusLabel = try XCTUnwrap(findLabel(withText: statusText, in: row))
+        let statusFrame = row.convert(statusLabel.bounds, from: statusLabel)
+
+        XCTAssertGreaterThan(row.frame.height, ShellMetrics.sidebarCompactRowHeight + 0.5)
+        XCTAssertLessThanOrEqual(statusFrame.maxY, row.bounds.maxY + 0.5)
+    }
+
     func test_worklane_row_does_not_accumulate_duplicate_width_constraints_across_resizes() {
         let row = makeRow(width: 220, height: 110)
 
@@ -630,11 +771,11 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
 
         XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
 
-        row.frame.size.width = 260
+        setRowWidth(row, to: 260)
         row.layoutSubtreeIfNeeded()
         XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
 
-        row.frame.size.width = 720
+        setRowWidth(row, to: 720)
         row.layoutSubtreeIfNeeded()
         XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
     }
@@ -1215,13 +1356,73 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(layer.transform.m22, 1, accuracy: 0.001)
     }
 
+    func test_configure_skipsWorkWhenSummaryThemeAndBoundsWidthAreUnchanged() {
+        let row = makeRow()
+        let theme = ZenttyTheme.fallback(for: nil)
+        let summary = makeSummary(primaryText: "demo", statusText: "Running")
+
+        row.configure(with: summary, theme: theme, animated: false)
+        XCTAssertEqual(row.configureApplyCountForTesting, 1)
+
+        row.configure(with: summary, theme: theme, animated: false)
+        XCTAssertEqual(
+            row.configureApplyCountForTesting,
+            1,
+            "identical configure should not re-apply the resolved summary"
+        )
+    }
+
+    func test_configure_runsAgainWhenSummaryChanges() {
+        let row = makeRow()
+        let theme = ZenttyTheme.fallback(for: nil)
+
+        row.configure(
+            with: makeSummary(primaryText: "demo", statusText: "Running"),
+            theme: theme,
+            animated: false
+        )
+        XCTAssertEqual(row.configureApplyCountForTesting, 1)
+
+        row.configure(
+            with: makeSummary(primaryText: "demo updated", statusText: "Running"),
+            theme: theme,
+            animated: false
+        )
+        XCTAssertEqual(row.configureApplyCountForTesting, 2)
+    }
+
+    func test_configure_runsAgainWhenBoundsWidthChanges() {
+        let row = makeRow(width: 220)
+        let theme = ZenttyTheme.fallback(for: nil)
+        let summary = makeSummary(primaryText: "demo", statusText: "Running")
+
+        row.configure(with: summary, theme: theme, animated: false)
+        XCTAssertEqual(row.configureApplyCountForTesting, 1)
+
+        setRowWidth(row, to: 360)
+        row.configure(with: summary, theme: theme, animated: false)
+        XCTAssertEqual(
+            row.configureApplyCountForTesting,
+            2,
+            "bounds.width change must re-run configure to re-apply adaptive row layout"
+        )
+    }
+
     private func makeRow(width: CGFloat = 280, height: CGFloat = 72) -> SidebarWorklaneRowButton {
         let row = SidebarWorklaneRowButton(
             worklaneID: WorklaneID("worklane-main"),
             reducedMotionProvider: { false }
         )
         row.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        let widthConstraint = row.widthAnchor.constraint(equalToConstant: width)
+        widthConstraint.isActive = true
+        rowWidthConstraints[ObjectIdentifier(row)] = widthConstraint
         return row
+    }
+
+    private func setRowWidth(_ row: SidebarWorklaneRowButton, to width: CGFloat) {
+        rowWidthConstraints[ObjectIdentifier(row)]?.constant = width
+        row.frame.size.width = width
     }
 
     private func makeSummary(
