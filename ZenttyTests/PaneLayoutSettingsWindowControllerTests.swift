@@ -1258,6 +1258,44 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(store.current.openWith.enabledTargetIDs, ["cursor"])
         XCTAssertEqual(store.current.openWith.primaryTargetID, "cursor")
     }
+
+    func test_open_with_section_refreshes_document_height_after_rebuilding_many_target_rows() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let builtInTargets = Array(OpenWithCatalog.macOSBuiltInTargets.prefix(5))
+        try store.update { config in
+            config.openWith.primaryTargetID = builtInTargets[0].id.rawValue
+            config.openWith.enabledTargetIDs = builtInTargets.map(\.id.rawValue)
+        }
+
+        let controller = OpenWithSettingsSectionViewController(
+            configStore: store,
+            openWithService: StubOpenWithService(
+                detectedTargets: builtInTargets.map { target in
+                    OpenWithDetectedTarget(
+                        target: OpenWithResolvedTarget(
+                            stableID: target.id.rawValue,
+                            kind: target.kind,
+                            displayName: target.displayName,
+                            builtInID: target.id,
+                            appPath: nil
+                        ),
+                        isAvailable: true
+                    )
+                }
+            ),
+            customAppPicker: { nil }
+        )
+        controller.loadViewIfNeeded()
+
+        controller.apply(preferences: store.current.openWith)
+
+        let documentView = try XCTUnwrap(controller.scrollView.documentView)
+        let expectedMinimumHeight = controller.contentView.fittingSize.height + 50
+
+        XCTAssertGreaterThanOrEqual(documentView.frame.height, expectedMinimumHeight)
+    }
 }
 
 @MainActor

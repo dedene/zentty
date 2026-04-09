@@ -78,7 +78,11 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
     }
 
     @discardableResult
-    func handleProxySuppressionEventForTesting(location: NSPoint, eventType: NSEvent.EventType) -> Bool {
+    func handleProxySuppressionEventForTesting(
+        location: NSPoint,
+        eventType: NSEvent.EventType,
+        invokeProxyHandler: Bool = false
+    ) -> Bool {
         let event = NSEvent.mouseEvent(
             with: eventType,
             location: location,
@@ -98,6 +102,7 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
                 maybeSuppressWindowDragging(for: event)
                 if eventType == .leftMouseDown,
                    armedSuppressionTarget == .proxyIcon,
+                   invokeProxyHandler,
                    let handler = proxyMouseDownHandler {
                     handler(event)
                     didInvokeProxyHandler = true
@@ -190,7 +195,17 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
+        // Attaching an empty toolbar bumps the native window corner radius on macOS Tahoe
+        // from the titlebar-only ~16pt up to the toolbar-window 26pt, which matches our
+        // ChromeGeometry.outerWindowRadius exactly. No visible toolbar chrome (empty + transparent).
+        let toolbar = NSToolbar(identifier: "be.zenjoy.Zentty.MainToolbar")
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unifiedCompact
         window.isOpaque = false
+        // Starts transparent; RootViewController.apply(theme:) syncs the real theme color
+        // into window.backgroundColor so the rounded-corner shadow halo composites against
+        // the shell fill instead of nothing (which is what produces the white seam).
         window.backgroundColor = .clear
         window.isReleasedWhenClosed = false
         rootViewController.view.frame = NSRect(origin: .zero, size: initialFrame.size)
@@ -1020,10 +1035,15 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @discardableResult
-    func handleProxySuppressionEventForTesting(location: NSPoint, eventType: NSEvent.EventType) -> Bool {
+    func handleProxySuppressionEventForTesting(
+        location: NSPoint,
+        eventType: NSEvent.EventType,
+        invokeProxyHandler: Bool = false
+    ) -> Bool {
         (window as? ProxyAwareWindow)?.handleProxySuppressionEventForTesting(
             location: location,
-            eventType: eventType
+            eventType: eventType,
+            invokeProxyHandler: invokeProxyHandler
         ) ?? false
     }
 

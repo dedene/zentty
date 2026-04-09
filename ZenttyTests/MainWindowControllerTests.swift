@@ -412,7 +412,6 @@ final class MainWindowControllerTests: XCTestCase {
         let controller = makeController()
 
         controller.showSettingsWindow(nil)
-        waitForLayout()
 
         let settingsWindow = try XCTUnwrap(controller.settingsWindow)
         let expectedAppearance = try XCTUnwrap(controller.terminalAppearance)

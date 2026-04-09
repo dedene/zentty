@@ -303,6 +303,14 @@ final class SettingsViewController: NSTabViewController {
 
         let isChangingSection = selectedSection != section
         let shouldAnimate = animated && isChangingSection
+        if
+            shouldAnimate,
+            let window = hostWindow ?? view.window,
+            let targetFrame = targetWindowFrame(for: section, window: window),
+            targetFrame.height > window.frame.height
+        {
+            window.setFrame(targetFrame, display: false)
+        }
         let transitionID = prepareTransition(to: section, animated: shouldAnimate)
 
         if tabView.selectedTabViewItem !== entry.tabViewItem {
@@ -524,6 +532,22 @@ final class SettingsViewController: NSTabViewController {
             y: topEdge - targetFrameSize.height,
             width: targetFrameSize.width,
             height: targetFrameSize.height
+        )
+    }
+
+    private func targetWindowFrame(for section: SettingsSection, window: NSWindow) -> NSRect? {
+        guard let entry = entriesBySection[section] else {
+            return nil
+        }
+
+        let targetHeight = targetContentHeight(
+            for: entry.contentViewController,
+            window: window,
+            screen: window.screen ?? NSScreen.main
+        )
+        return targetWindowFrame(
+            for: NSSize(width: Self.preferredContentWidth, height: targetHeight),
+            window: window
         )
     }
 

@@ -344,7 +344,7 @@ final class RootViewCompositionTests: XCTestCase {
 
         XCTAssertEqual(cornerRadius, ChromeGeometry.outerWindowRadius, accuracy: 0.001)
         XCTAssertEqual(controller.view.layer?.cornerCurve, .continuous)
-        XCTAssertEqual(borderWidth, 1, accuracy: 0.001)
+        XCTAssertEqual(borderWidth, 0, accuracy: 0.001)
         XCTAssertTrue(controller.view.layer?.masksToBounds == true)
     }
 

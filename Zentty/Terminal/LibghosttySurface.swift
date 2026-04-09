@@ -625,6 +625,13 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             return event
         }
 
+        // Character accessors and NSEvent.keyEvent(with:) are only valid for .keyDown/.keyUp.
+        // Modifier-only events (.flagsChanged) carry no characters — return the original event
+        // instead of calling -[NSEvent charactersByApplyingModifiers:], which asserts.
+        guard event.type == .keyDown || event.type == .keyUp else {
+            return event
+        }
+
         return NSEvent.keyEvent(
             with: event.type,
             location: event.locationInWindow,
@@ -653,6 +660,11 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     }
 
     static func textForKeyEvent(_ event: NSEvent) -> String? {
+        // `.characters` asserts on non-key events (e.g. .flagsChanged); modifier-only
+        // events carry no text.
+        guard event.type == .keyDown || event.type == .keyUp else {
+            return nil
+        }
         guard let characters = event.characters, !characters.isEmpty else {
             return nil
         }
@@ -671,6 +683,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     }
 
     static func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
+        // `.characters(byApplyingModifiers:)` asserts on non-key events; modifier-only
+        // events (.flagsChanged) have no codepoint. This was the primary crash site
+        // for FlagsChanged → sendKey, which fired on every ⌘/⇧/⌥/⌃/CapsLock press.
+        guard event.type == .keyDown || event.type == .keyUp else {
+            return 0
+        }
         guard
             let characters = event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers ?? event.characters,
             let scalar = characters.unicodeScalars.first

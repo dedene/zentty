@@ -231,16 +231,6 @@ final class PaneStripViewTests: XCTestCase {
         let dragZone = PaneDragZoneView(paneID: paneID)
         dragZone.frame = CGRect(x: 0, y: 0, width: 320, height: PaneDragZoneView.height)
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 120),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        addTeardownBlock { window.close() }
-        window.contentView = dragZone
-        window.makeKeyAndOrderFront(nil)
-
         var activatedPaneID: PaneID?
         var activatedPoint: CGPoint?
         var movedPoints: [CGPoint] = []
@@ -253,15 +243,9 @@ final class PaneStripViewTests: XCTestCase {
         dragZone.onDragMoved = { movedPoints.append($0) }
         dragZone.onDragEnded = { endedPoint = $0 }
 
-        let mouseDown = try XCTUnwrap(
-            makeDragZoneMouseEvent(type: .leftMouseDown, at: CGPoint(x: 120, y: 8), in: dragZone, window: window)
-        )
-        let mouseDragged = try XCTUnwrap(
-            makeDragZoneMouseEvent(type: .leftMouseDragged, at: CGPoint(x: 168, y: 8), in: dragZone, window: window)
-        )
-        let mouseUp = try XCTUnwrap(
-            makeDragZoneMouseEvent(type: .leftMouseUp, at: CGPoint(x: 168, y: 8), in: dragZone, window: window)
-        )
+        let mouseDown = try XCTUnwrap(makeDragZoneMouseEvent(type: .leftMouseDown, at: CGPoint(x: 120, y: 8)))
+        let mouseDragged = try XCTUnwrap(makeDragZoneMouseEvent(type: .leftMouseDragged, at: CGPoint(x: 168, y: 8)))
+        let mouseUp = try XCTUnwrap(makeDragZoneMouseEvent(type: .leftMouseUp, at: CGPoint(x: 168, y: 8)))
 
         dragZone.mouseDown(with: mouseDown)
 
@@ -1536,7 +1520,7 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
-    func test_vertical_split_suspends_terminal_viewport_sync_until_animation_settles() throws {
+    func test_vertical_split_suspends_terminal_viewport_sync_until_animation_settles() async throws {
         let adapterFactory = TerminalAdapterFactorySpy()
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
         let paneStripView = PaneStripView(
@@ -1591,7 +1575,7 @@ final class PaneStripViewTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             settled.fulfill()
         }
-        wait(for: [settled], timeout: 1.0)
+        await fulfillment(of: [settled], timeout: 1.0)
 
         XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
         XCTAssertEqual(insertedAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
@@ -1726,7 +1710,7 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
-    func test_vertical_pane_removal_freezes_remaining_pane_until_animation_settles() throws {
+    func test_vertical_pane_removal_freezes_remaining_pane_until_animation_settles() async throws {
         let paneStripView = makePaneStripView()
         let splitState = PaneStripState(
             columns: [
@@ -1778,7 +1762,7 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
-    func test_closing_stacked_pane_resumes_terminal_viewport_sync_with_surviving_pane_height() throws {
+    func test_closing_stacked_pane_resumes_terminal_viewport_sync_with_surviving_pane_height() async throws {
         let adapterFactory = TerminalAdapterFactorySpy()
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
         let paneStripView = PaneStripView(
@@ -1831,7 +1815,7 @@ final class PaneStripViewTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             settled.fulfill()
         }
-        wait(for: [settled], timeout: 1.0)
+        await fulfillment(of: [settled], timeout: 1.0)
 
         XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
         let resumedHeight = try XCTUnwrap(shellAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
@@ -1842,7 +1826,7 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
-    func test_closing_stacked_pane_requests_terminal_redraw_after_size_change() throws {
+    func test_closing_stacked_pane_requests_terminal_redraw_after_size_change() async throws {
         let adapterFactory = TerminalAdapterFactorySpy()
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
         let paneStripView = PaneStripView(
@@ -1891,7 +1875,7 @@ final class PaneStripViewTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             settled.fulfill()
         }
-        wait(for: [settled], timeout: 1.0)
+        await fulfillment(of: [settled], timeout: 1.0)
 
         XCTAssertGreaterThan(
             shellAdapter.terminalView.displayIfNeededCallCount,
@@ -2597,16 +2581,14 @@ private extension PaneContainerView {
 
 private func makeDragZoneMouseEvent(
     type: NSEvent.EventType,
-    at point: CGPoint,
-    in view: NSView,
-    window: NSWindow
+    at point: CGPoint
 ) -> NSEvent? {
     NSEvent.mouseEvent(
         with: type,
-        location: view.convert(point, to: nil),
+        location: point,
         modifierFlags: [],
         timestamp: ProcessInfo.processInfo.systemUptime,
-        windowNumber: window.windowNumber,
+        windowNumber: 0,
         context: nil,
         eventNumber: 0,
         clickCount: 1,

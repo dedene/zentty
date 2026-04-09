@@ -246,7 +246,7 @@ final class RootViewController: NSViewController {
         view.layer?.cornerRadius = ChromeGeometry.outerWindowRadius
         view.layer?.cornerCurve = .continuous
         view.layer?.masksToBounds = true
-        view.layer?.borderWidth = 1
+        view.layer?.borderWidth = 0
         apply(theme: currentTheme, animated: false)
     }
 
@@ -266,6 +266,8 @@ final class RootViewController: NSViewController {
     override func viewWillAppear() {
         super.viewWillAppear()
         if let window = view.window {
+            window.backgroundColor = currentTheme.windowBackground
+            window.invalidateShadow()
             LibghosttyRuntime.shared.applyBackgroundBlur(to: window)
         }
     }
@@ -1428,10 +1430,16 @@ final class RootViewController: NSViewController {
 
     private func apply(theme: ZenttyTheme, animated: Bool) {
         performThemeAnimation(animated: animated) {
-            self.view.layer?.backgroundColor = theme.windowBackground.cgColor
+            // Shell fill is painted via window.backgroundColor (below) so that the
+            // crescent between our 26pt clip and NSThemeFrame's native silhouette is
+            // filled too — killing the shadow-halo seam. Painting it here as well would
+            // double-up the alpha and halve the translucency (0.5 * 0.5 → 0.75 effective).
+            self.view.layer?.backgroundColor = NSColor.clear.cgColor
             self.view.layer?.borderColor = theme.topChromeBorder.cgColor
         }
         if let window = view.window {
+            window.backgroundColor = theme.windowBackground
+            window.invalidateShadow()
             LibghosttyRuntime.shared.applyBackgroundBlur(to: window)
         }
     }

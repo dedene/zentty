@@ -2,12 +2,12 @@ name: Zentty
 options:
   bundleIdPrefix: be.zenjoy
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "26.0"
 settings:
   base:
     PRODUCT_NAME: Zentty
     SWIFT_VERSION: "6.0"
-    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
     GENERATE_INFOPLIST_FILE: NO
     CLANG_ENABLE_MODULES: YES
     CODE_SIGN_STYLE: Automatic
