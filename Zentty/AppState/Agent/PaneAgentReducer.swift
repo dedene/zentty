@@ -202,8 +202,12 @@ struct PaneAgentReducerState: Equatable, Sendable {
                 && session.source == .explicit
                 && session.origin != .shell
                 && session.hasObservedRunning
-                && !session.interactionKind.requiresHumanAttention
-                && (session.state == .running || session.state == .starting)
+                && (!session.interactionKind.requiresHumanAttention || session.interactionKind == .genericInput)
+                && (
+                    session.state == .running
+                        || session.state == .starting
+                        || (session.state == .needsInput && session.interactionKind == .genericInput)
+                )
         }
         guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
               var session = sessionsByID[sessionID]

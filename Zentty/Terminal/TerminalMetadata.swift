@@ -54,6 +54,11 @@ enum TerminalMetadataChangeClassifier {
         case idle
     }
 
+    enum CodexWaitingTitleKind: Equatable {
+        case backgroundWait
+        case needsInput
+    }
+
     struct VolatileAgentStatusTitleSignature: Equatable {
         let phase: VolatileAgentStatusPhase
         let subject: String
@@ -85,11 +90,11 @@ enum TerminalMetadataChangeClassifier {
             return .meaningful
         }
 
-        if let previousSignature = volatileAgentStatusTitleSignature(
+        if let previousSignature = realtimeAgentTitleSignature(
             previous.title,
             recognizedTool: previousTool
         ),
-           let nextSignature = volatileAgentStatusTitleSignature(
+           let nextSignature = realtimeAgentTitleSignature(
             next.title,
             recognizedTool: nextTool
            ),
@@ -116,8 +121,18 @@ enum TerminalMetadataChangeClassifier {
             return nil
         }
 
+        let phase: VolatileAgentStatusPhase
+        switch codexWaitingTitleKind(for: normalized) {
+        case .backgroundWait:
+            phase = .idle
+        case .needsInput:
+            phase = .needsInput
+        case nil:
+            phase = parsed.phase
+        }
+
         return VolatileAgentStatusTitleSignature(
-            phase: parsed.phase,
+            phase: phase,
             subject: parsed.displaySubject.lowercased()
         )
     }
@@ -175,6 +190,20 @@ enum TerminalMetadataChangeClassifier {
         }
     }
 
+    static func realtimeAgentTitleSignature(
+        _ value: String?,
+        recognizedTool: AgentTool?
+    ) -> VolatileAgentStatusTitleSignature? {
+        switch recognizedTool {
+        case .codex:
+            return volatileAgentStatusTitleSignature(value, recognizedTool: .codex)
+        case .claudeCode:
+            return diagnosticAgentStatusTitleSignature(value, recognizedTool: .claudeCode)
+        default:
+            return nil
+        }
+    }
+
     static func wouldTreatAsVolatileClaudeTransition(
         previous: TerminalMetadata?,
         next: TerminalMetadata
@@ -202,6 +231,30 @@ enum TerminalMetadataChangeClassifier {
         recognizedTool: AgentTool?
     ) -> Bool {
         volatileAgentStatusTitleSignature(value, recognizedTool: recognizedTool) != nil
+    }
+
+    static func isRealtimeAgentStatusTitle(
+        _ value: String?,
+        recognizedTool: AgentTool?
+    ) -> Bool {
+        realtimeAgentTitleSignature(value, recognizedTool: recognizedTool) != nil
+    }
+
+    static func codexWaitingTitleKind(for value: String?) -> CodexWaitingTitleKind? {
+        guard let normalized = WorklaneContextFormatter.trimmed(value) else {
+            return nil
+        }
+
+        let firstWord = normalized.prefix(while: { $0.isLetter }).lowercased()
+        guard firstWord == "waiting" else {
+            return nil
+        }
+
+        if AgentInteractionClassifier.requiresHumanInput(message: normalized) {
+            return .needsInput
+        }
+
+        return .backgroundWait
     }
 
     private static func parseAgentStatusTitle(

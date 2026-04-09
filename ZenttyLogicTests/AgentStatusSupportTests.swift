@@ -2156,6 +2156,52 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(recorder.requests.first?.soundName, "Glass")
     }
 
+    func test_notification_coordinator_does_not_fire_for_generic_codex_waiting_title() {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try! XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try! XCTUnwrap(store.activeWorklane?.id)
+
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Waiting · zentty main",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        coordinator.update(
+            windowID: WindowID("window-main"),
+            worklanes: [try! XCTUnwrap(store.activeWorklane)],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
     func test_notification_coordinator_records_origin_window_id_on_system_notification() {
         let recorder = WorklaneAttentionNotificationRecorder()
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())

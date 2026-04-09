@@ -295,6 +295,43 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertTrue(presentation.isWorking)
     }
 
+    func test_normalize_lets_codex_working_title_override_stale_idle_state() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 41),
+                hasObservedRunning: true
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+        XCTAssertTrue(presentation.isWorking)
+    }
+
     func test_normalize_lets_codex_ready_title_override_attached_starting_state_after_running() {
         var previous = PanePresentationState()
         previous.runtimePhase = .running
