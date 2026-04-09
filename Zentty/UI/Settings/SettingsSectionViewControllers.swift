@@ -62,8 +62,9 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
 
         view = scrollView
         assembleContent(in: contentView)
+        prepareInitialContent()
         contentView.layoutSubtreeIfNeeded()
-        let initialContentHeight = contentView.fittingSize.height + Layout.topInset + Layout.bottomInset
+        let initialContentHeight = measuredContentHeight() + Layout.topInset + Layout.bottomInset
         documentView.frame = NSRect(
             x: 0,
             y: 0,
@@ -103,6 +104,12 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
         fatalError("Subclasses must override assembleContent(in:)")
     }
 
+    func prepareInitialContent() {}
+
+    func measuredContentHeight() -> CGFloat {
+        contentView.fittingSize.height
+    }
+
     func scrollToTop() {
         let clipView = scrollView.contentView
         clipView.scroll(to: .zero)
@@ -112,6 +119,15 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
     func setScrollerSuppressed(_ suppressed: Bool) {
         isScrollerSuppressed = suppressed
         scrollView.hasVerticalScroller = suppressed == false
+    }
+
+    func refreshScrollableContentLayout() {
+        loadViewIfNeeded()
+        updateDocumentLayout(
+            viewportWidth: max(view.bounds.width, SettingsViewController.preferredContentWidth),
+            viewportHeight: max(view.bounds.height, 1)
+        )
+        view.layoutSubtreeIfNeeded()
     }
 
     var isScrollerSuppressedForTesting: Bool {
@@ -126,7 +142,7 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
         contentWidthConstraint?.constant = contentWidth
         contentView.layoutSubtreeIfNeeded()
 
-        let contentHeight = contentView.fittingSize.height + Layout.topInset + Layout.bottomInset
+        let contentHeight = measuredContentHeight() + Layout.topInset + Layout.bottomInset
         documentView.frame = NSRect(
             x: 0,
             y: 0,
@@ -396,6 +412,11 @@ final class OpenWithSettingsSectionViewController: SettingsScrollableSectionView
     private let configStore: AppConfigStore
     private let openWithService: OpenWithServing
     private let customAppPicker: () -> OpenWithCustomApp?
+    private let rootStackView = NSStackView()
+    private var subtitleLabel: NSTextField?
+    private var defaultAppCard: SettingsCardView?
+    private var availableCard: SettingsCardView?
+    private var availableHeaderRow: NSStackView?
     private let primaryTargetPopupButton = NSPopUpButton()
     private let availableTargetsStackView = NSStackView()
     private let addCustomAppButton = NSButton()
@@ -445,23 +466,24 @@ final class OpenWithSettingsSectionViewController: SettingsScrollableSectionView
     }
 
     override func assembleContent(in contentView: NSView) {
-        let stackView = NSStackView()
-        stackView.orientation = .vertical
-        stackView.alignment = .leading
-        stackView.spacing = 16
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stackView)
+        rootStackView.orientation = .vertical
+        rootStackView.alignment = .leading
+        rootStackView.spacing = 16
+        rootStackView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(rootStackView)
 
         let subtitleLabel = makeLabel(
             text: "Choose which editors and file managers appear in the launcher, and set the default app.",
             font: .systemFont(ofSize: 12, weight: .regular)
         )
         subtitleLabel.textColor = .secondaryLabelColor
-        stackView.addArrangedSubview(subtitleLabel)
-        subtitleLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+        self.subtitleLabel = subtitleLabel
+        rootStackView.addArrangedSubview(subtitleLabel)
+        subtitleLabel.widthAnchor.constraint(equalTo: rootStackView.widthAnchor).isActive = true
 
         // Card 1: Default App
         let defaultAppCard = SettingsCardView()
+        self.defaultAppCard = defaultAppCard
         let popupRow = NSStackView()
         popupRow.orientation = .horizontal
         popupRow.alignment = .centerY
@@ -484,11 +506,12 @@ final class OpenWithSettingsSectionViewController: SettingsScrollableSectionView
             popupRow.trailingAnchor.constraint(equalTo: defaultAppCard.trailingAnchor, constant: -16),
             popupRow.bottomAnchor.constraint(equalTo: defaultAppCard.bottomAnchor, constant: -12),
         ])
-        stackView.addArrangedSubview(defaultAppCard)
-        defaultAppCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+        rootStackView.addArrangedSubview(defaultAppCard)
+        defaultAppCard.widthAnchor.constraint(equalTo: rootStackView.widthAnchor).isActive = true
 
         // Card 2: Available Apps
         let availableCard = SettingsCardView()
+        self.availableCard = availableCard
         let availableStack = NSStackView()
         availableStack.orientation = .vertical
         availableStack.alignment = .leading
@@ -499,6 +522,7 @@ final class OpenWithSettingsSectionViewController: SettingsScrollableSectionView
         availableHeaderRow.orientation = .horizontal
         availableHeaderRow.alignment = .centerY
         availableHeaderRow.spacing = 12
+        self.availableHeaderRow = availableHeaderRow
         let availableLabel = makeLabel(
             text: "Available Apps",
             font: .systemFont(ofSize: 13, weight: .semibold)
@@ -528,20 +552,35 @@ final class OpenWithSettingsSectionViewController: SettingsScrollableSectionView
             availableStack.trailingAnchor.constraint(equalTo: availableCard.trailingAnchor, constant: -16),
             availableStack.bottomAnchor.constraint(equalTo: availableCard.bottomAnchor, constant: -16),
         ])
-        stackView.addArrangedSubview(availableCard)
-        availableCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+        rootStackView.addArrangedSubview(availableCard)
+        availableCard.widthAnchor.constraint(equalTo: rootStackView.widthAnchor).isActive = true
 
         NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            stackView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
+            rootStackView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            rootStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            rootStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            rootStackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
     }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
+    override func prepareInitialContent() {
         renderCurrentState()
+    }
+
+    override func measuredContentHeight() -> CGFloat {
+        let subtitleHeight = subtitleLabel?.fittingSize.height ?? 0
+        let defaultCardHeight = defaultAppCard?.fittingSize.height ?? 0
+        let availableHeaderHeight = availableHeaderRow?.fittingSize.height ?? 0
+        let rowHeights = availableTargetsStackView.arrangedSubviews.reduce(CGFloat.zero) { partial, row in
+            partial + row.fittingSize.height
+        }
+        let rowSpacing = availableTargetsStackView.spacing * CGFloat(max(availableTargetsStackView.arrangedSubviews.count - 1, 0))
+        let availableRowsHeight = rowHeights + rowSpacing
+        let availableCardHeight = availableCard.map { _ in
+            16 + availableHeaderHeight + 12 + availableRowsHeight + 16
+        } ?? 0
+
+        return subtitleHeight + 16 + defaultCardHeight + 16 + availableCardHeight
     }
 
     func apply(preferences: AppConfig.OpenWith) {
@@ -603,6 +642,7 @@ final class OpenWithSettingsSectionViewController: SettingsScrollableSectionView
             selectedStableID: items[selectedIndex].stableID,
             preferences: currentPreferences
         )
+        refreshScrollableContentLayout()
     }
 
     private func rebuildVisibleTargetRows() {

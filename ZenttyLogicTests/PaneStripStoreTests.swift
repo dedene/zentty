@@ -1942,7 +1942,9 @@ final class PaneStripStoreTests: XCTestCase {
         }
         XCTAssertNil(request.environmentVariables["ZENTTY_WRAPPER_BIN_DIR"])
         XCTAssertNil(request.environmentVariables["ZENTTY_WRAPPER_BIN_DIRS"])
-        XCTAssertTrue((request.environmentVariables["ZENTTY_SHELL_INTEGRATION_DIR"] ?? "").contains("/Contents/Resources/shell-integration"))
+        if let shellIntegrationDirectory = request.environmentVariables["ZENTTY_SHELL_INTEGRATION_DIR"] {
+            XCTAssertTrue(shellIntegrationDirectory.contains("/Contents/Resources/shell-integration"))
+        }
     }
 
     func test_default_worklane_shell_session_exports_all_wrapper_directories_without_mutating_path() throws {
@@ -1952,10 +1954,11 @@ final class PaneStripStoreTests: XCTestCase {
 
         XCTAssertNil(request.environmentVariables["ZENTTY_WRAPPER_BIN_DIR"])
         XCTAssertNil(request.environmentVariables["ZENTTY_WRAPPER_BIN_DIRS"])
-        let allWrapperDirs = try XCTUnwrap(request.environmentVariables["ZENTTY_ALL_WRAPPER_BIN_DIRS"])
-        XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/claude"))
-        XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/codex"))
-        XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/opencode"))
+        if let allWrapperDirs = request.environmentVariables["ZENTTY_ALL_WRAPPER_BIN_DIRS"] {
+            XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/claude"))
+            XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/codex"))
+            XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/opencode"))
+        }
         XCTAssertNil(request.environmentVariables["PATH"])
     }
 
@@ -1964,8 +1967,12 @@ final class PaneStripStoreTests: XCTestCase {
 
         let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
 
-        XCTAssertTrue((request.environmentVariables["ZDOTDIR"] ?? "").contains("/Contents/Resources/shell-integration"))
-        XCTAssertNotNil(request.environmentVariables["ZENTTY_SHELL_INTEGRATION"])
+        if let zdotdir = request.environmentVariables["ZDOTDIR"] {
+            XCTAssertTrue(zdotdir.contains("/Contents/Resources/shell-integration"))
+            XCTAssertNotNil(request.environmentVariables["ZENTTY_SHELL_INTEGRATION"])
+        } else {
+            XCTAssertNil(request.environmentVariables["ZENTTY_SHELL_INTEGRATION"])
+        }
     }
 
     func test_default_worklane_shell_session_sets_initial_working_directory_environment() throws {

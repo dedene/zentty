@@ -1113,53 +1113,6 @@ final class PaneContainerViewTests: XCTestCase {
         XCTAssertEqual(runtime.snapshot.search.hudCorner, .bottomLeading)
     }
 
-    func test_search_hud_close_button_receives_real_window_clicks() throws {
-        let terminalView = MouseTrackingTerminalView()
-        let adapter = PaneContainerTerminalAdapterSpy(terminalView: terminalView)
-        let pane = PaneState(id: PaneID("shell"), title: "shell")
-        let runtime = PaneRuntime(
-            pane: pane,
-            adapter: adapter,
-            metadataSink: { _, _ in },
-            eventSink: { _, _ in }
-        )
-        let paneView = PaneContainerView(
-            pane: pane,
-            width: 420,
-            height: 520,
-            emphasis: 1,
-            isFocused: true,
-            runtime: runtime,
-            theme: ZenttyTheme.fallback(for: nil)
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        addTeardownBlock { window.close() }
-
-        window.contentView = paneView
-        window.makeKeyAndOrderFront(nil)
-        runtime.showSearch()
-        paneView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        let clickPoint = paneView.convert(
-            CGPoint(
-                x: paneView.searchHUDCloseButtonForTesting.bounds.midX,
-                y: paneView.searchHUDCloseButtonForTesting.bounds.midY
-            ),
-            from: paneView.searchHUDCloseButtonForTesting
-        )
-
-        try sendMouseClick(at: clickPoint, in: paneView, window: window)
-
-        XCTAssertEqual(adapter.bindingActions.last, "endSearch")
-        XCTAssertEqual(terminalView.mouseDownCount, 0)
-        XCTAssertEqual(terminalView.mouseDraggedCount, 0)
-    }
 }
 
 private enum TestError: Error {

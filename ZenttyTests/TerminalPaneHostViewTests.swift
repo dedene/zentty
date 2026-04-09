@@ -166,6 +166,59 @@ final class TerminalPaneHostViewTests: XCTestCase {
             "Search HUD should be mounted inside the terminal's overlay host, matching the app's overlay-hosted HUD pattern"
         )
     }
+
+    func test_pane_container_search_hud_close_button_receives_real_window_clicks() throws {
+        let terminalView = HostedMouseTrackingTerminalView()
+        let adapter = PaneContainerHostedTerminalAdapterSpy(terminalView: terminalView)
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+
+        window.contentView = paneView
+        window.makeKeyAndOrderFront(nil)
+        runtime.showSearch()
+        paneView.layoutSubtreeIfNeeded()
+
+        let layoutSettled = expectation(description: "search HUD mounted in hosted window")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            layoutSettled.fulfill()
+        }
+        wait(for: [layoutSettled], timeout: 2.0)
+
+        let clickPoint = paneView.convert(
+            CGPoint(
+                x: paneView.searchHUDCloseButtonForTesting.bounds.midX,
+                y: paneView.searchHUDCloseButtonForTesting.bounds.midY
+            ),
+            from: paneView.searchHUDCloseButtonForTesting
+        )
+
+        try sendHostedMouseClick(at: clickPoint, in: paneView, window: window)
+
+        XCTAssertEqual(adapter.bindingActions.last, "endSearch")
+        XCTAssertEqual(terminalView.mouseDownCount, 0)
+        XCTAssertEqual(terminalView.mouseDraggedCount, 0)
+    }
 }
 
 @MainActor
@@ -308,6 +361,88 @@ private final class OverlayHostingTerminalView: NSView, TerminalFocusReporting, 
     }
 }
 
+@MainActor
+private final class PaneContainerHostedTerminalAdapterSpy: TerminalAdapter, TerminalSearchControlling {
+    var hasScrollback = false
+    var cellWidth: CGFloat = 0
+    var cellHeight: CGFloat = 0
+    var metadataDidChange: ((TerminalMetadata) -> Void)?
+    var eventDidOccur: ((TerminalEvent) -> Void)?
+    var searchDidChange: ((TerminalSearchEvent) -> Void)?
+    private let terminalView: NSView
+    private(set) var bindingActions: [String] = []
+
+    init(terminalView: NSView) {
+        self.terminalView = terminalView
+    }
+
+    func makeTerminalView() -> NSView {
+        terminalView
+    }
+
+    func startSession(using request: TerminalSessionRequest) throws {}
+
+    func close() {}
+
+    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {}
+
+    func showSearch() {
+        bindingActions.append("showSearch")
+        searchDidChange?(.started(needle: nil))
+    }
+
+    func useSelectionForFind() {
+        bindingActions.append("useSelectionForFind")
+        searchDidChange?(.started(needle: nil))
+    }
+
+    func updateSearch(needle: String) {
+        bindingActions.append("updateSearch:\(needle)")
+    }
+
+    func findNext() {
+        bindingActions.append("navigate_search:next")
+    }
+
+    func findPrevious() {
+        bindingActions.append("navigate_search:previous")
+    }
+
+    func endSearch() {
+        bindingActions.append("endSearch")
+        searchDidChange?(.ended)
+    }
+}
+
+@MainActor
+private final class HostedMouseTrackingTerminalView: NSView, TerminalFocusReporting {
+    var onFocusDidChange: ((Bool) -> Void)?
+    private(set) var mouseDownCount = 0
+    private(set) var mouseDraggedCount = 0
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        onFocusDidChange?(true)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        onFocusDidChange?(false)
+        return true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownCount += 1
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        mouseDraggedCount += 1
+    }
+}
+
 private func makeScrollEvent(
     deltaX: Int32 = 0,
     deltaY: Int32 = 0,
@@ -333,4 +468,37 @@ private func makeScrollEvent(
     }
 
     return try XCTUnwrap(NSEvent(cgEvent: cgEvent))
+}
+
+private func sendHostedMouseClick(at point: CGPoint, in view: NSView, window: NSWindow) throws {
+    let locationInWindow = view.convert(point, to: nil)
+    let mouseDown = try XCTUnwrap(
+        NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: locationInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )
+    )
+    let mouseUp = try XCTUnwrap(
+        NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: locationInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )
+    )
+
+    NSApp.postEvent(mouseUp, atStart: false)
+    window.sendEvent(mouseDown)
 }
