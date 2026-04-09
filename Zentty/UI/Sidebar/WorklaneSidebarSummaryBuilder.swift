@@ -403,11 +403,11 @@ enum WorklaneSidebarSummaryBuilder {
         let branch = presentation.branchDisplayText
         let workingDirectory = compactWorkingDirectory(for: presentation)
 
-        if presentation.recognizedTool == .codex,
+        if let recognizedTool = presentation.recognizedTool,
            let volatileTitle = WorklaneContextFormatter.trimmed(metadata?.title),
-           TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+           TerminalMetadataChangeClassifier.isRealtimeAgentStatusTitle(
                volatileTitle,
-               recognizedTool: .codex
+               recognizedTool: recognizedTool
            ) {
             return PaneSidebarIdentity(
                 primaryText: volatileTitle,

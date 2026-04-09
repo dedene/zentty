@@ -1279,6 +1279,45 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertTrue(paneRow.isWorking)
     }
 
+    func test_builder_uses_exact_claude_status_title_as_primary_when_running() {
+        let paneID = PaneID("worklane-main-claude-running")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main-claude-running"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "Thinking ✳ Investigate pane title updates",
+                    currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                    processName: "claude",
+                    gitBranch: "main"
+                )
+            ],
+            agentStatusByPaneID: [
+                paneID: PaneAgentStatus(
+                    tool: .claudeCode,
+                    state: .running,
+                    text: nil,
+                    artifactLink: nil,
+                    updatedAt: Date(timeIntervalSince1970: 42)
+                )
+            ]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.primaryText, "Thinking ✳ Investigate pane title updates")
+        XCTAssertEqual(paneRow.trailingText, "main")
+        XCTAssertEqual(paneRow.detailText, "…/zentty")
+        XCTAssertEqual(paneRow.statusText, "Running")
+        XCTAssertEqual(paneRow.attentionState, .running)
+        XCTAssertTrue(paneRow.isWorking)
+    }
+
     func test_builder_surfaces_running_for_codex_spinner_title_without_explicit_agent_status() {
         let paneID = PaneID("worklane-main-codex-title-only")
         var auxiliaryState = PaneAuxiliaryState()

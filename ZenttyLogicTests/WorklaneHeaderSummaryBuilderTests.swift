@@ -293,6 +293,30 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         XCTAssertNil(summary.attention)
     }
 
+    func test_summary_uses_exact_claude_status_title_as_focused_label_when_running() {
+        let paneID = PaneID("pane-shell")
+        let worklane = makeWorklane(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Thinking ✳ Investigate pane title updates",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 10)
+            )
+        )
+
+        let summary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
+
+        XCTAssertEqual(summary.focusedLabel, "Thinking ✳ Investigate pane title updates")
+    }
+
     func test_summary_omits_compacted_metadata_branch_when_review_state_is_unavailable() {
         let paneID = PaneID("pane-shell")
         let worklane = makeWorklane(

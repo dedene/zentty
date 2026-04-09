@@ -178,7 +178,75 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
         )
     }
 
-    func test_hiddenWorklane_coalescesVolatileNotifications() throws {
+    func test_codex_stale_idle_running_tick_declinesFastPath_and_recovers_running() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+
+        var received: [WorklaneChange] = []
+        let subscription = store.subscribe { change in
+            received.append(change)
+        }
+        defer { store.unsubscribe(subscription) }
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠙ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let volatileUpdates = received.filter { change in
+            if case .volatileAgentTitleUpdated = change { return true }
+            return false
+        }
+        let auxiliaryUpdates = received.filter { change in
+            if case .auxiliaryStateUpdated = change { return true }
+            return false
+        }
+        XCTAssertEqual(
+            volatileUpdates.count,
+            0,
+            "fast path must decline when Codex title says Working but stored status is stale Idle"
+        )
+        XCTAssertGreaterThan(auxiliaryUpdates.count, 0)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+    }
+
+    func test_hiddenWorklane_doesNotCoalesceVolatileNotifications() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         store.knownNonRepositoryPaths.insert("/tmp/project")
         let activeWorklaneID = try XCTUnwrap(store.activeWorklane?.id)
@@ -229,15 +297,71 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
         }
         XCTAssertEqual(
             volatileUpdates.count,
-            1,
-            "hidden-worklane volatile ticks within the throttle window must coalesce to a single notify"
+            3,
+            "hidden-worklane volatile ticks should stay realtime so background panes feel active"
         )
 
-        // Each tick must still have updated the stored metadata — only the UI notify is throttled.
         XCTAssertEqual(
             store.worklanes.first(where: { $0.id == hiddenWorklane.id })?
                 .auxiliaryStateByPaneID[hiddenPaneID]?.metadata?.title,
             "Working ⠸ zentty"
+        )
+    }
+
+    func test_hiddenWorklane_claudeVolatileTicks_emitEveryNotification() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        let activeWorklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.createWorklane()
+        store.selectWorklane(id: activeWorklaneID)
+        let hiddenWorklane = try XCTUnwrap(
+            store.worklanes.first(where: { $0.id != activeWorklaneID })
+        )
+        let hiddenPaneID = try XCTUnwrap(hiddenWorklane.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: hiddenPaneID,
+            metadata: TerminalMetadata(
+                title: "Thinking ✳ Investigate pane title updates",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+
+        var received: [WorklaneChange] = []
+        let subscription = store.subscribe { change in
+            received.append(change)
+        }
+        defer { store.unsubscribe(subscription) }
+
+        let frames = ["●", "✶", "✦"]
+        for frame in frames {
+            store.updateMetadata(
+                paneID: hiddenPaneID,
+                metadata: TerminalMetadata(
+                    title: "Thinking \(frame) Investigate pane title updates",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "claude",
+                    gitBranch: "main"
+                )
+            )
+        }
+
+        let volatileUpdates = received.filter { change in
+            if case .volatileAgentTitleUpdated = change { return true }
+            return false
+        }
+        XCTAssertEqual(
+            volatileUpdates.count,
+            3,
+            "supported background agent titles should emit every volatile tick"
+        )
+        XCTAssertEqual(
+            store.worklanes.first(where: { $0.id == hiddenWorklane.id })?
+                .auxiliaryStateByPaneID[hiddenPaneID]?.metadata?.title,
+            "Thinking ✦ Investigate pane title updates"
         )
     }
 

@@ -172,8 +172,8 @@ enum WorklaneChange: Equatable, Sendable {
     case layoutResized(WorklaneID, animation: WorklaneLayoutResizeAnimation)
     case auxiliaryStateUpdated(WorklaneID, PaneID, WorklaneAuxiliaryInvalidation)
     /// Emitted by WorklaneStore.updateMetadata's volatile-title fast path when
-    /// a codex pane's terminal title changes in a way that the classifier
-    /// recognizes as `.volatileTitleOnly`. Consumers should call the surgical
+    /// a supported agent pane's terminal title changes in a way that the
+    /// classifier recognizes as `.volatileTitleOnly`. Consumers should call the surgical
     /// sidebar/chrome label setters (not a full render) to update the UI
     /// without re-running summary builders or auxiliary invalidation.
     case volatileAgentTitleUpdated(worklaneID: WorklaneID, paneID: PaneID)
@@ -244,14 +244,6 @@ final class WorklaneStore {
 
     private var subscribers: [(id: UUID, handler: (WorklaneChange) -> Void)] = []
     private var isBatching = false
-
-    /// Per-pane timestamp of the last emitted `.volatileAgentTitleUpdated`
-    /// notification. Used by the volatile-title fast path to coalesce volatile
-    /// ticks for non-active worklanes to ~0.5 Hz, reducing main-thread churn
-    /// when multiple background worklanes run agents simultaneously. Active
-    /// worklanes bypass the throttle so their spinner never visibly lags.
-    var lastVolatileNotifyAt: [PaneID: Date] = [:]
-    static let hiddenVolatileNotifyMinInterval: TimeInterval = 2.0
 
     @discardableResult
     func subscribe(_ handler: @escaping (WorklaneChange) -> Void) -> WorklaneChangeSubscription {

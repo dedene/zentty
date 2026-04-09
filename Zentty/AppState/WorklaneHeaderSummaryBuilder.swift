@@ -26,11 +26,11 @@ enum WorklaneHeaderSummaryBuilder {
         // in the chrome so the title bar ticks in realtime alongside the
         // sidebar row. This mirrors WorklaneSidebarSummaryBuilder.paneIdentity
         // which also reads metadata?.title directly for codex volatile titles.
-        if presentation?.recognizedTool == .codex,
+        if let recognizedTool = presentation?.recognizedTool,
            let volatileTitle = WorklaneContextFormatter.trimmed(metadata?.title),
-           TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+           TerminalMetadataChangeClassifier.isRealtimeAgentStatusTitle(
                volatileTitle,
-               recognizedTool: .codex
+               recognizedTool: recognizedTool
            ) {
             return volatileTitle
         }

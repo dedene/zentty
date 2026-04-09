@@ -286,6 +286,8 @@ enum PanePresentationNormalizer {
             ? .question
             : (raw.agentStatus?.interactionKind ?? .none)
         let showsReadyStatus = raw.showsReadyStatus
+        let codexBackgroundWait = recognizedTool == .codex
+            && TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: raw.metadata?.title) == .backgroundWait
         let hasObservedRunning = raw.agentStatus?.hasObservedRunning == true
             || titlePhase == .running
             || previous?.runtimePhase == .running
@@ -294,6 +296,7 @@ enum PanePresentationNormalizer {
             interactionKind: agentInteractionKind,
             hasObservedRunning: hasObservedRunning,
             showsReadyStatus: showsReadyStatus,
+            suppressIdleLabel: codexBackgroundWait,
             notificationText: raw.lastDesktopNotificationText,
             notificationDate: raw.lastDesktopNotificationDate
         )
@@ -428,9 +431,15 @@ enum PanePresentationNormalizer {
 
         if let agentState = raw.agentStatus?.state {
             if recognizedTool == .codex,
-               agentState == .starting,
                let titlePhase {
-                return titlePhase
+                if agentState == .starting {
+                    return titlePhase
+                }
+
+                if agentState == .idle,
+                   titlePhase == .running || titlePhase == .starting {
+                    return titlePhase
+                }
             }
 
             // When Claude Code's hook says .running but the title says .idle
@@ -573,6 +582,7 @@ enum PanePresentationNormalizer {
         interactionKind: PaneAgentInteractionKind,
         hasObservedRunning: Bool,
         showsReadyStatus: Bool,
+        suppressIdleLabel: Bool = false,
         notificationText: String? = nil,
         notificationDate: Date? = nil,
         now: Date = Date()
@@ -580,6 +590,7 @@ enum PanePresentationNormalizer {
         switch phase {
         case .idle:
             if showsReadyStatus { return "Agent ready" }
+            if suppressIdleLabel { return nil }
             if hasObservedRunning { return "Idle" }
             // Show fresh notification text as informational status when no agent state is active.
             if let notificationText, let notificationDate,

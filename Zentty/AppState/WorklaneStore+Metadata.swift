@@ -21,19 +21,18 @@ extension WorklaneStore {
         )
 
         // Volatile-title fast path. When the classifier recognizes a pure
-        // volatile codex title tick (phase+subject signature unchanged, only
+        // supported-agent title tick (phase+subject signature unchanged, only
         // elapsed time differs), skip the full promotion / inference /
         // normalization pipeline below and emit a surgical
         // `.volatileAgentTitleUpdated` for the coordinator to apply a direct
-        // label update. Both the sidebar row and the chrome focused label
-        // read `metadata.title` directly for codex volatile titles, so
+        // label update. The sidebar row and chrome focused label can read
+        // `metadata.title` directly for supported realtime agent titles, so
         // storing the new metadata is enough for correct rendering.
-        //
-        // Non-active worklanes are coalesced to ~0.5 Hz by
-        // `emitVolatileAgentTitleUpdateIfAllowed` so background agents don't
-        // swamp the main thread.
         if metadataChangeKind == .volatileTitleOnly,
-           shouldTakeVolatileAgentTitleFastPath(in: previousAuxiliaryState) {
+           shouldTakeVolatileAgentTitleFastPath(
+                in: previousAuxiliaryState,
+                nextMetadata: metadata
+           ) {
             worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
             worklanes[worklaneIndex] = worklane
             emitVolatileAgentTitleUpdateIfAllowed(worklaneID: worklane.id, paneID: paneID)
@@ -124,34 +123,50 @@ extension WorklaneStore {
     /// cwd, processName, gitBranch, recognized tool, and the volatile
     /// phase+subject signature are unchanged across the tick.
     private func shouldTakeVolatileAgentTitleFastPath(
-        in auxiliaryState: PaneAuxiliaryState
+        in auxiliaryState: PaneAuxiliaryState,
+        nextMetadata: TerminalMetadata
     ) -> Bool {
         if auxiliaryState.agentStatus?.interactionKind.requiresHumanAttention == true {
+            return false
+        }
+        if let existingStatus = auxiliaryState.agentStatus,
+           existingStatus.tool == .codex,
+           let nextTitlePhase = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+                nextMetadata.title,
+                recognizedTool: .codex
+           )?.phase,
+           !Self.codexVolatileTitleFastPathStatusMatches(
+                existingStatus: existingStatus,
+                titlePhase: nextTitlePhase
+           ) {
             return false
         }
         return true
     }
 
-    /// Emits a `.volatileAgentTitleUpdated` notification, coalescing updates
-    /// for non-active worklanes to `WorklaneStore.hiddenVolatileNotifyMinInterval`
-    /// so background agents don't churn the main thread. Active-worklane panes
-    /// clear their coalescing state so switching focus never leaves a pane
-    /// waiting out the throttle window.
+    private static func codexVolatileTitleFastPathStatusMatches(
+        existingStatus: PaneAgentStatus,
+        titlePhase: TerminalMetadataChangeClassifier.VolatileAgentStatusPhase
+    ) -> Bool {
+        switch titlePhase {
+        case .starting:
+            return existingStatus.state == .starting
+        case .running:
+            return existingStatus.state == .running
+        case .idle:
+            return existingStatus.state == .idle
+        case .needsInput:
+            return false
+        }
+    }
+
+    /// Emits a `.volatileAgentTitleUpdated` notification for realtime agent
+    /// title ticks. Hidden worklanes intentionally stay realtime so the
+    /// sidebar continues to feel active while background agents are working.
     private func emitVolatileAgentTitleUpdateIfAllowed(
         worklaneID: WorklaneID,
         paneID: PaneID
     ) {
-        let isActiveWorklane = worklaneID == activeWorklaneID
-        if isActiveWorklane {
-            lastVolatileNotifyAt.removeValue(forKey: paneID)
-        } else {
-            let now = Date()
-            let lastAt = lastVolatileNotifyAt[paneID] ?? .distantPast
-            guard now.timeIntervalSince(lastAt) >= WorklaneStore.hiddenVolatileNotifyMinInterval else {
-                return
-            }
-            lastVolatileNotifyAt[paneID] = now
-        }
         terminalDiagnostics.recordStoreFastPath(paneID: paneID)
         notify(.volatileAgentTitleUpdated(worklaneID: worklaneID, paneID: paneID))
     }
@@ -179,12 +194,16 @@ extension WorklaneStore {
     ) {
         let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.raw.agentStatus?.tool
             ?? AgentToolRecognizer.recognize(metadata: metadata)
-        guard recognizedTool == .codex,
-              let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-                  metadata.title,
-                  recognizedTool: recognizedTool
-              ),
-              signature.phase == .needsInput else {
+        guard recognizedTool == .codex else {
+            return
+        }
+
+        let waitingTitleKind = TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: metadata.title)
+        let titleNeedsInput = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            metadata.title,
+            recognizedTool: recognizedTool
+        )?.phase == .needsInput
+        guard waitingTitleKind != nil || titleNeedsInput else {
             return
         }
 
@@ -200,11 +219,7 @@ extension WorklaneStore {
             ?? AgentToolRecognizer.recognize(metadata: metadata)
         guard
             recognizedTool == .codex,
-            let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-                metadata.title,
-                recognizedTool: recognizedTool
-            ),
-            signature.phase == .needsInput,
+            TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: metadata.title) == .needsInput,
             var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID]
         else {
             return
@@ -215,15 +230,18 @@ extension WorklaneStore {
         }
 
         let existingStatus = auxiliaryState.agentStatus
+        let titleText = AgentInteractionClassifier.trimmed(metadata.title)
+        let interactionKind = AgentInteractionClassifier.interactionKind(forWaitingMessage: titleText)
+            ?? .genericInput
         auxiliaryState.agentStatus = PaneAgentStatus(
             tool: .codex,
             state: .needsInput,
-            text: existingStatus?.text,
+            text: titleText ?? existingStatus?.text,
             artifactLink: existingStatus?.artifactLink,
             updatedAt: Date(),
             source: .inferred,
             origin: .inferred,
-            interactionKind: .genericInput,
+            interactionKind: interactionKind,
             confidence: .weak,
             shellActivityState: existingStatus?.shellActivityState ?? .unknown,
             trackedPID: existingStatus?.trackedPID,
@@ -254,7 +272,9 @@ extension WorklaneStore {
             return
         }
 
-        if auxiliaryState.agentStatus?.interactionKind.requiresHumanAttention == true {
+        if let existingStatus = auxiliaryState.agentStatus,
+           existingStatus.interactionKind.requiresHumanAttention,
+           existingStatus.interactionKind != .genericInput {
             return
         }
 
@@ -331,6 +351,9 @@ extension WorklaneStore {
     ) {
         let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
             ?? AgentToolRecognizer.recognize(metadata: metadata)
+        guard TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: metadata.title) != .backgroundWait else {
+            return
+        }
         guard
             recognizedTool == .codex,
             let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
@@ -339,7 +362,7 @@ extension WorklaneStore {
             ),
             signature.phase == .idle,
             var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
-            auxiliaryState.agentStatus?.state != .needsInput
+            Self.codexReadyTitleMayClearStatus(auxiliaryState.agentStatus)
         else {
             return
         }
@@ -379,7 +402,9 @@ extension WorklaneStore {
         guard let existingStatus = auxiliaryState.agentStatus,
               existingStatus.tool == .codex,
               existingStatus.hasObservedRunning,
-              existingStatus.state == .running || existingStatus.state == .idle
+              existingStatus.state == .running
+                || existingStatus.state == .idle
+                || Self.codexReadyTitleClearsGenericNeedsInput(existingStatus)
         else {
             return
         }
@@ -403,6 +428,24 @@ extension WorklaneStore {
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
         requestReadyStatusIfNeeded(for: paneID, in: &worklane)
+    }
+
+    private static func codexReadyTitleMayClearStatus(_ status: PaneAgentStatus?) -> Bool {
+        guard let status else {
+            return true
+        }
+
+        guard status.state == .needsInput else {
+            return true
+        }
+
+        return codexReadyTitleClearsGenericNeedsInput(status)
+    }
+
+    private static func codexReadyTitleClearsGenericNeedsInput(_ status: PaneAgentStatus) -> Bool {
+        status.tool == .codex
+            && status.state == .needsInput
+            && status.interactionKind == .genericInput
     }
 
     /// Clears stale desktop notification text when a Codex terminal title transitions to
@@ -469,11 +512,11 @@ extension WorklaneStore {
     }
 
     private func sidebarVisibleVolatileTitle(for auxiliaryState: PaneAuxiliaryState) -> String? {
-        guard auxiliaryState.presentation.recognizedTool == .codex,
+        guard let recognizedTool = auxiliaryState.presentation.recognizedTool,
               let volatileTitle = WorklaneContextFormatter.trimmed(auxiliaryState.metadata?.title),
-              TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+              TerminalMetadataChangeClassifier.isRealtimeAgentStatusTitle(
                   volatileTitle,
-                  recognizedTool: .codex
+                  recognizedTool: recognizedTool
               ) else {
             return nil
         }
