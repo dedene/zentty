@@ -61,6 +61,7 @@ final class PaneContainerView: NSView {
     private var currentBorderContext: PaneBorderContextDisplayModel?
     private var currentIsFocused: Bool
     private var lastRenderedSearchState = PaneSearchState()
+    private var suppressSelectionOnNextProgrammaticFocus = false
     var onSelected: (() -> Void)?
     var onCloseRequested: (() -> Void)?
     var onBorderContextClicked: ((PaneID) -> Void)? {
@@ -177,10 +178,17 @@ final class PaneContainerView: NSView {
         contentClipView.addSubview(statusOverlayView)
 
         terminalHostView.onFocusDidChange = { [weak self] isFocused in
-            self?.runtime.handleTerminalFocusChange(isFocused)
-            if isFocused {
-                self?.onSelected?()
+            guard let self else { return }
+            self.runtime.handleTerminalFocusChange(isFocused)
+            if isFocused, self.suppressSelectionOnNextProgrammaticFocus {
+                self.suppressSelectionOnNextProgrammaticFocus = false
+                return
             }
+            if !isFocused {
+                self.suppressSelectionOnNextProgrammaticFocus = false
+                return
+            }
+            self.onSelected?()
         }
         terminalHostView.onScrollWheel = onScrollWheel
         terminalHostView.onSearchQueryChange = { [weak self] query in
@@ -352,7 +360,26 @@ final class PaneContainerView: NSView {
     }
 
     func focusTerminal() {
-        runtime.hostView.focusTerminal()
+        let wasFocused = runtime.hostView.isTerminalFocused
+        suppressSelectionOnNextProgrammaticFocus = false
+        if runtime.hostView.focusTerminal(), !wasFocused {
+            suppressSelectionOnNextProgrammaticFocus = true
+        }
+    }
+
+    @discardableResult
+    func focusTerminalIfReady() -> Bool {
+        let wasFocused = runtime.hostView.isTerminalFocused
+        suppressSelectionOnNextProgrammaticFocus = false
+        let didFocus = runtime.hostView.focusTerminalIfReady()
+        if didFocus, !wasFocused {
+            suppressSelectionOnNextProgrammaticFocus = true
+        }
+        return didFocus
+    }
+
+    var isTerminalFocused: Bool {
+        runtime.hostView.isTerminalFocused
     }
 
     var isSearchHUDVisible: Bool {

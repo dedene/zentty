@@ -97,15 +97,36 @@ final class TerminalPaneHostView: NSView {
         (terminalView as? any TerminalViewportSyncControlling)?.forceViewportSync()
     }
 
-    func focusTerminal() {
+    var isTerminalFocused: Bool {
+        let focusTarget = (terminalView as? any TerminalFocusTargetProviding)?.terminalFocusTargetView ?? terminalView
+        return focusTarget.window?.firstResponder === focusTarget
+    }
+
+    @discardableResult
+    func focusTerminal() -> Bool {
         let focusTarget = (terminalView as? any TerminalFocusTargetProviding)?.terminalFocusTargetView ?? terminalView
 
-        guard window?.firstResponder !== focusTarget else {
-            return
+        guard let window = focusTarget.window ?? window else {
+            return false
+        }
+        guard window.firstResponder !== focusTarget else {
+            return false
         }
 
         ZenttyPerformanceSignposts.event("TerminalFocusRequested")
-        window?.makeFirstResponder(focusTarget)
+        return window.makeFirstResponder(focusTarget)
+    }
+
+    @discardableResult
+    func focusTerminalIfReady() -> Bool {
+        let focusTarget = (terminalView as? any TerminalFocusTargetProviding)?.terminalFocusTargetView ?? terminalView
+        guard let window = focusTarget.window else {
+            return false
+        }
+        if window.firstResponder === focusTarget {
+            return true
+        }
+        return window.makeFirstResponder(focusTarget)
     }
 
     func applySearchHUD(_ search: PaneSearchState) {
@@ -278,6 +299,7 @@ final class PaneRuntime {
     private var sessionRequest: TerminalSessionRequest
     private var hasAttemptedStart = false
     private var hasReceivedMetadata = false
+    private var hasSentInitialCommand = false
     private var observers: [UUID: (PaneRuntimeSnapshot) -> Void] = [:]
     private var searchUpdateWorkItem: DispatchWorkItem?
     private var ignoreNextTerminalBlurForSearchFocus = false
@@ -328,7 +350,7 @@ final class PaneRuntime {
             self?.handleMetadataDidChange(metadata)
         }
         hostViewValue.onEventDidOccur = { [weak self] event in
-            self?.eventSink(self?.paneIDValue ?? pane.id, event)
+            self?.handleEventDidOccur(event)
         }
         (adapter as? any TerminalSearchControlling)?.searchDidChange = { [weak self] event in
             self?.handleSearchDidChange(event)
@@ -613,6 +635,36 @@ final class PaneRuntime {
         hasReceivedMetadata = true
         self.metadata = metadata
         metadataSink(paneIDValue, metadata)
+        sendInitialCommandIfNeeded(using: metadata)
+    }
+
+    private func handleEventDidOccur(_ event: TerminalEvent) {
+        eventSink(paneIDValue, event)
+    }
+
+    private func sendInitialCommandIfNeeded(using metadata: TerminalMetadata) {
+        guard !hasSentInitialCommand,
+              let command = sessionRequest.command?.trimmingCharacters(in: .whitespacesAndNewlines),
+              isReadyForInitialCommand(metadata),
+              !command.isEmpty else {
+            return
+        }
+        hasSentInitialCommand = true
+        adapterValue.sendText(command + "\n")
+    }
+
+    private func isReadyForInitialCommand(_ metadata: TerminalMetadata) -> Bool {
+        if let title = metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !title.isEmpty {
+            return true
+        }
+
+        if let processName = metadata.processName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !processName.isEmpty {
+            return true
+        }
+
+        return false
     }
 
     private func handleSearchDidChange(_ event: TerminalSearchEvent) {

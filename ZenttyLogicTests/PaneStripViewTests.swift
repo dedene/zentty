@@ -414,6 +414,72 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_duplicate_drop_renders_updated_layout_before_drag_teardown() throws {
+        let paneStripView = makePaneStripView(width: 980)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 980, height: 680),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+        window.contentView = paneStripView
+        window.makeKeyAndOrderFront(nil)
+        paneStripView.dragOverlayView = paneStripView
+
+        let sourceState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("source"), title: "source", width: 980),
+            ],
+            focusedPaneID: PaneID("source")
+        )
+        let duplicateState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("source"), title: "source", width: 480),
+                PaneState(id: PaneID("duplicate"), title: "duplicate", width: 480),
+            ],
+            focusedPaneID: PaneID("duplicate")
+        )
+
+        paneStripView.onPaneReorderRequested = { paneID, _, isDuplicate in
+            XCTAssertEqual(paneID, PaneID("source"))
+            XCTAssertTrue(isDuplicate)
+            paneStripView.render(duplicateState, animated: false)
+            paneStripView.layoutSubtreeIfNeeded()
+        }
+
+        paneStripView.render(sourceState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let sourcePaneView = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.paneID == PaneID("source") })
+        )
+        let dragPoint = CGPoint(
+            x: sourcePaneView.frame.midX,
+            y: sourcePaneView.frame.maxY - (PaneContainerView.dragZoneHeight / 2)
+        )
+
+        paneStripView.beginPaneDragForTesting(
+            paneID: PaneID("source"),
+            cursorInStrip: dragPoint
+        )
+        paneStripView.setDuplicateDragEnabledForTesting(true)
+        paneStripView.endPaneDragForTesting(cursorInStrip: dragPoint)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(paneStripView.isDragActive)
+        XCTAssertTrue(paneStripView.isDropSettling)
+
+        let paneViews = paneStripView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        XCTAssertEqual(paneViews.map(\.paneID), [PaneID("source"), PaneID("duplicate")])
+        XCTAssertLessThan(
+            paneViews[0].frame.width,
+            paneStripView.bounds.width - 1,
+            "The duplicate split layout must be live before the drag teardown reveals it"
+        )
+    }
+
+    @MainActor
     func test_render_applies_border_context_to_visible_pane_views() throws {
         let paneStripView = makePaneStripView()
         let state = PaneStripState(
@@ -1399,6 +1465,45 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_pending_programmatic_focus_ignores_stale_source_focus_reports() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 980, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        let sourcePaneID = PaneID("shell")
+        let duplicatedPaneID = PaneID("pane-1")
+        let initialState = PaneStripState(
+            panes: [
+                PaneState(id: sourcePaneID, title: "shell"),
+            ],
+            focusedPaneID: sourcePaneID
+        )
+        let duplicatedState = PaneStripState(
+            panes: [
+                PaneState(id: sourcePaneID, title: "shell"),
+                PaneState(id: duplicatedPaneID, title: "pane 1"),
+            ],
+            focusedPaneID: duplicatedPaneID
+        )
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(initialState)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.render(duplicatedState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let sourceAdapter = try XCTUnwrap(adapterFactory.adapter(for: sourcePaneID))
+        sourceAdapter.terminalView.simulateFocusChange(true)
+
+        XCTAssertEqual(selectedPaneIDs, [])
+    }
+
+    @MainActor
     func test_insertion_transition_ignores_duplicate_previous_column_ids() throws {
         let paneStripView = makePaneStripView()
         let previousState = PaneStripState(
@@ -2076,6 +2181,59 @@ final class PaneStripViewTests: XCTestCase {
     }
 
     @MainActor
+    func test_stale_source_focus_callback_is_ignored_while_new_target_focus_is_pending() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 980, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        let window = NSWindow(
+            contentRect: paneStripView.frame,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+
+        window.contentView = paneStripView
+        window.makeKeyAndOrderFront(nil)
+
+        let sourcePane = PaneState(id: PaneID("source"), title: "source")
+        let siblingPane = PaneState(id: PaneID("sibling"), title: "sibling")
+        let duplicatePane = PaneState(id: PaneID("duplicate"), title: "duplicate")
+        let initialState = PaneStripState(
+            panes: [sourcePane, siblingPane],
+            focusedPaneID: sourcePane.id
+        )
+        let duplicatedState = PaneStripState(
+            panes: [sourcePane, duplicatePane, siblingPane],
+            focusedPaneID: duplicatePane.id
+        )
+
+        paneStripView.render(initialState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        _ = runtimeRegistry.runtime(for: duplicatePane)
+        let duplicateAdapter = try XCTUnwrap(adapterFactory.adapter(for: duplicatePane.id))
+        duplicateAdapter.terminalView.usesDetachedFocusTarget = true
+
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(duplicatedState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let sourceAdapter = try XCTUnwrap(adapterFactory.adapter(for: sourcePane.id))
+        sourceAdapter.terminalView.simulateFocusChange(true)
+
+        XCTAssertFalse(
+            selectedPaneIDs.contains(sourcePane.id),
+            "The source pane should not reclaim selection while PaneStripView is still steering focus to the duplicate"
+        )
+    }
+
+    @MainActor
     func test_search_hud_close_button_hit_testing_beats_pane_drag_zone() throws {
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
             PaneStripTerminalAdapterSpy(paneID: paneID)
@@ -2460,6 +2618,162 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertLessThan(paneStripView.currentOffsetForTesting, 100_000)
     }
 
+    @MainActor
+    func test_stale_source_focus_callback_is_ignored_during_programmatic_focus_transfer() throws {
+        let factory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry { paneID in
+            factory.makeAdapter(for: paneID)
+        }
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 720),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+        window.contentView = paneStripView
+        window.makeKeyAndOrderFront(nil)
+
+        let sourceState = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let targetState = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(sourceState)
+        paneStripView.layoutSubtreeIfNeeded()
+        selectedPaneIDs.removeAll()
+
+        paneStripView.render(targetState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let sourceAdapter = try XCTUnwrap(factory.adapter(for: PaneID("shell")))
+        sourceAdapter.terminalView.simulateFocusChange(true)
+
+        XCTAssertFalse(
+            selectedPaneIDs.contains(PaneID("shell")),
+            "A late source-pane focus callback should not overwrite the requested target pane"
+        )
+    }
+
+    @MainActor
+    func test_force_focus_current_pane_restores_first_responder_when_same_target_remains_focused() throws {
+        let factory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry { paneID in
+            factory.makeAdapter(for: paneID)
+        }
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 720),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+        window.contentView = paneStripView
+        window.makeKeyAndOrderFront(nil)
+
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let shellAdapter = try XCTUnwrap(factory.adapter(for: PaneID("shell")))
+        let editorAdapter = try XCTUnwrap(factory.adapter(for: PaneID("editor")))
+
+        XCTAssertTrue(window.firstResponder === editorAdapter.terminalView)
+        XCTAssertTrue(window.makeFirstResponder(shellAdapter.terminalView))
+        XCTAssertTrue(window.firstResponder === shellAdapter.terminalView)
+
+        paneStripView.focusCurrentPaneIfNeeded()
+
+        XCTAssertTrue(
+            window.firstResponder === editorAdapter.terminalView,
+            "Forced focus sync should restore the focused pane even when the pane ID has not changed"
+        )
+    }
+
+    @MainActor
+    func test_end_drag_with_zoom_in_reanchors_to_newly_focused_pane() throws {
+        let factory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry { paneID in
+            factory.makeAdapter(for: paneID)
+        }
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 720),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+        window.contentView = paneStripView
+        window.makeKeyAndOrderFront(nil)
+
+        let sourceState = PaneStripState(
+            panes: [
+                makePane("source"),
+                makePane("sibling"),
+            ],
+            focusedPaneID: PaneID("source")
+        )
+        let duplicateState = PaneStripState(
+            panes: [
+                makePane("source"),
+                makePane("duplicate"),
+                makePane("sibling"),
+            ],
+            focusedPaneID: PaneID("duplicate")
+        )
+
+        paneStripView.render(sourceState)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.toggleZoom(animated: false)
+
+        paneStripView.render(duplicateState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let duplicatePaneView = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.paneID == PaneID("duplicate") })
+        )
+
+        paneStripView.endDragWithZoomIn()
+
+        XCTAssertEqual(
+            paneStripView.zoomAnchorForTesting.x,
+            duplicatePaneView.frame.midX,
+            accuracy: 0.001,
+            "Zoom-in should target the newly focused duplicate pane rather than the original source pane"
+        )
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }
@@ -2534,16 +2848,24 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
     }
 
     func close() {}
+    func sendText(_ text: String) {}
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         lastSurfaceActivity = activity
     }
 }
 
-private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncControlling {
+private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding {
+    var onFocusDidChange: ((Bool) -> Void)?
     private(set) var viewportSyncSuspensionUpdates: [Bool] = []
     private(set) var viewportSyncSuspensionBounds: [CGSize] = []
     private(set) var displayIfNeededCallCount = 0
+    let detachedFocusTarget = NSView()
+    var usesDetachedFocusTarget = false
+
+    var terminalFocusTargetView: NSView {
+        usesDetachedFocusTarget ? detachedFocusTarget : self
+    }
 
     override func displayIfNeeded() {
         displayIfNeededCallCount += 1
@@ -2553,6 +2875,10 @@ private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncContro
     func setViewportSyncSuspended(_ suspended: Bool) {
         viewportSyncSuspensionUpdates.append(suspended)
         viewportSyncSuspensionBounds.append(bounds.size)
+    }
+
+    func simulateFocusChange(_ isFocused: Bool) {
+        onFocusDidChange?(isFocused)
     }
 }
 
