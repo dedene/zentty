@@ -140,7 +140,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty
-        CURRENT_PROJECT_VERSION: 218
+        CURRENT_PROJECT_VERSION: 219
         MARKETING_VERSION: 0.1.6
         VERSIONING_SYSTEM: apple-generic
         INFOPLIST_FILE: Zentty/Info.plist
