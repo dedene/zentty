@@ -8,6 +8,7 @@ struct CommandAvailabilityContext: Equatable {
     let focusedColumnPaneCount: Int
     let focusedPaneHasRememberedSearch: Bool
     let globalSearchHasRememberedSearch: Bool
+    let activeWorklaneHasBranchURL: Bool
 }
 
 enum CommandAvailabilityResolver {
@@ -17,7 +18,8 @@ enum CommandAvailabilityResolver {
         totalPaneCount: Int,
         activeColumnCount: Int? = nil,
         focusedColumnPaneCount: Int? = nil,
-        focusedPaneHasRememberedSearch: Bool = false
+        focusedPaneHasRememberedSearch: Bool = false,
+        activeWorklaneHasBranchURL: Bool = false
     ) -> Set<AppCommandID> {
         availableCommandIDs(
             worklaneCount: worklaneCount,
@@ -26,7 +28,8 @@ enum CommandAvailabilityResolver {
             activeColumnCount: activeColumnCount,
             focusedColumnPaneCount: focusedColumnPaneCount,
             focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
-            globalSearchHasRememberedSearch: false
+            globalSearchHasRememberedSearch: false,
+            activeWorklaneHasBranchURL: activeWorklaneHasBranchURL
         )
     }
 
@@ -37,7 +40,8 @@ enum CommandAvailabilityResolver {
         activeColumnCount: Int? = nil,
         focusedColumnPaneCount: Int? = nil,
         focusedPaneHasRememberedSearch: Bool = false,
-        globalSearchHasRememberedSearch: Bool = false
+        globalSearchHasRememberedSearch: Bool = false,
+        activeWorklaneHasBranchURL: Bool = false
     ) -> Set<AppCommandID> {
         availableCommandIDs(
             for: CommandAvailabilityContext(
@@ -47,7 +51,8 @@ enum CommandAvailabilityResolver {
                 activeColumnCount: activeColumnCount ?? activePaneCount,
                 focusedColumnPaneCount: focusedColumnPaneCount ?? activePaneCount,
                 focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
-                globalSearchHasRememberedSearch: globalSearchHasRememberedSearch
+                globalSearchHasRememberedSearch: globalSearchHasRememberedSearch,
+                activeWorklaneHasBranchURL: activeWorklaneHasBranchURL
             )
         )
     }
@@ -60,6 +65,8 @@ enum CommandAvailabilityResolver {
 
     static func isCommandAvailable(_ commandID: AppCommandID, for context: CommandAvailabilityContext) -> Bool {
         switch commandID {
+        case .openBranchOnRemote:
+            return context.activeWorklaneHasBranchURL
         case .findNext, .findPrevious:
             return context.focusedPaneHasRememberedSearch || context.globalSearchHasRememberedSearch
         case .focusPreviousPane, .focusNextPane:

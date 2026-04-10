@@ -14,15 +14,25 @@ final class AppearanceSettingsSectionViewControllerTests: XCTestCase {
         }
     }
 
-    private final class SpyConfigWriter: GhosttyConfigWriting {
-        private(set) var writtenValues: [(key: String, value: String)] = []
+    private final class StubConfigCoordinator: AppearanceSettingsConfigCoordinating {
+        var sourceState = AppearanceSettingsSourceState(
+            subtitle: "Using your Ghostty config.",
+            showsCreateSharedConfigAction: false
+        )
+        private(set) var appliedThemes: [String] = []
+        private(set) var appliedOpacities: [CGFloat] = []
+        private(set) var createSharedConfigCallCount = 0
 
-        var writtenThemes: [String] {
-            writtenValues.filter { $0.key == "theme" }.map(\.value)
+        func applyTheme(_ name: String, presentingWindow _: NSWindow?) async {
+            appliedThemes.append(name)
         }
 
-        func updateValue(_ value: String, forKey key: String) {
-            writtenValues.append((key: key, value: value))
+        func applyBackgroundOpacity(_ opacity: CGFloat, presentingWindow _: NSWindow?) async {
+            appliedOpacities.append(opacity)
+        }
+
+        func createSharedConfig(presentingWindow _: NSWindow?) async {
+            createSharedConfigCallCount += 1
         }
     }
 
@@ -45,24 +55,18 @@ final class AppearanceSettingsSectionViewControllerTests: XCTestCase {
         themes: [ThemePreview] = [],
         activeThemeName: String? = nil,
         backgroundOpacity: CGFloat? = 0.8,
-        configWriter: SpyConfigWriter = SpyConfigWriter(),
-        reloadCount: UnsafeMutablePointer<Int>? = nil
-    ) -> (AppearanceSettingsSectionViewController, StubCatalogProvider, SpyConfigWriter) {
+        configCoordinator: StubConfigCoordinator = StubConfigCoordinator()
+    ) -> (AppearanceSettingsSectionViewController, StubCatalogProvider, StubConfigCoordinator) {
         let catalog = StubCatalogProvider()
         catalog.themes = themes
 
-        var reloadCallCount = 0
         let controller = AppearanceSettingsSectionViewController(
             catalogProvider: catalog,
-            configWriter: configWriter,
+            configCoordinator: configCoordinator,
             currentThemeName: { _ in activeThemeName },
-            currentBackgroundOpacity: { backgroundOpacity },
-            runtimeReload: {
-                reloadCallCount += 1
-                reloadCount?.pointee = reloadCallCount
-            }
+            currentBackgroundOpacity: { backgroundOpacity }
         )
-        return (controller, catalog, configWriter)
+        return (controller, catalog, configCoordinator)
     }
 
     private func loadAndWaitForThemes(
@@ -74,6 +78,21 @@ final class AppearanceSettingsSectionViewControllerTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Themes loaded")
         Task {
             while controller.themes.isEmpty {
+                try? await Task.sleep(nanoseconds: 5_000_000)
+            }
+            expectation.fulfill()
+        }
+        await fulfillment(of: [expectation], timeout: 2.0)
+    }
+
+    private func waitForCondition(
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ predicate: @escaping @MainActor () -> Bool
+    ) async {
+        let expectation = XCTestExpectation(description: "Condition satisfied")
+        Task {
+            while predicate() == false {
                 try? await Task.sleep(nanoseconds: 5_000_000)
             }
             expectation.fulfill()
@@ -131,20 +150,18 @@ final class AppearanceSettingsSectionViewControllerTests: XCTestCase {
 
     func testThemeSelectionTriggersWriteAndReload() async {
         let themes = [makeTheme(name: "Dracula")]
-        let writer = SpyConfigWriter()
-        var reloadCount = 0
+        let coordinator = StubConfigCoordinator()
 
         let (controller, _, _) = makeController(
             themes: themes,
-            configWriter: writer,
-            reloadCount: &reloadCount
+            configCoordinator: coordinator
         )
         await loadAndWaitForThemes(controller)
 
         controller.selectThemeForTesting("Dracula")
+        await waitForCondition { coordinator.appliedThemes == ["Dracula"] }
 
-        XCTAssertEqual(writer.writtenThemes, ["Dracula"])
-        XCTAssertEqual(reloadCount, 1)
+        XCTAssertEqual(coordinator.appliedThemes, ["Dracula"])
     }
 
     func testHandleAppearanceChangeRefreshesActiveTheme() async {
@@ -158,10 +175,9 @@ final class AppearanceSettingsSectionViewControllerTests: XCTestCase {
 
         let controller = AppearanceSettingsSectionViewController(
             catalogProvider: catalog,
-            configWriter: SpyConfigWriter(),
+            configCoordinator: StubConfigCoordinator(),
             currentThemeName: { _ in currentAppearanceTheme },
-            currentBackgroundOpacity: { 0.8 },
-            runtimeReload: {}
+            currentBackgroundOpacity: { 0.8 }
         )
         await loadAndWaitForThemes(controller)
 
@@ -171,8 +187,46 @@ final class AppearanceSettingsSectionViewControllerTests: XCTestCase {
         XCTAssertEqual(controller.activeThemeNameForTesting, "DarkTheme")
     }
 
+    func testLocalOnlySourceStateShowsCreateSharedConfigAction() {
+        let coordinator = StubConfigCoordinator()
+        coordinator.sourceState = AppearanceSettingsSourceState(
+            subtitle: "Using Zentty defaults. Appearance changes stay local until you create a shared Ghostty config.",
+            showsCreateSharedConfigAction: true
+        )
+        let (controller, _, _) = makeController(configCoordinator: coordinator)
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertFalse(controller.isCreateSharedConfigButtonHiddenForTesting)
+    }
+
+    func testCreateSharedConfigActionCallsCoordinator() async {
+        let coordinator = StubConfigCoordinator()
+        let (controller, _, _) = makeController(configCoordinator: coordinator)
+
+        controller.loadViewIfNeeded()
+        controller.createSharedConfigForTesting()
+        await waitForCondition { coordinator.createSharedConfigCallCount == 1 }
+
+        XCTAssertEqual(coordinator.createSharedConfigCallCount, 1)
+    }
+
+    func testOpacityChangeCallsCoordinator() async throws {
+        let coordinator = StubConfigCoordinator()
+        let (controller, _, _) = makeController(configCoordinator: coordinator)
+
+        controller.loadViewIfNeeded()
+        controller.setOpacityForTesting(0.62)
+        await waitForCondition { coordinator.appliedOpacities.count == 1 }
+
+        let opacity = try XCTUnwrap(coordinator.appliedOpacities.first)
+        XCTAssertEqual(opacity, 0.62, accuracy: 0.0001)
+    }
+
     func testConformsToSettingsAppearanceUpdating() {
-        let controller = AppearanceSettingsSectionViewController()
+        let controller = AppearanceSettingsSectionViewController(
+            configCoordinator: StubConfigCoordinator()
+        )
         XCTAssertTrue(controller is SettingsAppearanceUpdating)
     }
 }

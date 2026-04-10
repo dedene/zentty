@@ -251,6 +251,32 @@ final class NotificationStoreTests: XCTestCase {
         XCTAssertTrue(store.notifications[1].isResolved)
     }
 
+    func test_add_replaces_same_pane_needs_input_and_keeps_resolved_history() async {
+        let store = makeStore()
+        await addAndWaitForCommit(store, primaryText: "Choose compact or detailed")
+
+        store.add(
+            windowID: windowA,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .needsInput,
+            tool: .codex,
+            interactionKind: .decision,
+            interactionSymbolName: "list.bullet",
+            statusText: "Codex requires a decision",
+            primaryText: "Use the new two-line row?",
+            locationText: "zentty • Zentty/UI/Chrome",
+            isDebounced: false
+        )
+
+        XCTAssertEqual(store.notifications.count, 2)
+        XCTAssertEqual(store.notifications[0].primaryText, "Use the new two-line row?")
+        XCTAssertEqual(store.notifications[0].locationText, "zentty • Zentty/UI/Chrome")
+        XCTAssertFalse(store.notifications[0].isResolved)
+        XCTAssertEqual(store.notifications[1].primaryText, "Choose compact or detailed")
+        XCTAssertTrue(store.notifications[1].isResolved)
+    }
+
     func test_resolve_window_scoped_notification_only_marks_matching_origin_resolved() {
         let store = makeStore()
 

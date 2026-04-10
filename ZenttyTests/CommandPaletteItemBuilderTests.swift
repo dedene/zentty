@@ -47,6 +47,19 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
         XCTAssertEqual(items.first?.subtitle, expected)
     }
 
+    func testOpenBranchOnRemoteUsesBranchSubtitleAndSearchAliases() {
+        let items = CommandPaletteItemBuilder.buildItems(
+            availableCommandIDs: [.openBranchOnRemote],
+            shortcutManager: shortcutManager,
+            focusedBranchName: "feature/remote-link"
+        )
+
+        XCTAssertEqual(items.first?.title, "Open Branch on Remote")
+        XCTAssertEqual(items.first?.subtitle, "Open remote branch — feature/remote-link")
+        XCTAssertTrue(items.first?.searchText.contains("remote branch") == true)
+        XCTAssertTrue(items.first?.searchText.contains("github branch") == true)
+    }
+
     func testEmptyAvailableIDsProducesNoItems() {
         let items = CommandPaletteItemBuilder.buildItems(
             availableCommandIDs: [],

@@ -10,6 +10,11 @@ struct GhosttyThemeResolution {
 private let themeLogger = Logger(subsystem: "be.zenjoy.zentty", category: "Theme")
 
 final class GhosttyThemeResolver {
+    private struct ParsedConfigStack {
+        var config: ParsedConfig
+        var watchedURLs: [URL]
+    }
+
     private struct ParsedConfig {
         var themeSpec: String?
         var background: NSColor?
@@ -71,43 +76,56 @@ final class GhosttyThemeResolver {
         }
     }
 
-    let configURL: URL
+    private let legacyConfigURL: URL
     private let additionalThemeDirectories: [URL]
+    private let configEnvironment: GhosttyConfigEnvironment?
+
+    var configURL: URL {
+        configEnvironment?.resolvedStack()?.primaryWatchURL ?? legacyConfigURL
+    }
 
     init(
-        configURL: URL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/ghostty/config"),
+        configURL: URL,
         additionalThemeDirectories: [URL] = GhosttyThemeResolver.defaultThemeDirectories()
     ) {
-        self.configURL = configURL
+        self.legacyConfigURL = configURL
         self.additionalThemeDirectories = additionalThemeDirectories
+        self.configEnvironment = nil
+    }
+
+    init(
+        configEnvironment: GhosttyConfigEnvironment = GhosttyConfigEnvironment(),
+        additionalThemeDirectories: [URL] = GhosttyThemeResolver.defaultThemeDirectories()
+    ) {
+        self.legacyConfigURL = configEnvironment.preferredCreateTargetURL
+        self.additionalThemeDirectories = additionalThemeDirectories
+        self.configEnvironment = configEnvironment
     }
 
     func currentThemeName(for appearance: NSAppearance?) -> String? {
-        let userConfig = parseConfig(at: configURL)
-        return userConfig.themeSpec.flatMap {
+        parsedConfigStack().config.themeSpec.flatMap {
             resolveThemeName(from: $0, appearance: appearance)
         }
     }
 
     func currentBackgroundOpacity() -> CGFloat? {
-        parseConfig(at: configURL).backgroundOpacity
+        parsedConfigStack().config.backgroundOpacity
     }
 
     func resolve(for appearance: NSAppearance?) -> GhosttyThemeResolution? {
-        let userConfig = parseConfig(at: configURL)
-        let resolvedThemeName = userConfig.themeSpec.flatMap {
+        let parsedStack = parsedConfigStack()
+        let resolvedThemeName = parsedStack.config.themeSpec.flatMap {
             resolveThemeName(from: $0, appearance: appearance)
         }
         let themeURL = resolvedThemeName.flatMap(resolveThemeURL(named:))
         let baseConfig = themeURL.flatMap(parseConfig(at:)) ?? ParsedConfig()
-        let merged = baseConfig.merged(overrides: userConfig)
+        let merged = baseConfig.merged(overrides: parsedStack.config)
 
         guard let theme = merged.toResolvedTheme() else {
             return nil
         }
 
-        var watchedURLs: [URL] = [configURL]
+        var watchedURLs = parsedStack.watchedURLs
         if let themeURL {
             watchedURLs.append(themeURL)
         }
@@ -190,6 +208,21 @@ final class GhosttyThemeResolver {
     }
 
     private func parseConfig(at url: URL) -> ParsedConfig {
+        var visitedPaths: Set<String> = []
+        var watchedURLs = [url]
+        return parseConfig(at: url, visitedPaths: &visitedPaths, watchedURLs: &watchedURLs)
+    }
+
+    private func parseConfig(
+        at url: URL,
+        visitedPaths: inout Set<String>,
+        watchedURLs: inout [URL]
+    ) -> ParsedConfig {
+        let normalizedPath = url.standardizedFileURL.path
+        guard visitedPaths.insert(normalizedPath).inserted else {
+            return ParsedConfig()
+        }
+
         let contents: String
         do {
             contents = try String(contentsOf: url, encoding: .utf8)
@@ -198,6 +231,31 @@ final class GhosttyThemeResolver {
             return ParsedConfig()
         }
 
+        return parseConfig(
+            contents: contents,
+            relativeTo: url,
+            visitedPaths: &visitedPaths,
+            watchedURLs: &watchedURLs
+        )
+    }
+
+    private func parseConfig(contents: String) -> ParsedConfig {
+        var visitedPaths: Set<String> = []
+        var watchedURLs: [URL] = []
+        return parseConfig(
+            contents: contents,
+            relativeTo: nil,
+            visitedPaths: &visitedPaths,
+            watchedURLs: &watchedURLs
+        )
+    }
+
+    private func parseConfig(
+        contents: String,
+        relativeTo sourceURL: URL?,
+        visitedPaths: inout Set<String>,
+        watchedURLs: inout [URL]
+    ) -> ParsedConfig {
         var parsed = ParsedConfig()
         for rawLine in contents.split(whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -212,10 +270,87 @@ final class GhosttyThemeResolver {
 
             let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
             let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if key == "config-file",
+               let sourceURL,
+               let includedURL = resolveIncludedConfigURL(rawValue: value, relativeTo: sourceURL) {
+                watchedURLs.append(includedURL)
+                parsed = parsed.merged(
+                    overrides: parseConfig(
+                        at: includedURL,
+                        visitedPaths: &visitedPaths,
+                        watchedURLs: &watchedURLs
+                    )
+                )
+                continue
+            }
+
             apply(value: value, forKey: key, to: &parsed)
         }
 
         return parsed
+    }
+
+    private func parsedConfigStack() -> ParsedConfigStack {
+        guard let configEnvironment, let stack = configEnvironment.resolvedStack() else {
+            return ParsedConfigStack(
+                config: parseConfig(at: configURL),
+                watchedURLs: [configURL]
+            )
+        }
+
+        var visitedPaths: Set<String> = []
+        var watchedURLs = stack.loadFiles
+        var merged = ParsedConfig()
+
+        for loadFile in stack.loadFiles {
+            merged = merged.merged(
+                overrides: parseConfig(
+                    at: loadFile,
+                    visitedPaths: &visitedPaths,
+                    watchedURLs: &watchedURLs
+                )
+            )
+        }
+
+        if let localOverrideContents = stack.localOverrideContents {
+            merged = merged.merged(overrides: parseConfig(contents: localOverrideContents))
+        }
+
+        return ParsedConfigStack(
+            config: merged,
+            watchedURLs: uniqueURLs(watchedURLs)
+        )
+    }
+
+    private func resolveIncludedConfigURL(rawValue: String, relativeTo sourceURL: URL) -> URL? {
+        let value = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        guard !value.isEmpty else {
+            return nil
+        }
+
+        if value.hasPrefix("/") {
+            return URL(fileURLWithPath: value)
+        }
+        if value.hasPrefix("~") {
+            return URL(fileURLWithPath: NSString(string: value).expandingTildeInPath)
+        }
+
+        return sourceURL.deletingLastPathComponent().appendingPathComponent(value)
+    }
+
+    private func uniqueURLs(_ urls: [URL]) -> [URL] {
+        var seenPaths: Set<String> = []
+        var result: [URL] = []
+
+        for url in urls {
+            let normalizedPath = url.standardizedFileURL.path
+            if seenPaths.insert(normalizedPath).inserted {
+                result.append(url)
+            }
+        }
+
+        return result
     }
 
     private func apply(value rawValue: String, forKey key: String, to parsed: inout ParsedConfig) {

@@ -609,6 +609,14 @@ struct PaneAgentReducerState: Equatable, Sendable {
             return lhs.origin.priority > rhs.origin.priority
         }
 
+        // Root sessions preferred over child sessions — prevents subagents
+        // from stealing the status slot while the parent is still active.
+        let lhsIsRoot = lhs.parentSessionID == nil
+        let rhsIsRoot = rhs.parentSessionID == nil
+        if lhsIsRoot != rhsIsRoot {
+            return lhsIsRoot
+        }
+
         return lhs.updatedAt > rhs.updatedAt
     }
 

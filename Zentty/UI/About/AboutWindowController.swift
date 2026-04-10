@@ -3,39 +3,33 @@ import AppKit
 @MainActor
 final class AboutWindowController: NSWindowController {
     private enum Layout {
-        static let windowSize = NSSize(width: 500, height: 544)
+        static let windowSize = NSSize(width: 360, height: 456)
     }
 
     private let aboutViewController: AboutViewController
-    private let runtime: any LibghosttyRuntimeProviding
 
     init(
         metadata: AboutMetadata = AboutMetadata.load(from: .main),
         urlOpener: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
+        onLicensesRequested: @escaping () -> Void = {},
         appearance: NSAppearance? = nil,
-        theme: ZenttyTheme? = nil,
-        runtime: any LibghosttyRuntimeProviding = LibghosttyRuntime.shared
+        theme: ZenttyTheme? = nil
     ) {
         let resolvedTheme = theme ?? ZenttyTheme.fallback(for: appearance)
         let aboutViewController = AboutViewController(
             metadata: metadata,
             urlOpener: urlOpener,
+            onLicensesRequested: onLicensesRequested,
             theme: resolvedTheme
         )
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Layout.windowSize),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.title = "About Zentty"
         window.isReleasedWhenClosed = false
-        window.isMovableByWindowBackground = true
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
-        window.isOpaque = false
-        window.backgroundColor = .clear
         window.appearance = appearance
         window.center()
         window.contentViewController = aboutViewController
@@ -43,7 +37,6 @@ final class AboutWindowController: NSWindowController {
         window.contentMinSize = Layout.windowSize
 
         self.aboutViewController = aboutViewController
-        self.runtime = runtime
         super.init(window: window)
         aboutViewController.applyAppearance(appearance)
         applyTheme(resolvedTheme)
@@ -68,18 +61,11 @@ final class AboutWindowController: NSWindowController {
 
     func applyTheme(_ theme: ZenttyTheme) {
         aboutViewController.applyTheme(theme)
-        if let window {
-            runtime.applyBackgroundBlur(to: window)
-        }
     }
 
     var versionValueForTesting: String { aboutViewController.versionValueForTesting }
     var buildValueForTesting: String { aboutViewController.buildValueForTesting }
     var commitValueForTesting: String { aboutViewController.commitValueForTesting }
-    var surfaceBackgroundTokenForTesting: String { aboutViewController.surfaceBackgroundTokenForTesting }
-    var commitColorTokenForTesting: String { aboutViewController.commitColorTokenForTesting }
-    var docsButtonBackgroundTokenForTesting: String { aboutViewController.docsButtonBackgroundTokenForTesting }
-    var docsButtonTextColorTokenForTesting: String { aboutViewController.docsButtonTextColorTokenForTesting }
     var windowAppearanceMatchForTesting: NSAppearance.Name? {
         window?.appearance?.bestMatch(from: [.darkAqua, .aqua])
     }

@@ -7,15 +7,16 @@ protocol GhosttyConfigWriting {
 
 extension GhosttyConfigWriting {
     func writeTheme(_ name: String) {
-        let sanitized = name.filter { $0 != "\"" && !$0.isNewline }
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let sanitized = GhosttyConfigWriter.sanitizedThemeName(name)
         guard !sanitized.isEmpty else { return }
         updateValue(sanitized, forKey: "theme")
     }
 
     func writeBackgroundOpacity(_ opacity: CGFloat) {
-        let clamped = min(max(opacity, 0), 1)
-        updateValue(String(format: "%.2f", clamped), forKey: "background-opacity")
+        updateValue(
+            GhosttyConfigWriter.formattedBackgroundOpacity(opacity),
+            forKey: "background-opacity"
+        )
     }
 }
 
@@ -23,24 +24,42 @@ final class GhosttyConfigWriter: GhosttyConfigWriting {
     private let configURL: URL
 
     init(
-        configURL: URL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/ghostty/config")
+        configURL: URL = GhosttyConfigEnvironment().preferredCreateTargetURL
     ) {
         self.configURL = configURL
     }
 
     func updateValue(_ value: String, forKey key: String) {
-        let newLine = "\(key) = \(value)"
-
         let existingContent: String
         do {
             existingContent = try String(contentsOf: configURL, encoding: .utf8)
         } catch {
-            writeAtomically(newLine + "\n")
+            writeAtomically(Self.updating(content: nil, value: value, forKey: key))
             return
         }
+        writeAtomically(Self.updating(content: existingContent, value: value, forKey: key))
+    }
 
-        var lines = existingContent.components(separatedBy: "\n")
+    private func writeAtomically(_ content: String) {
+        let data = Data(content.utf8)
+        let directory = configURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? data.write(to: configURL, options: .atomic)
+    }
+
+    static func sanitizedThemeName(_ name: String) -> String {
+        name.filter { $0 != "\"" && !$0.isNewline }
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func formattedBackgroundOpacity(_ opacity: CGFloat) -> String {
+        let clamped = min(max(opacity, 0), 1)
+        return String(format: "%.2f", clamped)
+    }
+
+    static func updating(content: String?, value: String, forKey key: String) -> String {
+        let newLine = "\(key) = \(value)"
+        var lines = content?.components(separatedBy: "\n") ?? []
         var replaced = false
 
         for (index, line) in lines.enumerated() {
@@ -64,13 +83,7 @@ final class GhosttyConfigWriter: GhosttyConfigWriting {
             lines.insert(newLine, at: 0)
         }
 
-        writeAtomically(lines.joined(separator: "\n"))
-    }
-
-    private func writeAtomically(_ content: String) {
-        let data = Data(content.utf8)
-        let directory = configURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? data.write(to: configURL, options: .atomic)
+        let joined = lines.joined(separator: "\n")
+        return joined.hasSuffix("\n") ? joined : joined + "\n"
     }
 }

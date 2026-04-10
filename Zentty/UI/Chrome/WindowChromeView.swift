@@ -549,7 +549,6 @@ final class WindowChromeView: NSView {
         rowWidthConstraint?.constant = rowWidth
         rowHeightConstraint?.constant = rowHeight
         hasEstablishedRenderableLayout = true
-        rowContainerView.layoutSubtreeIfNeeded()
 
         let layoutPlan = makeLayoutPlan(
             leadingViews: leadingViews,

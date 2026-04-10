@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let notificationStore = NotificationStore()
     private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
     private var aboutWindowController: AboutWindowController?
+    private var licensesWindowController: LicensesWindowController?
     private var lastKeyWindowControllerID: ObjectIdentifier?
     private var configObserverID: UUID?
     private var nextWindowIndex = 0
@@ -43,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 AppMenuBuilder.installIfNeeded(on: NSApp, config: config)
                 self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
                 self.aboutWindowController?.applyTheme(self.resolvedAboutTheme)
+                self.licensesWindowController?.applyAppearance(self.resolvedAboutAppearance)
             }
         }
         UNUserNotificationCenter.current().delegate = self
@@ -75,6 +77,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appearance = resolvedAboutAppearance
         let theme = resolvedAboutTheme
         let controller = aboutWindowController ?? AboutWindowController(
+            onLicensesRequested: { [weak self] in
+                self?.showLicensesWindow(nil)
+            },
             appearance: appearance,
             theme: theme
         )
@@ -87,6 +92,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     func checkForUpdates(_ sender: Any?) {
         appUpdateController.checkForUpdates()
+    }
+
+    @objc
+    private func showLicensesWindow(_ sender: Any?) {
+        let appearance = resolvedAboutAppearance
+        let controller = licensesWindowController ?? LicensesWindowController(appearance: appearance)
+        licensesWindowController = controller
+        controller.applyAppearance(appearance)
+        controller.show(sender: sender)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -157,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
             self.aboutWindowController?.applyTheme(self.resolvedAboutTheme)
+            self.licensesWindowController?.applyAppearance(self.resolvedAboutAppearance)
         }
         controller.onCheckForUpdatesRequested = { [weak self] in
             self?.checkForUpdates(nil)
@@ -179,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         aboutWindowController?.applyAppearance(resolvedAboutAppearance)
         aboutWindowController?.applyTheme(resolvedAboutTheme)
+        licensesWindowController?.applyAppearance(resolvedAboutAppearance)
         if windowControllers.isEmpty {
             NSApp.terminate(nil)
         }
@@ -223,6 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastKeyWindowControllerID = ObjectIdentifier(controller)
         aboutWindowController?.applyAppearance(resolvedAboutAppearance)
         aboutWindowController?.applyTheme(resolvedAboutTheme)
+        licensesWindowController?.applyAppearance(resolvedAboutAppearance)
     }
 
     func windowController(containingWorklane worklaneID: WorklaneID) -> MainWindowController? {
@@ -252,6 +269,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     #if DEBUG
     var aboutWindow: NSWindow? {
         aboutWindowController?.window
+    }
+
+    var licensesWindow: NSWindow? {
+        licensesWindowController?.window
     }
 
     var windowControllersForTesting: [MainWindowController] {

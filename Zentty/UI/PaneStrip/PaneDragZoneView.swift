@@ -201,6 +201,18 @@ final class PaneDragZoneView: NSView {
         resolvedCursor.set()
     }
 
+    /// Re-checks the actual mouse position and corrects hover state.
+    /// Call after keyboard-driven focus changes where `mouseExited` never fires.
+    func revalidateHoverState() {
+        guard let window else { return }
+        let mouseInLocal = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        let shouldBeInside = bounds.contains(mouseInLocal)
+        guard shouldBeInside != isPointerInside else { return }
+        isPointerInside = shouldBeInside
+        animateHover(visible: shouldBeInside || isDragActive)
+        invalidatePointerAffordances()
+    }
+
     #if DEBUG
     var cursorDescriptionForTesting: String {
         if isDragActive {

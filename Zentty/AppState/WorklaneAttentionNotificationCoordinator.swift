@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import UserNotifications
+import os
 
 @MainActor
 protocol WorklaneAttentionUserNotificationCenter: AnyObject {
@@ -22,6 +23,26 @@ final class WorklaneAttentionNotificationCoordinator {
         static let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
+    private struct NeedsInputNotificationContent {
+        let systemTitle: String
+        let panelStatusText: String
+        let askPreview: String
+        let locationText: String?
+
+        var systemBody: String {
+            switch (locationText, WorklaneContextFormatter.trimmed(askPreview)) {
+            case let (location?, ask?):
+                return "\(location) — \(ask)"
+            case let (location?, nil):
+                return location
+            case let (nil, ask?):
+                return ask
+            case (nil, nil):
+                return ""
+            }
+        }
+    }
+
     private struct PaneKey: Hashable {
         let worklaneID: WorklaneID
         let paneID: PaneID
@@ -30,8 +51,11 @@ final class WorklaneAttentionNotificationCoordinator {
     private let center: any WorklaneAttentionUserNotificationCenter
     private let notificationStore: NotificationStore
     private let configStore: AppConfigStore?
+    private let logger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneAttentionNotifications")
     private var lastSeenStates: [PaneKey: WorklaneAttentionState] = [:]
     private var lastSeenActiveViews: [PaneKey: Bool] = [:]
+    private var lastSeenNotificationSignatures: [PaneKey: String] = [:]
+    private var loggedGenericNeedsInputMessages = Set<String>()
 
     init(
         center: (any WorklaneAttentionUserNotificationCenter)? = nil,
@@ -59,13 +83,23 @@ final class WorklaneAttentionNotificationCoordinator {
     ) {
         var nextSeenStates: [PaneKey: WorklaneAttentionState] = [:]
         var nextSeenActiveViews: [PaneKey: Bool] = [:]
+        var nextSeenNotificationSignatures: [PaneKey: String] = [:]
         var visitedPaneKeys = Set<PaneKey>()
 
         for worklane in worklanes {
             for attention in WorklaneAttentionSummaryBuilder.summaries(for: worklane) {
                 let key = PaneKey(worklaneID: worklane.id, paneID: attention.paneID)
+                let paneContext = worklane.paneContext(for: attention.paneID)
+                let needsInputContent = attention.state == .needsInput
+                    ? needsInputContent(for: attention, paneContext: paneContext)
+                    : nil
+                let notificationSignature = notificationSignature(
+                    for: attention,
+                    needsInputContent: needsInputContent
+                )
                 visitedPaneKeys.insert(key)
                 nextSeenStates[key] = attention.state
+                nextSeenNotificationSignatures[key] = notificationSignature
                 let isActivelyViewed = isPaneActivelyViewed(
                     paneID: attention.paneID,
                     in: worklane,
@@ -85,7 +119,9 @@ final class WorklaneAttentionNotificationCoordinator {
                 }
 
                 let stateChanged = lastSeenStates[key] != attention.state
-                guard stateChanged else {
+                let contentChanged = attention.state == .needsInput
+                    && lastSeenNotificationSignatures[key] != notificationSignature
+                guard stateChanged || contentChanged else {
                     continue
                 }
 
@@ -98,8 +134,9 @@ final class WorklaneAttentionNotificationCoordinator {
                         tool: attention.tool,
                         interactionKind: attention.interactionKind,
                         interactionSymbolName: attention.interactionSymbolName,
-                        statusText: systemNotificationTitle(for: attention),
-                        primaryText: systemNotificationBody(for: attention, in: worklane),
+                        statusText: needsInputContent?.panelStatusText ?? systemNotificationTitle(for: attention),
+                        primaryText: needsInputContent?.askPreview ?? systemNotificationBody(for: attention, in: worklane),
+                        locationText: needsInputContent?.locationText,
                         isDebounced: attention.state == .needsInput
                     )
                 } else {
@@ -120,9 +157,9 @@ final class WorklaneAttentionNotificationCoordinator {
                 }
 
                 center.add(
-                    identifier: "\(windowID.rawValue)-\(worklane.id.rawValue)-\(attention.paneID.rawValue)-\(attention.state.rawValue)-\(attention.updatedAt.timeIntervalSince1970)",
-                    title: systemNotificationTitle(for: attention),
-                    body: systemNotificationBody(for: attention, in: worklane),
+                    identifier: "\(windowID.rawValue)-\(worklane.id.rawValue)-\(attention.paneID.rawValue)-\(attention.state.rawValue)-\(notificationSignature.hashValue)",
+                    title: needsInputContent?.systemTitle ?? systemNotificationTitle(for: attention),
+                    body: needsInputContent?.systemBody ?? systemNotificationBody(for: attention, in: worklane),
                     windowID: windowID.rawValue,
                     worklaneID: worklane.id.rawValue,
                     paneID: attention.paneID.rawValue,
@@ -143,6 +180,245 @@ final class WorklaneAttentionNotificationCoordinator {
 
         lastSeenStates = nextSeenStates
         lastSeenActiveViews = nextSeenActiveViews
+        lastSeenNotificationSignatures = nextSeenNotificationSignatures
+    }
+
+    private func needsInputContent(
+        for attention: WorklaneAttentionSummary,
+        paneContext: WorklanePaneContext?
+    ) -> NeedsInputNotificationContent {
+        let interactionKind = attention.interactionKind ?? .genericInput
+        logUnclassifiedNeedsInputIfNeeded(
+            interactionKind: interactionKind,
+            paneContext: paneContext
+        )
+        let actionText = needsInputActionText(for: interactionKind)
+        let askPreview = meaningfulAskPreview(
+            for: attention,
+            interactionKind: interactionKind,
+            paneContext: paneContext
+        ) ?? fallbackAskPreview(for: interactionKind)
+
+        return NeedsInputNotificationContent(
+            systemTitle: "\(attention.tool.displayName) \(actionText)",
+            panelStatusText: actionText,
+            askPreview: askPreview,
+            locationText: paneContext.flatMap { compactLocationText(for: $0.presentation) }
+        )
+    }
+
+    private func meaningfulAskPreview(
+        for attention: WorklaneAttentionSummary,
+        interactionKind: PaneInteractionKind,
+        paneContext: WorklanePaneContext?
+    ) -> String? {
+        guard let paneContext else {
+            return nil
+        }
+
+        let raw = paneContext.auxiliaryState?.raw
+        let presentation = paneContext.presentation
+        let candidates = [
+            WorklaneContextFormatter.trimmed(raw?.agentStatus?.text),
+            WorklaneContextFormatter.trimmed(raw?.lastDesktopNotificationText),
+            fallbackIdentityText(for: presentation, tool: attention.tool),
+        ]
+
+        return candidates.compactMap { $0 }.first {
+            isMeaningfulAskText(
+                $0,
+                tool: attention.tool,
+                interactionKind: interactionKind
+            )
+        }
+    }
+
+    private func isMeaningfulAskText(
+        _ text: String,
+        tool: AgentTool,
+        interactionKind: PaneInteractionKind
+    ) -> Bool {
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return false
+        }
+
+        if AgentInteractionClassifier.isGenericNeedsInputContent(normalized) {
+            return false
+        }
+
+        if interactionKind == .approval,
+           AgentInteractionClassifier.isGenericApprovalMessage(normalized) {
+            return false
+        }
+
+        let lowered = normalized.lowercased()
+        let genericPhrases = Set([
+            interactionKind.defaultLabel.lowercased(),
+            needsInputActionText(for: interactionKind),
+            "\(tool.displayName.lowercased()) \(needsInputActionText(for: interactionKind))",
+            "\(tool.displayName.lowercased()) needs input",
+            "\(tool.displayName.lowercased()) needs your input",
+            "\(tool.displayName.lowercased()) needs your attention",
+        ])
+
+        return !genericPhrases.contains(lowered)
+    }
+
+    private func fallbackIdentityText(
+        for presentation: PanePresentationState,
+        tool: AgentTool
+    ) -> String? {
+        let candidates = [
+            WorklaneContextFormatter.trimmed(presentation.rememberedTitle),
+            WorklaneContextFormatter.trimmed(presentation.identityText),
+        ]
+
+        for candidate in candidates {
+            guard let candidate else {
+                continue
+            }
+
+            let lowered = candidate.lowercased()
+            if lowered == "shell" || lowered == tool.displayName.lowercased() {
+                continue
+            }
+
+            if candidate.contains("/") || candidate.hasPrefix("~") {
+                continue
+            }
+
+            return candidate
+        }
+
+        return nil
+    }
+
+    private func compactLocationText(for presentation: PanePresentationState) -> String? {
+        guard let cwd = standardizedPath(presentation.cwd) else {
+            return nil
+        }
+
+        if let repoRoot = standardizedPath(presentation.repoRoot) {
+            let repoName = URL(fileURLWithPath: repoRoot).lastPathComponent
+            if cwd == repoRoot {
+                return repoName
+            }
+
+            let prefix = repoRoot.hasSuffix("/") ? repoRoot : repoRoot + "/"
+            if cwd.hasPrefix(prefix) {
+                let relativePath = String(cwd.dropFirst(prefix.count))
+                return relativePath.isEmpty ? repoName : "\(repoName) • \(relativePath)"
+            }
+        }
+
+        if let homeRelative = compactHomeRelativePath(cwd) {
+            return homeRelative
+        }
+
+        return WorklaneContextFormatter.compactSidebarPath(cwd, minimumSegments: 2)
+            ?? URL(fileURLWithPath: cwd).lastPathComponent
+    }
+
+    private func standardizedPath(_ path: String?) -> String? {
+        guard let trimmedPath = WorklaneContextFormatter.trimmed(path) else {
+            return nil
+        }
+
+        return URL(fileURLWithPath: trimmedPath).standardizedFileURL.path
+    }
+
+    private func compactHomeRelativePath(_ path: String) -> String? {
+        guard let homeRelative = WorklaneContextFormatter.homeRelativePath(path) else {
+            return nil
+        }
+
+        guard homeRelative != "~", homeRelative.hasPrefix("~/") else {
+            return homeRelative
+        }
+
+        let components = homeRelative.dropFirst(2).split(separator: "/").map(String.init)
+        guard components.count > 2 else {
+            return homeRelative
+        }
+
+        return "~/…/" + components.suffix(2).joined(separator: "/")
+    }
+
+    private func needsInputActionText(for interactionKind: PaneInteractionKind) -> String {
+        switch interactionKind {
+        case .decision:
+            return "requires a decision"
+        case .approval:
+            return "needs approval"
+        case .question:
+            return "has a question"
+        case .auth:
+            return "needs sign-in"
+        case .genericInput:
+            return "needs input"
+        }
+    }
+
+    private func fallbackAskPreview(for interactionKind: PaneInteractionKind) -> String {
+        switch interactionKind {
+        case .decision:
+            return "Decision required."
+        case .approval:
+            return "Approval required."
+        case .question:
+            return "Question pending."
+        case .auth:
+            return "Sign-in required."
+        case .genericInput:
+            return "Input required."
+        }
+    }
+
+    private func logUnclassifiedNeedsInputIfNeeded(
+        interactionKind: PaneInteractionKind,
+        paneContext: WorklanePaneContext?
+    ) {
+        guard interactionKind == .genericInput else {
+            return
+        }
+
+        let raw = paneContext?.auxiliaryState?.raw
+        let candidates = [
+            WorklaneContextFormatter.trimmed(raw?.agentStatus?.text),
+            WorklaneContextFormatter.trimmed(raw?.lastDesktopNotificationText),
+        ]
+
+        guard let message = candidates.compactMap({ $0 }).first else {
+            return
+        }
+
+        guard loggedGenericNeedsInputMessages.insert(message).inserted else {
+            return
+        }
+
+        logger.info("Generic needs-input notification text: \(message, privacy: .public)")
+    }
+
+    private func notificationSignature(
+        for attention: WorklaneAttentionSummary,
+        needsInputContent: NeedsInputNotificationContent?
+    ) -> String {
+        if let needsInputContent {
+            return [
+                attention.state.rawValue,
+                needsInputContent.systemTitle,
+                needsInputContent.askPreview,
+                needsInputContent.locationText ?? "",
+            ].joined(separator: "\u{1F}")
+        }
+
+        return [
+            attention.state.rawValue,
+            attention.statusText,
+            attention.primaryText,
+            attention.contextText,
+        ].joined(separator: "\u{1F}")
     }
 
     private func shouldNotifySystemNotification(

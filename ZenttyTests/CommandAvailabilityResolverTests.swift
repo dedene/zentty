@@ -110,6 +110,24 @@ final class CommandAvailabilityResolverTests: XCTestCase {
         XCTAssertTrue(available.contains(.newWorklane))
     }
 
+    func testOpenBranchOnRemoteRequiresBranchURL() {
+        let unavailable = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 1,
+            totalPaneCount: 1,
+            activeWorklaneHasBranchURL: false
+        )
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 1,
+            totalPaneCount: 1,
+            activeWorklaneHasBranchURL: true
+        )
+
+        XCTAssertFalse(unavailable.contains(.openBranchOnRemote))
+        XCTAssertTrue(available.contains(.openBranchOnRemote))
+    }
+
     func testGlobalSearchRememberedStateEnablesSearchNavigation() {
         let available = CommandAvailabilityResolver.availableCommandIDs(
             worklaneCount: 1,

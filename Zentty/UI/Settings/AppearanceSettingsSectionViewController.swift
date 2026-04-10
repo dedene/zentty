@@ -14,10 +14,9 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     }
 
     private let catalogProvider: any ThemeCatalogProviding
-    private let configWriter: any GhosttyConfigWriting
+    private let configCoordinator: any AppearanceSettingsConfigCoordinating
     private let currentThemeNameProvider: (NSAppearance?) -> String?
     private let currentBackgroundOpacityProvider: () -> CGFloat?
-    private let runtimeReload: @MainActor () -> Void
 
     private let searchField = NSSearchField()
     private let tableScrollView = NSScrollView()
@@ -26,6 +25,8 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     private let previewView = ThemePreviewPanel()
     private let opacitySlider = NSSlider()
     private let opacityValueLabel = NSTextField(labelWithString: "")
+    private let subtitleLabel = NSTextField(labelWithString: "")
+    private let createSharedConfigButton = NSButton(title: "Create Ghostty Config...", target: nil, action: nil)
 
     private var allThemes: [ThemePreview] = []
     private var filteredThemes: [ThemePreview] = []
@@ -35,18 +36,18 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
 
     init(
         catalogProvider: any ThemeCatalogProviding = ThemeCatalogService(),
-        configWriter: any GhosttyConfigWriting = GhosttyConfigWriter(),
+        configCoordinator: any AppearanceSettingsConfigCoordinating = GhosttyAppearanceSettingsCoordinator(
+            configStore: AppConfigStore()
+        ),
         currentThemeName: @escaping (NSAppearance?) -> String? = GhosttyThemeResolver().currentThemeName(for:),
         currentBackgroundOpacity: @escaping () -> CGFloat? = {
             GhosttyThemeResolver().currentBackgroundOpacity()
-        },
-        runtimeReload: @escaping @MainActor () -> Void = { LibghosttyRuntime.shared.reloadConfig() }
+        }
     ) {
         self.catalogProvider = catalogProvider
-        self.configWriter = configWriter
+        self.configCoordinator = configCoordinator
         self.currentThemeNameProvider = currentThemeName
         self.currentBackgroundOpacityProvider = currentBackgroundOpacity
-        self.runtimeReload = runtimeReload
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -63,13 +64,18 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         stackView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stackView)
 
-        let subtitleLabel = NSTextField(labelWithString: "Choose a terminal theme. Themes are loaded from your Ghostty configuration.")
         subtitleLabel.font = .systemFont(ofSize: 12, weight: .regular)
         subtitleLabel.textColor = .secondaryLabelColor
         subtitleLabel.lineBreakMode = .byWordWrapping
         subtitleLabel.maximumNumberOfLines = 0
         stackView.addArrangedSubview(subtitleLabel)
         subtitleLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        createSharedConfigButton.bezelStyle = .rounded
+        createSharedConfigButton.controlSize = .small
+        createSharedConfigButton.target = self
+        createSharedConfigButton.action = #selector(handleCreateSharedConfig)
+        stackView.addArrangedSubview(createSharedConfigButton)
 
         let card = SettingsCardView()
 
@@ -202,6 +208,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        refreshSourceState()
         refreshActiveThemeName()
         refreshOpacitySlider()
         Task {
@@ -212,13 +219,16 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     }
 
     override func prepareForPresentation() {
+        refreshSourceState()
         refreshActiveThemeName()
         refreshOpacitySlider()
         super.prepareForPresentation()
     }
 
     func handleAppearanceChange() {
+        refreshSourceState()
         refreshActiveThemeName()
+        refreshOpacitySlider()
     }
 
     // MARK: - Theme State
@@ -232,6 +242,10 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         activeThemeName
     }
 
+    var isCreateSharedConfigButtonHiddenForTesting: Bool {
+        createSharedConfigButton.isHidden
+    }
+
     private func refreshActiveThemeName() {
         let appearance = view.window?.effectiveAppearance ?? NSApp.effectiveAppearance
         activeThemeName = currentThemeNameProvider(appearance)
@@ -239,6 +253,12 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
             tableView.reloadData()
             updatePreviewForCurrentSelection()
         }
+    }
+
+    private func refreshSourceState() {
+        let sourceState = configCoordinator.sourceState
+        subtitleLabel.stringValue = sourceState.subtitle
+        createSharedConfigButton.isHidden = !sourceState.showsCreateSharedConfigAction
     }
 
     private func applyFilter() {
@@ -255,12 +275,17 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
 
     private func applyTheme(_ name: String) {
         activeThemeName = name
-        configWriter.writeTheme(name)
-        runtimeReload()
         tableView.reloadData()
         if let theme = filteredThemes.first(where: { $0.name == name }) {
             selectedPreviewTheme = theme
             previewView.configure(with: theme)
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await configCoordinator.applyTheme(name, presentingWindow: view.window)
+            refreshSourceState()
+            refreshActiveThemeName()
+            refreshOpacitySlider()
         }
     }
 
@@ -283,6 +308,15 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         searchField.stringValue = query
         searchQuery = query
         applyFilter()
+    }
+
+    func setOpacityForTesting(_ opacity: CGFloat) {
+        opacitySlider.doubleValue = Double(opacity)
+        handleOpacityChanged(opacitySlider)
+    }
+
+    func createSharedConfigForTesting() {
+        handleCreateSharedConfig()
     }
 
     // MARK: - Search
@@ -327,8 +361,24 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     private func handleOpacityChanged(_ sender: NSSlider) {
         let opacity = CGFloat(sender.doubleValue)
         updateOpacityLabel(opacity)
-        configWriter.writeBackgroundOpacity(opacity)
-        runtimeReload()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await configCoordinator.applyBackgroundOpacity(opacity, presentingWindow: view.window)
+            refreshSourceState()
+            refreshActiveThemeName()
+            refreshOpacitySlider()
+        }
+    }
+
+    @objc
+    private func handleCreateSharedConfig() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await configCoordinator.createSharedConfig(presentingWindow: view.window)
+            refreshSourceState()
+            refreshActiveThemeName()
+            refreshOpacitySlider()
+        }
     }
 
     // MARK: - Table

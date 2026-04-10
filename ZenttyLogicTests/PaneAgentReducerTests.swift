@@ -849,10 +849,11 @@ final class PaneAgentReducerTests: XCTestCase {
 
         XCTAssertEqual(reducerState.reducedStatus()?.state, .running)
 
-        let result = reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(5))
+        let idleNow = now.addingTimeInterval(5)
+        let result = reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: idleNow)
 
         XCTAssertTrue(result)
-        XCTAssertEqual(reducerState.reducedStatus()?.state, .idle)
+        XCTAssertEqual(reducerState.reducedStatus(now: idleNow)?.state, .idle)
     }
 
     func test_mark_claude_code_idle_from_idle_title_cancels_grace_window() {
@@ -896,10 +897,11 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertEqual(reducerState.reducedStatus(now: now.addingTimeInterval(1.5))?.state, .running)
 
         // Title says "Interrupted" → force idle immediately.
-        let result = reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(1.5))
+        let idleNow = now.addingTimeInterval(1.5)
+        let result = reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: idleNow)
 
         XCTAssertTrue(result)
-        XCTAssertEqual(reducerState.reducedStatus()?.state, .idle)
+        XCTAssertEqual(reducerState.reducedStatus(now: idleNow)?.state, .idle)
         XCTAssertNil(reducerState.sessionsByID.values.first?.completionCandidateDeadline)
     }
 
@@ -957,5 +959,155 @@ final class PaneAgentReducerTests: XCTestCase {
         let result = reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(5))
 
         XCTAssertFalse(result)
+    }
+
+    // MARK: - Parent / child session preference
+
+    func test_parent_running_preferred_over_child_running_with_newer_timestamp() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.sessionsByID["parent"] = PaneAgentSessionState(
+            sessionID: "parent",
+            parentSessionID: nil,
+            tool: .claudeCode,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: now,
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: nil,
+            hasObservedRunning: true,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: nil,
+            unresolvedStopVisibleUntil: nil
+        )
+
+        reducerState.sessionsByID["child"] = PaneAgentSessionState(
+            sessionID: "child",
+            parentSessionID: "parent",
+            tool: .claudeCode,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: now.addingTimeInterval(5),
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: nil,
+            hasObservedRunning: true,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: nil,
+            unresolvedStopVisibleUntil: nil
+        )
+
+        let status = reducerState.reducedStatus(now: now.addingTimeInterval(5))
+        XCTAssertEqual(status?.sessionID, "parent")
+    }
+
+    func test_child_needs_input_surfaces_over_parent_running() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.sessionsByID["parent"] = PaneAgentSessionState(
+            sessionID: "parent",
+            parentSessionID: nil,
+            tool: .claudeCode,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: now,
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: nil,
+            hasObservedRunning: true,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: nil,
+            unresolvedStopVisibleUntil: nil
+        )
+
+        reducerState.sessionsByID["child"] = PaneAgentSessionState(
+            sessionID: "child",
+            parentSessionID: "parent",
+            tool: .claudeCode,
+            state: .needsInput,
+            text: "Allow write?",
+            artifactLink: nil,
+            updatedAt: now.addingTimeInterval(5),
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .approval,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: nil,
+            hasObservedRunning: true,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: nil,
+            unresolvedStopVisibleUntil: nil
+        )
+
+        let status = reducerState.reducedStatus(now: now.addingTimeInterval(5))
+        XCTAssertEqual(status?.sessionID, "child")
+        XCTAssertEqual(status?.state, .needsInput)
+    }
+
+    func test_parent_task_progress_visible_when_child_running_without_progress() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.sessionsByID["parent"] = PaneAgentSessionState(
+            sessionID: "parent",
+            parentSessionID: nil,
+            tool: .claudeCode,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: now,
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: nil,
+            hasObservedRunning: true,
+            taskProgress: PaneAgentTaskProgress(doneCount: 3, totalCount: 7),
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: nil,
+            unresolvedStopVisibleUntil: nil
+        )
+
+        reducerState.sessionsByID["child"] = PaneAgentSessionState(
+            sessionID: "child",
+            parentSessionID: "parent",
+            tool: .claudeCode,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: now.addingTimeInterval(5),
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: nil,
+            hasObservedRunning: true,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: nil,
+            unresolvedStopVisibleUntil: nil
+        )
+
+        let status = reducerState.reducedStatus(now: now.addingTimeInterval(5))
+        XCTAssertEqual(status?.sessionID, "parent")
+        XCTAssertEqual(status?.taskProgress?.doneCount, 3)
+        XCTAssertEqual(status?.taskProgress?.totalCount, 7)
     }
 }

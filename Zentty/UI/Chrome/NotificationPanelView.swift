@@ -11,6 +11,7 @@ final class NotificationPanelView: NSView {
         static let headerHeight: CGFloat = 40
         static let headerInset: CGFloat = 14
         static let itemHeight: CGFloat = 60
+        static let richItemHeight: CGFloat = 72
         static let fadeDuration: TimeInterval = 0.15
     }
 
@@ -289,7 +290,8 @@ final class NotificationPanelView: NSView {
             itemView.applyTheme(theme)
             stackView.addArrangedSubview(itemView)
             itemView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
-            itemView.heightAnchor.constraint(equalToConstant: Layout.itemHeight).isActive = true
+            let itemHeight = notification.locationText == nil ? Layout.itemHeight : Layout.richItemHeight
+            itemView.heightAnchor.constraint(equalToConstant: itemHeight).isActive = true
             itemViews.append(itemView)
 
             if index < notifications.count - 1 {
@@ -305,9 +307,14 @@ final class NotificationPanelView: NSView {
     }
 
     private func computeContentHeight() -> CGFloat {
-        let itemCount = max(notifications.count, 1)
+        let itemHeights = notifications.isEmpty
+            ? [Layout.itemHeight]
+            : notifications.map { notification in
+                notification.locationText == nil ? Layout.itemHeight : Layout.richItemHeight
+            }
         let separatorCount = max(0, notifications.count - 1)
-        return Layout.headerHeight + 0.5 + CGFloat(itemCount) * Layout.itemHeight + CGFloat(separatorCount) * 0.5
+        let totalItemHeight = itemHeights.reduce(0, +)
+        return Layout.headerHeight + 0.5 + totalItemHeight + CGFloat(separatorCount) * 0.5
     }
 
     // MARK: - Click-outside
@@ -363,9 +370,11 @@ private final class NotificationItemView: NSView {
     private let toolLabel = NSTextField(labelWithString: "")
     private let statusLabel = NSTextField(labelWithString: "")
     private let primaryLabel = NSTextField(labelWithString: "")
+    private let locationLabel = NSTextField(labelWithString: "")
     private let timestampLabel = NSTextField(labelWithString: "")
     private let dismissButton = NSButton(title: "\u{00D7}", target: nil, action: nil)
     private let accentBar = NSView()
+    private let headlineStack = NSStackView()
     private let textStack = NSStackView()
     private var trackingArea: NSTrackingArea?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
@@ -388,6 +397,7 @@ private final class NotificationItemView: NSView {
     private func buildSubviews() {
         layer?.cornerRadius = 10
         layer?.cornerCurve = .continuous
+        setAccessibilityRole(.button)
 
         // Accent bar
         accentBar.translatesAutoresizingMaskIntoConstraints = false
@@ -411,21 +421,32 @@ private final class NotificationItemView: NSView {
         textStack.translatesAutoresizingMaskIntoConstraints = false
         textStack.orientation = .vertical
         textStack.alignment = .leading
-        textStack.spacing = 1
+        textStack.spacing = 2
+
+        headlineStack.translatesAutoresizingMaskIntoConstraints = false
+        headlineStack.orientation = .horizontal
+        headlineStack.alignment = .firstBaseline
+        headlineStack.spacing = 6
 
         toolLabel.font = notification.isResolved
             ? .systemFont(ofSize: 12, weight: .regular)
             : .systemFont(ofSize: 12, weight: .bold)
-        for label in [toolLabel, statusLabel, primaryLabel] {
+        for label in [toolLabel, statusLabel, primaryLabel, locationLabel] {
             label.lineBreakMode = .byTruncatingTail
             label.maximumNumberOfLines = 1
             label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
+        toolLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        toolLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         statusLabel.font = .systemFont(ofSize: 11, weight: .regular)
         primaryLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        textStack.addArrangedSubview(toolLabel)
-        textStack.addArrangedSubview(statusLabel)
+        locationLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        headlineStack.addArrangedSubview(toolLabel)
+        headlineStack.addArrangedSubview(statusLabel)
+        textStack.addArrangedSubview(headlineStack)
         textStack.addArrangedSubview(primaryLabel)
+        textStack.addArrangedSubview(locationLabel)
         addSubview(textStack)
 
         // Timestamp
@@ -452,12 +473,13 @@ private final class NotificationItemView: NSView {
             accentBar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             accentBar.widthAnchor.constraint(equalToConstant: Layout.accentWidth),
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.hPad),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: Layout.vPad + 1),
             iconView.widthAnchor.constraint(equalToConstant: Layout.iconSize),
             iconView.heightAnchor.constraint(equalToConstant: Layout.iconSize),
             textStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
             textStack.trailingAnchor.constraint(equalTo: timestampLabel.leadingAnchor, constant: -8),
-            textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            textStack.topAnchor.constraint(equalTo: topAnchor, constant: Layout.vPad - 1),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Layout.vPad),
             timestampLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.hPad),
             timestampLabel.topAnchor.constraint(equalTo: topAnchor, constant: Layout.vPad),
             timestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 24),
@@ -471,7 +493,10 @@ private final class NotificationItemView: NSView {
         toolLabel.stringValue = notification.tool.displayName
         statusLabel.stringValue = notification.statusText
         primaryLabel.stringValue = notification.primaryText
+        locationLabel.stringValue = notification.locationText ?? ""
+        locationLabel.isHidden = notification.locationText == nil
         timestampLabel.stringValue = relativeTimestamp(notification.createdAt)
+        setAccessibilityLabel(accessibilitySummary())
         alphaValue = notification.isResolved ? 0.5 : 1.0
     }
 
@@ -479,7 +504,8 @@ private final class NotificationItemView: NSView {
         currentTheme = theme
         toolLabel.textColor = theme.primaryText
         statusLabel.textColor = theme.secondaryText
-        primaryLabel.textColor = theme.tertiaryText
+        primaryLabel.textColor = theme.secondaryText
+        locationLabel.textColor = theme.tertiaryText
         timestampLabel.textColor = theme.tertiaryText
         dismissButton.contentTintColor = theme.tertiaryText
         iconView.contentTintColor = notification.isResolved ? theme.tertiaryText : theme.secondaryText
@@ -497,6 +523,11 @@ private final class NotificationItemView: NSView {
             owner: self, userInfo: nil
         )
         addTrackingArea(trackingArea!)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onJump?(notification)
+        return true
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -527,6 +558,17 @@ private final class NotificationItemView: NSView {
         }
 
         layer?.backgroundColor = backgroundColor.cgColor
+    }
+
+    private func accessibilitySummary() -> String {
+        [
+            notification.tool.displayName,
+            WorklaneContextFormatter.trimmed(notification.statusText),
+            WorklaneContextFormatter.trimmed(notification.primaryText),
+            WorklaneContextFormatter.trimmed(notification.locationText),
+        ]
+        .compactMap { $0 }
+        .joined(separator: ", ")
     }
 
     private func relativeTimestamp(_ date: Date) -> String {

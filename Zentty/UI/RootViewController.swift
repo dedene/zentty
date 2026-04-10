@@ -80,6 +80,7 @@ final class RootViewController: NSViewController {
     private var windowObserverBag: NotificationObserverBag?
     private var paneLayoutPreferences: PaneLayoutPreferences
     private var shortcutManager: ShortcutManager
+    private var lastAppliedAppearanceSettings: AppConfig.Appearance
     private var currentPaneLayoutContext: PaneLayoutContext
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
@@ -154,12 +155,19 @@ final class RootViewController: NSViewController {
         self.openWithService = openWithService
         self.paneLayoutPreferences = configStore.current.paneLayout
         self.shortcutManager = ShortcutManager(shortcuts: configStore.current.shortcuts)
+        self.lastAppliedAppearanceSettings = configStore.current.appearance
         self.currentPaneLayoutContext = initialLayoutContext
         self.isUpdateAvailable = appUpdateStateStore.current.isUpdateAvailable
         self.sidebarMotionCoordinator = SidebarMotionCoordinator(
             configStore: configStore
         )
-        self.themeCoordinator = ThemeCoordinator()
+        self.themeCoordinator = ThemeCoordinator(
+            themeResolver: GhosttyThemeResolver(
+                configEnvironment: GhosttyConfigEnvironment(appConfigProvider: { [weak configStore] in
+                    configStore?.current ?? .default
+                })
+            )
+        )
         self.notificationCoordinator = NotificationChromeCoordinator(store: notificationStore)
         self.paneLayoutMenuCoordinator = PaneLayoutMenuCoordinator(
             shortcutManager: shortcutManager
@@ -810,7 +818,11 @@ final class RootViewController: NSViewController {
     }
 
     private func updateToggleButtonConstraints() {
-        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        applySidebarMotionState(
+            sidebarMotionCoordinator.currentMotionState,
+            animated: false,
+            forceLayout: false
+        )
         if trafficLightAnchor.y > 0 {
             toggleTopConstraint?.isActive = false
             toggleTopConstraint = sidebarToggleButton.centerYAnchor.constraint(
@@ -912,6 +924,8 @@ final class RootViewController: NSViewController {
             worklaneStore.navigateForward()
         case .showCommandPalette:
             showCommandPalette()
+        case .openBranchOnRemote:
+            openBranchOnRemote()
         case .openSettings:
             onShowSettingsRequested?()
         case .newWindow:
@@ -1196,6 +1210,9 @@ final class RootViewController: NSViewController {
 
         let activeWorklane = worklaneStore.activeWorklane
         let availabilityContext = commandAvailabilityContext()
+        let focusedBranchName = WorklaneContextFormatter.trimmed(
+            activeWorklane?.focusedPaneContext?.presentation.branchDisplayText
+        )
         let focusedPanePath: String? = {
             guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
@@ -1211,6 +1228,7 @@ final class RootViewController: NSViewController {
             shortcutManager: shortcutManager,
             availabilityContext: availabilityContext,
             focusedPanePath: focusedPanePath,
+            focusedBranchName: focusedBranchName,
             openWithTargets: openWithTargets
         )
     }
@@ -1255,7 +1273,7 @@ final class RootViewController: NSViewController {
     private func keyboardResizeStep(for axis: PaneResizeAxis) -> CGFloat {
         let minimumSizesByPaneID = paneMinimumSizesByPaneID()
         guard let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
-            let minimumSize = minimumSizesByPaneID[focusedPaneID]
+              let minimumSize = minimumSizesByPaneID[focusedPaneID]
         else {
             switch axis {
             case .horizontal:
@@ -1286,8 +1304,28 @@ final class RootViewController: NSViewController {
             activeColumnCount: paneStripState?.columns.count ?? 0,
             focusedColumnPaneCount: paneStripState?.focusedColumn?.panes.count ?? 0,
             focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
-            globalSearchHasRememberedSearch: globalSearchHasRememberedSearch
+            globalSearchHasRememberedSearch: globalSearchHasRememberedSearch,
+            activeWorklaneHasBranchURL: activeWorklaneHasBranchRemoteURL
         )
+    }
+
+    private var activeWorklaneHasBranchRemoteURL: Bool {
+        guard let presentation = worklaneStore.activeWorklane?.focusedPaneContext?.presentation,
+              let branchURL = presentation.branchURL,
+              let branchText = WorklaneContextFormatter.trimmed(presentation.branchDisplayText)
+        else {
+            return false
+        }
+
+        return branchURL.absoluteString.isEmpty == false && branchText.isEmpty == false
+    }
+
+    private func openBranchOnRemote() {
+        guard let branchURL = worklaneStore.activeWorklane?.focusedPaneContext?.presentation.branchURL else {
+            return
+        }
+
+        NSWorkspace.shared.open(branchURL)
     }
 
     func isCommandAvailable(_ commandID: AppCommandID) -> Bool {
@@ -1473,6 +1511,7 @@ final class RootViewController: NSViewController {
     private func applySidebarMotionState(
         _ motionState: SidebarMotionState,
         animated: Bool,
+        forceLayout: Bool = true,
         reducedMotion: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     ) {
         let sidebarWidth = SidebarWidthPreference.clamped(
@@ -1531,9 +1570,11 @@ final class RootViewController: NSViewController {
             visibilityMode: sidebarMotionCoordinator.mode,
             pinnedContentMinX: pinnedHeaderContentMinX
         )
-        sidebarView.layoutSubtreeIfNeeded()
+        if forceLayout {
+            sidebarView.layoutSubtreeIfNeeded()
+        }
 
-        if animated {
+        if animated, forceLayout {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
                 context.timingFunction = timingFunction
@@ -1547,7 +1588,9 @@ final class RootViewController: NSViewController {
             sidebarLeadingConstraint?.constant = leadingConstant
             toggleLeadingConstraint?.constant = toggleTarget
             sidebarView.alphaValue = motionState.revealFraction
-            view.layoutSubtreeIfNeeded()
+            if forceLayout {
+                view.layoutSubtreeIfNeeded()
+            }
         }
 
         CATransaction.begin()
@@ -1809,6 +1852,8 @@ final class RootViewController: NSViewController {
     }
 
     private func applyPersistedConfig(_ config: AppConfig) {
+        let appearanceDidChange = config.appearance != lastAppliedAppearanceSettings
+        lastAppliedAppearanceSettings = config.appearance
         paneLayoutPreferences = config.paneLayout
         shortcutManager = ShortcutManager(shortcuts: config.shortcuts)
         paneLayoutMenuCoordinator.updateShortcutManager(shortcutManager)
@@ -1823,6 +1868,10 @@ final class RootViewController: NSViewController {
         updatePaneLayoutContextIfNeeded(force: true)
         renderCoordinator.render()
         updateOpenWithChromeState()
+
+        if appearanceDidChange {
+            themeCoordinator.refreshTheme(for: view.effectiveAppearance, animated: true)
+        }
     }
 
     private func updatePaneNavigationButtonState() {

@@ -44,6 +44,31 @@ final class LibghosttyViewScrollRoutingTests: XCTestCase {
         XCTAssertEqual(surface.sentScrollEvents.first?.x, event.scrollingDeltaX)
         XCTAssertEqual(surface.sentScrollEvents.first?.y, event.scrollingDeltaY)
     }
+
+    func test_tracking_area_is_active_always() {
+        view.updateTrackingAreas()
+
+        XCTAssertTrue(view.trackingAreas.contains { $0.options.contains(.activeAlways) })
+    }
+
+    func test_mouse_entered_forwards_local_position() throws {
+        let event = try makeMouseEvent(type: .mouseEntered, location: CGPoint(x: 120, y: 180))
+
+        view.mouseEntered(with: event)
+
+        let position = try XCTUnwrap(surface.sentMousePositions.last?.position)
+        XCTAssertEqual(position.x, 120, accuracy: 0.01)
+        XCTAssertEqual(position.y, 420, accuracy: 0.01)
+    }
+
+    func test_mouse_exited_forwards_negative_position() throws {
+        let event = try makeMouseEvent(type: .mouseExited, location: CGPoint(x: 120, y: 180))
+
+        view.mouseExited(with: event)
+
+        let position = try XCTUnwrap(surface.sentMousePositions.last?.position)
+        XCTAssertEqual(position, CGPoint(x: -1, y: -1))
+    }
 }
 
 private final class ScrollRoutingSurfaceSpy: LibghosttySurfaceControlling {
@@ -54,11 +79,17 @@ private final class ScrollRoutingSurfaceSpy: LibghosttySurfaceControlling {
         let momentum: NSEvent.Phase
     }
 
+    struct MousePositionEvent: Equatable {
+        let position: CGPoint
+        let modifiers: NSEvent.ModifierFlags
+    }
+
     var hasScrollback = false
     var cellWidth: CGFloat = 8
     var cellHeight: CGFloat = 16
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var sentScrollEvents: [ScrollEvent] = []
+    private(set) var sentMousePositions: [MousePositionEvent] = []
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) {}
@@ -67,7 +98,9 @@ private final class ScrollRoutingSurfaceSpy: LibghosttySurfaceControlling {
     func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {
         sentScrollEvents.append(ScrollEvent(x: x, y: y, precision: precision, momentum: momentum))
     }
-    func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags) {}
+    func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags) {
+        sentMousePositions.append(MousePositionEvent(position: position, modifiers: modifiers))
+    }
     func sendMouseButton(
         state: ghostty_input_mouse_state_e,
         button: ghostty_input_mouse_button_e,
@@ -107,6 +140,43 @@ private func makeScrollEvent(
     }
 
     return try XCTUnwrap(NSEvent(cgEvent: cgEvent))
+}
+
+private func makeMouseEvent(
+    type: NSEvent.EventType,
+    location: CGPoint,
+    modifierFlags: NSEvent.ModifierFlags = []
+) throws -> NSEvent {
+    switch type {
+    case .mouseEntered, .mouseExited:
+        return try XCTUnwrap(
+            NSEvent.enterExitEvent(
+                with: type,
+                location: location,
+                modifierFlags: modifierFlags,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                trackingNumber: 0,
+                userData: nil
+            )
+        )
+    default:
+        return try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: type,
+                location: location,
+                modifierFlags: modifierFlags,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+    }
 }
 
 private func makeCGEventFlags(from modifierFlags: NSEvent.ModifierFlags) -> CGEventFlags {

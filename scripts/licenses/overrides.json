@@ -1,0 +1,11 @@
+{
+  "entries": [
+    {
+      "id": "ghostty",
+      "displayName": "Ghostty",
+      "repositoryURL": "https://github.com/ghostty-org/ghostty",
+      "homepageURLString": "https://ghostty.org",
+      "versionOverride": "e75f895"
+    }
+  ]
+}

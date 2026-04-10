@@ -219,6 +219,62 @@ final class TerminalPaneHostViewTests: XCTestCase {
         XCTAssertEqual(terminalView.mouseDownCount, 0)
         XCTAssertEqual(terminalView.mouseDraggedCount, 0)
     }
+
+    func test_hosted_drag_near_top_edge_reaches_terminal_view() throws {
+        let terminalView = HostedMouseTrackingTerminalView()
+        let adapter = TerminalAdapterSpy(terminalView: terminalView)
+        let hostView = TerminalPaneHostView(adapter: adapter)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 240),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+
+        hostView.frame = window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 480, height: 240)
+        window.contentView = hostView
+        window.makeKeyAndOrderFront(nil)
+        hostView.layoutSubtreeIfNeeded()
+
+        try sendHostedMouseDrag(
+            from: CGPoint(x: 80, y: 40),
+            to: CGPoint(x: 80, y: hostView.bounds.maxY - 4),
+            in: hostView,
+            window: window
+        )
+
+        XCTAssertEqual(terminalView.mouseDownCount, 1)
+        XCTAssertGreaterThanOrEqual(terminalView.mouseDraggedCount, 2)
+    }
+
+    func test_hosted_drag_near_bottom_edge_reaches_terminal_view() throws {
+        let terminalView = HostedMouseTrackingTerminalView()
+        let adapter = TerminalAdapterSpy(terminalView: terminalView)
+        let hostView = TerminalPaneHostView(adapter: adapter)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 240),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+
+        hostView.frame = window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 480, height: 240)
+        window.contentView = hostView
+        window.makeKeyAndOrderFront(nil)
+        hostView.layoutSubtreeIfNeeded()
+
+        try sendHostedMouseDrag(
+            from: CGPoint(x: 80, y: hostView.bounds.maxY - 40),
+            to: CGPoint(x: 80, y: 4),
+            in: hostView,
+            window: window
+        )
+
+        XCTAssertEqual(terminalView.mouseDownCount, 1)
+        XCTAssertGreaterThanOrEqual(terminalView.mouseDraggedCount, 2)
+    }
 }
 
 @MainActor
@@ -501,4 +557,69 @@ private func sendHostedMouseClick(at point: CGPoint, in view: NSView, window: NS
 
     NSApp.postEvent(mouseUp, atStart: false)
     window.sendEvent(mouseDown)
+}
+
+private func sendHostedMouseDrag(
+    from start: CGPoint,
+    to end: CGPoint,
+    in view: NSView,
+    window: NSWindow
+) throws {
+    let startLocation = view.convert(start, to: nil)
+    let endLocation = view.convert(end, to: nil)
+    let timestamp = ProcessInfo.processInfo.systemUptime
+    let dragLocations = stride(from: 1, through: 4, by: 1).map { step -> CGPoint in
+        let progress = CGFloat(step) / 4
+        return CGPoint(
+            x: startLocation.x + ((endLocation.x - startLocation.x) * progress),
+            y: startLocation.y + ((endLocation.y - startLocation.y) * progress)
+        )
+    }
+
+    let mouseDown = try XCTUnwrap(
+        NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: startLocation,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )
+    )
+    let mouseUp = try XCTUnwrap(
+        NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: endLocation,
+            modifierFlags: [],
+            timestamp: timestamp + 0.05,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: dragLocations.count + 1,
+            clickCount: 1,
+            pressure: 0
+        )
+    )
+
+    let target = window.contentView?.hitTest(startLocation) ?? window.contentView!
+    target.mouseDown(with: mouseDown)
+    for (index, dragLocation) in dragLocations.enumerated() {
+        let mouseDragged = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDragged,
+                location: dragLocation,
+                modifierFlags: [],
+                timestamp: timestamp + (0.01 * Double(index + 1)),
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: index + 1,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+        target.mouseDragged(with: mouseDragged)
+    }
+    target.mouseUp(with: mouseUp)
 }

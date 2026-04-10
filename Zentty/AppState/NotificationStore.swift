@@ -21,9 +21,42 @@ struct AppNotification: Identifiable, Equatable, Sendable {
     let interactionSymbolName: String?
     let statusText: String
     let primaryText: String
+    let locationText: String?
     let createdAt: Date
     var isResolved: Bool = false
     var resolvedAt: Date? = nil
+
+    init(
+        id: UUID,
+        windowID: WindowID,
+        worklaneID: WorklaneID,
+        paneID: PaneID,
+        state: WorklaneAttentionState,
+        tool: AgentTool,
+        interactionKind: PaneInteractionKind?,
+        interactionSymbolName: String?,
+        statusText: String,
+        primaryText: String,
+        locationText: String? = nil,
+        createdAt: Date,
+        isResolved: Bool = false,
+        resolvedAt: Date? = nil
+    ) {
+        self.id = id
+        self.windowID = windowID
+        self.worklaneID = worklaneID
+        self.paneID = paneID
+        self.state = state
+        self.tool = tool
+        self.interactionKind = interactionKind
+        self.interactionSymbolName = interactionSymbolName
+        self.statusText = statusText
+        self.primaryText = primaryText
+        self.locationText = locationText
+        self.createdAt = createdAt
+        self.isResolved = isResolved
+        self.resolvedAt = resolvedAt
+    }
 }
 
 // MARK: - NotificationStore
@@ -69,6 +102,7 @@ final class NotificationStore {
         interactionSymbolName: String?,
         statusText: String,
         primaryText: String,
+        locationText: String? = nil,
         isDebounced: Bool = true
     ) {
         let key = PaneKey(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
@@ -89,6 +123,7 @@ final class NotificationStore {
             interactionSymbolName: interactionSymbolName,
             statusText: statusText,
             primaryText: primaryText,
+            locationText: locationText,
             createdAt: now
         )
 

@@ -72,6 +72,50 @@ final class GhosttyThemeResolverTests: XCTestCase {
         XCTAssertEqual(lightResolution.theme.background.themeHexString, "#FFFFFF")
     }
 
+    func test_resolve_uses_bundled_defaults_and_local_app_overrides_when_shared_config_missing() throws {
+        let bundledDefaultsURL = temporaryDirectoryURL.appendingPathComponent("zentty-defaults.ghostty")
+        let themeDirectoryURL = temporaryDirectoryURL.appendingPathComponent("themes", isDirectory: true)
+        try FileManager.default.createDirectory(at: themeDirectoryURL, withIntermediateDirectories: true)
+
+        try """
+        background = #111111
+        foreground = #EEEEEE
+        """.write(to: themeDirectoryURL.appendingPathComponent("BundledTheme"), atomically: true, encoding: .utf8)
+
+        try """
+        background = #222222
+        foreground = #DDDDDD
+        """.write(to: themeDirectoryURL.appendingPathComponent("LocalTheme"), atomically: true, encoding: .utf8)
+
+        try """
+        theme = BundledTheme
+        background-opacity = 0.84
+        """.write(to: bundledDefaultsURL, atomically: true, encoding: .utf8)
+
+        var appConfig = AppConfig.default
+        appConfig.appearance.localThemeName = "LocalTheme"
+        appConfig.appearance.localBackgroundOpacity = 0.65
+
+        let environment = GhosttyConfigEnvironment(
+            homeDirectoryURL: temporaryDirectoryURL,
+            bundledDefaultsURL: bundledDefaultsURL,
+            appConfigProvider: { appConfig }
+        )
+        let resolver = GhosttyThemeResolver(
+            configEnvironment: environment,
+            additionalThemeDirectories: [themeDirectoryURL]
+        )
+
+        let resolution = try XCTUnwrap(resolver.resolve(for: NSAppearance(named: .darkAqua)))
+        XCTAssertEqual(resolution.theme.background.themeHexString, "#222222")
+        XCTAssertEqual(resolution.theme.foreground.themeHexString, "#DDDDDD")
+        XCTAssertEqual(resolution.theme.backgroundOpacity, 0.65)
+        XCTAssertEqual(
+            Set(resolution.watchedURLs),
+            Set([bundledDefaultsURL, themeDirectoryURL.appendingPathComponent("LocalTheme")])
+        )
+    }
+
     func test_derived_theme_stitches_main_shell_to_terminal_surface_when_opaque() {
         let theme = ZenttyTheme(
             resolvedTheme: GhosttyResolvedTheme(

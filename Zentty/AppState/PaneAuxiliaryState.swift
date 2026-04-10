@@ -286,9 +286,9 @@ enum PanePresentationNormalizer {
         let agentInteractionKind: PaneAgentInteractionKind = copilotTitleNeedsInput
             ? .question
             : (raw.agentStatus?.interactionKind ?? .none)
-        let showsReadyStatus = raw.showsReadyStatus
         let codexBackgroundWait = recognizedTool == .codex
             && TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: raw.metadata?.title) == .backgroundWait
+        let showsReadyStatus = raw.showsReadyStatus && !codexBackgroundWait
         let hasObservedRunning = raw.agentStatus?.hasObservedRunning == true
             || titlePhase == .running
             || previous?.runtimePhase == .running
