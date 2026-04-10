@@ -31,6 +31,8 @@ final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering, Term
 
     func close() {}
 
+    func sendText(_ text: String) {}
+
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         surfaceActivity = activity
         surfaceView.alphaValue = activity.isVisible ? (activity.isFocused ? 1 : 0.94) : 0

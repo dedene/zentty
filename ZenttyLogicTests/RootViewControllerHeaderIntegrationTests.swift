@@ -872,6 +872,7 @@ private final class QuietTerminalAdapter: TerminalAdapter {
     }
 
     func close() {}
+    func sendText(_ text: String) {}
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
     }
@@ -909,6 +910,7 @@ private final class HeaderIntegrationTerminalAdapterSpy: TerminalAdapter, Termin
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {}
 
     func close() {}
+    func sendText(_ text: String) {}
 
     func prepareSessionStart(
         from sourceAdapter: (any TerminalAdapter)?,

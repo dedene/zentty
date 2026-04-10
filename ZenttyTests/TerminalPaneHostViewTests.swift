@@ -163,7 +163,7 @@ final class TerminalPaneHostViewTests: XCTestCase {
 
         XCTAssertTrue(
             hostView.searchHUDCloseButtonForTesting.isDescendant(of: terminalView.overlayHostView),
-            "Search HUD should be mounted inside the terminal's overlay host, matching the app's overlay-hosted HUD pattern"
+            "Search HUD should be mounted inside the terminal's overlay host, matching the portal-hosted overlay pattern"
         )
     }
 
@@ -219,6 +219,30 @@ final class TerminalPaneHostViewTests: XCTestCase {
         XCTAssertEqual(terminalView.mouseDownCount, 0)
         XCTAssertEqual(terminalView.mouseDraggedCount, 0)
     }
+
+    func test_pane_runtime_waits_for_shell_ready_event_before_sending_initial_command() {
+        let adapter = TerminalAdapterSpy()
+        let runtime = PaneRuntime(
+            pane: PaneState(
+                id: PaneID("shell"),
+                title: "shell",
+                sessionRequest: TerminalSessionRequest(
+                    workingDirectory: "/tmp/project",
+                    command: "drift --showcase"
+                )
+            ),
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+
+        runtime.ensureStarted()
+        adapter.metadataDidChange?(TerminalMetadata(currentWorkingDirectory: "/tmp/project"))
+        XCTAssertEqual(adapter.sentTexts, [])
+
+        adapter.metadataDidChange?(TerminalMetadata(title: "shell", currentWorkingDirectory: "/tmp/project"))
+        XCTAssertEqual(adapter.sentTexts, ["drift --showcase\n"])
+    }
 }
 
 @MainActor
@@ -232,6 +256,7 @@ private final class TerminalAdapterSpy: TerminalAdapter {
     private(set) var startSessionCallCount = 0
     private(set) var lastRequest: TerminalSessionRequest?
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: true, isFocused: false)
+    private(set) var sentTexts: [String] = []
 
     init(terminalView: NSView = FirstResponderTerminalView()) {
         self.terminalView = terminalView
@@ -247,6 +272,9 @@ private final class TerminalAdapterSpy: TerminalAdapter {
     }
 
     func close() {}
+    func sendText(_ text: String) {
+        sentTexts.append(text)
+    }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         lastSurfaceActivity = activity
@@ -383,6 +411,7 @@ private final class PaneContainerHostedTerminalAdapterSpy: TerminalAdapter, Term
     func startSession(using request: TerminalSessionRequest) throws {}
 
     func close() {}
+    func sendText(_ text: String) {}
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {}
 

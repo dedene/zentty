@@ -115,6 +115,53 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(request.surfaceContext, .window)
     }
 
+    func test_duplicate_pane_as_column_replays_non_shell_process_name() throws {
+        let store = WorklaneStore()
+        let sourcePaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let sourceWorklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: sourceWorklaneID,
+                paneID: sourcePaneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/project",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: nil
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.updateMetadata(
+            paneID: sourcePaneID,
+            metadata: TerminalMetadata(
+                title: "drift --showcase",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "drift"
+            )
+        )
+
+        store.duplicatePaneAsColumn(
+            paneID: sourcePaneID,
+            toColumnIndex: 1,
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+
+        let duplicatedPane = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane)
+        XCTAssertNotEqual(duplicatedPane.id, sourcePaneID)
+        XCTAssertEqual(duplicatedPane.sessionRequest.workingDirectory, "/tmp/project")
+        XCTAssertEqual(duplicatedPane.sessionRequest.command, "drift --showcase")
+    }
+
     func test_split_after_inserts_adjacent_pane_and_inherits_focused_working_directory() throws {
         let store = WorklaneStore()
         let focusedPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -964,6 +1011,57 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(Set(state.columns.map(\.id)).count, state.columns.count)
+    }
+
+    func test_duplicatePaneAsColumn_carries_meaningful_terminal_title_as_command() throws {
+        let sourcePaneID = PaneID("source")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(
+                                id: sourcePaneID,
+                                title: "shell",
+                                sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project"),
+                                width: 420
+                            ),
+                        ],
+                        focusedPaneID: sourcePaneID
+                    ),
+                    nextPaneNumber: 1,
+                    metadataByPaneID: [
+                        sourcePaneID: TerminalMetadata(
+                            title: "drift --showcase",
+                            currentWorkingDirectory: "/tmp/project"
+                        ),
+                    ],
+                    paneContextByPaneID: [
+                        sourcePaneID: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: "mbp"
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.duplicatePaneAsColumn(
+            paneID: sourcePaneID,
+            toColumnIndex: 1,
+            singleColumnWidth: 900
+        )
+
+        let duplicatedPane = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane)
+        XCTAssertNotEqual(duplicatedPane.id, sourcePaneID)
+        XCTAssertEqual(duplicatedPane.sessionRequest.command, "drift --showcase")
+        XCTAssertEqual(duplicatedPane.sessionRequest.workingDirectory, "/tmp/project")
     }
 
     func test_splitDropPane_horizontal_split_from_stack_keeps_column_ids_unique() throws {

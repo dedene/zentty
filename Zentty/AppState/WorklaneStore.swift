@@ -1118,7 +1118,8 @@ final class WorklaneStore {
         in worklane: inout WorklaneState,
         existingPaneCount: Int,
         workingDirectory: String?,
-        sourceShellContext: PaneShellContext? = nil
+        sourceShellContext: PaneShellContext? = nil,
+        command: String? = nil
     ) -> PaneState {
         defer { worklane.nextPaneNumber += 1 }
 
@@ -1151,6 +1152,7 @@ final class WorklaneStore {
             title: title,
             sessionRequest: TerminalSessionRequest(
                 workingDirectory: resolvedDirectory,
+                command: command,
                 inheritFromPaneID: nil,
                 configInheritanceSourcePaneID: configSource,
                 surfaceContext: .split,

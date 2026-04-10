@@ -182,6 +182,7 @@ final class PaneContainerViewTests: XCTestCase {
         XCTAssertTrue(paneView.isStatusOverlayHidden)
     }
 
+
     func test_pane_container_renders_border_context_inside_pane_ownership() throws {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")
@@ -488,6 +489,82 @@ final class PaneContainerViewTests: XCTestCase {
         XCTAssertEqual(paneView.contentClipBackgroundColorTokenForTesting, theme.startupSurface.themeToken)
     }
 
+    func test_programmatic_focus_request_does_not_emit_selection_callback() {
+        let terminalView = MouseTrackingTerminalView(frame: NSRect(x: 0, y: 0, width: 420, height: 520))
+        let adapter = PaneContainerTerminalAdapterSpy(terminalView: terminalView)
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 520),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+        paneView.frame = contentView.bounds
+        contentView.addSubview(paneView)
+        window.makeKeyAndOrderFront(nil)
+        paneView.layoutSubtreeIfNeeded()
+
+        var selectionCount = 0
+        paneView.onSelected = {
+            selectionCount += 1
+        }
+
+        XCTAssertTrue(paneView.focusTerminalIfReady())
+        XCTAssertEqual(selectionCount, 0)
+        XCTAssertTrue(window.firstResponder === terminalView)
+    }
+
+    func test_unsuppressed_terminal_focus_callback_selects_pane_once() {
+        let terminalView = MouseTrackingTerminalView(frame: NSRect(x: 0, y: 0, width: 420, height: 520))
+        let adapter = PaneContainerTerminalAdapterSpy(terminalView: terminalView)
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        var selectionCount = 0
+        paneView.onSelected = {
+            selectionCount += 1
+        }
+
+        terminalView.onFocusDidChange?(true)
+
+        XCTAssertEqual(selectionCount, 1)
+    }
+
     func test_pane_contents_are_clipped_to_the_pane_bounds() {
         let pane = PaneState(id: PaneID("editor"), title: "editor")
         let runtime = PaneRuntime(
@@ -675,7 +752,7 @@ final class PaneContainerViewTests: XCTestCase {
 
         XCTAssertTrue(
             paneView.searchHUDCloseButtonForTesting.isDescendant(of: terminalHostView),
-            "Search HUD controls should be mounted inside the terminal host like the app's terminal-hosted overlay"
+            "Search HUD controls should be mounted inside the terminal host as a portal-layer overlay"
         )
         XCTAssertTrue(
             paneView.searchHUDQueryFieldForTesting.isDescendant(of: terminalHostView),
@@ -1150,6 +1227,7 @@ private final class PaneContainerTerminalAdapterSpy: TerminalAdapter, TerminalSe
     }
 
     func close() {}
+    func sendText(_ text: String) {}
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         lastSurfaceActivity = activity

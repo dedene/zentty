@@ -8,6 +8,7 @@ enum TerminalSurfaceContext: Equatable, Sendable {
 
 struct TerminalSessionRequest: Equatable, Sendable {
     var workingDirectory: String?
+    var command: String?
     var inheritFromPaneID: PaneID?
     var configInheritanceSourcePaneID: PaneID?
     var surfaceContext: TerminalSurfaceContext
@@ -19,12 +20,14 @@ struct TerminalSessionRequest: Equatable, Sendable {
 
     init(
         workingDirectory: String? = nil,
+        command: String? = nil,
         inheritFromPaneID: PaneID? = nil,
         configInheritanceSourcePaneID: PaneID? = nil,
         surfaceContext: TerminalSurfaceContext = .split,
         environmentVariables: [String: String] = [:]
     ) {
         self.workingDirectory = workingDirectory
+        self.command = command
         self.inheritFromPaneID = inheritFromPaneID
         self.configInheritanceSourcePaneID = configInheritanceSourcePaneID
         self.surfaceContext = surfaceContext
@@ -76,6 +79,7 @@ struct TerminalDesktopNotification: Equatable, Sendable {
 }
 
 enum TerminalEvent: Equatable, Sendable {
+    case shellReady
     case progressReport(TerminalProgressReport)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
     case desktopNotification(TerminalDesktopNotification)
@@ -130,6 +134,7 @@ protocol TerminalAdapter: AnyObject {
     func makeTerminalView() -> NSView
     func startSession(using request: TerminalSessionRequest) throws
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity)
+    func sendText(_ text: String)
     func close()
     var metadataDidChange: ((TerminalMetadata) -> Void)? { get set }
     var eventDidOccur: ((TerminalEvent) -> Void)? { get set }
