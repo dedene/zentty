@@ -21,6 +21,16 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
         XCTAssertEqual(items.first?.title, "Split Horizontally")
     }
 
+    func testDuplicatePaneItemIsBuiltWithoutShortcutDisplayWhenUnboundByDefault() {
+        let items = CommandPaletteItemBuilder.buildItems(
+            availableCommandIDs: [.duplicateFocusedPane],
+            shortcutManager: shortcutManager
+        )
+
+        XCTAssertEqual(items.first?.title, "Duplicate This Pane")
+        XCTAssertNil(items.first?.shortcutDisplay)
+    }
+
     func testItemsHaveShortcutDisplayForBoundCommands() {
         let items = CommandPaletteItemBuilder.buildItems(
             availableCommandIDs: [.toggleSidebar],

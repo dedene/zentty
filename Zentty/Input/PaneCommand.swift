@@ -24,6 +24,7 @@ enum GoldenRatioPreset: Equatable, Sendable {
 }
 
 enum PaneCommand: Equatable, Sendable {
+    case duplicateFocusedPane
     case split
     case splitHorizontally
     case splitVertically

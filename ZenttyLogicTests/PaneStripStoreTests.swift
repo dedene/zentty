@@ -1064,6 +1064,59 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(duplicatedPane.sessionRequest.workingDirectory, "/tmp/project")
     }
 
+    func test_send_duplicateFocusedPane_duplicates_focused_pane_into_next_column() throws {
+        let sourcePaneID = PaneID("source")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(
+                                id: sourcePaneID,
+                                title: "shell",
+                                sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project"),
+                                width: 420
+                            ),
+                        ],
+                        focusedPaneID: sourcePaneID
+                    ),
+                    nextPaneNumber: 1,
+                    metadataByPaneID: [
+                        sourcePaneID: TerminalMetadata(
+                            title: "drift --showcase",
+                            currentWorkingDirectory: "/tmp/project"
+                        ),
+                    ],
+                    paneContextByPaneID: [
+                        sourcePaneID: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: "mbp"
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.send(.duplicateFocusedPane)
+
+        let columns = try XCTUnwrap(store.activeWorklane?.paneStripState.columns)
+        XCTAssertEqual(columns.count, 2)
+        XCTAssertEqual(columns[0].panes.map(\.id), [sourcePaneID])
+
+        let duplicatedPane = try XCTUnwrap(columns[1].panes.first)
+        XCTAssertNotEqual(duplicatedPane.id, sourcePaneID)
+        XCTAssertEqual(duplicatedPane.sessionRequest.command, "drift --showcase")
+        XCTAssertEqual(duplicatedPane.sessionRequest.workingDirectory, "/tmp/project")
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedColumnID, columns[1].id)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPaneID, duplicatedPane.id)
+    }
+
     func test_splitDropPane_horizontal_split_from_stack_keeps_column_ids_unique() throws {
         let draggedPaneID = PaneID("dragged")
         let siblingPaneID = PaneID("sibling")
