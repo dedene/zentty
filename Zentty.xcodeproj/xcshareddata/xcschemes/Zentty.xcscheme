@@ -21,6 +21,20 @@
                ReferencedContainer = "container:Zentty.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "0584312CEB842C6641981C59"
+               BuildableName = "ZenttyCLI"
+               BlueprintName = "ZenttyCLI"
+               ReferencedContainer = "container:Zentty.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
