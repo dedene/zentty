@@ -38,6 +38,20 @@ final class WindowChromeView: NSView {
         }
     }
 
+    /// Trailing edge of the left-side chrome controls (toggle, pane layout menu,
+    /// navigation buttons, notification bell) in local coordinates. The visible
+    /// lane for centering title content starts past this point so the title
+    /// doesn't overlap with the control buttons.
+    var leadingControlsInset: CGFloat = 0 {
+        didSet {
+            guard abs(oldValue - leadingControlsInset) > 0.5 else {
+                return
+            }
+
+            needsLayout = true
+        }
+    }
+
     private let attentionChipView = WorklaneAttentionChipView()
     private let rowContainerView = NSView()
     private let focusedProxyIconView = WindowChromeProxyIconView()
@@ -777,7 +791,7 @@ final class WindowChromeView: NSView {
     }
 
     var visibleLaneFrame: NSRect {
-        let minX = effectiveLeadingVisibleInset
+        let minX = max(effectiveLeadingVisibleInset, leadingControlsInset)
         let trailingInset = ChromeGeometry.headerHorizontalInset + openWithReservedWidth
         let maxX = max(minX, bounds.width - trailingInset)
         return NSRect(x: minX, y: 0, width: maxX - minX, height: bounds.height)

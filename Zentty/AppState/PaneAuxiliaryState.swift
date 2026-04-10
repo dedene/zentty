@@ -131,6 +131,7 @@ struct PanePresentationState: Equatable, Sendable {
     var interactionKind: PaneInteractionKind?
     var interactionLabel: String?
     var interactionSymbolName: String?
+    var taskProgress: PaneAgentTaskProgress? = nil
 
     var hasResolvedIdentity: Bool {
         identityText != nil || contextText != nil || rememberedTitle != nil || branch != nil || cwd != nil
@@ -294,6 +295,7 @@ enum PanePresentationNormalizer {
         let statusText = visibleStatusText(
             for: runtimePhase,
             interactionKind: agentInteractionKind,
+            taskProgress: raw.agentStatus?.taskProgress,
             hasObservedRunning: hasObservedRunning,
             showsReadyStatus: showsReadyStatus,
             suppressIdleLabel: codexBackgroundWait,
@@ -316,7 +318,8 @@ enum PanePresentationNormalizer {
         }
         let statusSymbolName = statusSymbolName(
             for: runtimePhase,
-            showsReadyStatus: showsReadyStatus
+            showsReadyStatus: showsReadyStatus,
+            taskProgress: raw.agentStatus?.taskProgress
         )
         let pullRequest = derivePullRequest(
             from: raw,
@@ -340,7 +343,9 @@ enum PanePresentationNormalizer {
         let attentionArtifactLink = deriveAttentionArtifact(from: raw.agentStatus?.artifactLink)
         let updatedAt = raw.agentStatus?.updatedAt ?? .distantPast
         let branchURL = deriveBranchURL(from: raw, repoRoot: repoRoot, lookupBranch: lookupBranch)
-        let isReady = runtimePhase == .idle && showsReadyStatus
+        let isReady = runtimePhase == .idle
+            && showsReadyStatus
+            && incompleteTaskProgress(raw.agentStatus?.taskProgress) == nil
 
         return PanePresentationState(
             cwd: cwd,
@@ -364,7 +369,8 @@ enum PanePresentationNormalizer {
             statusSymbolName: statusSymbolName,
             interactionKind: interactionKind,
             interactionLabel: interactionLabel,
-            interactionSymbolName: interactionSymbolName
+            interactionSymbolName: interactionSymbolName,
+            taskProgress: raw.agentStatus?.taskProgress
         )
     }
 
@@ -421,71 +427,13 @@ enum PanePresentationNormalizer {
         titlePhase: PanePresentationPhase?,
         copilotTitleNeedsInput: Bool
     ) -> PanePresentationPhase {
-        // Copilot sets the terminal title to "Asking ..." when an
-        // askuserquestion-style tool is active. Detect that directly —
-        // it's more reliable than the preToolUse hook and must win over
-        // both OSC activity and any stale hook state.
-        if copilotTitleNeedsInput {
-            return .needsInput
-        }
-
-        if let agentState = raw.agentStatus?.state {
-            if recognizedTool == .codex,
-               let titlePhase {
-                if agentState == .starting {
-                    return titlePhase
-                }
-
-                if agentState == .idle,
-                   titlePhase == .running || titlePhase == .starting {
-                    return titlePhase
-                }
-            }
-
-            // When Claude Code's hook says .running but the title says .idle
-            // (e.g., after Ctrl+C interruption), trust the title as more current.
-            if recognizedTool == .claudeCode,
-               agentState == .running,
-               titlePhase == .idle {
-                return .idle
-            }
-
-            // Copilot emits OSC 9;4 progress sequences via libghostty.
-            // CopilotHookBridge seeds agentStatus at .idle on sessionStart;
-            // this fallthrough lets OSC flip to Running for the duration of
-            // a turn, then back to idle. Copilot has no "turn complete"
-            // hook, so OSC is the source of truth for Running.
-            if recognizedTool == .copilot,
-               agentState == .idle,
-               raw.terminalProgress?.state.indicatesActivity == true {
-                return .running
-            }
-
-            switch agentState {
-            case .starting:
-                return .starting
-            case .running:
-                return .running
-            case .needsInput:
-                return .needsInput
-            case .idle:
-                return .idle
-            case .unresolvedStop:
-                return .unresolvedStop
-            }
-        }
-
-        // Codex emits status words in the terminal title (via tui.terminal_title=["status",...]).
-        // Use these to infer runtime phase when no explicit agent status is available.
-        if let titlePhase {
-            return titlePhase
-        }
-
-        if recognizedTool == nil, raw.terminalProgress?.state.indicatesActivity == true {
-            return .running
-        }
-
-        return .idle
+        let context = PresentationReducerContext(
+            raw: raw,
+            recognizedTool: recognizedTool,
+            titlePhase: titlePhase,
+            copilotTitleNeedsInput: copilotTitleNeedsInput
+        )
+        return PresentationPipeline.standard.resolve(context: context)
     }
 
     /// Detects Copilot CLI's "Asking ..."-style terminal title, emitted
@@ -580,6 +528,7 @@ enum PanePresentationNormalizer {
     private static func visibleStatusText(
         for phase: PanePresentationPhase,
         interactionKind: PaneAgentInteractionKind,
+        taskProgress: PaneAgentTaskProgress?,
         hasObservedRunning: Bool,
         showsReadyStatus: Bool,
         suppressIdleLabel: Bool = false,
@@ -589,6 +538,9 @@ enum PanePresentationNormalizer {
     ) -> String? {
         switch phase {
         case .idle:
+            if let taskProgress = incompleteTaskProgress(taskProgress) {
+                return idleStatusText(taskProgress: taskProgress)
+            }
             if showsReadyStatus { return "Agent ready" }
             if suppressIdleLabel { return nil }
             if hasObservedRunning { return "Idle" }
@@ -601,7 +553,7 @@ enum PanePresentationNormalizer {
         case .starting:
             return nil
         case .running:
-            return "Running"
+            return runningStatusText(taskProgress: taskProgress)
         case .needsInput:
             return interactionKind.statusLabel
         case .unresolvedStop:
@@ -609,11 +561,36 @@ enum PanePresentationNormalizer {
         }
     }
 
+    private static func runningStatusText(taskProgress: PaneAgentTaskProgress?) -> String {
+        guard let taskProgress = incompleteTaskProgress(taskProgress) else {
+            return "Running"
+        }
+
+        return "Running (\(taskProgress.doneCount)/\(taskProgress.totalCount))"
+    }
+
+    private static func idleStatusText(taskProgress: PaneAgentTaskProgress) -> String {
+        "Idle (\(taskProgress.doneCount)/\(taskProgress.totalCount))"
+    }
+
+    private static func incompleteTaskProgress(_ taskProgress: PaneAgentTaskProgress?) -> PaneAgentTaskProgress? {
+        guard let taskProgress, taskProgress.doneCount < taskProgress.totalCount else {
+            return nil
+        }
+
+        return taskProgress
+    }
+
     private static func statusSymbolName(
         for phase: PanePresentationPhase,
-        showsReadyStatus: Bool
+        showsReadyStatus: Bool,
+        taskProgress: PaneAgentTaskProgress?
     ) -> String? {
-        guard phase == .idle, showsReadyStatus else {
+        guard
+            phase == .idle,
+            showsReadyStatus,
+            incompleteTaskProgress(taskProgress) == nil
+        else {
             return nil
         }
 

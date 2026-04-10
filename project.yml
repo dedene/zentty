@@ -16,6 +16,9 @@ settings:
     Debug:
       OTHER_CODE_SIGN_FLAGS: "--timestamp=none"
 packages:
+  ArgumentParser:
+    url: https://github.com/apple/swift-argument-parser
+    from: "1.5.0"
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
     from: "9.9.0"
@@ -42,6 +45,24 @@ schemes:
     archive:
       config: Release
 targets:
+  ZenttyCLI:
+    type: tool
+    platform: macOS
+    sources:
+      - path: ZenttyCLI
+      - path: Zentty/AppState/Agent/AgentIPCProtocol.swift
+    dependencies:
+      - package: ArgumentParser
+        product: ArgumentParser
+    settings:
+      base:
+        PRODUCT_NAME: zentty
+        PRODUCT_MODULE_NAME: ZenttyCLI
+        PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty.cli
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_KEY_CFBundleName: zentty
+        INFOPLIST_KEY_LSMinimumSystemVersion: "26.0"
   Zentty:
     type: application
     platform: macOS
@@ -57,6 +78,7 @@ targets:
     resources:
       - path: ZenttyResources
     dependencies:
+      - target: ZenttyCLI
       - framework: FrameworksLocal/GhosttyKit.xcframework
         embed: false
       - package: Sentry
@@ -93,7 +115,8 @@ targets:
 
           mkdir -p "${RESOURCES_DST}/bin" "${RESOURCES_DST}/shell-integration" "${RESOURCES_DST}/opencode/plugins"
           rsync -a --delete "${RESOURCES_SRC}/bin/" "${RESOURCES_DST}/bin/"
-          find "${RESOURCES_DST}/bin" -type f \( -path "*/claude/claude" -o -path "*/codex/codex" -o -path "*/copilot/copilot" -o -path "*/opencode/opencode" -o -path "*/shared/zentty-agent-wrapper" \) -exec chmod 755 {} +
+          install -m 755 "${BUILT_PRODUCTS_DIR}/zentty" "${RESOURCES_DST}/bin/shared/zentty"
+          find "${RESOURCES_DST}/bin" -type f \( -path "*/claude/claude" -o -path "*/codex/codex" -o -path "*/copilot/copilot" -o -path "*/opencode/opencode" -o -path "*/shared/zentty" -o -path "*/shared/zentty-agent-wrapper" \) -exec chmod 755 {} +
           rsync -a --delete "${RESOURCES_SRC}/shell-integration/" "${RESOURCES_DST}/shell-integration/"
           rsync -a --delete "${RESOURCES_SRC}/opencode/" "${RESOURCES_DST}/opencode/"
         basedOnDependencyAnalysis: false

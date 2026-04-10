@@ -4,27 +4,10 @@ set -euo pipefail
 
 tool_basename="${ZENTTY_AGENT_TOOL:-$(basename "$0")}"
 
-case "$tool_basename" in
-    codex)
-        display_name="Codex"
-        ;;
-    copilot)
-        display_name="Copilot"
-        ;;
-    opencode)
-        display_name="OpenCode"
-        ;;
-    *)
-        display_name="$tool_basename"
-        ;;
-esac
-
 find_real_binary() {
-    local self_dir
-    local wrapper_root
+    local self_dir wrapper_root path_entry
     self_dir="$(cd "$(dirname "$0")" && pwd)"
     wrapper_root="$(cd "${self_dir}/.." && pwd)"
-    local path_entry
     local IFS=:
     for path_entry in $PATH; do
         [[ -n "$path_entry" ]] || continue
@@ -38,48 +21,14 @@ find_real_binary() {
     return 1
 }
 
-integration_is_available() {
-    [[ -n "${ZENTTY_AGENT_BIN:-}" ]] || return 1
-    [[ -x "${ZENTTY_AGENT_BIN}" ]] || return 1
-    [[ -n "${ZENTTY_WORKLANE_ID:-}" ]] || return 1
-    [[ -n "${ZENTTY_PANE_ID:-}" ]] || return 1
-}
-
-prepare_opencode_overlay_if_needed() {
-    [[ "$tool_basename" == "opencode" ]] || return 0
-    integration_is_available || return 0
-
-    local self_dir resources_dir plugin_file overlay_dir source_config_dir
-    self_dir="$(cd "$(dirname "$0")" && pwd)"
-    resources_dir="$(cd "${self_dir}/../.." && pwd)"
-    plugin_file="${resources_dir}/opencode/plugins/zentty-opencode-zentty.js"
-
-    [[ -r "$plugin_file" ]] || return 0
-
-    source_config_dir="${ZENTTY_OPENCODE_BASE_CONFIG_DIR:-${OPENCODE_CONFIG_DIR:-}}"
-    overlay_dir="$(mktemp -d "${TMPDIR:-/tmp}/zentty-opencode.${ZENTTY_WORKLANE_ID}.${ZENTTY_PANE_ID}.XXXXXX")"
-    if [[ -n "$source_config_dir" && -d "$source_config_dir" ]]; then
-        cp -R "${source_config_dir}/." "${overlay_dir}/"
+zentty_cli_bin() {
+    if [[ -n "${ZENTTY_CLI_BIN:-}" && -x "${ZENTTY_CLI_BIN}" ]]; then
+        printf '%s\n' "$ZENTTY_CLI_BIN"
+        return 0
     fi
 
-    mkdir -p "${overlay_dir}/plugins"
-    cp "$plugin_file" "${overlay_dir}/plugins/zentty-opencode-zentty.js"
-    export ZENTTY_OPENCODE_BASE_CONFIG_DIR="$source_config_dir"
-    export OPENCODE_CONFIG_DIR="$overlay_dir"
-
-    (
-        parent_pid="$$"
-        while kill -0 "$parent_pid" >/dev/null 2>&1; do
-            sleep 5
-        done
-        rm -rf "$overlay_dir"
-    ) >/dev/null 2>&1 &
-}
-
-send_signal() {
-    integration_is_available || return 0
-    /bin/bash -c '"$@" >/dev/null 2>&1 || true' -- "$ZENTTY_AGENT_BIN" agent-signal "$@" --origin explicit-api --tool "$display_name" </dev/null >/dev/null 2>&1 &
-    disown "$!" 2>/dev/null || true
+    command -v zentty >/dev/null 2>&1 || return 1
+    command -v zentty
 }
 
 real_binary="$(find_real_binary)" || {
@@ -87,10 +36,8 @@ real_binary="$(find_real_binary)" || {
     exit 127
 }
 
-prepare_opencode_overlay_if_needed
-
-if [[ "$tool_basename" != "codex" && "$tool_basename" != "copilot" ]]; then
-    send_signal pid attach "$$"
+if cli_bin="$(zentty_cli_bin 2>/dev/null)"; then
+    exec "$cli_bin" launch "$tool_basename" "$@"
 fi
 
 exec "$real_binary" "$@"

@@ -41,6 +41,7 @@ struct AgentStatusPayload: Equatable, Sendable {
     let confidence: AgentSignalConfidence?
     let sessionID: String?
     let parentSessionID: String?
+    let taskProgress: PaneAgentTaskProgress?
     let artifactKind: WorklaneArtifactKind?
     let artifactLabel: String?
     let artifactURL: URL?
@@ -115,6 +116,10 @@ struct AgentStatusPayload: Equatable, Sendable {
         if let parentSessionID {
             userInfo["parentSessionID"] = parentSessionID
         }
+        if let taskProgress {
+            userInfo["taskProgressDoneCount"] = NSNumber(value: taskProgress.doneCount)
+            userInfo["taskProgressTotalCount"] = NSNumber(value: taskProgress.totalCount)
+        }
         if let artifactKind {
             userInfo["artifactKind"] = artifactKind.rawValue
         }
@@ -148,6 +153,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         confidence: AgentSignalConfidence? = nil,
         sessionID: String? = nil,
         parentSessionID: String? = nil,
+        taskProgress: PaneAgentTaskProgress? = nil,
         artifactKind: WorklaneArtifactKind?,
         artifactLabel: String?,
         artifactURL: URL?,
@@ -170,6 +176,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         self.confidence = confidence
         self.sessionID = sessionID
         self.parentSessionID = parentSessionID
+        self.taskProgress = taskProgress
         self.artifactKind = artifactKind
         self.artifactLabel = artifactLabel
         self.artifactURL = artifactURL
@@ -203,6 +210,10 @@ struct AgentStatusPayload: Equatable, Sendable {
                 )
             }
         let artifactURL = (userInfo["artifactURL"] as? String).flatMap(URL.init(string:))
+        let taskProgress = PaneAgentTaskProgress(
+            doneCount: (userInfo["taskProgressDoneCount"] as? NSNumber)?.intValue ?? 0,
+            totalCount: (userInfo["taskProgressTotalCount"] as? NSNumber)?.intValue ?? 0
+        )
 
         self.init(
             windowID: (userInfo["windowID"] as? String).map(WindowID.init),
@@ -222,6 +233,7 @@ struct AgentStatusPayload: Equatable, Sendable {
             confidence: (userInfo["confidence"] as? String).flatMap(AgentSignalConfidence.init(rawValue:)),
             sessionID: userInfo["sessionID"] as? String,
             parentSessionID: userInfo["parentSessionID"] as? String,
+            taskProgress: taskProgress,
             artifactKind: (userInfo["artifactKind"] as? String).flatMap(WorklaneArtifactKind.init(rawValue:)),
             artifactLabel: userInfo["artifactLabel"] as? String,
             artifactURL: artifactURL,

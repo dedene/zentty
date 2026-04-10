@@ -462,6 +462,47 @@ final class WindowChromeViewTests: XCTestCase {
         XCTAssertEqual(view.pullRequestFrameWidth, view.pullRequestIntrinsicWidth, accuracy: 0.5)
     }
 
+    func test_window_chrome_visible_lane_respects_leading_controls_inset() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 1440, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "zentty",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.leadingVisibleInset = 288
+        view.leadingControlsInset = 444
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.visibleLaneFrame.minX, 444, accuracy: 0.5,
+                       "Visible lane should start past leading controls")
+        XCTAssertGreaterThanOrEqual(view.rowFrame.minX, view.visibleLaneFrame.minX - 0.5,
+                                    "Row content should not overlap leading controls")
+    }
+
+    func test_window_chrome_visible_lane_ignores_leading_controls_inset_when_zero() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 1440, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "zentty",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.leadingVisibleInset = 288
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.visibleLaneFrame.minX, 288, accuracy: 0.5,
+                       "Visible lane should use leadingVisibleInset when controls inset is zero")
+    }
+
     func test_window_chrome_keeps_long_worktree_branch_and_pr_uncompressed_when_visible_lane_is_wide() {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 1720, height: WindowChromeView.preferredHeight)

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ -n "${ZENTTY_CLI_BIN:-}" && -x "${ZENTTY_CLI_BIN}" && "${ZENTTY_CLI_BIN}" != "$0" ]]; then
+    exec "${ZENTTY_CLI_BIN}" "$@"
+fi
+
+echo "The source-tree zentty stub is replaced at build time by the native bundled CLI binary." >&2
+exit 1

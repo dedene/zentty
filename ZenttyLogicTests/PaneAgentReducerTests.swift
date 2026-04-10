@@ -629,6 +629,50 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertNil(status?.text)
     }
 
+    func test_reduced_status_preserves_task_progress_across_lifecycle_updates() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 3),
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: "Need approval",
+                interactionKind: .approval,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+
+        let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(1))
+        XCTAssertEqual(status?.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+    }
+
     func test_dead_pid_without_completion_becomes_unresolved_stop() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()
@@ -675,6 +719,82 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertNil(status?.trackedPID)
     }
 
+    func test_stop_candidate_overrides_needs_input_with_human_attention() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        // 0. Model starts running (UserPromptSubmit)
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                lifecycleEvent: .update,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+
+        // 1. Model uses AskUserQuestion → needsInput with decision (requiresHumanAttention)
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: "Which approach?\n[A] [B]",
+                interactionKind: .decision,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(2)
+        )
+        XCTAssertEqual(reducerState.reducedStatus(now: startedAt.addingTimeInterval(2))?.state, .needsInput)
+
+        // 2. Model finishes (user answered, model generated final text, Stop fires)
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                lifecycleEvent: .stopCandidate,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(5)
+        )
+
+        // stopCandidate must NOT be blocked — session should be in grace period (.running)
+        XCTAssertEqual(
+            reducerState.reducedStatus(now: startedAt.addingTimeInterval(5))?.state,
+            .running,
+            "stopCandidate must override needsInput — session should enter grace period"
+        )
+
+        // 3. Grace window passes → idle
+        reducerState.sweep(now: startedAt.addingTimeInterval(8), isProcessAlive: { _ in true })
+        XCTAssertEqual(
+            reducerState.reducedStatus(now: startedAt.addingTimeInterval(8))?.state,
+            .idle,
+            "After grace window, session should be idle"
+        )
+    }
+
     func test_immediate_dead_pid_for_ephemeral_start_collapses_to_inactive() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()
@@ -702,5 +822,140 @@ final class PaneAgentReducerTests: XCTestCase {
 
         XCTAssertNil(reducerState.reducedStatus(now: startedAt.addingTimeInterval(0.5)))
         XCTAssertTrue(reducerState.sessionsByID.isEmpty)
+    }
+
+    // MARK: - markExplicitClaudeCodeSessionIdleFromIdleTitle
+
+    func test_mark_claude_code_idle_from_idle_title_transitions_running_to_idle() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                lifecycleEvent: .update,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: now
+        )
+
+        XCTAssertEqual(reducerState.reducedStatus()?.state, .running)
+
+        let result = reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(5))
+
+        XCTAssertTrue(result)
+        XCTAssertEqual(reducerState.reducedStatus()?.state, .idle)
+    }
+
+    func test_mark_claude_code_idle_from_idle_title_cancels_grace_window() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                lifecycleEvent: .update,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: now
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                lifecycleEvent: .stopCandidate,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: now.addingTimeInterval(1)
+        )
+
+        // Still in grace window — shows running.
+        XCTAssertEqual(reducerState.reducedStatus(now: now.addingTimeInterval(1.5))?.state, .running)
+
+        // Title says "Interrupted" → force idle immediately.
+        let result = reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(1.5))
+
+        XCTAssertTrue(result)
+        XCTAssertEqual(reducerState.reducedStatus()?.state, .idle)
+        XCTAssertNil(reducerState.sessionsByID.values.first?.completionCandidateDeadline)
+    }
+
+    func test_mark_claude_code_idle_from_idle_title_ignores_codex_session() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .update,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: now
+        )
+
+        let result = reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(5))
+
+        XCTAssertFalse(result)
+        XCTAssertEqual(reducerState.reducedStatus()?.state, .running)
+    }
+
+    func test_mark_claude_code_idle_from_idle_title_requires_observed_running() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.sessionsByID["session-1"] = PaneAgentSessionState(
+            sessionID: "session-1",
+            parentSessionID: nil,
+            tool: .claudeCode,
+            state: .starting,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: now,
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: nil,
+            hasObservedRunning: false,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: nil,
+            unresolvedStopVisibleUntil: nil
+        )
+
+        let result = reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(5))
+
+        XCTAssertFalse(result)
     }
 }

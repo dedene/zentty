@@ -36,6 +36,8 @@ final class SidebarView: NSView {
     private let shimmerCoordinator = SidebarShimmerCoordinator()
 
     private var worklaneButtons: [SidebarWorklaneRowButton] = []
+    /// Retained until the removal animation completes, then nilled.
+    private var pendingRemovalButtons: [SidebarWorklaneRowButton]?
     private var worklaneSummaries: [WorklaneSidebarSummary] = []
     private var addWorklaneLeadingConstraint: NSLayoutConstraint?
     private var addWorklaneWidthConstraint: NSLayoutConstraint?
@@ -261,6 +263,11 @@ final class SidebarView: NSView {
         button.setVolatilePaneTitle(paneID: paneID, text: text)
     }
 
+    /// When true, insert/remove mutations animate via NSStackView's
+    /// `isHidden` collapse mechanism. Set to false to fall back to the
+    /// pre-Phase-2 instant wipe-and-rebuild behavior.
+    static var structuralAnimationEnabled = true
+
     func render(
         summaries: [WorklaneSidebarSummary],
         theme: ZenttyTheme
@@ -273,52 +280,97 @@ final class SidebarView: NSView {
 
         renderInvocationCountForTesting &+= 1
         let previousActiveID = worklaneSummaries.first(where: \.isActive)?.worklaneID
+        let previousSummaries = worklaneSummaries
         worklaneSummaries = summaries
+        currentTheme = theme
 
-        let oldIDs = worklaneButtons.map(\.worklaneID)
-        let newIDs = summaries.map(\.worklaneID)
+        let diff = SidebarRowDiff.compute(old: previousSummaries, new: summaries)
 
-        if oldIDs == newIDs {
+        if !diff.hasStructuralChange {
+            // Same IDs — apply theme + content updates in place.
             apply(theme: theme, animated: true)
+        } else if Self.structuralAnimationEnabled {
+            renderStructuralDiff(diff, summaries: summaries, theme: theme)
         } else {
-            apply(theme: theme, animated: true)
+            renderWipeAndRebuild(summaries: summaries, theme: theme)
+        }
 
-            listStack.arrangedSubviews.forEach { view in
-                listStack.removeArrangedSubview(view)
-                view.removeFromSuperview()
+        worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
+        syncShimmerVisibility()
+        shimmerCoordinator.labelStateDidChange()
+
+        let newActiveID = summaries.first(where: \.isActive)?.worklaneID
+        if newActiveID != previousActiveID, let newActiveID {
+            listStack.layoutSubtreeIfNeeded()
+            if !isWorklaneVisible(id: newActiveID) {
+                scrollToWorklane(id: newActiveID)
             }
-            worklaneButtons.removeAll(keepingCapacity: true)
+        }
+    }
 
-            for summary in summaries {
-                let button = SidebarWorklaneRowButton(worklaneID: summary.worklaneID)
-                button.target = self
-                button.action = #selector(handleWorklaneButton(_:))
+    // MARK: - Diff-based structural mutation (Phase 2)
 
-                let worklaneID = summary.worklaneID
-                button.onPaneSelected = { [weak self] paneID in
-                    self?.onPaneSelected?(worklaneID, paneID)
-                }
-                button.onCloseWorklaneRequested = { [weak self] paneID in
-                    self?.onCloseWorklaneRequested?(worklaneID, paneID)
-                }
-                button.onClosePaneRequested = { [weak self] paneID in
-                    self?.onClosePaneRequested?(worklaneID, paneID)
-                }
-                button.onSplitHorizontalRequested = { [weak self] paneID in
-                    self?.onSplitHorizontalRequested?(worklaneID, paneID)
-                }
-                button.onSplitVerticalRequested = { [weak self] paneID in
-                    self?.onSplitVerticalRequested?(worklaneID, paneID)
-                }
+    /// Applies a structural diff (insertions, removals, moves, updates)
+    /// to the sidebar button list with animated transitions. Surviving
+    /// buttons are REUSED — their hover, focus, tooltip, and shimmer
+    /// state is preserved across the mutation.
+    private func renderStructuralDiff(
+        _ diff: SidebarRowDiff,
+        summaries: [WorklaneSidebarSummary],
+        theme: ZenttyTheme
+    ) {
+        // Build lookup: worklaneID → existing button instance.
+        var buttonsByID: [WorklaneID: SidebarWorklaneRowButton] = [:]
+        for button in worklaneButtons {
+            if let id = button.worklaneID {
+                buttonsByID[id] = button
+            }
+        }
 
-                button.setShimmerCoordinator(shimmerCoordinator)
-                button.configure(
-                    with: summary,
-                    theme: currentTheme,
-                    animated: false
-                )
-                worklaneButtons.append(button)
-                listStack.addArrangedSubview(button)
+        // Create new buttons for insertions (hidden + transparent).
+        var insertedButtons: [WorklaneID: SidebarWorklaneRowButton] = [:]
+        for insertion in diff.insertions {
+            let summary = insertion.summary
+            let button = makeWorklaneButton(for: summary)
+            button.configure(with: summary, theme: theme, animated: false)
+            button.isHidden = true
+            button.alphaValue = 0
+            insertedButtons[summary.worklaneID] = button
+        }
+
+        // Identify buttons that will be removed.
+        let removedIDs = Set(diff.removals.map(\.worklaneID))
+        var pendingRemovalButtons: [SidebarWorklaneRowButton] = []
+        for removal in diff.removals {
+            if let button = buttonsByID[removal.worklaneID] {
+                pendingRemovalButtons.append(button)
+            }
+        }
+
+        // Build the target button array in new order.
+        var targetButtons: [SidebarWorklaneRowButton] = []
+        for summary in summaries {
+            let id = summary.worklaneID
+            if let existing = buttonsByID[id] {
+                targetButtons.append(existing)
+            } else if let inserted = insertedButtons[id] {
+                targetButtons.append(inserted)
+            }
+        }
+
+        // Rebuild the arranged subview list with only target buttons.
+        // Removed buttons are NOT re-added as arranged subviews —
+        // their space collapses instantly. We only animate their opacity
+        // to 0 so they fade out gracefully while the layout snaps.
+        // Re-adding them at the end of the stack caused ghost artifacts
+        // (visible as text overlap / lingering rows below surviving items).
+        for view in listStack.arrangedSubviews {
+            listStack.removeArrangedSubview(view)
+        }
+        for button in targetButtons {
+            listStack.addArrangedSubview(button)
+            // Only new buttons need explicit edge constraints.
+            if let id = button.worklaneID, insertedButtons[id] != nil {
                 NSLayoutConstraint.activate([
                     button.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
                     button.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
@@ -326,14 +378,149 @@ final class SidebarView: NSView {
             }
         }
 
-        worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
-        syncShimmerVisibility()
-
-        let newActiveID = summaries.first(where: \.isActive)?.worklaneID
-        if newActiveID != previousActiveID, let newActiveID {
-            listStack.layoutSubtreeIfNeeded()
-            scrollToWorklane(id: newActiveID)
+        // Immediately hide removed buttons so they don't occupy visual
+        // space, then fade their alpha in the animation block for a
+        // clean disappearance. They stay in the superview (not arranged)
+        // until the completion handler removes them.
+        for button in pendingRemovalButtons {
+            button.isHidden = true
         }
+
+        // Capture before the closure for Swift 6 concurrency safety.
+        let buttonsToRemove = pendingRemovalButtons
+
+        // Animate the visibility transitions.
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.22
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            ctx.allowsImplicitAnimation = true
+
+            // Removals: fade out (space already collapsed above).
+            for button in buttonsToRemove {
+                button.animator().alphaValue = 0
+            }
+
+            // Insertions: expand space + fade in.
+            for (_, button) in insertedButtons {
+                button.isHidden = false
+                button.animator().alphaValue = 1
+            }
+
+            // Updates: re-configure surviving buttons with new content.
+            for update in diff.updates {
+                buttonsByID[update.worklaneID]?.configure(
+                    with: update.summary,
+                    theme: theme,
+                    animated: true
+                )
+            }
+        } completionHandler: { [weak self] in
+            for button in buttonsToRemove where button.superview != nil {
+                button.removeFromSuperview()
+            }
+            self?.pendingRemovalButtons?.removeAll(where: {
+                buttonsToRemove.contains($0)
+            })
+        }
+
+        // Append (don't overwrite) to handle rapid re-render during
+        // a 0.22s animation — the previous batch's completion handler
+        // drains its own captured set.
+        if self.pendingRemovalButtons != nil {
+            self.pendingRemovalButtons?.append(contentsOf: pendingRemovalButtons)
+        } else {
+            self.pendingRemovalButtons = pendingRemovalButtons
+        }
+        worklaneButtons = targetButtons
+
+        // Apply theme to sidebar chrome (add-worklane button, resize handle, etc.)
+        // without re-configuring worklane buttons (they're already correct).
+        applySidebarChrome(theme: theme, animated: true)
+    }
+
+    /// Fallback: the pre-Phase-2 wipe-and-rebuild path. Used when
+    /// `structuralAnimationEnabled` is false.
+    private func renderWipeAndRebuild(
+        summaries: [WorklaneSidebarSummary],
+        theme: ZenttyTheme
+    ) {
+        listStack.arrangedSubviews.forEach { view in
+            listStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        worklaneButtons.removeAll(keepingCapacity: true)
+
+        for summary in summaries {
+            let button = makeWorklaneButton(for: summary)
+            button.setShimmerCoordinator(shimmerCoordinator)
+            button.configure(with: summary, theme: theme, animated: false)
+            worklaneButtons.append(button)
+            listStack.addArrangedSubview(button)
+            NSLayoutConstraint.activate([
+                button.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
+                button.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
+            ])
+        }
+
+        apply(theme: theme, animated: true)
+    }
+
+    /// Creates a new row button with all callback closures wired up.
+    private func makeWorklaneButton(
+        for summary: WorklaneSidebarSummary
+    ) -> SidebarWorklaneRowButton {
+        let button = SidebarWorklaneRowButton(worklaneID: summary.worklaneID)
+        button.target = self
+        button.action = #selector(handleWorklaneButton(_:))
+
+        let worklaneID = summary.worklaneID
+        button.onPaneSelected = { [weak self] paneID in
+            self?.onPaneSelected?(worklaneID, paneID)
+        }
+        button.onCloseWorklaneRequested = { [weak self] paneID in
+            self?.onCloseWorklaneRequested?(worklaneID, paneID)
+        }
+        button.onClosePaneRequested = { [weak self] paneID in
+            self?.onClosePaneRequested?(worklaneID, paneID)
+        }
+        button.onSplitHorizontalRequested = { [weak self] paneID in
+            self?.onSplitHorizontalRequested?(worklaneID, paneID)
+        }
+        button.onSplitVerticalRequested = { [weak self] paneID in
+            self?.onSplitVerticalRequested?(worklaneID, paneID)
+        }
+
+        button.setShimmerCoordinator(shimmerCoordinator)
+        return button
+    }
+
+    /// Applies theme to sidebar chrome (appearances, background, add-button,
+    /// resize handle) WITHOUT re-configuring worklane buttons. Use after
+    /// structural mutations where buttons are already configured.
+    private func applySidebarChrome(theme: ZenttyTheme, animated: Bool) {
+        let sidebarAppearance = NSAppearance(named: theme.sidebarGlassAppearance.nsAppearanceName)
+        appearance = sidebarAppearance
+        listScrollView.appearance = sidebarAppearance
+        listDocumentView.appearance = sidebarAppearance
+        listStack.appearance = sidebarAppearance
+        addWorklaneButton.configure(theme: theme, animated: animated)
+        updateAvailableRowView.configure(theme: theme, animated: animated)
+        resizeHandleView.apply(theme: theme, animated: animated)
+        backgroundView.apply(theme: theme, animated: animated)
+
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = NSColor.clear.cgColor
+        }
+    }
+
+    private func isWorklaneVisible(id: WorklaneID) -> Bool {
+        guard let index = worklaneSummaries.firstIndex(where: { $0.worklaneID == id }),
+              worklaneButtons.indices.contains(index) else {
+            return false
+        }
+        let button = worklaneButtons[index]
+        let buttonFrame = listDocumentView.convert(button.bounds, from: button)
+        return listScrollView.documentVisibleRect.contains(buttonFrame)
     }
 
     private func scrollToWorklane(id: WorklaneID) {

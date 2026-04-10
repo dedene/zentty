@@ -1,4 +1,39 @@
 #!/usr/bin/env bash
 
-export ZENTTY_AGENT_TOOL="opencode"
-exec "$(cd "$(dirname "$0")" && pwd)/../shared/zentty-agent-wrapper" "$@"
+set -u
+
+find_real_opencode() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local path_entry
+    local IFS=:
+    for path_entry in $PATH; do
+        [[ -n "$path_entry" ]] || continue
+        [[ "$path_entry" == "$self_dir" ]] && continue
+        [[ -x "$path_entry/opencode" ]] || continue
+        printf '%s\n' "$path_entry/opencode"
+        return 0
+    done
+    return 1
+}
+
+zentty_cli_bin() {
+    if [[ -n "${ZENTTY_CLI_BIN:-}" && -x "${ZENTTY_CLI_BIN}" ]]; then
+        printf '%s\n' "$ZENTTY_CLI_BIN"
+        return 0
+    fi
+
+    command -v zentty >/dev/null 2>&1 || return 1
+    command -v zentty
+}
+
+if cli_bin="$(zentty_cli_bin 2>/dev/null)"; then
+    exec "$cli_bin" launch opencode "$@"
+fi
+
+real_opencode="$(find_real_opencode)" || {
+    echo "Error: opencode not found in PATH" >&2
+    exit 127
+}
+
+exec "$real_opencode" "$@"

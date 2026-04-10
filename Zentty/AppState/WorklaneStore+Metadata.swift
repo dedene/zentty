@@ -86,6 +86,11 @@ extension WorklaneStore {
             metadata: metadata,
             in: &worklane
         )
+        markClaudeCodeSessionIdleIfTitleIndicatesIdle(
+            paneID: paneID,
+            metadata: metadata,
+            in: &worklane
+        )
         invalidateGitContextIfNeeded(for: paneID, in: &worklane)
         recomputePresentation(for: paneID, in: &worklane)
 
@@ -248,7 +253,8 @@ extension WorklaneStore {
             workingDirectory: existingStatus?.workingDirectory,
             hasObservedRunning: existingStatus?.hasObservedRunning == true,
             sessionID: existingStatus?.sessionID,
-            parentSessionID: existingStatus?.parentSessionID
+            parentSessionID: existingStatus?.parentSessionID,
+            taskProgress: existingStatus?.taskProgress
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
@@ -307,14 +313,15 @@ extension WorklaneStore {
             updatedAt: now,
             source: .inferred,
             origin: .inferred,
-            interactionKind: .none,
+            interactionKind: PaneAgentInteractionKind.none,
             confidence: .weak,
             shellActivityState: auxiliaryState.agentStatus?.shellActivityState ?? .unknown,
             trackedPID: auxiliaryState.agentStatus?.trackedPID,
             workingDirectory: auxiliaryState.agentStatus?.workingDirectory,
             hasObservedRunning: true,
             sessionID: auxiliaryState.agentStatus?.sessionID,
-            parentSessionID: auxiliaryState.agentStatus?.parentSessionID
+            parentSessionID: auxiliaryState.agentStatus?.parentSessionID,
+            taskProgress: auxiliaryState.agentStatus?.taskProgress
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
@@ -417,14 +424,15 @@ extension WorklaneStore {
             updatedAt: now,
             source: .inferred,
             origin: existingStatus.origin == .explicitAPI || existingStatus.origin == .explicitHook ? existingStatus.origin : .inferred,
-            interactionKind: .none,
+            interactionKind: PaneAgentInteractionKind.none,
             confidence: existingStatus.confidence,
             shellActivityState: existingStatus.shellActivityState,
             trackedPID: existingStatus.trackedPID,
             workingDirectory: existingStatus.workingDirectory,
             hasObservedRunning: true,
             sessionID: existingStatus.sessionID,
-            parentSessionID: existingStatus.parentSessionID
+            parentSessionID: existingStatus.parentSessionID,
+            taskProgress: existingStatus.taskProgress
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
         requestReadyStatusIfNeeded(for: paneID, in: &worklane)
@@ -446,6 +454,46 @@ extension WorklaneStore {
         status.tool == .codex
             && status.state == .needsInput
             && status.interactionKind == .genericInput
+    }
+
+    /// When a Claude Code session is running but the terminal title transitions
+    /// to an idle-phase word ("interrupted", "ready", "waiting"), force-resolve
+    /// the underlying session state to idle. This catches Ctrl-C / Escape
+    /// interruptions where the Stop hook may not fire or where the grace window
+    /// hasn't resolved yet.
+    private func markClaudeCodeSessionIdleIfTitleIndicatesIdle(
+        paneID: PaneID,
+        metadata: TerminalMetadata,
+        in worklane: inout WorklaneState
+    ) {
+        guard
+            let signature = TerminalMetadataChangeClassifier.diagnosticAgentStatusTitleSignature(
+                metadata.title,
+                recognizedTool: .claudeCode
+            ),
+            signature.phase == .idle,
+            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+            let existingStatus = auxiliaryState.agentStatus,
+            existingStatus.tool == .claudeCode,
+            existingStatus.hasObservedRunning,
+            existingStatus.state == .running || existingStatus.state == .starting
+        else {
+            return
+        }
+
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            auxiliaryState.agentReducerState,
+            from: existingStatus
+        )
+        guard auxiliaryState.agentReducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: Date()) else {
+            return
+        }
+
+        auxiliaryState.agentStatus = Self.hydratedStatus(
+            auxiliaryState.agentReducerState.reducedStatus(),
+            existingStatus: existingStatus
+        )
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
 
     /// Clears stale desktop notification text when a Codex terminal title transitions to
@@ -612,7 +660,7 @@ extension WorklaneStore {
 
         let previousPresentation = worklane.auxiliaryStateByPaneID[paneID]?.presentation
         let raw = worklane.auxiliaryStateByPaneID[paneID]?.raw ?? PaneRawState()
-        worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].presentation = PanePresentationNormalizer.normalize(
+        let presentation = PanePresentationNormalizer.normalize(
             paneTitle: pane.title,
             raw: raw,
             previous: previousPresentation,
@@ -620,6 +668,30 @@ extension WorklaneStore {
                 ? pane.sessionRequest.workingDirectory
                 : nil
         )
+        worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].presentation = presentation
+
+        // Bridge: when the presentation phase resolves to an active state
+        // (.running, .needsInput) but the raw agentStatus hasn't recorded
+        // that it was ever running, propagate the observation. This closes
+        // the gap for agents like Copilot where "running" is derived from
+        // OSC progress at the presentation layer, not from hook events.
+        if presentation.isWorking,
+           worklane.auxiliaryStateByPaneID[paneID]?.agentStatus != nil,
+           worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.hasObservedRunning == false {
+            worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.hasObservedRunning = true
+        }
+
+        // Bridge: when the presentation phase transitions from actively
+        // working to idle, request the "agent ready" indicator. This lets
+        // agents whose running state is presentation-derived (Copilot via
+        // OSC, generic agents via terminal progress) show ready status on
+        // completion — not just agents with explicit hook-driven running
+        // states like Claude Code.
+        if previousPresentation?.isWorking == true,
+           presentation.runtimePhase == .idle,
+           worklane.auxiliaryStateByPaneID[paneID]?.agentStatus != nil {
+            requestReadyStatusIfNeeded(for: paneID, in: &worklane)
+        }
     }
 
     func invalidateGitContextIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {

@@ -2,15 +2,18 @@
 
 Zentty exports these environment variables into every pane:
 
-- `ZENTTY_AGENT_BIN`
-- `ZENTTY_CLAUDE_HOOK_COMMAND`
+- `ZENTTY_CLI_BIN`
+- `ZENTTY_AGENT_EVENT_COMMAND`
+- `ZENTTY_INSTANCE_SOCKET`
+- `ZENTTY_PANE_TOKEN`
+- `ZENTTY_WINDOW_ID`
 - `ZENTTY_WORKLANE_ID`
 - `ZENTTY_PANE_ID`
 
-`ZENTTY_CLAUDE_HOOK_COMMAND` expands to the bundled Zentty helper with the Claude bridge subcommand:
+`ZENTTY_AGENT_EVENT_COMMAND` expands to the bundled Zentty helper for canonical agent events:
 
 ```sh
-$ZENTTY_AGENT_BIN claude-hook
+$ZENTTY_CLI_BIN ipc agent-event
 ```
 
 ## Claude Code
@@ -18,10 +21,14 @@ $ZENTTY_AGENT_BIN claude-hook
 Register the same command for these Claude hook events:
 
 - `Notification`
+- `PermissionRequest`
 - `UserPromptSubmit`
 - `SessionStart`
 - `Stop`
-- `SubagentStop`
+- `SessionEnd`
+- `PreToolUse` with matcher `AskUserQuestion`
+- `TaskCreated`
+- `TaskCompleted`
 
 Example config snippet:
 
@@ -33,7 +40,7 @@ Example config snippet:
         "hooks": [
           {
             "type": "command",
-            "command": "$ZENTTY_CLAUDE_HOOK_COMMAND"
+            "command": "$ZENTTY_AGENT_EVENT_COMMAND --adapter=claude"
           }
         ]
       }
@@ -43,7 +50,7 @@ Example config snippet:
         "hooks": [
           {
             "type": "command",
-            "command": "$ZENTTY_CLAUDE_HOOK_COMMAND"
+            "command": "$ZENTTY_AGENT_EVENT_COMMAND --adapter=claude"
           }
         ]
       }
@@ -53,7 +60,7 @@ Example config snippet:
         "hooks": [
           {
             "type": "command",
-            "command": "$ZENTTY_CLAUDE_HOOK_COMMAND"
+            "command": "$ZENTTY_AGENT_EVENT_COMMAND --adapter=claude"
           }
         ]
       }
@@ -63,17 +70,58 @@ Example config snippet:
         "hooks": [
           {
             "type": "command",
-            "command": "$ZENTTY_CLAUDE_HOOK_COMMAND"
+            "command": "$ZENTTY_AGENT_EVENT_COMMAND --adapter=claude"
           }
         ]
       }
     ],
-    "SubagentStop": [
+    "SessionEnd": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "$ZENTTY_CLAUDE_HOOK_COMMAND"
+            "command": "$ZENTTY_AGENT_EVENT_COMMAND --adapter=claude"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$ZENTTY_AGENT_EVENT_COMMAND --adapter=claude"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$ZENTTY_AGENT_EVENT_COMMAND --adapter=claude"
+          }
+        ]
+      }
+    ],
+    "TaskCreated": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$ZENTTY_AGENT_EVENT_COMMAND --adapter=claude"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$ZENTTY_AGENT_EVENT_COMMAND --adapter=claude"
           }
         ]
       }
@@ -85,11 +133,20 @@ Example config snippet:
 ## Current Mapping
 
 - `SessionStart` -> session/PID attach only
-- `Notification`, `PermissionRequest` -> `needs-input`
-- `UserPromptSubmit`, `PreToolUse`, `SubagentStart` -> `running`
-- `Stop`, `SubagentStop` -> `completed`
+- `Notification`, `PermissionRequest`, `PreToolUse(AskUserQuestion)` -> `needs-input`
+- `UserPromptSubmit` -> `running`
+- `Stop` -> `idle`
+- `SessionEnd` -> clear session + PID mapping
 
 This keeps Zentty’s sidebar and alerts aligned with Claude’s own lifecycle instead of terminal heuristics.
+
+### Task Progress
+
+Claude Code task hooks are used to maintain a per-session task registry. When a top-level session emits `TaskCreated` / `TaskCompleted`, Zentty can render running status as `Running (<done>/<total>)`.
+
+Counts are intentionally scoped to the main session only. Subagent or nested task lists are ignored so the suffix stays stable.
+
+Claude hook execution is best effort. If the Claude adapter fails internally, Zentty returns success to Claude and suppresses stderr so users do not see hook error banners.
 
 ## GitHub Copilot CLI
 
@@ -124,3 +181,9 @@ Entry format: `{"type": "command", "bash": "<command>", "timeoutSec": N}`.
 ### Running detection
 
 Unlike Claude Code (which has a `Stop` hook), Copilot has no "turn complete" event. Running detection relies on libghostty's OSC 9;4 progress state (`TerminalProgressReport.indicatesActivity`): when Copilot emits `SET`/`INDETERMINATE`, the normalizer promotes the pane from `idle` to `running`; when Copilot emits `REMOVE`, it drops back to `idle`. The copilot special case in `PanePresentationNormalizer.normalizedRuntimePhase` implements this.
+
+## OpenCode
+
+Zentty injects a local OpenCode plugin overlay via the shared agent wrapper. The plugin forwards `session.status`, `session.idle`, permission/question events, and `todo.updated`.
+
+`todo.updated` is normalized inside the plugin into `taskProgressDoneCount` / `taskProgressTotalCount`. The Swift bridge treats those as the authoritative OpenCode task counts and uses them only for the main session's running label.

@@ -519,13 +519,8 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         envVars: [ghostty_env_var_s],
         retainedPointers: [UnsafeMutablePointer<CChar>]
     ) {
-        var environment = requestEnvironment
-        if let helperPath = AgentStatusHelper.binaryPath(), !helperPath.isEmpty {
-            environment["ZENTTY_AGENT_BIN"] = helperPath
-        }
-
         var retainedPointers: [UnsafeMutablePointer<CChar>] = []
-        let envVars = environment
+        let envVars = requestEnvironment
             .sorted(by: { $0.key < $1.key })
             .map { key, value in
                 let retainedKey = strdup(key)!

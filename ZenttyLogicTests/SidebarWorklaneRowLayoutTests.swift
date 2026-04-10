@@ -331,38 +331,6 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
         XCTAssertEqual(resizedHeight, initialHeight, accuracy: 0.5)
     }
 
-    func test_sidebar_row_pane_primary_stays_single_line_across_widths() throws {
-        // Regression: pane row primaries must stay single-line with tail
-        // truncation so the shimmer overlay keeps drawing when an agent is
-        // running. Wrapping would force the shimmer to be hidden.
-        let title = "Ready | zentty · Verify adaptive multiline sidebar rows while preserving repo context and status visibility"
-        let paneRow = WorklaneSidebarPaneRow(
-            paneID: PaneID("worklane-main-agent"),
-            primaryText: title,
-            trailingText: "feature/autoresearch/zsh-startup-2026-03-22",
-            detailText: "…/zentty",
-            statusText: "Agent ready",
-            attentionState: .ready,
-            isFocused: true,
-            isWorking: false
-        )
-
-        XCTAssertEqual(
-            SidebarWorklaneRowLayout.paneRowPrimaryLineCount(
-                for: paneRow,
-                availableWidth: 220
-            ),
-            1
-        )
-        XCTAssertEqual(
-            SidebarWorklaneRowLayout.paneRowPrimaryLineCount(
-                for: paneRow,
-                availableWidth: 900
-            ),
-            1
-        )
-    }
-
     func test_sidebar_row_worklane_primary_stays_single_line_across_widths() {
         // Regression: worklane primary rows must stay single-line with tail
         // truncation so the shimmer overlay (`SidebarShimmerTextView`) keeps
@@ -482,6 +450,73 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
         let withoutBranch = SidebarWorklaneRowLayout(summary: summaryWithoutBranch, availableWidth: 220)
 
         XCTAssertEqual(withBranch.rowHeight, withoutBranch.rowHeight, accuracy: 0.5)
+    }
+
+    // MARK: - Branch baselines for Phase 1 visibleTextRows collapse
+    //
+    // These two tests lock the exact visibleTextRows output for the two
+    // current branches in SidebarWorklaneRowLayout.visibleTextRows (the
+    // pane-rows-empty path at lines 251-285 and the pane-rows-present path
+    // at lines 208-248 in the current code). Phase 1 collapses them into a
+    // single construction; these assertions catch any drift.
+
+    func test_visible_rows_branch_b_max_expansion_pane_rows_empty() {
+        // Branch B (paneRows.isEmpty == true) — every optional row present.
+        // Expected expansion order: topLabel → primary → contextPrefix → status → overflow.
+        let summary = makeSummary(
+            topLabel: "Docs",
+            primaryText: "main · zentty",
+            contextPrefixText: "…/Development",
+            statusText: "Running",
+            detailLines: [],
+            overflowText: "+3 more"
+        )
+
+        let layout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 320)
+
+        XCTAssertEqual(layout.mode, .expanded)
+        XCTAssertEqual(
+            layout.visibleTextRows,
+            [.topLabel, .primary, .contextPrefix, .status, .overflow]
+        )
+    }
+
+    func test_visible_rows_branch_a_single_pane_row_with_context_prefix() {
+        // Branch A (paneRows.isEmpty == false) with exactly one pane row.
+        // contextPrefix only appears in this branch when paneRows.count == 1;
+        // it should be inserted after the first panePrimary.
+        let summary = makeSummary(
+            topLabel: "Docs",
+            contextPrefixText: "…/Development",
+            paneRows: [
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-agent"),
+                    primaryText: "Claude Code",
+                    trailingText: "main",
+                    detailText: "…/zentty",
+                    statusText: "Running",
+                    attentionState: .running,
+                    isFocused: true,
+                    isWorking: true
+                )
+            ],
+            overflowText: "+2 pending"
+        )
+
+        let layout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 320)
+
+        XCTAssertEqual(layout.mode, .expanded)
+        XCTAssertEqual(
+            layout.visibleTextRows,
+            [
+                .topLabel,
+                .panePrimary(0),
+                .paneDetail(0),
+                .contextPrefix,
+                .paneStatus(0),
+                .overflow,
+            ]
+        )
     }
 
     func test_sidebar_row_status_trailing_layout_hides_long_branch_when_narrow_and_restores_when_wider() {

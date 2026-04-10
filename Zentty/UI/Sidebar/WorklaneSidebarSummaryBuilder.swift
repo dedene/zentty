@@ -426,11 +426,9 @@ enum WorklaneSidebarSummaryBuilder {
             }
 
             return PaneSidebarIdentity(
-                primaryText: [rememberedTitle, workingDirectory]
-                    .compactMap(WorklaneContextFormatter.trimmed)
-                    .joined(separator: " · "),
+                primaryText: rememberedTitle,
                 trailingText: branch,
-                detailText: nil
+                detailText: workingDirectory
             )
         }
 
