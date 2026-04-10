@@ -1052,124 +1052,103 @@ final class PaneDragCoordinator {
 
     // MARK: - Private — Drop
 
-    private func completeDrop(columnIndex: Int) {
-        let isDuplicate = isOptionHeld
+    private enum InternalDropRevealStrategy {
+        case settleToPane(PaneID)
+        case fadeDuplicate
 
+        var coveredPaneID: PaneID? {
+            switch self {
+            case .settleToPane(let paneID):
+                paneID
+            case .fadeDuplicate:
+                nil
+            }
+        }
+    }
+
+    private func completeInternalDrop(
+        paneID: PaneID,
+        revealStrategy: InternalDropRevealStrategy,
+        mutation: @escaping () -> Void
+    ) {
         guard let paneStripView else {
-            onReorder?(phase.activeState?.draggedPaneID ?? PaneID(""), columnIndex, isDuplicate)
+            mutation()
             teardown()
             return
         }
+
+        prepareForDropSettle()
+        reparentPreviewToViewportForSettle()
+
+        paneStripView.beginDropSettle(paneID: revealStrategy.coveredPaneID) { [weak self] in
+            guard let self else { return }
+
+            self.performInternalDropReveal(
+                in: paneStripView,
+                strategy: revealStrategy
+            ) { [weak self] in
+                self?.finishInternalDrop(in: paneStripView)
+            }
+        }
+
+        mutation()
+    }
+
+    private func performInternalDropReveal(
+        in paneStripView: PaneStripView,
+        strategy: InternalDropRevealStrategy,
+        completion: @escaping () -> Void
+    ) {
+        switch strategy {
+        case .fadeDuplicate:
+            animateDuplicateDropFade(completion: completion)
+        case .settleToPane(let paneID):
+            guard let landingFrame = paneStripView.livePaneFrame(paneID),
+                  let container = dragContainer else {
+                completion()
+                return
+            }
+
+            animateSettleTo(frame: landingFrame, container: container, completion: completion)
+        }
+    }
+
+    private func finishInternalDrop(in paneStripView: PaneStripView) {
+        paneStripView.endDropSettle()
+        restoreDraggedPane()
+        teardown()
+        paneStripView.endDragWithZoomIn()
+    }
+
+    private func completeDrop(columnIndex: Int) {
+        let isDuplicate = isOptionHeld
 
         guard let paneID = phase.activeState?.draggedPaneID else {
             cancelDrag()
             return
         }
 
-        let stripView = paneStripView
-
-        if isDuplicate {
-            prepareForDropSettle()
-            reparentPreviewToViewportForSettle()
-            stripView.beginDropSettle { [weak self] in
-                guard let self else { return }
-
-                self.animateDuplicateDropFade {
-                    stripView.endDropSettle()
-                    self.restoreDraggedPane()
-                    self.teardown()
-                    stripView.endDragWithZoomIn()
-                }
-            }
-            onReorder?(paneID, columnIndex, true)
-        } else {
-            // 1. Clean up drag chrome but keep container + pane refs alive.
-            prepareForDropSettle()
-
-            // 2. Reparent snapshot to viewportView preserving its visual rect.
-            reparentPreviewToViewportForSettle()
-
-            // 3. Begin settle: allows rendering while snapshot covers the pane.
-            stripView.beginDropSettle(paneID: paneID) { [weak self] in
-                guard let self else { return }
-
-                guard let landingFrame = stripView.livePaneFrame(paneID),
-                      let container = self.dragContainer else {
-                    stripView.endDropSettle()
-                    self.restoreDraggedPane()
-                    self.teardown()
-                    stripView.endDragWithZoomIn()
-                    return
-                }
-
-                self.animateSettleTo(frame: landingFrame, container: container) {
-                    stripView.endDropSettle()
-                    self.restoreDraggedPane()
-                    self.teardown()
-                    stripView.endDragWithZoomIn()
-                }
-            }
-
-            onReorder?(paneID, columnIndex, false)
+        completeInternalDrop(
+            paneID: paneID,
+            revealStrategy: isDuplicate ? .fadeDuplicate : .settleToPane(paneID)
+        ) { [weak self] in
+            self?.onReorder?(paneID, columnIndex, isDuplicate)
         }
     }
 
     private func completeInColumnDrop(stackGapHit: StackReorderGapHit) {
         let isDuplicate = isOptionHeld
 
-        guard let paneStripView else {
-            let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
-            onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex, isDuplicate)
-            teardown()
-            return
-        }
-
         guard let paneID = phase.activeState?.draggedPaneID else {
             cancelDrag()
             return
         }
 
-        let stripView = paneStripView
-
-        if isDuplicate {
-            prepareForDropSettle()
-            reparentPreviewToViewportForSettle()
-            stripView.beginDropSettle { [weak self] in
-                guard let self else { return }
-
-                self.animateDuplicateDropFade {
-                    stripView.endDropSettle()
-                    self.restoreDraggedPane()
-                    self.teardown()
-                    stripView.endDragWithZoomIn()
-                }
-            }
-            onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex, true)
-        } else {
-            prepareForDropSettle()
-            reparentPreviewToViewportForSettle()
-
-            stripView.beginDropSettle(paneID: paneID) { [weak self] in
-                guard let self else { return }
-
-                guard let landingFrame = stripView.livePaneFrame(paneID),
-                      let container = self.dragContainer else {
-                    stripView.endDropSettle()
-                    self.restoreDraggedPane()
-                    self.teardown()
-                    stripView.endDragWithZoomIn()
-                    return
-                }
-
-                self.animateSettleTo(frame: landingFrame, container: container) {
-                    stripView.endDropSettle()
-                    self.restoreDraggedPane()
-                    self.teardown()
-                    stripView.endDragWithZoomIn()
-                }
-            }
-
-            onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex, false)
+        completeInternalDrop(
+            paneID: paneID,
+            revealStrategy: isDuplicate ? .fadeDuplicate : .settleToPane(paneID)
+        ) { [weak self] in
+            self?.onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex, isDuplicate)
         }
     }
 
@@ -1216,59 +1195,16 @@ final class PaneDragCoordinator {
     private func completeSplitDrop(splitHit: SplitZoneHit) {
         let isDuplicate = isOptionHeld
 
-        guard let paneStripView else {
-            let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
-            onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading, isDuplicate)
-            teardown()
-            return
-        }
-
         guard let paneID = phase.activeState?.draggedPaneID else {
             cancelDrag()
             return
         }
 
-        let stripView = paneStripView
-
-        if isDuplicate {
-            prepareForDropSettle()
-            reparentPreviewToViewportForSettle()
-            stripView.beginDropSettle { [weak self] in
-                guard let self else { return }
-
-                self.animateDuplicateDropFade {
-                    stripView.endDropSettle()
-                    self.restoreDraggedPane()
-                    self.teardown()
-                    stripView.endDragWithZoomIn()
-                }
-            }
-            onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading, true)
-        } else {
-            prepareForDropSettle()
-            reparentPreviewToViewportForSettle()
-
-            stripView.beginDropSettle(paneID: paneID) { [weak self] in
-                guard let self else { return }
-
-                guard let landingFrame = stripView.livePaneFrame(paneID),
-                      let container = self.dragContainer else {
-                    stripView.endDropSettle()
-                    self.restoreDraggedPane()
-                    self.teardown()
-                    stripView.endDragWithZoomIn()
-                    return
-                }
-
-                self.animateSettleTo(frame: landingFrame, container: container) {
-                    stripView.endDropSettle()
-                    self.restoreDraggedPane()
-                    self.teardown()
-                    stripView.endDragWithZoomIn()
-                }
-            }
-
-            onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading, false)
+        completeInternalDrop(
+            paneID: paneID,
+            revealStrategy: isDuplicate ? .fadeDuplicate : .settleToPane(paneID)
+        ) { [weak self] in
+            self?.onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading, isDuplicate)
         }
     }
 
