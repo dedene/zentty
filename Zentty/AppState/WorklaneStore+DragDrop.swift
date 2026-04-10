@@ -322,9 +322,10 @@ extension WorklaneStore {
             return
         }
 
-        // Read CWD from source pane's auxiliary state
+        // Read CWD and process info from source pane's auxiliary state
         let auxiliaryState = sourceWorklane.auxiliaryStateByPaneID[paneID]
         let workingDirectory = auxiliaryState?.raw.shellContext?.path
+        let command = duplicateCommand(auxiliaryState: auxiliaryState)
 
         var targetWorklane = worklanes[targetIndex]
 
@@ -333,7 +334,8 @@ extension WorklaneStore {
             in: &targetWorklane,
             existingPaneCount: existingCount,
             workingDirectory: workingDirectory,
-            sourceShellContext: auxiliaryState?.raw.shellContext
+            sourceShellContext: auxiliaryState?.raw.shellContext,
+            command: command
         )
 
         let targetColumnCount = targetWorklane.paneStripState.columns.count
@@ -381,6 +383,218 @@ extension WorklaneStore {
             singleColumnWidth: singleColumnWidth
         )
         notify(.worklaneListChanged)
+    }
+
+    // MARK: - Same-Worklane Duplicate
+
+    func duplicatePaneAsColumn(
+        paneID: PaneID,
+        toColumnIndex: Int,
+        singleColumnWidth: CGFloat
+    ) {
+        guard var worklane = activeWorklane,
+              let source = duplicateSourceInfo(for: paneID, in: worklane) else {
+            return
+        }
+
+        let previousColumnCount = worklane.paneStripState.columns.count
+        let newPane = makePaneWithDirectory(
+            in: &worklane,
+            existingPaneCount: previousColumnCount,
+            workingDirectory: source.workingDirectory,
+            sourceShellContext: source.shellContext,
+            command: source.command
+        )
+
+        worklane.paneStripState.insertPaneAsColumn(
+            newPane,
+            atColumnIndex: toColumnIndex,
+            width: source.sourceColumnWidth
+        )
+
+        applyColumnWidthNormalization(
+            &worklane,
+            previousColumnCount: previousColumnCount,
+            singleColumnWidth: singleColumnWidth
+        )
+
+        activeWorklane = worklane
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(activeWorklaneID))
+    }
+
+    func duplicatePaneInColumn(
+        paneID: PaneID,
+        toColumnID: PaneColumnID,
+        atPaneIndex paneIndex: Int,
+        availableHeight: CGFloat,
+        singleColumnWidth: CGFloat
+    ) {
+        guard var worklane = activeWorklane,
+              let source = duplicateSourceInfo(for: paneID, in: worklane) else {
+            return
+        }
+
+        let previousColumnCount = worklane.paneStripState.columns.count
+
+        guard let targetPaneID = worklane.paneStripState.columns
+            .first(where: { $0.id == toColumnID })?
+            .panes.first?.id else {
+            return
+        }
+
+        let newPane = makePaneWithDirectory(
+            in: &worklane,
+            existingPaneCount: previousColumnCount,
+            workingDirectory: source.workingDirectory,
+            sourceShellContext: source.shellContext,
+            command: source.command
+        )
+
+        worklane.paneStripState.insertPaneIntoColumn(
+            newPane,
+            columnID: toColumnID,
+            targetPaneID: targetPaneID,
+            atPaneIndex: paneIndex,
+            availableHeight: availableHeight
+        )
+
+        applyColumnWidthNormalization(
+            &worklane,
+            previousColumnCount: previousColumnCount,
+            singleColumnWidth: singleColumnWidth
+        )
+
+        activeWorklane = worklane
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(activeWorklaneID))
+    }
+
+    func duplicatePaneSplitDrop(
+        paneID: PaneID,
+        ontoTargetPaneID: PaneID,
+        axis: PaneSplitPreview.Axis,
+        leading: Bool,
+        availableHeight: CGFloat,
+        singleColumnWidth: CGFloat
+    ) {
+        guard var worklane = activeWorklane,
+              let source = duplicateSourceInfo(for: paneID, in: worklane) else {
+            return
+        }
+
+        let previousColumnCount = worklane.paneStripState.columns.count
+        let newPane = makePaneWithDirectory(
+            in: &worklane,
+            existingPaneCount: previousColumnCount,
+            workingDirectory: source.workingDirectory,
+            sourceShellContext: source.shellContext,
+            command: source.command
+        )
+
+        switch axis {
+        case .vertical:
+            guard let targetColumnID = worklane.paneStripState.columns.first(where: { column in
+                column.panes.contains(where: { $0.id == ontoTargetPaneID })
+            })?.id else {
+                return
+            }
+
+            let targetPaneIndex = worklane.paneStripState.columns
+                .first(where: { $0.id == targetColumnID })?
+                .panes.firstIndex(where: { $0.id == ontoTargetPaneID }) ?? 0
+            let insertionIndex = leading ? targetPaneIndex : targetPaneIndex + 1
+
+            worklane.paneStripState.insertPaneIntoColumn(
+                newPane,
+                columnID: targetColumnID,
+                targetPaneID: ontoTargetPaneID,
+                atPaneIndex: insertionIndex,
+                availableHeight: availableHeight
+            )
+
+        case .horizontal:
+            worklane.paneStripState.insertPaneAdjacentToColumn(
+                newPane,
+                containingPaneID: ontoTargetPaneID,
+                leading: leading,
+                width: source.sourceColumnWidth
+            )
+        }
+
+        applyColumnWidthNormalization(
+            &worklane,
+            previousColumnCount: previousColumnCount,
+            singleColumnWidth: singleColumnWidth
+        )
+
+        activeWorklane = worklane
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(activeWorklaneID))
+    }
+
+    // MARK: - Private — Duplicate Source Info
+
+    private struct DuplicateSourceInfo {
+        let workingDirectory: String?
+        let shellContext: PaneShellContext?
+        let command: String?
+        let sourceColumnWidth: CGFloat
+    }
+
+    private func duplicateSourceInfo(for paneID: PaneID, in worklane: WorklaneState) -> DuplicateSourceInfo? {
+        let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID]
+        let workingDirectory = auxiliaryState?.raw.shellContext?.path
+        let shellContext = auxiliaryState?.raw.shellContext
+        let command = duplicateCommand(auxiliaryState: auxiliaryState)
+        let sourceColumnWidth = worklane.paneStripState.columns
+            .first(where: { $0.panes.contains(where: { $0.id == paneID }) })?
+            .width ?? 0
+        return DuplicateSourceInfo(
+            workingDirectory: workingDirectory,
+            shellContext: shellContext,
+            command: command,
+            sourceColumnWidth: sourceColumnWidth
+        )
+    }
+
+    private func duplicateCommand(auxiliaryState: PaneAuxiliaryState?) -> String? {
+        let shellContext = auxiliaryState?.raw.shellContext
+        let metadata = auxiliaryState?.raw.metadata
+
+        // SSH: reconstruct connection command
+        if shellContext?.scope == .remote,
+           let user = shellContext?.user,
+           let host = shellContext?.host {
+            return "ssh \(user)@\(host)"
+        }
+
+        // Recognized agent — check hook-based agentStatus first, then metadata recognition
+        // (which checks both terminal title and processName for broader matching)
+        let recognizedTool = auxiliaryState?.raw.agentStatus?.tool
+            ?? AgentToolRecognizer.recognize(metadata: metadata)
+        if let tool = recognizedTool {
+            switch tool {
+            case .claudeCode: return "claude"
+            case .codex: return "codex"
+            case .copilot: return "gh copilot"
+            case .openCode: return "opencode"
+            case .custom(let name): return name
+            }
+        }
+
+        // Known CLI tools — launch bare
+        if let name = metadata?.processName,
+           ["vim", "nvim", "htop", "top", "btop", "lazygit", "lazydocker"].contains(name) {
+            return name
+        }
+
+        if let titleCommand = WorklaneContextFormatter.displayMeaningfulTerminalIdentity(for: metadata) {
+            return titleCommand
+        }
+
+        // Default: shell with inherited CWD, no command override
+        return nil
     }
 
     // MARK: - Private — Column Width

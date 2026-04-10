@@ -60,9 +60,9 @@ final class PaneDragCoordinator {
 
     // MARK: - Callbacks
 
-    var onReorder: ((PaneID, Int) -> Void)?
-    var onReorderInColumn: ((PaneID, PaneColumnID, Int) -> Void)?
-    var onSplitDrop: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool) -> Void)?
+    var onReorder: ((PaneID, Int, Bool) -> Void)?
+    var onReorderInColumn: ((PaneID, PaneColumnID, Int, Bool) -> Void)?
+    var onSplitDrop: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool, Bool) -> Void)?
     var onDragActiveChanged: ((Bool) -> Void)?
     var onSidebarDrop: ((PaneID, WorklaneID, Bool) -> Void)?
     var onSidebarNewWorklaneDrop: ((PaneID, Bool) -> Void)?
@@ -117,6 +117,7 @@ final class PaneDragCoordinator {
     private var flagsChangedMonitor: Any?
     private var ghostView: PaneDragGhostView?
     private var duplicateBadgeLayer: CALayer?
+    private var draggedOriginalColumnIndex: Int?
 
     // MARK: - References
 
@@ -315,6 +316,7 @@ final class PaneDragCoordinator {
         )
         phase = .active(activeState)
         currentInsertionIndex = columnIndex
+        draggedOriginalColumnIndex = columnIndex
 
         // Freeze dragged pane
         paneView.beginVerticalFreeze(gravity: .top)
@@ -339,7 +341,7 @@ final class PaneDragCoordinator {
             in: paneStripView,
             fallback: previewBackgroundColor
         ) ?? previewBackgroundColor
-        paneView.alphaValue = 0
+        paneView.alphaValue = NSEvent.modifierFlags.contains(.option) ? 1.0 : 0
 
         // Create a layer-hosting container with the snapshot
         let container = PaneDragFloatingContainer(frame: CGRect(origin: .zero, size: paneSize))
@@ -565,9 +567,17 @@ final class PaneDragCoordinator {
         }
 
         // --- Canvas hit detection (existing logic) ---
-        // Build the current visual layout to get column frames for hit testing
+        // Build the current visual layout to get column frames for hit testing.
+        // When Option is held (duplicate mode), use originalPresentation so hit zones
+        // match the visual pane positions. Otherwise use reducedPresentation.
+        let hitTestPresentation: StripPresentation
+        if isOptionHeld, let originalPresentation {
+            hitTestPresentation = originalPresentation
+        } else {
+            hitTestPresentation = reducedPresentation
+        }
         let layout = makeDragVisualLayout(
-            presentation: reducedPresentation,
+            presentation: hitTestPresentation,
             activeReducedGapIndex: currentReducedIndex,
             activeStackGap: currentStackGapHit,
             zoomScale: currentZoom
@@ -606,9 +616,16 @@ final class PaneDragCoordinator {
                 currentReducedIndex = nextReducedIndex
 
                 if let reducedIdx = currentReducedIndex {
-                    let insertionIndex = reducedIdx >= activeState.sourceColumnIndex
-                        ? reducedIdx + 1
-                        : reducedIdx
+                    let insertionIndex: Int
+                    if isOptionHeld {
+                        // Original-space index — usable directly for duplicate insertion
+                        insertionIndex = reducedIdx
+                    } else {
+                        // Reduced-space index — adjust for the removed source column
+                        insertionIndex = reducedIdx >= activeState.sourceColumnIndex
+                            ? reducedIdx + 1
+                            : reducedIdx
+                    }
                     currentInsertionIndex = insertionIndex
                     activeState.currentDropTarget = .reorderGap(columnIndex: insertionIndex)
                 }
@@ -624,7 +641,7 @@ final class PaneDragCoordinator {
 
             if shouldRefreshColumnLine, let reducedIdx = currentReducedIndex {
                 let openedLayout = makeDragVisualLayout(
-                    presentation: reducedPresentation,
+                    presentation: hitTestPresentation,
                     activeReducedGapIndex: reducedIdx,
                     activeStackGap: nil,
                     zoomScale: currentZoom
@@ -672,7 +689,7 @@ final class PaneDragCoordinator {
                     )
 
                     let openedLayout = makeDragVisualLayout(
-                        presentation: reducedPresentation,
+                        presentation: hitTestPresentation,
                         activeReducedGapIndex: nil,
                         activeStackGap: stackGapHit,
                         zoomScale: currentZoom
@@ -979,17 +996,37 @@ final class PaneDragCoordinator {
         animated: Bool,
         excludingPaneID: PaneID
     ) {
-        guard let paneStripView, let reducedPresentation else { return }
+        guard let paneStripView else { return }
+
+        let presentation: StripPresentation
+        let effectiveGapIndex: Int?
+        let skipPaneID: PaneID?
+
+        if isOptionHeld, let originalPresentation {
+            // Duplicate mode: use original layout. Gap index is already in original
+            // space (computed against originalPresentation in updateCursor).
+            // Include the dragged pane in layout iteration so it shifts with neighbors.
+            presentation = originalPresentation
+            effectiveGapIndex = activeReducedGapIndex
+            skipPaneID = nil
+        } else {
+            guard let reducedPresentation else { return }
+            presentation = reducedPresentation
+            effectiveGapIndex = activeReducedGapIndex
+            skipPaneID = excludingPaneID
+        }
+
         let zoomScale = paneStripView.currentZoomScale()
         let layout = makeDragVisualLayout(
-            presentation: reducedPresentation,
-            activeReducedGapIndex: activeReducedGapIndex,
+            presentation: presentation,
+            activeReducedGapIndex: effectiveGapIndex,
             activeStackGap: activeStackGap,
             zoomScale: zoomScale
         )
 
         let updates = {
-            for pane in reducedPresentation.panes where pane.paneID != excludingPaneID {
+            for pane in presentation.panes {
+                if let skip = skipPaneID, pane.paneID == skip { continue }
                 guard let paneView = self.paneViews[pane.paneID],
                       let targetFrame = layout.paneFramesByID[pane.paneID] else { continue }
                 paneView.frame = targetFrame
@@ -1008,11 +1045,18 @@ final class PaneDragCoordinator {
         }
     }
 
+    private func originalGapIndex(from reducedIndex: Int) -> Int {
+        guard let draggedOriginalColumnIndex else { return reducedIndex }
+        return reducedIndex >= draggedOriginalColumnIndex ? reducedIndex + 1 : reducedIndex
+    }
+
     // MARK: - Private — Drop
 
     private func completeDrop(columnIndex: Int) {
+        let isDuplicate = isOptionHeld
+
         guard let paneStripView else {
-            onReorder?(phase.activeState?.draggedPaneID ?? PaneID(""), columnIndex)
+            onReorder?(phase.activeState?.draggedPaneID ?? PaneID(""), columnIndex, isDuplicate)
             teardown()
             return
         }
@@ -1024,47 +1068,58 @@ final class PaneDragCoordinator {
 
         let stripView = paneStripView
 
-        // 1. Clean up drag chrome but keep container + pane refs alive.
-        prepareForDropSettle()
+        if isDuplicate {
+            prepareForDropSettle()
+            reparentPreviewToViewportForSettle()
+            stripView.beginDropSettle { [weak self] in
+                guard let self else { return }
 
-        // 2. Reparent snapshot to viewportView preserving its visual rect.
-        //    After this, container.frame and paneView.frame share coordinate systems.
-        reparentPreviewToViewportForSettle()
+                self.animateDuplicateDropFade {
+                    stripView.endDropSettle()
+                    self.restoreDraggedPane()
+                    self.teardown()
+                    stripView.endDragWithZoomIn()
+                }
+            }
+            onReorder?(paneID, columnIndex, true)
+        } else {
+            // 1. Clean up drag chrome but keep container + pane refs alive.
+            prepareForDropSettle()
 
-        // 3. Begin settle: allows rendering while snapshot covers the pane.
-        //    The callback fires after the post-reorder layout is applied.
-        stripView.beginDropSettle(paneID: paneID) { [weak self] in
-            guard let self else { return }
+            // 2. Reparent snapshot to viewportView preserving its visual rect.
+            reparentPreviewToViewportForSettle()
 
-            guard let landingFrame = stripView.livePaneFrame(paneID),
-                  let container = self.dragContainer else {
-                // Fallback: just finish immediately
-                stripView.endDropSettle()
-                self.restoreDraggedPane()
-                self.teardown()
-                stripView.endDragWithZoomIn()
-                return
+            // 3. Begin settle: allows rendering while snapshot covers the pane.
+            stripView.beginDropSettle(paneID: paneID) { [weak self] in
+                guard let self else { return }
+
+                guard let landingFrame = stripView.livePaneFrame(paneID),
+                      let container = self.dragContainer else {
+                    stripView.endDropSettle()
+                    self.restoreDraggedPane()
+                    self.teardown()
+                    stripView.endDragWithZoomIn()
+                    return
+                }
+
+                self.animateSettleTo(frame: landingFrame, container: container) {
+                    stripView.endDropSettle()
+                    self.restoreDraggedPane()
+                    self.teardown()
+                    stripView.endDragWithZoomIn()
+                }
             }
 
-            // 4. Animate snapshot frame to the actual rendered pane position.
-            self.animateSettleTo(frame: landingFrame, container: container) {
-                // 5. Swap: reveal the real pane, remove snapshot, zoom in.
-                stripView.endDropSettle()
-                self.restoreDraggedPane()
-                self.teardown()
-                stripView.endDragWithZoomIn()
-            }
+            onReorder?(paneID, columnIndex, false)
         }
-
-        // 4. Fire state mutation — render coordinator is unblocked by isDropSettling,
-        //    so the full render pipeline runs and fires the afterRender callback.
-        onReorder?(paneID, columnIndex)
     }
 
     private func completeInColumnDrop(stackGapHit: StackReorderGapHit) {
+        let isDuplicate = isOptionHeld
+
         guard let paneStripView else {
             let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
-            onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex)
+            onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex, isDuplicate)
             teardown()
             return
         }
@@ -1076,30 +1131,46 @@ final class PaneDragCoordinator {
 
         let stripView = paneStripView
 
-        prepareForDropSettle()
-        reparentPreviewToViewportForSettle()
+        if isDuplicate {
+            prepareForDropSettle()
+            reparentPreviewToViewportForSettle()
+            stripView.beginDropSettle { [weak self] in
+                guard let self else { return }
 
-        stripView.beginDropSettle(paneID: paneID) { [weak self] in
-            guard let self else { return }
+                self.animateDuplicateDropFade {
+                    stripView.endDropSettle()
+                    self.restoreDraggedPane()
+                    self.teardown()
+                    stripView.endDragWithZoomIn()
+                }
+            }
+            onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex, true)
+        } else {
+            prepareForDropSettle()
+            reparentPreviewToViewportForSettle()
 
-            guard let landingFrame = stripView.livePaneFrame(paneID),
-                  let container = self.dragContainer else {
-                stripView.endDropSettle()
-                self.restoreDraggedPane()
-                self.teardown()
-                stripView.endDragWithZoomIn()
-                return
+            stripView.beginDropSettle(paneID: paneID) { [weak self] in
+                guard let self else { return }
+
+                guard let landingFrame = stripView.livePaneFrame(paneID),
+                      let container = self.dragContainer else {
+                    stripView.endDropSettle()
+                    self.restoreDraggedPane()
+                    self.teardown()
+                    stripView.endDragWithZoomIn()
+                    return
+                }
+
+                self.animateSettleTo(frame: landingFrame, container: container) {
+                    stripView.endDropSettle()
+                    self.restoreDraggedPane()
+                    self.teardown()
+                    stripView.endDragWithZoomIn()
+                }
             }
 
-            self.animateSettleTo(frame: landingFrame, container: container) {
-                stripView.endDropSettle()
-                self.restoreDraggedPane()
-                self.teardown()
-                stripView.endDragWithZoomIn()
-            }
+            onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex, false)
         }
-
-        onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex)
     }
 
     /// Animate the snapshot container's frame to match the landing pane frame.
@@ -1127,10 +1198,27 @@ final class PaneDragCoordinator {
         }
     }
 
+    /// Fade out the drag snapshot for duplicate drops — the source pane stays,
+    /// a new pane is created by the state mutation, and zoom-in reveals the result.
+    private func animateDuplicateDropFade(completion: @escaping () -> Void) {
+        guard let container = dragContainer else {
+            completion()
+            return
+        }
+        container.layer?.shadowOpacity = 0
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            container.animator().alphaValue = 0
+        }, completionHandler: completion)
+    }
+
     private func completeSplitDrop(splitHit: SplitZoneHit) {
+        let isDuplicate = isOptionHeld
+
         guard let paneStripView else {
             let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
-            onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading)
+            onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading, isDuplicate)
             teardown()
             return
         }
@@ -1142,30 +1230,46 @@ final class PaneDragCoordinator {
 
         let stripView = paneStripView
 
-        prepareForDropSettle()
-        reparentPreviewToViewportForSettle()
+        if isDuplicate {
+            prepareForDropSettle()
+            reparentPreviewToViewportForSettle()
+            stripView.beginDropSettle { [weak self] in
+                guard let self else { return }
 
-        stripView.beginDropSettle(paneID: paneID) { [weak self] in
-            guard let self else { return }
+                self.animateDuplicateDropFade {
+                    stripView.endDropSettle()
+                    self.restoreDraggedPane()
+                    self.teardown()
+                    stripView.endDragWithZoomIn()
+                }
+            }
+            onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading, true)
+        } else {
+            prepareForDropSettle()
+            reparentPreviewToViewportForSettle()
 
-            guard let landingFrame = stripView.livePaneFrame(paneID),
-                  let container = self.dragContainer else {
-                stripView.endDropSettle()
-                self.restoreDraggedPane()
-                self.teardown()
-                stripView.endDragWithZoomIn()
-                return
+            stripView.beginDropSettle(paneID: paneID) { [weak self] in
+                guard let self else { return }
+
+                guard let landingFrame = stripView.livePaneFrame(paneID),
+                      let container = self.dragContainer else {
+                    stripView.endDropSettle()
+                    self.restoreDraggedPane()
+                    self.teardown()
+                    stripView.endDragWithZoomIn()
+                    return
+                }
+
+                self.animateSettleTo(frame: landingFrame, container: container) {
+                    stripView.endDropSettle()
+                    self.restoreDraggedPane()
+                    self.teardown()
+                    stripView.endDragWithZoomIn()
+                }
             }
 
-            self.animateSettleTo(frame: landingFrame, container: container) {
-                stripView.endDropSettle()
-                self.restoreDraggedPane()
-                self.teardown()
-                stripView.endDragWithZoomIn()
-            }
+            onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading, false)
         }
-
-        onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading)
     }
 
     // MARK: - Private — Sidebar Drop
@@ -1401,9 +1505,17 @@ final class PaneDragCoordinator {
               let paneStripView, let viewportView,
               let reducedPresentation else { return }
 
+        // Use original presentation when Option held so split zones match visual positions
+        let splitPresentation: StripPresentation
+        if isOptionHeld, let originalPresentation {
+            splitPresentation = originalPresentation
+        } else {
+            splitPresentation = reducedPresentation
+        }
+
         let currentZoom = paneStripView.currentZoomScale()
         let layout = makeDragVisualLayout(
-            presentation: reducedPresentation,
+            presentation: splitPresentation,
             activeReducedGapIndex: nil,
             zoomScale: currentZoom
         )
@@ -1411,11 +1523,11 @@ final class PaneDragCoordinator {
         let cursorInContent = paneStripView.convert(cursorInStrip, to: viewportView)
 
         var columnForPane: [PaneID: PaneColumnID] = [:]
-        for pane in reducedPresentation.panes {
+        for pane in splitPresentation.panes {
             columnForPane[pane.paneID] = pane.columnID
         }
         let paneCountByColumn = Dictionary(
-            uniqueKeysWithValues: reducedPresentation.columns.map { ($0.columnID, $0.panes.count) }
+            uniqueKeysWithValues: splitPresentation.columns.map { ($0.columnID, $0.panes.count) }
         )
 
         let splitHit = PaneDragHitTest.splitZoneHit(
@@ -1808,14 +1920,45 @@ final class PaneDragCoordinator {
     }
 
     private func updateDuplicateVisuals() {
+        guard let paneID = phase.activeState?.draggedPaneID else { return }
+
         if isOptionHeld {
-            showGhostView()
             showDuplicateBadge()
+            if let paneView = draggedPaneView {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.15
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    paneView.animator().alphaValue = 1.0
+                }
+            }
         } else {
-            hideGhostView()
             hideDuplicateBadge()
+            if let paneView = draggedPaneView {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.15
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    paneView.animator().alphaValue = 0
+                }
+            }
+        }
+
+        // Re-apply layout with the correct presentation (original vs reduced)
+        applyVisualLayout(
+            activeReducedGapIndex: currentReducedIndex,
+            activeStackGap: currentStackGapHit,
+            animated: true,
+            excludingPaneID: paneID
+        )
+    }
+
+    #if DEBUG
+    func setOptionHeldForTesting(_ enabled: Bool) {
+        isOptionHeld = enabled
+        if case .active = phase {
+            updateDuplicateVisuals()
         }
     }
+    #endif
 
     // MARK: - Private — Ghost View (Duplicate Indicator)
 
@@ -1988,6 +2131,7 @@ final class PaneDragCoordinator {
         phase = .idle
         currentReducedIndex = nil
         currentInsertionIndex = nil
+        draggedOriginalColumnIndex = nil
         grabOffsetInContent = .zero
         grabOffsetInWindow = .zero
         edgeScrollVelocity = 0

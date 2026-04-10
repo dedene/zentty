@@ -133,6 +133,10 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling {
         surfaceController = nil
     }
 
+    func sendText(_ text: String) {
+        surfaceController?.sendText(text)
+    }
+
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         ZenttyPerformanceSignposts.interval("LibghosttyAdapterSetSurfaceActivity") {
             let isFirstApplication = !hasAppliedSurfaceActivity

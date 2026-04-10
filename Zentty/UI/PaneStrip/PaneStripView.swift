@@ -48,9 +48,9 @@ final class PaneStripView: NSView {
     var onDividerResizeRequested: ((PaneResizeTarget, CGFloat) -> CGFloat)?
     var onDividerEqualizeRequested: ((PaneDivider) -> Void)?
     var onPaneStripStateRestoreRequested: ((PaneStripState) -> Void)?
-    var onPaneReorderRequested: ((PaneID, Int) -> Void)?
-    var onPaneReorderInColumnRequested: ((PaneID, PaneColumnID, Int) -> Void)?
-    var onPaneSplitDropRequested: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool) -> Void)?
+    var onPaneReorderRequested: ((PaneID, Int, Bool) -> Void)?
+    var onPaneReorderInColumnRequested: ((PaneID, PaneColumnID, Int, Bool) -> Void)?
+    var onPaneSplitDropRequested: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool, Bool) -> Void)?
     var onPaneCrossWorklaneDropRequested: ((PaneID, WorklaneID, Bool) -> Void)?
     var sidebarWorklaneFrameProvider: (() -> [(WorklaneID, CGRect)])?
     var onDragApproachingSidebarEdge: ((Bool) -> Void)?
@@ -92,6 +92,8 @@ final class PaneStripView: NSView {
     private var lastRenderedSize: CGSize = .zero
     private var currentOffset: CGFloat = 0
     private var lastFocusedPaneID: PaneID?
+    private var pendingProgrammaticFocusPaneID: PaneID?
+    private var focusGeneration: UInt64 = 0
     private(set) var lastInsertionTransition: PaneInsertionTransition?
     private(set) var lastRemovalTransition: PaneRemovalTransition?
     private(set) var lastRenderWasAnimated = false
@@ -212,14 +214,14 @@ final class PaneStripView: NSView {
     var onPaneNewWorklaneDropRequested: ((PaneID, Bool) -> Void)?
 
     private func setupDragCoordinator() {
-        dragCoordinator.onReorder = { [weak self] paneID, columnIndex in
-            self?.onPaneReorderRequested?(paneID, columnIndex)
+        dragCoordinator.onReorder = { [weak self] paneID, columnIndex, isDuplicate in
+            self?.onPaneReorderRequested?(paneID, columnIndex, isDuplicate)
         }
-        dragCoordinator.onReorderInColumn = { [weak self] paneID, columnID, paneIndex in
-            self?.onPaneReorderInColumnRequested?(paneID, columnID, paneIndex)
+        dragCoordinator.onReorderInColumn = { [weak self] paneID, columnID, paneIndex, isDuplicate in
+            self?.onPaneReorderInColumnRequested?(paneID, columnID, paneIndex, isDuplicate)
         }
-        dragCoordinator.onSplitDrop = { [weak self] paneID, targetPaneID, axis, leading in
-            self?.onPaneSplitDropRequested?(paneID, targetPaneID, axis, leading)
+        dragCoordinator.onSplitDrop = { [weak self] paneID, targetPaneID, axis, leading, isDuplicate in
+            self?.onPaneSplitDropRequested?(paneID, targetPaneID, axis, leading, isDuplicate)
         }
         dragCoordinator.onDragActiveChanged = { [weak self] active in
             guard let self else { return }
@@ -319,6 +321,7 @@ final class PaneStripView: NSView {
         let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
         resetScrollSwitchGestureIfFocusChanged(from: previousFocusedPaneID, to: state.focusedPaneID)
+
         if let leadingVisibleInset {
             resolvedLeadingVisibleInset = leadingVisibleInset
         }
@@ -767,6 +770,10 @@ final class PaneStripView: NSView {
                     theme: currentTheme
                 )
                 paneView.onSelected = { [weak self] in
+                    if let pendingPaneID = self?.pendingProgrammaticFocusPaneID,
+                       pendingPaneID != pane.id {
+                        return
+                    }
                     self?.onPaneSelected?(pane.id)
                 }
                 paneView.onCloseRequested = { [weak self] in
@@ -902,6 +909,8 @@ final class PaneStripView: NSView {
     private func syncFocusedTerminal(with paneID: PaneID?, force: Bool = false) {
         guard let paneID else {
             lastFocusedPaneID = nil
+            pendingProgrammaticFocusPaneID = nil
+            focusGeneration &+= 1
             return
         }
 
@@ -909,9 +918,42 @@ final class PaneStripView: NSView {
             return
         }
 
-        lastFocusedPaneID = paneID
-        Task { @MainActor [weak self] in
-            self?.paneViews[paneID]?.focusTerminal()
+        pendingProgrammaticFocusPaneID = paneID
+        focusGeneration &+= 1
+        let generation = focusGeneration
+        attemptFocus(paneID: paneID, generation: generation, retryCount: 0)
+    }
+
+    private func attemptFocus(paneID: PaneID, generation: UInt64, retryCount: Int) {
+        guard generation == focusGeneration else { return }
+        guard retryCount < 50 else {
+            if pendingProgrammaticFocusPaneID == paneID {
+                pendingProgrammaticFocusPaneID = nil
+            }
+            return
+        }
+
+        if let paneView = paneViews[paneID], paneView.focusTerminalIfReady() {
+            lastFocusedPaneID = paneID
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      generation == self.focusGeneration,
+                      self.pendingProgrammaticFocusPaneID == paneID else {
+                    return
+                }
+                if self.paneViews[paneID]?.isTerminalFocused == true {
+                    self.pendingProgrammaticFocusPaneID = nil
+                } else {
+                    self.attemptFocus(paneID: paneID, generation: generation, retryCount: retryCount + 1)
+                }
+            }
+            return
+        }
+
+        // Retry on the next run loop turn — the pane view may not be
+        // window-attached or its terminal surface may still be initializing.
+        DispatchQueue.main.async { [weak self] in
+            self?.attemptFocus(paneID: paneID, generation: generation, retryCount: retryCount + 1)
         }
     }
 
@@ -1158,8 +1200,7 @@ final class PaneStripView: NSView {
     private var zoomAnchor: CGPoint = .zero
     private static let zoomAnimationDuration: CFTimeInterval = 0.35
 
-    private func applyZoom(animated: Bool) {
-        // Compute the anchor: focused pane center in content space
+    private func updateZoomAnchor() {
         let fw = viewportView.frame.width
         let fh = viewportView.frame.height
         if let focusedID = currentState?.focusedPaneID,
@@ -1168,6 +1209,11 @@ final class PaneStripView: NSView {
         } else {
             zoomAnchor = CGPoint(x: fw / 2, y: fh / 2)
         }
+    }
+
+    private func applyZoom(animated: Bool) {
+        // Compute the anchor: focused pane center in content space
+        updateZoomAnchor()
 
         let targetScale = isZoomedOut ? Self.zoomScale : 1.0
 
@@ -1304,7 +1350,7 @@ final class PaneStripView: NSView {
     // MARK: - Drop Settle
 
     /// Begin the "drop settling" phase: allows rendering while the snapshot covers the pane.
-    func beginDropSettle(paneID: PaneID, afterRender callback: @escaping () -> Void) {
+    func beginDropSettle(paneID: PaneID? = nil, afterRender callback: @escaping () -> Void) {
         isDropSettling = true
         dropSettleCoveredPaneID = paneID
         afterNextRenderCallback = callback
@@ -1328,6 +1374,7 @@ final class PaneStripView: NSView {
     func endDragWithZoomIn() {
         guard isZoomedOut else { return }
         isZoomedOut = false
+        updateZoomAnchor()
         // Animate scroll back to 0 alongside the zoom-in
         let targetScale: CGFloat = 1.0
         zoomAnimationFrom = currentZoomScale()
@@ -1350,9 +1397,12 @@ final class PaneStripView: NSView {
                 paneView.setTerminalViewportSyncSuspended(false)
             }
 
-            // Re-render at correct layout
+            // Re-render at correct layout. syncFocusedTerminal (called
+            // inside renderCurrentState) now uses retry-until-success, so
+            // focus will land on the correct pane once it's ready.
             if let state = self.currentState {
                 self.renderCurrentState(state, animated: false)
+                self.focusCurrentPaneIfNeeded()
             }
 
             // Force full display invalidation — layout alone doesn't
@@ -1598,6 +1648,12 @@ final class PaneStripView: NSView {
         dragScrollOffsetX
     }
 
+    #if DEBUG
+        var zoomAnchorForTesting: CGPoint {
+            zoomAnchor
+        }
+    #endif
+
     var currentOffsetForTesting: CGFloat {
         currentOffset
     }
@@ -1607,6 +1663,14 @@ final class PaneStripView: NSView {
         cursorInStrip: CGPoint
     ) {
         handleDragActivated(paneID: paneID, origin: cursorInStrip)
+    }
+
+    func setDuplicateDragEnabledForTesting(_ enabled: Bool) {
+        dragCoordinator.setOptionHeldForTesting(enabled)
+    }
+
+    func endPaneDragForTesting(cursorInStrip: CGPoint) {
+        dragCoordinator.endDrag(at: cursorInStrip)
     }
 
     var dragPreviewBackgroundColorForTesting: NSColor? {
