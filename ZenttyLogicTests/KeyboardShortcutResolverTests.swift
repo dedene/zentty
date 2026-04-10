@@ -59,6 +59,15 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
     }
 
+    func test_registry_includes_duplicate_this_pane_command_without_default_shortcut() {
+        let definition = AppCommandRegistry.definition(for: .duplicateFocusedPane)
+
+        XCTAssertEqual(definition.title, "Duplicate This Pane")
+        XCTAssertEqual(definition.category, .panes)
+        XCTAssertNil(definition.defaultShortcut)
+        XCTAssertEqual(definition.action, .pane(.duplicateFocusedPane))
+    }
+
     func test_resolves_default_shortcuts_from_registry() {
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
@@ -228,6 +237,16 @@ final class KeyboardShortcutResolverTests: XCTestCase {
 
         XCTAssertTrue(available.contains(.findNext))
         XCTAssertTrue(available.contains(.findPrevious))
+    }
+
+    func test_command_availability_keeps_duplicate_pane_available_with_single_focused_pane() {
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 1,
+            totalPaneCount: 1
+        )
+
+        XCTAssertTrue(available.contains(.duplicateFocusedPane))
     }
 
     func test_resolves_remapped_shortcuts_from_overrides() {

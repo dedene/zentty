@@ -32,6 +32,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case findPrevious = "pane.search.previous"
     case copyFocusedPanePath = "pane.copy_path"
     case jumpToLatestNotification = "notifications.jump_latest"
+    case duplicateFocusedPane = "pane.duplicate"
     case splitHorizontally = "pane.split.horizontal"
     case splitVertically = "pane.split.vertical"
     case arrangeWidthFull = "pane.arrange.width.full"
@@ -275,6 +276,14 @@ enum AppCommandRegistry {
             category: .notifications,
             defaultShortcut: .init(key: .character("u"), modifiers: [.command, .shift]),
             action: .jumpToLatestNotification,
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .duplicateFocusedPane,
+            title: "Duplicate This Pane",
+            category: .panes,
+            defaultShortcut: nil,
+            action: .pane(.duplicateFocusedPane),
             menuItem: nil
         ),
         AppCommandDefinition(
@@ -765,6 +774,8 @@ extension AppCommandDefinition {
             "Copy the working path from the focused pane so you can paste it into another app or command."
         case .jumpToLatestNotification:
             "Jump directly to the latest in-app notification so you can review recent activity without scanning manually."
+        case .duplicateFocusedPane:
+            "Duplicate the focused pane into a new column to the right, carrying over its working directory and restartable command when available."
         case .splitHorizontally:
             "Split the focused pane horizontally to create another pane in the same column."
         case .splitVertically:
