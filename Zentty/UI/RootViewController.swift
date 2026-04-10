@@ -1461,6 +1461,15 @@ final class RootViewController: NSViewController {
         onWindowChromeNeedsUpdate?()
     }
 
+    /// Total width of the left-side chrome controls that sit between the sidebar
+    /// trailing edge and the centered title row: toggle + pane layout menu +
+    /// navigation buttons + notification bell, including inter-button gaps.
+    private static let chromeControlsBarWidth: CGFloat =
+        SidebarToggleButton.buttonSize + 4
+        + PaneLayoutMenuButton.buttonSize + 4
+        + PaneNavigationButtons.totalWidth + 8
+        + NotificationBellButton.buttonSize
+
     private func applySidebarMotionState(
         _ motionState: SidebarMotionState,
         animated: Bool,
@@ -1512,6 +1521,8 @@ final class RootViewController: NSViewController {
             motionState.reservedFraction == 1
             ? openToggleTarget
             : closedToggleTarget
+        windowChromeView.leadingControlsInset = (toggleTarget - ShellMetrics.outerInset)
+            + Self.chromeControlsBarWidth
         let pinnedHeaderContentMinX =
             trafficLightAnchor.x
             - leadingConstant

@@ -1,6 +1,65 @@
 import Darwin
 import Foundation
 
+struct ClaudeHookSessionRecord: Codable, Equatable {
+    let sessionID: String
+    var windowIDRawValue: String?
+    var worklaneIDRawValue: String
+    var paneIDRawValue: String
+    var cwd: String?
+    var pid: Int32?
+    var lastHumanMessage: String?
+    var lastInteractionKindRawValue: String?
+    var lastStructuredInteractionText: String?
+    var lastStructuredInteractionKindRawValue: String?
+    var lastStructuredInteractionConfidenceRawValue: String?
+    var lastNotificationText: String?
+    var tasksByID: [String: Bool] = [:]
+    var updatedAt: TimeInterval
+
+    var windowID: WindowID? {
+        windowIDRawValue.map(WindowID.init)
+    }
+
+    var worklaneID: WorklaneID {
+        WorklaneID(worklaneIDRawValue)
+    }
+
+    var paneID: PaneID {
+        PaneID(paneIDRawValue)
+    }
+
+    var lastInteractionKind: PaneAgentInteractionKind? {
+        get { lastInteractionKindRawValue.flatMap(PaneAgentInteractionKind.init(rawValue:)) }
+        set { lastInteractionKindRawValue = newValue?.rawValue }
+    }
+
+    var structuredInteractionText: String? {
+        get { lastStructuredInteractionText ?? lastHumanMessage }
+        set {
+            lastStructuredInteractionText = newValue
+            lastHumanMessage = newValue
+        }
+    }
+
+    var structuredInteractionKind: PaneAgentInteractionKind? {
+        get {
+            lastStructuredInteractionKindRawValue
+                .flatMap(PaneAgentInteractionKind.init(rawValue:))
+                ?? lastInteractionKind
+        }
+        set {
+            lastStructuredInteractionKindRawValue = newValue?.rawValue
+            lastInteractionKind = newValue
+        }
+    }
+
+    var structuredInteractionConfidence: AgentSignalConfidence? {
+        get { lastStructuredInteractionConfidenceRawValue.flatMap(AgentSignalConfidence.init(rawValue:)) }
+        set { lastStructuredInteractionConfidenceRawValue = newValue?.rawValue }
+    }
+}
+
 private struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
@@ -81,6 +140,7 @@ final class ClaudeHookSessionStore {
                 lastStructuredInteractionKindRawValue: nil,
                 lastStructuredInteractionConfidenceRawValue: nil,
                 lastNotificationText: nil,
+                tasksByID: [:],
                 updatedAt: now
             )
             record.windowIDRawValue = windowID?.rawValue
@@ -134,6 +194,7 @@ final class ClaudeHookSessionStore {
                 lastStructuredInteractionKindRawValue: nil,
                 lastStructuredInteractionConfidenceRawValue: nil,
                 lastNotificationText: nil,
+                tasksByID: [:],
                 updatedAt: now
             )
             record.windowIDRawValue = windowID?.rawValue
@@ -191,6 +252,41 @@ final class ClaudeHookSessionStore {
 
     func clearLastHumanMessage(sessionID: String) throws {
         try clearInteractionContext(sessionID: sessionID)
+    }
+
+    func updateTask(
+        sessionID: String,
+        taskID: String,
+        isCompleted: Bool
+    ) throws -> PaneAgentTaskProgress? {
+        let normalizedSessionID = normalized(sessionID)
+        let normalizedTaskID = normalized(taskID)
+        guard !normalizedSessionID.isEmpty, !normalizedTaskID.isEmpty else {
+            return nil
+        }
+
+        return try withLockedState { state in
+            guard var record = state.sessions[normalizedSessionID] else {
+                return nil
+            }
+            record.tasksByID[normalizedTaskID] = isCompleted
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalizedSessionID] = record
+            return progress(from: record.tasksByID)
+        }
+    }
+
+    func taskProgress(sessionID: String?) throws -> PaneAgentTaskProgress? {
+        guard let normalizedSessionID = normalizedOptional(sessionID) else {
+            return nil
+        }
+
+        return try withLockedState { state in
+            guard let record = state.sessions[normalizedSessionID] else {
+                return nil
+            }
+            return progress(from: record.tasksByID)
+        }
     }
 
     @discardableResult
@@ -272,5 +368,14 @@ final class ClaudeHookSessionStore {
             return nil
         }
         return value
+    }
+
+    private func progress(from tasksByID: [String: Bool]) -> PaneAgentTaskProgress? {
+        guard !tasksByID.isEmpty else {
+            return nil
+        }
+
+        let doneCount = tasksByID.values.filter { $0 }.count
+        return PaneAgentTaskProgress(doneCount: doneCount, totalCount: tasksByID.count)
     }
 }

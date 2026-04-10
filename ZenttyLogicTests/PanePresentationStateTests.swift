@@ -169,6 +169,128 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertNil(presentation.statusText)
     }
 
+    func test_normalize_shows_idle_task_progress_when_incomplete_even_before_running() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "shell",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "opencode",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .openCode,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 36),
+                taskProgress: PaneAgentTaskProgress(doneCount: 0, totalCount: 3)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertEqual(presentation.statusText, "Idle (0/3)")
+        XCTAssertFalse(presentation.isReady)
+        XCTAssertNil(presentation.statusSymbolName)
+    }
+
+    func test_normalize_suppresses_ready_label_while_task_progress_is_incomplete() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Implement task progress",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true,
+                taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 3)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            ),
+            showsReadyStatus: true,
+            lastDesktopNotificationText: "Agent ready",
+            lastDesktopNotificationDate: Date(timeIntervalSince1970: 42)
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertEqual(presentation.statusText, "Idle (1/3)")
+        XCTAssertFalse(presentation.isReady)
+        XCTAssertNil(presentation.statusSymbolName)
+    }
+
+    func test_normalize_restores_ready_label_once_task_progress_is_complete() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Implement task progress",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true,
+                taskProgress: PaneAgentTaskProgress(doneCount: 3, totalCount: 3)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            ),
+            showsReadyStatus: true,
+            lastDesktopNotificationText: "Agent ready",
+            lastDesktopNotificationDate: Date(timeIntervalSince1970: 42)
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertEqual(presentation.statusText, "Agent ready")
+        XCTAssertTrue(presentation.isReady)
+        XCTAssertEqual(presentation.statusSymbolName, "checkmark.circle.fill")
+    }
+
     func test_normalize_treats_codex_spinner_title_variants_as_same_running_identity() {
         let spinnerFrames = ["Working ⠋ zentty", "Working ⠙ zentty"]
 
@@ -1290,5 +1412,95 @@ final class PanePresentationStateTests: XCTestCase {
 
         XCTAssertNotEqual(presentation.runtimePhase, .needsInput)
         XCTAssertNil(presentation.interactionKind)
+    }
+
+    // MARK: - Normalizer branch coverage (Phase 0 golden baseline)
+    //
+    // These tests close coverage gaps on the cliff-face in
+    // `normalizedRuntimePhase(from:recognizedTool:titlePhase:copilotTitleNeedsInput:)`
+    // at PaneAuxiliaryState.swift. They lock the default switch cases
+    // and the two no-tool fallbacks so the pipeline refactor in Phase 3
+    // cannot silently drift.
+
+    func test_normalize_agent_state_unresolved_stop_propagates_to_runtime_phase() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "claude",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .unresolvedStop,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 100)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "claude",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .unresolvedStop)
+    }
+
+    func test_normalize_unknown_tool_with_osc_progress_resolves_to_running() {
+        // No agentStatus + unrecognized tool + active OSC progress
+        // exercises the generic fallback at line 484-486 of the normalizer.
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "some-binary running",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "some-binary",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: TerminalProgressReport(state: .indeterminate, progress: nil),
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .running)
+    }
+
+    func test_normalize_no_signals_defaults_to_idle() {
+        // No agentStatus, no progress, unrecognized tool, no title phase.
+        // Exercises the final default at line 488 of the normalizer.
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "shell",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "bash",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "bash",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
     }
 }

@@ -1930,16 +1930,24 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertTrue((request.environmentVariables["ZENTTY_WINDOW_ID"] ?? "").hasPrefix("wd_"))
         XCTAssertEqual(request.environmentVariables["ZENTTY_WORKLANE_ID"], worklane.id.rawValue)
         XCTAssertEqual(request.environmentVariables["ZENTTY_PANE_ID"], pane.id.rawValue)
-        XCTAssertFalse((request.environmentVariables["ZENTTY_AGENT_BIN"] ?? "").isEmpty)
-        XCTAssertEqual(request.environmentVariables["ZENTTY_AGENT_SIGNAL_COMMAND"], "\(request.environmentVariables["ZENTTY_AGENT_BIN"]!) agent-signal")
-        XCTAssertEqual(request.environmentVariables["ZENTTY_CLAUDE_HOOK_COMMAND"], "\(request.environmentVariables["ZENTTY_AGENT_BIN"]!) claude-hook")
+        XCTAssertFalse((request.environmentVariables["ZENTTY_INSTANCE_SOCKET"] ?? "").isEmpty)
+        XCTAssertFalse((request.environmentVariables["ZENTTY_PANE_TOKEN"] ?? "").isEmpty)
+        XCTAssertFalse((request.environmentVariables["ZENTTY_CLI_BIN"] ?? "").isEmpty)
+        if let cliBin = request.environmentVariables["ZENTTY_CLI_BIN"] {
+            XCTAssertTrue(cliBin.contains("/Contents/Resources/bin/shared/zentty"))
+        }
+        XCTAssertNil(request.environmentVariables["ZENTTY_CLAUDE_HOOK_COMMAND"])
+        XCTAssertNil(request.environmentVariables["ZENTTY_AGENT_BIN"])
+        XCTAssertNil(request.environmentVariables["ZENTTY_AGENT_EVENT_COMMAND"])
+        XCTAssertNil(request.environmentVariables["ZENTTY_AGENT_SIGNAL_COMMAND"])
         let allWrapperDirs = request.environmentVariables["ZENTTY_ALL_WRAPPER_BIN_DIRS"] ?? ""
+        let path = request.environmentVariables["PATH"] ?? ""
         if !allWrapperDirs.isEmpty {
             for entry in allWrapperDirs.split(separator: ":") {
                 XCTAssertTrue(String(entry).contains("/Contents/Resources/bin/"))
-                XCTAssertFalse((request.environmentVariables["PATH"] ?? "").contains(String(entry)))
             }
         }
+        XCTAssertTrue(path.contains("/Contents/Resources/bin/shared"))
         XCTAssertNil(request.environmentVariables["ZENTTY_WRAPPER_BIN_DIR"])
         XCTAssertNil(request.environmentVariables["ZENTTY_WRAPPER_BIN_DIRS"])
         if let shellIntegrationDirectory = request.environmentVariables["ZENTTY_SHELL_INTEGRATION_DIR"] {
@@ -1947,7 +1955,7 @@ final class PaneStripStoreTests: XCTestCase {
         }
     }
 
-    func test_default_worklane_shell_session_exports_all_wrapper_directories_without_mutating_path() throws {
+    func test_default_worklane_shell_session_exports_all_wrapper_directories_and_prepends_support_path() throws {
         let store = WorklaneStore(processEnvironment: ["PATH": "/usr/bin:/bin"])
 
         let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
@@ -1959,7 +1967,9 @@ final class PaneStripStoreTests: XCTestCase {
             XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/codex"))
             XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/opencode"))
         }
-        XCTAssertNil(request.environmentVariables["PATH"])
+        let path = try XCTUnwrap(request.environmentVariables["PATH"])
+        XCTAssertTrue(path.contains("/Contents/Resources/bin/shared"))
+        XCTAssertTrue(path.hasSuffix(":/usr/bin:/bin"))
     }
 
     func test_default_worklane_shell_session_overrides_zsh_zdotdir_for_shell_integration() throws {
@@ -4731,7 +4741,7 @@ final class PaneStripStoreTests: XCTestCase {
             "ZENTTY_PANE_ID": paneID.rawValue,
         ]
 
-        let sessionStart = try ClaudeHookBridge.parseInput(
+        let sessionStart = try AgentEventBridge.claudeParseInput(
             Data("""
             {
               "hook_event_name":"SessionStart",
@@ -4740,7 +4750,7 @@ final class PaneStripStoreTests: XCTestCase {
             }
             """.utf8)
         )
-        let preToolUse = try ClaudeHookBridge.parseInput(
+        let preToolUse = try AgentEventBridge.claudeParseInput(
             Data("""
             {
               "hook_event_name":"PreToolUse",
@@ -4760,7 +4770,7 @@ final class PaneStripStoreTests: XCTestCase {
             }
             """.utf8)
         )
-        let permissionRequest = try ClaudeHookBridge.parseInput(
+        let permissionRequest = try AgentEventBridge.claudeParseInput(
             Data("""
             {
               "hook_event_name":"PermissionRequest",
@@ -4769,7 +4779,7 @@ final class PaneStripStoreTests: XCTestCase {
             }
             """.utf8)
         )
-        let notification = try ClaudeHookBridge.parseInput(
+        let notification = try AgentEventBridge.claudeParseInput(
             Data("""
             {
               "hook_event_name":"Notification",
@@ -4781,7 +4791,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         for input in [sessionStart, preToolUse, permissionRequest, notification] {
-            let payloads = try ClaudeHookBridge.makePayloads(
+            let payloads = try AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: environment,
                 sessionStore: sessionStore

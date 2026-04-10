@@ -15,6 +15,7 @@ struct PaneAgentSessionState: Equatable, Sendable {
     var shellActivityState: PaneShellActivityState
     var trackedPID: Int32?
     var hasObservedRunning: Bool
+    var taskProgress: PaneAgentTaskProgress? = nil
     var completionCandidateDeadline: Date?
     var idleVisibleUntil: Date?
     var unresolvedStopVisibleUntil: Date?
@@ -226,6 +227,36 @@ struct PaneAgentReducerState: Equatable, Sendable {
         return true
     }
 
+    @discardableResult
+    mutating func markExplicitClaudeCodeSessionIdleFromIdleTitle(now: Date = Date()) -> Bool {
+        let candidateSessions = sessionsByID.values.filter { session in
+            session.tool == .claudeCode
+                && session.source == .explicit
+                && session.origin != .shell
+                && session.hasObservedRunning
+                && (
+                    session.state == .running
+                        || session.state == .starting
+                        || session.completionCandidateDeadline != nil
+                )
+        }
+        guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
+              var session = sessionsByID[sessionID]
+        else {
+            return false
+        }
+
+        session.state = .idle
+        session.text = nil
+        session.interactionKind = .none
+        session.completionCandidateDeadline = nil
+        session.idleVisibleUntil = now.addingTimeInterval(Self.idleVisibilityWindow)
+        session.unresolvedStopVisibleUntil = nil
+        session.updatedAt = now
+        sessionsByID[sessionID] = session
+        return true
+    }
+
     func reducedStatus(now: Date = Date()) -> PaneAgentStatus? {
         let sessions = sessionsByID.values.filter { session in
             if session.state == .idle,
@@ -258,7 +289,8 @@ struct PaneAgentReducerState: Equatable, Sendable {
             trackedPID: session.state == .idle ? nil : session.trackedPID,
             hasObservedRunning: session.hasObservedRunning,
             sessionID: session.sessionID,
-            parentSessionID: session.parentSessionID
+            parentSessionID: session.parentSessionID,
+            taskProgress: session.taskProgress
         )
     }
 
@@ -295,6 +327,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             shellActivityState: .unknown,
             trackedPID: nil,
             hasObservedRunning: false,
+            taskProgress: payload.taskProgress,
             completionCandidateDeadline: nil,
             idleVisibleUntil: nil,
             unresolvedStopVisibleUntil: nil
@@ -323,6 +356,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.updatedAt = now
         session.idleVisibleUntil = nil
         session.unresolvedStopVisibleUntil = nil
+        session.taskProgress = payload.taskProgress ?? session.taskProgress
 
         if payload.lifecycleEvent == .stopCandidate {
             session.state = .running
@@ -391,6 +425,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             session.hasObservedRunning = session.hasObservedRunning || inferredSession.hasObservedRunning
             session.artifactLink = session.artifactLink ?? inferredSession.artifactLink
             session.text = session.text ?? inferredSession.text
+            session.taskProgress = session.taskProgress ?? inferredSession.taskProgress
             if inferredSession.updatedAt > session.updatedAt {
                 session.updatedAt = inferredSession.updatedAt
             }
@@ -424,6 +459,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
                 shellActivityState: .unknown,
                 trackedPID: nil,
                 hasObservedRunning: false,
+                taskProgress: payload.taskProgress,
                 completionCandidateDeadline: nil,
                 idleVisibleUntil: nil,
                 unresolvedStopVisibleUntil: nil
@@ -524,6 +560,10 @@ struct PaneAgentReducerState: Equatable, Sendable {
         _ payload: AgentStatusPayload,
         over existingSession: PaneAgentSessionState
     ) -> Bool {
+        if payload.lifecycleEvent == .stopCandidate {
+            return true
+        }
+
         if existingSession.state == .needsInput,
            existingSession.interactionKind.requiresHumanAttention,
            payload.state == .idle {

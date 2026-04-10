@@ -31,7 +31,8 @@ enum ChromeGeometry {
 
         let clampedChildRadius = min(childRadius, parentRadius)
         let verticalOffset = parentRadius - clampedChildRadius
-        let allowedHalfWidth = sqrt(max(0, (parentRadius * parentRadius) - (verticalOffset * verticalOffset)))
+        let allowedHalfWidth = sqrt(
+            max(0, (parentRadius * parentRadius) - (verticalOffset * verticalOffset)))
         let curveInset = max(0, parentRadius - allowedHalfWidth)
         return max(borderWidth / 2, curveInset + (borderWidth / 2))
     }
@@ -153,7 +154,8 @@ enum ShellMetrics {
     static let sidebarStatusLineHeight: CGFloat = SidebarRowTypography.statusLineHeight
     static let sidebarDetailLineHeight: CGFloat = SidebarRowTypography.detailLineHeight
     static let sidebarOverflowLineHeight: CGFloat = SidebarRowTypography.overflowLineHeight
-    static let sidebarCompactRowHeight: CGFloat = sidebarRowTopInset
+    static let sidebarCompactRowHeight: CGFloat =
+        sidebarRowTopInset
         + sidebarRowBottomInset
         + sidebarPrimaryLineHeight
     static let sidebarExpandedRowHeight: CGFloat = sidebarRowHeight(
@@ -194,17 +196,19 @@ enum ShellMetrics {
         includesOverflow: Bool
     ) -> CGFloat {
         let clampedDetailLineCount = max(0, detailLineCount)
-        let visibleLineHeights: [CGFloat] = [
-            includesTopLabel ? sidebarTitleLineHeight : nil,
-            sidebarPrimaryLineHeight,
-            includesStatus ? sidebarStatusLineHeight : nil,
-        ]
+        let visibleLineHeights: [CGFloat] =
+            [
+                includesTopLabel ? sidebarTitleLineHeight : nil,
+                sidebarPrimaryLineHeight,
+                includesStatus ? sidebarStatusLineHeight : nil,
+            ]
             .compactMap { $0 }
             + Array(repeating: sidebarDetailLineHeight, count: clampedDetailLineCount)
             + (includesOverflow ? [sidebarOverflowLineHeight] : [])
 
         let textHeight = visibleLineHeights.reduce(0, +)
-        let spacingHeight = CGFloat(max(0, visibleLineHeights.count - 1)) * sidebarRowInterlineSpacing
+        let spacingHeight =
+            CGFloat(max(0, visibleLineHeights.count - 1)) * sidebarRowInterlineSpacing
         return sidebarRowTopInset
             + sidebarRowBottomInset
             + textHeight

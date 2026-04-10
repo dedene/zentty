@@ -1320,17 +1320,26 @@ final class WorklaneStore {
         if let initialWorkingDirectory = trimmedWorkingDirectory(initialWorkingDirectory) {
             environment["ZENTTY_INITIAL_WORKING_DIRECTORY"] = initialWorkingDirectory
         }
-        if let helperPath = AgentStatusHelper.binaryPath() {
-            environment["ZENTTY_AGENT_BIN"] = helperPath
-        }
-        if let agentSignalCommand = AgentStatusHelper.agentSignalCommand() {
-            environment["ZENTTY_AGENT_SIGNAL_COMMAND"] = agentSignalCommand
-        }
-        if let claudeHookCommand = AgentStatusHelper.claudeHookCommand() {
-            environment["ZENTTY_CLAUDE_HOOK_COMMAND"] = claudeHookCommand
+        if let connectionInfo = AgentIPCServer.shared.connectionInfo(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID
+        ) {
+            environment["ZENTTY_INSTANCE_SOCKET"] = connectionInfo.socketPath
+            environment["ZENTTY_PANE_TOKEN"] = connectionInfo.paneToken
+            environment["ZENTTY_CLI_BIN"] = connectionInfo.cliPath
         }
         if let wrapperDirectories = AgentStatusHelper.wrapperDirectoryPaths() {
             environment["ZENTTY_ALL_WRAPPER_BIN_DIRS"] = wrapperDirectories.joined(separator: ":")
+        }
+        if let supportDirectory = AgentStatusHelper.wrapperSupportDirectoryPath(in: .main) {
+            let currentPath = processEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            let pathEntries = currentPath.split(separator: ":").map(String.init)
+            if !pathEntries.contains(supportDirectory) {
+                environment["PATH"] = ([supportDirectory] + pathEntries).joined(separator: ":")
+            } else {
+                environment["PATH"] = currentPath
+            }
         }
         if let shellIntegrationDirectory = AgentStatusHelper.shellIntegrationDirectoryPath() {
             environment["ZENTTY_SHELL_INTEGRATION_DIR"] = shellIntegrationDirectory

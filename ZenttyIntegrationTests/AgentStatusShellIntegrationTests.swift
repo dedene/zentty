@@ -6,7 +6,7 @@ import XCTest
 final class AgentStatusShellIntegrationTests: XCTestCase {
     func test_zsh_shell_integration_emits_git_branch_for_local_repository() throws {
         let repositoryURL = try makeTemporaryGitRepository(branch: "feature/test-branch")
-        let signals = try recordedShellSignals(
+        let signals = try recordedShellCalls(
             shellExecutable: "/bin/zsh",
             arguments: ["-lc", "source '\(repositoryShellIntegrationURL(filename: "zentty-zsh-integration.zsh").path)'"],
             currentDirectoryURL: repositoryURL
@@ -14,10 +14,14 @@ final class AgentStatusShellIntegrationTests: XCTestCase {
 
         XCTAssertTrue(
             signals.contains { signal in
-                signal.contains("agent-signal pane-context local")
-                    && signal.contains("--git-branch feature/test-branch")
+                signal.starts(with: ["ipc", "agent-signal", "pane-context", "local"])
+                    && signal.enumerated().contains { index, value in
+                        value == "--git-branch"
+                            && signal.indices.contains(index + 1)
+                            && signal[index + 1] == "feature/test-branch"
+                    }
             },
-            signals.joined(separator: "\n")
+            signals.map { $0.joined(separator: " ") }.joined(separator: "\n")
         )
     }
 
@@ -58,30 +62,43 @@ final class AgentStatusShellIntegrationTests: XCTestCase {
         return repositoryURL
     }
 
-    private func recordedShellSignals(
+    private func recordedShellCalls(
         shellExecutable: String,
         arguments: [String],
         currentDirectoryURL: URL
-    ) throws -> [String] {
+    ) throws -> [[String]] {
         let tempDirectoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDirectoryURL, withIntermediateDirectories: true)
 
         let logURL = tempDirectoryURL.appendingPathComponent("signals.log", isDirectory: false)
-        let agentURL = tempDirectoryURL.appendingPathComponent("agent", isDirectory: false)
+        let cliURL = tempDirectoryURL.appendingPathComponent("zentty", isDirectory: false)
         try """
         #!/bin/sh
-        printf '%s\n' "$*" >> "$ZENTTY_TEST_LOG"
-        """.write(to: agentURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: agentURL.path)
+        [ -n "${ZENTTY_INSTANCE_SOCKET:-}" ] || exit 0
+        [ -n "${ZENTTY_PANE_TOKEN:-}" ] || exit 0
+        [ -n "${ZENTTY_WORKLANE_ID:-}" ] || exit 0
+        [ -n "${ZENTTY_PANE_ID:-}" ] || exit 0
+        {
+          printf '%s\n' '--call--'
+          for arg in "$@"; do
+            printf '%s\n' "$arg"
+          done
+        } >> "$ZENTTY_TEST_LOG"
+        """.write(to: cliURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cliURL.path)
 
         _ = try runProcess(
             shellExecutable,
             arguments: arguments,
             environment: [
                 "ZENTTY_TEST_LOG": logURL.path,
-                "ZENTTY_AGENT_BIN": agentURL.path,
+                "ZENTTY_CLI_BIN": cliURL.path,
+                "ZENTTY_INSTANCE_SOCKET": tempDirectoryURL.appendingPathComponent("zentty.sock", isDirectory: false).path,
                 "ZENTTY_SHELL_INTEGRATION": "1",
+                "ZENTTY_WORKLANE_ID": "worklane-under-test",
+                "ZENTTY_PANE_ID": "pane-under-test",
+                "ZENTTY_PANE_TOKEN": "pane-token-under-test",
                 "ZENTTY_WRAPPER_BIN_DIR": "",
             ],
             currentDirectoryURL: currentDirectoryURL
@@ -91,9 +108,10 @@ final class AgentStatusShellIntegrationTests: XCTestCase {
             return []
         }
 
-        return try String(contentsOf: logURL, encoding: .utf8)
+        let lines = try String(contentsOf: logURL, encoding: .utf8)
             .split(separator: "\n")
             .map(String.init)
+        return parseArgumentCalls(lines)
     }
 
     @discardableResult
@@ -130,5 +148,27 @@ final class AgentStatusShellIntegrationTests: XCTestCase {
         }
 
         return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func parseArgumentCalls(_ lines: [String]) -> [[String]] {
+        var calls: [[String]] = []
+        var current: [String] = []
+
+        for line in lines {
+            if line == "--call--" {
+                if !current.isEmpty {
+                    calls.append(current)
+                    current = []
+                }
+                continue
+            }
+            current.append(line)
+        }
+
+        if !current.isEmpty {
+            calls.append(current)
+        }
+
+        return calls
     }
 }

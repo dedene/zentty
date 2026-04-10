@@ -38,8 +38,14 @@ _zentty_ensure_wrapper_path() {
 
 _zentty_agent_signal() {
     [[ "${ZENTTY_SHELL_INTEGRATION:-1}" == "0" ]] && return 0
-    [[ -n "${ZENTTY_AGENT_BIN:-}" ]] || return 0
-    "$ZENTTY_AGENT_BIN" agent-signal "$@" >/dev/null 2>&1 || true
+    [[ -n "${ZENTTY_INSTANCE_SOCKET:-}" ]] || return 0
+    [[ -n "${ZENTTY_PANE_TOKEN:-}" ]] || return 0
+    local cli_bin="${ZENTTY_CLI_BIN:-}"
+    if [[ -z "$cli_bin" || ! -x "$cli_bin" ]]; then
+        cli_bin="$(command -v zentty 2>/dev/null || true)"
+    fi
+    [[ -n "$cli_bin" ]] || return 0
+    "$cli_bin" ipc agent-signal "$@" >/dev/null 2>&1 || true
 }
 
 _zentty_report_shell_activity() {

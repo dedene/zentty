@@ -1485,6 +1485,92 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertFalse(paneRow.isWorking)
     }
 
+    func test_builder_formats_running_status_with_task_progress_suffix() {
+        let paneID = PaneID("worklane-main-agent-running-progress")
+        var auxiliaryState = PaneAuxiliaryState(
+            metadata: TerminalMetadata(
+                title: "Implement task progress",
+                currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                taskProgress: PaneAgentTaskProgress(doneCount: 2, totalCount: 5)
+            )
+        )
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "agent",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertNil(summary.statusText)
+        XCTAssertEqual(paneRow.statusText, "Running (2/5)")
+    }
+
+    func test_builder_formats_idle_status_with_task_progress_suffix_until_complete() {
+        let paneID = PaneID("worklane-main-agent-idle-progress")
+        var auxiliaryState = PaneAuxiliaryState(
+            metadata: TerminalMetadata(
+                title: "Implement task progress",
+                currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true,
+                taskProgress: PaneAgentTaskProgress(doneCount: 0, totalCount: 3)
+            ),
+        )
+        auxiliaryState.raw.showsReadyStatus = true
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "agent",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first(where: { _ in true }))
+
+        XCTAssertNil(summary.statusText)
+        XCTAssertEqual(paneRow.statusText, "Idle (0/3)")
+        XCTAssertNil(paneRow.attentionState)
+        XCTAssertFalse(paneRow.isWorking)
+    }
+
     func test_builder_moves_branch_to_trailing_for_idle_single_pane_agent_path_identity() {
         let paneID = PaneID("worklane-main-agent-path")
         let worklane = WorklaneState(
@@ -1558,9 +1644,9 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first { $0.paneID == buildPaneID })
 
-        XCTAssertEqual(paneRow.primaryText, "npm test · …/project")
+        XCTAssertEqual(paneRow.primaryText, "npm test")
         XCTAssertNil(paneRow.trailingText)
-        XCTAssertNil(paneRow.detailText)
+        XCTAssertEqual(paneRow.detailText, "…/project")
         XCTAssertEqual(paneRow.statusText, "Running")
         XCTAssertEqual(paneRow.attentionState, .running)
         XCTAssertTrue(paneRow.isWorking)
@@ -1608,9 +1694,9 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
         let paneRow = try! XCTUnwrap(summary.paneRows.first { $0.paneID == agentPaneID })
 
-        XCTAssertEqual(paneRow.primaryText, "Test session setup · …/nimbu")
+        XCTAssertEqual(paneRow.primaryText, "Test session setup")
         XCTAssertEqual(paneRow.trailingText, "feature/sidebar")
-        XCTAssertNil(paneRow.detailText)
+        XCTAssertEqual(paneRow.detailText, "…/nimbu")
         XCTAssertEqual(paneRow.statusText, "Idle")
     }
 

@@ -1,36 +1,9 @@
 import AppKit
-import CoreText
 import QuartzCore
 
 private enum SidebarShimmerTreatment {
     case highlight
     case shadow
-}
-
-private enum SidebarShimmerPhaseOffset {
-    fileprivate static let range: ClosedRange<CGFloat> = 0.03...0.21
-    private static let seed: UInt64 = 14_695_981_039_346_656_037
-    private static let prime: UInt64 = 1_099_511_628_211
-
-    static func forIdentifier(_ identifier: String?) -> CGFloat {
-        guard let identifier, identifier.isEmpty == false else {
-            return 0
-        }
-
-        var hash = seed
-        for byte in identifier.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= prime
-        }
-
-        let fraction = CGFloat(hash & 0xFFFF) / CGFloat(UInt16.max)
-        return range.lowerBound + ((range.upperBound - range.lowerBound) * fraction)
-    }
-
-    static func wrapped(_ phase: CGFloat) -> CGFloat {
-        let wrappedPhase = phase.truncatingRemainder(dividingBy: 1)
-        return wrappedPhase >= 0 ? wrappedPhase : wrappedPhase + 1
-    }
 }
 
 @MainActor
@@ -152,6 +125,8 @@ final class SidebarWorklaneRowButton: NSButton {
 
         applyResolvedSummary(animated: false)
     }
+
+    // MARK: - Setup
 
     private func setup() {
         isBordered = false
@@ -417,6 +392,8 @@ final class SidebarWorklaneRowButton: NSButton {
         applyCurrentAppearance(animated: true)
     }
 
+    // MARK: - Public API
+
     func configure(
         with summary: WorklaneSidebarSummary,
         theme: ZenttyTheme,
@@ -439,9 +416,18 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     /// Surgical label update for the volatile agent title fast path.
-    /// Writes the new text directly to the affected primary labels without
-    /// reconfiguring the row, rebuilding the layout, or invalidating autolayout.
-    /// Does not mutate `currentSummary` — the next slow-path configure will
+    /// Surgical label update for sub-100ms agent title ticks (spinner frames,
+    /// elapsed-time counters). Writes the new text directly to the affected
+    /// primary labels without reconfiguring the row, rebuilding the layout,
+    /// or invalidating autolayout.
+    ///
+    /// This is a **deliberate 60Hz optimization**, not a workaround for a
+    /// slow `configure(with:)` path. The slow path is fast enough for
+    /// structural changes (Phase 1+2 refactor), but spinner ticks at 20+ Hz
+    /// still benefit from surgical label mutation to avoid per-tick summary
+    /// construction + diff + layout passes.
+    ///
+    /// Does not mutate `currentSummary` — the next full-path configure will
     /// reconcile from the authoritative summary if a structural change arrives.
     func setVolatilePaneTitle(paneID: PaneID, text: String) {
         guard let summary = currentSummary else {
@@ -465,6 +451,8 @@ final class SidebarWorklaneRowButton: NSButton {
         panePrimaryRows[rowIndex].setPrimaryText(text)
     }
 
+    // MARK: - Rendering
+
     private func applyResolvedSummary(animated: Bool) {
         guard let summary = currentSummary, isApplyingResolvedSummary == false else {
             return
@@ -473,30 +461,29 @@ final class SidebarWorklaneRowButton: NSButton {
         isApplyingResolvedSummary = true
         defer { isApplyingResolvedSummary = false }
 
-        let resolvedSummary = resolvedSummary(for: summary)
-        let layout = SidebarWorklaneRowLayout(summary: resolvedSummary, availableWidth: bounds.width)
-        applyTextStackVerticalInsets(hasPaneRows: resolvedSummary.paneRows.isEmpty == false)
+        let layout = SidebarWorklaneRowLayout(summary: summary, availableWidth: bounds.width)
+        applyTextStackVerticalInsets(hasPaneRows: summary.paneRows.isEmpty == false)
 
-        topLabel.stringValue = resolvedSummary.topLabel ?? ""
-        overflowLabel.stringValue = resolvedSummary.overflowText ?? ""
-        contextPrefixLabel.stringValue = resolvedSummary.contextPrefixText ?? ""
-        if resolvedSummary.paneRows.isEmpty {
-            primaryBaseLabel.stringValue = resolvedSummary.primaryText
-            primaryLabel.stringValue = resolvedSummary.primaryText
+        topLabel.stringValue = summary.topLabel ?? ""
+        overflowLabel.stringValue = summary.overflowText ?? ""
+        contextPrefixLabel.stringValue = summary.contextPrefixText ?? ""
+        if summary.paneRows.isEmpty {
+            primaryBaseLabel.stringValue = summary.primaryText
+            primaryLabel.stringValue = summary.primaryText
             applyWorklanePrimaryPresentation()
-            let statusCopy = resolvedStatusCopy(
-                statusText: resolvedSummary.statusText,
-                attentionState: resolvedSummary.attentionState,
-                interactionKind: resolvedSummary.interactionKind,
-                interactionLabel: resolvedSummary.interactionLabel
+            let statusCopy = SidebarStatusResolver.resolveDisplayStatusText(
+                statusText: summary.statusText,
+                attentionState: summary.attentionState,
+                interactionKind: summary.interactionKind,
+                interactionLabel: summary.interactionLabel
             )
             statusBaseLabel.stringValue = statusCopy
             statusLabel.stringValue = statusCopy
-            currentStatusSymbolName = resolvedStatusSymbolName(
-                statusSymbolName: resolvedSummary.statusSymbolName,
-                attentionState: resolvedSummary.attentionState,
-                interactionKind: resolvedSummary.interactionKind,
-                interactionSymbolName: resolvedSummary.interactionSymbolName
+            currentStatusSymbolName = SidebarStatusResolver.resolveStatusSymbolName(
+                statusSymbolName: summary.statusSymbolName,
+                attentionState: summary.attentionState,
+                interactionKind: summary.interactionKind,
+                interactionSymbolName: summary.interactionSymbolName
             )
             statusIconView.image =
                 currentStatusSymbolName.isEmpty
@@ -506,11 +493,11 @@ final class SidebarWorklaneRowButton: NSButton {
             statusIconView.isHidden = statusIconView.image == nil
             applyWorklaneStatusPresentation(
                 lineCount: SidebarWorklaneRowLayout.worklaneStatusLineCount(
-                    for: resolvedSummary,
+                    for: summary,
                     availableWidth: bounds.width
                 )
             )
-            configureDetailLabels(for: resolvedSummary.detailLines)
+            configureDetailLabels(for: summary.detailLines)
         } else {
             primaryBaseLabel.stringValue = ""
             primaryLabel.stringValue = ""
@@ -519,7 +506,7 @@ final class SidebarWorklaneRowButton: NSButton {
             currentStatusSymbolName = ""
             statusIconView.image = nil
             statusIconView.isHidden = true
-            configurePaneRows(for: resolvedSummary.paneRows)
+            configurePaneRows(for: summary.paneRows)
         }
 
         textStack.setViews(
@@ -574,10 +561,6 @@ final class SidebarWorklaneRowButton: NSButton {
         statusContentHeightConstraint?.constant = statusHeight
         statusTextContainer.invalidateIntrinsicContentSize()
         statusContentStack.invalidateIntrinsicContentSize()
-    }
-
-    private func resolvedSummary(for summary: WorklaneSidebarSummary) -> WorklaneSidebarSummary {
-        summary
     }
 
     private func configureDetailLabels(for detailLines: [WorklaneSidebarDetailLine]) {
@@ -644,26 +627,24 @@ final class SidebarWorklaneRowButton: NSButton {
                     availableWidth: bounds.width
                 )
                 : .hidden
-            let primaryLineCount = SidebarWorklaneRowLayout.paneRowPrimaryLineCount(
-                for: paneRow,
-                availableWidth: bounds.width
-            )
+            // Pane row primaries are always single-line so the shimmer
+            // overlay can animate (SidebarShimmerTextView is single-line CoreText).
             panePrimaryRows[index].configure(
                 primaryText: paneRow.primaryText,
                 trailingText: presentationMode == .inline ? paneRow.trailingText : nil,
                 presentationMode: presentationMode,
-                lineCount: primaryLineCount
+                lineCount: 1
             )
             panePrimaryRows[index].setShimmerPhaseOffset(panePhaseOffset)
             paneDetailLabels[index].stringValue = paneRow.detailText ?? ""
             paneStatusRows[index].configure(
-                text: resolvedStatusCopy(
+                text: SidebarStatusResolver.resolveDisplayStatusText(
                     statusText: paneRow.statusText,
                     attentionState: paneRow.attentionState,
                     interactionKind: paneRow.interactionKind,
                     interactionLabel: paneRow.interactionLabel
                 ),
-                symbolName: resolvedStatusSymbolName(
+                symbolName: SidebarStatusResolver.resolveStatusSymbolName(
                     statusSymbolName: paneRow.statusSymbolName,
                     attentionState: paneRow.attentionState,
                     interactionKind: paneRow.interactionKind,
@@ -702,6 +683,8 @@ final class SidebarWorklaneRowButton: NSButton {
             }
         }
     }
+
+    // MARK: - Appearance & Colors
 
     private func applyCurrentAppearance(animated: Bool) {
         guard let summary = currentSummary else {
@@ -852,7 +835,6 @@ final class SidebarWorklaneRowButton: NSButton {
         ) > 1
         let shimmersStatus =
             summary.attentionState == .running
-            && summary.statusText == "Running"
             && statusWraps == false
         statusLabel.isShimmering = shimmersStatus
         statusLabel.reducedMotion = reducedMotionProvider()
@@ -1073,68 +1055,6 @@ final class SidebarWorklaneRowButton: NSButton {
         }
     }
 
-    private func resolvedStatusCopy(
-        statusText: String?,
-        attentionState: WorklaneAttentionState?,
-        interactionKind: PaneInteractionKind?,
-        interactionLabel: String?
-    ) -> String {
-        guard shouldPreferInteractionPresentation(
-            attentionState: attentionState,
-            interactionKind: interactionKind
-        ) else {
-            return statusText
-                ?? interactionLabel
-                ?? interactionKind?.defaultLabel
-                ?? ""
-        }
-
-        let preferredLabel = interactionLabel ?? interactionKind?.defaultLabel ?? ""
-        guard let statusText else {
-            return preferredLabel
-        }
-
-        if let genericRange = statusText.range(
-            of: PaneInteractionKind.genericInput.defaultLabel,
-            options: [.caseInsensitive, .backwards]
-        ) {
-            return statusText.replacingCharacters(in: genericRange, with: preferredLabel)
-        }
-
-        return preferredLabel
-    }
-
-    private func resolvedStatusSymbolName(
-        statusSymbolName: String?,
-        attentionState: WorklaneAttentionState?,
-        interactionKind: PaneInteractionKind?,
-        interactionSymbolName: String?
-    ) -> String {
-        guard shouldPreferInteractionPresentation(
-            attentionState: attentionState,
-            interactionKind: interactionKind
-        ) else {
-            return statusSymbolName
-                ?? interactionSymbolName
-                ?? interactionKind?.defaultSymbolName
-                ?? ""
-        }
-
-        return interactionSymbolName
-            ?? interactionKind?.defaultSymbolName
-            ?? statusSymbolName
-            ?? ""
-    }
-
-    private func shouldPreferInteractionPresentation(
-        attentionState: WorklaneAttentionState?,
-        interactionKind: PaneInteractionKind?
-    ) -> Bool {
-        attentionState == .needsInput
-            && interactionKind != nil
-            && interactionKind != .genericInput
-    }
-
     private func statusTextColor(for summary: WorklaneSidebarSummary) -> NSColor {
         switch summary.attentionState {
         case .running:
@@ -1184,6 +1104,8 @@ final class SidebarWorklaneRowButton: NSButton {
                 : currentTheme.tertiaryText
         }
     }
+
+    // MARK: - Layout Composition
 
     private func groupedViews(for layout: SidebarWorklaneRowLayout) -> [NSView] {
         var views: [NSView] = []
@@ -1265,6 +1187,33 @@ final class SidebarWorklaneRowButton: NSButton {
             overflowLabel
         }
     }
+
+    func primaryMinX(in view: NSView) -> CGFloat {
+        guard let superview = primaryTextContainer.superview else {
+            return view.convert(primaryBaseLabel.bounds, from: primaryBaseLabel).minX
+        }
+
+        let primaryTextFrame = convert(primaryTextContainer.frame, from: superview)
+        return view.convert(primaryTextFrame, from: self).minX
+    }
+
+    private func configureLabel(
+        _ label: NSTextField,
+        font: NSFont,
+        lineBreakMode: NSLineBreakMode
+    ) {
+        label.font = font
+        label.lineBreakMode = lineBreakMode
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.maximumNumberOfLines = 1
+    }
+
+    // MARK: - Test Accessors
+    //
+    // The block below is read-only support for XCTest assertions. It uses
+    // `@testable import Zentty` to reach these internal/private members.
+    // Production code must not depend on anything in this section — it is
+    // reviewable as one contiguous skippable block in the minimap.
 
     var detailTextsForTesting: [String] {
         if currentSummary?.paneRows.isEmpty == false {
@@ -1499,1300 +1448,5 @@ final class SidebarWorklaneRowButton: NSButton {
 
     var appearanceMatchForTesting: NSAppearance.Name? {
         appearance?.bestMatch(from: [.darkAqua, .aqua])
-    }
-
-    func primaryMinX(in view: NSView) -> CGFloat {
-        guard let superview = primaryTextContainer.superview else {
-            return view.convert(primaryBaseLabel.bounds, from: primaryBaseLabel).minX
-        }
-
-        let primaryTextFrame = convert(primaryTextContainer.frame, from: superview)
-        return view.convert(primaryTextFrame, from: self).minX
-    }
-
-    private func configureLabel(
-        _ label: NSTextField,
-        font: NSFont,
-        lineBreakMode: NSLineBreakMode
-    ) {
-        label.font = font
-        label.lineBreakMode = lineBreakMode
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.maximumNumberOfLines = 1
-    }
-}
-
-@MainActor
-private final class SidebarShimmerTextView: NSView {
-    fileprivate enum Animation {
-        static let velocity: CGFloat = 130      // pts/sec — constant across all widths
-        static let bandWidth: CGFloat = 48
-        static let frameInterval: TimeInterval = 1.0 / 30.0
-    }
-
-    private static let textLeadingInset: CGFloat = 0
-
-    struct LayoutSnapshot {
-        let line: CTLine
-        let glyphPath: CGPath
-        let origin: CGPoint
-        let width: CGFloat
-    }
-
-    var stringValue: String = "" {
-        didSet {
-            guard oldValue != stringValue else { return }
-            invalidateLayout()
-        }
-    }
-
-    var font: NSFont = .systemFont(ofSize: 13, weight: .semibold) {
-        didSet {
-            guard oldValue != font else { return }
-            invalidateLayout()
-        }
-    }
-
-    var lineBreakMode: NSLineBreakMode = .byTruncatingTail {
-        didSet {
-            guard oldValue != lineBreakMode else { return }
-            invalidateLayout()
-        }
-    }
-
-    var shimmerColor: NSColor = .clear {
-        didSet {
-            guard oldValue != shimmerColor else { return }
-            needsDisplay = true
-        }
-    }
-
-    var lineHeight: CGFloat = ShellMetrics.sidebarPrimaryLineHeight {
-        didSet {
-            guard oldValue != lineHeight else { return }
-            invalidateIntrinsicContentSize()
-            needsDisplay = true
-        }
-    }
-
-    var isShimmering: Bool = false {
-        didSet {
-            guard oldValue != isShimmering else { return }
-            refreshSharedShimmerParticipation()
-            needsDisplay = true
-        }
-    }
-
-    var reducedMotion: Bool = false {
-        didSet {
-            guard oldValue != reducedMotion else { return }
-            refreshSharedShimmerParticipation()
-            needsDisplay = true
-        }
-    }
-
-    var isVisibleForSharedAnimation: Bool = false {
-        didSet {
-            guard oldValue != isVisibleForSharedAnimation else { return }
-            refreshSharedShimmerParticipation()
-        }
-    }
-
-    var shimmerPhaseOffset: CGFloat = 0 {
-        didSet {
-            guard oldValue != shimmerPhaseOffset else { return }
-            needsDisplay = true
-        }
-    }
-
-    weak var shimmerCoordinator: SidebarShimmerCoordinator? {
-        didSet {
-            guard oldValue !== shimmerCoordinator else {
-                return
-            }
-
-            oldValue?.unregister(self)
-            shimmerCoordinator?.register(self)
-            refreshSharedShimmerParticipation()
-        }
-    }
-
-    private var sharedShimmerPhase: CGFloat = 0.5
-    private var sharedShimmerInSweep = false
-    private var cachedWidth: CGFloat = -1
-    private var cachedStringValue = ""
-    private var cachedFont: NSFont?
-    private var cachedLineBreakMode: NSLineBreakMode = .byTruncatingTail
-    private var cachedLayout: LayoutSnapshot?
-
-    override var isOpaque: Bool {
-        false
-    }
-
-    override var allowsVibrancy: Bool {
-        false
-    }
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: preferredTextWidth + Self.textLeadingInset, height: lineHeight)
-    }
-
-    var shimmerIsAnimating: Bool {
-        canAnimateSharedShimmer && sharedShimmerInSweep
-    }
-
-    var shimmerPhaseOffsetForTesting: CGFloat {
-        shimmerPhaseOffset
-    }
-
-    private var preferredTextWidth: CGFloat {
-        guard stringValue.isEmpty == false else {
-            return 0
-        }
-
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let line = CTLineCreateWithAttributedString(
-            NSAttributedString(string: stringValue, attributes: attributes)
-        )
-        return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        let previousWidth = frame.size.width
-        super.setFrameSize(newSize)
-        if abs(previousWidth - newSize.width) > .ulpOfOne {
-            invalidateLayout()
-        }
-    }
-
-    override func viewWillMove(toSuperview newSuperview: NSView?) {
-        super.viewWillMove(toSuperview: newSuperview)
-        if newSuperview == nil {
-            isVisibleForSharedAnimation = false
-        }
-        refreshSharedShimmerParticipation()
-    }
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        refreshSharedShimmerParticipation()
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        guard
-            let context = NSGraphicsContext.current?.cgContext,
-            let layout = layoutSnapshot(forWidth: bounds.width)
-        else {
-            return
-        }
-
-        guard canAnimateSharedShimmer, sharedShimmerInSweep else {
-            return
-        }
-
-        context.saveGState()
-        context.addPath(layout.glyphPath)
-        context.clip()
-        drawShimmerOverlay(in: context, layout: layout)
-        context.restoreGState()
-    }
-
-    private func drawShimmerOverlay(
-        in context: CGContext,
-        layout: LayoutSnapshot
-    ) {
-        let availableWidth = max(0, bounds.width - Self.textLeadingInset)
-        let bandWidth = Animation.bandWidth
-        let originX: CGFloat
-        if reducedMotion {
-            originX = Self.textLeadingInset + (availableWidth / 2) - (bandWidth / 2)
-        } else {
-            let travel = availableWidth + bandWidth
-            let phase = sharedShimmerPhase + shimmerPhaseOffset
-            originX = Self.textLeadingInset - bandWidth + (travel * phase)
-        }
-
-        guard
-            let gradient = CGGradient(
-                colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                colors: [
-                    shimmerColor.withAlphaComponent(0).cgColor,
-                    shimmerColor.cgColor,
-                    shimmerColor.withAlphaComponent(0).cgColor,
-                ] as CFArray,
-                locations: [0, 0.5, 1]
-            )
-        else {
-            return
-        }
-
-        let start = CGPoint(x: originX, y: layout.origin.y)
-        let end = CGPoint(x: originX + bandWidth, y: layout.origin.y)
-        context.drawLinearGradient(gradient, start: start, end: end, options: [])
-    }
-
-    private func layoutSnapshot(forWidth width: CGFloat) -> LayoutSnapshot? {
-        let availableWidth = width - Self.textLeadingInset
-        guard availableWidth > 0, stringValue.isEmpty == false else {
-            return nil
-        }
-
-        if let cachedLayout,
-            abs(cachedWidth - width) <= .ulpOfOne,
-            cachedStringValue == stringValue,
-            cachedFont == font,
-            cachedLineBreakMode == lineBreakMode
-        {
-            return cachedLayout
-        }
-
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font
-        ]
-        let line = CTLineCreateWithAttributedString(
-            NSAttributedString(string: stringValue, attributes: attributes)
-        )
-        let drawLine = truncatedLine(
-            from: line, attributes: attributes, availableWidth: availableWidth)
-
-        var ascent: CGFloat = 0
-        var descent: CGFloat = 0
-        let lineWidth = CGFloat(CTLineGetTypographicBounds(drawLine, &ascent, &descent, nil))
-        let totalLineHeight = ascent + descent
-        let bottomPadding = max(0, (bounds.height - totalLineHeight) / 2)
-        let origin = CGPoint(x: Self.textLeadingInset, y: bottomPadding + descent)
-        let glyphPath = glyphPath(for: drawLine, lineOrigin: origin)
-        let snapshot = LayoutSnapshot(
-            line: drawLine,
-            glyphPath: glyphPath,
-            origin: origin,
-            width: lineWidth
-        )
-
-        cachedWidth = width
-        cachedStringValue = stringValue
-        cachedFont = font
-        cachedLineBreakMode = lineBreakMode
-        cachedLayout = snapshot
-
-        return snapshot
-    }
-
-    private func truncatedLine(
-        from line: CTLine,
-        attributes: [NSAttributedString.Key: Any],
-        availableWidth: CGFloat
-    ) -> CTLine {
-        guard lineBreakMode == .byTruncatingTail else {
-            return line
-        }
-
-        guard CTLineGetTypographicBounds(line, nil, nil, nil) > availableWidth else {
-            return line
-        }
-
-        let token = NSAttributedString(string: "\u{2026}", attributes: attributes)
-        let tokenLine = CTLineCreateWithAttributedString(token)
-        return CTLineCreateTruncatedLine(line, Double(availableWidth), .end, tokenLine) ?? line
-    }
-
-    private func glyphPath(
-        for line: CTLine,
-        lineOrigin: CGPoint
-    ) -> CGPath {
-        let glyphPath = CGMutablePath()
-        let runs = CTLineGetGlyphRuns(line) as NSArray
-
-        for case let run as CTRun in runs {
-            let glyphCount = CTRunGetGlyphCount(run)
-            guard glyphCount > 0 else {
-                continue
-            }
-
-            let attributes = CTRunGetAttributes(run) as NSDictionary
-            guard let fontObject = attributes[kCTFontAttributeName] else {
-                continue
-            }
-            let ctFont = fontObject as! CTFont
-
-            var glyphs = Array(repeating: CGGlyph(), count: glyphCount)
-            var positions = Array(repeating: CGPoint.zero, count: glyphCount)
-            CTRunGetGlyphs(run, CFRange(location: 0, length: 0), &glyphs)
-            CTRunGetPositions(run, CFRange(location: 0, length: 0), &positions)
-
-            for index in 0..<glyphCount {
-                guard let path = CTFontCreatePathForGlyph(ctFont, glyphs[index], nil) else {
-                    continue
-                }
-
-                let transform = CGAffineTransform(
-                    translationX: lineOrigin.x + positions[index].x,
-                    y: lineOrigin.y + positions[index].y
-                )
-                glyphPath.addPath(path, transform: transform)
-            }
-        }
-
-        return glyphPath
-    }
-
-    func applySharedShimmerState(phase: CGFloat, inSweep: Bool) {
-        sharedShimmerPhase = phase
-        sharedShimmerInSweep = inSweep
-        needsDisplay = true
-    }
-
-    func resetSharedShimmerState() {
-        sharedShimmerPhase = 0.5
-        sharedShimmerInSweep = false
-        needsDisplay = true
-    }
-
-    fileprivate var canAnimateSharedShimmer: Bool {
-        isShimmering && isVisibleForSharedAnimation && reducedMotion == false
-    }
-
-    private func refreshSharedShimmerParticipation() {
-        guard let shimmerCoordinator else {
-            resetSharedShimmerState()
-            return
-        }
-
-        shimmerCoordinator.labelStateDidChange()
-        if canAnimateSharedShimmer {
-            needsDisplay = true
-        } else {
-            resetSharedShimmerState()
-        }
-    }
-
-    private func invalidateLayout() {
-        cachedWidth = -1
-        cachedStringValue = ""
-        cachedFont = nil
-        cachedLineBreakMode = lineBreakMode
-        cachedLayout = nil
-        invalidateIntrinsicContentSize()
-        needsDisplay = true
-    }
-}
-
-@MainActor
-final class SidebarShimmerCoordinator {
-    private static let pauseRange: ClosedRange<CFTimeInterval> = 2.5...4.0
-
-    private var labels: NSHashTable<SidebarShimmerTextView> = .weakObjects()
-    private var timer: Timer?
-    private var windowIsRenderable = false
-    private var currentPhase: CGFloat = 0.5
-    private var inSweep = false
-    private var cycleStart: CFTimeInterval = 0
-    private var pauseDuration: CFTimeInterval = 0
-
-    var isRunningForTesting: Bool {
-        timer != nil
-    }
-
-    static var pauseRangeForTesting: ClosedRange<CFTimeInterval> {
-        pauseRange
-    }
-
-    fileprivate func register(_ label: SidebarShimmerTextView) {
-        labels.add(label)
-        label.applySharedShimmerState(phase: currentPhase, inSweep: inSweep)
-        refreshAnimationState()
-    }
-
-    fileprivate func unregister(_ label: SidebarShimmerTextView) {
-        labels.remove(label)
-        refreshAnimationState()
-    }
-
-    func setWindowIsRenderable(_ isRenderable: Bool) {
-        guard windowIsRenderable != isRenderable else {
-            return
-        }
-
-        windowIsRenderable = isRenderable
-        refreshAnimationState()
-    }
-
-    func labelStateDidChange() {
-        refreshAnimationState()
-    }
-
-    private var activeLabels: [SidebarShimmerTextView] {
-        labels.allObjects.filter { $0.canAnimateSharedShimmer }
-    }
-
-    private func refreshAnimationState() {
-        let labels = activeLabels
-        guard windowIsRenderable, labels.isEmpty == false else {
-            suspendTimer()
-            labelsForDisplay().forEach { $0.resetSharedShimmerState() }
-            return
-        }
-
-        if timer == nil {
-            resumeOrStartTimer()
-        }
-
-        applyCurrentState(to: labels)
-    }
-
-    private func labelsForDisplay() -> [SidebarShimmerTextView] {
-        labels.allObjects
-    }
-
-    private var suspendedElapsed: CFTimeInterval?
-
-    private static let sweepStartPhase = -SidebarShimmerPhaseOffset.range.upperBound
-
-    private func resumeOrStartTimer() {
-        if let elapsed = suspendedElapsed {
-            suspendedElapsed = nil
-            cycleStart = CACurrentMediaTime() - elapsed
-        } else {
-            cycleStart = CACurrentMediaTime()
-            pauseDuration = .random(in: Self.pauseRange)
-            inSweep = true
-            currentPhase = Self.sweepStartPhase
-        }
-
-        let timer = Timer(
-            timeInterval: SidebarShimmerTextView.Animation.frameInterval,
-            repeats: true
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.tick()
-            }
-        }
-        self.timer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
-
-    private func suspendTimer() {
-        if timer != nil {
-            suspendedElapsed = CACurrentMediaTime() - cycleStart
-        }
-        timer?.invalidate()
-        timer = nil
-    }
-
-    private func stopTimer() {
-        suspendedElapsed = nil
-        timer?.invalidate()
-        timer = nil
-    }
-
-    private func tick() {
-        guard windowIsRenderable else {
-            stopTimer()
-            inSweep = false
-            currentPhase = 0.5
-            labelsForDisplay().forEach { $0.resetSharedShimmerState() }
-            return
-        }
-
-        let labels = activeLabels
-        guard labels.isEmpty == false else {
-            suspendTimer()
-            labelsForDisplay().forEach { $0.resetSharedShimmerState() }
-            return
-        }
-
-        let travelDistance = max(1, labels.map(\.bounds.width).max() ?? 1) + SidebarShimmerTextView.Animation.bandWidth
-        let sweepDuration = CFTimeInterval(travelDistance / SidebarShimmerTextView.Animation.velocity)
-        let cycleDuration = sweepDuration + pauseDuration
-        let elapsed = CACurrentMediaTime() - cycleStart
-
-        if elapsed >= cycleDuration {
-            cycleStart = CACurrentMediaTime()
-            pauseDuration = .random(in: Self.pauseRange)
-            currentPhase = Self.sweepStartPhase
-            inSweep = true
-        } else if elapsed < sweepDuration {
-            currentPhase = CGFloat(elapsed / sweepDuration)
-            inSweep = true
-        } else {
-            inSweep = false
-        }
-
-        applyCurrentState(to: labels)
-    }
-
-    private func applyCurrentState(to labels: [SidebarShimmerTextView]) {
-        labels.forEach { $0.applySharedShimmerState(phase: currentPhase, inSweep: inSweep) }
-    }
-}
-
-private final class SidebarStaticLabel: NSTextField {
-    init() {
-        super.init(frame: .zero)
-        isEditable = false
-        isSelectable = false
-        isBordered = false
-        drawsBackground = false
-        backgroundColor = .clear
-        stringValue = ""
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var allowsVibrancy: Bool {
-        false
-    }
-}
-
-private extension NSView {
-    func containsDescendant(_ candidate: NSView) -> Bool {
-        if self === candidate {
-            return true
-        }
-
-        return subviews.contains { $0.containsDescendant(candidate) }
-    }
-}
-
-private final class SidebarInsetContainerView: NSView {
-    private weak var referenceWidthView: NSView?
-    private var widthConstraint: NSLayoutConstraint?
-
-    init(contentView: NSView, horizontalInset: CGFloat, referenceWidthView: NSView) {
-        self.referenceWidthView = referenceWidthView
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        setContentHuggingPriority(.defaultLow, for: .horizontal)
-        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        addSubview(contentView)
-        NSLayoutConstraint.activate([
-            contentView.topAnchor.constraint(equalTo: topAnchor),
-            contentView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: horizontalInset),
-            contentView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -horizontalInset),
-            contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var allowsVibrancy: Bool {
-        false
-    }
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-
-        widthConstraint?.isActive = false
-        widthConstraint = nil
-
-        guard superview != nil, let referenceWidthView else {
-            return
-        }
-
-        let widthConstraint = widthAnchor.constraint(equalTo: referenceWidthView.widthAnchor)
-        widthConstraint.isActive = true
-        self.widthConstraint = widthConstraint
-    }
-
-    var hasActiveWidthConstraintForTesting: Bool {
-        widthConstraint?.isActive == true
-    }
-}
-
-private final class SidebarPrimaryTextContainerView: NSView {
-    override var allowsVibrancy: Bool {
-        false
-    }
-}
-
-@MainActor
-private final class SidebarPanePrimaryRowView: NSView {
-    private let textContainer = SidebarPrimaryTextContainerView()
-    private let baseLabel = SidebarStaticLabel()
-    private let shimmerLabel = SidebarShimmerTextView()
-    private let trailingLabelView = SidebarStaticLabel()
-    private let stack = NSStackView()
-    private var heightConstraint: NSLayoutConstraint?
-    private var presentationMode: SidebarPaneRowPresentationMode = .inline
-    private var requestedLineCount: Int = 1
-
-    private(set) var primaryText: String = ""
-    private(set) var trailingText: String?
-    private(set) var primaryColor: NSColor = .labelColor
-    private(set) var trailingColor: NSColor = .secondaryLabelColor
-
-    var renderedPrimaryTextColorForTesting: NSColor {
-        baseLabel.textColor ?? .clear
-    }
-
-    var shimmerColorForTesting: NSColor {
-        shimmerLabel.shimmerColor
-    }
-
-    var renderedTrailingTextColorForTesting: NSColor {
-        trailingLabelView.textColor ?? .clear
-    }
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(
-            width: NSView.noIntrinsicMetric,
-            height: heightConstraint?.constant ?? ShellMetrics.sidebarPrimaryLineHeight
-        )
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setup()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layout() {
-        super.layout()
-        updateAdaptiveHeight()
-    }
-
-    private func setup() {
-        translatesAutoresizingMaskIntoConstraints = false
-        setContentHuggingPriority(.required, for: .vertical)
-        setContentCompressionResistancePriority(.required, for: .vertical)
-
-        textContainer.translatesAutoresizingMaskIntoConstraints = false
-        textContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        textContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        textContainer.addSubview(baseLabel)
-        textContainer.addSubview(shimmerLabel)
-
-        baseLabel.font = ShellMetrics.sidebarPrimaryFont()
-        baseLabel.lineBreakMode = .byTruncatingTail
-        baseLabel.translatesAutoresizingMaskIntoConstraints = false
-        baseLabel.maximumNumberOfLines = 1
-        baseLabel.cell?.wraps = false
-        baseLabel.cell?.usesSingleLineMode = true
-
-        shimmerLabel.font = ShellMetrics.sidebarPrimaryFont()
-        shimmerLabel.lineHeight = ShellMetrics.sidebarPrimaryLineHeight
-        shimmerLabel.lineBreakMode = .byTruncatingTail
-        shimmerLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        trailingLabelView.font = ShellMetrics.sidebarDetailFont()
-        trailingLabelView.alignment = .right
-        trailingLabelView.lineBreakMode = .byTruncatingHead
-        trailingLabelView.translatesAutoresizingMaskIntoConstraints = false
-        trailingLabelView.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        stack.orientation = .horizontal
-        stack.alignment = .top
-        stack.spacing = SidebarPaneRowPresentationMode.inlineSpacing
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(textContainer)
-        stack.addArrangedSubview(trailingLabelView)
-        addSubview(stack)
-
-        let heightConstraint = heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarPrimaryLineHeight)
-        heightConstraint.priority = .defaultHigh
-        self.heightConstraint = heightConstraint
-        NSLayoutConstraint.activate([
-            baseLabel.topAnchor.constraint(equalTo: textContainer.topAnchor),
-            baseLabel.leadingAnchor.constraint(equalTo: textContainer.leadingAnchor),
-            baseLabel.trailingAnchor.constraint(equalTo: textContainer.trailingAnchor),
-            baseLabel.bottomAnchor.constraint(equalTo: textContainer.bottomAnchor),
-            shimmerLabel.topAnchor.constraint(equalTo: textContainer.topAnchor),
-            shimmerLabel.leadingAnchor.constraint(equalTo: textContainer.leadingAnchor),
-            shimmerLabel.trailingAnchor.constraint(equalTo: textContainer.trailingAnchor),
-            shimmerLabel.bottomAnchor.constraint(equalTo: textContainer.bottomAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightConstraint,
-        ])
-    }
-
-    /// Surgical primary-text update for the volatile agent title fast path.
-    /// Writes the new text into baseLabel and shimmerLabel without touching
-    /// trailing text, presentation mode, line count, or layout. Idempotent.
-    func setPrimaryText(_ text: String) {
-        guard primaryText != text else { return }
-        primaryText = text
-        baseLabel.stringValue = text
-        shimmerLabel.stringValue = text
-    }
-
-    func configure(
-        primaryText: String,
-        trailingText: String?,
-        presentationMode: SidebarPaneRowPresentationMode,
-        lineCount: Int
-    ) {
-        self.primaryText = primaryText
-        self.trailingText = trailingText
-        self.presentationMode = presentationMode
-        requestedLineCount = lineCount
-        baseLabel.stringValue = primaryText
-        shimmerLabel.stringValue = primaryText
-        trailingLabelView.stringValue = trailingText ?? ""
-        trailingLabelView.isHidden = (trailingText?.isEmpty ?? true)
-        applyPresentationMode(lineCount: lineCount)
-    }
-
-    func applyColors(
-        primaryColor: NSColor,
-        trailingColor: NSColor,
-        isShimmering: Bool,
-        shimmerColor: NSColor,
-        reducedMotion: Bool
-    ) {
-        self.primaryColor = primaryColor
-        self.trailingColor = trailingColor
-        baseLabel.textColor = primaryColor
-        trailingLabelView.textColor = trailingColor
-        // The pane row primary stays single-line with tail truncation (see
-        // `applyPresentationMode`) so the shimmer overlay always has a line
-        // to clip against — hiding it on wrap would kill the shimmer on
-        // running agents.
-        shimmerLabel.isHidden = false
-        shimmerLabel.isShimmering = isShimmering
-        shimmerLabel.reducedMotion = reducedMotion
-        shimmerLabel.shimmerColor = shimmerColor
-    }
-
-    func setShimmerCoordinator(_ coordinator: SidebarShimmerCoordinator?) {
-        shimmerLabel.shimmerCoordinator = coordinator
-    }
-
-    func setShimmerVisibility(_ isVisible: Bool) {
-        shimmerLabel.isVisibleForSharedAnimation = isVisible
-    }
-
-    func setShimmerPhaseOffset(_ offset: CGFloat) {
-        shimmerLabel.shimmerPhaseOffset = offset
-    }
-
-    var shimmerPhaseOffsetForTesting: CGFloat {
-        shimmerLabel.shimmerPhaseOffsetForTesting
-    }
-
-    private func applyPresentationMode(lineCount: Int) {
-        // The pane row primary is intentionally single-line with tail
-        // truncation. `SidebarShimmerTextView` is a single-line CoreText
-        // renderer, so keeping this label one line wide is what allows
-        // running agents to shimmer. Long titles simply truncate.
-        //
-        // Note: we still honour `presentationMode == .adaptive` for the
-        // inline trailing label. In adaptive mode the branch moves to the
-        // status row (via `paneRowStatusTrailingLayout`), so hiding the
-        // inline trailing here prevents it from appearing in both places.
-        let movesTrailingToStatusRow = presentationMode == .adaptive
-        baseLabel.lineBreakMode = .byTruncatingTail
-        baseLabel.maximumNumberOfLines = 1
-        baseLabel.cell?.wraps = false
-        baseLabel.cell?.usesSingleLineMode = true
-        trailingLabelView.isHidden =
-            movesTrailingToStatusRow || (trailingText?.isEmpty ?? true)
-        stack.alignment = .centerY
-        heightConstraint?.constant = ShellMetrics.sidebarPrimaryLineHeight
-        invalidateIntrinsicContentSize()
-    }
-
-    private func updateAdaptiveHeight() {
-        // The pane row primary is always single-line — no adaptive height.
-    }
-}
-
-@MainActor
-private final class SidebarPaneTextRowView: NSView {
-    private static let symbolPointSize: CGFloat = 11
-
-    private let iconView = NSImageView()
-    private let textContainer = SidebarPrimaryTextContainerView()
-    private let baseLabel = SidebarStaticLabel()
-    private let shimmerLabel = SidebarShimmerTextView()
-    private let trailingLabelView = SidebarStaticLabel()
-    private let contentStack = NSStackView()
-
-    private(set) var text: String = ""
-    private(set) var symbolName: String = ""
-    private(set) var textColor: NSColor = .secondaryLabelColor
-    private(set) var trailingText: String?
-    private(set) var trailingTextColor: NSColor = .secondaryLabelColor
-    private var rowLineHeight: CGFloat = ShellMetrics.sidebarStatusLineHeight
-    private var heightConstraint: NSLayoutConstraint?
-    private var trailingWidthConstraint: NSLayoutConstraint?
-    private var lineCount = 1
-
-    init(font: NSFont, lineHeight: CGFloat) {
-        super.init(frame: .zero)
-        setup(font: font, lineHeight: lineHeight)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setup(font: NSFont, lineHeight: CGFloat) {
-        rowLineHeight = lineHeight
-        translatesAutoresizingMaskIntoConstraints = false
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.imageScaling = .scaleProportionallyDown
-        iconView.setContentHuggingPriority(.required, for: .horizontal)
-        iconView.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        textContainer.translatesAutoresizingMaskIntoConstraints = false
-        textContainer.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-        textContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        textContainer.addSubview(baseLabel)
-        textContainer.addSubview(shimmerLabel)
-        contentStack.orientation = .horizontal
-        contentStack.alignment = .centerY
-        contentStack.spacing = 4
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        contentStack.addArrangedSubview(iconView)
-        contentStack.addArrangedSubview(textContainer)
-        trailingLabelView.font = ShellMetrics.sidebarDetailFont()
-        trailingLabelView.alignment = .right
-        trailingLabelView.lineBreakMode = .byTruncatingMiddle
-        trailingLabelView.translatesAutoresizingMaskIntoConstraints = false
-        trailingLabelView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        trailingLabelView.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        contentStack.addArrangedSubview(trailingLabelView)
-        addSubview(contentStack)
-
-        baseLabel.font = font
-        baseLabel.lineBreakMode = .byTruncatingTail
-        baseLabel.translatesAutoresizingMaskIntoConstraints = false
-        baseLabel.maximumNumberOfLines = 1
-        baseLabel.cell?.wraps = false
-        baseLabel.cell?.usesSingleLineMode = true
-
-        shimmerLabel.font = font
-        shimmerLabel.lineHeight = lineHeight
-        shimmerLabel.lineBreakMode = .byTruncatingTail
-        shimmerLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let heightConstraint = heightAnchor.constraint(equalToConstant: lineHeight)
-        heightConstraint.priority = .defaultHigh
-        self.heightConstraint = heightConstraint
-        let trailingWidthConstraint = trailingLabelView.widthAnchor.constraint(equalToConstant: 0)
-        self.trailingWidthConstraint = trailingWidthConstraint
-
-        NSLayoutConstraint.activate([
-            iconView.widthAnchor.constraint(equalToConstant: Self.symbolPointSize),
-            iconView.heightAnchor.constraint(equalToConstant: Self.symbolPointSize),
-            baseLabel.topAnchor.constraint(equalTo: textContainer.topAnchor),
-            baseLabel.leadingAnchor.constraint(equalTo: textContainer.leadingAnchor),
-            baseLabel.trailingAnchor.constraint(equalTo: textContainer.trailingAnchor),
-            baseLabel.bottomAnchor.constraint(equalTo: textContainer.bottomAnchor),
-            shimmerLabel.topAnchor.constraint(equalTo: textContainer.topAnchor),
-            shimmerLabel.leadingAnchor.constraint(equalTo: textContainer.leadingAnchor),
-            shimmerLabel.trailingAnchor.constraint(equalTo: textContainer.trailingAnchor),
-            shimmerLabel.bottomAnchor.constraint(equalTo: textContainer.bottomAnchor),
-            contentStack.topAnchor.constraint(equalTo: topAnchor),
-            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightConstraint,
-            trailingWidthConstraint,
-        ])
-    }
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(
-            width: NSView.noIntrinsicMetric,
-            height: heightConstraint?.constant ?? rowLineHeight
-        )
-    }
-
-    override func layout() {
-        super.layout()
-        updateResolvedTrailingVisibility()
-    }
-
-    func configure(
-        text: String,
-        symbolName: String?,
-        trailingText: String?,
-        trailingWidth: CGFloat,
-        lineCount: Int
-    ) {
-        self.text = text
-        self.symbolName = symbolName ?? ""
-        self.trailingText = trailingText
-        let showsTrailingTextInLeadingSlot = rendersTrailingTextInLeadingSlot
-        let leadingText = showsTrailingTextInLeadingSlot ? (trailingText ?? "") : text
-
-        baseLabel.stringValue = leadingText
-        shimmerLabel.stringValue = leadingText
-        iconView.image = symbolName.flatMap {
-            NSImage(systemSymbolName: $0, accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: Self.symbolPointSize, weight: .semibold))
-        }
-        iconView.isHidden = showsTrailingTextInLeadingSlot || iconView.image == nil
-        trailingLabelView.stringValue = showsTrailingTextInLeadingSlot ? "" : (trailingText ?? "")
-        trailingLabelView.isHidden = showsTrailingTextInLeadingSlot || (trailingText?.isEmpty ?? true)
-        trailingWidthConstraint?.constant = showsTrailingTextInLeadingSlot || trailingText == nil ? 0 : trailingWidth
-        applyPresentation(lineCount: lineCount)
-    }
-
-    func applyColors(
-        textColor: NSColor,
-        trailingTextColor: NSColor?,
-        isShimmering: Bool,
-        shimmerColor: NSColor,
-        reducedMotion: Bool
-    ) {
-        self.textColor = textColor
-        self.trailingTextColor = trailingTextColor ?? .clear
-        let dimmedColor = isShimmering
-            ? textColor.withAlphaComponent(textColor.alphaComponent * 0.90)
-            : textColor
-        let leadingTextColor = rendersTrailingTextInLeadingSlot
-            ? (trailingTextColor ?? textColor)
-            : dimmedColor
-        baseLabel.textColor = leadingTextColor
-        iconView.contentTintColor = dimmedColor
-        trailingLabelView.textColor = trailingTextColor
-        shimmerLabel.isShimmering = isShimmering && lineCount == 1 && rendersTrailingTextInLeadingSlot == false
-        shimmerLabel.reducedMotion = reducedMotion
-        shimmerLabel.shimmerColor = shimmerColor
-    }
-
-    func setShimmerCoordinator(_ coordinator: SidebarShimmerCoordinator?) {
-        shimmerLabel.shimmerCoordinator = coordinator
-    }
-
-    func setShimmerVisibility(_ isVisible: Bool) {
-        shimmerLabel.isVisibleForSharedAnimation = isVisible
-    }
-
-    func setShimmerPhaseOffset(_ offset: CGFloat) {
-        shimmerLabel.shimmerPhaseOffset = offset
-    }
-
-    var shimmerPhaseOffsetForTesting: CGFloat {
-        shimmerLabel.shimmerPhaseOffsetForTesting
-    }
-
-    var isTrailingVisibleForTesting: Bool {
-        trailingLabelView.isHidden == false
-    }
-
-    private func applyPresentation(lineCount: Int) {
-        let clampedLineCount = max(1, min(2, lineCount))
-        let wraps = clampedLineCount > 1
-
-        self.lineCount = clampedLineCount
-        baseLabel.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
-        baseLabel.maximumNumberOfLines = wraps ? clampedLineCount : 1
-        baseLabel.cell?.wraps = wraps
-        baseLabel.cell?.usesSingleLineMode = wraps == false
-        shimmerLabel.isHidden = wraps
-        contentStack.alignment = wraps ? .top : .centerY
-        trailingLabelView.isHidden = wraps || rendersTrailingTextInLeadingSlot || (trailingText?.isEmpty ?? true)
-        heightConstraint?.constant = rowLineHeight * CGFloat(clampedLineCount)
-        invalidateIntrinsicContentSize()
-    }
-
-    private func updateResolvedTrailingVisibility() {
-        guard let trailingText, trailingText.isEmpty == false else {
-            trailingLabelView.isHidden = true
-            return
-        }
-
-        guard rendersTrailingTextInLeadingSlot == false else {
-            trailingLabelView.isHidden = true
-            return
-        }
-
-        guard lineCount == 1 else {
-            trailingLabelView.isHidden = true
-            return
-        }
-
-        let availableTextWidth = max(0, textContainer.bounds.width)
-        guard availableTextWidth > 0 else {
-            trailingLabelView.isHidden = false
-            return
-        }
-
-        let font = baseLabel.font ?? ShellMetrics.sidebarStatusFont()
-        let measuredTextWidth = Self.measuredWidth(for: text, font: font)
-        let measuredLineCount = Self.measuredLineCount(
-            for: text,
-            font: font,
-            lineHeight: rowLineHeight,
-            width: availableTextWidth
-        )
-        trailingLabelView.isHidden =
-            measuredTextWidth > availableTextWidth + 0.5
-            || measuredLineCount > 1
-    }
-
-    private static func measuredWidth(for text: String, font: NSFont) -> CGFloat {
-        let line = CTLineCreateWithAttributedString(
-            NSAttributedString(string: text, attributes: [.font: font])
-        )
-        return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-    }
-
-    private static func measuredLineCount(
-        for text: String,
-        font: NSFont,
-        lineHeight: CGFloat,
-        width: CGFloat
-    ) -> Int {
-        guard width > 0, text.isEmpty == false else {
-            return 1
-        }
-
-        let boundingRect = (text as NSString).boundingRect(
-            with: NSSize(width: width, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font]
-        )
-        return Int(ceil(boundingRect.height / lineHeight))
-    }
-
-    private var rendersTrailingTextInLeadingSlot: Bool {
-        Self.hasVisibleText(text) == false && Self.hasVisibleText(trailingText)
-    }
-
-    private static func hasVisibleText(_ text: String?) -> Bool {
-        guard let text else {
-            return false
-        }
-
-        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-    }
-}
-
-@MainActor
-private final class SidebarPaneRowButton: NSButton {
-    var paneID = PaneID("")
-    var isLastPaneInWorklane = false
-    var onPaneClicked: ((PaneID) -> Void)?
-    var onHoverChanged: ((Bool) -> Void)?
-    var onCloseWorklane: ((PaneID) -> Void)?
-    var onClosePane: ((PaneID) -> Void)?
-    var onSplitHorizontal: ((PaneID) -> Void)?
-    var onSplitVertical: ((PaneID) -> Void)?
-
-    private let contentStack = NSStackView()
-    private var isHovered = false
-    private var trackingArea: NSTrackingArea?
-    private var hoverBackgroundColor: NSColor = .clear
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setup()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var allowsVibrancy: Bool {
-        false
-    }
-
-    private func setup() {
-        isBordered = false
-        bezelStyle = .regularSquare
-        title = ""
-        image = nil
-        wantsLayer = true
-        layer?.cornerRadius = ShellMetrics.sidebarPaneButtonCornerRadius
-        layer?.cornerCurve = .continuous
-        layer?.masksToBounds = true
-        translatesAutoresizingMaskIntoConstraints = false
-        setButtonType(.momentaryChange)
-
-        contentStack.orientation = .vertical
-        contentStack.spacing = ShellMetrics.sidebarRowInterlineSpacing
-        contentStack.alignment = .leading
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        addSubview(contentStack)
-
-        NSLayoutConstraint.activate([
-            contentStack.topAnchor.constraint(
-                equalTo: topAnchor, constant: ShellMetrics.sidebarPaneButtonVerticalInset),
-            contentStack.leadingAnchor.constraint(
-                equalTo: leadingAnchor, constant: ShellMetrics.sidebarPaneButtonHorizontalInset),
-            contentStack.trailingAnchor.constraint(
-                equalTo: trailingAnchor, constant: -ShellMetrics.sidebarPaneButtonHorizontalInset),
-            contentStack.bottomAnchor.constraint(
-                equalTo: bottomAnchor, constant: -ShellMetrics.sidebarPaneButtonVerticalInset),
-        ])
-
-        target = self
-        action = #selector(handleClick)
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let superview else { return nil }
-        let pointInSelf = convert(point, from: superview)
-        return bounds.contains(pointInSelf) ? self : nil
-    }
-
-    @objc private func handleClick() {
-        onPaneClicked?(paneID)
-    }
-
-    func setContent(_ views: [NSView]) {
-        contentStack.setViews(views, in: .top)
-    }
-
-    func updateTheme(hoverColor: NSColor) {
-        hoverBackgroundColor = hoverColor
-        updateHoverAppearance()
-    }
-
-    var contentMinXForTesting: CGFloat {
-        contentStack.frame.minX
-    }
-
-    var contentMaxTrailingInsetForTesting: CGFloat {
-        bounds.maxX - contentStack.frame.maxX
-    }
-
-    var contentMinYForTesting: CGFloat {
-        contentStack.frame.minY
-    }
-
-    var contentMaxTopInsetForTesting: CGFloat {
-        bounds.maxY - contentStack.frame.maxY
-    }
-
-    var cornerRadiusForTesting: CGFloat {
-        layer?.cornerRadius ?? 0
-    }
-
-    // MARK: - Cursor
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
-
-    // MARK: - Hover
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        updateHoverAppearance()
-        onHoverChanged?(true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        updateHoverAppearance()
-        onHoverChanged?(false)
-    }
-
-    override var isHighlighted: Bool {
-        didSet {
-            updateHoverAppearance()
-        }
-    }
-
-    private func updateHoverAppearance() {
-        let color: NSColor
-        if isHighlighted {
-            color = hoverBackgroundColor.withAlphaComponent(0.7)
-        } else if isHovered {
-            color = hoverBackgroundColor
-        } else {
-            color = .clear
-        }
-        layer?.backgroundColor = color.cgColor
-    }
-
-    // MARK: - Context Menu
-
-    override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = NSMenu()
-
-        let closeWorklaneItem = NSMenuItem(
-            title: "Close Worklane",
-            action: #selector(handleCloseWorklane),
-            keyEquivalent: ""
-        )
-        closeWorklaneItem.target = self
-        menu.addItem(closeWorklaneItem)
-
-        if !isLastPaneInWorklane {
-            let closePaneItem = NSMenuItem(
-                title: "Close Pane",
-                action: #selector(handleClosePane),
-                keyEquivalent: ""
-            )
-            closePaneItem.target = self
-            menu.addItem(closePaneItem)
-        }
-
-        menu.addItem(NSMenuItem.separator())
-
-        let splitHItem = NSMenuItem(
-            title: "Split Horizontal",
-            action: #selector(handleSplitHorizontal),
-            keyEquivalent: ""
-        )
-        splitHItem.target = self
-        menu.addItem(splitHItem)
-
-        let splitVItem = NSMenuItem(
-            title: "Split Vertical",
-            action: #selector(handleSplitVertical),
-            keyEquivalent: ""
-        )
-        splitVItem.target = self
-        menu.addItem(splitVItem)
-
-        return menu
-    }
-
-    @objc private func handleCloseWorklane() {
-        onCloseWorklane?(paneID)
-    }
-
-    @objc private func handleClosePane() {
-        onClosePane?(paneID)
-    }
-
-    @objc private func handleSplitHorizontal() {
-        onSplitHorizontal?(paneID)
-    }
-
-    @objc private func handleSplitVertical() {
-        onSplitVertical?(paneID)
     }
 }

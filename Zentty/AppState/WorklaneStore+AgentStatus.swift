@@ -239,6 +239,7 @@ extension WorklaneStore {
                     confidence: payload.confidence,
                     sessionID: payload.sessionID,
                     parentSessionID: payload.parentSessionID,
+                    taskProgress: payload.taskProgress,
                     artifactKind: payload.artifactKind,
                     artifactLabel: payload.artifactLabel,
                     artifactURL: payload.artifactURL,
@@ -644,6 +645,7 @@ extension WorklaneStore {
             shellActivityState: existingStatus.shellActivityState,
             trackedPID: existingStatus.trackedPID,
             hasObservedRunning: existingStatus.hasObservedRunning,
+            taskProgress: existingStatus.taskProgress,
             completionCandidateDeadline: nil,
             idleVisibleUntil: existingStatus.state == .idle
                 ? existingStatus.updatedAt.addingTimeInterval(PaneAgentReducerState.idleVisibilityWindow)

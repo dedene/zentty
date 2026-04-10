@@ -116,6 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        AgentIPCServer.shared.stop()
         for controller in windowControllers.values {
             controller.tearDownRuntime()
         }

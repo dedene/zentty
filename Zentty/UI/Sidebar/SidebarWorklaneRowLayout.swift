@@ -326,18 +326,6 @@ struct SidebarWorklaneRowLayout: Equatable {
         return .inline
     }
 
-    static func paneRowPrimaryLineCount(
-        for paneRow: WorklaneSidebarPaneRow,
-        availableWidth: CGFloat?,
-        metrics: WorklaneRowLayoutMetrics = .sidebar
-    ) -> Int {
-        // Pane row primaries render single-line with tail truncation so the
-        // shimmer overlay can animate. Row height no longer grows for long
-        // titles; the disambiguation delta is surfaced on the
-        // `.contextPrefix` row instead.
-        1
-    }
-
     static func worklanePrimaryLineCount(
         for summary: WorklaneSidebarSummary,
         availableWidth: CGFloat?,
@@ -363,7 +351,7 @@ struct SidebarWorklaneRowLayout: Equatable {
     ) -> Int {
         guard
             let availableWidth,
-            let statusText = displayedStatusText(
+            let statusText = SidebarStatusResolver.resolveMeasurementStatusText(
                 statusText: summary.statusText,
                 attentionState: summary.attentionState,
                 interactionKind: summary.interactionKind,
@@ -379,7 +367,7 @@ struct SidebarWorklaneRowLayout: Equatable {
             lineHeight: metrics.statusLineHeight,
             width: worklaneStatusTextContentWidth(
                 for: availableWidth,
-                hasIcon: displayedStatusSymbolName(
+                hasIcon: SidebarStatusResolver.resolveStatusSymbolName(
                     statusSymbolName: summary.statusSymbolName,
                     attentionState: summary.attentionState,
                     interactionKind: summary.interactionKind,
@@ -408,7 +396,7 @@ struct SidebarWorklaneRowLayout: Equatable {
     ) -> Int {
         guard
             let availableWidth,
-            let statusText = displayedStatusText(
+            let statusText = SidebarStatusResolver.resolveMeasurementStatusText(
                 statusText: paneRow.statusText,
                 attentionState: paneRow.attentionState,
                 interactionKind: paneRow.interactionKind,
@@ -436,7 +424,7 @@ struct SidebarWorklaneRowLayout: Equatable {
             width: paneStatusTextContentWidth(
                 for: availableWidth,
                 trailingWidth: trailingLayout.isVisible ? trailingLayout.width : 0,
-                hasIcon: displayedStatusSymbolName(
+                hasIcon: SidebarStatusResolver.resolveStatusSymbolName(
                     statusSymbolName: paneRow.statusSymbolName,
                     attentionState: paneRow.attentionState,
                     interactionKind: paneRow.interactionKind,
@@ -473,7 +461,7 @@ struct SidebarWorklaneRowLayout: Equatable {
         }
 
         guard
-            let statusText = displayedStatusText(
+            let statusText = SidebarStatusResolver.resolveMeasurementStatusText(
                 statusText: paneRow.statusText,
                 attentionState: paneRow.attentionState,
                 interactionKind: paneRow.interactionKind,
@@ -486,7 +474,7 @@ struct SidebarWorklaneRowLayout: Equatable {
             )
         }
 
-        let hasIcon = displayedStatusSymbolName(
+        let hasIcon = SidebarStatusResolver.resolveStatusSymbolName(
             statusSymbolName: paneRow.statusSymbolName,
             attentionState: paneRow.attentionState,
             interactionKind: paneRow.interactionKind,
@@ -499,7 +487,7 @@ struct SidebarWorklaneRowLayout: Equatable {
             font: ShellMetrics.sidebarStatusFont()
         )
 
-        guard measuredLineCount(
+        guard SidebarTextMetrics.measuredLineCount(
             for: statusText,
             font: ShellMetrics.sidebarStatusFont(),
             lineHeight: metrics.statusLineHeight,
@@ -536,7 +524,7 @@ struct SidebarWorklaneRowLayout: Equatable {
         )
         guard
             preferredStatusTextWidth <= finalStatusTextWidth + 0.5,
-            measuredLineCount(
+            SidebarTextMetrics.measuredLineCount(
                 for: statusText,
                 font: ShellMetrics.sidebarStatusFont(),
                 lineHeight: metrics.statusLineHeight,
@@ -586,15 +574,8 @@ struct SidebarWorklaneRowLayout: Equatable {
     }
 
     private static func measuredWidth(for text: String?, font: NSFont) -> CGFloat {
-        guard let text, hasVisibleText(text) else {
-            return 0
-        }
-
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let line = CTLineCreateWithAttributedString(
-            NSAttributedString(string: text, attributes: attributes)
-        )
-        return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+        guard hasVisibleText(text) else { return 0 }
+        return SidebarTextMetrics.measuredWidth(for: text, font: font)
     }
 
     private static func lineCount(
@@ -608,7 +589,7 @@ struct SidebarWorklaneRowLayout: Equatable {
             1,
             min(
                 maxLineCount,
-                measuredLineCount(
+                SidebarTextMetrics.measuredLineCount(
                     for: text,
                     font: font,
                     lineHeight: lineHeight,
@@ -616,24 +597,6 @@ struct SidebarWorklaneRowLayout: Equatable {
                 )
             )
         )
-    }
-
-    private static func measuredLineCount(
-        for text: String,
-        font: NSFont,
-        lineHeight: CGFloat,
-        width: CGFloat
-    ) -> Int {
-        guard width > 0, text.isEmpty == false else {
-            return 1
-        }
-
-        let boundingRect = (text as NSString).boundingRect(
-            with: NSSize(width: width, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font]
-        )
-        return Int(ceil(boundingRect.height / lineHeight))
     }
 
     private static func paneStatusTrailingMinimumVisibleWidth() -> CGFloat {
@@ -644,52 +607,6 @@ struct SidebarWorklaneRowLayout: Equatable {
         8
     }
 
-    private static func displayedStatusText(
-        statusText: String?,
-        attentionState: WorklaneAttentionState?,
-        interactionKind: PaneInteractionKind?,
-        interactionLabel: String?
-    ) -> String? {
-        if shouldPreferInteractionPresentation(
-            attentionState: attentionState,
-            interactionKind: interactionKind
-        ) {
-            return interactionLabel ?? interactionKind?.defaultLabel ?? statusText
-        }
-
-        return statusText ?? interactionLabel ?? interactionKind?.defaultLabel
-    }
-
-    private static func displayedStatusSymbolName(
-        statusSymbolName: String?,
-        attentionState: WorklaneAttentionState?,
-        interactionKind: PaneInteractionKind?,
-        interactionSymbolName: String?
-    ) -> String {
-        if shouldPreferInteractionPresentation(
-            attentionState: attentionState,
-            interactionKind: interactionKind
-        ) {
-            return interactionSymbolName
-                ?? interactionKind?.defaultSymbolName
-                ?? statusSymbolName
-                ?? ""
-        }
-
-        return statusSymbolName
-            ?? interactionSymbolName
-            ?? interactionKind?.defaultSymbolName
-            ?? ""
-    }
-
-    private static func shouldPreferInteractionPresentation(
-        attentionState: WorklaneAttentionState?,
-        interactionKind: PaneInteractionKind?
-    ) -> Bool {
-        attentionState == .needsInput
-            && interactionKind != nil
-            && interactionKind != .genericInput
-    }
 }
 
 enum SidebarPaneRowPresentationMode: Equatable {
@@ -749,13 +666,8 @@ private extension WorklaneRowLayoutMetrics {
             guard summary.paneRows.indices.contains(index) else {
                 return primaryLineHeight
             }
-            return primaryLineHeight * CGFloat(
-                SidebarWorklaneRowLayout.paneRowPrimaryLineCount(
-                    for: summary.paneRows[index],
-                    availableWidth: availableWidth,
-                    metrics: self
-                )
-            )
+            // Always 1 — pane primaries are single-line for shimmer compatibility.
+            return primaryLineHeight
         case .paneStatus(let index):
             guard summary.paneRows.indices.contains(index) else {
                 return statusLineHeight

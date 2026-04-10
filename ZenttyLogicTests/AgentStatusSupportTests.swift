@@ -76,6 +76,9 @@ final class AgentStatusSupportTests: XCTestCase {
         let sharedWrapperURL = sharedURL.appendingPathComponent("zentty-agent-wrapper", isDirectory: false)
         FileManager.default.createFile(atPath: sharedWrapperURL.path, contents: Data("#!/bin/sh\n".utf8))
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapperURL.path)
+        let bundledCLIURL = sharedURL.appendingPathComponent("zentty", isDirectory: false)
+        FileManager.default.createFile(atPath: bundledCLIURL.path, contents: Data("#!/bin/sh\n".utf8))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledCLIURL.path)
 
         let shellURL = resourcesURL.appendingPathComponent("shell-integration", isDirectory: true)
         try FileManager.default.createDirectory(at: shellURL, withIntermediateDirectories: true)
@@ -128,6 +131,40 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNil(AgentStatusHelper.wrapperDirectoryPaths(in: bundle))
         XCTAssertNil(AgentStatusHelper.wrapperSupportDirectoryPath(in: bundle))
         XCTAssertEqual(AgentStatusHelper.shellIntegrationDirectoryPath(in: bundle), shellURL.path)
+    }
+
+    func test_agent_status_helper_requires_bundled_cli_binary_in_shared_support_directory() throws {
+        let bundleRoot = try makeTemporaryBundleRoot(named: "MissingBundledCLI")
+        let resourcesURL = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+
+        let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
+        for name in ["claude", "codex", "copilot", "opencode"] {
+            let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
+            let wrapperURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
+            try "#!/bin/sh\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+        }
+
+        let sharedURL = binURL.appendingPathComponent("shared", isDirectory: true)
+        try FileManager.default.createDirectory(at: sharedURL, withIntermediateDirectories: true)
+        let sharedWrapperURL = sharedURL.appendingPathComponent("zentty-agent-wrapper", isDirectory: false)
+        try "#!/bin/sh\n".write(to: sharedWrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapperURL.path)
+
+        let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
+        XCTAssertNil(AgentStatusHelper.wrapperSupportDirectoryPath(in: bundle))
+        XCTAssertNil(AgentStatusHelper.cliPath(in: bundle))
+
+        let bundledCLIURL = sharedURL.appendingPathComponent("zentty", isDirectory: false)
+        try "#!/bin/sh\n".write(to: bundledCLIURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledCLIURL.path)
+
+        XCTAssertEqual(AgentStatusHelper.wrapperSupportDirectoryPath(in: bundle), sharedURL.path)
+        XCTAssertEqual(AgentStatusHelper.cliPath(in: bundle), bundledCLIURL.path)
     }
 
     func test_agent_status_helper_enables_only_wrappers_with_real_binaries_on_path() throws {
@@ -198,6 +235,7 @@ final class AgentStatusSupportTests: XCTestCase {
             XCTAssertTrue(script.contains("git rev-parse --git-dir >/dev/null 2>&1"), filename)
             XCTAssertTrue(script.contains("git branch --show-current"), filename)
             XCTAssertTrue(script.contains("--git-branch"), filename)
+            XCTAssertTrue(script.contains("ipc agent-signal"), filename)
         }
     }
 
@@ -310,7 +348,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
     }
 
-    func test_repository_codex_wrapper_exports_session_scoped_pid() throws {
+    func test_repository_codex_wrapper_delegates_to_launch_cli() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -321,7 +359,9 @@ final class AgentStatusSupportTests: XCTestCase {
             .appendingPathComponent("codex", isDirectory: false)
 
         let script = try String(contentsOf: codexWrapperURL, encoding: .utf8)
-        XCTAssertTrue(script.contains("export ZENTTY_CODEX_PID=$$"))
+        XCTAssertTrue(script.contains("ZENTTY_AGENT_TOOL=\"codex\""))
+        XCTAssertTrue(script.contains("zentty-agent-wrapper"))
+        XCTAssertFalse(script.contains("python3"))
     }
 
     func test_copy_agent_resources_build_script_syncs_opencode_support_directory() throws {
@@ -337,7 +377,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(project.contains("${RESOURCES_DST}/opencode/"))
     }
 
-    func test_repository_opencode_plugin_exists_and_mentions_opencode_hook_bridge() throws {
+    func test_repository_opencode_plugin_exists_and_forwards_canonical_agent_events() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -348,8 +388,590 @@ final class AgentStatusSupportTests: XCTestCase {
             .appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false)
 
         let plugin = try String(contentsOf: pluginURL, encoding: .utf8)
-        XCTAssertTrue(plugin.contains("opencode-hook"))
+        XCTAssertTrue(plugin.contains("process.env.ZENTTY_CLI_BIN"))
+        XCTAssertTrue(plugin.contains("[resolvedCliBin, \"ipc\", \"agent-event\"]"))
+        XCTAssertTrue(plugin.contains("event: \"task.progress\""))
         XCTAssertTrue(plugin.contains("stdio: [\"pipe\", \"ignore\", \"ignore\"]"))
+    }
+
+    func test_repository_claude_wrapper_delegates_to_launch_cli() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperURL = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("claude", isDirectory: true)
+            .appendingPathComponent("claude", isDirectory: false)
+
+        let wrapper = try String(contentsOf: wrapperURL, encoding: .utf8)
+
+        XCTAssertTrue(wrapper.contains("ZENTTY_AGENT_TOOL=\"claude\""))
+        XCTAssertTrue(wrapper.contains("zentty-agent-wrapper"))
+    }
+
+    func test_repository_codex_and_copilot_wrappers_delegate_to_internal_launch_cli() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        let codexWrapper = try String(contentsOf: repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("codex", isDirectory: true)
+            .appendingPathComponent("codex", isDirectory: false), encoding: .utf8)
+        XCTAssertTrue(codexWrapper.contains("zentty-agent-wrapper"))
+        XCTAssertFalse(codexWrapper.contains("ZENTTY_AGENT_BIN"))
+
+        let copilotWrapper = try String(contentsOf: repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("copilot", isDirectory: true)
+            .appendingPathComponent("copilot", isDirectory: false), encoding: .utf8)
+        XCTAssertTrue(copilotWrapper.contains("zentty-agent-wrapper"))
+        XCTAssertFalse(copilotWrapper.contains("ZENTTY_AGENT_BIN"))
+
+        let sharedWrapper = try String(contentsOf: repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("shared", isDirectory: true)
+            .appendingPathComponent("zentty-agent-wrapper", isDirectory: false), encoding: .utf8)
+        XCTAssertTrue(sharedWrapper.contains("launch \"$tool_basename\""))
+        XCTAssertTrue(sharedWrapper.contains("ZENTTY_CLI_BIN"))
+    }
+
+    func test_agent_ipc_bridge_converts_agent_signal_message_to_payload() throws {
+        let message = AgentIPCMessage(
+            subcommand: "agent-signal",
+            arguments: [
+                "lifecycle",
+                "needs-input",
+                "--tool", "Codex",
+                "--text", "Approval requested: edit Sources/App.swift",
+                "--interaction-kind", "approval",
+                "--session-id", "session-1",
+            ],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_WINDOW_ID": "window-main",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+            ]
+        )
+
+        var posted: [AgentStatusPayload] = []
+        _ = try AgentIPCBridge.handle(
+            data: try JSONEncoder().encode(message),
+            post: { posted.append($0) }
+        )
+
+        XCTAssertEqual(posted, [
+            AgentStatusPayload(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main"),
+                signalKind: .lifecycle,
+                state: .needsInput,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: "Approval requested: edit Sources/App.swift",
+                interactionKind: .approval,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+        ])
+    }
+
+    func test_agent_ipc_request_round_trips_bootstrap_payload() throws {
+        let request = AgentIPCRequest(
+            id: "request-1",
+            kind: .bootstrap,
+            arguments: ["hello", "--verbose"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_WINDOW_ID": "window-main",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+                "ZENTTY_PANE_TOKEN": "pane-token",
+            ],
+            expectsResponse: true,
+            tool: .codex
+        )
+
+        let decoded = try JSONDecoder().decode(
+            AgentIPCRequest.self,
+            from: try JSONEncoder().encode(request)
+        )
+
+        XCTAssertEqual(decoded, request)
+    }
+
+    func test_agent_ipc_response_round_trips_launch_plan_result() throws {
+        let response = AgentIPCResponse(
+            id: "request-1",
+            ok: true,
+            result: AgentIPCResponseResult(
+                launchPlan: AgentLaunchPlan(
+                    executablePath: "/usr/bin/codex",
+                    arguments: ["exec", "hello"],
+                    setEnvironment: [
+                        "CODEX_HOME": "/tmp/zentty-codex-home",
+                        "ZENTTY_AGENT_TOOL": "codex",
+                    ],
+                    unsetEnvironment: ["CLAUDECODE"],
+                    preLaunchActions: [
+                        AgentLaunchAction(
+                            subcommand: "agent-event",
+                            arguments: ["--adapter=opencode", "session-start"],
+                            standardInput: #"{"version":1,"event":"session.start"}"#
+                        ),
+                    ]
+                )
+            ),
+            error: nil
+        )
+
+        let decoded = try JSONDecoder().decode(
+            AgentIPCResponse.self,
+            from: try JSONEncoder().encode(response)
+        )
+
+        XCTAssertEqual(decoded, response)
+    }
+
+    func test_agent_ipc_bridge_handles_ipc_request_for_agent_signal() throws {
+        let request = AgentIPCRequest(
+            id: "request-1",
+            kind: .ipc,
+            arguments: [
+                "lifecycle",
+                "needs-input",
+                "--tool", "Codex",
+                "--text", "Approval requested: edit Sources/App.swift",
+                "--interaction-kind", "approval",
+                "--session-id", "session-1",
+            ],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_WINDOW_ID": "window-main",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+            ],
+            expectsResponse: false,
+            subcommand: "agent-signal"
+        )
+
+        var posted: [AgentStatusPayload] = []
+        let response = try AgentIPCBridge.handle(
+            request: request,
+            post: { posted.append($0) }
+        )
+
+        XCTAssertNil(response)
+        XCTAssertEqual(posted, [
+            AgentStatusPayload(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main"),
+                signalKind: .lifecycle,
+                state: .needsInput,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: "Approval requested: edit Sources/App.swift",
+                interactionKind: .approval,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+        ])
+    }
+
+    func test_agent_ipc_bridge_forwards_agent_pid_environment_to_codex_adapter() throws {
+        let message = AgentIPCMessage(
+            subcommand: "agent-event",
+            arguments: ["--adapter=codex", "session-start"],
+            standardInput: #"{"session_id":"session-codex","cwd":"/tmp/project"}"#,
+            environment: [
+                "ZENTTY_WINDOW_ID": "window-main",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+                "ZENTTY_CODEX_PID": "4242",
+            ]
+        )
+
+        var posted: [AgentStatusPayload] = []
+        _ = try AgentIPCBridge.handle(
+            data: try JSONEncoder().encode(message),
+            post: { posted.append($0) }
+        )
+
+        XCTAssertEqual(posted.count, 2)
+        XCTAssertEqual(posted[0].signalKind, .pid)
+        XCTAssertEqual(posted[0].pid, 4242)
+        XCTAssertEqual(posted[0].pidEvent, .attach)
+        XCTAssertEqual(posted[0].toolName, "Codex")
+        XCTAssertEqual(posted[0].sessionID, "session-codex")
+
+        XCTAssertEqual(posted[1].state, .starting)
+        XCTAssertEqual(posted[1].toolName, "Codex")
+        XCTAssertEqual(posted[1].sessionID, "session-codex")
+        XCTAssertEqual(posted[1].agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_agent_launch_bootstrap_builds_claude_plan_with_session_id_and_settings() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-claude-runtime")
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/claude",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ],
+            expectsResponse: true,
+            tool: .claude
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/claude")
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "claude")
+        XCTAssertEqual(plan.unsetEnvironment, ["CLAUDECODE"])
+        XCTAssertTrue(plan.arguments.contains("--settings"))
+        XCTAssertTrue(plan.arguments.contains("--session-id"))
+        XCTAssertEqual(plan.arguments.last, "hello")
+
+        let settingsIndex = try XCTUnwrap(plan.arguments.firstIndex(of: "--settings"))
+        XCTAssertTrue(plan.arguments.indices.contains(settingsIndex + 1))
+        let settingsData = try XCTUnwrap(plan.arguments[settingsIndex + 1].data(using: .utf8))
+        let settingsObject = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: settingsData) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(settingsObject["hooks"] as? [String: Any])
+        XCTAssertNotNil(hooks["SessionStart"])
+        XCTAssertNotNil(hooks["TaskCompleted"])
+    }
+
+    func test_agent_launch_bootstrap_builds_codex_overlay_and_notify_override() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-codex-runtime")
+        let codexHome = try makeTemporaryDirectory(named: "agent-launch-codex-home")
+        try """
+        {"hooks":{"Existing":[{"hooks":[{"type":"command","command":"echo existing","timeout":3}]}]}}
+        """.write(
+            to: codexHome.appendingPathComponent("hooks.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["exec", "hello"],
+            standardInput: nil,
+            environment: [
+                "HOME": NSHomeDirectory(),
+                "CODEX_HOME": codexHome.path,
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/codex",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ],
+            expectsResponse: true,
+            tool: .codex
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/codex")
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "codex")
+        let overlayHome = try XCTUnwrap(plan.setEnvironment["CODEX_HOME"])
+        let overlayHooksURL = URL(fileURLWithPath: overlayHome, isDirectory: true)
+            .appendingPathComponent("hooks.json", isDirectory: false)
+        let overlayHooks = try String(contentsOf: overlayHooksURL, encoding: .utf8)
+        XCTAssertTrue(overlayHooks.contains("session-start"))
+        XCTAssertTrue(overlayHooks.contains("prompt-submit"))
+        XCTAssertTrue(overlayHooks.contains("echo existing"))
+        XCTAssertTrue(plan.arguments.contains("tui.notification_method=osc9"))
+        XCTAssertTrue(plan.arguments.contains(#"tui.terminal_title=["status","spinner","project"]"#))
+        let notifyArgument = try XCTUnwrap(
+            plan.arguments.first(where: { $0.contains("notify=[") && $0.contains(#""/tmp/zentty""#) })
+        )
+        XCTAssertEqual(notifyArgument, #"notify=["/tmp/zentty","codex-notify"]"#)
+        XCTAssertFalse(notifyArgument.contains(#"\/"#))
+    }
+
+    func test_agent_launch_bootstrap_keeps_notify_hook_when_prompt_contains_notify_equals() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-codex-runtime-prompt")
+        let codexHome = try makeTemporaryDirectory(named: "agent-launch-codex-home-prompt")
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["exec", "please keep notify=me in the prompt"],
+            standardInput: nil,
+            environment: [
+                "HOME": NSHomeDirectory(),
+                "CODEX_HOME": codexHome.path,
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/codex",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ],
+            expectsResponse: true,
+            tool: .codex
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertTrue(plan.arguments.contains(#"notify=["/tmp/zentty","codex-notify"]"#))
+    }
+
+    func test_agent_launch_bootstrap_respects_explicit_codex_notify_override() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-codex-runtime-explicit-notify")
+        let codexHome = try makeTemporaryDirectory(named: "agent-launch-codex-home-explicit-notify")
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["-c", #"notify=["/tmp/custom-notify"]"#, "exec", "hello"],
+            standardInput: nil,
+            environment: [
+                "HOME": NSHomeDirectory(),
+                "CODEX_HOME": codexHome.path,
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/codex",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ],
+            expectsResponse: true,
+            tool: .codex
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertTrue(plan.arguments.contains(#"notify=["/tmp/custom-notify"]"#))
+        XCTAssertFalse(plan.arguments.contains(#"notify=["/tmp/zentty","codex-notify"]"#))
+    }
+
+    func test_agent_launch_bootstrap_builds_copilot_overlay_and_strips_config_dir_override() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-copilot-runtime")
+        let copilotHome = try makeTemporaryDirectory(named: "agent-launch-copilot-home")
+        try """
+        {
+          // comment
+          "version": 1,
+          "hooks": {
+            "sessionStart": [
+              {"type":"command","bash":"echo existing","timeoutSec":10},
+            ],
+          },
+        }
+        """.write(
+            to: copilotHome.appendingPathComponent("config.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["--config-dir", copilotHome.path, "chat", "hello"],
+            standardInput: nil,
+            environment: [
+                "HOME": NSHomeDirectory(),
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/copilot",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ],
+            expectsResponse: true,
+            tool: .copilot
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/copilot")
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "copilot")
+        XCTAssertFalse(plan.arguments.contains("--config-dir"))
+        XCTAssertEqual(plan.arguments, ["chat", "hello"])
+        let overlayHome = try XCTUnwrap(plan.setEnvironment["COPILOT_HOME"])
+        let overlayConfigURL = URL(fileURLWithPath: overlayHome, isDirectory: true)
+            .appendingPathComponent("config.json", isDirectory: false)
+        let overlayConfig = try String(contentsOf: overlayConfigURL, encoding: .utf8)
+        XCTAssertTrue(overlayConfig.contains("session-start"))
+        XCTAssertTrue(overlayConfig.contains("pre-tool-use"))
+        XCTAssertTrue(overlayConfig.contains("echo existing"))
+    }
+
+    func test_agent_launch_bootstrap_builds_opencode_overlay_and_prelaunch_event() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-runtime")
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-opencode-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try "export const ZenttyOpenCodePlugin = async () => ({})\n".write(
+            to: pluginDirectory.appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sourceConfigDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-source")
+        try FileManager.default.createDirectory(
+            at: sourceConfigDirectory.appendingPathComponent("markers", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "user-config".write(
+            to: sourceConfigDirectory
+                .appendingPathComponent("markers", isDirectory: true)
+                .appendingPathComponent("user.txt", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["run", "hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/opencode",
+                "ZENTTY_OPENCODE_BASE_CONFIG_DIR": sourceConfigDirectory.path,
+            ],
+            expectsResponse: true,
+            tool: .opencode
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory,
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot))
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/opencode")
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "opencode")
+        let overlayConfigDirectory = try XCTUnwrap(plan.setEnvironment["OPENCODE_CONFIG_DIR"])
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: URL(fileURLWithPath: overlayConfigDirectory, isDirectory: true)
+                    .appendingPathComponent("plugins", isDirectory: true)
+                    .appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false)
+                    .path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: URL(fileURLWithPath: overlayConfigDirectory, isDirectory: true)
+                    .appendingPathComponent("markers", isDirectory: true)
+                    .appendingPathComponent("user.txt", isDirectory: false)
+                    .path
+            )
+        )
+        let action = try XCTUnwrap(plan.preLaunchActions.first)
+        XCTAssertEqual(action.subcommand, "agent-event")
+        XCTAssertTrue(action.standardInput?.contains(AgentIPCProtocol.selfPIDPlaceholder) == true)
+    }
+
+    func test_agent_ipc_authentication_is_pane_scoped() {
+        let authentication = AgentIPCAuthentication(secret: "unit-test-secret")
+
+        let token = authentication.token(
+            windowID: WindowID("window-main"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("pane-main")
+        )
+
+        XCTAssertTrue(authentication.isValid(
+            token: token,
+            windowID: WindowID("window-main"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("pane-main")
+        ))
+        XCTAssertFalse(authentication.isValid(
+            token: token,
+            windowID: WindowID("window-main"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("pane-other")
+        ))
+    }
+
+    func test_agent_ipc_message_canonicalized_for_target_overwrites_routing_environment_and_arguments() {
+        let message = AgentIPCMessage(
+            subcommand: "agent-signal",
+            arguments: [
+                "lifecycle",
+                "idle",
+                "--window-id", "window-spoofed",
+                "--worklane-id", "worklane-spoofed",
+                "--pane-id", "pane-spoofed",
+                "--tool", "Codex",
+            ],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_WINDOW_ID": "window-spoofed",
+                "ZENTTY_WORKLANE_ID": "worklane-spoofed",
+                "ZENTTY_PANE_ID": "pane-spoofed",
+                "ZENTTY_CODEX_PID": "4242",
+                "UNRELATED_FLAG": "preserved",
+            ]
+        )
+
+        let canonical = message.canonicalized(for: AgentIPCTarget(
+            windowID: WindowID("window-main"),
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("pane-main")
+        ))
+
+        XCTAssertEqual(canonical.environment["ZENTTY_WINDOW_ID"], "window-main")
+        XCTAssertEqual(canonical.environment["ZENTTY_WORKLANE_ID"], "worklane-main")
+        XCTAssertEqual(canonical.environment["ZENTTY_PANE_ID"], "pane-main")
+        XCTAssertEqual(canonical.environment["ZENTTY_CODEX_PID"], "4242")
+        XCTAssertEqual(canonical.environment["UNRELATED_FLAG"], "preserved")
+        XCTAssertFalse(canonical.arguments.contains("window-spoofed"))
+        XCTAssertFalse(canonical.arguments.contains("worklane-spoofed"))
+        XCTAssertFalse(canonical.arguments.contains("pane-spoofed"))
+        XCTAssertEqual(Array(canonical.arguments.suffix(6)), [
+            "--window-id", "window-main",
+            "--worklane-id", "worklane-main",
+            "--pane-id", "pane-main",
+        ])
     }
 
     func test_agent_status_command_uses_env_defaults_and_round_trips_notification_payload() throws {
@@ -688,7 +1310,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_notification_maps_to_needs_input_payload() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Notification","session_id":"session-1","message":"Claude is waiting for your input"}
             """.utf8)
@@ -703,7 +1325,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -735,7 +1357,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_notification_stays_generic_input_when_message_mentions_approval() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Notification","session_id":"session-1","message":"Claude needs your approval"}
             """.utf8)
@@ -750,7 +1372,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -766,7 +1388,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_parse_input_reads_notification_type() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Notification","session_id":"session-1","message":"Claude is waiting for your input","notification_type":"idle_prompt"}
             """.utf8)
@@ -779,7 +1401,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_idle_prompt_notification_is_ignored() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Notification","session_id":"session-1","message":"Claude is waiting for your input","notification_type":"idle_prompt"}
             """.utf8)
@@ -793,7 +1415,7 @@ final class AgentStatusSupportTests: XCTestCase {
             pid: nil
         )
 
-        let payloads = try ClaudeHookBridge.makePayloads(
+        let payloads = try AgentEventBridge.claudeMakePayloads(
             from: input,
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -806,7 +1428,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_permission_request_maps_to_needs_input_payload() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"PermissionRequest","session_id":"session-1","message":"Allow file write?"}
             """.utf8)
@@ -821,7 +1443,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -848,7 +1470,7 @@ final class AgentStatusSupportTests: XCTestCase {
             pid: 4242
         )
 
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {
               "hook_event_name":"PreToolUse",
@@ -870,7 +1492,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -895,7 +1517,7 @@ final class AgentStatusSupportTests: XCTestCase {
             pid: 4242
         )
 
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {
               "hook_event_name":"PreToolUse",
@@ -913,7 +1535,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -938,7 +1560,7 @@ final class AgentStatusSupportTests: XCTestCase {
             pid: 4242
         )
 
-        let preToolUse = try ClaudeHookBridge.parseInput(
+        let preToolUse = try AgentEventBridge.claudeParseInput(
             Data("""
             {
               "hook_event_name":"PreToolUse",
@@ -958,7 +1580,7 @@ final class AgentStatusSupportTests: XCTestCase {
             }
             """.utf8)
         )
-        _ = try ClaudeHookBridge.makePayloads(
+        _ = try AgentEventBridge.claudeMakePayloads(
             from: preToolUse,
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -967,7 +1589,7 @@ final class AgentStatusSupportTests: XCTestCase {
             sessionStore: store
         )
 
-        let permissionRequest = try ClaudeHookBridge.parseInput(
+        let permissionRequest = try AgentEventBridge.claudeParseInput(
             Data("""
             {
               "hook_event_name":"PermissionRequest",
@@ -978,7 +1600,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: permissionRequest,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1003,19 +1625,19 @@ final class AgentStatusSupportTests: XCTestCase {
             pid: nil
         )
 
-        let permissionRequest = try ClaudeHookBridge.parseInput(
+        let permissionRequest = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"PermissionRequest","session_id":"session-1","message":"Claude needs your approval"}
             """.utf8)
         )
-        let notification = try ClaudeHookBridge.parseInput(
+        let notification = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Notification","session_id":"session-1","message":"Claude needs your attention"}
             """.utf8)
         )
 
         let permissionPayload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: permissionRequest,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1025,7 +1647,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ).first
         )
         let notificationPayload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: notification,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1051,14 +1673,14 @@ final class AgentStatusSupportTests: XCTestCase {
             lastInteractionKind: .decision
         )
 
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Notification","session_id":"session-1","message":"Claude needs your approval before continuing"}
             """.utf8)
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1084,7 +1706,7 @@ final class AgentStatusSupportTests: XCTestCase {
             lastInteractionKind: .approval
         )
 
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {
               "hook_event_name":"PreToolUse",
@@ -1106,7 +1728,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1121,14 +1743,14 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_session_start_records_mapping_and_emits_pid_attach() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"SessionStart","session_id":"session-1","cwd":"/tmp/project"}
             """.utf8)
         )
         let store = try makeClaudeHookSessionStore()
 
-        let payloads = try ClaudeHookBridge.makePayloads(
+        let payloads = try AgentEventBridge.claudeMakePayloads(
             from: input,
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1167,7 +1789,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_notification_uses_persisted_session_target_not_current_env() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Notification","session_id":"session-1","message":"Claude is waiting for your input"}
             """.utf8)
@@ -1182,7 +1804,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-b",
@@ -1206,7 +1828,7 @@ final class AgentStatusSupportTests: XCTestCase {
             pid: 4242
         )
 
-        let preToolUse = try ClaudeHookBridge.parseInput(
+        let preToolUse = try AgentEventBridge.claudeParseInput(
             Data("""
             {
               "hook_event_name":"PreToolUse",
@@ -1228,7 +1850,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let preToolUsePayload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
             from: preToolUse,
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1242,14 +1864,14 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(preToolUsePayload.interactionKind, .decision)
         XCTAssertEqual(preToolUsePayload.text, "Ship this?\n[Yes] [No]")
 
-        let notification = try ClaudeHookBridge.parseInput(
+        let notification = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Notification","session_id":"session-1","message":"Claude needs your input"}
             """.utf8)
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: notification,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1300,7 +1922,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_pre_tool_use_clears_waiting_and_restores_running() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"PreToolUse","session_id":"session-1"}
             """.utf8)
@@ -1315,7 +1937,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1331,7 +1953,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_prompt_submit_maps_to_running_payload() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"UserPromptSubmit","session_id":"session-1"}
             """.utf8)
@@ -1346,7 +1968,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1361,7 +1983,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_stop_maps_to_stop_candidate_payload_without_clearing_pid_mapping() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Stop","session_id":"session-1"}
             """.utf8)
@@ -1376,7 +1998,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let payload = try XCTUnwrap(
-            ClaudeHookBridge.makePayloads(
+            AgentEventBridge.claudeMakePayloads(
                 from: input,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1394,15 +2016,12 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_codex_hook_prompt_submit_maps_to_running_payload() throws {
-        let input = try CodexHookBridge.parseInput(
-            Data("""
-            {"hook_event_name":"UserPromptSubmit","session_id":"session-1","cwd":"/tmp/project"}
-            """.utf8)
-        )
-
         let payload = try XCTUnwrap(
-            CodexHookBridge.makePayloads(
-                from: input,
+            AgentEventBridge.codexAdapter(
+                data: Data("""
+                {"hook_event_name":"UserPromptSubmit","session_id":"session-1","cwd":"/tmp/project"}
+                """.utf8),
+                defaultEventName: nil,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
                     "ZENTTY_PANE_ID": "worklane-main-shell",
@@ -1417,14 +2036,11 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_codex_hook_session_start_emits_session_scoped_pid_attach_and_starting_payloads() throws {
-        let input = try CodexHookBridge.parseInput(
-            Data("""
+        let payloads = try AgentEventBridge.codexAdapter(
+            data: Data("""
             {"hook_event_name":"SessionStart","session_id":"session-1","cwd":"/tmp/project"}
-            """.utf8)
-        )
-
-        let payloads = try CodexHookBridge.makePayloads(
-            from: input,
+            """.utf8),
+            defaultEventName: nil,
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
                 "ZENTTY_PANE_ID": "worklane-main-shell",
@@ -1471,15 +2087,12 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_codex_hook_stop_maps_to_stop_candidate_payload() throws {
-        let input = try CodexHookBridge.parseInput(
-            Data("""
-            {"hook_event_name":"Stop","session_id":"session-1","last_assistant_message":"Done"}
-            """.utf8)
-        )
-
         let payload = try XCTUnwrap(
-            CodexHookBridge.makePayloads(
-                from: input,
+            AgentEventBridge.codexAdapter(
+                data: Data("""
+                {"hook_event_name":"Stop","session_id":"session-1","last_assistant_message":"Done"}
+                """.utf8),
+                defaultEventName: nil,
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
                     "ZENTTY_PANE_ID": "worklane-main-shell",
@@ -1494,15 +2107,11 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_copilot_hook_session_start_emits_pid_attach_and_idle_seed_payloads() throws {
-        let input = try CopilotHookBridge.parseInput(
-            Data("""
+        let payloads = try AgentEventBridge.copilotAdapter(
+            data: Data("""
             {"cwd":"/tmp/project"}
             """.utf8),
-            defaultHookEventName: "sessionStart"
-        )
-
-        let payloads = try CopilotHookBridge.makePayloads(
-            from: input,
+            defaultEventName: "sessionStart",
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
                 "ZENTTY_PANE_ID": "worklane-main-shell",
@@ -1527,20 +2136,16 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(lifecyclePayload.toolName, "Copilot")
         XCTAssertEqual(lifecyclePayload.origin, .explicitHook)
         XCTAssertEqual(lifecyclePayload.confidence, .explicit)
-        XCTAssertEqual(lifecyclePayload.interactionKind, PaneAgentInteractionKind.none)
+        XCTAssertNil(lifecyclePayload.interactionKind)
         XCTAssertEqual(lifecyclePayload.agentWorkingDirectory, "/tmp/project")
     }
 
     func test_copilot_hook_user_prompt_submitted_is_noop() throws {
-        let input = try CopilotHookBridge.parseInput(
-            Data("""
+        let payloads = try AgentEventBridge.copilotAdapter(
+            data: Data("""
             {"cwd":"/tmp/project","prompt":"fix the bug"}
             """.utf8),
-            defaultHookEventName: "userPromptSubmitted"
-        )
-
-        let payloads = try CopilotHookBridge.makePayloads(
-            from: input,
+            defaultEventName: "userPromptSubmitted",
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
                 "ZENTTY_PANE_ID": "worklane-main-shell",
@@ -1552,16 +2157,12 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_copilot_hook_pre_tool_use_ask_user_question_emits_needs_input() throws {
-        let input = try CopilotHookBridge.parseInput(
-            Data("""
-            {"cwd":"/tmp/project","toolName":"askuserquestiontool","toolArgs":"{\\"question\\":\\"Which option do you want?\\"}"}
-            """.utf8),
-            defaultHookEventName: "preToolUse"
-        )
-
         let payload = try XCTUnwrap(
-            CopilotHookBridge.makePayloads(
-                from: input,
+            AgentEventBridge.copilotAdapter(
+                data: Data("""
+                {"cwd":"/tmp/project","toolName":"askuserquestiontool","toolArgs":"{\\"question\\":\\"Which option do you want?\\"}"}
+                """.utf8),
+                defaultEventName: "preToolUse",
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
                     "ZENTTY_PANE_ID": "worklane-main-shell",
@@ -1578,15 +2179,11 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_copilot_hook_pre_tool_use_non_question_tool_is_noop() throws {
-        let input = try CopilotHookBridge.parseInput(
-            Data("""
+        let payloads = try AgentEventBridge.copilotAdapter(
+            data: Data("""
             {"cwd":"/tmp/project","toolName":"bash","toolArgs":"{\\"command\\":\\"ls\\"}"}
             """.utf8),
-            defaultHookEventName: "preToolUse"
-        )
-
-        let payloads = try CopilotHookBridge.makePayloads(
-            from: input,
+            defaultEventName: "preToolUse",
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
                 "ZENTTY_PANE_ID": "worklane-main-shell",
@@ -1597,16 +2194,12 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_copilot_hook_post_tool_use_ask_user_question_clears_needs_input() throws {
-        let input = try CopilotHookBridge.parseInput(
-            Data("""
-            {"cwd":"/tmp/project","toolName":"askUserQuestion","toolArgs":"{}"}
-            """.utf8),
-            defaultHookEventName: "postToolUse"
-        )
-
         let payload = try XCTUnwrap(
-            CopilotHookBridge.makePayloads(
-                from: input,
+            AgentEventBridge.copilotAdapter(
+                data: Data("""
+                {"cwd":"/tmp/project","toolName":"askUserQuestion","toolArgs":"{}"}
+                """.utf8),
+                defaultEventName: "postToolUse",
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
                     "ZENTTY_PANE_ID": "worklane-main-shell",
@@ -1615,21 +2208,17 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .idle)
-        XCTAssertEqual(payload.interactionKind, PaneAgentInteractionKind.none)
+        XCTAssertNil(payload.interactionKind)
         XCTAssertEqual(payload.toolName, "Copilot")
     }
 
     func test_copilot_hook_session_end_emits_clear_status_payload() throws {
-        let input = try CopilotHookBridge.parseInput(
-            Data("""
-            {"cwd":"/tmp/project","reason":"user-quit"}
-            """.utf8),
-            defaultHookEventName: "sessionEnd"
-        )
-
         let payload = try XCTUnwrap(
-            CopilotHookBridge.makePayloads(
-                from: input,
+            AgentEventBridge.copilotAdapter(
+                data: Data("""
+                {"cwd":"/tmp/project","reason":"user-quit"}
+                """.utf8),
+                defaultEventName: "sessionEnd",
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
                     "ZENTTY_PANE_ID": "worklane-main-shell",
@@ -1645,69 +2234,57 @@ final class AgentStatusSupportTests: XCTestCase {
 
     func test_copilot_hook_parse_input_rejects_unknown_event() {
         XCTAssertThrowsError(
-            try CopilotHookBridge.parseInput(
-                Data("{}".utf8),
-                defaultHookEventName: "permissionRequest"
-            )
-        )
-    }
-
-    func test_opencode_hook_session_status_busy_maps_to_running_payload() throws {
-        let input = try OpenCodeHookBridge.parseInput(
-            Data(
-                """
-                {"eventType":"session.status","sessionID":"session-1","cwd":"/tmp/project","status":"busy"}
-                """.utf8
-            )
-        )
-        let payload = try XCTUnwrap(
-            OpenCodeHookBridge.makePayloads(
-                from: input,
+            try AgentEventBridge.copilotAdapter(
+                data: Data("{}".utf8),
+                defaultEventName: "permissionRequest",
                 environment: [
                     "ZENTTY_WORKLANE_ID": "worklane-main",
                     "ZENTTY_PANE_ID": "worklane-main-shell",
                 ]
-            ).first
-        )
-
-        XCTAssertEqual(
-            payload,
-            AgentStatusPayload(
-                worklaneID: WorklaneID("worklane-main"),
-                paneID: PaneID("worklane-main-shell"),
-                signalKind: .lifecycle,
-                state: .running,
-                origin: .explicitHook,
-                toolName: "OpenCode",
-                text: nil,
-                lifecycleEvent: .update,
-                interactionKind: PaneAgentInteractionKind.none,
-                confidence: .explicit,
-                sessionID: "session-1",
-                artifactKind: nil,
-                artifactLabel: nil,
-                artifactURL: nil,
-                agentWorkingDirectory: "/tmp/project"
             )
         )
     }
 
-    func test_opencode_hook_permission_prompt_maps_to_needs_input_approval_payload() throws {
-        let input = try OpenCodeHookBridge.parseInput(
-            Data(
-                """
-                {"eventType":"permission.asked","sessionID":"session-1","cwd":"/tmp/project","title":"Allow file write?"}
-                """.utf8
-            )
-        )
+    func test_opencode_canonical_running_event() throws {
+        let input = try AgentEventBridge.parseInput(Data("""
+        {"version":1,"event":"agent.running","agent":{"name":"OpenCode"},"session":{"id":"session-1"},"context":{"workingDirectory":"/tmp/project"}}
+        """.utf8))
         let payload = try XCTUnwrap(
-            OpenCodeHookBridge.makePayloads(
-                from: input,
-                environment: [
-                    "ZENTTY_WORKLANE_ID": "worklane-main",
-                    "ZENTTY_PANE_ID": "worklane-main-shell",
-                ]
-            ).first
+            AgentEventBridge.makePayloads(from: input, environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.toolName, "OpenCode")
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_opencode_canonical_running_with_task_progress() throws {
+        let input = try AgentEventBridge.parseInput(Data("""
+        {"version":1,"event":"agent.running","agent":{"name":"OpenCode"},"session":{"id":"session-1"},"progress":{"done":2,"total":5},"context":{"workingDirectory":"/tmp/project"}}
+        """.utf8))
+        let payload = try XCTUnwrap(
+            AgentEventBridge.makePayloads(from: input, environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]).first
+        )
+
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 2, totalCount: 5))
+    }
+
+    func test_opencode_canonical_needs_input_approval() throws {
+        let input = try AgentEventBridge.parseInput(Data("""
+        {"version":1,"event":"agent.needs-input","agent":{"name":"OpenCode"},"session":{"id":"session-1"},"state":{"interaction":{"kind":"approval","text":"Allow file write?"}},"context":{"workingDirectory":"/tmp/project"}}
+        """.utf8))
+        let payload = try XCTUnwrap(
+            AgentEventBridge.makePayloads(from: input, environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]).first
         )
 
         XCTAssertEqual(payload.state, .needsInput)
@@ -1718,22 +2295,15 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
-    func test_opencode_hook_question_prompt_with_options_maps_to_decision_payload() throws {
-        let input = try OpenCodeHookBridge.parseInput(
-            Data(
-                """
-                {"eventType":"question.asked","sessionID":"session-1","cwd":"/tmp/project","questions":[{"header":"Deployment","question":"Choose environment","options":[{"label":"Staging"},{"label":"Production"}]}]}
-                """.utf8
-            )
-        )
+    func test_opencode_canonical_needs_input_decision() throws {
+        let input = try AgentEventBridge.parseInput(Data("""
+        {"version":1,"event":"agent.needs-input","agent":{"name":"OpenCode"},"session":{"id":"session-1"},"state":{"interaction":{"kind":"decision","text":"Choose environment\\n[Staging] [Production]"}},"context":{"workingDirectory":"/tmp/project"}}
+        """.utf8))
         let payload = try XCTUnwrap(
-            OpenCodeHookBridge.makePayloads(
-                from: input,
-                environment: [
-                    "ZENTTY_WORKLANE_ID": "worklane-main",
-                    "ZENTTY_PANE_ID": "worklane-main-shell",
-                ]
-            ).first
+            AgentEventBridge.makePayloads(from: input, environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]).first
         )
 
         XCTAssertEqual(payload.state, .needsInput)
@@ -1743,22 +2313,15 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.confidence, .explicit)
     }
 
-    func test_opencode_hook_permission_reply_maps_to_running_payload() throws {
-        let input = try OpenCodeHookBridge.parseInput(
-            Data(
-                """
-                {"eventType":"permission.replied","sessionID":"session-1","cwd":"/tmp/project"}
-                """.utf8
-            )
-        )
+    func test_opencode_canonical_input_resolved() throws {
+        let input = try AgentEventBridge.parseInput(Data("""
+        {"version":1,"event":"agent.input-resolved","agent":{"name":"OpenCode"},"session":{"id":"session-1"},"context":{"workingDirectory":"/tmp/project"}}
+        """.utf8))
         let payload = try XCTUnwrap(
-            OpenCodeHookBridge.makePayloads(
-                from: input,
-                environment: [
-                    "ZENTTY_WORKLANE_ID": "worklane-main",
-                    "ZENTTY_PANE_ID": "worklane-main-shell",
-                ]
-            ).first
+            AgentEventBridge.makePayloads(from: input, environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]).first
         )
 
         XCTAssertEqual(payload.state, .running)
@@ -1767,22 +2330,15 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
-    func test_opencode_hook_session_idle_maps_to_idle_payload() throws {
-        let input = try OpenCodeHookBridge.parseInput(
-            Data(
-                """
-                {"eventType":"session.idle","sessionID":"session-1","cwd":"/tmp/project"}
-                """.utf8
-            )
-        )
+    func test_opencode_canonical_idle() throws {
+        let input = try AgentEventBridge.parseInput(Data("""
+        {"version":1,"event":"agent.idle","agent":{"name":"OpenCode"},"session":{"id":"session-1"},"context":{"workingDirectory":"/tmp/project"}}
+        """.utf8))
         let payload = try XCTUnwrap(
-            OpenCodeHookBridge.makePayloads(
-                from: input,
-                environment: [
-                    "ZENTTY_WORKLANE_ID": "worklane-main",
-                    "ZENTTY_PANE_ID": "worklane-main-shell",
-                ]
-            ).first
+            AgentEventBridge.makePayloads(from: input, environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]).first
         )
 
         XCTAssertEqual(payload.state, .idle)
@@ -1791,8 +2347,60 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
+    func test_claude_hook_task_lifecycle_updates_session_progress() throws {
+        let store = try makeClaudeHookSessionStore()
+        let environment = [
+            "ZENTTY_WORKLANE_ID": "worklane-main",
+            "ZENTTY_PANE_ID": "worklane-main-shell",
+        ]
+
+        try store.upsert(
+            sessionID: "session-1",
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            cwd: "/tmp/project",
+            pid: 4242
+        )
+
+        let createdInput = try AgentEventBridge.claudeParseInput(
+            Data(
+                """
+                {"hook_event_name":"TaskCreated","session_id":"session-1","task_id":"task-1","task":"Write regression test"}
+                """.utf8
+            )
+        )
+        let createdPayload = try XCTUnwrap(
+            AgentEventBridge.claudeMakePayloads(
+                from: createdInput,
+                environment: environment,
+                sessionStore: store
+            ).first
+        )
+
+        XCTAssertEqual(createdPayload.state, .running)
+        XCTAssertEqual(createdPayload.taskProgress, PaneAgentTaskProgress(doneCount: 0, totalCount: 1))
+
+        let completedInput = try AgentEventBridge.claudeParseInput(
+            Data(
+                """
+                {"hook_event_name":"TaskCompleted","session_id":"session-1","task_id":"task-1"}
+                """.utf8
+            )
+        )
+        let completedPayload = try XCTUnwrap(
+            AgentEventBridge.claudeMakePayloads(
+                from: completedInput,
+                environment: environment,
+                sessionStore: store
+            ).first
+        )
+
+        XCTAssertEqual(completedPayload.state, .running)
+        XCTAssertEqual(completedPayload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 1))
+    }
+
     func test_claude_hook_session_end_clears_status_pid_and_mapping() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"SessionEnd","session_id":"session-1"}
             """.utf8)
@@ -1806,7 +2414,7 @@ final class AgentStatusSupportTests: XCTestCase {
             pid: 4242
         )
 
-        let payloads = try ClaudeHookBridge.makePayloads(
+        let payloads = try AgentEventBridge.claudeMakePayloads(
             from: input,
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1826,7 +2434,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_session_end_without_session_id_does_not_clear_ambiguous_pane_sessions() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"SessionEnd"}
             """.utf8)
@@ -1847,7 +2455,7 @@ final class AgentStatusSupportTests: XCTestCase {
             pid: 4343
         )
 
-        let payloads = try ClaudeHookBridge.makePayloads(
+        let payloads = try AgentEventBridge.claudeMakePayloads(
             from: input,
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1862,7 +2470,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_non_action_notification_is_ignored() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Notification","session_id":"session-1","message":"Doing well, thanks!"}
             """.utf8)
@@ -1876,7 +2484,7 @@ final class AgentStatusSupportTests: XCTestCase {
             pid: nil
         )
 
-        let payloads = try ClaudeHookBridge.makePayloads(
+        let payloads = try AgentEventBridge.claudeMakePayloads(
             from: input,
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -1889,7 +2497,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_claude_hook_ignores_unknown_events() throws {
-        let input = try ClaudeHookBridge.parseInput(
+        let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"PostToolUse","session_id":"session-1","message":"tool finished"}
             """.utf8)
@@ -1903,7 +2511,7 @@ final class AgentStatusSupportTests: XCTestCase {
             pid: nil
         )
 
-        let payloads = try ClaudeHookBridge.makePayloads(
+        let payloads = try AgentEventBridge.claudeMakePayloads(
             from: input,
             environment: [
                 "ZENTTY_WORKLANE_ID": "worklane-main",
@@ -2509,14 +3117,14 @@ final class AgentStatusSupportTests: XCTestCase {
         extraEnvironment: [String: String] = [:]
     ) throws -> ShellIntegrationCommandResult {
         let scratchDirectory = try makeTemporaryDirectory(named: "shell-integration-scratch")
-        let fakeAgentURL = scratchDirectory.appendingPathComponent("fake-agent", isDirectory: false)
+        let fakeCLIURL = scratchDirectory.appendingPathComponent("zentty", isDirectory: false)
         let logURL = scratchDirectory.appendingPathComponent("signals.log", isDirectory: false)
 
         try """
         #!/bin/sh
         printf '%s\\n' "$*" >> "$LOG_FILE"
-        """.write(to: fakeAgentURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeAgentURL.path)
+        """.write(to: fakeCLIURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLIURL.path)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell.executablePath)
@@ -2529,8 +3137,10 @@ final class AgentStatusSupportTests: XCTestCase {
             "LOG_FILE": logURL.path,
             "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
             "USER": ProcessInfo.processInfo.environment["USER"] ?? "peter",
-            "ZENTTY_AGENT_BIN": fakeAgentURL.path,
+            "ZENTTY_CLI_BIN": fakeCLIURL.path,
+            "ZENTTY_INSTANCE_SOCKET": scratchDirectory.appendingPathComponent("zentty.sock", isDirectory: false).path,
             "ZENTTY_PANE_ID": "pane-under-test",
+            "ZENTTY_PANE_TOKEN": "pane-token-under-test",
             "ZENTTY_SHELL_INTEGRATION": "1",
             "ZENTTY_WORKLANE_ID": "worklane-under-test",
         ]

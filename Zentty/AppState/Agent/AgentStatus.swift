@@ -274,6 +274,20 @@ struct WorklaneArtifactLink: Equatable, Sendable {
     }
 }
 
+struct PaneAgentTaskProgress: Equatable, Sendable {
+    let doneCount: Int
+    let totalCount: Int
+
+    init?(doneCount: Int, totalCount: Int) {
+        guard totalCount > 0 else {
+            return nil
+        }
+
+        self.totalCount = totalCount
+        self.doneCount = min(max(doneCount, 0), totalCount)
+    }
+}
+
 struct PaneAgentStatus: Equatable, Sendable {
     let tool: AgentTool
     var state: PaneAgentState
@@ -291,6 +305,7 @@ struct PaneAgentStatus: Equatable, Sendable {
     var hasObservedRunning: Bool
     var sessionID: String?
     var parentSessionID: String?
+    var taskProgress: PaneAgentTaskProgress?
 
     init(
         tool: AgentTool,
@@ -308,7 +323,8 @@ struct PaneAgentStatus: Equatable, Sendable {
         workingDirectory: String? = nil,
         hasObservedRunning: Bool? = nil,
         sessionID: String? = nil,
-        parentSessionID: String? = nil
+        parentSessionID: String? = nil,
+        taskProgress: PaneAgentTaskProgress? = nil
     ) {
         self.tool = tool
         self.state = state
@@ -327,6 +343,7 @@ struct PaneAgentStatus: Equatable, Sendable {
         self.hasObservedRunning = hasObservedRunning ?? Self.defaultHasObservedRunning(for: state)
         self.sessionID = sessionID
         self.parentSessionID = parentSessionID
+        self.taskProgress = taskProgress
     }
 
     init(

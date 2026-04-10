@@ -798,27 +798,6 @@ final class SidebarWorklaneRowButtonTests: XCTestCase {
         XCTAssertEqual(branchLabel.lineBreakMode, .byTruncatingMiddle)
     }
 
-    func test_worklane_row_keeps_tight_pane_titles_single_line_for_shimmer() throws {
-        // Regression: the pane row primary stays single-line with tail
-        // truncation so the shimmer overlay keeps drawing on running agents.
-        // Wrapping would hide the shimmer view.
-        let paneRow = WorklaneSidebarPaneRow(
-            paneID: PaneID("worklane-main-agent"),
-            primaryText: "Ready | zentty · Verify adaptive multiline sidebar rows while preserving repo context and status visibility",
-            trailingText: "feature/autoresearch/zsh-startup-2026-03-22",
-            detailText: "…/zentty",
-            statusText: "Agent ready",
-            attentionState: .ready,
-            isFocused: true,
-            isWorking: false
-        )
-
-        XCTAssertEqual(
-            SidebarWorklaneRowLayout.paneRowPrimaryLineCount(for: paneRow, availableWidth: 220),
-            1
-        )
-    }
-
     func test_sidebar_view_grows_worklane_row_to_keep_wrapped_worklane_labels_inside_bounds() throws {
         let primaryText =
             "Requires approval for a longer sidebar copy check that should wrap to a second line in tight widths"

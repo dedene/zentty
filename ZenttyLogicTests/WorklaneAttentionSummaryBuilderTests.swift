@@ -201,6 +201,56 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary?.primaryText, "Implement ready notifications")
     }
 
+    func test_summary_does_not_surface_ready_state_while_tasks_remain_incomplete() {
+        let paneID = PaneID("pane-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Implement task progress",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true,
+                taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 3)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            ),
+            showsReadyStatus: true,
+            lastDesktopNotificationText: "Agent ready",
+            lastDesktopNotificationDate: Date(timeIntervalSince1970: 42)
+        )
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        XCTAssertNil(WorklaneAttentionSummaryBuilder.summary(for: worklane))
+    }
+
     func test_summaries_returns_all_attention_panes_sorted_by_priority_then_recency() {
         let readyPaneID = PaneID("pane-ready")
         let stoppedPaneID = PaneID("pane-stopped")

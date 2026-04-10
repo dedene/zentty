@@ -5,25 +5,13 @@ let isHostedTestMode = CommandLine.arguments.contains("-ApplePersistenceIgnoreSt
 let configStore = AppConfigStore()
 
 if !isHostedTestMode {
-    if let exitCode = AgentStatusHelper.runIfNeeded(
-        arguments: CommandLine.arguments,
-        environment: ProcessInfo.processInfo.environment
-    ) {
-        Foundation.exit(exitCode)
-    }
-
-    if let exitCode = ClaudeHookBridge.runIfNeeded(
-        arguments: CommandLine.arguments,
-        environment: ProcessInfo.processInfo.environment
-    ) {
-        Foundation.exit(exitCode)
-    }
-
     _ = ErrorReportingBootstrap.startIfNeeded(
         appConfig: configStore.current,
         bundleConfiguration: ErrorReportingBundleConfiguration.load(from: .main),
         client: SentryErrorReportingClient()
     )
+
+    _ = AgentIPCServer.shared.startIfNeeded()
 }
 
 let app = NSApplication.shared
