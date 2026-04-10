@@ -16,6 +16,8 @@ extension WorklaneStore {
         var worklane = worklanes[worklaneIndex]
         let previousWorklane = worklane
         switch event {
+        case .shellReady:
+            break
         case .progressReport(let report):
             let now = Date()
             if report.state == .remove {

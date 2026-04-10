@@ -1551,6 +1551,7 @@ private final class MetadataEmittingTerminalAdapter: TerminalAdapter {
     }
 
     func close() {}
+    func sendText(_ text: String) {}
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         _ = activity

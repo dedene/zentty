@@ -75,6 +75,8 @@ enum CommandAvailabilityResolver {
             // Available whenever there's a pane to close — closing the last
             // pane in the last worklane closes the window.
             return context.activePaneCount >= 1
+        case .duplicateFocusedPane:
+            return context.activePaneCount >= 1
         case .focusLeftPane,
              .focusRightPane,
              .resizePaneLeft,

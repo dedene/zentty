@@ -134,6 +134,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
     private let eventDidOccur: (TerminalEvent) -> Void
     private weak var hostView: LibghosttyView?
     private(set) var hasScrollback = false
+    private var hasEmittedShellReady = false
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
 
     var cellWidth: CGFloat {
@@ -430,6 +431,10 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
                     metadataChanged = true
                 }
             case .pwd:
+                if !hasEmittedShellReady {
+                    hasEmittedShellReady = true
+                    eventDidOccur(.shellReady)
+                }
                 guard let pwd = batch.pwd.value else {
                     continue
                 }

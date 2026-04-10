@@ -338,6 +338,7 @@ private final class GlobalSearchCoordinatorTerminalAdapterSpy: TerminalAdapter, 
     func startSession(using request: TerminalSessionRequest) throws {}
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {}
     func close() {}
+    func sendText(_ text: String) {}
 
     func showSearch() {
         bindingActions.append("start_search")

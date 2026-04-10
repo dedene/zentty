@@ -497,6 +497,26 @@ final class WorklaneStore {
         let changeType: WorklaneChange
 
         switch command {
+        case .duplicateFocusedPane:
+            guard let focusedPaneID = worklane.paneStripState.focusedPaneID else {
+                return
+            }
+
+            let targetColumnIndex = (
+                worklane.paneStripState.columns.firstIndex { $0.id == worklane.paneStripState.focusedColumnID } ?? 0
+            ) + 1
+
+            duplicatePaneAsColumn(
+                paneID: focusedPaneID,
+                toColumnIndex: targetColumnIndex,
+                singleColumnWidth: layoutContext.singlePaneWidth
+            )
+
+            let newPaneRef = currentPaneReference
+            if previousPaneRef != newPaneRef {
+                recordFocusTransition(from: previousPaneRef)
+            }
+            return
         case .split, .splitHorizontally, .splitAfterFocusedPane:
             insertNewPaneHorizontally(into: &worklane, placement: .afterFocused)
             changeType = .paneStructure(activeWorklaneID)
@@ -1118,7 +1138,8 @@ final class WorklaneStore {
         in worklane: inout WorklaneState,
         existingPaneCount: Int,
         workingDirectory: String?,
-        sourceShellContext: PaneShellContext? = nil
+        sourceShellContext: PaneShellContext? = nil,
+        command: String? = nil
     ) -> PaneState {
         defer { worklane.nextPaneNumber += 1 }
 
@@ -1151,6 +1172,7 @@ final class WorklaneStore {
             title: title,
             sessionRequest: TerminalSessionRequest(
                 workingDirectory: resolvedDirectory,
+                command: command,
                 inheritFromPaneID: nil,
                 configInheritanceSourcePaneID: configSource,
                 surfaceContext: .split,
