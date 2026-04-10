@@ -62,6 +62,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_STYLE: Automatic
         SKIP_INSTALL: YES
+        ENABLE_HARDENED_RUNTIME: YES
         INFOPLIST_KEY_CFBundleName: zentty
         INFOPLIST_KEY_LSMinimumSystemVersion: "26.0"
   Zentty:
@@ -139,7 +140,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty
-        CURRENT_PROJECT_VERSION: 217
+        CURRENT_PROJECT_VERSION: 218
         MARKETING_VERSION: 0.1.6
         VERSIONING_SYSTEM: apple-generic
         INFOPLIST_FILE: Zentty/Info.plist
