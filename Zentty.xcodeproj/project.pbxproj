@@ -138,7 +138,6 @@
 		956645D7FA3810989313C3A7 /* CodexTitlePromotionReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172E7F852B70FDD655345CF4 /* CodexTitlePromotionReducer.swift */; };
 		95A3A7116CE13BB739E4C940 /* WorklaneSidebarSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF6932CD53AF150CC4656051 /* WorklaneSidebarSummaryTests.swift */; };
 		961ADDCEBB2BBB78B2820F67 /* PaneStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEFFC2CAEA605772B62E73E5 /* PaneStripView.swift */; };
-		9693801A003023D9E208DD8F /* ZenttyCLI in Resources */ = {isa = PBXBuildFile; fileRef = 002C17F93F18214D7C05A810 /* ZenttyCLI */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		96C8DAEB457704BB7D4DEC7D /* PaneAgentReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB869749410CBF86B97FA142 /* PaneAgentReducer.swift */; };
 		979D0127696D756BDA955A55 /* LibghosttyRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24F2B610CEE3EE12203D913C /* LibghosttyRuntimeTests.swift */; };
 		98F978A3B1153B5779E303B4 /* AgentStatusShellIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29BA6CB9ADE94B1F271FFDE7 /* AgentStatusShellIntegrationTests.swift */; };
@@ -1182,7 +1181,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				039A651343EA7A91CA374AB3 /* AppIcon.icon in Resources */,
-				9693801A003023D9E208DD8F /* ZenttyCLI in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1784,7 +1782,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Zentty/Zentty.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 214;
+				CURRENT_PROJECT_VERSION = 215;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1826,7 +1824,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 214;
+				CURRENT_PROJECT_VERSION = 215;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
