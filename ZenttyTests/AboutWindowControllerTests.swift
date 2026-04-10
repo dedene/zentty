@@ -1,11 +1,10 @@
 import AppKit
-import GhosttyKit
 import XCTest
 @testable import Zentty
 
 @MainActor
 final class AboutWindowControllerTests: XCTestCase {
-    func test_about_window_uses_expected_chrome_layout_and_metadata() throws {
+    func test_about_window_uses_native_chrome_layout_and_metadata() throws {
         let controller = makeController()
         addTeardownBlock { controller.window?.close() }
 
@@ -13,13 +12,14 @@ final class AboutWindowControllerTests: XCTestCase {
         waitForLayout()
 
         XCTAssertEqual(controller.window?.title, "About Zentty")
-        XCTAssertEqual(controller.window?.titleVisibility, .hidden)
-        XCTAssertTrue(controller.window?.titlebarAppearsTransparent == true)
-        XCTAssertTrue(controller.window?.styleMask.contains(.fullSizeContentView) == true)
+        XCTAssertEqual(controller.window?.titleVisibility, .visible)
+        XCTAssertFalse(controller.window?.titlebarAppearsTransparent == true)
+        XCTAssertFalse(controller.window?.styleMask.contains(.fullSizeContentView) == true)
         let window = try XCTUnwrap(controller.window)
+        let contentView = try XCTUnwrap(window.contentView)
 
-        XCTAssertEqual(window.frame.size.width, 500, accuracy: 0.5)
-        XCTAssertEqual(window.frame.size.height, 544, accuracy: 0.5)
+        XCTAssertEqual(contentView.bounds.size.width, 360, accuracy: 0.5)
+        XCTAssertEqual(contentView.bounds.size.height, 456, accuracy: 0.5)
         XCTAssertNotNil(controller.window?.contentView?.firstDescendantLabel(stringValue: "Zentty"))
         XCTAssertNotNil(
             controller.window?.contentView?.firstDescendantLabel(
@@ -63,68 +63,6 @@ final class AboutWindowControllerTests: XCTestCase {
         XCTAssertEqual(controller.contentAppearanceMatchForTesting, .aqua)
     }
 
-    func test_about_window_applies_injected_theme_to_surface_and_blur() throws {
-        let theme = makeTheme(
-            background: NSColor(srgbRed: 0.18, green: 0.24, blue: 0.32, alpha: 0.68),
-            foreground: NSColor(srgbRed: 0.93, green: 0.95, blue: 0.98, alpha: 1),
-            cursor: NSColor(srgbRed: 0.34, green: 0.82, blue: 0.66, alpha: 1)
-        )
-        let runtime = LibghosttyRuntimeProviderSpy()
-        let controller = AboutWindowController(
-            metadata: AboutMetadata(version: "1.2.3", build: "456", commit: "abc1234"),
-            appearance: NSAppearance(named: .darkAqua),
-            theme: theme,
-            runtime: runtime
-        )
-        addTeardownBlock { controller.window?.close() }
-
-        controller.showWindow(nil)
-        waitForLayout()
-
-        XCTAssertEqual(controller.surfaceBackgroundTokenForTesting, theme.windowBackground.themeToken)
-        XCTAssertEqual(controller.docsButtonBackgroundTokenForTesting, theme.openWithChromeBackground.themeToken)
-        XCTAssertEqual(controller.docsButtonTextColorTokenForTesting, theme.openWithChromePrimaryTint.themeToken)
-        XCTAssertEqual(runtime.blurredWindows, [try XCTUnwrap(controller.window)])
-    }
-
-    func test_applyTheme_updates_open_about_window_live() throws {
-        let initialTheme = makeTheme(
-            background: NSColor(srgbRed: 0.17, green: 0.20, blue: 0.28, alpha: 0.72),
-            foreground: NSColor(srgbRed: 0.94, green: 0.96, blue: 0.98, alpha: 1),
-            cursor: NSColor(srgbRed: 0.28, green: 0.62, blue: 0.97, alpha: 1)
-        )
-        let updatedTheme = makeTheme(
-            background: NSColor(srgbRed: 0.72, green: 0.82, blue: 0.89, alpha: 0.80),
-            foreground: NSColor(srgbRed: 0.11, green: 0.15, blue: 0.19, alpha: 1),
-            cursor: NSColor(srgbRed: 0.92, green: 0.48, blue: 0.18, alpha: 1)
-        )
-        let runtime = LibghosttyRuntimeProviderSpy()
-        let controller = AboutWindowController(
-            metadata: AboutMetadata(version: "1.2.3", build: "456", commit: "abc1234"),
-            appearance: NSAppearance(named: .darkAqua),
-            theme: initialTheme,
-            runtime: runtime
-        )
-        addTeardownBlock { controller.window?.close() }
-
-        controller.showWindow(nil)
-        waitForLayout()
-
-        let initialSurfaceToken = controller.surfaceBackgroundTokenForTesting
-        let initialCommitToken = controller.commitColorTokenForTesting
-        let initialButtonBackgroundToken = controller.docsButtonBackgroundTokenForTesting
-
-        controller.applyTheme(updatedTheme)
-        waitForLayout("theme updated")
-
-        XCTAssertEqual(controller.surfaceBackgroundTokenForTesting, updatedTheme.windowBackground.themeToken)
-        XCTAssertNotEqual(controller.surfaceBackgroundTokenForTesting, initialSurfaceToken)
-        XCTAssertNotEqual(controller.commitColorTokenForTesting, initialCommitToken)
-        XCTAssertEqual(controller.docsButtonBackgroundTokenForTesting, updatedTheme.openWithChromeBackground.themeToken)
-        XCTAssertNotEqual(controller.docsButtonBackgroundTokenForTesting, initialButtonBackgroundToken)
-        XCTAssertEqual(runtime.blurredWindows.count, 2)
-    }
-
     func test_github_button_opens_repository_url() throws {
         var openedURLs: [URL] = []
         let controller = makeController { openedURLs.append($0) }
@@ -138,7 +76,7 @@ final class AboutWindowControllerTests: XCTestCase {
         XCTAssertEqual(openedURLs, [try XCTUnwrap(URL(string: "https://github.com/dedene/zentty"))])
     }
 
-    func test_placeholder_buttons_do_not_open_urls_yet() throws {
+    func test_docs_button_opens_docs_url() throws {
         var openedURLs: [URL] = []
         let controller = makeController { openedURLs.append($0) }
         addTeardownBlock { controller.window?.close() }
@@ -147,62 +85,37 @@ final class AboutWindowControllerTests: XCTestCase {
         waitForLayout()
 
         try clickButton(titled: "Docs", in: controller.window)
+
+        XCTAssertEqual(openedURLs, [try XCTUnwrap(URL(string: "https://zentty.org/docs"))])
+    }
+
+    func test_licenses_button_opens_dedicated_licenses_window() throws {
+        let licensesWindowController = LicensesWindowController()
+        let controller = makeController(onLicensesRequested: {
+            licensesWindowController.show(sender: nil)
+        })
+        addTeardownBlock { controller.window?.close() }
+        addTeardownBlock { licensesWindowController.window?.close() }
+
+        controller.showWindow(nil)
+        waitForLayout()
+
         try clickButton(titled: "Licenses", in: controller.window)
+        waitForLayout("licenses window opened")
 
-        XCTAssertTrue(openedURLs.isEmpty)
-    }
-
-    func test_about_buttons_do_not_draw_native_button_title() throws {
-        let controller = makeController()
-        addTeardownBlock { controller.window?.close() }
-
-        controller.showWindow(nil)
-        waitForLayout()
-
-        let button = try findButton(titled: "GitHub", in: controller.window)
-
-        XCTAssertEqual(button.attributedTitle.string, "")
-    }
-
-    func test_about_action_buttons_hide_native_button_title_and_keep_accessible_label() throws {
-        let controller = makeController()
-        addTeardownBlock { controller.window?.close() }
-
-        controller.showWindow(nil)
-        waitForLayout()
-
-        let button = try XCTUnwrap(controller.window?.contentView?.firstDescendantButton(titled: "GitHub"))
-
-        XCTAssertEqual(button.attributedTitle.string, "")
-        XCTAssertEqual(button.accessibilityLabel(), "GitHub")
+        let licensesWindow = try XCTUnwrap(licensesWindowController.window)
+        XCTAssertTrue(licensesWindow.isVisible)
+        XCTAssertEqual(licensesWindow.title, "Third-Party Licenses")
     }
 
     private func makeController(
-        urlOpener: @escaping (URL) -> Void = { _ in }
+        urlOpener: @escaping (URL) -> Void = { _ in },
+        onLicensesRequested: @escaping () -> Void = {}
     ) -> AboutWindowController {
         AboutWindowController(
             metadata: AboutMetadata(version: "1.2.3", build: "456", commit: "abc1234"),
-            urlOpener: urlOpener
-        )
-    }
-
-    private func makeTheme(
-        background: NSColor,
-        foreground: NSColor,
-        cursor: NSColor
-    ) -> ZenttyTheme {
-        ZenttyTheme(
-            resolvedTheme: GhosttyResolvedTheme(
-                background: background,
-                foreground: foreground,
-                cursorColor: cursor,
-                selectionBackground: nil,
-                selectionForeground: nil,
-                palette: [:],
-                backgroundOpacity: background.alphaComponent,
-                backgroundBlurRadius: 22
-            ),
-            reduceTransparency: false
+            urlOpener: urlOpener,
+            onLicensesRequested: onLicensesRequested
         )
     }
 
@@ -221,28 +134,6 @@ final class AboutWindowControllerTests: XCTestCase {
             expectation.fulfill()
         }
         wait(for: [expectation], timeout: 2.0)
-    }
-}
-
-@MainActor
-private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
-    private(set) var blurredWindows: [NSWindow] = []
-
-    func makeSurface(
-        for hostView: LibghosttyView,
-        paneID: PaneID,
-        request: TerminalSessionRequest,
-        configTemplate: ghostty_surface_config_s?,
-        metadataDidChange: @escaping (TerminalMetadata) -> Void,
-        eventDidOccur: @escaping (TerminalEvent) -> Void
-    ) throws -> any LibghosttySurfaceControlling {
-        fatalError("Not used in AboutWindowControllerTests")
-    }
-
-    func reloadConfig() {}
-
-    func applyBackgroundBlur(to window: NSWindow) {
-        blurredWindows.append(window)
     }
 }
 

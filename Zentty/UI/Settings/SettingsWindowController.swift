@@ -192,7 +192,17 @@ final class SettingsViewController: NSTabViewController {
         errorReportingRestartHandler: errorReportingRestartHandler,
         runtimeErrorReportingEnabled: runtimeErrorReportingEnabled
     )
-    private lazy var appearanceViewController = AppearanceSettingsSectionViewController()
+    private lazy var appearanceViewController: AppearanceSettingsSectionViewController = {
+        let configEnvironment = GhosttyConfigEnvironment(appConfigProvider: { [weak configStore] in
+            configStore?.current ?? .default
+        })
+        let resolver = GhosttyThemeResolver(configEnvironment: configEnvironment)
+        return AppearanceSettingsSectionViewController(
+            configCoordinator: GhosttyAppearanceSettingsCoordinator(configStore: configStore),
+            currentThemeName: resolver.currentThemeName(for:),
+            currentBackgroundOpacity: resolver.currentBackgroundOpacity
+        )
+    }()
     private lazy var shortcutsViewController = ShortcutsSettingsSectionViewController(configStore: configStore)
     private lazy var paneLayoutViewController = PaneLayoutSettingsSectionViewController(configStore: configStore)
     private let openWithViewController: OpenWithSettingsSectionViewController

@@ -16,6 +16,16 @@ enum AppUpdateChannel: String, CaseIterable, Equatable, Sendable {
 }
 
 struct AppConfig: Equatable, Sendable {
+    struct Appearance: Equatable, Sendable {
+        var localThemeName: String?
+        var localBackgroundOpacity: CGFloat?
+
+        static let `default` = Appearance(
+            localThemeName: nil,
+            localBackgroundOpacity: nil
+        )
+    }
+
     struct Sidebar: Equatable, Sendable {
         var width: CGFloat
         var visibility: SidebarVisibilityMode
@@ -92,6 +102,7 @@ struct AppConfig: Equatable, Sendable {
     var shortcuts: Shortcuts
     var notifications: Notifications
     var confirmations: Confirmations
+    var appearance: Appearance
 
     static let `default` = AppConfig(
         sidebar: Sidebar(
@@ -105,7 +116,8 @@ struct AppConfig: Equatable, Sendable {
         updates: .default,
         shortcuts: .default,
         notifications: .default,
-        confirmations: .default
+        confirmations: .default,
+        appearance: .default
     )
 
     static func migrated(
@@ -125,7 +137,8 @@ struct AppConfig: Equatable, Sendable {
             updates: .default,
             shortcuts: .default,
             notifications: .default,
-            confirmations: .default
+            confirmations: .default,
+            appearance: .default
         )
     }
 
@@ -226,5 +239,288 @@ extension AppConfig.Panes {
                 AppConfig.Panes.maximumInactiveOpacity
             )
         )
+    }
+}
+
+struct GhosttyConfigEnvironment {
+    enum Mode: Equatable {
+        case sharedGhostty
+        case zenttyLocal
+    }
+
+    struct ResolvedStack: Equatable {
+        let mode: Mode
+        let loadFiles: [URL]
+        let writeTargetURL: URL?
+        let preferredCreateTargetURL: URL
+        let localOverrideContents: String?
+        let usesBundledDefaultsOnly: Bool
+
+        var primaryWatchURL: URL {
+            writeTargetURL ?? preferredCreateTargetURL
+        }
+
+        func mergedUserConfigContents(fileManager: FileManager = .default) -> String? {
+            var visitedPaths: Set<String> = []
+            var sections: [String] = []
+
+            for url in loadFiles {
+                sections.append(
+                    contentsRecursively(
+                        at: url,
+                        visitedPaths: &visitedPaths,
+                        fileManager: fileManager
+                    )
+                )
+            }
+
+            if let localOverrideContents, !localOverrideContents.isEmpty {
+                sections.append(localOverrideContents)
+            }
+
+            let nonEmptySections = sections
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            guard !nonEmptySections.isEmpty else {
+                return nil
+            }
+
+            return nonEmptySections.joined(separator: "\n")
+        }
+
+        private func contentsRecursively(
+            at url: URL,
+            visitedPaths: inout Set<String>,
+            fileManager: FileManager
+        ) -> String {
+            let normalizedPath = url.standardizedFileURL.path
+            guard visitedPaths.insert(normalizedPath).inserted else {
+                return ""
+            }
+
+            guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
+                return ""
+            }
+
+            var sections = [contents]
+
+            for rawLine in contents.split(whereSeparator: \.isNewline) {
+                let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else {
+                    continue
+                }
+
+                let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+                guard parts.count == 2 else {
+                    continue
+                }
+
+                let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard key == "config-file",
+                      let includedURL = resolveIncludedConfigURL(
+                          rawValue: value,
+                          relativeTo: url,
+                          fileManager: fileManager
+                      ) else {
+                    continue
+                }
+
+                sections.append(
+                    contentsRecursively(
+                        at: includedURL,
+                        visitedPaths: &visitedPaths,
+                        fileManager: fileManager
+                    )
+                )
+            }
+
+            return sections
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
+
+        private func resolveIncludedConfigURL(
+            rawValue: String,
+            relativeTo sourceURL: URL,
+            fileManager: FileManager
+        ) -> URL? {
+            let value = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            guard !value.isEmpty else {
+                return nil
+            }
+
+            let candidateURL: URL
+            if value.hasPrefix("/") {
+                candidateURL = URL(fileURLWithPath: value)
+            } else if value.hasPrefix("~") {
+                candidateURL = URL(fileURLWithPath: NSString(string: value).expandingTildeInPath)
+            } else {
+                candidateURL = sourceURL.deletingLastPathComponent().appendingPathComponent(value)
+            }
+
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: candidateURL.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else {
+                return nil
+            }
+
+            return candidateURL
+        }
+    }
+
+    private let fileManager: FileManager
+    private let appConfigProvider: () -> AppConfig
+
+    let homeDirectoryURL: URL
+    let bundledDefaultsURL: URL?
+    let ghosttyBundleIdentifier: String
+
+    init(
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        bundledDefaultsURL: URL? = GhosttyConfigEnvironment.defaultBundledDefaultsURL(),
+        ghosttyBundleIdentifier: String = "com.mitchellh.ghostty",
+        fileManager: FileManager = .default,
+        appConfigProvider: @escaping () -> AppConfig = GhosttyConfigEnvironment.defaultAppConfig
+    ) {
+        self.homeDirectoryURL = homeDirectoryURL
+        self.bundledDefaultsURL = bundledDefaultsURL
+        self.ghosttyBundleIdentifier = ghosttyBundleIdentifier
+        self.fileManager = fileManager
+        self.appConfigProvider = appConfigProvider
+    }
+
+    var preferredCreateTargetURL: URL {
+        #if os(macOS)
+        homeDirectoryURL
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent(ghosttyBundleIdentifier, isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        #else
+        homeDirectoryURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        #endif
+    }
+
+    func resolvedStack() -> ResolvedStack? {
+        let sharedConfigURLs = existingSharedConfigURLs()
+        if !sharedConfigURLs.isEmpty {
+            return ResolvedStack(
+                mode: .sharedGhostty,
+                loadFiles: sharedConfigURLs,
+                writeTargetURL: sharedConfigURLs.last,
+                preferredCreateTargetURL: preferredCreateTargetURL,
+                localOverrideContents: nil,
+                usesBundledDefaultsOnly: false
+            )
+        }
+
+        guard let bundledDefaultsURL else {
+            return nil
+        }
+
+        return ResolvedStack(
+            mode: .zenttyLocal,
+            loadFiles: [bundledDefaultsURL],
+            writeTargetURL: nil,
+            preferredCreateTargetURL: preferredCreateTargetURL,
+            localOverrideContents: localOverrideContents(from: appConfigProvider().appearance),
+            usesBundledDefaultsOnly: true
+        )
+    }
+
+    func existingSharedConfigURLs() -> [URL] {
+        var urls: [URL] = []
+
+        let legacyXDGURL = homeDirectoryURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: false)
+        if isExistingFile(at: legacyXDGURL) {
+            urls.append(legacyXDGURL)
+        }
+
+        let xdgURL = homeDirectoryURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        if isExistingFile(at: xdgURL) {
+            urls.append(xdgURL)
+        }
+
+        #if os(macOS)
+        let appSupportDirectoryURL = homeDirectoryURL
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent(ghosttyBundleIdentifier, isDirectory: true)
+
+        let legacyAppSupportURL = appSupportDirectoryURL.appendingPathComponent("config", isDirectory: false)
+        if isExistingFile(at: legacyAppSupportURL) {
+            urls.append(legacyAppSupportURL)
+        }
+
+        let appSupportURL = appSupportDirectoryURL.appendingPathComponent("config.ghostty", isDirectory: false)
+        if isExistingFile(at: appSupportURL) {
+            urls.append(appSupportURL)
+        }
+        #endif
+
+        return urls
+    }
+
+    private func isExistingFile(at url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return false
+        }
+
+        return !isDirectory.boolValue
+    }
+
+    private func localOverrideContents(from appearance: AppConfig.Appearance) -> String? {
+        var lines: [String] = []
+
+        if let themeName = sanitizedThemeName(appearance.localThemeName) {
+            lines.append("theme = \(themeName)")
+        }
+
+        if let opacity = appearance.localBackgroundOpacity {
+            let clamped = min(max(opacity, 0), 1)
+            lines.append("background-opacity = \(String(format: "%.2f", clamped))")
+        }
+
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    private func sanitizedThemeName(_ rawThemeName: String?) -> String? {
+        guard let rawThemeName else {
+            return nil
+        }
+
+        let sanitized = rawThemeName
+            .filter { $0 != "\"" && !$0.isNewline }
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitized.isEmpty ? nil : sanitized
+    }
+
+    private static func defaultBundledDefaultsURL() -> URL? {
+        Bundle.main.url(forResource: "zentty-defaults", withExtension: "ghostty", subdirectory: "ghostty")
+            ?? Bundle.main.url(forResource: "zentty-defaults", withExtension: "ghostty")
+    }
+
+    private static func defaultAppConfig() -> AppConfig {
+        let fileURL = AppConfigStore.defaultFileURL()
+        guard
+            let source = try? String(contentsOf: fileURL, encoding: .utf8),
+            let config = AppConfigTOML.decode(source)
+        else {
+            return .default
+        }
+
+        return config.normalized()
     }
 }

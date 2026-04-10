@@ -241,12 +241,14 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
     nonisolated(unsafe) private var config: ghostty_config_t?
     nonisolated let diagnostics: TerminalDiagnostics
     nonisolated(unsafe) var wakeupCoordinator: LibghosttyWakeupCoordinator
+    private let configEnvironment: GhosttyConfigEnvironment
 
-    private init() throws {
+    private init(configEnvironment: GhosttyConfigEnvironment = GhosttyConfigEnvironment()) throws {
         self.app = nil
         self.config = nil
         self.diagnostics = .shared
         self.wakeupCoordinator = LibghosttyWakeupCoordinator(diagnostics: self.diagnostics) {}
+        self.configEnvironment = configEnvironment
 
         Self.configureResourcesDirectoryIfNeeded()
         Self.configureLogLevelIfNeeded()
@@ -260,8 +262,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             throw Error.configCreationFailed
         }
 
-        ghostty_config_load_default_files(config)
-        Self.loadTransparentBackgroundOverride(config)
+        Self.loadConfigStack(config, environment: configEnvironment)
         ghostty_config_finalize(config)
         self.config = config
 
@@ -338,8 +339,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         guard let newConfig = ghostty_config_new() else {
             return
         }
-        ghostty_config_load_default_files(newConfig)
-        Self.loadTransparentBackgroundOverride(newConfig)
+        Self.loadConfigStack(newConfig, environment: configEnvironment)
         ghostty_config_finalize(newConfig)
         ghostty_app_update_config(app, newConfig)
         let oldConfig = self.config
@@ -354,18 +354,49 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
     }
 
-    private static let overridePath = NSTemporaryDirectory() + "zentty-ghostty-override.conf"
+    private static let localOverridePath = NSTemporaryDirectory() + "zentty-ghostty-local-overrides.conf"
+    private static let transparentOverridePath = NSTemporaryDirectory() + "zentty-ghostty-transparent-override.conf"
 
-    private static func loadTransparentBackgroundOverride(_ config: ghostty_config_t) {
+    private static func loadConfigStack(_ config: ghostty_config_t, environment: GhosttyConfigEnvironment) {
+        let stack = environment.resolvedStack()
+
+        for url in stack?.loadFiles ?? [] {
+            url.path.withCString { pointer in
+                ghostty_config_load_file(config, pointer)
+            }
+        }
+
+        if stack?.writeTargetURL != nil {
+            ghostty_config_load_recursive_files(config)
+        }
+
+        if let localOverrideContents = stack?.localOverrideContents {
+            loadConfigFile(contents: localOverrideContents, path: localOverridePath, into: config)
+        }
+
+        loadTransparentBackgroundOverride(
+            config,
+            userConfigContents: stack?.mergedUserConfigContents()
+        )
+    }
+
+    private static func loadTransparentBackgroundOverride(
+        _ config: ghostty_config_t,
+        userConfigContents: String?
+    ) {
         guard let lines = transparentBackgroundOverrideContents(
-            userConfigContents: userConfigContents()
+            userConfigContents: userConfigContents
         ) else {
             return
         }
 
-        try? lines.write(toFile: overridePath, atomically: true, encoding: .utf8)
-        overridePath.withCString { ptr in
-            ghostty_config_load_file(config, ptr)
+        loadConfigFile(contents: lines, path: transparentOverridePath, into: config)
+    }
+
+    private static func loadConfigFile(contents: String, path: String, into config: ghostty_config_t) {
+        try? contents.write(toFile: path, atomically: true, encoding: .utf8)
+        path.withCString { pointer in
+            ghostty_config_load_file(config, pointer)
         }
     }
 
@@ -378,12 +409,6 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
 
         lines += "background-blur-radius = 20\n"
         return lines
-    }
-
-    private static func userConfigContents() -> String? {
-        let configPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/ghostty/config")
-        return try? String(contentsOf: configPath, encoding: .utf8)
     }
 
     private static func userConfigContainsBackgroundBlur(_ content: String?) -> Bool {

@@ -62,6 +62,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case navigateBack = "navigate.back"
     case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
+    case openBranchOnRemote = "branch.open_remote"
     case openSettings = "app.open_settings"
     case newWindow = "app.new_window"
     case closeWindow = "app.close_window"
@@ -89,6 +90,7 @@ enum AppAction: Equatable, Sendable {
     case navigateBack
     case navigateForward
     case showCommandPalette
+    case openBranchOnRemote
     case openSettings
     case newWindow
     case closeWindow
@@ -608,6 +610,14 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
+            id: .openBranchOnRemote,
+            title: "Open Branch on Remote",
+            category: .general,
+            defaultShortcut: nil,
+            action: .openBranchOnRemote,
+            menuItem: nil
+        ),
+        AppCommandDefinition(
             id: .openSettings,
             title: "Open Settings",
             category: .general,
@@ -821,6 +831,8 @@ extension AppCommandDefinition {
             "Toggle zoomed-out view of all panes for drag reordering."
         case .showCommandPalette:
             "Open the command palette to quickly find and run any command."
+        case .openBranchOnRemote:
+            "Open the active branch on its remote hosting provider, such as a GitHub branch page in your browser."
         case .openSettings:
             "Open the settings window to customize shortcuts, appearance, and behavior."
         case .newWindow:
@@ -833,7 +845,14 @@ extension AppCommandDefinition {
     }
 
     var searchText: String {
-        [title, detailDescription].joined(separator: " ").lowercased()
+        switch id {
+        case .openBranchOnRemote:
+            [title, detailDescription, "remote branch github branch gitlab branch"]
+                .joined(separator: " ")
+                .lowercased()
+        default:
+            [title, detailDescription].joined(separator: " ").lowercased()
+        }
     }
 }
 

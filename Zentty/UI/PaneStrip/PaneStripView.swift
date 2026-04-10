@@ -910,6 +910,9 @@ final class PaneStripView: NSView {
         }
 
         lastFocusedPaneID = paneID
+        for dragZone in dragZoneViews.values {
+            dragZone.revalidateHoverState()
+        }
         Task { @MainActor [weak self] in
             self?.paneViews[paneID]?.focusTerminal()
         }

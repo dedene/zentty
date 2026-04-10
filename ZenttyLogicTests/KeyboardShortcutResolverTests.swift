@@ -59,6 +59,15 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
     }
 
+    func test_registry_includes_open_branch_on_remote_without_menu_item_or_default_shortcut() {
+        let definition = AppCommandRegistry.definition(for: .openBranchOnRemote)
+
+        XCTAssertEqual(definition.title, "Open Branch on Remote")
+        XCTAssertEqual(definition.category, .general)
+        XCTAssertNil(definition.defaultShortcut)
+        XCTAssertNil(definition.menuItem)
+    }
+
     func test_resolves_default_shortcuts_from_registry() {
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(

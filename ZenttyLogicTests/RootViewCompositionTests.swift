@@ -1126,6 +1126,32 @@ final class RootViewCompositionTests: XCTestCase {
         XCTAssertNotEqual(backgroundToken, theme.openWithPopoverRowSelectedBackground.themeToken)
     }
 
+    func test_notification_panel_renders_location_metadata_for_needs_input_rows() throws {
+        let panel = NotificationPanelView(frame: NSRect(x: 0, y: 0, width: 360, height: 220))
+
+        panel.update(notifications: [
+            AppNotification(
+                id: UUID(),
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main"),
+                state: .needsInput,
+                tool: .codex,
+                interactionKind: .decision,
+                interactionSymbolName: "list.bullet",
+                statusText: "requires a decision",
+                primaryText: "Use the new two-line row?",
+                locationText: "zentty • Zentty/UI/Chrome",
+                createdAt: Date(timeIntervalSince1970: 42)
+            )
+        ], theme: ZenttyTheme.fallback(for: nil))
+
+        XCTAssertNotNil(panel.descendantLabel(withText: "Codex"))
+        XCTAssertNotNil(panel.descendantLabel(withText: "requires a decision"))
+        XCTAssertNotNil(panel.descendantLabel(withText: "zentty • Zentty/UI/Chrome"))
+        XCTAssertNotNil(panel.descendantLabel(withText: "Use the new two-line row?"))
+    }
+
     func test_sidebar_content_tree_forces_dark_appearance_for_dark_themes() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
         sidebarView.appearance = NSAppearance(named: .aqua)

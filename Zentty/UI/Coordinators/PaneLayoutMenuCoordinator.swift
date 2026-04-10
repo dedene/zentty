@@ -138,7 +138,8 @@ final class PaneLayoutMenuCoordinator {
             activeColumnCount: paneStripState?.columns.count ?? 0,
             focusedColumnPaneCount: paneStripState?.focusedColumn?.panes.count ?? 0,
             focusedPaneHasRememberedSearch: false,
-            globalSearchHasRememberedSearch: false
+            globalSearchHasRememberedSearch: false,
+            activeWorklaneHasBranchURL: false
         )
     }
 

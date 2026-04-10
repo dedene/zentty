@@ -12,6 +12,7 @@ enum AppConfigTOML {
         case sidebar
         case paneLayout
         case panes
+        case appearance
         case openWith
         case errorReporting
         case customApp(Int)
@@ -38,6 +39,18 @@ enum AppConfigTOML {
         lines.append("show_labels = \(config.panes.showLabels)")
         lines.append("inactive_opacity = \(format(number: config.panes.inactiveOpacity))")
         lines.append("")
+
+        if config.appearance != .default {
+            lines.append("[appearance]")
+            if let localThemeName = config.appearance.localThemeName {
+                lines.append("local_theme_name = \(encode(string: localThemeName))")
+            }
+            if let localBackgroundOpacity = config.appearance.localBackgroundOpacity {
+                lines.append("local_background_opacity = \(format(number: localBackgroundOpacity))")
+            }
+            lines.append("")
+        }
+
         lines.append("[open_with]")
         lines.append("primary_target_id = \(encode(string: config.openWith.primaryTargetID))")
         lines.append("enabled_target_ids = \(encode(strings: config.openWith.enabledTargetIDs))")
@@ -116,6 +129,10 @@ enum AppConfigTOML {
                 section = .panes
                 continue
             }
+            if line == "[appearance]" {
+                section = .appearance
+                continue
+            }
             if line == "[open_with]" {
                 section = .openWith
                 continue
@@ -165,6 +182,10 @@ enum AppConfigTOML {
                 }
             case .panes:
                 guard decodePanesAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .appearance:
+                guard decodeAppearanceAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .openWith:
@@ -287,6 +308,28 @@ enum AppConfigTOML {
                 return false
             }
             config.openWith.enabledTargetIDs = values
+        default:
+            return true
+        }
+
+        return true
+    }
+
+    private static func decodeAppearanceAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "local_theme_name":
+            guard let value = decodeString(assignment.value) else {
+                return false
+            }
+            config.appearance.localThemeName = value
+        case "local_background_opacity":
+            guard let value = Double(assignment.value) else {
+                return false
+            }
+            config.appearance.localBackgroundOpacity = CGFloat(value)
         default:
             return true
         }

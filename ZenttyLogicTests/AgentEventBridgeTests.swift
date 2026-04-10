@@ -75,7 +75,7 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertNil(input.progressDone)
     }
 
-    func test_claude_wrapper_registers_pre_tool_use_only_for_ask_user_question() throws {
+    func test_claude_wrapper_delegates_to_shared_agent_wrapper() throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -84,8 +84,8 @@ final class AgentEventBridgeTests: XCTestCase {
             .path
         let script = try String(contentsOfFile: wrapperPath, encoding: .utf8)
 
-        XCTAssertTrue(script.contains(#""PreToolUse":[{"matcher":"AskUserQuestion""#))
-        XCTAssertFalse(script.contains(#""PreToolUse":[{"matcher":"","hooks":[{"type":"command""#))
+        XCTAssertTrue(script.contains("ZENTTY_AGENT_TOOL=\"claude\""))
+        XCTAssertTrue(script.contains("zentty-agent-wrapper"))
     }
 
     func test_run_claude_adapter_invalid_payload_fails_open_without_logging() throws {

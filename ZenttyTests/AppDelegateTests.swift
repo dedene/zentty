@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC.runtime
 import XCTest
 @testable import Zentty
 
@@ -391,6 +392,41 @@ final class AppDelegateTests: XCTestCase {
         )
     }
 
+    func test_licenses_window_opens_from_about_window_and_reuses_existing_window() throws {
+        NSApp.mainMenu = nil
+
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) }
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+
+        delegate.showAboutWindow(nil)
+        let aboutWindow = try XCTUnwrap(delegate.aboutWindow)
+
+        let originalWindowNumbers = Set(NSApp.windows.map(\.windowNumber))
+
+        let nestedLayoutCalls = try NestedLayoutSubtreeIfNeededProbe.record {
+            try clickButton(titled: "Licenses", in: aboutWindow)
+            waitForAppWindows()
+        }
+
+        XCTAssertTrue(
+            nestedLayoutCalls.isEmpty,
+            nestedLayoutCalls.map(\.debugSummary).joined(separator: "\n\n")
+        )
+
+        let firstLicensesWindow = try XCTUnwrap(delegate.licensesWindow)
+        XCTAssertTrue(originalWindowNumbers.contains(firstLicensesWindow.windowNumber) == false)
+        XCTAssertEqual(firstLicensesWindow.title, "Third-Party Licenses")
+
+        try clickButton(titled: "Licenses", in: aboutWindow)
+        waitForAppWindows()
+
+        let reusedWindow = try XCTUnwrap(delegate.licensesWindow)
+        XCTAssertTrue(reusedWindow === firstLicensesWindow)
+        XCTAssertTrue(firstLicensesWindow.isVisible)
+    }
+
     func test_closing_one_window_keeps_app_running_when_another_window_is_open() throws {
         NSApp.mainMenu = nil
 
@@ -655,6 +691,149 @@ final class AppDelegateTests: XCTestCase {
             }
             if let submenu = item.submenu,
                let match = recursiveMenuItem(matchingTitle: title, action: action, in: submenu) {
+                return match
+            }
+        }
+
+        return nil
+    }
+}
+
+@MainActor
+private extension AppDelegateTests {
+    func clickButton(titled title: String, in window: NSWindow?) throws {
+        let button = try XCTUnwrap(window?.contentView?.firstDescendantButton(titled: title))
+        button.performClick(button)
+    }
+
+    func waitForAppWindows(
+        _ description: String = "windows settled",
+        delay: TimeInterval = 0.1
+    ) {
+        let expectation = expectation(description: description)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+    }
+}
+
+@MainActor
+private enum NestedLayoutSubtreeIfNeededProbe {
+    struct Record {
+        let viewClassName: String
+        let stackSymbols: [String]
+
+        var debugSummary: String {
+            """
+            Nested layoutSubtreeIfNeeded on \(viewClassName)
+            \(stackSymbols.joined(separator: "\n"))
+            """
+        }
+    }
+
+    private static var isInstalled = false
+    private static var isRecording = false
+    private static var layoutDepth = 0
+    private static var records: [Record] = []
+
+    static func record(_ body: () throws -> Void) rethrows -> [Record] {
+        installIfNeeded()
+        records = []
+        isRecording = true
+        defer {
+            isRecording = false
+        }
+
+        try body()
+        return records
+    }
+
+    fileprivate static func pushLayout() {
+        layoutDepth += 1
+    }
+
+    fileprivate static func popLayout() {
+        layoutDepth = max(0, layoutDepth - 1)
+    }
+
+    fileprivate static func recordLayoutSubtreeIfNeeded(on view: NSView) {
+        guard isRecording, layoutDepth > 0 else {
+            return
+        }
+
+        records.append(
+            Record(
+                viewClassName: NSStringFromClass(type(of: view)),
+                stackSymbols: Thread.callStackSymbols
+            )
+        )
+    }
+
+    private static func installIfNeeded() {
+        guard isInstalled == false else {
+            return
+        }
+
+        swizzle(
+            cls: NSView.self,
+            original: #selector(NSView.layout),
+            replacement: #selector(NSView.zentty_probe_layout)
+        )
+        swizzle(
+            cls: NSView.self,
+            original: #selector(NSView.layoutSubtreeIfNeeded),
+            replacement: #selector(NSView.zentty_probe_layoutSubtreeIfNeeded)
+        )
+        swizzle(
+            cls: NSView.self,
+            original: NSSelectorFromString("_layoutSubtreeIfNeededAndAllowTemporaryEngine:"),
+            replacement: #selector(NSView.zentty_probe__layoutSubtreeIfNeededAndAllowTemporaryEngine(_:))
+        )
+        isInstalled = true
+    }
+
+    private static func swizzle(cls: AnyClass, original: Selector, replacement: Selector) {
+        guard
+            let originalMethod = class_getInstanceMethod(cls, original),
+            let replacementMethod = class_getInstanceMethod(cls, replacement)
+        else {
+            fatalError("Missing method for swizzle \(NSStringFromSelector(original))")
+        }
+
+        method_exchangeImplementations(originalMethod, replacementMethod)
+    }
+}
+
+private extension NSView {
+    @objc
+    func zentty_probe_layout() {
+        NestedLayoutSubtreeIfNeededProbe.pushLayout()
+        defer {
+            NestedLayoutSubtreeIfNeededProbe.popLayout()
+        }
+        zentty_probe_layout()
+    }
+
+    @objc
+    func zentty_probe_layoutSubtreeIfNeeded() {
+        NestedLayoutSubtreeIfNeededProbe.recordLayoutSubtreeIfNeeded(on: self)
+        zentty_probe_layoutSubtreeIfNeeded()
+    }
+
+    @objc
+    func zentty_probe__layoutSubtreeIfNeededAndAllowTemporaryEngine(_ allowTemporaryEngine: Bool) {
+        NestedLayoutSubtreeIfNeededProbe.recordLayoutSubtreeIfNeeded(on: self)
+        zentty_probe__layoutSubtreeIfNeededAndAllowTemporaryEngine(allowTemporaryEngine)
+    }
+
+    func firstDescendantButton(titled title: String) -> NSButton? {
+        if let button = self as? NSButton, button.title == title {
+            return button
+        }
+
+        for subview in subviews {
+            if let match = subview.firstDescendantButton(titled: title) {
                 return match
             }
         }

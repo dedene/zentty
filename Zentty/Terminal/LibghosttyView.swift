@@ -68,6 +68,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private var userScrolledAwayFromBottom = false
     private var lastSentRow: Int?
     private var scrollbarUpdate: LibghosttySurfaceScrollbarUpdate?
+    private let selectionAutoscrollController = LibghosttySelectionAutoscrollController()
+    private var selectionAutoscrollTimer: Timer?
+    private var lastSelectionAutoscrollTickTime: TimeInterval?
     private static let scrollToBottomThreshold: CGFloat = 5.0
 
     var onFocusDidChange: ((Bool) -> Void)? {
@@ -114,6 +117,13 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         scrollView.surfaceView = surfaceView
         surfaceView.onExplicitWheelScroll = { [weak self] in
             self?.pendingExplicitWheelScroll = true
+        }
+        surfaceView.onSelectionDragStateDidChange = { [weak self] isActive in
+            self?.selectionAutoscrollController.setSelectionDragActive(isActive)
+            self?.updateSelectionAutoscrollTimerState()
+        }
+        surfaceView.onMouseLocationDidChange = { [weak self] location in
+            self?.selectionAutoscrollController.setMouseLocation(location)
         }
 
         scrollView.documentView = documentView
@@ -162,6 +172,13 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         NotificationCenter.default.removeObserver(self)
     }
 
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil {
+            stopSelectionAutoscrollTimer()
+        }
+    }
+
     override func layout() {
         ZenttyPerformanceSignposts.interval("LibghosttyScrollHostLayout") {
             super.layout()
@@ -193,13 +210,21 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     func applyScrollbarUpdate(_ update: LibghosttySurfaceScrollbarUpdate) {
         ZenttyPerformanceSignposts.interval("LibghosttyApplyScrollbar") {
             let startedAt = DispatchTime.now().uptimeNanoseconds
+            let previousOffset = scrollbarUpdate.map { Int(clamping: $0.offset) }
             if pendingExplicitWheelScroll {
                 userScrolledAwayFromBottom = rowsBelowViewport(for: update) > 0
                 allowExplicitScrollbarSync = true
                 pendingExplicitWheelScroll = false
             }
             scrollbarUpdate = update
+            selectionAutoscrollController.setViewportHeight(scrollView.contentView.bounds.height)
+            selectionAutoscrollController.setScrollbarUpdate(update)
             recordScrollHostSync { synchronizeScrollView() }
+            if previousOffset != Int(clamping: update.offset),
+               surfaceView.isSelectionDragActive,
+               let location = selectionAutoscrollController.syntheticMouseLocation() ?? surfaceView.lastMouseLocationInView {
+                surfaceView.forwardSyntheticMousePosition(location)
+            }
             diagnostics.recordScrollbarApply(
                 paneID: paneID,
                 durationNanoseconds: DispatchTime.now().uptimeNanoseconds - startedAt
@@ -229,6 +254,48 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     @objc
     private func handleDidLiveScrollNotification(_ notification: Notification) {
         handleLiveScroll()
+    }
+
+    private func updateSelectionAutoscrollTimerState() {
+        if surfaceView.isSelectionDragActive {
+            startSelectionAutoscrollTimerIfNeeded()
+        } else {
+            stopSelectionAutoscrollTimer()
+        }
+    }
+
+    private func startSelectionAutoscrollTimerIfNeeded() {
+        guard selectionAutoscrollTimer == nil else {
+            return
+        }
+
+        lastSelectionAutoscrollTickTime = ProcessInfo.processInfo.systemUptime
+        selectionAutoscrollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            self?.handleSelectionAutoscrollTick()
+        }
+        if let selectionAutoscrollTimer {
+            RunLoop.main.add(selectionAutoscrollTimer, forMode: .common)
+        }
+    }
+
+    private func stopSelectionAutoscrollTimer() {
+        selectionAutoscrollTimer?.invalidate()
+        selectionAutoscrollTimer = nil
+        lastSelectionAutoscrollTickTime = nil
+    }
+
+    private func handleSelectionAutoscrollTick() {
+        selectionAutoscrollController.setViewportHeight(scrollView.contentView.bounds.height)
+        let now = ProcessInfo.processInfo.systemUptime
+        let elapsed = max(0, now - (lastSelectionAutoscrollTickTime ?? now))
+        lastSelectionAutoscrollTickTime = now
+
+        guard let result = selectionAutoscrollController.tick(elapsed: elapsed) else {
+            return
+        }
+
+        diagnostics.recordScrollToRowAction(paneID: paneID)
+        _ = surfaceView.performBindingAction("scroll_to_row:\(result.targetRow)")
     }
 
     private func synchronizeSurfaceView() {
@@ -286,7 +353,11 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
                 let explicitScrollbarSyncAllowedNow = allowExplicitScrollbarSync
                 explicitScrollbarSyncAllowed = explicitScrollbarSyncAllowedNow
-                let shouldAutoScrollNow = !userScrolledAwayFromBottom || explicitScrollbarSyncAllowedNow
+                let offsetChanged = lastSentRow.map { $0 != Int(clamping: scrollbarUpdate.offset) } ?? true
+                let shouldFollowSelectionDrag = surfaceView.isSelectionDragActive && offsetChanged
+                let shouldAutoScrollNow = shouldFollowSelectionDrag ||
+                    !userScrolledAwayFromBottom ||
+                    explicitScrollbarSyncAllowedNow
                 shouldAutoScroll = shouldAutoScrollNow
                 if shouldAutoScrollNow && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
@@ -449,11 +520,16 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     private var currentCursor: NSCursor = .iBeam
     private var mouseTrackingArea: NSTrackingArea?
     private var mouseInteractionSuppressionRects: [CGRect] = []
+    fileprivate private(set) var isSelectionDragActive = false
+    fileprivate private(set) var lastMouseLocationInView: CGPoint?
+    private var lastMouseModifiers: NSEvent.ModifierFlags = []
     fileprivate weak var scrollbarHandler: (any LibghosttyScrollbarHandling)?
     var onFocusDidChange: ((Bool) -> Void)?
     var onLocalEventDidOccur: ((TerminalEvent) -> Void)?
     var onScrollWheel: ((NSEvent) -> Bool)?
     var onExplicitWheelScroll: (() -> Void)?
+    var onSelectionDragStateDidChange: ((Bool) -> Void)?
+    var onMouseLocationDidChange: ((CGPoint?) -> Void)?
 
     override var acceptsFirstResponder: Bool {
         true
@@ -520,12 +596,34 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         }
         let area = NSTrackingArea(
             rect: .zero,
-            options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+            options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
         addTrackingArea(area)
         mouseTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+        forwardMousePosition(event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if NSEvent.pressedMouseButtons != 0 {
+            return
+        }
+
+        lastMouseLocationInView = nil
+        onMouseLocationDidChange?(nil)
+        lastMouseModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        surfaceController?.sendMousePosition(
+            CGPoint(x: -1, y: -1),
+            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        )
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -590,6 +688,8 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
             return
         }
+        isSelectionDragActive = true
+        onSelectionDragStateDidChange?(true)
         window?.makeFirstResponder(self)
         forwardMousePosition(event)
         surfaceController?.sendMouseButton(
@@ -607,6 +707,8 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     }
 
     override func mouseUp(with event: NSEvent) {
+        isSelectionDragActive = false
+        onSelectionDragStateDidChange?(false)
         guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
             return
         }
@@ -694,6 +796,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     }
 
     override func flagsChanged(with event: NSEvent) {
+        lastMouseModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard let surfaceController else {
             super.flagsChanged(with: event)
             return
@@ -895,11 +998,19 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
 
     private func forwardMousePosition(_ event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        lastMouseLocationInView = point
+        onMouseLocationDidChange?(point)
+        lastMouseModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let position = CGPoint(x: point.x, y: bounds.height - point.y)
         surfaceController?.sendMousePosition(
             position,
             modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         )
+    }
+
+    fileprivate func forwardSyntheticMousePosition(_ point: CGPoint) {
+        let position = CGPoint(x: point.x, y: bounds.height - point.y)
+        surfaceController?.sendMousePosition(position, modifiers: lastMouseModifiers)
     }
 }
 

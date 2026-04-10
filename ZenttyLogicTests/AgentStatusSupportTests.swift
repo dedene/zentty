@@ -2764,6 +2764,135 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(recorder.requests.first?.soundName, "Glass")
     }
 
+    func test_notification_coordinator_uses_explicit_needs_input_text_and_compact_location_for_system_notification() {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            windowID: WindowID("window-main"),
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty/Zentty/UI/Chrome",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .decision,
+                    explicitText: "Which notification format should I implement? [Compact] [Detailed]",
+                    desktopNotificationText: "Codex needs input"
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(recorder.requests.first?.title, "Codex requires a decision")
+        XCTAssertEqual(
+            recorder.requests.first?.body,
+            "zentty • Zentty/UI/Chrome — Which notification format should I implement? [Compact] [Detailed]"
+        )
+    }
+
+    func test_notification_coordinator_falls_back_to_desktop_notification_text_for_needs_input() {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            windowID: WindowID("window-main"),
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .approval,
+                    explicitText: nil,
+                    desktopNotificationText: "Allow edits to project.yml?"
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(recorder.requests.first?.title, "Codex needs approval")
+        XCTAssertEqual(recorder.requests.first?.body, "zentty — Allow edits to project.yml?")
+    }
+
+    func test_notification_coordinator_replaces_needs_input_when_prompt_changes_without_state_change() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let store = NotificationStore(debounceInterval: 0.01)
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: store)
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
+
+        let firstCommit = expectation(description: "first needs-input committed")
+        store.onChange = { firstCommit.fulfill() }
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty/Zentty/UI/Chrome",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .decision,
+                    explicitText: "Choose compact or detailed",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        await fulfillment(of: [firstCommit], timeout: 2)
+
+        let replacement = expectation(description: "replacement committed")
+        replacement.expectedFulfillmentCount = 2
+        store.onChange = { replacement.fulfill() }
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty/Zentty/UI/Chrome",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .decision,
+                    explicitText: "Use the new two-line row?",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        await fulfillment(of: [replacement], timeout: 2)
+
+        XCTAssertEqual(store.notifications.count, 2)
+        XCTAssertEqual(store.notifications[0].primaryText, "Use the new two-line row?")
+        XCTAssertFalse(store.notifications[0].isResolved)
+        XCTAssertEqual(store.notifications[1].primaryText, "Choose compact or detailed")
+        XCTAssertTrue(store.notifications[1].isResolved)
+        XCTAssertEqual(recorder.requests.count, 2)
+        XCTAssertNotEqual(recorder.requests.first?.identifier, recorder.requests.last?.identifier)
+        XCTAssertEqual(
+            recorder.requests.last?.body,
+            "zentty • Zentty/UI/Chrome — Use the new two-line row?"
+        )
+    }
+
     func test_notification_coordinator_does_not_fire_for_generic_codex_waiting_title() {
         let recorder = WorklaneAttentionNotificationRecorder()
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
@@ -2857,6 +2986,86 @@ final class AgentStatusSupportTests: XCTestCase {
     private func makeTemporaryBundle(named name: String) throws -> Bundle {
         let bundleRoot = try makeTemporaryBundleRoot(named: name)
         return try XCTUnwrap(Bundle(url: bundleRoot))
+    }
+
+    private func makeNeedsInputWorklane(
+        worklaneID: WorklaneID,
+        paneID: PaneID,
+        tool: AgentTool,
+        cwd: String,
+        repoRoot: String,
+        rememberedTitle: String,
+        interactionKind: PaneInteractionKind,
+        explicitText: String?,
+        desktopNotificationText: String?
+    ) -> WorklaneState {
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: rememberedTitle,
+                currentWorkingDirectory: cwd,
+                processName: tool.displayName,
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: tool,
+                state: .needsInput,
+                text: explicitText,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 100),
+                hasObservedRunning: true
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: cwd,
+                repositoryRoot: repoRoot,
+                reference: .branch("main")
+            ),
+            lastDesktopNotificationText: desktopNotificationText,
+            lastDesktopNotificationDate: desktopNotificationText == nil ? nil : Date(timeIntervalSince1970: 101)
+        )
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+        auxiliaryState.presentation = PanePresentationState(
+            cwd: auxiliaryState.presentation.cwd,
+            repoRoot: auxiliaryState.presentation.repoRoot,
+            branch: auxiliaryState.presentation.branch,
+            branchDisplayText: auxiliaryState.presentation.branchDisplayText,
+            lookupBranch: auxiliaryState.presentation.lookupBranch,
+            branchURL: auxiliaryState.presentation.branchURL,
+            identityText: auxiliaryState.presentation.identityText,
+            contextText: auxiliaryState.presentation.contextText,
+            rememberedTitle: auxiliaryState.presentation.rememberedTitle,
+            recognizedTool: tool,
+            runtimePhase: .needsInput,
+            statusText: auxiliaryState.presentation.statusText,
+            pullRequest: auxiliaryState.presentation.pullRequest,
+            reviewChips: auxiliaryState.presentation.reviewChips,
+            attentionArtifactLink: auxiliaryState.presentation.attentionArtifactLink,
+            updatedAt: Date(timeIntervalSince1970: 100),
+            isWorking: false,
+            isReady: false,
+            statusSymbolName: auxiliaryState.presentation.statusSymbolName,
+            interactionKind: interactionKind,
+            interactionLabel: interactionKind.defaultLabel,
+            interactionSymbolName: interactionKind.defaultSymbolName,
+            taskProgress: nil
+        )
+
+        return WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
     }
 
     private func makeReadyWorklane(

@@ -1503,4 +1503,83 @@ final class PanePresentationStateTests: XCTestCase {
 
         XCTAssertEqual(presentation.runtimePhase, .idle)
     }
+
+    // MARK: - Codex background wait
+
+    func test_normalize_suppresses_ready_status_during_codex_background_wait() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Waiting for background terminal",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            ),
+            showsReadyStatus: true
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertNil(presentation.statusText)
+        XCTAssertFalse(presentation.isReady)
+        XCTAssertNil(presentation.statusSymbolName)
+    }
+
+    func test_normalize_restores_ready_status_after_codex_background_wait_ends() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Ready",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            ),
+            showsReadyStatus: true
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertTrue(presentation.isReady)
+        XCTAssertEqual(presentation.statusText, "Agent ready")
+    }
 }

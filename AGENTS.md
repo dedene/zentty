@@ -18,6 +18,7 @@ Guidelines:
 - Tests that create windows must close them in `tearDown` or `addTeardownBlock`.
 - Use XCTest expectations instead of `RunLoop.current.run(until:)`.
 - The app host runs inert during tests (no main window, `.prohibited` activation policy) via `XCTestConfigurationFilePath` detection in `main.swift`.
+- **Do not pass `-derivedDataPath` to xcodebuild.** Use the default DerivedData location. Creating per-agent directories under `/tmp/` wastes gigabytes of disk and they never get cleaned up.
 
 ## Design Docs
 
