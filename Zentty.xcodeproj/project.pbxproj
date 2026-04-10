@@ -259,13 +259,6 @@
 			remoteGlobalIDString = E6B2AAF72FA88E67CF89C62D;
 			remoteInfo = Zentty;
 		};
-		EC1A976F8C20849B88A8D990 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 7A0ED500B3C67C2B4985B5EE /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 0584312CEB842C6641981C59;
-			remoteInfo = ZenttyCLI;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -1106,7 +1099,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				2AAF03DE86B725BDE1DB60F1 /* PBXTargetDependency */,
 			);
 			name = Zentty;
 			packageProductDependencies = (
@@ -1513,11 +1505,6 @@
 			target = E6B2AAF72FA88E67CF89C62D /* Zentty */;
 			targetProxy = 1C70CA881BB38F14002D9145 /* PBXContainerItemProxy */;
 		};
-		2AAF03DE86B725BDE1DB60F1 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 0584312CEB842C6641981C59 /* ZenttyCLI */;
-			targetProxy = EC1A976F8C20849B88A8D990 /* PBXContainerItemProxy */;
-		};
 		2D4FCC98FF4C309C0E7AEFA5 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = E6B2AAF72FA88E67CF89C62D /* Zentty */;
@@ -1782,7 +1769,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Zentty/Zentty.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 215;
+				CURRENT_PROJECT_VERSION = 216;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1824,7 +1811,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 215;
+				CURRENT_PROJECT_VERSION = 216;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",

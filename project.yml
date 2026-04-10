@@ -29,6 +29,7 @@ schemes:
   Zentty:
     build:
       targets:
+        ZenttyCLI: [run, test, profile, analyze, archive]
         Zentty: all
     run:
       config: Debug
@@ -78,8 +79,6 @@ targets:
     resources:
       - path: ZenttyResources
     dependencies:
-      - target: ZenttyCLI
-        embed: false
       - framework: FrameworksLocal/GhosttyKit.xcframework
         embed: false
       - package: Sentry
@@ -138,7 +137,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty
-        CURRENT_PROJECT_VERSION: 215
+        CURRENT_PROJECT_VERSION: 216
         MARKETING_VERSION: 0.1.6
         VERSIONING_SYSTEM: apple-generic
         INFOPLIST_FILE: Zentty/Info.plist
