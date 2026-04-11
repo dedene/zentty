@@ -17,6 +17,8 @@ final class PaneBorderContextInsetView: NSView {
         static let verticalSafety: CGFloat = 2
     }
 
+    var onClick: (() -> Void)?
+
     private let textContentLayer = CALayer()
     private let leftBorderLineLayer = CALayer()
     private let rightBorderLineLayer = CALayer()
@@ -35,6 +37,24 @@ final class PaneBorderContextInsetView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let pointInSelf = superview.map { convert(point, from: $0) } ?? point
+        guard onClick != nil, bounds.contains(pointInSelf) else {
+            return nil
+        }
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onClick?()
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard onClick != nil else { return }
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 
     override var isFlipped: Bool {

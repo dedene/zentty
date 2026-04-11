@@ -308,6 +308,70 @@ final class PaneContainerViewTests: AppKitTestCase {
         XCTAssertEqual(paneView.paneBorderContextTextTruncationModeForTesting, .middle)
     }
 
+    func test_clicking_border_context_invokes_callback() throws {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil),
+            backingScaleFactorProvider: { 2 }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+        window.contentView = paneView
+        window.makeKeyAndOrderFront(nil)
+        var clickedPaneID: PaneID?
+        paneView.onBorderContextClicked = { clickedPaneID = $0 }
+
+        paneView.render(
+            pane: pane,
+            emphasis: 1,
+            isFocused: true,
+            borderContext: PaneBorderContextDisplayModel(text: "~/src/zentty")
+        )
+        paneView.layoutSubtreeIfNeeded()
+
+        let frame = try XCTUnwrap(paneView.paneBorderContextFrameForTesting)
+        let pointInPane = CGPoint(x: frame.midX, y: frame.midY)
+        let clickTarget = try XCTUnwrap(paneView.hitTest(pointInPane) as? PaneBorderContextInsetView)
+        XCTAssertTrue(clickTarget.hitTest(pointInPane) === clickTarget)
+
+        let locationInWindow = paneView.convert(pointInPane, to: nil)
+        let mouseDown = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: locationInWindow,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+
+        clickTarget.mouseDown(with: mouseDown)
+
+        XCTAssertEqual(clickedPaneID, pane.id)
+    }
+
     func test_render_updates_content_without_mutating_frame() {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")
@@ -1347,40 +1411,4 @@ private extension NSView {
         subviews.forEach(walk)
         return views
     }
-}
-
-@MainActor
-private func sendMouseClick(at point: CGPoint, in view: NSView, window: NSWindow) throws {
-    let locationInWindow = view.convert(point, to: nil)
-    let mouseDown = try XCTUnwrap(
-        NSEvent.mouseEvent(
-            with: .leftMouseDown,
-            location: locationInWindow,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1
-        )
-    )
-    let mouseUp = try XCTUnwrap(
-        NSEvent.mouseEvent(
-            with: .leftMouseUp,
-            location: locationInWindow,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1
-        )
-    )
-
-    // NSButton enters a modal tracking loop on mouseDown and waits for the matching mouseUp.
-    // Queue the release first so the tracking loop can consume it and return.
-    NSApp.postEvent(mouseUp, atStart: false)
-    window.sendEvent(mouseDown)
 }

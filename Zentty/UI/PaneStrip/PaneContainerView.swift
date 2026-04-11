@@ -66,8 +66,13 @@ final class PaneContainerView: NSView {
     var onCloseRequested: (() -> Void)?
     var onBorderContextClicked: ((PaneID) -> Void)? {
         didSet {
-            if window != nil {
-                window?.invalidateCursorRects(for: self)
+            if onBorderContextClicked == nil {
+                borderContextView.onClick = nil
+            } else {
+                borderContextView.onClick = { [weak self] in
+                    guard let self else { return }
+                    self.onBorderContextClicked?(self.paneID)
+                }
             }
         }
     }
@@ -330,33 +335,13 @@ final class PaneContainerView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        let pointInSelf = convert(event.locationInWindow, from: nil)
-        if isPointInVisibleBorderContext(pointInSelf) {
-            onBorderContextClicked?(paneID)
-            return
-        }
-
         onSelected?()
         focusTerminal()
         super.mouseDown(with: event)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let pointInSelf = superview.map { convert(point, from: $0) } ?? point
-        if isPointInVisibleBorderContext(pointInSelf) {
-            return self
-        }
-
         return super.hitTest(point)
-    }
-
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        guard onBorderContextClicked != nil, !borderContextView.isHidden else {
-            return
-        }
-
-        addCursorRect(borderContextView.frame, cursor: .pointingHand)
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -668,6 +653,28 @@ final class PaneContainerView: NSView {
         return borderContextView.truncationModeForTesting
     }
 
+    var interactiveBorderContextFrameInSelf: CGRect? {
+        guard !borderContextView.isHidden, borderContextView.onClick != nil else { return nil }
+        return borderContextView.frame
+    }
+
+    func hitTestBorderContext(
+        _ point: CGPoint,
+        from coordinateSpaceView: NSView
+    ) -> PaneBorderContextInsetView? {
+        guard let frame = interactiveBorderContextFrameInSelf else {
+            return nil
+        }
+
+        let pointInSelf = convert(point, from: coordinateSpaceView)
+        guard frame.contains(pointInSelf), let superview = borderContextView.superview else {
+            return nil
+        }
+
+        let pointInBorderSuperview = superview.convert(point, from: coordinateSpaceView)
+        return borderContextView.hitTest(pointInBorderSuperview) as? PaneBorderContextInsetView
+    }
+
     func setBorderLabelGap(width: CGFloat) {
         guard currentBorderGapWidth != width else { return }
         currentBorderGapWidth = width
@@ -764,10 +771,6 @@ final class PaneContainerView: NSView {
     }
 
     private func updateBorderContextView() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-
         guard !bounds.isEmpty else {
             borderContextView.isHidden = true
             setBorderLabelGap(width: 0)
@@ -793,7 +796,15 @@ final class PaneContainerView: NSView {
         }
 
         let size = borderContextView.measure(text: borderContext.text, maxWidth: maxWidth)
-        borderContextView.frame = paneBorderContextFrame(for: size)
+        let targetFrame = paneBorderContextFrame(for: size)
+        if borderContextView.frame == .zero {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            borderContextView.frame = targetFrame
+            CATransaction.commit()
+        } else {
+            borderContextView.frame = targetFrame
+        }
         borderContextView.isHidden = false
         borderContextView.render(
             text: borderContext.text,
@@ -802,8 +813,8 @@ final class PaneContainerView: NSView {
             backingScaleFactor: resolvedBackingScaleFactor
         )
         setBorderLabelGap(width: size.width)
-        if onBorderContextClicked != nil {
-            window?.invalidateCursorRects(for: self)
+        if borderContextView.onClick != nil {
+            window?.invalidateCursorRects(for: borderContextView)
         }
     }
 
@@ -827,13 +838,6 @@ final class PaneContainerView: NSView {
 
         return max(1, backingScaleFactorProvider())
     }
-
-    private func isPointInVisibleBorderContext(_ point: NSPoint) -> Bool {
-        onBorderContextClicked != nil
-            && !borderContextView.isHidden
-            && borderContextView.frame.contains(point)
-    }
-
     private func updateTerminalHostFrame() {
         terminalHostView.frame = terminalAnchorView.bounds
     }

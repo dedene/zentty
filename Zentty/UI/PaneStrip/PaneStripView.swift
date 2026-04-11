@@ -432,6 +432,27 @@ final class PaneStripView: NSView {
         }
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let borderContextHitView = hitTestBorderContext(at: point) {
+            return borderContextHitView
+        }
+
+        return super.hitTest(point)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+
+        for paneView in paneViews.values {
+            guard let frameInPane = paneView.interactiveBorderContextFrameInSelf else {
+                continue
+            }
+
+            let frameInSelf = convert(frameInPane, from: paneView)
+            addCursorRect(frameInSelf, cursor: .pointingHand)
+        }
+    }
+
     var leadingVisibleInsetForTesting: CGFloat {
         resolvedLeadingVisibleInset
     }
@@ -599,6 +620,8 @@ final class PaneStripView: NSView {
         if isResizeSuppressedRender {
             renderGuard.clearResizeSuppression(forGeneration: settleGeneration)
         }
+        discardCursorRects()
+        window?.invalidateCursorRects(for: self)
         syncFocusedTerminal(with: state.focusedPaneID)
         #if DEBUG
             renderSnapshotsForTesting.append(
@@ -614,6 +637,16 @@ final class PaneStripView: NSView {
             afterNextRenderCallback = nil
             callback()
         }
+    }
+
+    private func hitTestBorderContext(at pointInSelf: CGPoint) -> PaneBorderContextInsetView? {
+        for paneView in paneViews.values.reversed() {
+            if let hitView = paneView.hitTestBorderContext(pointInSelf, from: self) {
+                return hitView
+            }
+        }
+
+        return nil
     }
 
     private func sharesAnyPane(
