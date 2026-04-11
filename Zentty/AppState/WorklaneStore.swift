@@ -3,6 +3,7 @@ import Foundation
 import os
 
 private let worklaneReadyLogger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneReady")
+private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "StopSignals")
 
 struct WorklaneID: Hashable, Equatable, Sendable {
     let rawValue: String
@@ -1528,6 +1529,7 @@ final class WorklaneStore {
         guard worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
             || worklane.auxiliaryStateByPaneID[paneID]?.raw.wantsReadyStatus == true
         else {
+            stopSignalLogger.debug("ready.clear.noop pane=\(paneID.rawValue, privacy: .public)")
             return
         }
 
@@ -1537,6 +1539,7 @@ final class WorklaneStore {
         worklaneReadyLogger.debug(
             "Cleared ready status worklane=\(worklaneIDRaw, privacy: .public) pane=\(paneID.rawValue, privacy: .public)"
         )
+        stopSignalLogger.debug("ready.clear.applied pane=\(paneID.rawValue, privacy: .public)")
         recomputePresentation(for: paneID, in: &worklane)
     }
 
@@ -1555,6 +1558,9 @@ final class WorklaneStore {
         let showsReadyImmediately = auxiliaryState.raw.showsReadyStatus
         worklaneReadyLogger.debug(
             "Requested ready status worklane=\(worklaneIDRaw, privacy: .public) pane=\(paneID.rawValue, privacy: .public) immediate=\(showsReadyImmediately, privacy: .public)"
+        )
+        stopSignalLogger.debug(
+            "ready.request pane=\(paneID.rawValue, privacy: .public) immediate=\(showsReadyImmediately, privacy: .public) scheduled=\(shouldSchedule && self.readyStatusDebounceInterval > 0, privacy: .public)"
         )
 
         guard shouldSchedule else {

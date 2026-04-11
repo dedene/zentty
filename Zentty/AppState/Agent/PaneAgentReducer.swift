@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "StopSignals")
 
 struct PaneAgentSessionState: Equatable, Sendable {
     var sessionID: String
@@ -80,6 +83,9 @@ struct PaneAgentReducerState: Equatable, Sendable {
                     sessionsByID.removeValue(forKey: sessionID)
                     continue
                 }
+                stopSignalLogger.debug(
+                    "reducer.sweep graceExpired session=\(sessionID, privacy: .public) tool=\(session.tool.displayName, privacy: .public) => idle"
+                )
                 session.state = .idle
                 session.interactionKind = .none
                 session.text = nil
@@ -364,6 +370,9 @@ struct PaneAgentReducerState: Equatable, Sendable {
             session.text = nil
             session.completionCandidateDeadline = now.addingTimeInterval(Self.stopGraceWindow)
             sessionsByID[sessionID] = session
+            stopSignalLogger.debug(
+                "reducer.lifecycle stopCandidate session=\(sessionID, privacy: .public) tool=\(tool.displayName, privacy: .public) prevState=\(previousState.rawValue, privacy: .public) => running+grace"
+            )
             return
         }
 
@@ -405,6 +414,9 @@ struct PaneAgentReducerState: Equatable, Sendable {
         }
 
         sessionsByID[sessionID] = session
+        stopSignalLogger.debug(
+            "reducer.lifecycle applied session=\(sessionID, privacy: .public) tool=\(tool.displayName, privacy: .public) prev=\(previousState.rawValue, privacy: .public) => \(session.state.rawValue, privacy: .public) origin=\(payload.origin.rawValue, privacy: .public) interaction=\(session.interactionKind.rawValue, privacy: .public) hasObservedRunning=\(session.hasObservedRunning, privacy: .public)"
+        )
     }
 
     private mutating func mergeInferredSessions(

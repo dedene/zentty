@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "StopSignals")
 
 extension WorklaneStore {
     func updateMetadata(paneID: PaneID, metadata: TerminalMetadata) {
@@ -80,7 +83,14 @@ extension WorklaneStore {
             metadata: metadata,
             in: &worklane
         )
-        surfaceReadyCodexSessionIfTitleIndicatesIdle(
+        let preTitleStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
+        let preTitleTool = preTitleStatus?.tool.displayName ?? "<nil>"
+        let preTitleState = preTitleStatus?.state.rawValue ?? "<nil>"
+        let preTitleHasObservedRunning = preTitleStatus?.hasObservedRunning == true
+        stopSignalLogger.debug(
+            "metadata.update pane=\(paneID.rawValue, privacy: .public) title=\(metadata.title ?? "<nil>", privacy: .public) prevTitle=\(previousMetadata?.title ?? "<nil>", privacy: .public) tool=\(preTitleTool, privacy: .public) state=\(preTitleState, privacy: .public) hasObservedRunning=\(preTitleHasObservedRunning, privacy: .public)"
+        )
+        let codexInterrupted = surfaceReadyCodexSessionIfTitleIndicatesIdle(
             paneID: paneID,
             previousMetadata: previousMetadata,
             metadata: metadata,
@@ -92,12 +102,24 @@ extension WorklaneStore {
             in: &worklane
         )
         invalidateGitContextIfNeeded(for: paneID, in: &worklane)
+        let prePresentationState = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.state.rawValue ?? "<nil>"
+        stopSignalLogger.debug(
+            "metadata.pre-recompute pane=\(paneID.rawValue, privacy: .public) codexInterrupted=\(codexInterrupted, privacy: .public) claudeInterrupted=\(claudeCodeInterrupted, privacy: .public) state=\(prePresentationState, privacy: .public)"
+        )
         recomputePresentation(for: paneID, in: &worklane)
-        if claudeCodeInterrupted {
+        if codexInterrupted || claudeCodeInterrupted {
             // A user interrupt is not a natural completion, so don't promote
             // the pane to "Agent ready". The generic running→idle bridge in
             // recomputePresentation already fired and requested ready status;
-            // roll it back now that we know the transition came from Escape.
+            // roll it back now that we know the transition came from Esc /
+            // Esc-Esc. Natural completions drive ready status through
+            // `reconcileReadyStatus` (Claude: Stop-hook grace → sweep bridge;
+            // Codex: codex-notify agent-turn-complete), not via title flips.
+            let wantsReadyBefore = worklane.auxiliaryStateByPaneID[paneID]?.raw.wantsReadyStatus == true
+            let showsReadyBefore = worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
+            stopSignalLogger.debug(
+                "metadata.clearReady pane=\(paneID.rawValue, privacy: .public) source=\(codexInterrupted ? "codex-title" : "claude-title", privacy: .public) wantsReady=\(wantsReadyBefore, privacy: .public) showsReady=\(showsReadyBefore, privacy: .public)"
+            )
             clearReadyStatusIfNeeded(for: paneID, in: &worklane)
         }
 
@@ -296,6 +318,7 @@ extension WorklaneStore {
             from: auxiliaryState.agentStatus
         )
         let now = Date()
+        let preState = auxiliaryState.agentStatus?.state.rawValue ?? "<nil>"
         let didPromoteStarting = auxiliaryState.agentReducerState.promoteExplicitStartingSessionToRunning(now: now)
         let didResumeBlocked = auxiliaryState.agentReducerState.resumeBlockedSessionFromActivity(now: now)
 
@@ -305,14 +328,20 @@ extension WorklaneStore {
                 existingStatus: auxiliaryState.agentStatus
             )
             worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+            stopSignalLogger.debug(
+                "codex.title.running reducer-promote pane=\(paneID.rawValue, privacy: .public) preState=\(preState, privacy: .public) didPromoteStarting=\(didPromoteStarting, privacy: .public) didResumeBlocked=\(didResumeBlocked, privacy: .public)"
+            )
             return
         }
 
         if auxiliaryState.agentStatus?.state == .running {
             return
         }
+        stopSignalLogger.debug(
+            "codex.title.running force-inferred pane=\(paneID.rawValue, privacy: .public) preState=\(preState, privacy: .public) => running (inferred)"
+        )
 
-        auxiliaryState.agentStatus = PaneAgentStatus(
+        let newStatus = PaneAgentStatus(
             tool: .codex,
             state: .running,
             text: nil,
@@ -329,6 +358,14 @@ extension WorklaneStore {
             sessionID: auxiliaryState.agentStatus?.sessionID,
             parentSessionID: auxiliaryState.agentStatus?.parentSessionID,
             taskProgress: auxiliaryState.agentStatus?.taskProgress
+        )
+        auxiliaryState.agentStatus = newStatus
+        // Keep the reducer in sync with the direct write so the periodic
+        // sweep doesn't resurrect a stale session from before this
+        // transition.
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            PaneAgentReducerState(),
+            from: newStatus
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
@@ -357,16 +394,23 @@ extension WorklaneStore {
         return previousTitlePhase == .running || previousTitlePhase == .starting
     }
 
+    /// Returns `true` when the title flip drove a fresh running→idle
+    /// transition. The caller uses that signal to clear ready status on the
+    /// interrupt path (Esc twice) — natural completions flow through
+    /// codex-notify (`agent-turn-complete`) and reach ready via
+    /// `reconcileReadyStatus` instead of the terminal title.
+    @discardableResult
     private func surfaceReadyCodexSessionIfTitleIndicatesIdle(
         paneID: PaneID,
         previousMetadata: TerminalMetadata?,
         metadata: TerminalMetadata,
         in worklane: inout WorklaneState
-    ) {
+    ) -> Bool {
         let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
             ?? AgentToolRecognizer.recognize(metadata: metadata)
         guard TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: metadata.title) != .backgroundWait else {
-            return
+            stopSignalLogger.debug("codex.title.idle skip=backgroundWait pane=\(paneID.rawValue, privacy: .public)")
+            return false
         }
         guard
             recognizedTool == .codex,
@@ -378,14 +422,15 @@ extension WorklaneStore {
             var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
             Self.codexReadyTitleMayClearStatus(auxiliaryState.agentStatus)
         else {
-            return
+            return false
         }
         let previousSignature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
             previousMetadata?.title,
             recognizedTool: recognizedTool
         )
         guard previousSignature?.phase != .idle else {
-            return
+            stopSignalLogger.debug("codex.title.idle skip=alreadyIdleTitle pane=\(paneID.rawValue, privacy: .public)")
+            return false
         }
 
         auxiliaryState.agentReducerState = Self.seededReducerState(
@@ -393,6 +438,7 @@ extension WorklaneStore {
             from: auxiliaryState.agentStatus
         )
         let now = Date()
+        let preExistingStatus = auxiliaryState.agentStatus
         if auxiliaryState.agentReducerState.markExplicitCodexSessionIdleFromReadyTitle(now: now) {
             let reducedStatus = Self.hydratedStatus(
                 auxiliaryState.agentReducerState.reducedStatus(),
@@ -404,13 +450,16 @@ extension WorklaneStore {
                   reducedStatus.state == .idle,
                   reducedStatus.hasObservedRunning
             else {
-                return
+                stopSignalLogger.debug("codex.title.idle firstBranch reducer-gated pane=\(paneID.rawValue, privacy: .public) prevState=\(preExistingStatus?.state.rawValue ?? "<nil>", privacy: .public) source=\(reducedStatus?.source == .explicit ? "explicit" : "other", privacy: .public)")
+                return false
             }
 
             auxiliaryState.agentStatus = reducedStatus
             worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-            requestReadyStatusIfNeeded(for: paneID, in: &worklane)
-            return
+            stopSignalLogger.debug(
+                "codex.title.idle firstBranch applied pane=\(paneID.rawValue, privacy: .public) prevState=\(preExistingStatus?.state.rawValue ?? "<nil>", privacy: .public) => idle (interrupt candidate, caller will clear ready)"
+            )
+            return true
         }
 
         guard let existingStatus = auxiliaryState.agentStatus,
@@ -420,10 +469,11 @@ extension WorklaneStore {
                 || existingStatus.state == .idle
                 || Self.codexReadyTitleClearsGenericNeedsInput(existingStatus)
         else {
-            return
+            stopSignalLogger.debug("codex.title.idle fallback skip pane=\(paneID.rawValue, privacy: .public) state=\(auxiliaryState.agentStatus?.state.rawValue ?? "<nil>", privacy: .public)")
+            return false
         }
 
-        auxiliaryState.agentStatus = PaneAgentStatus(
+        let newStatus = PaneAgentStatus(
             tool: .codex,
             state: .idle,
             text: nil,
@@ -441,8 +491,27 @@ extension WorklaneStore {
             parentSessionID: existingStatus.parentSessionID,
             taskProgress: existingStatus.taskProgress
         )
+        auxiliaryState.agentStatus = newStatus
+        // Re-seed the reducer from the new idle status so the periodic
+        // `clearStaleAgentSessions` sweep (which trusts `reducedStatus()` as
+        // the source of truth) doesn't resurrect the previous running
+        // session and clobber this direct write.
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            PaneAgentReducerState(),
+            from: newStatus
+        )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        // The fallback branch handles inferred sessions (no explicit hook /
+        // API channel, so no notify to trust) and already-idle sessions
+        // (codex-notify already landed). In both cases we still need the
+        // title-based ready promotion: inferred sessions have no other
+        // completion signal, and for already-idle sessions the call is a
+        // no-op since reconcileReadyStatus already surfaced ready.
+        stopSignalLogger.debug(
+            "codex.title.idle fallback applied pane=\(paneID.rawValue, privacy: .public) prevState=\(existingStatus.state.rawValue, privacy: .public) source=\(existingStatus.source == .explicit ? "explicit" : "inferred", privacy: .public) origin=\(existingStatus.origin.rawValue, privacy: .public) => idle (reducer re-seeded, requesting ready)"
+        )
         requestReadyStatusIfNeeded(for: paneID, in: &worklane)
+        return false
     }
 
     private static func codexReadyTitleMayClearStatus(_ status: PaneAgentStatus?) -> Bool {
@@ -703,6 +772,11 @@ extension WorklaneStore {
         if previousPresentation?.isWorking == true,
            presentation.runtimePhase == .idle,
            worklane.auxiliaryStateByPaneID[paneID]?.agentStatus != nil {
+            let bridgePrevPhase = previousPresentation?.runtimePhase.rawValue ?? "<nil>"
+            let bridgeTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool.displayName ?? "<nil>"
+            stopSignalLogger.debug(
+                "recompute.bridge.working->idle pane=\(paneID.rawValue, privacy: .public) prevPhase=\(bridgePrevPhase, privacy: .public) tool=\(bridgeTool, privacy: .public) => requestReady"
+            )
             requestReadyStatusIfNeeded(for: paneID, in: &worklane)
         }
     }
