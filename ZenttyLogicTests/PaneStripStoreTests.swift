@@ -1373,6 +1373,70 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_golden_width_arrange_uses_available_width_and_sidebar_inset() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: PaneID("left"), title: "left", width: 910),
+                            PaneState(id: PaneID("right"), title: "right", width: 910),
+                        ],
+                        focusedPaneID: PaneID("left")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.arrangeActiveWorklaneGoldenWidth(
+            focusWide: true,
+            availableWidth: 1200,
+            leadingVisibleInset: 290
+        )
+
+        let phi: CGFloat = (1 + sqrt(5)) / 2
+        let pairUsableWidth: CGFloat = 1200 - 290 - 6
+        let expectedWide = pairUsableWidth * phi / (1 + phi)
+        let columns = store.activeWorklane?.paneStripState.columns
+        XCTAssertEqual(columns?[0].width ?? 0, expectedWide, accuracy: 0.01)
+        XCTAssertEqual(columns?[1].width ?? 0, pairUsableWidth - expectedWide, accuracy: 0.01)
+    }
+
+    func test_golden_width_arrange_emits_split_curve_layout_resize_change() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: PaneID("left"), title: "left", width: 910),
+                            PaneState(id: PaneID("right"), title: "right", width: 910),
+                        ],
+                        focusedPaneID: PaneID("left")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+        var changes: [WorklaneChange] = []
+        store.subscribe { changes.append($0) }
+
+        store.arrangeActiveWorklaneGoldenWidth(
+            focusWide: true,
+            availableWidth: 1200,
+            leadingVisibleInset: 290
+        )
+
+        XCTAssertEqual(
+            changes,
+            [.layoutResized(WorklaneID("main"), animation: .splitCurve)]
+        )
+    }
+
     func test_resize_target_emits_immediate_layout_resize_change() {
         let store = WorklaneStore(
             worklanes: [

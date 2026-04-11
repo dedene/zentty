@@ -1179,7 +1179,11 @@ struct PaneStripState: Equatable, Sendable {
     #endif
 
     @discardableResult
-    mutating func arrangeGoldenWidth(focusWide: Bool) -> Bool {
+    mutating func arrangeGoldenWidth(
+        focusWide: Bool,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0
+    ) -> Bool {
         guard columns.count >= 2, let focusedIdx = focusedColumnIndex else {
             return false
         }
@@ -1195,11 +1199,18 @@ struct PaneStripState: Equatable, Sendable {
         let goldenMajor: CGFloat = phi / (1 + phi)
         let focusedRatio = focusWide ? goldenMajor : 1 - goldenMajor
 
-        let combinedWidth = columns[focusedIdx].width + columns[neighborIdx].width
-        let targetFocusedWidth = combinedWidth * focusedRatio
-        let targetNeighborWidth = combinedWidth - targetFocusedWidth
+        let readableWidth = layoutSizing.readableWidth(
+            for: availableWidth,
+            leadingVisibleInset: leadingVisibleInset
+        )
+        let pairUsableWidth = max(1, readableWidth - layoutSizing.interPaneSpacing)
+        let targetFocusedWidth = pairUsableWidth * focusedRatio
+        let targetNeighborWidth = pairUsableWidth - targetFocusedWidth
 
-        guard abs(columns[focusedIdx].width - targetFocusedWidth) > 0.001 else {
+        guard
+            abs(columns[focusedIdx].width - targetFocusedWidth) > 0.001
+                || abs(columns[neighborIdx].width - targetNeighborWidth) > 0.001
+        else {
             return false
         }
 

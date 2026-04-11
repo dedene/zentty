@@ -792,7 +792,11 @@ final class WorklaneStore {
             return
         }
 
-        guard worklane.paneStripState.arrangeGoldenWidth(focusWide: focusWide) else {
+        guard worklane.paneStripState.arrangeGoldenWidth(
+            focusWide: focusWide,
+            availableWidth: availableWidth,
+            leadingVisibleInset: leadingVisibleInset
+        ) else {
             return
         }
 
