@@ -9,6 +9,8 @@
     <br />
     Zentty gets out of the way. Minimal friction, maximum focus.
     <br />
+    <a href="https://github.com/dedene/zentty/releases/latest/download/Zentty.dmg">Download</a>
+    ·
     <a href="#install">Install</a>
     ·
     <a href="#status">Status</a>

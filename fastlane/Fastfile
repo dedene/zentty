@@ -891,12 +891,14 @@ def run_release_pipeline(options)
   generate_sparkle_appcast!(channel: channel)
   upload_release_artifacts_to_r2!(dmg_path: ENV.fetch("ZENTTY_DMG_PATH"), build_number: build_number)
   push_release_tag!(tag_name)
+  github_dmg_path = File.join(File.dirname(ENV.fetch("ZENTTY_DMG_PATH")), "#{APP_NAME}.dmg")
+  FileUtils.cp(ENV.fetch("ZENTTY_DMG_PATH"), github_dmg_path)
   upsert_github_release!(
     tag_name: tag_name,
     version: version,
     channel: channel,
     notes_path: notes_path,
-    asset_paths: [ENV.fetch("ZENTTY_DMG_PATH")]
+    asset_paths: [github_dmg_path]
   )
 end
 
