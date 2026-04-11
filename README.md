@@ -1,6 +1,36 @@
-# Zentty
+<!-- LOGO -->
+<h1>
+<p align="center">
+  <img src="assets/icon.png" alt="Zentty" width="128">
+  <br>Zentty
+</h1>
+  <p align="center">
+    A native macOS terminal for agent-native development, built on Ghostty.
+    <br />
+    Zentty gets out of the way — minimal friction, maximum focus.
+    <br />
+    <a href="#status">Status</a>
+    ·
+    <a href="#build">Build</a>
+    ·
+    <a href="#test">Test</a>
+    ·
+    <a href="CONTRIBUTING.md">Contributing</a>
+  </p>
+</p>
 
-Zentty is a Ghostty-based native macOS terminal for agent-native development.
+<p align="center">
+  <img src="assets/screenshot.png" alt="Zentty screenshot" width="880">
+</p>
+
+## Features
+
+- **Worklanes, not just tabs.** Borrowed from niri and Hyprland: a horizontally-scrolling strip of columns, each column a vertical stack of panes. Rearrange, resize, and navigate without losing your place.
+- **Keyboard-first, top to bottom.** Every action is a command. Every command is bindable. Rebind anything in settings, or fall back to the command palette when your muscle memory runs out.
+- **Command palette.** A fuzzy-searchable list of every action in the app, with your recent commands on top.
+- **Agent-aware.** Claude Code, Codex, Copilot CLI, Gemini CLI, and OpenCode report their status into the sidebar — you see what they're doing, what they're asking, and when they need you, without switching panes.
+- **Native Ghostty themes.** Zentty reads Ghostty's own theme files — your `~/.config/ghostty/themes` and the bundled library — with automatic light/dark switching.
+- **Built on Ghostty.** The renderer, shell integration, and terminal engine are all `libghostty`. Zentty is the window around it.
 
 ## Status
 
@@ -8,7 +38,7 @@ Zentty is in active development. Expect rapid iteration, rough edges, and occasi
 
 ## Requirements
 
-- macOS 14 or later
+- macOS 26 (Tahoe) or later
 - Xcode
 - `zig` on `PATH`
 - `gettext` on `PATH`
