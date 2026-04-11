@@ -3665,6 +3665,143 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
+    func test_claude_code_escape_interrupt_transitions_running_to_idle_via_glyph_title() throws {
+        // Pressing Escape in Claude Code interrupts the agent but does NOT
+        // fire a Stop hook. The only observable signal is the title flipping
+        // from a spinner glyph ("⠂ subject") back to the idle indicator
+        // ("✳ subject"). Zentty must drive the session from .running to .idle
+        // purely from that title change.
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "claude-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "⠂ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .running
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "✳ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .idle
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.runtimePhase,
+            .idle
+        )
+        // A user interrupt is not a natural completion — the pane must NOT
+        // be promoted to "Agent ready".
+        XCTAssertFalse(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
+        )
+        XCTAssertFalse(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.wantsReadyStatus == true
+        )
+        XCTAssertNotEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+    }
+
+    func test_claude_code_natural_stop_hook_still_surfaces_agent_ready() throws {
+        // Regression guard: the interrupt suppression must NOT strip the
+        // "Agent ready" label when Claude Code completes naturally via the
+        // Stop hook path.
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "⠂ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "claude-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "claude-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .idle
+        )
+        XCTAssertTrue(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+    }
+
     func test_waiting_codex_title_preserves_specific_blocked_prompt_copy() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)

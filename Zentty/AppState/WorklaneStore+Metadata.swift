@@ -86,13 +86,20 @@ extension WorklaneStore {
             metadata: metadata,
             in: &worklane
         )
-        markClaudeCodeSessionIdleIfTitleIndicatesIdle(
+        let claudeCodeInterrupted = markClaudeCodeSessionIdleIfTitleIndicatesIdle(
             paneID: paneID,
             metadata: metadata,
             in: &worklane
         )
         invalidateGitContextIfNeeded(for: paneID, in: &worklane)
         recomputePresentation(for: paneID, in: &worklane)
+        if claudeCodeInterrupted {
+            // A user interrupt is not a natural completion, so don't promote
+            // the pane to "Agent ready". The generic running→idle bridge in
+            // recomputePresentation already fired and requested ready status;
+            // roll it back now that we know the transition came from Escape.
+            clearReadyStatusIfNeeded(for: paneID, in: &worklane)
+        }
 
         if metadataChangeKind == .volatileTitleOnly,
            shouldFastPathVolatileMetadataUpdate(
@@ -457,15 +464,20 @@ extension WorklaneStore {
     }
 
     /// When a Claude Code session is running but the terminal title transitions
-    /// to an idle-phase word ("interrupted", "ready", "waiting"), force-resolve
-    /// the underlying session state to idle. This catches Ctrl-C / Escape
-    /// interruptions where the Stop hook may not fire or where the grace window
-    /// hasn't resolved yet.
+    /// to an idle-phase indicator (glyph ✳ on current builds, or the legacy
+    /// words "interrupted", "ready", "waiting"), force-resolve the underlying
+    /// session state to idle. This catches Ctrl-C / Escape interruptions where
+    /// the Stop hook does not fire.
+    ///
+    /// Returns `true` when the session was transitioned via this path, so the
+    /// caller can distinguish a user interrupt from a natural completion and
+    /// suppress the "Agent ready" label.
+    @discardableResult
     private func markClaudeCodeSessionIdleIfTitleIndicatesIdle(
         paneID: PaneID,
         metadata: TerminalMetadata,
         in worklane: inout WorklaneState
-    ) {
+    ) -> Bool {
         guard
             let signature = TerminalMetadataChangeClassifier.diagnosticAgentStatusTitleSignature(
                 metadata.title,
@@ -478,7 +490,7 @@ extension WorklaneStore {
             existingStatus.hasObservedRunning,
             existingStatus.state == .running || existingStatus.state == .starting
         else {
-            return
+            return false
         }
 
         auxiliaryState.agentReducerState = Self.seededReducerState(
@@ -486,7 +498,7 @@ extension WorklaneStore {
             from: existingStatus
         )
         guard auxiliaryState.agentReducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: Date()) else {
-            return
+            return false
         }
 
         auxiliaryState.agentStatus = Self.hydratedStatus(
@@ -494,6 +506,7 @@ extension WorklaneStore {
             existingStatus: existingStatus
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        return true
     }
 
     /// Clears stale desktop notification text when a Codex terminal title transitions to

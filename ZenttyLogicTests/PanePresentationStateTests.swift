@@ -1019,6 +1019,80 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.runtimePhase, .idle)
     }
 
+    func test_normalize_clears_running_when_claude_code_title_shows_idle_glyph() {
+        // Claude Code 2.x writes the idle-prompt indicator "✳" (U+2733) at
+        // the start of the title when the agent is not thinking. Pressing
+        // Escape mid-stream does NOT fire a Stop hook, so this title flip is
+        // the only idle signal Zentty receives for a user interrupt.
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "✳ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 10)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+    }
+
+    func test_normalize_keeps_running_when_claude_code_title_shows_spinner_glyph() {
+        // Braille spinner glyphs (U+2802, U+2810) prefix the title while
+        // Claude Code is thinking — these must NOT be classified as idle.
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "⠂ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 10)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .running)
+    }
+
     func test_normalize_keeps_needs_input_when_claude_code_title_indicates_idle() {
         let raw = PaneRawState(
             metadata: TerminalMetadata(
