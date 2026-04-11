@@ -172,6 +172,18 @@ enum TerminalMetadataChangeClassifier {
         case .codex:
             return volatileAgentStatusTitleSignature(normalized, recognizedTool: .codex)
         case .claudeCode:
+            // Claude Code 2.x encodes status in the title glyph: "✳" (U+2733)
+            // on the idle prompt, braille spinner glyphs (U+2800…U+28FF) while
+            // the agent is thinking. After a user interrupt (Escape) the
+            // spinner is replaced by "✳", with the subject left intact — this
+            // is what lets us detect the interrupt when no Stop hook fires.
+            if let signature = parseClaudeCodeGlyphTitle(normalized) {
+                return signature
+            }
+
+            // Fallback: older Claude Code builds used English words
+            // ("Thinking …", "Interrupted · …") as the title prefix. Keep
+            // detection for those so downgrades stay covered.
             guard let parsed = parseAgentStatusTitle(
                 normalized,
                 runningWords: ["thinking", "working", "responding", "analyzing"],
@@ -255,6 +267,36 @@ enum TerminalMetadataChangeClassifier {
         }
 
         return .backgroundWait
+    }
+
+    private static func parseClaudeCodeGlyphTitle(
+        _ normalized: String
+    ) -> VolatileAgentStatusTitleSignature? {
+        guard let first = normalized.unicodeScalars.first else {
+            return nil
+        }
+
+        let phase: VolatileAgentStatusPhase
+        switch first.value {
+        case 0x2733:
+            phase = .idle
+        case 0x2800...0x28FF:
+            phase = .running
+        default:
+            return nil
+        }
+
+        let remainder = normalized
+            .dropFirst()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !remainder.isEmpty else {
+            return nil
+        }
+
+        return VolatileAgentStatusTitleSignature(
+            phase: phase,
+            subject: remainder.lowercased()
+        )
     }
 
     private static func parseAgentStatusTitle(
