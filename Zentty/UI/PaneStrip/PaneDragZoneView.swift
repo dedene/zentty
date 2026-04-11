@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class PaneDragZoneView: NSView {
     static let height: CGFloat = 15
+    private static let activationDistance: CGFloat = 6
 
     var paneID: PaneID
 
@@ -16,6 +17,7 @@ final class PaneDragZoneView: NSView {
     private var trackingArea: NSTrackingArea?
     private var isPointerInside = false
     private var isDragActive = false
+    private var dragStartPointInWindow: CGPoint?
 
     private let highlightLayer = CALayer()
     private let gripImageView = NSImageView()
@@ -141,20 +143,24 @@ final class PaneDragZoneView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         isPointerInside = bounds.contains(convert(event.locationInWindow, from: nil))
-        activateDrag(at: event.locationInWindow)
+        dragStartPointInWindow = event.locationInWindow
     }
 
     override func mouseDragged(with event: NSEvent) {
         isPointerInside = bounds.contains(convert(event.locationInWindow, from: nil))
-        guard isDragActive else {
-            return
+        if !isDragActive,
+           let dragStartPointInWindow,
+           shouldActivateDrag(from: dragStartPointInWindow, to: event.locationInWindow) {
+            activateDrag(at: dragStartPointInWindow)
         }
+        guard isDragActive else { return }
         onDragMoved?(event.locationInWindow)
         invalidatePointerAffordances()
     }
 
     override func mouseUp(with event: NSEvent) {
         isPointerInside = bounds.contains(convert(event.locationInWindow, from: nil))
+        dragStartPointInWindow = nil
         guard isDragActive else {
             return
         }
@@ -163,6 +169,7 @@ final class PaneDragZoneView: NSView {
     }
 
     override func mouseCancelled(with event: NSEvent?) {
+        dragStartPointInWindow = nil
         guard isDragActive else {
             return
         }
@@ -182,8 +189,17 @@ final class PaneDragZoneView: NSView {
 
     private func resetDragState() {
         isDragActive = false
+        dragStartPointInWindow = nil
         animateHover(visible: isPointerInside)
         invalidatePointerAffordances()
+    }
+
+    private func shouldActivateDrag(from start: CGPoint, to current: CGPoint) -> Bool {
+        let deltaX = current.x - start.x
+        let deltaY = current.y - start.y
+        let activationDistanceSquared = Self.activationDistance * Self.activationDistance
+
+        return (deltaX * deltaX) + (deltaY * deltaY) >= activationDistanceSquared
     }
 
     private var resolvedCursor: NSCursor {

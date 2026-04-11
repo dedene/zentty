@@ -226,7 +226,7 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
-    func test_drag_zone_mouse_down_activates_drag_immediately_and_mouse_up_ends_drag() throws {
+    func test_drag_zone_click_does_not_activate_drag() throws {
         let paneID = PaneID("shell")
         let dragZone = PaneDragZoneView(paneID: paneID)
         dragZone.frame = CGRect(x: 0, y: 0, width: 320, height: PaneDragZoneView.height)
@@ -244,19 +244,62 @@ final class PaneStripViewTests: AppKitTestCase {
         dragZone.onDragEnded = { endedPoint = $0 }
 
         let mouseDown = try XCTUnwrap(makeDragZoneMouseEvent(type: .leftMouseDown, at: CGPoint(x: 120, y: 8)))
-        let mouseDragged = try XCTUnwrap(makeDragZoneMouseEvent(type: .leftMouseDragged, at: CGPoint(x: 168, y: 8)))
-        let mouseUp = try XCTUnwrap(makeDragZoneMouseEvent(type: .leftMouseUp, at: CGPoint(x: 168, y: 8)))
+        let mouseUp = try XCTUnwrap(makeDragZoneMouseEvent(type: .leftMouseUp, at: CGPoint(x: 120, y: 8)))
 
         dragZone.mouseDown(with: mouseDown)
+        dragZone.mouseUp(with: mouseUp)
+
+        XCTAssertNil(activatedPaneID)
+        XCTAssertNil(activatedPoint)
+        XCTAssertEqual(movedPoints, [])
+        XCTAssertNil(endedPoint)
+        XCTAssertEqual(dragZone.cursorDescriptionForTesting, "openHand")
+    }
+
+    @MainActor
+    func test_drag_zone_activates_after_drag_threshold_and_mouse_up_ends_drag() throws {
+        let paneID = PaneID("shell")
+        let dragZone = PaneDragZoneView(paneID: paneID)
+        dragZone.frame = CGRect(x: 0, y: 0, width: 320, height: PaneDragZoneView.height)
+
+        var activatedPaneID: PaneID?
+        var activatedPoint: CGPoint?
+        var movedPoints: [CGPoint] = []
+        var endedPoint: CGPoint?
+
+        dragZone.onDragActivated = { receivedPaneID, point in
+            activatedPaneID = receivedPaneID
+            activatedPoint = point
+        }
+        dragZone.onDragMoved = { movedPoints.append($0) }
+        dragZone.onDragEnded = { endedPoint = $0 }
+
+        let mouseDown = try XCTUnwrap(makeDragZoneMouseEvent(type: .leftMouseDown, at: CGPoint(x: 120, y: 8)))
+        let belowThresholdDrag = try XCTUnwrap(
+            makeDragZoneMouseEvent(type: .leftMouseDragged, at: CGPoint(x: 122, y: 9))
+        )
+        let activatingDrag = try XCTUnwrap(
+            makeDragZoneMouseEvent(type: .leftMouseDragged, at: CGPoint(x: 132, y: 8))
+        )
+        let mouseUp = try XCTUnwrap(makeDragZoneMouseEvent(type: .leftMouseUp, at: CGPoint(x: 132, y: 8)))
+
+        dragZone.mouseDown(with: mouseDown)
+        dragZone.mouseDragged(with: belowThresholdDrag)
+
+        XCTAssertNil(activatedPaneID)
+        XCTAssertNil(activatedPoint)
+        XCTAssertEqual(movedPoints, [])
+        XCTAssertEqual(dragZone.cursorDescriptionForTesting, "openHand")
+
+        dragZone.mouseDragged(with: activatingDrag)
 
         XCTAssertEqual(activatedPaneID, paneID)
         XCTAssertEqual(activatedPoint, mouseDown.locationInWindow)
+        XCTAssertEqual(movedPoints, [activatingDrag.locationInWindow])
         XCTAssertEqual(dragZone.cursorDescriptionForTesting, "closedHand")
 
-        dragZone.mouseDragged(with: mouseDragged)
         dragZone.mouseUp(with: mouseUp)
 
-        XCTAssertEqual(movedPoints, [mouseDragged.locationInWindow])
         XCTAssertEqual(endedPoint, mouseUp.locationInWindow)
         XCTAssertEqual(dragZone.cursorDescriptionForTesting, "openHand")
     }
