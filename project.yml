@@ -94,7 +94,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleIconFile: AppIcon
-        GlitchTipDSN: https://51c62f5ad43840f883b93d12a9321afd@errors.zenjoy.be/37
+        GlitchTipDSN: $(GLITCHTIP_DSN)
         SUAutomaticallyUpdate: false
         SUEnableAutomaticChecks: true
         SUFeedURL: $(SPARKLE_FEED_URL)
@@ -146,6 +146,7 @@ targets:
         INFOPLIST_FILE: Zentty/Info.plist
         SPARKLE_FEED_URL: ""
         SPARKLE_PUBLIC_ED_KEY: ""
+        GLITCHTIP_DSN: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_ENTITLEMENTS: Zentty/Zentty.entitlements

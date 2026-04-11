@@ -220,6 +220,7 @@ def ensure_release_tools_ready!
   capture_command!("wrangler", "whoami", error_message: "wrangler is not authenticated")
   UI.user_error!("R2_PUBLIC_BASE_URL must be set") if r2_public_base_url.empty?
   UI.user_error!("SPARKLE_PUBLIC_ED_KEY must be set") if sparkle_public_ed_key.empty?
+  UI.important("GLITCHTIP_DSN is not set; this release build will ship without error reporting") if glitchtip_dsn.empty?
 end
 
 def determine_release_channel(options)
@@ -356,6 +357,10 @@ def sparkle_public_ed_key
   resolved_env_value("SPARKLE_PUBLIC_ED_KEY")
 end
 
+def glitchtip_dsn
+  resolved_env_value("GLITCHTIP_DSN")
+end
+
 def sparkle_private_ed_key_file
   explicit_path = resolved_env_value("SPARKLE_PRIVATE_ED_KEY_FILE")
   return explicit_path unless explicit_path.empty?
@@ -395,7 +400,8 @@ def xcargs_for_release(version:)
   [
     "MARKETING_VERSION=#{Shellwords.escape(version)}",
     "SPARKLE_FEED_URL=#{Shellwords.escape(sparkle_feed_url)}",
-    "SPARKLE_PUBLIC_ED_KEY=#{Shellwords.escape(sparkle_public_ed_key)}"
+    "SPARKLE_PUBLIC_ED_KEY=#{Shellwords.escape(sparkle_public_ed_key)}",
+    "GLITCHTIP_DSN=#{Shellwords.escape(glitchtip_dsn)}"
   ].join(" ")
 end
 

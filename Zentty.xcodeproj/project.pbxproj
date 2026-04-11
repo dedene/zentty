@@ -1834,6 +1834,7 @@
 					"$(inherited)",
 					"\"FrameworksLocal\"",
 				);
+				GLITCHTIP_DSN = "";
 				INFOPLIST_FILE = Zentty/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1876,6 +1877,7 @@
 					"$(inherited)",
 					"\"FrameworksLocal\"",
 				);
+				GLITCHTIP_DSN = "";
 				INFOPLIST_FILE = Zentty/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

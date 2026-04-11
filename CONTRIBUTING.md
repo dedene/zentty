@@ -43,11 +43,30 @@ Regenerate the Xcode project when needed:
 bundle exec fastlane mac generate_project
 ```
 
+## Code Signing
+
+`project.yml` commits `DEVELOPMENT_TEAM: 25TVW8MSGJ`, which is Zenjoy's Apple Developer team. The team ID itself is not a secret — it ships inside every signed macOS binary — but only Zenjoy can sign with it. External contributors building locally should override it with their own Apple Developer team:
+
+```bash
+xcodebuild -scheme Zentty -destination 'platform=macOS' \
+  DEVELOPMENT_TEAM=YOURTEAMID CODE_SIGN_STYLE=Automatic build
+```
+
+For test-only runs, you can skip signing entirely:
+
+```bash
+xcodebuild test -scheme Zentty -destination 'platform=macOS' \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+```
+
+Do not commit a local change to `DEVELOPMENT_TEAM` in `project.yml`.
+
 ## Project Notes
 
 - Zentty is a native macOS app.
 - The app depends on a local `FrameworksLocal/GhosttyKit.xcframework` for normal builds.
 - Hosted and logic tests have different runtime characteristics; use the existing project guidance and test targets.
+- Release-only build settings (`GLITCHTIP_DSN`, `SPARKLE_FEED_URL`, `SPARKLE_PUBLIC_ED_KEY`) default to empty and are injected via `xcargs` during official releases. Debug builds work fine without them; error reporting and Sparkle updates are simply disabled.
 
 ## Licensing Expectations
 
