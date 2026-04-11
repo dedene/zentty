@@ -162,6 +162,67 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(duplicatedPane.sessionRequest.command, "drift --showcase")
     }
 
+    func test_duplicate_pane_as_column_replays_gemini_agent_command() throws {
+        let store = WorklaneStore()
+        let sourcePaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let sourceWorklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: sourceWorklaneID,
+                paneID: sourcePaneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/project",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: nil
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: sourceWorklaneID,
+                paneID: sourcePaneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Gemini",
+                text: "Thinking",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.updateMetadata(
+            paneID: sourcePaneID,
+            metadata: TerminalMetadata(
+                title: "Gemini",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "gemini"
+            )
+        )
+
+        store.duplicatePaneAsColumn(
+            paneID: sourcePaneID,
+            toColumnIndex: 1,
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+
+        let duplicatedPane = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane)
+        XCTAssertNotEqual(duplicatedPane.id, sourcePaneID)
+        XCTAssertEqual(duplicatedPane.sessionRequest.workingDirectory, "/tmp/project")
+        XCTAssertEqual(duplicatedPane.sessionRequest.command, "gemini")
+    }
+
     func test_split_after_inserts_adjacent_pane_and_inherits_focused_working_directory() throws {
         let store = WorklaneStore()
         let focusedPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -4252,6 +4313,62 @@ final class PaneStripStoreTests: XCTestCase {
             "Agent ready"
         )
         XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_completion_notification_phrase_session_complete_surfaces_agent_ready_for_gemini() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Gemini",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "gemini",
+                gitBranch: "main"
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(title: "Gemini", body: "Session complete")
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_completion_notification_phrase_session_complete_does_not_surface_agent_ready_for_non_gemini_panes() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Shell",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "bash",
+                gitBranch: "main"
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(title: "Backup", body: "Session complete")
+            )
+        )
+
+        XCTAssertNotEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
     func test_desktop_notification_event_ignores_non_actionable_copy_for_codex() throws {

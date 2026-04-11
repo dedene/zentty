@@ -51,7 +51,7 @@ struct AgentToolLauncher {
             return !passthroughSubcommands.contains(arguments.first ?? "")
         case .copilot:
             return environment["ZENTTY_COPILOT_HOOKS_DISABLED"] != "1"
-        case .codex, .opencode:
+        case .codex, .gemini, .opencode:
             return true
         }
     }
@@ -96,6 +96,7 @@ struct AgentToolLauncher {
             "ZENTTY_CLAUDE_HOOKS_DISABLED",
             "ZENTTY_COPILOT_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
+            "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
             "CODEX_HOME",
             "COPILOT_HOME",
             "OPENCODE_CONFIG_DIR",
@@ -116,7 +117,7 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .codex, .copilot, .opencode:
+        case .codex, .copilot, .gemini, .opencode:
             return EnvironmentPatch()
         }
     }
@@ -134,6 +135,8 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_CODEX_PID"] = "\(getpid())"
         case .copilot:
             environmentPatch.set["ZENTTY_COPILOT_PID"] = "\(getpid())"
+        case .gemini:
+            environmentPatch.set["ZENTTY_GEMINI_PID"] = "\(getpid())"
         case .opencode:
             break
         }
@@ -177,6 +180,7 @@ struct AgentToolLauncher {
             "ZENTTY_CLAUDE_PID",
             "ZENTTY_CODEX_PID",
             "ZENTTY_COPILOT_PID",
+            "ZENTTY_GEMINI_PID",
         ]
         return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
             guard let value = environment[key], !value.isEmpty else {
