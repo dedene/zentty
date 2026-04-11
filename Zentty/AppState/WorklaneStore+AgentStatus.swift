@@ -3,6 +3,7 @@ import Foundation
 import os
 
 private let worklaneStoreLogger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneStore")
+private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "StopSignals")
 @MainActor private var loggedUnclassifiedCodexDesktopNotifications: Set<String> = []
 
 extension WorklaneStore {
@@ -139,6 +140,10 @@ extension WorklaneStore {
         if let payloadWindowID = payload.windowID, payloadWindowID != windowID {
             return
         }
+
+        stopSignalLogger.debug(
+            "applyPayload pane=\(payload.paneID.rawValue, privacy: .public) kind=\(payload.signalKind.rawValue, privacy: .public) state=\(payload.state?.rawValue ?? "<nil>", privacy: .public) origin=\(payload.origin.rawValue, privacy: .public) tool=\(payload.toolName ?? "<nil>", privacy: .public) lifecycle=\(payload.lifecycleEvent?.rawValue ?? "<nil>", privacy: .public) interaction=\(payload.interactionKind?.rawValue ?? "<nil>", privacy: .public) shellActivity=\(payload.shellActivityState?.rawValue ?? "<nil>", privacy: .public) session=\(payload.sessionID ?? "<nil>", privacy: .public)"
+        )
 
         if payload.origin == .explicitAPI,
            payload.state == .needsInput,
@@ -467,11 +472,36 @@ extension WorklaneStore {
         let nextStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
 
         if shouldEnterReadyStatus(from: existingStatus, to: nextStatus) {
+            stopSignalLogger.debug(
+                "reconcile.enter pane=\(paneID.rawValue, privacy: .public) prev=\(existingStatus?.state.rawValue ?? "<nil>", privacy: .public) next=\(nextStatus?.state.rawValue ?? "<nil>", privacy: .public) => requestReady"
+            )
+            requestReadyStatusIfNeeded(for: paneID, in: &worklane)
+            return
+        }
+
+        // An explicit API idle signal (codex-notify `agent-turn-complete`) is
+        // authoritative confirmation that the agent finished naturally, even
+        // when the Codex terminal title already flipped to "Ready …" first
+        // and transitioned the session to idle. Promote to ready in that
+        // race so the ready label isn't lost to the title path's interrupt
+        // suppression.
+        if let nextStatus,
+           nextStatus.state == .idle,
+           nextStatus.hasObservedRunning,
+           payload.signalKind == .lifecycle,
+           payload.state == .idle,
+           payload.origin == .explicitAPI {
+            stopSignalLogger.debug(
+                "reconcile.reenter pane=\(paneID.rawValue, privacy: .public) already-idle + explicitAPI idle => requestReady"
+            )
             requestReadyStatusIfNeeded(for: paneID, in: &worklane)
             return
         }
 
         if shouldClearReadyStatus(for: nextStatus, payload: payload) {
+            stopSignalLogger.debug(
+                "reconcile.clear pane=\(paneID.rawValue, privacy: .public) next=\(nextStatus?.state.rawValue ?? "<nil>", privacy: .public) payloadState=\(payload.state?.rawValue ?? "<nil>", privacy: .public)"
+            )
             clearReadyStatusIfNeeded(for: paneID, in: &worklane)
         }
     }
@@ -821,6 +851,7 @@ extension WorklaneStore {
         }
 
         let now = Date()
+        let preState = auxiliaryState.agentStatus?.state.rawValue ?? "<nil>"
         auxiliaryState.agentReducerState = Self.seededReducerState(
             auxiliaryState.agentReducerState,
             from: auxiliaryState.agentStatus
@@ -836,6 +867,9 @@ extension WorklaneStore {
             existingStatus: auxiliaryState.agentStatus
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        stopSignalLogger.debug(
+            "codex.applyPayload.repromote pane=\(paneID.rawValue, privacy: .public) preState=\(preState, privacy: .public) didPromoteStarting=\(didPromoteStarting, privacy: .public) didResumeBlocked=\(didResumeBlocked, privacy: .public) => running"
+        )
     }
 
     private static func isProcessAlive(pid: Int32) -> Bool {
