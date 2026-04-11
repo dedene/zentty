@@ -2,6 +2,24 @@ import Foundation
 import XCTest
 
 final class BundledGhosttyThemeResourcesTests: XCTestCase {
+    func test_app_bundle_contains_ghostty_terminfo_entries() throws {
+        let appBundle = try makeAppBundle()
+        let terminfoRootURL = try XCTUnwrap(
+            appBundle.resourceURL?.appendingPathComponent("terminfo", isDirectory: true)
+        )
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: terminfoRootURL.appendingPathComponent("67/ghostty", isDirectory: false).path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: terminfoRootURL.appendingPathComponent("78/xterm-ghostty", isDirectory: false).path
+            )
+        )
+    }
+
     func test_app_bundle_contains_vendored_ghostty_theme_library() throws {
         let appBundle = try makeAppBundle()
         let themesDirectoryURL = try XCTUnwrap(

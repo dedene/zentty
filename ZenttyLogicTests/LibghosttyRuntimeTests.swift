@@ -3,6 +3,44 @@ import XCTest
 
 @MainActor
 final class LibghosttyRuntimeTests: XCTestCase {
+    func testGhosttyResourcesDirectory_returnsDirectory_whenAdjacentTerminfoSentinelExists() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let resourcesURL = rootURL.appendingPathComponent("Resources", isDirectory: true)
+        let ghosttyURL = resourcesURL.appendingPathComponent("ghostty", isDirectory: true)
+        let terminfoURL = resourcesURL
+            .appendingPathComponent("terminfo/78", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: ghosttyURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: terminfoURL, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: terminfoURL.appendingPathComponent("xterm-ghostty", isDirectory: false).path,
+            contents: Data()
+        )
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        XCTAssertEqual(
+            LibghosttyRuntime.ghosttyResourcesDirectory(ifTerminfoPresentAt: ghosttyURL),
+            ghosttyURL
+        )
+    }
+
+    func testGhosttyResourcesDirectory_returnsNil_whenAdjacentTerminfoSentinelIsMissing() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let ghosttyURL = rootURL
+            .appendingPathComponent("Resources/ghostty", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: ghosttyURL, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        XCTAssertNil(LibghosttyRuntime.ghosttyResourcesDirectory(ifTerminfoPresentAt: ghosttyURL))
+    }
+
     func testBuiltInThemeOverrideContents_inlinesZenttyDefaultPaletteWhenThemeFileIsUnavailable() {
         let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
         let contents = LibghosttyRuntime.builtInThemeOverrideContents(

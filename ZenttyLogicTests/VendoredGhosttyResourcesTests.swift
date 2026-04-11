@@ -3,6 +3,14 @@ import XCTest
 @testable import Zentty
 
 final class VendoredGhosttyResourcesTests: XCTestCase {
+    func test_vendored_ghostty_terminfo_entries_are_present() {
+        let repoRoot = repoRootURL()
+        let terminfoRoot = repoRoot.appendingPathComponent("ZenttyResources/terminfo", isDirectory: true)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: terminfoRoot.appendingPathComponent("67/ghostty").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: terminfoRoot.appendingPathComponent("78/xterm-ghostty").path))
+    }
+
     func test_vendored_ghostty_theme_tree_is_present_and_populated() throws {
         let themesDirectory = repoRootURL()
             .appendingPathComponent("ZenttyResources/ghostty/themes", isDirectory: true)
@@ -40,6 +48,17 @@ final class VendoredGhosttyResourcesTests: XCTestCase {
         XCTAssertFalse(projectYAML.contains("Library/Caches/zentty/ghostty-src"))
         XCTAssertFalse(projectYAML.contains("GHOSTTY_THEME_CACHE_SRC"))
         XCTAssertFalse(projectYAML.contains("rm -rf \"${RESOURCES_DST}/ghostty/themes\""))
+    }
+
+    func test_project_configuration_copies_vendored_terminfo_into_app_resources() throws {
+        let projectYAML = try String(
+            contentsOf: repoRootURL().appendingPathComponent("project.yml"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(projectYAML.contains("mkdir -p \"${RESOURCES_DST}/bin\""))
+        XCTAssertTrue(projectYAML.contains("\"${RESOURCES_DST}/terminfo\""))
+        XCTAssertTrue(projectYAML.contains("rsync -a --delete \"${RESOURCES_SRC}/terminfo/\" \"${RESOURCES_DST}/terminfo/\""))
     }
 
     func test_bundled_zero_config_defaults_inline_zentty_default_theme_palette_and_visual_defaults() throws {

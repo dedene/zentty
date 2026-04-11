@@ -596,6 +596,24 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         setenv("GHOSTTY_LOG", "macos,no-stderr", 1)
     }
 
+    static func ghosttyResourcesDirectory(
+        ifTerminfoPresentAt candidate: URL,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        guard fileManager.fileExists(atPath: candidate.path) else {
+            return nil
+        }
+
+        let terminfoSentinel = candidate
+            .deletingLastPathComponent()
+            .appendingPathComponent("terminfo/78/xterm-ghostty", isDirectory: false)
+        guard fileManager.fileExists(atPath: terminfoSentinel.path) else {
+            return nil
+        }
+
+        return candidate
+    }
+
     private static func configureResourcesDirectoryIfNeeded() {
         guard getenv("GHOSTTY_RESOURCES_DIR") == nil else {
             return
@@ -608,8 +626,14 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
                 .appendingPathComponent("Library/Caches/zentty/ghostty-src/zig-out/share/ghostty", isDirectory: true),
         ]
 
-        for case let candidate? in candidates where fileManager.fileExists(atPath: candidate.path) {
-            setenv("GHOSTTY_RESOURCES_DIR", candidate.path, 1)
+        for case let candidate? in candidates {
+            guard let resourcesDirectory = ghosttyResourcesDirectory(
+                ifTerminfoPresentAt: candidate,
+                fileManager: fileManager
+            ) else {
+                continue
+            }
+            setenv("GHOSTTY_RESOURCES_DIR", resourcesDirectory.path, 1)
             return
         }
     }
