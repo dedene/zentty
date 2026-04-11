@@ -1001,6 +1001,7 @@ final class PaneStripStateTests: XCTestCase {
     // MARK: - Golden Ratio Width
 
     func test_arrangeGoldenWidth_focusWide_applies_golden_ratio_to_focused_and_neighbor() {
+        let availableWidth: CGFloat = 1006
         var state = PaneStripState(
             columns: [
                 makeColumn("left", paneIDs: ["a"], width: 500),
@@ -1009,7 +1010,10 @@ final class PaneStripStateTests: XCTestCase {
             focusedColumnID: PaneColumnID("left")
         )
 
-        let didArrange = state.arrangeGoldenWidth(focusWide: true)
+        let didArrange = state.arrangeGoldenWidth(
+            focusWide: true,
+            availableWidth: availableWidth
+        )
 
         XCTAssertTrue(didArrange)
         let phi: CGFloat = (1 + sqrt(5)) / 2
@@ -1019,6 +1023,7 @@ final class PaneStripStateTests: XCTestCase {
     }
 
     func test_arrangeGoldenWidth_focusNarrow_makes_focused_column_narrower() {
+        let availableWidth: CGFloat = 1006
         var state = PaneStripState(
             columns: [
                 makeColumn("left", paneIDs: ["a"], width: 500),
@@ -1027,7 +1032,10 @@ final class PaneStripStateTests: XCTestCase {
             focusedColumnID: PaneColumnID("left")
         )
 
-        let didArrange = state.arrangeGoldenWidth(focusWide: false)
+        let didArrange = state.arrangeGoldenWidth(
+            focusWide: false,
+            availableWidth: availableWidth
+        )
 
         XCTAssertTrue(didArrange)
         let phi: CGFloat = (1 + sqrt(5)) / 2
@@ -1037,6 +1045,7 @@ final class PaneStripStateTests: XCTestCase {
     }
 
     func test_arrangeGoldenWidth_focused_last_column_pairs_with_previous() {
+        let availableWidth: CGFloat = 606
         var state = PaneStripState(
             columns: [
                 makeColumn("left", paneIDs: ["a"], width: 400),
@@ -1046,7 +1055,10 @@ final class PaneStripStateTests: XCTestCase {
             focusedColumnID: PaneColumnID("right")
         )
 
-        let didArrange = state.arrangeGoldenWidth(focusWide: true)
+        let didArrange = state.arrangeGoldenWidth(
+            focusWide: true,
+            availableWidth: availableWidth
+        )
 
         XCTAssertTrue(didArrange)
         XCTAssertEqual(state.columns[0].width, 400, accuracy: 0.01, "Uninvolved column should not change")
@@ -1063,10 +1075,11 @@ final class PaneStripStateTests: XCTestCase {
             focusedColumnID: PaneColumnID("only")
         )
 
-        XCTAssertFalse(state.arrangeGoldenWidth(focusWide: true))
+        XCTAssertFalse(state.arrangeGoldenWidth(focusWide: true, availableWidth: 800))
     }
 
     func test_arrangeGoldenWidth_idempotent_second_call_returns_false() {
+        let availableWidth: CGFloat = 1006
         var state = PaneStripState(
             columns: [
                 makeColumn("left", paneIDs: ["a"], width: 500),
@@ -1075,8 +1088,61 @@ final class PaneStripStateTests: XCTestCase {
             focusedColumnID: PaneColumnID("left")
         )
 
-        XCTAssertTrue(state.arrangeGoldenWidth(focusWide: true))
-        XCTAssertFalse(state.arrangeGoldenWidth(focusWide: true))
+        XCTAssertTrue(state.arrangeGoldenWidth(focusWide: true, availableWidth: availableWidth))
+        XCTAssertFalse(state.arrangeGoldenWidth(focusWide: true, availableWidth: availableWidth))
+    }
+
+    func test_arrangeGoldenWidth_focusWide_uses_readable_width_when_sidebar_is_open_on_laptop() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["a"], width: 910),
+                makeColumn("right", paneIDs: ["b"], width: 910),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        let didArrange = state.arrangeGoldenWidth(
+            focusWide: true,
+            availableWidth: 1200,
+            leadingVisibleInset: 290
+        )
+
+        XCTAssertTrue(didArrange)
+        let phi: CGFloat = (1 + sqrt(5)) / 2
+        let pairUsableWidth: CGFloat = 1200 - 290 - 6
+        let expectedWide = pairUsableWidth * phi / (1 + phi)
+        XCTAssertEqual(state.columns[0].width, expectedWide, accuracy: 0.01)
+        XCTAssertEqual(state.columns[1].width, pairUsableWidth - expectedWide, accuracy: 0.01)
+        XCTAssertLessThanOrEqual(state.columns[0].width, pairUsableWidth, "Focused column should fit within the readable lane")
+    }
+
+    func test_arrangeGoldenWidth_focusWide_changes_when_sidebar_visibility_changes() {
+        var hiddenSidebarState = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["a"], width: 910),
+                makeColumn("right", paneIDs: ["b"], width: 910),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+        var openSidebarState = hiddenSidebarState
+
+        XCTAssertTrue(
+            hiddenSidebarState.arrangeGoldenWidth(
+                focusWide: true,
+                availableWidth: 1200,
+                leadingVisibleInset: 0
+            )
+        )
+        XCTAssertTrue(
+            openSidebarState.arrangeGoldenWidth(
+                focusWide: true,
+                availableWidth: 1200,
+                leadingVisibleInset: 290
+            )
+        )
+
+        XCTAssertGreaterThan(hiddenSidebarState.columns[0].width, openSidebarState.columns[0].width)
+        XCTAssertGreaterThan(hiddenSidebarState.columns[1].width, openSidebarState.columns[1].width)
     }
 
     // MARK: - Golden Ratio Height
