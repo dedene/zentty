@@ -32,7 +32,7 @@
 - **Command palette.** A fuzzy-searchable list of every action in the app, with your recent commands on top.
 - **Agent-aware.** Claude Code, Codex, Copilot CLI, Gemini CLI, and OpenCode report their status into the sidebar, so you see what they're doing, what they're asking, and when they need you, without switching panes.
 - **Native Ghostty themes.** Zentty reads Ghostty's own theme files (your `~/.config/ghostty/themes` and the bundled library), with automatic light/dark switching.
-- **Built on Ghostty.** The renderer, shell integration, and terminal engine are all `libghostty`. Zentty is the window around it.
+- **Built on Ghostty.** GPU-accelerated rendering via `libghostty`, wrapped in a native Swift and AppKit shell. No Electron, no web views. It feels like a Mac app because it is one.
 
 ## Install
 
