@@ -3,11 +3,104 @@ import XCTest
 
 @MainActor
 final class LibghosttyRuntimeTests: XCTestCase {
+    func testBuiltInThemeOverrideContents_inlinesZenttyDefaultPaletteWhenThemeFileIsUnavailable() {
+        let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
+        let contents = LibghosttyRuntime.builtInThemeOverrideContents(
+            userConfigContents: """
+            theme = \(persistedFallbackThemeName)
+            background-opacity = 0.95
+            """,
+            themeDirectories: []
+        )
+
+        XCTAssertNotNil(contents)
+        XCTAssertFalse(contents?.contains("theme = \(persistedFallbackThemeName)") ?? true)
+        XCTAssertTrue(contents?.contains("background = #0A0C10") ?? false)
+        XCTAssertTrue(contents?.contains("foreground = #F0F3F6") ?? false)
+        XCTAssertTrue(contents?.contains("cursor-color = #71B7FF") ?? false)
+        XCTAssertTrue(contents?.contains("selection-background = #F0F3F6") ?? false)
+        XCTAssertTrue(contents?.contains("selection-foreground = #0A0C10") ?? false)
+        XCTAssertTrue(contents?.contains("palette = 0=#7A828E") ?? false)
+        XCTAssertTrue(contents?.contains("palette = 15=#FFFFFF") ?? false)
+        XCTAssertTrue(contents?.contains("font-feature = -calt") ?? false)
+        XCTAssertTrue(contents?.contains("font-feature = -liga") ?? false)
+        XCTAssertTrue(contents?.contains("font-feature = -dlig") ?? false)
+        XCTAssertTrue(contents?.contains("window-padding-x = 10") ?? false)
+        XCTAssertTrue(contents?.contains("window-padding-y = 10") ?? false)
+        XCTAssertTrue(contents?.contains("cursor-style = block") ?? false)
+        XCTAssertTrue(contents?.contains("cursor-style-blink = true") ?? false)
+        XCTAssertTrue(contents?.contains("cursor-opacity = 0.8") ?? false)
+        XCTAssertTrue(contents?.contains("mouse-hide-while-typing = true") ?? false)
+        XCTAssertTrue(contents?.contains("copy-on-select = clipboard") ?? false)
+        XCTAssertTrue(contents?.contains("clipboard-paste-protection = false") ?? false)
+        XCTAssertTrue(contents?.contains("clipboard-paste-bracketed-safe = true") ?? false)
+        XCTAssertFalse(contents?.contains("quick-terminal-position") ?? true)
+    }
+
+    func testBuiltInThemeOverrideContents_skipsInliningWhenThemeFileExists() throws {
+        let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
+        let themeDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: themeDirectoryURL, withIntermediateDirectories: true)
+        try addTeardownBlock {
+            try? FileManager.default.removeItem(at: themeDirectoryURL)
+        }
+
+        try """
+        background = #111111
+        foreground = #EEEEEE
+        """.write(
+            to: themeDirectoryURL.appendingPathComponent(persistedFallbackThemeName),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let contents = LibghosttyRuntime.builtInThemeOverrideContents(
+            userConfigContents: """
+            theme = \(persistedFallbackThemeName)
+            """,
+            themeDirectories: [themeDirectoryURL]
+        )
+
+        XCTAssertNil(contents)
+    }
+
+    func testBuiltInThemeOverrideContents_preserves_explicit_user_values_for_safe_defaults() {
+        let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
+        let contents = LibghosttyRuntime.builtInThemeOverrideContents(
+            userConfigContents: """
+            theme = \(persistedFallbackThemeName)
+            font-feature = calt
+            window-padding-x = 4
+            cursor-opacity = 0.3
+            cursor-style = underline
+            cursor-style-blink = false
+            mouse-hide-while-typing = false
+            copy-on-select = false
+            clipboard-paste-protection = true
+            clipboard-paste-bracketed-safe = false
+            """,
+            themeDirectories: []
+        )
+
+        XCTAssertNotNil(contents)
+        XCTAssertFalse(contents?.contains("font-feature = -calt") ?? true)
+        XCTAssertFalse(contents?.contains("window-padding-x = 10") ?? true)
+        XCTAssertFalse(contents?.contains("cursor-opacity = 0.8") ?? true)
+        XCTAssertFalse(contents?.contains("cursor-style = block") ?? true)
+        XCTAssertFalse(contents?.contains("cursor-style-blink = true") ?? true)
+        XCTAssertFalse(contents?.contains("mouse-hide-while-typing = true") ?? true)
+        XCTAssertFalse(contents?.contains("copy-on-select = clipboard") ?? true)
+        XCTAssertFalse(contents?.contains("clipboard-paste-protection = false") ?? true)
+        XCTAssertFalse(contents?.contains("clipboard-paste-bracketed-safe = true") ?? true)
+        XCTAssertTrue(contents?.contains("window-padding-y = 10") ?? false)
+    }
+
     func testTransparentBackgroundOverrideContents_forcesTransparentEmbeddedSurfaceAndAddsFallbackBlur() {
         let contents = LibghosttyRuntime.transparentBackgroundOverrideContents(
             userConfigContents: """
             background-opacity = 0.95
-            theme = Github-Dark-Personal
+            theme = \(GhosttyThemeLibrary.fallbackPersistedThemeName)
             """
         )
 

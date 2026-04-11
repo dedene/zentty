@@ -28,14 +28,18 @@ final class ThemeCatalogServiceTests: XCTestCase {
 
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = await service.loadThemes()
+        guard let tokyoNight = themes.first(where: { $0.name == "TokyoNight" }) else {
+            XCTFail("Expected TokyoNight preview")
+            return
+        }
 
-        XCTAssertEqual(themes.count, 1)
-        XCTAssertEqual(themes[0].name, "TokyoNight")
-        XCTAssertEqual(themes[0].background.themeHexString, "#1A1B26")
-        XCTAssertEqual(themes[0].foreground.themeHexString, "#C0CAF5")
-        XCTAssertEqual(themes[0].palette.count, 2)
-        XCTAssertEqual(themes[0].palette[0].themeHexString, "#15161E")
-        XCTAssertEqual(themes[0].palette[1].themeHexString, "#F7768E")
+        XCTAssertEqual(themes.count, 2)
+        XCTAssertEqual(tokyoNight.name, "TokyoNight")
+        XCTAssertEqual(tokyoNight.background.themeHexString, "#1A1B26")
+        XCTAssertEqual(tokyoNight.foreground.themeHexString, "#C0CAF5")
+        XCTAssertEqual(tokyoNight.palette.count, 2)
+        XCTAssertEqual(tokyoNight.palette[0].themeHexString, "#15161E")
+        XCTAssertEqual(tokyoNight.palette[1].themeHexString, "#F7768E")
     }
 
     func testSkipsFilesMissingForeground() async {
@@ -45,7 +49,8 @@ final class ThemeCatalogServiceTests: XCTestCase {
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = await service.loadThemes()
 
-        XCTAssertTrue(themes.isEmpty)
+        XCTAssertEqual(themes.map(\.name), ["Zentty-Default"])
+        XCTAssertEqual(themes.map(\.displayName), ["Zentty Default Theme"])
     }
 
     func testSkipsFilesMissingBackground() async {
@@ -55,7 +60,8 @@ final class ThemeCatalogServiceTests: XCTestCase {
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = await service.loadThemes()
 
-        XCTAssertTrue(themes.isEmpty)
+        XCTAssertEqual(themes.map(\.name), ["Zentty-Default"])
+        XCTAssertEqual(themes.map(\.displayName), ["Zentty Default Theme"])
     }
 
     func testLaterDirectoryOverridesByName() async {
@@ -86,11 +92,15 @@ final class ThemeCatalogServiceTests: XCTestCase {
 
         let service = ThemeCatalogService(themeDirectories: [bundledDir, userDir])
         let themes = await service.loadThemes()
+        guard let sharedTheme = themes.first(where: { $0.name == "SharedTheme" }) else {
+            XCTFail("Expected SharedTheme preview")
+            return
+        }
 
-        XCTAssertEqual(themes.count, 1)
-        XCTAssertEqual(themes[0].name, "SharedTheme")
-        XCTAssertEqual(themes[0].background.themeHexString, "#222222")
-        XCTAssertEqual(themes[0].foreground.themeHexString, "#BBBBBB")
+        XCTAssertEqual(themes.count, 2)
+        XCTAssertEqual(sharedTheme.name, "SharedTheme")
+        XCTAssertEqual(sharedTheme.background.themeHexString, "#222222")
+        XCTAssertEqual(sharedTheme.foreground.themeHexString, "#BBBBBB")
     }
 
     func testSortsCaseInsensitively() async {
@@ -101,7 +111,11 @@ final class ThemeCatalogServiceTests: XCTestCase {
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = await service.loadThemes()
 
-        XCTAssertEqual(themes.map(\.name), ["Alpha", "middle", "Zebra"])
+        XCTAssertEqual(themes.map(\.name), ["Alpha", "middle", "Zebra", "Zentty-Default"])
+        XCTAssertEqual(
+            themes.map(\.displayName),
+            ["Alpha", "middle", "Zebra", "Zentty Default Theme"]
+        )
     }
 
     func testIgnoresCommentsAndBlankLines() async {
@@ -117,10 +131,14 @@ final class ThemeCatalogServiceTests: XCTestCase {
 
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = await service.loadThemes()
+        guard let commentedTheme = themes.first(where: { $0.name == "Commented" }) else {
+            XCTFail("Expected Commented preview")
+            return
+        }
 
-        XCTAssertEqual(themes.count, 1)
-        XCTAssertEqual(themes[0].background.themeHexString, "#1A1B26")
-        XCTAssertEqual(themes[0].foreground.themeHexString, "#C0CAF5")
+        XCTAssertEqual(themes.count, 2)
+        XCTAssertEqual(commentedTheme.background.themeHexString, "#1A1B26")
+        XCTAssertEqual(commentedTheme.foreground.themeHexString, "#C0CAF5")
     }
 
     func testParsesSparsePaletteIndices() async {
@@ -135,19 +153,24 @@ final class ThemeCatalogServiceTests: XCTestCase {
 
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = await service.loadThemes()
+        guard let sparseTheme = themes.first(where: { $0.name == "Sparse" }) else {
+            XCTFail("Expected Sparse preview")
+            return
+        }
 
-        XCTAssertEqual(themes.count, 1)
-        XCTAssertEqual(themes[0].palette.count, 3)
-        XCTAssertEqual(themes[0].palette[0].themeHexString, "#FF0000")
-        XCTAssertEqual(themes[0].palette[1].themeHexString, "#00FF00")
-        XCTAssertEqual(themes[0].palette[2].themeHexString, "#0000FF")
+        XCTAssertEqual(themes.count, 2)
+        XCTAssertEqual(sparseTheme.palette.count, 3)
+        XCTAssertEqual(sparseTheme.palette[0].themeHexString, "#FF0000")
+        XCTAssertEqual(sparseTheme.palette[1].themeHexString, "#00FF00")
+        XCTAssertEqual(sparseTheme.palette[2].themeHexString, "#0000FF")
     }
 
     func testEmptyDirectoryReturnsEmpty() async {
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = await service.loadThemes()
 
-        XCTAssertTrue(themes.isEmpty)
+        XCTAssertEqual(themes.map(\.name), ["Zentty-Default"])
+        XCTAssertEqual(themes.map(\.displayName), ["Zentty Default Theme"])
     }
 
     func testNonExistentDirectoryReturnsEmpty() async {
@@ -155,7 +178,44 @@ final class ThemeCatalogServiceTests: XCTestCase {
         let service = ThemeCatalogService(themeDirectories: [missing])
         let themes = await service.loadThemes()
 
-        XCTAssertTrue(themes.isEmpty)
+        XCTAssertEqual(themes.map(\.name), ["Zentty-Default"])
+        XCTAssertEqual(themes.map(\.displayName), ["Zentty Default Theme"])
+    }
+
+    func testDiscoveredThemeOverridesBuiltInFallbackByName() async {
+        let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
+        let content = """
+        background = #101418
+        foreground = #e6edf3
+        palette = 0=#111111
+        """
+        writeThemeFile(named: persistedFallbackThemeName, content: content)
+
+        let service = ThemeCatalogService(themeDirectories: [tempDirectory])
+        let themes = await service.loadThemes()
+
+        XCTAssertEqual(themes.count, 1)
+        XCTAssertEqual(themes[0].name, "Zentty-Default")
+        XCTAssertEqual(themes[0].displayName, "Zentty Default Theme")
+        XCTAssertEqual(themes[0].background.themeHexString, "#101418")
+        XCTAssertEqual(themes[0].foreground.themeHexString, "#E6EDF3")
+        XCTAssertEqual(themes[0].palette.first?.themeHexString, "#111111")
+    }
+
+    func testAddsBuiltInFallbackAlongsideDiscoveredThemes() async {
+        writeThemeFile(named: "TokyoNight", content: "background = #1a1b26\nforeground = #c0caf5\n")
+
+        let service = ThemeCatalogService(themeDirectories: [tempDirectory])
+        let themes = await service.loadThemes()
+        guard let fallbackTheme = themes.first(where: { $0.name == "Zentty-Default" }) else {
+            XCTFail("Expected built-in default theme preview")
+            return
+        }
+
+        XCTAssertEqual(themes.map(\.name), ["TokyoNight", "Zentty-Default"])
+        XCTAssertEqual(themes.map(\.displayName), ["TokyoNight", "Zentty Default Theme"])
+        XCTAssertEqual(fallbackTheme.background.themeHexString, "#0A0C10")
+        XCTAssertEqual(fallbackTheme.foreground.themeHexString, "#F0F3F6")
     }
 
     private func writeThemeFile(named name: String, content: String) {

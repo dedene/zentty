@@ -248,7 +248,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
 
     private func refreshActiveThemeName() {
         let appearance = view.window?.effectiveAppearance ?? NSApp.effectiveAppearance
-        activeThemeName = currentThemeNameProvider(appearance)
+        activeThemeName = currentThemeNameProvider(appearance) ?? GhosttyThemeLibrary.fallbackThemeName
         if isViewLoaded {
             tableView.reloadData()
             updatePreviewForCurrentSelection()
@@ -266,7 +266,8 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
             filteredThemes = allThemes
         } else {
             filteredThemes = allThemes.filter {
-                $0.name.localizedCaseInsensitiveContains(searchQuery)
+                $0.displayName.localizedCaseInsensitiveContains(searchQuery)
+                    || $0.name.localizedCaseInsensitiveContains(searchQuery)
             }
         }
         tableView.reloadData()
@@ -348,7 +349,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     }
 
     private func refreshOpacitySlider() {
-        let opacity = currentBackgroundOpacityProvider() ?? 0.8
+        let opacity = currentBackgroundOpacityProvider() ?? 0.95
         opacitySlider.doubleValue = Double(opacity)
         updateOpacityLabel(opacity)
     }
@@ -481,7 +482,7 @@ private final class ThemeRowCellView: NSView {
     func configure(with theme: ThemePreview, isActive: Bool) {
         themeName = theme.name
         currentTheme = theme
-        nameLabel.stringValue = theme.name
+        nameLabel.stringValue = theme.displayName
         checkmarkImageView.isHidden = !isActive
         paletteView.configure(
             background: theme.background,
@@ -710,7 +711,7 @@ private final class ThemePreviewPanel: NSView {
 
         // Theme name
         let titleFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
-        let titleString = NSAttributedString(string: theme.name, attributes: [
+        let titleString = NSAttributedString(string: theme.displayName, attributes: [
             .font: titleFont,
             .foregroundColor: theme.foreground,
         ])
