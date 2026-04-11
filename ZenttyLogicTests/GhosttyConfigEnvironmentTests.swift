@@ -8,6 +8,7 @@ final class GhosttyConfigEnvironmentTests: XCTestCase {
     private var bundledDefaultsURL: URL!
 
     override func setUpWithError() throws {
+        let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
         temporaryDirectoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: temporaryDirectoryURL, withIntermediateDirectories: true)
@@ -16,7 +17,7 @@ final class GhosttyConfigEnvironmentTests: XCTestCase {
 
         bundledDefaultsURL = temporaryDirectoryURL.appendingPathComponent("zentty-defaults.ghostty")
         try """
-        theme = GitHub-Dark-Personal
+        theme = \(persistedFallbackThemeName)
         background-opacity = 0.80
         """.write(to: bundledDefaultsURL, atomically: true, encoding: .utf8)
     }
@@ -47,10 +48,47 @@ final class GhosttyConfigEnvironmentTests: XCTestCase {
 
         XCTAssertEqual(
             stack.loadFiles,
-            [legacyXDGURL, appSupportURL]
+            [appSupportURL, legacyXDGURL]
         )
-        XCTAssertEqual(stack.writeTargetURL, appSupportURL)
+        XCTAssertEqual(stack.writeTargetURL, legacyXDGURL)
         XCTAssertNil(stack.localOverrideContents)
+        XCTAssertFalse(stack.usesBundledDefaultsOnly)
+    }
+
+    func test_preferredCreateTargetURL_uses_xdg_path_on_macos() {
+        let environment = GhosttyConfigEnvironment(
+            homeDirectoryURL: homeDirectoryURL,
+            bundledDefaultsURL: bundledDefaultsURL,
+            appConfigProvider: { AppConfig.default }
+        )
+
+        XCTAssertEqual(
+            environment.preferredCreateTargetURL,
+            homeDirectoryURL
+                .appendingPathComponent(".config", isDirectory: true)
+                .appendingPathComponent("ghostty", isDirectory: true)
+                .appendingPathComponent("config.ghostty", isDirectory: false)
+        )
+    }
+
+    func test_resolvedStack_treats_app_support_only_config_as_read_only_compatibility_source() throws {
+        let appSupportURL = try makeFile(
+            relativePath: "Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+            contents: "theme = Two\n"
+        )
+
+        let environment = GhosttyConfigEnvironment(
+            homeDirectoryURL: homeDirectoryURL,
+            bundledDefaultsURL: bundledDefaultsURL,
+            appConfigProvider: { AppConfig.default }
+        )
+
+        let stack = try XCTUnwrap(environment.resolvedStack())
+
+        XCTAssertEqual(stack.mode, .sharedGhostty)
+        XCTAssertEqual(stack.loadFiles, [appSupportURL])
+        XCTAssertNil(stack.writeTargetURL)
+        XCTAssertEqual(stack.preferredCreateTargetURL, environment.preferredCreateTargetURL)
         XCTAssertFalse(stack.usesBundledDefaultsOnly)
     }
 

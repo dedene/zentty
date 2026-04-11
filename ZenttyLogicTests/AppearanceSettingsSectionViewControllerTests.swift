@@ -40,11 +40,13 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
 
     private func makeTheme(
         name: String,
+        displayName: String? = nil,
         background: String = "#000000",
         foreground: String = "#ffffff"
     ) -> ThemePreview {
         ThemePreview(
             name: name,
+            displayName: displayName ?? name,
             background: NSColor(hexString: background)!,
             foreground: NSColor(hexString: foreground)!,
             palette: []
@@ -98,6 +100,20 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             expectation.fulfill()
         }
         await fulfillment(of: [expectation], timeout: 2.0)
+    }
+
+    private func firstSlider(in view: NSView) -> NSSlider? {
+        if let slider = view as? NSSlider {
+            return slider
+        }
+
+        for subview in view.subviews {
+            if let slider = firstSlider(in: subview) {
+                return slider
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Tests
@@ -185,6 +201,60 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         controller.handleAppearanceChange()
 
         XCTAssertEqual(controller.activeThemeNameForTesting, "DarkTheme")
+    }
+
+    func testActiveBuiltInDefaultThemeRemainsSelectableWhenOtherThemesExist() async {
+        let themes = [
+            makeTheme(
+                name: "Zentty-Default",
+                displayName: "Zentty Default Theme",
+                background: "#0A0C10",
+                foreground: "#F0F3F6"
+            ),
+            makeTheme(name: "TokyoNight"),
+        ]
+
+        let (controller, _, _) = makeController(
+            themes: themes,
+            activeThemeName: "Zentty-Default"
+        )
+        await loadAndWaitForThemes(controller)
+
+        XCTAssertEqual(controller.activeThemeNameForTesting, "Zentty-Default")
+        XCTAssertEqual(controller.themes.map(\.displayName), ["Zentty Default Theme", "TokyoNight"])
+    }
+
+    func testMissingCurrentThemeFallsBackToBuiltInDefaultTheme() async {
+        let themes = [
+            makeTheme(
+                name: "Zentty-Default",
+                displayName: "Zentty Default Theme",
+                background: "#0A0C10",
+                foreground: "#F0F3F6"
+            ),
+            makeTheme(name: "TokyoNight"),
+        ]
+
+        let (controller, _, _) = makeController(
+            themes: themes,
+            activeThemeName: nil
+        )
+        await loadAndWaitForThemes(controller)
+
+        XCTAssertEqual(controller.activeThemeNameForTesting, "Zentty-Default")
+    }
+
+    func testMissingCurrentOpacityFallsBackToNinetyFivePercent() {
+        let (controller, _, _) = makeController(backgroundOpacity: nil)
+
+        controller.loadViewIfNeeded()
+
+        guard let slider = firstSlider(in: controller.view) else {
+            XCTFail("Expected opacity slider")
+            return
+        }
+
+        XCTAssertEqual(slider.doubleValue, 0.95, accuracy: 0.0001)
     }
 
     func testLocalOnlySourceStateShowsCreateSharedConfigAction() {

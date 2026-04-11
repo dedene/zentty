@@ -28,6 +28,21 @@ final class ThirdPartyLicenseCatalogTests: XCTestCase {
         }
     }
 
+    func test_bundled_catalog_includes_iterm2_color_schemes_for_vendored_ghostty_themes() throws {
+        let catalog = try ThirdPartyLicenseCatalog.load(from: .main)
+
+        let entry = try XCTUnwrap(catalog.entries.first { $0.id == "iterm2-color-schemes" })
+        XCTAssertEqual(entry.displayName, "iTerm2 Color Schemes")
+        XCTAssertEqual(entry.licenseName, "MIT License")
+        XCTAssertEqual(entry.spdxID, "MIT")
+        XCTAssertEqual(entry.homepageURLString, "https://github.com/mbadolato/iTerm2-Color-Schemes")
+        XCTAssertEqual(
+            entry.sourceURLString,
+            "https://github.com/mbadolato/iTerm2-Color-Schemes/blob/master/LICENSE"
+        )
+        XCTAssertTrue(entry.fullText.contains("Permission is hereby granted, free of charge"))
+    }
+
     func test_load_throws_decoding_error_for_malformed_catalog_object() throws {
         let bundle = try makeTemporaryBundle(
             resourceName: "ThirdPartyLicenses",

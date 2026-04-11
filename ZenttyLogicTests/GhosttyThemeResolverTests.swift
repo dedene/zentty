@@ -18,6 +18,7 @@ final class GhosttyThemeResolverTests: AppKitTestCase {
     }
 
     func test_resolve_applies_config_overrides_after_theme_values() throws {
+        let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
         let configURL = temporaryDirectoryURL.appendingPathComponent("config")
         let themeDirectoryURL = temporaryDirectoryURL.appendingPathComponent("themes", isDirectory: true)
         try FileManager.default.createDirectory(at: themeDirectoryURL, withIntermediateDirectories: true)
@@ -26,10 +27,14 @@ final class GhosttyThemeResolverTests: AppKitTestCase {
         background = #0A0C10
         foreground = #F0F3F6
         cursor-color = #71B7FF
-        """.write(to: themeDirectoryURL.appendingPathComponent("GitHub-Dark-Personal"), atomically: true, encoding: .utf8)
+        """.write(
+            to: themeDirectoryURL.appendingPathComponent(persistedFallbackThemeName),
+            atomically: true,
+            encoding: .utf8
+        )
 
         try """
-        theme = GitHub-Dark-Personal
+        theme = \(persistedFallbackThemeName)
         foreground = #E6EDF3
         background-opacity = 0.90
         """.write(to: configURL, atomically: true, encoding: .utf8)
@@ -41,7 +46,10 @@ final class GhosttyThemeResolverTests: AppKitTestCase {
         XCTAssertEqual(resolution.theme.foreground.themeHexString, "#E6EDF3")
         XCTAssertEqual(resolution.theme.cursorColor.themeHexString, "#71B7FF")
         XCTAssertEqual(resolution.theme.backgroundOpacity, 0.90)
-        XCTAssertEqual(Set(resolution.watchedURLs), Set([configURL, themeDirectoryURL.appendingPathComponent("GitHub-Dark-Personal")]))
+        XCTAssertEqual(
+            Set(resolution.watchedURLs),
+            Set([configURL, themeDirectoryURL.appendingPathComponent(persistedFallbackThemeName)])
+        )
     }
 
     func test_resolve_picks_light_or_dark_theme_from_pair() throws {
@@ -113,6 +121,86 @@ final class GhosttyThemeResolverTests: AppKitTestCase {
         XCTAssertEqual(
             Set(resolution.watchedURLs),
             Set([bundledDefaultsURL, themeDirectoryURL.appendingPathComponent("LocalTheme")])
+        )
+    }
+
+    func test_resolve_prefers_ghostty_app_resources_over_bundled_resources() throws {
+        let configURL = temporaryDirectoryURL.appendingPathComponent("config")
+        let appThemeDirectoryURL = temporaryDirectoryURL.appendingPathComponent("ghostty-app/themes", isDirectory: true)
+        let bundledThemeDirectoryURL = temporaryDirectoryURL.appendingPathComponent("bundled/themes", isDirectory: true)
+        try FileManager.default.createDirectory(at: appThemeDirectoryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundledThemeDirectoryURL, withIntermediateDirectories: true)
+
+        try """
+        background = #111111
+        foreground = #EEEEEE
+        """.write(to: bundledThemeDirectoryURL.appendingPathComponent("SharedTheme"), atomically: true, encoding: .utf8)
+
+        try """
+        background = #222222
+        foreground = #DDDDDD
+        """.write(to: appThemeDirectoryURL.appendingPathComponent("SharedTheme"), atomically: true, encoding: .utf8)
+
+        try """
+        theme = SharedTheme
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let resolver = GhosttyThemeResolver(
+            configURL: configURL,
+            additionalThemeDirectories: [appThemeDirectoryURL, bundledThemeDirectoryURL]
+        )
+
+        let resolution = try XCTUnwrap(resolver.resolve(for: NSAppearance(named: .darkAqua)))
+        XCTAssertEqual(resolution.theme.background.themeHexString, "#222222")
+        XCTAssertEqual(resolution.theme.foreground.themeHexString, "#DDDDDD")
+        XCTAssertEqual(
+            Set(resolution.watchedURLs),
+            Set([configURL, appThemeDirectoryURL.appendingPathComponent("SharedTheme")])
+        )
+    }
+
+    func test_resolve_uses_built_in_fallback_theme_when_defaults_reference_the_persisted_alias_without_theme_file() throws {
+        let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
+        let bundledDefaultsURL = temporaryDirectoryURL.appendingPathComponent("zentty-defaults.ghostty")
+        try """
+        theme = \(persistedFallbackThemeName)
+        background-opacity = 0.80
+        """.write(to: bundledDefaultsURL, atomically: true, encoding: .utf8)
+
+        let environment = GhosttyConfigEnvironment(
+            homeDirectoryURL: temporaryDirectoryURL,
+            bundledDefaultsURL: bundledDefaultsURL,
+            appConfigProvider: { AppConfig.default }
+        )
+        let resolver = GhosttyThemeResolver(
+            configEnvironment: environment,
+            additionalThemeDirectories: []
+        )
+
+        let resolution = try XCTUnwrap(resolver.resolve(for: NSAppearance(named: .darkAqua)))
+        XCTAssertEqual(resolution.theme.background.themeHexString, "#0A0C10")
+        XCTAssertEqual(resolution.theme.foreground.themeHexString, "#F0F3F6")
+        XCTAssertEqual(resolution.theme.cursorColor.themeHexString, "#71B7FF")
+        XCTAssertEqual(resolution.theme.selectionBackground?.themeHexString, "#F0F3F6")
+        XCTAssertEqual(resolution.theme.selectionForeground?.themeHexString, "#0A0C10")
+        XCTAssertEqual(resolution.theme.palette[0]?.themeHexString, "#7A828E")
+        XCTAssertEqual(resolution.theme.palette[12]?.themeHexString, "#91CBFF")
+        XCTAssertEqual(resolution.theme.backgroundOpacity, 0.80)
+        XCTAssertEqual(Set(resolution.watchedURLs), Set([bundledDefaultsURL]))
+    }
+
+    func test_currentThemeName_canonicalizes_built_in_default_alias() throws {
+        let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
+        let configURL = temporaryDirectoryURL.appendingPathComponent("config")
+        try """
+        theme = \(persistedFallbackThemeName)
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let resolver = GhosttyThemeResolver(configURL: configURL, additionalThemeDirectories: [])
+
+        XCTAssertEqual(
+            resolver.currentThemeName(for: NSAppearance(named: .darkAqua)),
+            "Zentty-Default"
         )
     }
 

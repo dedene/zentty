@@ -104,7 +104,9 @@ final class GhosttyThemeResolver {
 
     func currentThemeName(for appearance: NSAppearance?) -> String? {
         parsedConfigStack().config.themeSpec.flatMap {
-            resolveThemeName(from: $0, appearance: appearance)
+            GhosttyThemeLibrary.canonicalThemeName(
+                for: resolveThemeName(from: $0, appearance: appearance)
+            )
         }
     }
 
@@ -115,10 +117,14 @@ final class GhosttyThemeResolver {
     func resolve(for appearance: NSAppearance?) -> GhosttyThemeResolution? {
         let parsedStack = parsedConfigStack()
         let resolvedThemeName = parsedStack.config.themeSpec.flatMap {
-            resolveThemeName(from: $0, appearance: appearance)
+            GhosttyThemeLibrary.canonicalThemeName(
+                for: resolveThemeName(from: $0, appearance: appearance)
+            )
         }
         let themeURL = resolvedThemeName.flatMap(resolveThemeURL(named:))
-        let baseConfig = themeURL.flatMap(parseConfig(at:)) ?? ParsedConfig()
+        let baseConfig = themeURL.flatMap(parseConfig(at:))
+            ?? resolvedThemeName.flatMap(builtInParsedConfig(named:))
+            ?? ParsedConfig()
         let merged = baseConfig.merged(overrides: parsedStack.config)
 
         guard let theme = merged.toResolvedTheme() else {
@@ -137,19 +143,7 @@ final class GhosttyThemeResolver {
     }
 
     static func defaultThemeDirectories() -> [URL] {
-        let fileManager = FileManager.default
-        let home = fileManager.homeDirectoryForCurrentUser
-        var urls = [
-            home.appendingPathComponent(".config/ghostty/themes"),
-            URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes"),
-            home.appendingPathComponent("Applications/Ghostty.app/Contents/Resources/ghostty/themes"),
-        ]
-
-        if let envPath = ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"] {
-            urls.append(URL(fileURLWithPath: envPath).appendingPathComponent("themes"))
-        }
-
-        return urls
+        GhosttyThemeLibrary.resolverThemeDirectories()
     }
 
     private func resolveThemeName(from themeSpec: String, appearance: NSAppearance?) -> String {
@@ -182,29 +176,10 @@ final class GhosttyThemeResolver {
     }
 
     private func resolveThemeURL(named themeName: String) -> URL? {
-        let trimmed = themeName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        let fileManager = FileManager.default
-        let candidateURLs: [URL]
-        if trimmed.hasPrefix("/") {
-            candidateURLs = [URL(fileURLWithPath: trimmed)]
-        } else if trimmed.hasPrefix("~") {
-            candidateURLs = [URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath)]
-        } else {
-            candidateURLs = additionalThemeDirectories.flatMap { directory in
-                [
-                    directory.appendingPathComponent(trimmed),
-                    directory.appendingPathComponent(trimmed).appendingPathExtension("conf"),
-                ]
-            }
-        }
-
-        return candidateURLs.first { fileManager.fileExists(atPath: $0.path) }
+        GhosttyThemeLibrary.resolveThemeFileURL(
+            named: themeName,
+            themeDirectories: additionalThemeDirectories
+        )
     }
 
     private func parseConfig(at url: URL) -> ParsedConfig {
@@ -351,6 +326,24 @@ final class GhosttyThemeResolver {
         }
 
         return result
+    }
+
+    private func builtInParsedConfig(named name: String) -> ParsedConfig? {
+        guard let builtInTheme = GhosttyThemeLibrary.builtInResolvedTheme(named: name) else {
+            return nil
+        }
+
+        return ParsedConfig(
+            themeSpec: GhosttyThemeLibrary.canonicalThemeName(for: name),
+            background: builtInTheme.background,
+            foreground: builtInTheme.foreground,
+            cursorColor: builtInTheme.cursorColor,
+            selectionBackground: builtInTheme.selectionBackground,
+            selectionForeground: builtInTheme.selectionForeground,
+            palette: builtInTheme.palette,
+            backgroundOpacity: builtInTheme.backgroundOpacity,
+            backgroundBlurRadius: builtInTheme.backgroundBlurRadius
+        )
     }
 
     private func apply(value rawValue: String, forKey key: String, to parsed: inout ParsedConfig) {

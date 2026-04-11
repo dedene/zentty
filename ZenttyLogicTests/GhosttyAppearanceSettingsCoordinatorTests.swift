@@ -31,7 +31,7 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
     func test_applyTheme_withSharedConfig_writesThroughWithoutPrompt() async throws {
         let store = makeConfigStore()
         let sharedConfigURL = try makeGhosttyConfig(
-            relativePath: "Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+            relativePath: ".config/ghostty/config.ghostty",
             contents: "theme = Existing\n"
         )
 
@@ -50,6 +50,49 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
 
         let content = try String(contentsOf: sharedConfigURL, encoding: .utf8)
         XCTAssertTrue(content.contains("theme = TokyoNight"))
+        XCTAssertEqual(decisionCallCount, 0)
+        XCTAssertEqual(reloadCount, 1)
+        XCTAssertEqual(store.current.appearance, .default)
+        XCTAssertEqual(
+            coordinator.sourceState,
+            AppearanceSettingsSourceState(
+                subtitle: "Using your Ghostty config.",
+                showsCreateSharedConfigAction: false
+            )
+        )
+    }
+
+    func test_applyTheme_with_app_support_only_shared_config_seeds_xdg_config_without_prompt() async throws {
+        let store = makeConfigStore()
+        let appSupportConfigURL = try makeGhosttyConfig(
+            relativePath: "Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+            contents: """
+            theme = Existing
+            background-opacity = 0.88
+            """
+        )
+
+        var decisionCallCount = 0
+        var reloadCount = 0
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in
+                decisionCallCount += 1
+                return .keepOnlyInZentty
+            },
+            runtimeReload: { reloadCount += 1 }
+        )
+
+        await coordinator.applyTheme("TokyoNight", presentingWindow: nil)
+
+        let content = try String(contentsOf: coordinatorTestCreateTargetURL(), encoding: .utf8)
+        XCTAssertTrue(content.contains("theme = TokyoNight"))
+        XCTAssertTrue(content.contains("background-opacity = 0.88"))
+        XCTAssertEqual(try String(contentsOf: appSupportConfigURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+                       """
+                       theme = Existing
+                       background-opacity = 0.88
+                       """.trimmingCharacters(in: .whitespacesAndNewlines))
         XCTAssertEqual(decisionCallCount, 0)
         XCTAssertEqual(reloadCount, 1)
         XCTAssertEqual(store.current.appearance, .default)
@@ -92,6 +135,24 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
                 showsCreateSharedConfigAction: true
             )
         )
+    }
+
+    func test_applyTheme_withBuiltInAlias_persistsGhosttyCompatibleThemeName() async throws {
+        let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
+        let store = makeConfigStore()
+        let promptSession = GhosttySharedConfigPromptSession()
+        var reloadCount = 0
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .keepOnlyInZentty },
+            promptSession: promptSession,
+            runtimeReload: { reloadCount += 1 }
+        )
+
+        await coordinator.applyTheme("Zentty-Default", presentingWindow: nil)
+
+        XCTAssertEqual(store.current.appearance.localThemeName, persistedFallbackThemeName)
+        XCTAssertEqual(reloadCount, 1)
     }
 
     func test_createSharedConfig_seedsBundledDefaultsAndLocalOverrides_thenClearsLocalState() async throws {
@@ -183,9 +244,8 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
 
     private func coordinatorTestCreateTargetURL() -> URL {
         homeDirectoryURL
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("ghostty", isDirectory: true)
             .appendingPathComponent("config.ghostty", isDirectory: false)
     }
 }

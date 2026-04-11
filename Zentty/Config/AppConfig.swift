@@ -392,18 +392,10 @@ struct GhosttyConfigEnvironment {
     }
 
     var preferredCreateTargetURL: URL {
-        #if os(macOS)
-        homeDirectoryURL
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent(ghosttyBundleIdentifier, isDirectory: true)
-            .appendingPathComponent("config.ghostty", isDirectory: false)
-        #else
         homeDirectoryURL
             .appendingPathComponent(".config", isDirectory: true)
             .appendingPathComponent("ghostty", isDirectory: true)
             .appendingPathComponent("config.ghostty", isDirectory: false)
-        #endif
     }
 
     func resolvedStack() -> ResolvedStack? {
@@ -412,7 +404,7 @@ struct GhosttyConfigEnvironment {
             return ResolvedStack(
                 mode: .sharedGhostty,
                 loadFiles: sharedConfigURLs,
-                writeTargetURL: sharedConfigURLs.last,
+                writeTargetURL: sharedConfigURLs.last(where: isXDGGhosttyConfigURL),
                 preferredCreateTargetURL: preferredCreateTargetURL,
                 localOverrideContents: nil,
                 usesBundledDefaultsOnly: false
@@ -436,22 +428,6 @@ struct GhosttyConfigEnvironment {
     func existingSharedConfigURLs() -> [URL] {
         var urls: [URL] = []
 
-        let legacyXDGURL = homeDirectoryURL
-            .appendingPathComponent(".config", isDirectory: true)
-            .appendingPathComponent("ghostty", isDirectory: true)
-            .appendingPathComponent("config", isDirectory: false)
-        if isExistingFile(at: legacyXDGURL) {
-            urls.append(legacyXDGURL)
-        }
-
-        let xdgURL = homeDirectoryURL
-            .appendingPathComponent(".config", isDirectory: true)
-            .appendingPathComponent("ghostty", isDirectory: true)
-            .appendingPathComponent("config.ghostty", isDirectory: false)
-        if isExistingFile(at: xdgURL) {
-            urls.append(xdgURL)
-        }
-
         #if os(macOS)
         let appSupportDirectoryURL = homeDirectoryURL
             .appendingPathComponent("Library", isDirectory: true)
@@ -469,6 +445,22 @@ struct GhosttyConfigEnvironment {
         }
         #endif
 
+        let legacyXDGURL = homeDirectoryURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: false)
+        if isExistingFile(at: legacyXDGURL) {
+            urls.append(legacyXDGURL)
+        }
+
+        let xdgURL = homeDirectoryURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        if isExistingFile(at: xdgURL) {
+            urls.append(xdgURL)
+        }
+
         return urls
     }
 
@@ -479,6 +471,15 @@ struct GhosttyConfigEnvironment {
         }
 
         return !isDirectory.boolValue
+    }
+
+    private func isXDGGhosttyConfigURL(_ url: URL) -> Bool {
+        let xdgGhosttyDirectory = homeDirectoryURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .standardizedFileURL
+
+        return url.deletingLastPathComponent().standardizedFileURL == xdgGhosttyDirectory
     }
 
     private func localOverrideContents(from appearance: AppConfig.Appearance) -> String? {

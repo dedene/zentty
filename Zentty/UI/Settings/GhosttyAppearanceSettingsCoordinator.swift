@@ -82,7 +82,7 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
     }
 
     var sourceState: AppearanceSettingsSourceState {
-        if currentStack()?.writeTargetURL != nil {
+        if currentStack()?.mode == .sharedGhostty {
             return AppearanceSettingsSourceState(
                 subtitle: "Using your Ghostty config.",
                 showsCreateSharedConfigAction: false
@@ -97,15 +97,16 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
 
     func applyTheme(_ name: String, presentingWindow: NSWindow?) async {
         let sanitized = GhosttyConfigWriter.sanitizedThemeName(name)
-        guard !sanitized.isEmpty else {
+        let persistedThemeName = GhosttyThemeLibrary.persistedThemeName(for: sanitized)
+        guard !persistedThemeName.isEmpty else {
             return
         }
 
         await applyMutation(
             PendingMutation(
                 key: "theme",
-                value: sanitized,
-                applyLocally: { $0.appearance.localThemeName = sanitized }
+                value: persistedThemeName,
+                applyLocally: { $0.appearance.localThemeName = persistedThemeName }
             ),
             presentingWindow: presentingWindow
         )
@@ -138,6 +139,11 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
         if let writeTargetURL = stack.writeTargetURL {
             writeSharedValue(mutation.value, forKey: mutation.key, to: writeTargetURL)
             runtimeReload()
+            return
+        }
+
+        if stack.mode == .sharedGhostty {
+            createSharedConfig(from: stack, pendingMutation: mutation)
             return
         }
 

@@ -52,6 +52,7 @@ private struct OverrideEntry: Codable {
     let licenseNameOverride: String?
     let spdxIDOverride: String?
     let licenseTextOverride: String?
+    let licenseTextPath: String?
 }
 
 private struct GitHubLicenseResponse: Decodable {
@@ -102,7 +103,8 @@ enum ThirdPartyLicenseGenerator {
         let packages = try buildPackages(
             from: packageResolved,
             ghosttyLock: ghosttyLock,
-            overrides: overrides
+            overrides: overrides,
+            repoRoot: repoRoot
         )
 
         let entries = try await buildEntries(from: packages)
@@ -168,13 +170,18 @@ enum ThirdPartyLicenseGenerator {
     private static func buildPackages(
         from packageResolved: PackageResolved,
         ghosttyLock: GhosttyLock,
-        overrides: [OverrideEntry]
+        overrides: [OverrideEntry],
+        repoRoot: URL
     ) throws -> [ResolvedPackage] {
         let overridesByID = Dictionary(uniqueKeysWithValues: overrides.map { ($0.id, $0) })
         var packages: [ResolvedPackage] = []
+        var usedOverrideIDs: Set<String> = []
 
         for pin in packageResolved.pins {
             let override = overridesByID[pin.identity]
+            if override != nil {
+                usedOverrideIDs.insert(pin.identity)
+            }
             packages.append(
                 ResolvedPackage(
                     id: pin.identity,
@@ -186,12 +193,13 @@ enum ThirdPartyLicenseGenerator {
                     sourceURLString: override?.sourceURLString,
                     licenseNameOverride: override?.licenseNameOverride,
                     spdxIDOverride: override?.spdxIDOverride,
-                    licenseTextOverride: override?.licenseTextOverride
+                    licenseTextOverride: try resolveLicenseTextOverride(from: override, repoRoot: repoRoot)
                 )
             )
         }
 
         if let ghosttyOverride = overridesByID["ghostty"] {
+            usedOverrideIDs.insert("ghostty")
             packages.append(
                 ResolvedPackage(
                     id: "ghostty",
@@ -203,12 +211,54 @@ enum ThirdPartyLicenseGenerator {
                     sourceURLString: ghosttyOverride.sourceURLString,
                     licenseNameOverride: ghosttyOverride.licenseNameOverride,
                     spdxIDOverride: ghosttyOverride.spdxIDOverride,
-                    licenseTextOverride: ghosttyOverride.licenseTextOverride
+                    licenseTextOverride: try resolveLicenseTextOverride(from: ghosttyOverride, repoRoot: repoRoot)
+                )
+            )
+        }
+
+        for override in overrides where !usedOverrideIDs.contains(override.id) && override.id != "ghostty" {
+            let repositoryURL = override.repositoryURL
+                ?? override.sourceURLString
+                ?? override.homepageURLString
+                ?? ""
+            packages.append(
+                ResolvedPackage(
+                    id: override.id,
+                    displayName: override.displayName ?? prettyDisplayName(for: override.id),
+                    version: override.versionOverride ?? "vendored",
+                    reference: override.versionOverride ?? "vendored",
+                    repositoryURL: repositoryURL,
+                    homepageURLString: override.homepageURLString,
+                    sourceURLString: override.sourceURLString,
+                    licenseNameOverride: override.licenseNameOverride,
+                    spdxIDOverride: override.spdxIDOverride,
+                    licenseTextOverride: try resolveLicenseTextOverride(from: override, repoRoot: repoRoot)
                 )
             )
         }
 
         return packages
+    }
+
+    private static func resolveLicenseTextOverride(from override: OverrideEntry?, repoRoot: URL) throws -> String? {
+        guard let override else {
+            return nil
+        }
+
+        if let licenseTextOverride = override.licenseTextOverride {
+            return licenseTextOverride
+        }
+
+        guard let licenseTextPath = override.licenseTextPath, !licenseTextPath.isEmpty else {
+            return nil
+        }
+
+        let licenseTextURL = URL(fileURLWithPath: licenseTextPath, relativeTo: repoRoot).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: licenseTextURL.path) else {
+            throw GeneratorError.missingLicenseTextFile(licenseTextURL.path)
+        }
+
+        return try String(contentsOf: licenseTextURL, encoding: .utf8)
     }
 
     private static func buildEntries(from packages: [ResolvedPackage]) async throws -> [ThirdPartyLicenseEntry] {
@@ -349,6 +399,7 @@ private enum GeneratorError: Error, CustomStringConvertible {
     case invalidGhosttyLock
     case invalidRepositoryURL(String)
     case invalidDownloadURL(String)
+    case missingLicenseTextFile(String)
     case unableToDecodeLicenseText
     case unableToFetchLicense(url: URL)
 
@@ -360,6 +411,8 @@ private enum GeneratorError: Error, CustomStringConvertible {
             return "Repository URL is invalid or unsupported: \(value)"
         case .invalidDownloadURL(let value):
             return "License download URL is invalid: \(value)"
+        case .missingLicenseTextFile(let value):
+            return "License text file not found at \(value)"
         case .unableToDecodeLicenseText:
             return "Unable to decode license text from GitHub response"
         case .unableToFetchLicense(let url):

@@ -6,6 +6,17 @@
       "repositoryURL": "https://github.com/ghostty-org/ghostty",
       "homepageURLString": "https://ghostty.org",
       "versionOverride": "e75f895"
+    },
+    {
+      "id": "iterm2-color-schemes",
+      "displayName": "iTerm2 Color Schemes",
+      "repositoryURL": "https://github.com/mbadolato/iTerm2-Color-Schemes",
+      "homepageURLString": "https://github.com/mbadolato/iTerm2-Color-Schemes",
+      "versionOverride": "master",
+      "sourceURLString": "https://github.com/mbadolato/iTerm2-Color-Schemes/blob/master/LICENSE",
+      "licenseNameOverride": "MIT License",
+      "spdxIDOverride": "MIT",
+      "licenseTextPath": "ZenttyResources/licenses/iTerm2-Color-Schemes/LICENSE"
     }
   ]
 }

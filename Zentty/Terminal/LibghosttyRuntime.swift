@@ -355,6 +355,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
     }
 
     private static let localOverridePath = NSTemporaryDirectory() + "zentty-ghostty-local-overrides.conf"
+    private static let builtInThemeOverridePath = NSTemporaryDirectory() + "zentty-ghostty-built-in-theme-override.conf"
     private static let transparentOverridePath = NSTemporaryDirectory() + "zentty-ghostty-transparent-override.conf"
 
     private static func loadConfigStack(_ config: ghostty_config_t, environment: GhosttyConfigEnvironment) {
@@ -374,10 +375,26 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             loadConfigFile(contents: localOverrideContents, path: localOverridePath, into: config)
         }
 
+        loadBuiltInThemeOverride(
+            config,
+            userConfigContents: stack?.mergedUserConfigContents()
+        )
+
         loadTransparentBackgroundOverride(
             config,
             userConfigContents: stack?.mergedUserConfigContents()
         )
+    }
+
+    private static func loadBuiltInThemeOverride(
+        _ config: ghostty_config_t,
+        userConfigContents: String?
+    ) {
+        guard let lines = builtInThemeOverrideContents(userConfigContents: userConfigContents) else {
+            return
+        }
+
+        loadConfigFile(contents: lines, path: builtInThemeOverridePath, into: config)
     }
 
     private static func loadTransparentBackgroundOverride(
@@ -400,6 +417,29 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         }
     }
 
+    static func builtInThemeOverrideContents(
+        userConfigContents: String?,
+        themeDirectories: [URL] = GhosttyThemeLibrary.resolverThemeDirectories()
+    ) -> String? {
+        guard
+            let themeName = configuredThemeName(in: userConfigContents),
+            GhosttyThemeLibrary.canonicalThemeName(for: themeName) == GhosttyThemeLibrary.fallbackThemeName,
+            GhosttyThemeLibrary.resolveThemeFileURL(named: themeName, themeDirectories: themeDirectories) == nil
+        else {
+            return nil
+        }
+
+        var sections: [String] = []
+        if let builtInTheme = GhosttyThemeLibrary.builtInThemeConfigContents(named: themeName) {
+            sections.append(builtInTheme)
+        }
+        if let fallbackDefaults = builtInFallbackDefaultsContents(userConfigContents: userConfigContents) {
+            sections.append(fallbackDefaults)
+        }
+
+        return sections.isEmpty ? nil : sections.joined(separator: "\n")
+    }
+
     static func transparentBackgroundOverrideContents(userConfigContents: String?) -> String? {
         var lines = "background-opacity = 0\n"
 
@@ -409,6 +449,101 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
 
         lines += "background-blur-radius = 20\n"
         return lines
+    }
+
+    private static func configuredThemeName(in content: String?) -> String? {
+        guard let content else {
+            return nil
+        }
+
+        var themeName: String?
+        for rawLine in content.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else {
+                continue
+            }
+
+            let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else {
+                continue
+            }
+
+            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard key == "theme" else {
+                continue
+            }
+
+            themeName = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return themeName?.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+    }
+
+    private static func builtInFallbackDefaultsContents(userConfigContents: String?) -> String? {
+        let configuredKeys = configuredKeys(in: userConfigContents)
+        var lines: [String] = []
+
+        if !configuredKeys.contains("font-feature") {
+            lines.append("font-feature = -calt")
+            lines.append("font-feature = -liga")
+            lines.append("font-feature = -dlig")
+        }
+        if !configuredKeys.contains("window-padding-x") {
+            lines.append("window-padding-x = 10")
+        }
+        if !configuredKeys.contains("window-padding-y") {
+            lines.append("window-padding-y = 10")
+        }
+        if !configuredKeys.contains("cursor-style") {
+            lines.append("cursor-style = block")
+        }
+        if !configuredKeys.contains("cursor-style-blink") {
+            lines.append("cursor-style-blink = true")
+        }
+        if !configuredKeys.contains("cursor-opacity") {
+            lines.append("cursor-opacity = 0.8")
+        }
+        if !configuredKeys.contains("mouse-hide-while-typing") {
+            lines.append("mouse-hide-while-typing = true")
+        }
+        if !configuredKeys.contains("copy-on-select") {
+            lines.append("copy-on-select = clipboard")
+        }
+        if !configuredKeys.contains("clipboard-paste-protection") {
+            lines.append("clipboard-paste-protection = false")
+        }
+        if !configuredKeys.contains("clipboard-paste-bracketed-safe") {
+            lines.append("clipboard-paste-bracketed-safe = true")
+        }
+
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    private static func configuredKeys(in content: String?) -> Set<String> {
+        guard let content else {
+            return []
+        }
+
+        var keys: Set<String> = []
+        for rawLine in content.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else {
+                continue
+            }
+
+            let parts = line.split(separator: "=", maxSplits: 1)
+            guard let rawKey = parts.first else {
+                continue
+            }
+
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else {
+                continue
+            }
+            keys.insert(key)
+        }
+
+        return keys
     }
 
     private static func userConfigContainsBackgroundBlur(_ content: String?) -> Bool {
