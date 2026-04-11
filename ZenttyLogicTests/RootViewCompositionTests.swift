@@ -283,6 +283,21 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertGreaterThanOrEqual(rowFrame.minX, visibleLaneFrame.minX - 0.5)
     }
 
+    func test_root_controller_visible_lane_starts_at_actual_trailing_edge_of_left_controls() throws {
+        let controller = makeControllerWithCrowdedHeader(width: 1280)
+        let rootSubviews = controller.view.subviews
+        let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView } as? WindowChromeView)
+        let bellButton = try XCTUnwrap(rootSubviews.first { $0 is NotificationBellButton } as? NotificationBellButton)
+
+        let bellMaxXInChrome = bellButton.frame.maxX - windowChromeView.frame.minX
+
+        XCTAssertEqual(
+            windowChromeView.visibleLaneFrame.minX,
+            bellMaxXInChrome,
+            accuracy: 0.5
+        )
+    }
+
     func test_root_controller_animates_width_preset_with_split_curve() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()

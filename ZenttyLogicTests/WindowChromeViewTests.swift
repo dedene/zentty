@@ -462,6 +462,129 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertEqual(view.pullRequestFrameWidth, view.pullRequestIntrinsicWidth, accuracy: 0.5)
     }
 
+    func test_window_chrome_relayouts_and_recenters_after_fast_path_title_width_change() throws {
+        let initialTitle = "Ready | zentty"
+        let updatedTitle = "Working on a very long project title | zentty"
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 1440, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: initialTitle,
+            branch: "main",
+            pullRequest: WorklanePullRequestSummary(
+                number: 1413,
+                url: URL(string: "https://example.com/pr/1413"),
+                state: .open
+            ),
+            reviewChips: []
+        ))
+        view.leadingVisibleInset = 280
+        view.layoutSubtreeIfNeeded()
+
+        let initialFocusedLabel = try XCTUnwrap(findLabel(in: view, withText: initialTitle))
+        let initialWidth = initialFocusedLabel.frame.width
+
+        view.setFocusedLabelText(updatedTitle)
+        view.layoutSubtreeIfNeeded()
+
+        let updatedFocusedLabel = try XCTUnwrap(findLabel(in: view, withText: updatedTitle))
+        let branchLabel = try XCTUnwrap(findLabel(in: view, withText: "main"))
+        let pullRequestButton = try XCTUnwrap(findButton(in: view, withTitle: "PR #1413"))
+        let contentMinX = min(updatedFocusedLabel.frame.minX, branchLabel.frame.minX, pullRequestButton.frame.minX)
+        let contentMaxX = max(updatedFocusedLabel.frame.maxX, branchLabel.frame.maxX, pullRequestButton.frame.maxX)
+        let leftSlack = contentMinX
+        let rightSlack = view.rowFrame.width - contentMaxX
+
+        XCTAssertGreaterThan(
+            updatedFocusedLabel.frame.width,
+            initialWidth + 80,
+            "fast-path title updates should invalidate layout when intrinsic width grows"
+        )
+        XCTAssertGreaterThanOrEqual(
+            updatedFocusedLabel.frame.width,
+            requiredSingleLineWidth(of: updatedFocusedLabel) - 0.5
+        )
+        XCTAssertEqual(leftSlack, rightSlack, accuracy: 24)
+    }
+
+    func test_window_chrome_relayouts_after_fast_path_title_transitions_from_empty_to_visible() throws {
+        let title = "Ready | zentty"
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 1440, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: nil,
+            branch: "main",
+            pullRequest: WorklanePullRequestSummary(
+                number: 1413,
+                url: URL(string: "https://example.com/pr/1413"),
+                state: .open
+            ),
+            reviewChips: []
+        ))
+        view.leadingVisibleInset = 280
+        view.layoutSubtreeIfNeeded()
+
+        view.setFocusedLabelText(title)
+        view.layoutSubtreeIfNeeded()
+
+        let focusedLabel = try XCTUnwrap(findLabel(in: view, withText: title))
+        let branchLabel = try XCTUnwrap(findLabel(in: view, withText: "main"))
+        let pullRequestButton = try XCTUnwrap(findButton(in: view, withTitle: "PR #1413"))
+        let contentMinX = min(focusedLabel.frame.minX, branchLabel.frame.minX, pullRequestButton.frame.minX)
+        let contentMaxX = max(focusedLabel.frame.maxX, branchLabel.frame.maxX, pullRequestButton.frame.maxX)
+        let leftSlack = contentMinX
+        let rightSlack = view.rowFrame.width - contentMaxX
+
+        XCTAssertGreaterThan(focusedLabel.frame.width, 0.5)
+        XCTAssertGreaterThanOrEqual(
+            focusedLabel.frame.width,
+            requiredSingleLineWidth(of: focusedLabel) - 0.5
+        )
+        XCTAssertEqual(leftSlack, rightSlack, accuracy: 24)
+    }
+
+    func test_window_chrome_visually_centers_proxy_icon_title_and_branch_when_proxy_icon_is_first() throws {
+        let title = "Ready | zentty"
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 1440, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: title,
+            cwdPath: "/tmp/project",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.leadingVisibleInset = 280
+        view.layoutSubtreeIfNeeded()
+
+        let iconView = try XCTUnwrap(findImageView(in: view))
+        let focusedLabel = try XCTUnwrap(findLabel(in: view, withText: title))
+        let branchLabel = try XCTUnwrap(findLabel(in: view, withText: "main"))
+
+        let iconFrame = iconView.convert(iconView.bounds, to: view)
+        let focusedLabelFrame = focusedLabel.convert(focusedLabel.bounds, to: view)
+        let branchFrame = branchLabel.convert(branchLabel.bounds, to: view)
+        let contentMinX = min(iconFrame.minX, focusedLabelFrame.minX, branchFrame.minX)
+        let contentMaxX = max(iconFrame.maxX, focusedLabelFrame.maxX, branchFrame.maxX)
+        let leftSlack = contentMinX - view.rowFrame.minX
+        let rightSlack = view.rowFrame.maxX - contentMaxX
+
+        XCTAssertEqual(
+            leftSlack,
+            rightSlack,
+            accuracy: 8,
+            "proxy icon hit-target padding should not bias visible content away from center"
+        )
+    }
+
     func test_window_chrome_visible_lane_respects_leading_controls_inset() {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 1440, height: WindowChromeView.preferredHeight)

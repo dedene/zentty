@@ -794,6 +794,7 @@ final class RootViewController: NSViewController {
         syncSidebarWidthToAvailableWidth(persist: false)
         _ = updatePaneLayoutContextIfNeeded()
         updatePaneViewportHeight()
+        updateWindowChromeLeadingControlsInset()
     }
 
     func activateWindowBindingsIfNeeded() {
@@ -1860,6 +1861,19 @@ final class RootViewController: NSViewController {
             + ShellMetrics.shellGap
         appCanvasView.leadingVisibleInset = leadingVisibleInset
         windowChromeView.leadingVisibleInset = leadingVisibleInset
+    }
+
+    private func updateWindowChromeLeadingControlsInset() {
+        guard isViewLoaded else {
+            return
+        }
+
+        let bellMaxXInRoot = notificationCoordinator.bellButton.frame.maxX
+        let bellMaxXInChrome = windowChromeView.convert(
+            NSPoint(x: bellMaxXInRoot, y: 0),
+            from: view
+        ).x
+        windowChromeView.leadingControlsInset = bellMaxXInChrome
     }
 
     func updatePaneLayoutPreferences(_ preferences: PaneLayoutPreferences) {

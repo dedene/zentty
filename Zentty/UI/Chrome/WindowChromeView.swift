@@ -228,6 +228,9 @@ final class WindowChromeView: NSView {
         }
         focusedLabel.stringValue = trimmed
         focusedLabel.isHidden = trimmed.isEmpty
+        focusedLabel.invalidateIntrinsicContentSize()
+        currentSummary.focusedLabel = trimmed.isEmpty ? nil : trimmed
+        needsLayout = true
     }
 
     func render(summary: WorklaneChromeSummary) {
@@ -704,7 +707,13 @@ final class WindowChromeView: NSView {
         reviewChipViews.forEach { $0.frame = .zero }
 
         let contentWidth = totalWidth(for: items)
-        var cursorX = max(0, floor((availableWidth - contentWidth) / 2))
+        var cursorX = max(0, snappedToBackingPixel((availableWidth - contentWidth) / 2))
+        if let firstItem = items.first,
+           firstItem.kind == .proxyIcon,
+           let proxyIconView = firstItem.view as? WindowChromeProxyIconView {
+            let opticalShift = min(proxyIconView.leadingInvisiblePadding / 2, cursorX)
+            cursorX = max(0, snappedToBackingPixel(cursorX - opticalShift))
+        }
 
         for (index, item) in items.enumerated() {
             if index > 0 {
@@ -722,6 +731,11 @@ final class WindowChromeView: NSView {
             )
             cursorX += item.width
         }
+    }
+
+    private func snappedToBackingPixel(_ value: CGFloat) -> CGFloat {
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        return (value * scale).rounded() / scale
     }
 
     private func totalSpacing(for items: [RowItem]) -> CGFloat {
@@ -1116,6 +1130,15 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
             width: max(baseSize.width, Self.minimumHitTargetSize.width),
             height: max(baseSize.height, Self.minimumHitTargetSize.height)
         )
+    }
+
+    var leadingInvisiblePadding: CGFloat {
+        max(0, intrinsicContentSize.width - visibleContentWidth)
+    }
+
+    private var visibleContentWidth: CGFloat {
+        let resolvedSize = iconSize == .zero ? NSSize(width: 14, height: 14) : iconSize
+        return resolvedSize.width
     }
 
     override func updateTrackingAreas() {
