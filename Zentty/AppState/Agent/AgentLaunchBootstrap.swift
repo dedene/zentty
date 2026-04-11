@@ -45,6 +45,15 @@ enum AgentLaunchBootstrap {
                 runtimeDirectoryURL: runtimeDirectoryURL,
                 fileManager: fileManager
             )
+        case .gemini:
+            return try geminiPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
+                target: target,
+                runtimeDirectoryURL: runtimeDirectoryURL,
+                fileManager: fileManager
+            )
         case .opencode:
             return try opencodePlan(
                 executablePath: executablePath,
@@ -226,6 +235,49 @@ enum AgentLaunchBootstrap {
         )
     }
 
+    private static func geminiPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        target: AgentIPCTarget,
+        runtimeDirectoryURL: URL,
+        fileManager: FileManager
+    ) throws -> AgentLaunchPlan {
+        guard let cliPath = environment["ZENTTY_CLI_BIN"]?.nilIfBlank else {
+            return AgentLaunchPlan(
+                executablePath: executablePath,
+                arguments: arguments,
+                setEnvironment: ["ZENTTY_AGENT_TOOL": "gemini"],
+                unsetEnvironment: [],
+                preLaunchActions: []
+            )
+        }
+
+        var setEnvironment = ["ZENTTY_AGENT_TOOL": "gemini"]
+        let overlayDirectoryURL = try prepareToolDirectory(
+            tool: .gemini,
+            target: target,
+            runtimeDirectoryURL: runtimeDirectoryURL,
+            fileManager: fileManager
+        )
+        if let overlaySettingsPath = try prepareGeminiOverlay(
+            sourceSettingsURL: geminiSystemSettingsSourceURL(environment: environment, fileManager: fileManager),
+            overlayDirectoryURL: overlayDirectoryURL,
+            cliPath: cliPath,
+            fileManager: fileManager
+        ) {
+            setEnvironment["GEMINI_CLI_SYSTEM_SETTINGS_PATH"] = overlaySettingsPath
+        }
+
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: setEnvironment,
+            unsetEnvironment: [],
+            preLaunchActions: []
+        )
+    }
+
     private static func opencodePlan(
         executablePath: String,
         arguments: [String],
@@ -350,6 +402,27 @@ enum AgentLaunchBootstrap {
         }
 
         return overlayHomeURL.path
+    }
+
+    private static func prepareGeminiOverlay(
+        sourceSettingsURL: URL?,
+        overlayDirectoryURL: URL,
+        cliPath: String,
+        fileManager: FileManager
+    ) throws -> String? {
+        let overlaySettingsURL = overlayDirectoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        if let sourceSettingsURL, fileManager.isReadableFile(atPath: sourceSettingsURL.path) {
+            let rawData = try Data(contentsOf: sourceSettingsURL)
+            if let mergedData = try geminiMergedSettingsJSON(existingData: rawData, cliPath: cliPath) {
+                try mergedData.write(to: overlaySettingsURL, options: .atomic)
+            } else {
+                try geminiBaseSettingsJSON(cliPath: cliPath).write(to: overlaySettingsURL, options: .atomic)
+            }
+        } else {
+            try geminiBaseSettingsJSON(cliPath: cliPath).write(to: overlaySettingsURL, options: .atomic)
+        }
+
+        return overlaySettingsURL.path
     }
 
     private static func prepareToolDirectory(
@@ -484,6 +557,62 @@ enum AgentLaunchBootstrap {
         return try compactJSONData(jsonObject)
     }
 
+    private static func geminiSystemSettingsSourceURL(
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> URL? {
+        if let overridePath = environment["GEMINI_CLI_SYSTEM_SETTINGS_PATH"]?.nilIfBlank {
+            let overrideURL = URL(fileURLWithPath: overridePath, isDirectory: false)
+            if fileManager.isReadableFile(atPath: overrideURL.path) {
+                return overrideURL
+            }
+        }
+
+        let defaultURL = URL(
+            fileURLWithPath: "/Library/Application Support/GeminiCli/settings.json",
+            isDirectory: false
+        )
+        return fileManager.isReadableFile(atPath: defaultURL.path) ? defaultURL : nil
+    }
+
+    private static func geminiBaseSettingsJSON(cliPath: String) throws -> Data {
+        try compactJSONData([
+            "general": [
+                "enableNotifications": true,
+            ],
+            "hooks": geminiHookGroupsJSON(cliPath: cliPath),
+        ])
+    }
+
+    private static func geminiMergedSettingsJSON(existingData: Data, cliPath: String) throws -> Data? {
+        guard var jsonObject = try JSONSerialization.jsonObject(with: existingData) as? [String: Any] else {
+            return nil
+        }
+
+        var general = jsonObject["general"] as? [String: Any] ?? [:]
+        general["enableNotifications"] = true
+        jsonObject["general"] = general
+
+        var hooks = jsonObject["hooks"] as? [String: Any] ?? [:]
+        for (eventName, matcher, timeout) in geminiHookSpecs {
+            let command = geminiHookCommand(cliPath: cliPath)
+            var groups = hooks[eventName] as? [[String: Any]] ?? []
+            let alreadyPresent = groups.contains { group in
+                let nestedHooks = group["hooks"] as? [[String: Any]] ?? []
+                return nestedHooks.contains {
+                    ($0["type"] as? String) == "command" && ($0["command"] as? String) == command
+                }
+            }
+            if !alreadyPresent {
+                groups.append(geminiHookGroup(matcher: matcher, command: command, timeout: timeout))
+            }
+            hooks[eventName] = groups
+        }
+        jsonObject["hooks"] = hooks
+
+        return try compactJSONData(jsonObject)
+    }
+
     private static func extractCopilotConfigDirOverride(_ arguments: [String]) -> (forwardedArguments: [String], sourceConfigDirectory: String?) {
         var forwarded: [String] = []
         var sourceConfigDirectory: String?
@@ -563,6 +692,42 @@ enum AgentLaunchBootstrap {
         "\"\(shellEscapedDoubleQuoted(cliPath))\" ipc agent-event --adapter=copilot \(event) || true"
     }
 
+    private static var geminiHookSpecs: [(eventName: String, matcher: String, timeout: Int)] {
+        [
+            ("SessionStart", "*", 10_000),
+            ("SessionEnd", "*", 1_000),
+            ("BeforeAgent", "*", 10_000),
+            ("AfterAgent", "*", 10_000),
+            ("Notification", "*", 10_000),
+            ("BeforeTool", "*", 5_000),
+        ]
+    }
+
+    private static func geminiHookGroupsJSON(cliPath: String) -> [String: Any] {
+        let command = geminiHookCommand(cliPath: cliPath)
+        return Dictionary(uniqueKeysWithValues: geminiHookSpecs.map { spec in
+            (
+                spec.eventName,
+                [geminiHookGroup(matcher: spec.matcher, command: command, timeout: spec.timeout)]
+            )
+        })
+    }
+
+    private static func geminiHookCommand(cliPath: String) -> String {
+        "\"\(shellEscapedDoubleQuoted(cliPath))\" gemini-hook || echo '{}'"
+    }
+
+    private static func geminiHookGroup(matcher: String, command: String, timeout: Int) -> [String: Any] {
+        [
+            "matcher": matcher,
+            "hooks": [[
+                "type": "command",
+                "command": command,
+                "timeout": timeout,
+            ]],
+        ]
+    }
+
     private static func copilotHookEntry(cliPath: String, event: String, timeout: Int) -> [String: Any] {
         [
             "type": "command",
@@ -575,6 +740,8 @@ enum AgentLaunchBootstrap {
         string
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "`", with: "\\`")
     }
 
     private static func compactJSONString(_ object: Any) throws -> String {

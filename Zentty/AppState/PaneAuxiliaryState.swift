@@ -516,14 +516,21 @@ enum PanePresentationNormalizer {
 
     private static let notificationVisibilityWindow: TimeInterval = 60
 
-    private static func completionNotificationIndicatesReady(_ notificationText: String?) -> Bool {
+    private static func completionNotificationIndicatesReady(
+        _ notificationText: String?,
+        recognizedTool: AgentTool? = nil
+    ) -> Bool {
         guard let notificationText = WorklaneContextFormatter.trimmed(notificationText)?.lowercased() else {
             return false
         }
 
-        return notificationText.contains("agent run complete")
+        if notificationText.contains("agent run complete")
             || notificationText.contains("agent ready")
-            || notificationText.contains("agent turn complete")
+            || notificationText.contains("agent turn complete") {
+            return true
+        }
+
+        return recognizedTool == .gemini && notificationText.contains("session complete")
     }
 
     private static func visibleStatusText(
@@ -686,6 +693,8 @@ enum PanePresentationNormalizer {
             return ["codex"].contains(normalized)
         case .copilot:
             return ["copilot"].contains(normalized)
+        case .gemini:
+            return ["gemini", "gemini cli"].contains(normalized)
         case .openCode:
             return ["opencode", "open code"].contains(normalized)
         case .custom(let name):

@@ -10,6 +10,7 @@ struct ZenttyCLI: ParsableCommand {
         subcommands: [
             VersionCommand.self,
             CodexNotifyCommand.self,
+            GeminiHookCommand.self,
             IPCCommand.self,
             LaunchCommand.self,
         ]
@@ -68,15 +69,51 @@ struct CodexNotifyCommand: ParsableCommand {
         }
     }
 
-    private func standardInputPayload() -> String? {
-        guard isatty(STDIN_FILENO) == 0 else {
-            return nil
+    private func standardInputPayload() -> String? { readStandardInputPayload() }
+}
+
+struct GeminiHookCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "gemini-hook",
+        abstract: "Forward a Gemini hook payload to the running Zentty app.",
+        shouldDisplay: false
+    )
+
+    @Argument(help: "The raw JSON payload passed by Gemini hook callbacks.")
+    var payload: String?
+
+    mutating func run() throws {
+        guard let payload = payload ?? readStandardInputPayload() else {
+            throw ValidationError("Missing Gemini hook payload.")
         }
-        let data = FileHandle.standardInput.readDataToEndOfFile()
-        guard !data.isEmpty else {
-            return nil
+
+        guard let socketPath = ProcessInfo.processInfo.environment["ZENTTY_INSTANCE_SOCKET"],
+              !socketPath.isEmpty,
+              IPCCommand.hasRequiredRoutingEnvironment(ProcessInfo.processInfo.environment) else {
+            print("{}")
+            return
         }
-        return String(data: data, encoding: .utf8)
+
+        let request = AgentIPCRequest(
+            kind: .ipc,
+            arguments: ["--adapter=gemini"],
+            standardInput: payload,
+            environment: IPCCommand.forwardedEnvironment(from: ProcessInfo.processInfo.environment),
+            expectsResponse: false,
+            subcommand: "agent-event"
+        )
+
+        do {
+            _ = try AgentIPCClient.send(request: request, socketPath: socketPath)
+        } catch {
+            guard ProcessInfo.processInfo.environment["ZENTTY_CLI_DEBUG"] == "1" else {
+                print("{}")
+                return
+            }
+            FileHandle.standardError.write(Data(("zentty gemini-hook send failed: \(error.localizedDescription)\n").utf8))
+        }
+
+        print("{}")
     }
 }
 
@@ -96,6 +133,7 @@ struct IPCCommand: ParsableCommand {
         "ZENTTY_CLAUDE_PID",
         "ZENTTY_CODEX_PID",
         "ZENTTY_COPILOT_PID",
+        "ZENTTY_GEMINI_PID",
     ]
 
     @Argument(help: "Supported values: agent-event, agent-signal, agent-status")
@@ -170,7 +208,7 @@ struct LaunchCommand: ParsableCommand {
         shouldDisplay: false
     )
 
-    @Argument(help: "Supported values: claude, codex, copilot, opencode")
+    @Argument(help: "Supported values: claude, codex, copilot, gemini, opencode")
     var tool: String
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments forwarded to the real tool.")
@@ -182,6 +220,17 @@ struct LaunchCommand: ParsableCommand {
         }
         try AgentToolLauncher(tool: tool, arguments: arguments, environment: ProcessInfo.processInfo.environment).run()
     }
+}
+
+private func readStandardInputPayload() -> String? {
+    guard isatty(STDIN_FILENO) == 0 else {
+        return nil
+    }
+    let data = FileHandle.standardInput.readDataToEndOfFile()
+    guard !data.isEmpty else {
+        return nil
+    }
+    return String(data: data, encoding: .utf8)
 }
 
 private struct ZenttyVersionMetadata {

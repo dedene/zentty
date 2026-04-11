@@ -4,7 +4,7 @@ Version 1 — Draft
 
 ## 1. Overview
 
-The Agent Status Protocol defines how coding agents (Claude Code, GitHub Copilot, Codex, OpenCode, or any custom tool) report lifecycle state, interaction needs, and task progress to Zentty. An agent that implements this protocol gets sidebar status indicators, attention badges, crash detection, and task progress display — without any changes to Zentty's codebase.
+The Agent Status Protocol defines how coding agents (Claude Code, GitHub Copilot, Codex, Gemini CLI, OpenCode, or any custom tool) report lifecycle state, interaction needs, and task progress to Zentty. An agent that implements this protocol gets sidebar status indicators, attention badges, crash detection, and task progress display — without any changes to Zentty's codebase.
 
 The protocol is transport-agnostic from the agent's perspective: send a JSON event to the bundled `zentty` CLI on stdin. Zentty handles the rest.
 
@@ -222,7 +222,7 @@ Information about the agent tool. Sent once in `session.start`; optional on subs
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `name` | string | inferred | Display name shown in sidebar. If omitted, Zentty infers from process name or terminal title. Known names (`Claude Code`, `Codex`, `Copilot`, `OpenCode`) enable agent-specific presentation. Any other string creates a custom agent entry. |
+| `name` | string | inferred | Display name shown in sidebar. If omitted, Zentty infers from process name or terminal title. Known names (`Claude Code`, `Codex`, `Copilot`, `Gemini`, `OpenCode`) enable agent-specific presentation. Any other string creates a custom agent entry. |
 | `pid` | integer | none | Process ID for crash/exit detection. If omitted, Zentty cannot detect crashes — the session will eventually expire via the stale-session timer (30 minutes). |
 
 ### `session` Object

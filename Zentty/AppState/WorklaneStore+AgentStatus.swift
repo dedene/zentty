@@ -100,7 +100,7 @@ extension WorklaneStore {
                 auxiliaryState.raw.lastDesktopNotificationText = notificationText
                 auxiliaryState.raw.lastDesktopNotificationDate = Date()
                 worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-                if completionNotificationIndicatesReady(notificationText) {
+                if completionNotificationIndicatesReady(notificationText, recognizedTool: recognizedTool) {
                     requestReadyStatusIfNeeded(for: paneID, in: &worklane)
                 }
             }
@@ -599,14 +599,21 @@ extension WorklaneStore {
         worklane.auxiliaryStateByPaneID[paneID]?.raw.codexTitleIdleSuppressionUntil = nil
     }
 
-    private func completionNotificationIndicatesReady(_ notificationText: String?) -> Bool {
+    private func completionNotificationIndicatesReady(
+        _ notificationText: String?,
+        recognizedTool: AgentTool?
+    ) -> Bool {
         guard let notificationText = AgentInteractionClassifier.trimmed(notificationText)?.lowercased() else {
             return false
         }
 
-        return notificationText.contains("agent run complete")
+        if notificationText.contains("agent run complete")
             || notificationText.contains("agent ready")
-            || notificationText.contains("agent turn complete")
+            || notificationText.contains("agent turn complete") {
+            return true
+        }
+
+        return recognizedTool == .gemini && notificationText.contains("session complete")
     }
 
     func invalidateCachedGitContext(path: String?) {

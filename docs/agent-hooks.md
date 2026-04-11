@@ -182,6 +182,49 @@ Entry format: `{"type": "command", "bash": "<command>", "timeoutSec": N}`.
 
 Unlike Claude Code (which has a `Stop` hook), Copilot has no "turn complete" event. Running detection relies on libghostty's OSC 9;4 progress state (`TerminalProgressReport.indicatesActivity`): when Copilot emits `SET`/`INDETERMINATE`, the normalizer promotes the pane from `idle` to `running`; when Copilot emits `REMOVE`, it drops back to `idle`. The copilot special case in `PanePresentationNormalizer.normalizedRuntimePhase` implements this.
 
+## Gemini CLI
+
+Zentty injects Gemini hooks automatically for wrapped `gemini` launches by generating a per-pane system-settings overlay and pointing `GEMINI_CLI_SYSTEM_SETTINGS_PATH` at it. The user's real Gemini config is not modified.
+
+The overlay:
+
+- preserves any existing system settings that Gemini would have loaded
+- forces `general.enableNotifications = true` for wrapped sessions
+- appends Zentty hook commands without removing existing hook commands
+
+Gemini hook commands use the hidden bundled CLI helper:
+
+```sh
+"$ZENTTY_CLI_BIN" gemini-hook
+```
+
+Zentty registers the helper for these Gemini hook events:
+
+- `SessionStart`
+- `SessionEnd`
+- `BeforeAgent`
+- `AfterAgent`
+- `Notification`
+- `BeforeTool`
+
+### Current mapping
+
+- `SessionStart` -> PID attach + `starting`
+- `BeforeAgent` -> `running`
+- `BeforeTool` -> `running` as a blocked-session recovery signal after approval
+- `AfterAgent` -> `idle`
+- `SessionEnd` -> clear session + PID mapping
+- `Notification` with `notification_type = ToolPermission` -> `needs-input` with `approval`
+
+### Terminal notifications
+
+Gemini's built-in terminal notifications still matter for wrapped sessions. Zentty treats:
+
+- `Action required` as approval-needed attention
+- `Session complete` as a ready/completion signal
+
+This gives Gemini first-class sidebar and notification behavior even when the hook payload is minimal.
+
 ## OpenCode
 
 Zentty injects a local OpenCode plugin overlay via the shared agent wrapper. The plugin forwards `session.status`, `session.idle`, permission/question events, and `todo.updated`.

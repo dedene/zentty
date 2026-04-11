@@ -14,6 +14,7 @@ enum AgentBootstrapTool: String, Codable, Equatable {
     case claude
     case codex
     case copilot
+    case gemini
     case opencode
 }
 

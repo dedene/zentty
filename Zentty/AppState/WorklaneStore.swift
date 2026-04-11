@@ -1651,9 +1651,15 @@ final class WorklaneStore {
             return false
         }
 
-        return notificationText.contains("agent run complete")
+        if notificationText.contains("agent run complete")
             || notificationText.contains("agent ready")
-            || notificationText.contains("agent turn complete")
+            || notificationText.contains("agent turn complete") {
+            return true
+        }
+
+        let recognizedTool = auxiliaryState.agentStatus?.tool
+            ?? AgentToolRecognizer.recognize(metadata: auxiliaryState.metadata)
+        return recognizedTool == .gemini && notificationText.contains("session complete")
     }
 
     private func resolveWorkingDirectoryForNewWorklane() -> String {

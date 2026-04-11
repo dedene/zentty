@@ -231,6 +231,108 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertEqual(request.standardInput, payload)
     }
 
+    func test_real_cli_gemini_hook_forwards_payload_to_gemini_adapter_and_returns_empty_json() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let payload = #"{"hook_event_name":"SessionStart","session_id":"session-gemini"}"#
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["gemini-hook", payload]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        process.environment = environment
+        process.standardError = Pipe()
+        let stdout = Pipe()
+        process.standardOutput = stdout
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        let stdoutString = String(
+            data: stdout.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(stdoutString.trimmingCharacters(in: .whitespacesAndNewlines), "{}")
+        XCTAssertEqual(request.kind, .ipc)
+        XCTAssertEqual(request.subcommand, "agent-event")
+        XCTAssertEqual(request.arguments, ["--adapter=gemini"])
+        XCTAssertEqual(request.standardInput, payload)
+    }
+
+    func test_real_cli_gemini_hook_reads_payload_from_standard_input_when_argument_is_omitted() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let payload = #"{"hook_event_name":"SessionStart","session_id":"session-gemini-stdin"}"#
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["gemini-hook"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        process.environment = environment
+        process.standardError = Pipe()
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        let stdinPipe = Pipe()
+        process.standardInput = stdinPipe
+
+        try process.run()
+        stdinPipe.fileHandleForWriting.write(Data(payload.utf8))
+        try? stdinPipe.fileHandleForWriting.close()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        let stdoutString = String(
+            data: stdout.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(stdoutString.trimmingCharacters(in: .whitespacesAndNewlines), "{}")
+        XCTAssertEqual(request.arguments, ["--adapter=gemini"])
+        XCTAssertEqual(request.standardInput, payload)
+    }
+
+    func test_real_cli_gemini_hook_returns_empty_json_when_routing_environment_is_missing() throws {
+        let payload = #"{"hook_event_name":"SessionStart","session_id":"session-gemini"}"#
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["gemini-hook", payload]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = ""
+        environment["ZENTTY_PANE_TOKEN"] = ""
+        environment["ZENTTY_WORKLANE_ID"] = ""
+        environment["ZENTTY_PANE_ID"] = ""
+        process.environment = environment
+        process.standardError = Pipe()
+        let stdout = Pipe()
+        process.standardOutput = stdout
+
+        try process.run()
+        process.waitUntilExit()
+
+        let stdoutString = String(
+            data: stdout.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(stdoutString.trimmingCharacters(in: .whitespacesAndNewlines), "{}")
+    }
+
     func test_claude_wrapper_falls_back_to_real_binary_when_cli_is_missing() throws {
         let harness = try WrapperHarness(copyingScriptsNamed: ["claude", "zentty-agent-wrapper"])
         try harness.installRealBinary(
@@ -252,7 +354,7 @@ final class AgentWrapperTests: XCTestCase {
     }
 
     func test_tool_wrappers_delegate_to_launch_command_when_cli_is_available() throws {
-        for tool in ["claude", "codex", "copilot", "opencode"] {
+        for tool in ["claude", "codex", "copilot", "gemini", "opencode"] {
             let harness = try WrapperHarness(copyingScriptsNamed: [tool, "zentty-agent-wrapper"])
             try harness.installRealBinary(
                 named: tool,
@@ -628,7 +730,7 @@ private struct WrapperHarness {
     }
 
     private var publicWrapperDirectories: [URL] {
-        ["claude", "codex", "copilot", "opencode"]
+        ["claude", "codex", "copilot", "gemini", "opencode"]
             .map { wrapperBinURL.appendingPathComponent($0, isDirectory: true) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
@@ -645,6 +747,8 @@ private struct WrapperHarness {
             return "codex/codex"
         case "copilot":
             return "copilot/copilot"
+        case "gemini":
+            return "gemini/gemini"
         case "opencode":
             return "opencode/opencode"
         case "zentty-agent-wrapper":
