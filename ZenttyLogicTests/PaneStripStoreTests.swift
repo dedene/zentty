@@ -3159,6 +3159,26 @@ final class PaneStripStoreTests: XCTestCase {
                 gitBranch: "main"
             )
         )
+        // Natural completion: codex-notify agent-turn-complete re-promotes
+        // to ready after the title-based interrupt suppression cleared it.
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .update,
+                interactionKind: .none,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
 
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Idle")
@@ -3196,6 +3216,26 @@ final class PaneStripStoreTests: XCTestCase {
                 currentWorkingDirectory: "/tmp/project",
                 processName: "codex",
                 gitBranch: "main"
+            )
+        )
+        // Natural completion via codex-notify re-promotes to ready after the
+        // title-based interrupt suppression.
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .update,
+                interactionKind: .none,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
             )
         )
 
@@ -3302,6 +3342,27 @@ final class PaneStripStoreTests: XCTestCase {
                 currentWorkingDirectory: "/tmp/project",
                 processName: "codex",
                 gitBranch: "main"
+            )
+        )
+        // Natural completion: codex-notify agent-turn-complete confirms the
+        // title-based idle transition was not an interrupt and re-promotes
+        // to ready status.
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .update,
+                interactionKind: .none,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
             )
         )
 
@@ -3765,6 +3826,367 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .starting)
         XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText)
         XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_claude_code_escape_interrupt_transitions_running_to_idle_via_glyph_title() throws {
+        // Pressing Escape in Claude Code interrupts the agent but does NOT
+        // fire a Stop hook. The only observable signal is the title flipping
+        // from a spinner glyph ("⠂ subject") back to the idle indicator
+        // ("✳ subject"). Zentty must drive the session from .running to .idle
+        // purely from that title change.
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "claude-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "⠂ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .running
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "✳ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .idle
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.runtimePhase,
+            .idle
+        )
+        // A user interrupt is not a natural completion — the pane must NOT
+        // be promoted to "Agent ready".
+        XCTAssertFalse(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
+        )
+        XCTAssertFalse(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.wantsReadyStatus == true
+        )
+        XCTAssertNotEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+    }
+
+    func test_claude_code_natural_stop_hook_still_surfaces_agent_ready() throws {
+        // Regression guard: the interrupt suppression must NOT strip the
+        // "Agent ready" label when Claude Code completes naturally via the
+        // Stop hook path.
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "⠂ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "claude-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "claude-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .idle
+        )
+        XCTAssertTrue(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+    }
+
+    func test_codex_escape_interrupt_transitions_running_to_idle_without_agent_ready() throws {
+        // Pressing Esc twice in Codex interrupts the run but does NOT fire
+        // an `agent-turn-complete` notify. The only observable signal is the
+        // title flipping from "Working ⠋ project" back to "Ready | project".
+        // Zentty must drive the pane to .idle without surfacing "Agent
+        // ready" — that label is reserved for natural completions.
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ project",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .running
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | project",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .idle
+        )
+        XCTAssertFalse(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
+        )
+        XCTAssertFalse(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.wantsReadyStatus == true
+        )
+        XCTAssertNotEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+    }
+
+    func test_codex_natural_completion_notify_first_then_title_surfaces_agent_ready() throws {
+        // Race where codex-notify `agent-turn-complete` arrives before the
+        // terminal title flips to "Ready | …". The notify payload is
+        // authoritative for natural completion and must surface "Agent
+        // ready"; the later title flip must not clobber it.
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ project",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .update,
+                interactionKind: .none,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | project",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .idle
+        )
+        XCTAssertTrue(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+    }
+
+    func test_codex_natural_completion_title_first_then_notify_stays_idle_after_interrupt_suppression() throws {
+        // Race: the Codex terminal title flips to "Ready | …" before the
+        // codex-notify `agent-turn-complete` event arrives. The title path
+        // applies interrupt suppression (it can't tell interrupt from
+        // completion at the title level), so the later notify payload does
+        // NOT re-promote to ready — Codex title + notify together are not
+        // reliable enough to distinguish the two, and a false "Agent ready"
+        // after Esc is worse than a false "Idle" after completion.
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ project",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | project",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertFalse(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true,
+            "title-first path must suppress ready as a user-interrupt guard"
+        )
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .update,
+                interactionKind: .none,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertFalse(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true,
+            "late explicitAPI idle must not re-promote after interrupt suppression"
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Idle"
+        )
     }
 
     func test_waiting_codex_title_preserves_specific_blocked_prompt_copy() throws {
