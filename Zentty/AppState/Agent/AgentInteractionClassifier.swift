@@ -22,6 +22,7 @@ enum AgentInteractionClassifier {
             "needs your input",
             "needs input",
             "needs your attention",
+            "action required",
             "input-requested",
             "input requested",
             "approval-requested",
@@ -69,6 +70,7 @@ enum AgentInteractionClassifier {
         }
 
         let approvalMarkers = [
+            "action required",
             "approval-requested",
             "approval requested",
             "permission",
@@ -127,11 +129,17 @@ enum AgentInteractionClassifier {
             return false
         }
 
+        if message == "action required" {
+            return true
+        }
+
         return hasAnyPrefix(
             message,
             prefixes: [
                 "claude needs your approval",
                 "claude needs your permission",
+                "gemini needs your approval",
+                "gemini needs your permission",
                 "approval needed",
                 "permission required",
             ]

@@ -43,9 +43,35 @@ final class AgentStatusSupportTests: XCTestCase {
         )
     }
 
+    func test_agent_interaction_classifier_recognizes_gemini_action_required_as_approval() {
+        let message = "Action required"
+
+        XCTAssertTrue(AgentInteractionClassifier.requiresHumanInput(message: message))
+        XCTAssertEqual(
+            AgentInteractionClassifier.interactionKind(forWaitingMessage: message),
+            .approval
+        )
+    }
+
+    func test_agent_interaction_classifier_prefers_specific_action_required_copy_over_generic_approval() {
+        XCTAssertEqual(
+            AgentInteractionClassifier.preferredWaitingMessage(
+                existing: "Gemini needs your approval",
+                candidate: "Action required: Allow WriteFile on project.yml?"
+            ),
+            "Action required: Allow WriteFile on project.yml?"
+        )
+    }
+
     func test_agent_tool_keeps_copilot_metadata_unrecognized_without_explicit_hook_payloads() {
         XCTAssertEqual(AgentTool.resolve(named: "copilot"), .copilot)
         XCTAssertNil(AgentTool.resolveKnown(named: "copilot"))
+    }
+
+    func test_agent_tool_recognizes_gemini_for_explicit_and_known_tool_resolution() {
+        XCTAssertEqual(AgentTool.resolve(named: "gemini"), .gemini)
+        XCTAssertEqual(AgentTool.resolve(named: "Gemini CLI"), .gemini)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "Gemini"), .gemini)
     }
 
     func test_agent_status_helper_returns_nil_when_resource_directories_are_missing() throws {
@@ -64,7 +90,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["claude", "codex", "copilot", "opencode"] {
+        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
             let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
             let fileURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
@@ -90,7 +116,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["claude", "codex", "copilot", "opencode"].map {
+            ["claude", "codex", "copilot", "gemini", "opencode"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -106,7 +132,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["claude", "codex", "copilot", "opencode"] {
+        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
             let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
             let fileURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
@@ -141,7 +167,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["claude", "codex", "copilot", "opencode"] {
+        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
             let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
             let wrapperURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
@@ -175,7 +201,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
 
-        for name in ["claude", "codex", "copilot", "opencode"] {
+        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
             let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
             let wrapperURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
@@ -192,7 +218,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         let realBinURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
-        for name in ["claude", "opencode"] {
+        for name in ["claude", "gemini", "opencode"] {
             let fileURL = realBinURL.appendingPathComponent(name, isDirectory: false)
             try "#!/bin/sh\n".write(to: fileURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
@@ -203,6 +229,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 binURL.appendingPathComponent("claude", isDirectory: true).path,
                 binURL.appendingPathComponent("codex", isDirectory: true).path,
                 binURL.appendingPathComponent("copilot", isDirectory: true).path,
+                binURL.appendingPathComponent("gemini", isDirectory: true).path,
                 binURL.appendingPathComponent("opencode", isDirectory: true).path,
                 sharedURL.path,
                 realBinURL.path,
@@ -215,6 +242,7 @@ final class AgentStatusSupportTests: XCTestCase {
             AgentStatusHelper.enabledWrapperDirectoryPaths(in: bundle, processEnvironment: environment),
             [
                 binURL.appendingPathComponent("claude", isDirectory: true).path,
+                binURL.appendingPathComponent("gemini", isDirectory: true).path,
                 binURL.appendingPathComponent("opencode", isDirectory: true).path,
             ]
         )
@@ -438,6 +466,31 @@ final class AgentStatusSupportTests: XCTestCase {
             .appendingPathComponent("zentty-agent-wrapper", isDirectory: false), encoding: .utf8)
         XCTAssertTrue(sharedWrapper.contains("launch \"$tool_basename\""))
         XCTAssertTrue(sharedWrapper.contains("ZENTTY_CLI_BIN"))
+    }
+
+    func test_repository_gemini_wrapper_delegates_to_internal_launch_cli() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        let geminiWrapper = try String(contentsOf: repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("gemini", isDirectory: true)
+            .appendingPathComponent("gemini", isDirectory: false), encoding: .utf8)
+        XCTAssertTrue(geminiWrapper.contains("ZENTTY_AGENT_TOOL=\"gemini\""))
+        XCTAssertTrue(geminiWrapper.contains("zentty-agent-wrapper"))
+        XCTAssertFalse(geminiWrapper.contains("ZENTTY_AGENT_BIN"))
+    }
+
+    func test_copy_agent_resources_build_script_marks_gemini_wrapper_executable() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let projectURL = repositoryRoot.appendingPathComponent("project.yml", isDirectory: false)
+        let project = try String(contentsOf: projectURL, encoding: .utf8)
+
+        XCTAssertTrue(project.contains("-o -path \"*/gemini/gemini\""))
     }
 
     func test_agent_ipc_bridge_converts_agent_signal_message_to_payload() throws {
@@ -832,6 +885,189 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(overlayConfig.contains("session-start"))
         XCTAssertTrue(overlayConfig.contains("pre-tool-use"))
         XCTAssertTrue(overlayConfig.contains("echo existing"))
+    }
+
+    func test_agent_launch_bootstrap_builds_gemini_system_settings_overlay_and_forces_notifications() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-gemini-runtime")
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["--model", "gemini-2.5-pro"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/gemini",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ],
+            expectsResponse: true,
+            tool: .gemini
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/gemini")
+        XCTAssertEqual(plan.arguments, ["--model", "gemini-2.5-pro"])
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "gemini")
+
+        let overlayPath = try XCTUnwrap(plan.setEnvironment["GEMINI_CLI_SYSTEM_SETTINGS_PATH"])
+        let overlayURL = URL(fileURLWithPath: overlayPath, isDirectory: false)
+        let data = try Data(contentsOf: overlayURL)
+        let jsonObject = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let general = try XCTUnwrap(jsonObject["general"] as? [String: Any])
+        XCTAssertEqual(general["enableNotifications"] as? Bool, true)
+
+        let hooks = try XCTUnwrap(jsonObject["hooks"] as? [String: Any])
+        for eventName in ["SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "Notification", "BeforeTool"] {
+            let groups = try XCTUnwrap(hooks[eventName] as? [[String: Any]], eventName)
+            XCTAssertFalse(groups.isEmpty, eventName)
+            let commands = groups.flatMap { group in
+                (group["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String }
+            }
+            XCTAssertEqual(commands.count, 1, eventName)
+            XCTAssertTrue(commands[0].contains(#""/tmp/zentty" gemini-hook"#), eventName)
+        }
+    }
+
+    func test_agent_launch_bootstrap_escapes_special_shell_characters_in_gemini_hook_command() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-gemini-runtime-escaped")
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["chat"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/gemini",
+                "ZENTTY_CLI_BIN": #"/tmp/Zentty $CLI `beta`"#,
+            ],
+            expectsResponse: true,
+            tool: .gemini
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        let overlayPath = try XCTUnwrap(plan.setEnvironment["GEMINI_CLI_SYSTEM_SETTINGS_PATH"])
+        let data = try Data(contentsOf: URL(fileURLWithPath: overlayPath, isDirectory: false))
+        let jsonObject = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(jsonObject["hooks"] as? [String: Any])
+        let sessionStartGroups = try XCTUnwrap(hooks["SessionStart"] as? [[String: Any]])
+        let commands = sessionStartGroups.flatMap { group in
+            (group["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String }
+        }
+
+        XCTAssertEqual(commands.count, 1)
+        XCTAssertEqual(
+            commands[0],
+            #""/tmp/Zentty \$CLI \`beta\`" gemini-hook || echo '{}'"#
+        )
+    }
+
+    func test_agent_launch_bootstrap_merges_existing_gemini_system_settings_without_duplicate_hook_commands() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-gemini-runtime-merge")
+        let existingSettingsURL = runtimeDirectory.appendingPathComponent("enterprise-settings.json", isDirectory: false)
+        try """
+        {
+          "general": {
+            "vimMode": true
+          },
+          "hooks": {
+            "SessionStart": [
+              {
+                "matcher": "*",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "echo existing",
+                    "timeout": 1234
+                  },
+                  {
+                    "type": "command",
+                    "command": "\\\"/tmp/zentty\\\" gemini-hook || echo '{}'",
+                    "timeout": 10000
+                  }
+                ]
+              }
+            ],
+            "Notification": [
+              {
+                "matcher": "*",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "echo notify"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """.write(to: existingSettingsURL, atomically: true, encoding: .utf8)
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["chat"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/gemini",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "GEMINI_CLI_SYSTEM_SETTINGS_PATH": existingSettingsURL.path,
+            ],
+            expectsResponse: true,
+            tool: .gemini
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        let overlayPath = try XCTUnwrap(plan.setEnvironment["GEMINI_CLI_SYSTEM_SETTINGS_PATH"])
+        let overlayURL = URL(fileURLWithPath: overlayPath, isDirectory: false)
+        let data = try Data(contentsOf: overlayURL)
+        let jsonObject = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let general = try XCTUnwrap(jsonObject["general"] as? [String: Any])
+        XCTAssertEqual(general["vimMode"] as? Bool, true)
+        XCTAssertEqual(general["enableNotifications"] as? Bool, true)
+
+        let hooks = try XCTUnwrap(jsonObject["hooks"] as? [String: Any])
+        let sessionStartGroups = try XCTUnwrap(hooks["SessionStart"] as? [[String: Any]])
+        let sessionStartCommands = sessionStartGroups.flatMap { group in
+            (group["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String }
+        }
+        XCTAssertEqual(sessionStartCommands.filter { $0 == "\"/tmp/zentty\" gemini-hook || echo '{}'" }.count, 1)
+        XCTAssertTrue(sessionStartCommands.contains("echo existing"))
+
+        let notificationGroups = try XCTUnwrap(hooks["Notification"] as? [[String: Any]])
+        let notificationCommands = notificationGroups.flatMap { group in
+            (group["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String }
+        }
+        XCTAssertTrue(notificationCommands.contains("echo notify"))
+        XCTAssertEqual(notificationCommands.filter { $0 == "\"/tmp/zentty\" gemini-hook || echo '{}'" }.count, 1)
     }
 
     func test_agent_launch_bootstrap_builds_opencode_overlay_and_prelaunch_event() throws {
@@ -2110,6 +2346,215 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.toolName, "Codex")
     }
 
+    func test_gemini_hook_session_start_emits_pid_attach_and_starting_payloads() throws {
+        let payloads = try AgentEventBridge.geminiAdapter(
+            data: Data("""
+            {"hook_event_name":"SessionStart","session_id":"session-1","cwd":"/tmp/project"}
+            """.utf8),
+            environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+                "ZENTTY_GEMINI_PID": "4242",
+            ]
+        )
+
+        XCTAssertEqual(
+            payloads,
+            [
+                AgentStatusPayload(
+                    worklaneID: WorklaneID("worklane-main"),
+                    paneID: PaneID("worklane-main-shell"),
+                    signalKind: .pid,
+                    state: nil,
+                    pid: 4242,
+                    pidEvent: .attach,
+                    origin: .explicitHook,
+                    toolName: "Gemini",
+                    text: nil,
+                    sessionID: "session-1",
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil
+                ),
+                AgentStatusPayload(
+                    worklaneID: WorklaneID("worklane-main"),
+                    paneID: PaneID("worklane-main-shell"),
+                    signalKind: .lifecycle,
+                    state: .starting,
+                    origin: .explicitHook,
+                    toolName: "Gemini",
+                    text: nil,
+                    lifecycleEvent: .update,
+                    confidence: .explicit,
+                    sessionID: "session-1",
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil,
+                    agentWorkingDirectory: "/tmp/project"
+                ),
+            ]
+        )
+    }
+
+    func test_gemini_hook_before_agent_maps_to_running_payload() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.geminiAdapter(
+                data: Data("""
+                {"hook_event_name":"BeforeAgent","session_id":"session-1","cwd":"/tmp/project"}
+                """.utf8),
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.toolName, "Gemini")
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_gemini_hook_before_tool_restores_running_payload() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.geminiAdapter(
+                data: Data("""
+                {"hook_event_name":"BeforeTool","session_id":"session-1","cwd":"/tmp/project","tool_name":"WriteFile"}
+                """.utf8),
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.toolName, "Gemini")
+        XCTAssertEqual(payload.sessionID, "session-1")
+    }
+
+    func test_gemini_hook_after_agent_maps_to_idle_payload() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.geminiAdapter(
+                data: Data("""
+                {"hook_event_name":"AfterAgent","session_id":"session-1","cwd":"/tmp/project"}
+                """.utf8),
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .idle)
+        XCTAssertEqual(payload.toolName, "Gemini")
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_gemini_hook_session_end_clears_status_and_pid_mapping() throws {
+        let payloads = try AgentEventBridge.geminiAdapter(
+            data: Data("""
+            {"hook_event_name":"SessionEnd","session_id":"session-1"}
+            """.utf8),
+            environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
+        )
+
+        XCTAssertEqual(
+            payloads,
+            [
+                AgentStatusPayload(
+                    worklaneID: WorklaneID("worklane-main"),
+                    paneID: PaneID("worklane-main-shell"),
+                    signalKind: .lifecycle,
+                    state: nil,
+                    origin: .explicitHook,
+                    toolName: "Gemini",
+                    text: nil,
+                    sessionID: "session-1",
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil
+                ),
+                AgentStatusPayload(
+                    worklaneID: WorklaneID("worklane-main"),
+                    paneID: PaneID("worklane-main-shell"),
+                    signalKind: .pid,
+                    state: nil,
+                    pid: nil,
+                    pidEvent: .clear,
+                    origin: .explicitHook,
+                    toolName: "Gemini",
+                    text: nil,
+                    sessionID: "session-1",
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil
+                ),
+            ]
+        )
+    }
+
+    func test_gemini_hook_tool_permission_notification_maps_to_needs_input_payload() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.geminiAdapter(
+                data: Data("""
+                {"hook_event_name":"Notification","session_id":"session-1","cwd":"/tmp/project","notification_type":"ToolPermission","message":"Allow editing project.yml?"}
+                """.utf8),
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.toolName, "Gemini")
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.interactionKind, .approval)
+        XCTAssertEqual(payload.text, "Allow editing project.yml?")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_gemini_hook_tool_permission_notification_is_case_insensitive() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.geminiAdapter(
+                data: Data("""
+                {"hook_event_name":"Notification","session_id":"session-1","notification_type":"toolpermission"}
+                """.utf8),
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .approval)
+        XCTAssertEqual(payload.text, "Gemini needs your approval")
+    }
+
+    func test_gemini_hook_tool_permission_notification_uses_structured_details_when_summary_is_generic() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.geminiAdapter(
+                data: Data("""
+                {"hook_event_name":"Notification","session_id":"session-1","notification_type":"ToolPermission","message":"Action required","details":{"tool_name":"WriteFile","file_path":"project.yml"}}
+                """.utf8),
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .approval)
+        XCTAssertEqual(payload.text, "Allow WriteFile on project.yml?")
+    }
+
     func test_copilot_hook_session_start_emits_pid_attach_and_idle_seed_payloads() throws {
         let payloads = try AgentEventBridge.copilotAdapter(
             data: Data("""
@@ -2829,6 +3274,36 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(recorder.requests.count, 1)
         XCTAssertEqual(recorder.requests.first?.title, "Codex needs approval")
         XCTAssertEqual(recorder.requests.first?.body, "zentty — Allow edits to project.yml?")
+    }
+
+    func test_notification_coordinator_uses_gemini_action_required_as_approval_notification() {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            windowID: WindowID("window-main"),
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .gemini,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Gemini",
+                    interactionKind: .approval,
+                    explicitText: nil,
+                    desktopNotificationText: "Action required"
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(recorder.requests.first?.title, "Gemini needs approval")
+        XCTAssertEqual(recorder.requests.first?.body, "zentty — Approval required.")
     }
 
     func test_notification_coordinator_replaces_needs_input_when_prompt_changes_without_state_change() async {

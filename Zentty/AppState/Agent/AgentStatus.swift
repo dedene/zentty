@@ -4,6 +4,7 @@ enum AgentTool: Equatable, Sendable {
     case claudeCode
     case codex
     case copilot
+    case gemini
     case openCode
     case custom(String)
 
@@ -15,6 +16,8 @@ enum AgentTool: Equatable, Sendable {
             return "Codex"
         case .copilot:
             return "Copilot"
+        case .gemini:
+            return "Gemini"
         case .openCode:
             return "OpenCode"
         case .custom(let name):
@@ -35,6 +38,9 @@ enum AgentTool: Equatable, Sendable {
         }
         if normalized.contains("copilot") {
             return .copilot
+        }
+        if normalized.contains("gemini") {
+            return .gemini
         }
         if normalized.contains("opencode") || normalized.contains("open code") {
             return .openCode
@@ -57,6 +63,9 @@ enum AgentTool: Equatable, Sendable {
         }
         if normalized.contains("codex") {
             return .codex
+        }
+        if normalized.contains("gemini") {
+            return .gemini
         }
         if normalized.contains("opencode") || normalized.contains("open code") {
             return .openCode

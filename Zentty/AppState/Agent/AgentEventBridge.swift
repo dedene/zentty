@@ -56,6 +56,8 @@ enum AgentEventBridge {
                 payloads = try codexAdapter(data: inputData, defaultEventName: eventName, environment: environment)
             case "codex-notify":
                 payloads = try codexNotifyAdapter(data: inputData, environment: environment)
+            case "gemini":
+                payloads = try geminiAdapter(data: inputData, environment: environment)
             case .none:
                 let input = try parseInput(inputData)
                 payloads = try makePayloads(from: input, environment: environment)
