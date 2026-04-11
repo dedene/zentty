@@ -764,6 +764,10 @@ final class PaneContainerView: NSView {
     }
 
     private func updateBorderContextView() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
         guard !bounds.isEmpty else {
             borderContextView.isHidden = true
             setBorderLabelGap(width: 0)
