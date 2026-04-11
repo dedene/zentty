@@ -7,7 +7,7 @@
   <p align="center">
     A native macOS terminal for agent-native development, built on Ghostty.
     <br />
-    Zentty gets out of the way — minimal friction, maximum focus.
+    Zentty gets out of the way. Minimal friction, maximum focus.
     <br />
     <a href="#install">Install</a>
     ·
@@ -28,15 +28,15 @@
 - **Worklanes, not just tabs.** Borrowed from niri and Hyprland: a horizontally-scrolling strip of columns, each column a vertical stack of panes. Rearrange, resize, and navigate without losing your place.
 - **Keyboard-first, top to bottom.** Every action is a command. Every command is bindable. Rebind anything in settings, or fall back to the command palette when your muscle memory runs out.
 - **Command palette.** A fuzzy-searchable list of every action in the app, with your recent commands on top.
-- **Agent-aware.** Claude Code, Codex, Copilot CLI, Gemini CLI, and OpenCode report their status into the sidebar — you see what they're doing, what they're asking, and when they need you, without switching panes.
-- **Native Ghostty themes.** Zentty reads Ghostty's own theme files — your `~/.config/ghostty/themes` and the bundled library — with automatic light/dark switching.
+- **Agent-aware.** Claude Code, Codex, Copilot CLI, Gemini CLI, and OpenCode report their status into the sidebar, so you see what they're doing, what they're asking, and when they need you, without switching panes.
+- **Native Ghostty themes.** Zentty reads Ghostty's own theme files (your `~/.config/ghostty/themes` and the bundled library), with automatic light/dark switching.
 - **Built on Ghostty.** The renderer, shell integration, and terminal engine are all `libghostty`. Zentty is the window around it.
 
 ## Install
 
 Download the latest `.dmg` from the [releases page](https://github.com/dedene/zentty/releases/latest), open it, and drag Zentty to your Applications folder.
 
-Zentty updates itself in place via [Sparkle](https://sparkle-project.org) once installed — no need to check back here for new versions.
+Zentty updates itself in place via [Sparkle](https://sparkle-project.org) once installed. No need to check back here for new versions.
 
 Builds are signed and notarized by Zenjoy BV. Requires macOS 26 (Tahoe) or later.
 
