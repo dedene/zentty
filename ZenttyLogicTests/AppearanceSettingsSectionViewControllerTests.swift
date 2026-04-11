@@ -2,7 +2,7 @@
 import XCTest
 
 @MainActor
-final class AppearanceSettingsSectionViewControllerTests: XCTestCase {
+final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
 
     // MARK: - Stubs
 

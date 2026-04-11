@@ -3,7 +3,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class PaneContainerViewTests: XCTestCase {
+final class PaneContainerViewTests: AppKitTestCase {
     func test_pane_hosts_terminal_edge_to_edge_without_internal_header() {
         let pane = PaneState(id: PaneID("editor"), title: "editor")
         let runtime = PaneRuntime(
@@ -514,6 +514,7 @@ final class PaneContainerViewTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         addTeardownBlock {
             window.orderOut(nil)
             window.close()
@@ -1348,6 +1349,7 @@ private extension NSView {
     }
 }
 
+@MainActor
 private func sendMouseClick(at point: CGPoint, in view: NSView, window: NSWindow) throws {
     let locationInWindow = view.convert(point, to: nil)
     let mouseDown = try XCTUnwrap(

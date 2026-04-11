@@ -3,7 +3,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class LibghosttySelectionAutoscrollControllerTests: XCTestCase {
+final class LibghosttySelectionAutoscrollControllerTests: AppKitTestCase {
     func test_top_edge_tick_requests_decremented_row_and_top_clamped_pointer() throws {
         let controller = makeController()
         controller.setViewportHeight(160)

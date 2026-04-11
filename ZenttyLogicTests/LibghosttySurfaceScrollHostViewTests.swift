@@ -4,7 +4,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class LibghosttySurfaceScrollHostViewTests: XCTestCase {
+final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
     func test_scrollbar_update_does_not_follow_when_user_scrolled_away_without_active_selection_drag() throws {
         let harness = makeScrollHostHarness()
         let hostView = harness.hostView

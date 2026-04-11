@@ -3,7 +3,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class SidebarWorklaneRowButtonTests: XCTestCase {
+final class SidebarWorklaneRowButtonTests: AppKitTestCase {
     private var rowWidthConstraints: [ObjectIdentifier: NSLayoutConstraint] = [:]
 
     func test_working_worklane_row_does_not_animate_until_it_is_hosted_in_a_visible_sidebar() {

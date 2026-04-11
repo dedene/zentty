@@ -88,10 +88,6 @@ final class WindowChromeView: NSView {
     private var reviewChipViews: [WindowChromeReviewChipView] = []
     private var branchURL: URL?
     private var pullRequestURL: URL?
-    private var rowLeadingConstraint: NSLayoutConstraint?
-    private var rowCenterYConstraint: NSLayoutConstraint?
-    private var rowWidthConstraint: NSLayoutConstraint?
-    private var rowHeightConstraint: NSLayoutConstraint?
     private var hasEstablishedRenderableLayout = false
     private var lastRowLayoutPlan = RowLayoutPlan.empty
     var onOpenWithPrimaryAction: (() -> Void)?
@@ -206,7 +202,6 @@ final class WindowChromeView: NSView {
 
         openWithDividerView.wantsLayer = true
 
-        rowContainerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(rowContainerView)
         addSubview(openWithContainerView)
         openWithContainerView.addSubview(openWithDividerView)
@@ -215,21 +210,6 @@ final class WindowChromeView: NSView {
         [attentionChipView, focusedProxyIconView, focusedLabel, branchLabel, pullRequestButton].forEach {
             rowContainerView.addSubview($0)
         }
-
-        rowLeadingConstraint = rowContainerView.leadingAnchor.constraint(
-            equalTo: leadingAnchor,
-            constant: ChromeGeometry.headerHorizontalInset
-        )
-        rowCenterYConstraint = rowContainerView.centerYAnchor.constraint(equalTo: centerYAnchor)
-        rowWidthConstraint = rowContainerView.widthAnchor.constraint(equalToConstant: 0)
-        rowHeightConstraint = rowContainerView.heightAnchor.constraint(equalToConstant: Self.minimumRowHeight)
-
-        NSLayoutConstraint.activate([
-            rowLeadingConstraint,
-            rowCenterYConstraint,
-            rowWidthConstraint,
-            rowHeightConstraint,
-        ].compactMap { $0 })
 
         apply(theme: currentTheme, animated: false)
         render(summary: currentSummary)
@@ -522,6 +502,7 @@ final class WindowChromeView: NSView {
         let chipViews = reviewChipViews
         guard !leadingViews.isEmpty || !chipViews.isEmpty else {
             rowContainerView.isHidden = true
+            rowContainerView.frame = .zero
             lastRowLayoutPlan = .empty
             return
         }
@@ -529,6 +510,7 @@ final class WindowChromeView: NSView {
         let lane = visibleLaneFrame
         guard lane.width > 0.5, bounds.height >= Self.minimumRowHeight else {
             rowContainerView.isHidden = true
+            rowContainerView.frame = .zero
             lastRowLayoutPlan = .empty
             return
         }
@@ -544,10 +526,12 @@ final class WindowChromeView: NSView {
         let originX = lane.minX
 
         rowContainerView.isHidden = false
-        rowLeadingConstraint?.constant = originX
-        rowCenterYConstraint?.constant = 0
-        rowWidthConstraint?.constant = rowWidth
-        rowHeightConstraint?.constant = rowHeight
+        rowContainerView.frame = NSRect(
+            x: originX,
+            y: floor((bounds.height - rowHeight) / 2),
+            width: rowWidth,
+            height: rowHeight
+        )
         hasEstablishedRenderableLayout = true
 
         let layoutPlan = makeLayoutPlan(

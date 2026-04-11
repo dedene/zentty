@@ -2,7 +2,7 @@ import AppKit
 import XCTest
 @testable import Zentty
 
-final class PaneStripViewTests: XCTestCase {
+final class PaneStripViewTests: AppKitTestCase {
     private let sidebarInset: CGFloat = 290
 
     @MainActor
@@ -422,7 +422,11 @@ final class PaneStripViewTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        addTeardownBlock { window.close() }
+        window.isReleasedWhenClosed = false
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
         window.contentView = paneStripView
         window.makeKeyAndOrderFront(nil)
         paneStripView.dragOverlayView = paneStripView
@@ -591,6 +595,135 @@ final class PaneStripViewTests: XCTestCase {
         XCTAssertEqual(middlePaneView.borderLabelGapWidthForTesting, labelFrame.width, accuracy: 0.001)
 
         paneStripView.endDividerDragForTesting()
+    }
+
+    @MainActor
+    func test_clicking_visible_pane_border_context_triggers_copy_callback() throws {
+        let paneStripView = makePaneStripView(width: 980, height: 680)
+        let window = NSWindow(
+            contentRect: paneStripView.frame,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
+        window.contentView = paneStripView
+        window.makeKeyAndOrderFront(nil)
+
+        let paneID = PaneID("shell")
+        var clickedPaneIDs: [PaneID] = []
+        paneStripView.onPaneBorderContextClicked = { clickedPaneID in
+            clickedPaneIDs.append(clickedPaneID)
+        }
+
+        paneStripView.render(
+            PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell", width: 980)],
+                focusedPaneID: paneID
+            ),
+            paneBorderContextByPaneID: [
+                paneID: PaneBorderContextDisplayModel(text: "~/src/zentty")
+            ]
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let paneView = try XCTUnwrap(paneStripView.descendantPaneViews().first)
+        let labelFrame = try XCTUnwrap(paneView.paneBorderContextFrameForTesting)
+        let clickPoint = paneView.convert(
+            CGPoint(x: labelFrame.midX, y: labelFrame.midY),
+            to: paneStripView
+        )
+        let roundTrippedPoint = paneView.convert(
+            paneStripView.convert(clickPoint, to: nil),
+            from: nil
+        )
+        XCTAssertTrue(labelFrame.contains(roundTrippedPoint))
+
+        let hitView = paneStripView.hitTest(clickPoint)
+        XCTAssertTrue(
+            hitView === paneView,
+            "Expected border-context click to resolve to PaneContainerView, got \(String(describing: hitView.map { type(of: $0) }))"
+        )
+
+        let mouseDown = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: paneStripView.convert(clickPoint, to: nil),
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+        paneView.mouseDown(with: mouseDown)
+
+        XCTAssertEqual(clickedPaneIDs, [paneID])
+    }
+
+    @MainActor
+    func test_clicking_bottom_mirror_of_pane_border_context_does_not_trigger_copy_callback() throws {
+        let paneStripView = makePaneStripView(width: 980, height: 680)
+        let window = NSWindow(
+            contentRect: paneStripView.frame,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
+        window.contentView = paneStripView
+        window.makeKeyAndOrderFront(nil)
+
+        let paneID = PaneID("shell")
+        var clickedPaneIDs: [PaneID] = []
+        paneStripView.onPaneBorderContextClicked = { clickedPaneID in
+            clickedPaneIDs.append(clickedPaneID)
+        }
+
+        paneStripView.render(
+            PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell", width: 980)],
+                focusedPaneID: paneID
+            ),
+            paneBorderContextByPaneID: [
+                paneID: PaneBorderContextDisplayModel(text: "~/src/zentty")
+            ]
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let paneView = try XCTUnwrap(paneStripView.descendantPaneViews().first)
+        let labelFrame = try XCTUnwrap(paneView.paneBorderContextFrameForTesting)
+        let mirroredBottomPoint = paneView.convert(
+            CGPoint(x: labelFrame.midX, y: paneView.bounds.height - labelFrame.midY),
+            to: paneStripView
+        )
+
+        let mouseDown = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: paneStripView.convert(mirroredBottomPoint, to: nil),
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+        paneView.mouseDown(with: mouseDown)
+
+        XCTAssertTrue(clickedPaneIDs.isEmpty)
     }
 
     @MainActor
@@ -2194,7 +2327,11 @@ final class PaneStripViewTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        addTeardownBlock { window.close() }
+        window.isReleasedWhenClosed = false
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
 
         window.contentView = paneStripView
         window.makeKeyAndOrderFront(nil)
@@ -2634,7 +2771,11 @@ final class PaneStripViewTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        addTeardownBlock { window.close() }
+        window.isReleasedWhenClosed = false
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
         window.contentView = paneStripView
         window.makeKeyAndOrderFront(nil)
 
@@ -2687,7 +2828,11 @@ final class PaneStripViewTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        addTeardownBlock { window.close() }
+        window.isReleasedWhenClosed = false
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
         window.contentView = paneStripView
         window.makeKeyAndOrderFront(nil)
 
@@ -2733,7 +2878,11 @@ final class PaneStripViewTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        addTeardownBlock { window.close() }
+        window.isReleasedWhenClosed = false
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
         window.contentView = paneStripView
         window.makeKeyAndOrderFront(nil)
 

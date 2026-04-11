@@ -5,7 +5,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class LibghosttyAdapterTests: XCTestCase {
+final class LibghosttyAdapterTests: AppKitTestCase {
     func test_make_terminal_view_returns_reusable_scroll_host_view() throws {
         let adapter = LibghosttyAdapter(runtime: LibghosttyRuntimeProviderSpy())
 

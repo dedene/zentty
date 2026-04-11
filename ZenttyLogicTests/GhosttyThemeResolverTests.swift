@@ -2,7 +2,7 @@ import AppKit
 import XCTest
 @testable import Zentty
 
-final class GhosttyThemeResolverTests: XCTestCase {
+final class GhosttyThemeResolverTests: AppKitTestCase {
     private var temporaryDirectoryURL: URL!
 
     override func setUpWithError() throws {

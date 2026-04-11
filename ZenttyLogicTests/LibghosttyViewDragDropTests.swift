@@ -4,7 +4,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class LibghosttyViewDragDropTests: XCTestCase {
+final class LibghosttyViewDragDropTests: AppKitTestCase {
     private var view: LibghosttyView!
     private var surface: SurfaceTextSpy!
 

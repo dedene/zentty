@@ -162,6 +162,7 @@ struct PaneRawState: Equatable, Sendable {
     var gitContext: PaneGitContext?
     var wantsReadyStatus = false
     var showsReadyStatus = false
+    var codexTitleIdleSuppressionUntil: Date?
     var lastDesktopNotificationText: String?
     var lastDesktopNotificationDate: Date?
 }

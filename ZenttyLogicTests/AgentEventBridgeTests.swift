@@ -417,7 +417,7 @@ final class AgentEventBridgeTests: XCTestCase {
 
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .idle)
-        XCTAssertEqual(payloads[0].lifecycleEvent, .stopCandidate)
+        XCTAssertEqual(payloads[0].lifecycleEvent, .update)
     }
 
     // MARK: - Copilot Adapter
@@ -483,13 +483,13 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].pidEvent, .attach)
     }
 
-    func test_claude_adapter_stop_is_stop_candidate() throws {
+    func test_claude_adapter_stop_transitions_to_idle() throws {
         let json = #"{"hook_event_name": "Stop", "session_id": "cs1"}"#
         let payloads = try AgentEventBridge.claudeAdapter(data: json.data(using: .utf8)!, environment: claudeEnvironment())
 
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .idle)
-        XCTAssertEqual(payloads[0].lifecycleEvent, .stopCandidate)
+        XCTAssertEqual(payloads[0].lifecycleEvent, .update)
     }
 
     func test_claude_adapter_subagent_stop_is_regular_update() throws {

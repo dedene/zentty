@@ -37,7 +37,7 @@ extension AgentEventBridge {
         case "UserPromptSubmit":
             return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
         case "Stop":
-            return [lifecyclePayload(target: target, toolName: toolName, state: .idle, lifecycleEvent: .stopCandidate, sessionID: sessionID, cwd: cwd)]
+            return [lifecyclePayload(target: target, toolName: toolName, state: .idle, sessionID: sessionID, cwd: cwd)]
         default:
             return []
         }
@@ -430,7 +430,10 @@ extension AgentEventBridge {
             return [pidPayload(target: target, toolName: toolName, pid: pid, event: .attach, sessionID: input.sessionID)]
 
         case "Notification":
-            if input.notificationType == "idle_prompt" { return [] }
+            if input.notificationType == "idle_prompt" {
+                let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+                return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID)]
+            }
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             let sessionRecord = try claudeLookupRecord(for: input, sessionStore: sessionStore)
             let originalMessage = AgentInteractionClassifier.trimmed(input.message)
@@ -554,7 +557,7 @@ extension AgentEventBridge {
 
         case "Stop":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
-            return [claudeLifecyclePayload(target: target, state: .idle, lifecycleEvent: .stopCandidate, confidence: .explicit, sessionID: input.sessionID)]
+            return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID)]
 
         case "SubagentStop":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)

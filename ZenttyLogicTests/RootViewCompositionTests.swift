@@ -2,7 +2,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class RootViewCompositionTests: XCTestCase {
+final class RootViewCompositionTests: AppKitTestCase {
     override func tearDown() {
         SidebarWidthPreference.reset()
         SidebarVisibilityPreference.reset()

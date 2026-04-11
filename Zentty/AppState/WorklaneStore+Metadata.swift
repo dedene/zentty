@@ -1,6 +1,9 @@
 import Foundation
 
 extension WorklaneStore {
+    // Suppress stale title ticks briefly after a ready-title-forced idle transition.
+    private static let codexTitleIdleSuppressionWindow: TimeInterval = 1
+
     func updateMetadata(paneID: PaneID, metadata: TerminalMetadata) {
         terminalDiagnostics.recordStoreMetadataUpdate(paneID: paneID)
 
@@ -14,6 +17,7 @@ extension WorklaneStore {
         let previousWorklane = worklane
         let previousAuxiliaryState = worklane.auxiliaryStateByPaneID[paneID] ?? PaneAuxiliaryState()
         let previousMetadata = previousAuxiliaryState.metadata
+        clearExpiredCodexTitleIdleSuppression(for: paneID, in: &worklane)
         let requestWorkingDirectory = nonInheritedSessionWorkingDirectory(for: paneID, in: worklane)
         let metadataChangeKind = TerminalMetadataChangeClassifier.classify(
             previous: previousMetadata,
@@ -305,6 +309,27 @@ extension WorklaneStore {
             return
         }
 
+        // Don't re-promote an idle session that came from an authoritative
+        // hook signal (e.g. Codex `Stop`). The title may still show a running
+        // phase for a tick or two while the tool updates it, but the hook is
+        // authoritative. Note: `.explicitAPI` is excluded here because
+        // codex-notify's `agent-turn-complete` can arrive stale, in which
+        // case a subsequent title tick should legitimately recover running.
+        if let existingStatus = auxiliaryState.agentStatus,
+           codexTitleIdleSuppressionIsActive(auxiliaryState.raw, now: now),
+           existingStatus.state == .idle,
+           existingStatus.hasObservedRunning {
+            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+            return
+        }
+
+        if let existingStatus = auxiliaryState.agentStatus,
+           existingStatus.state == .idle,
+           existingStatus.hasObservedRunning,
+           existingStatus.origin == .explicitHook {
+            return
+        }
+
         auxiliaryState.agentStatus = PaneAgentStatus(
             tool: .codex,
             state: .running,
@@ -401,17 +426,23 @@ extension WorklaneStore {
             }
 
             auxiliaryState.agentStatus = reducedStatus
+            auxiliaryState.raw.codexTitleIdleSuppressionUntil = now.addingTimeInterval(Self.codexTitleIdleSuppressionWindow)
             worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-            requestReadyStatusIfNeeded(for: paneID, in: &worklane)
             return
         }
 
         guard let existingStatus = auxiliaryState.agentStatus,
               existingStatus.tool == .codex,
-              existingStatus.hasObservedRunning,
-              existingStatus.state == .running
-                || existingStatus.state == .idle
-                || Self.codexReadyTitleClearsGenericNeedsInput(existingStatus)
+              (
+                (
+                    existingStatus.hasObservedRunning
+                    && (
+                        existingStatus.state == .running
+                        || existingStatus.state == .idle
+                    )
+                )
+                || Self.codexReadyTitleRecoversGenericNeedsInput(existingStatus)
+              )
         else {
             return
         }
@@ -438,6 +469,30 @@ extension WorklaneStore {
         requestReadyStatusIfNeeded(for: paneID, in: &worklane)
     }
 
+    private func clearExpiredCodexTitleIdleSuppression(
+        for paneID: PaneID,
+        in worklane: inout WorklaneState,
+        now: Date = Date()
+    ) {
+        guard let deadline = worklane.auxiliaryStateByPaneID[paneID]?.raw.codexTitleIdleSuppressionUntil,
+              now >= deadline else {
+            return
+        }
+
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.codexTitleIdleSuppressionUntil = nil
+    }
+
+    private func codexTitleIdleSuppressionIsActive(
+        _ raw: PaneRawState,
+        now: Date = Date()
+    ) -> Bool {
+        guard let deadline = raw.codexTitleIdleSuppressionUntil else {
+            return false
+        }
+
+        return now < deadline
+    }
+
     private static func codexReadyTitleMayClearStatus(_ status: PaneAgentStatus?) -> Bool {
         guard let status else {
             return true
@@ -454,6 +509,11 @@ extension WorklaneStore {
         status.tool == .codex
             && status.state == .needsInput
             && status.interactionKind == .genericInput
+    }
+
+    private static func codexReadyTitleRecoversGenericNeedsInput(_ status: PaneAgentStatus) -> Bool {
+        codexReadyTitleClearsGenericNeedsInput(status)
+            && (status.hasObservedRunning || status.origin == .heuristic)
     }
 
     /// When a Claude Code session is running but the terminal title transitions
@@ -658,6 +718,7 @@ extension WorklaneStore {
             return
         }
 
+        clearExpiredCodexTitleIdleSuppression(for: paneID, in: &worklane)
         let previousPresentation = worklane.auxiliaryStateByPaneID[paneID]?.presentation
         let raw = worklane.auxiliaryStateByPaneID[paneID]?.raw ?? PaneRawState()
         let presentation = PanePresentationNormalizer.normalize(
@@ -689,7 +750,8 @@ extension WorklaneStore {
         // states like Claude Code.
         if previousPresentation?.isWorking == true,
            presentation.runtimePhase == .idle,
-           worklane.auxiliaryStateByPaneID[paneID]?.agentStatus != nil {
+           worklane.auxiliaryStateByPaneID[paneID]?.agentStatus != nil,
+           !codexTitleIdleSuppressionIsActive(raw) {
             requestReadyStatusIfNeeded(for: paneID, in: &worklane)
         }
     }

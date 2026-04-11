@@ -27,6 +27,7 @@ extension WorklaneStore {
                 let showsReadyStatus = worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
                 worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].terminalProgress = report
                 if report.state.indicatesActivity {
+                    clearCodexTitleIdleSuppression(for: paneID, in: &worklane)
                     if shouldClearReadyStatusForProgressReport(
                         existingStatus: existingStatus,
                         showsReadyStatus: showsReadyStatus
@@ -47,6 +48,7 @@ extension WorklaneStore {
             }
         case .userSubmittedInput:
             let now = Date()
+            clearCodexTitleIdleSuppression(for: paneID, in: &worklane)
             clearReadyStatusIfNeeded(for: paneID, in: &worklane)
             promoteCodexAgentStateFromUserInput(
                 paneID: paneID,
@@ -213,6 +215,13 @@ extension WorklaneStore {
             payload: payload
         ) {
             clearReadyStatusIfNeeded(for: payload.paneID, in: &worklane)
+        }
+        if shouldClearCodexTitleIdleSuppression(
+            existingStatus: existingStatus,
+            incomingTool: tool,
+            payload: payload
+        ) {
+            clearCodexTitleIdleSuppression(for: payload.paneID, in: &worklane)
         }
         var auxiliaryState = worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
         auxiliaryState.agentReducerState = Self.seededReducerState(auxiliaryState.agentReducerState, from: existingStatus)
@@ -542,6 +551,35 @@ extension WorklaneStore {
         }
     }
 
+    private func shouldClearCodexTitleIdleSuppression(
+        existingStatus: PaneAgentStatus?,
+        incomingTool: AgentTool?,
+        payload: AgentStatusPayload
+    ) -> Bool {
+        let tool = incomingTool ?? existingStatus?.tool
+        guard tool == .codex else {
+            return false
+        }
+
+        switch payload.signalKind {
+        case .lifecycle:
+            return payload.state != nil
+        case .pid:
+            return payload.pidEvent == .attach
+        case .shellState:
+            return payload.shellActivityState == .commandRunning
+        case .paneContext:
+            return false
+        }
+    }
+
+    private func clearCodexTitleIdleSuppression(
+        for paneID: PaneID,
+        in worklane: inout WorklaneState
+    ) {
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.codexTitleIdleSuppressionUntil = nil
+    }
+
     private func completionNotificationIndicatesReady(_ notificationText: String?) -> Bool {
         guard let notificationText = AgentInteractionClassifier.trimmed(notificationText)?.lowercased() else {
             return false
@@ -790,6 +828,7 @@ extension WorklaneStore {
             return
         }
 
+        let priorState = auxiliaryState.agentStatus?.state
         auxiliaryState.agentReducerState = Self.seededReducerState(
             auxiliaryState.agentReducerState,
             from: auxiliaryState.agentStatus
@@ -797,6 +836,10 @@ extension WorklaneStore {
         guard auxiliaryState.agentReducerState.promoteExplicitCodexSessionFromUserInput(now: now) else {
             return
         }
+
+        worklaneStoreLogger.notice(
+            "promoteCodexAgentStateFromUserInput priorState=\(priorState.map(String.init(describing:)) ?? "nil", privacy: .public) pane=\(paneID.rawValue, privacy: .public)"
+        )
 
         auxiliaryState.agentStatus = Self.hydratedStatus(
             auxiliaryState.agentReducerState.reducedStatus(now: now),

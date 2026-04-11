@@ -1400,7 +1400,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(input.notificationType, "idle_prompt")
     }
 
-    func test_claude_hook_idle_prompt_notification_is_ignored() throws {
+    func test_claude_hook_idle_prompt_notification_transitions_to_idle() throws {
         let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Notification","session_id":"session-1","message":"Claude is waiting for your input","notification_type":"idle_prompt"}
@@ -1424,7 +1424,11 @@ final class AgentStatusSupportTests: XCTestCase {
             sessionStore: store
         )
 
-        XCTAssertTrue(payloads.isEmpty)
+        XCTAssertEqual(payloads.count, 1)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .idle)
+        XCTAssertEqual(payload.lifecycleEvent, .update)
+        XCTAssertEqual(payload.sessionID, "session-1")
     }
 
     func test_claude_hook_permission_request_maps_to_needs_input_payload() throws {
@@ -1982,7 +1986,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.toolName, "Claude Code")
     }
 
-    func test_claude_hook_stop_maps_to_stop_candidate_payload_without_clearing_pid_mapping() throws {
+    func test_claude_hook_stop_maps_to_idle_without_clearing_pid_mapping() throws {
         let input = try AgentEventBridge.claudeParseInput(
             Data("""
             {"hook_event_name":"Stop","session_id":"session-1"}
@@ -2009,7 +2013,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .idle)
-        XCTAssertEqual(payload.lifecycleEvent, .stopCandidate)
+        XCTAssertEqual(payload.lifecycleEvent, .update)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Claude Code")
         XCTAssertEqual(try store.lookup(sessionID: "session-1")?.pid, 4242)
@@ -2086,7 +2090,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
     }
 
-    func test_codex_hook_stop_maps_to_stop_candidate_payload() throws {
+    func test_codex_hook_stop_maps_to_idle_payload() throws {
         let payload = try XCTUnwrap(
             AgentEventBridge.codexAdapter(
                 data: Data("""
@@ -2101,7 +2105,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .idle)
-        XCTAssertEqual(payload.lifecycleEvent, .stopCandidate)
+        XCTAssertEqual(payload.lifecycleEvent, .update)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
     }

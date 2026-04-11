@@ -4,7 +4,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class LibghosttyViewScrollRoutingTests: XCTestCase {
+final class LibghosttyViewScrollRoutingTests: AppKitTestCase {
     private var view: LibghosttyView!
     private var surface: ScrollRoutingSurfaceSpy!
 

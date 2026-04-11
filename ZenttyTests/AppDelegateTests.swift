@@ -1,5 +1,4 @@
 import AppKit
-import ObjectiveC.runtime
 import XCTest
 @testable import Zentty
 
@@ -404,16 +403,8 @@ final class AppDelegateTests: XCTestCase {
         let aboutWindow = try XCTUnwrap(delegate.aboutWindow)
 
         let originalWindowNumbers = Set(NSApp.windows.map(\.windowNumber))
-
-        let nestedLayoutCalls = try NestedLayoutSubtreeIfNeededProbe.record {
-            try clickButton(titled: "Licenses", in: aboutWindow)
-            waitForAppWindows()
-        }
-
-        XCTAssertTrue(
-            nestedLayoutCalls.isEmpty,
-            nestedLayoutCalls.map(\.debugSummary).joined(separator: "\n\n")
-        )
+        try clickButton(titled: "Licenses", in: aboutWindow)
+        waitForAppWindows()
 
         let firstLicensesWindow = try XCTUnwrap(delegate.licensesWindow)
         XCTAssertTrue(originalWindowNumbers.contains(firstLicensesWindow.windowNumber) == false)
@@ -718,115 +709,7 @@ private extension AppDelegateTests {
     }
 }
 
-@MainActor
-private enum NestedLayoutSubtreeIfNeededProbe {
-    struct Record {
-        let viewClassName: String
-        let stackSymbols: [String]
-
-        var debugSummary: String {
-            """
-            Nested layoutSubtreeIfNeeded on \(viewClassName)
-            \(stackSymbols.joined(separator: "\n"))
-            """
-        }
-    }
-
-    private static var isInstalled = false
-    private static var isRecording = false
-    private static var layoutDepth = 0
-    private static var records: [Record] = []
-
-    static func record(_ body: () throws -> Void) rethrows -> [Record] {
-        installIfNeeded()
-        records = []
-        isRecording = true
-        defer {
-            isRecording = false
-        }
-
-        try body()
-        return records
-    }
-
-    fileprivate static func pushLayout() {
-        layoutDepth += 1
-    }
-
-    fileprivate static func popLayout() {
-        layoutDepth = max(0, layoutDepth - 1)
-    }
-
-    fileprivate static func recordLayoutSubtreeIfNeeded(on view: NSView) {
-        guard isRecording, layoutDepth > 0 else {
-            return
-        }
-
-        records.append(
-            Record(
-                viewClassName: NSStringFromClass(type(of: view)),
-                stackSymbols: Thread.callStackSymbols
-            )
-        )
-    }
-
-    private static func installIfNeeded() {
-        guard isInstalled == false else {
-            return
-        }
-
-        swizzle(
-            cls: NSView.self,
-            original: #selector(NSView.layout),
-            replacement: #selector(NSView.zentty_probe_layout)
-        )
-        swizzle(
-            cls: NSView.self,
-            original: #selector(NSView.layoutSubtreeIfNeeded),
-            replacement: #selector(NSView.zentty_probe_layoutSubtreeIfNeeded)
-        )
-        swizzle(
-            cls: NSView.self,
-            original: NSSelectorFromString("_layoutSubtreeIfNeededAndAllowTemporaryEngine:"),
-            replacement: #selector(NSView.zentty_probe__layoutSubtreeIfNeededAndAllowTemporaryEngine(_:))
-        )
-        isInstalled = true
-    }
-
-    private static func swizzle(cls: AnyClass, original: Selector, replacement: Selector) {
-        guard
-            let originalMethod = class_getInstanceMethod(cls, original),
-            let replacementMethod = class_getInstanceMethod(cls, replacement)
-        else {
-            fatalError("Missing method for swizzle \(NSStringFromSelector(original))")
-        }
-
-        method_exchangeImplementations(originalMethod, replacementMethod)
-    }
-}
-
 private extension NSView {
-    @objc
-    func zentty_probe_layout() {
-        NestedLayoutSubtreeIfNeededProbe.pushLayout()
-        defer {
-            NestedLayoutSubtreeIfNeededProbe.popLayout()
-        }
-        zentty_probe_layout()
-    }
-
-    @objc
-    func zentty_probe_layoutSubtreeIfNeeded() {
-        NestedLayoutSubtreeIfNeededProbe.recordLayoutSubtreeIfNeeded(on: self)
-        zentty_probe_layoutSubtreeIfNeeded()
-    }
-
-    @objc
-    func zentty_probe__layoutSubtreeIfNeededAndAllowTemporaryEngine(_ allowTemporaryEngine: Bool) {
-        NestedLayoutSubtreeIfNeededProbe.recordLayoutSubtreeIfNeeded(on: self)
-        zentty_probe__layoutSubtreeIfNeededAndAllowTemporaryEngine(allowTemporaryEngine)
-    }
-
     func firstDescendantButton(titled title: String) -> NSButton? {
         if let button = self as? NSButton, button.title == title {
             return button

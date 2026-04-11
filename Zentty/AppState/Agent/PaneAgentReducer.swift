@@ -201,7 +201,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         let candidateSessions = sessionsByID.values.filter { session in
             session.tool == .codex
                 && session.source == .explicit
-                && session.origin != .shell
+                && (session.origin == .explicitHook || session.origin == .explicitAPI)
                 && session.hasObservedRunning
                 && (!session.interactionKind.requiresHumanAttention || session.interactionKind == .genericInput)
                 && (

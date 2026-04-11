@@ -3,7 +3,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class PaneRuntimeRegistryTests: XCTestCase {
+final class PaneRuntimeRegistryTests: AppKitTestCase {
     func test_registry_creates_runtime_once_and_reuses_existing_session_across_worklane_switches() throws {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in

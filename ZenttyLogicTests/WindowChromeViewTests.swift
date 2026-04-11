@@ -3,7 +3,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class WindowChromeViewTests: XCTestCase {
+final class WindowChromeViewTests: AppKitTestCase {
     func test_window_chrome_renders_attention_focused_label_branch_pr_and_review_chips() {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 900, height: WindowChromeView.preferredHeight)

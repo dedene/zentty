@@ -8,8 +8,10 @@ Two test targets:
 
 Run all tests (scheme controls parallelism per-target automatically):
 ```
-xcodebuild test -scheme Zentty -destination 'platform=macOS'
+TEST_RUNNER_SWIFT_BACKTRACE=enable=no xcodebuild test -scheme Zentty -destination 'platform=macOS'
 ```
+
+**Always prefix with `TEST_RUNNER_SWIFT_BACKTRACE=enable=no`.** On macOS 26 (Tahoe) the Swift backtrace handler shows an interactive "Press space to interact" prompt on crash, which hangs xcodebuild indefinitely until a 30s timeout. The `TEST_RUNNER_` prefix forwards env vars from xcodebuild to the xctest subprocess (a plain `SWIFT_BACKTRACE=...` on xcodebuild does NOT propagate).
 
 Multiple agents often run in parallel in this repo.
 

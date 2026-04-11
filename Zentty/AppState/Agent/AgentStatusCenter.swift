@@ -58,6 +58,10 @@ final class AgentStatusCenter: NSObject {
             return
         }
 
+        agentStatusLogger.notice(
+            "payload received tool=\(payload.toolName ?? "nil", privacy: .public) signal=\(String(describing: payload.signalKind), privacy: .public) state=\(payload.state.map(String.init(describing:)) ?? "nil", privacy: .public) lifecycle=\(payload.lifecycleEvent.map(String.init(describing:)) ?? "nil", privacy: .public) origin=\(String(describing: payload.origin), privacy: .public) session=\(payload.sessionID ?? "nil", privacy: .public) pane=\(payload.paneID.rawValue, privacy: .public)"
+        )
+
         Task { @MainActor [weak self] in
             self?.onPayload?(payload)
         }

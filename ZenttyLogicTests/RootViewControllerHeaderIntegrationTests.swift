@@ -12,7 +12,7 @@ private final class StubRenderEnvironment: RenderEnvironmentProviding {
 }
 
 @MainActor
-final class RootViewControllerHeaderIntegrationTests: XCTestCase {
+final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
     func test_root_controller_renders_worklane_header_summary_for_active_worklane() {
         let controller = makeController()
         let paneID = PaneID("pane-claude")

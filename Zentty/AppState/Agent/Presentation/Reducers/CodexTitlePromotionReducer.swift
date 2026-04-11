@@ -1,3 +1,5 @@
+import Foundation
+
 /// Codex emits status words in the terminal title. When hooks report
 /// `.starting` or `.idle` but the title indicates a more advanced phase
 /// (`.running` or `.starting`), promote the runtime phase to the title's
@@ -14,6 +16,13 @@ struct CodexTitlePromotionReducer: PresentationReducer {
             let agentState = context.raw.agentStatus?.state,
             let titlePhase = context.titlePhase
         else {
+            return draft
+        }
+
+        if let suppressionDeadline = context.raw.codexTitleIdleSuppressionUntil,
+           suppressionDeadline > Date(),
+           agentState == .idle,
+           titlePhase == .running || titlePhase == .starting {
             return draft
         }
 

@@ -3,7 +3,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class SidebarUpdateRowTests: XCTestCase {
+final class SidebarUpdateRowTests: AppKitTestCase {
     func test_sidebar_view_keeps_bottom_update_row_outside_scroll_view() throws {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
         sidebarView.render(

@@ -2,7 +2,7 @@
 import XCTest
 
 @MainActor
-final class GhosttyAppearanceSettingsCoordinatorTests: XCTestCase {
+final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
     private var temporaryDirectoryURL: URL!
     private var homeDirectoryURL: URL!
     private var bundledDefaultsURL: URL!

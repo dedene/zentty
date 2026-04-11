@@ -3,7 +3,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class RootViewControllerUpdateIntegrationTests: XCTestCase {
+final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
     private func makeController(
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
