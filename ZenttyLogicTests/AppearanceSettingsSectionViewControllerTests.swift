@@ -78,22 +78,6 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         return (controller, catalog, configCoordinator)
     }
 
-    private func loadAndWaitForThemes(
-        _ controller: AppearanceSettingsSectionViewController,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async {
-        controller.loadViewIfNeeded()
-        let expectation = XCTestExpectation(description: "Themes loaded")
-        Task {
-            while controller.themes.isEmpty {
-                try? await Task.sleep(nanoseconds: 5_000_000)
-            }
-            expectation.fulfill()
-        }
-        await fulfillment(of: [expectation], timeout: 2.0)
-    }
-
     private func waitForCondition(
         file: StaticString = #filePath,
         line: UInt = #line,
@@ -127,20 +111,25 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         with controller: NSViewController,
         size: NSSize = NSSize(width: 980, height: 760)
     ) -> NSWindow {
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(origin: .zero, size: size)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.contentViewController = controller
+        ).prepareForAppKitTesting()
+        window.contentView = controller.view
         window.orderFrontRegardless()
+        controller.view.frame = NSRect(origin: .zero, size: size)
+        controller.view.layoutSubtreeIfNeeded()
+        controller.view.displayIfNeeded()
         return window
     }
 
     private func renderView(_ view: NSView) throws {
         view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
             XCTFail("Expected bitmap image rep for rendering")
             return
@@ -253,7 +242,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         addTeardownBlock {
             window.close()
         }
-        await loadAndWaitForThemes(controller)
+        await controller.loadThemesForTesting()
         try renderView(controller.view)
 
         XCTAssertEqual(controller.activeThemeNameForTesting, "Zentty-Default")
