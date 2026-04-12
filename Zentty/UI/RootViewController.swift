@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import os
 
 @MainActor
 final class RootViewController: NSViewController {
@@ -746,8 +747,9 @@ final class RootViewController: NSViewController {
         themeCoordinator.onThemeDidChange = { [weak self] theme, animated in
             self?.applyThemeToViews(theme, animated: animated)
         }
-        themeCoordinator.onTerminalConfigReload = {
+        themeCoordinator.onTerminalConfigReload = { [weak self] in
             LibghosttyRuntime.shared.reloadConfig()
+            self?.syncRunningOpenCodeThemesIfNeeded()
         }
         globalSearchCoordinator.onStateDidChange = { [weak self] state in
             self?.applyGlobalSearchState(state)
@@ -769,6 +771,40 @@ final class RootViewController: NSViewController {
             self?.worklaneStore.applyAgentStatusPayload(payload)
         }
         agentStatusCenter.start()
+    }
+
+    private func syncRunningOpenCodeThemesIfNeeded() {
+        let appConfig = configStore.current
+        guard appConfig.appearance.syncOpenCodeThemeWithTerminal else {
+            return
+        }
+        guard let runtimeDirectoryURL = AgentIPCServer.shared.currentRuntimeDirectoryURL() else {
+            return
+        }
+
+        let panes = OpenCodeLiveThemeSync.runningPanes(in: worklaneStore.worklanes)
+        guard !panes.isEmpty else {
+            return
+        }
+
+        let configEnvironment = GhosttyConfigEnvironment(appConfigProvider: { [weak configStore] in
+            configStore?.current ?? .default
+        })
+
+        do {
+            _ = try OpenCodeLiveThemeSync.syncRunningPanes(
+                panes,
+                runtimeDirectoryURL: runtimeDirectoryURL,
+                appConfig: appConfig,
+                configEnvironment: configEnvironment,
+                effectiveAppearance: view.effectiveAppearance,
+                themeDirectories: GhosttyThemeLibrary.resolverThemeDirectories()
+            )
+        } catch {
+            Logger(subsystem: "be.zenjoy.zentty", category: "RootViewController").error(
+                "Failed to sync running OpenCode themes: \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
     private func applyInitialState() {

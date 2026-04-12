@@ -412,6 +412,12 @@ final class AgentIPCServer: @unchecked Sendable {
         }
     }
 
+    func currentRuntimeDirectoryURL() -> URL? {
+        queue.sync {
+            runtimeDirectoryURL
+        }
+    }
+
     private func makeRuntimeDirectory() throws -> URL {
         let baseDirectory = baseRuntimeDirectoryURL()
         try fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true)

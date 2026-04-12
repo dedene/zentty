@@ -19,8 +19,10 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             subtitle: "Using your Ghostty config.",
             showsCreateSharedConfigAction: false
         )
+        var syncOpenCodeThemeWithTerminal = false
         private(set) var appliedThemes: [String] = []
         private(set) var appliedOpacities: [CGFloat] = []
+        private(set) var appliedOpenCodeThemeSyncValues: [Bool] = []
         private(set) var createSharedConfigCallCount = 0
 
         func applyTheme(_ name: String, presentingWindow _: NSWindow?) async {
@@ -29,6 +31,11 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
 
         func applyBackgroundOpacity(_ opacity: CGFloat, presentingWindow _: NSWindow?) async {
             appliedOpacities.append(opacity)
+        }
+
+        func applyOpenCodeThemeSync(_ enabled: Bool) async {
+            syncOpenCodeThemeWithTerminal = enabled
+            appliedOpenCodeThemeSyncValues.append(enabled)
         }
 
         func createSharedConfig(presentingWindow _: NSWindow?) async {
@@ -114,6 +121,31 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         }
 
         return nil
+    }
+
+    private func makeVisibleWindow(
+        with controller: NSViewController,
+        size: NSSize = NSSize(width: 980, height: 760)
+    ) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        window.orderFrontRegardless()
+        return window
+    }
+
+    private func renderView(_ view: NSView) throws {
+        view.layoutSubtreeIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            XCTFail("Expected bitmap image rep for rendering")
+            return
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
     }
 
     // MARK: - Tests
@@ -203,7 +235,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertEqual(controller.activeThemeNameForTesting, "DarkTheme")
     }
 
-    func testActiveBuiltInDefaultThemeRemainsSelectableWhenOtherThemesExist() async {
+    func testActiveBuiltInDefaultThemeRemainsSelectableWhenOtherThemesExist() async throws {
         let themes = [
             makeTheme(
                 name: "Zentty-Default",
@@ -218,7 +250,12 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             themes: themes,
             activeThemeName: "Zentty-Default"
         )
+        let window = makeVisibleWindow(with: controller)
+        addTeardownBlock {
+            window.close()
+        }
         await loadAndWaitForThemes(controller)
+        try renderView(controller.view)
 
         XCTAssertEqual(controller.activeThemeNameForTesting, "Zentty-Default")
         XCTAssertEqual(controller.themes.map(\.displayName), ["Zentty Default Theme", "TokyoNight"])
@@ -291,6 +328,27 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
 
         let opacity = try XCTUnwrap(coordinator.appliedOpacities.first)
         XCTAssertEqual(opacity, 0.62, accuracy: 0.0001)
+    }
+
+    func testOpenCodeThemeSyncToggleReflectsCoordinatorState() {
+        let coordinator = StubConfigCoordinator()
+        coordinator.syncOpenCodeThemeWithTerminal = true
+        let (controller, _, _) = makeController(configCoordinator: coordinator)
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertTrue(controller.isOpenCodeThemeSyncEnabledForTesting)
+    }
+
+    func testOpenCodeThemeSyncToggleCallsCoordinator() async {
+        let coordinator = StubConfigCoordinator()
+        let (controller, _, _) = makeController(configCoordinator: coordinator)
+
+        controller.loadViewIfNeeded()
+        controller.setOpenCodeThemeSyncEnabledForTesting(true)
+        await waitForCondition { coordinator.appliedOpenCodeThemeSyncValues == [true] }
+
+        XCTAssertEqual(coordinator.appliedOpenCodeThemeSyncValues, [true])
     }
 
     func testConformsToSettingsAppearanceUpdating() {
