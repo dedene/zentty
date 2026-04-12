@@ -49,6 +49,35 @@ final class PaneContainerViewTests: AppKitTestCase {
         XCTAssertLessThan(borderFrame.maxX, paneView.bounds.maxX)
         XCTAssertEqual(borderFrame.minY, expectedInset, accuracy: 0.001)
         XCTAssertLessThan(borderFrame.maxY, paneView.bounds.maxY)
+        let strokeRect = paneView.insetBorderStrokeRectForTesting
+        XCTAssertEqual(strokeRect.minX, 0.5, accuracy: 0.001)
+        XCTAssertEqual(strokeRect.minY, 0.5, accuracy: 0.001)
+        XCTAssertEqual(strokeRect.width, borderFrame.width - 1, accuracy: 0.001)
+        XCTAssertEqual(strokeRect.height, borderFrame.height - 1, accuracy: 0.001)
+        let hostView = NSView(frame: CGRect(x: 0, y: 0, width: 900, height: 900))
+        hostView.wantsLayer = true
+        paneView.frame = CGRect(x: 10.25, y: 7.75, width: 420, height: 520)
+        hostView.addSubview(paneView)
+        hostView.layoutSubtreeIfNeeded()
+        paneView.layoutSubtreeIfNeeded()
+
+        let scale: CGFloat = 2
+        let hostedBorderFrame = paneView.insetBorderFrame
+        let hostedStrokeRect = paneView.insetBorderStrokeRectForTesting
+        let absoluteBorderMinX = paneView.frame.minX + hostedBorderFrame.minX
+        let absoluteBorderMinY = paneView.frame.minY + hostedBorderFrame.minY
+        let absoluteBorderMaxX = paneView.frame.minX + hostedBorderFrame.maxX
+        let absoluteBorderMaxY = paneView.frame.minY + hostedBorderFrame.maxY
+
+        let expectedAbsoluteMinX = ((absoluteBorderMinX + 0.5) * scale).rounded(.up) / scale
+        let expectedAbsoluteMinY = ((absoluteBorderMinY + 0.5) * scale).rounded(.up) / scale
+        let expectedAbsoluteMaxX = ((absoluteBorderMaxX - 0.5) * scale).rounded(.down) / scale
+        let expectedAbsoluteMaxY = ((absoluteBorderMaxY - 0.5) * scale).rounded(.down) / scale
+
+        XCTAssertEqual(hostedStrokeRect.minX, expectedAbsoluteMinX - absoluteBorderMinX, accuracy: 0.001)
+        XCTAssertEqual(hostedStrokeRect.minY, expectedAbsoluteMinY - absoluteBorderMinY, accuracy: 0.001)
+        XCTAssertEqual(hostedStrokeRect.maxX, expectedAbsoluteMaxX - absoluteBorderMinX, accuracy: 0.001)
+        XCTAssertEqual(hostedStrokeRect.maxY, expectedAbsoluteMaxY - absoluteBorderMinY, accuracy: 0.001)
     }
 
     func test_startup_failure_shows_retry_and_close_actions() {
@@ -454,6 +483,7 @@ final class PaneContainerViewTests: AppKitTestCase {
         paneView.layoutSubtreeIfNeeded()
 
         let originalFrame = paneView.insetBorderFrame
+        paneView.setBorderLabelGap(width: 120)
 
         paneView.animateInsetBorder(to: CGSize(width: 560, height: 520))
 
@@ -461,6 +491,10 @@ final class PaneContainerViewTests: AppKitTestCase {
             paneView.insetBorderFrame,
             originalFrame,
             "Inset border should keep its current geometry and ride the pane's parent animation instead of pre-sizing itself"
+        )
+        XCTAssertFalse(
+            paneView.isInsetBorderGapSuppressedForTesting,
+            "Inset border label gap should remain active during animation so the border never crosses through the pane label"
         )
     }
 
