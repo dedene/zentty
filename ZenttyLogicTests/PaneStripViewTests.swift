@@ -25,6 +25,25 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    @discardableResult
+    private func hostInVisibleWindow(_ paneStripView: PaneStripView) -> NSWindow {
+        let window = NSWindow(
+            contentRect: paneStripView.frame,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
+        window.contentView = paneStripView
+        window.makeKeyAndOrderFront(nil)
+        return window
+    }
+
+    @MainActor
     func test_pane_frames_keep_width_when_container_width_changes() {
         let paneStripView = makePaneStripView(width: 1400, height: 720)
         let state = PaneStripState(
@@ -1375,7 +1394,7 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
-    func test_animation_resumes_for_same_size_state_changes_after_programmatic_resize() {
+    func test_same_size_state_changes_after_programmatic_resize_skip_animation_without_visible_window() {
         let paneStripView = makePaneStripView()
         let editorFocused = PaneStripState(
             panes: [
@@ -1404,7 +1423,7 @@ final class PaneStripViewTests: AppKitTestCase {
         paneStripView.render(shellFocused)
         paneStripView.layoutSubtreeIfNeeded()
 
-        XCTAssertTrue(paneStripView.lastRenderWasAnimated)
+        XCTAssertFalse(paneStripView.lastRenderWasAnimated)
     }
 
     @MainActor
@@ -1872,6 +1891,7 @@ final class PaneStripViewTests: AppKitTestCase {
             frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
             runtimeRegistry: runtimeRegistry
         )
+        hostInVisibleWindow(paneStripView)
         let singlePane = PaneStripState(
             columns: [
                 PaneColumnState(
@@ -1943,6 +1963,7 @@ final class PaneStripViewTests: AppKitTestCase {
     @MainActor
     func test_vertical_split_freezes_source_terminal_layout_until_animation_settles() throws {
         let paneStripView = makePaneStripView()
+        hostInVisibleWindow(paneStripView)
         let singlePane = PaneStripState(
             columns: [
                 PaneColumnState(
@@ -2053,6 +2074,7 @@ final class PaneStripViewTests: AppKitTestCase {
     @MainActor
     func test_vertical_pane_removal_freezes_remaining_pane_until_animation_settles() throws {
         let paneStripView = makePaneStripView()
+        hostInVisibleWindow(paneStripView)
         let splitState = PaneStripState(
             columns: [
                 PaneColumnState(
@@ -2110,6 +2132,7 @@ final class PaneStripViewTests: AppKitTestCase {
             frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
             runtimeRegistry: runtimeRegistry
         )
+        hostInVisibleWindow(paneStripView)
         let splitState = PaneStripState(
             columns: [
                 PaneColumnState(
@@ -2170,6 +2193,7 @@ final class PaneStripViewTests: AppKitTestCase {
             frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
             runtimeRegistry: runtimeRegistry
         )
+        hostInVisibleWindow(paneStripView)
         let splitState = PaneStripState(
             columns: [
                 PaneColumnState(

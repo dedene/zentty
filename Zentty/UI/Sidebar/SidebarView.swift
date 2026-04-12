@@ -678,14 +678,24 @@ final class SidebarView: NSView {
         case .changed, .ended:
             let translation = recognizer.translation(in: self).x
             onResized?(
-                SidebarWidthPreference.clamped(
-                    resizeStartWidth + translation,
+                resolvedResizeWidth(
+                    startWidth: resizeStartWidth,
+                    translation: translation,
                     availableWidth: window?.contentView?.bounds.width
                 )
             )
         default:
             break
         }
+    }
+
+    private func resolvedResizeWidth(
+        startWidth: CGFloat,
+        translation: CGFloat,
+        availableWidth: CGFloat?
+    ) -> CGFloat {
+        _ = availableWidth
+        return startWidth + translation
     }
 
     var worklanePrimaryTexts: [String] {
@@ -871,6 +881,18 @@ final class SidebarView: NSView {
 
     func performUpdateAvailableRowClickForTesting() {
         updateAvailableRowView.performClickForTesting()
+    }
+
+    func proposedResizeWidthForTesting(
+        startWidth: CGFloat,
+        translation: CGFloat,
+        availableWidth: CGFloat?
+    ) -> CGFloat {
+        resolvedResizeWidth(
+            startWidth: startWidth,
+            translation: translation,
+            availableWidth: availableWidth
+        )
     }
 }
 
