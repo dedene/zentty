@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum AgentLaunchBootstrap {
@@ -6,7 +7,8 @@ enum AgentLaunchBootstrap {
         target: AgentIPCTarget,
         runtimeDirectoryURL: URL,
         bundle: Bundle = .main,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        appConfigProvider: () -> AppConfig = loadAppConfig
     ) throws -> AgentLaunchPlan {
         guard request.version == AgentIPCProtocol.version else {
             throw AgentIPCError.invalidMessage
@@ -56,13 +58,17 @@ enum AgentLaunchBootstrap {
             )
         case .opencode:
             return try opencodePlan(
-                executablePath: executablePath,
+                executablePath: resolvedOpenCodeExecutablePath(
+                    executablePath,
+                    fileManager: fileManager
+                ),
                 arguments: request.arguments,
                 environment: environment,
                 target: target,
                 runtimeDirectoryURL: runtimeDirectoryURL,
                 bundle: bundle,
-                fileManager: fileManager
+                fileManager: fileManager,
+                appConfigProvider: appConfigProvider
             )
         }
     }
@@ -285,13 +291,15 @@ enum AgentLaunchBootstrap {
         target: AgentIPCTarget,
         runtimeDirectoryURL: URL,
         bundle: Bundle,
-        fileManager: FileManager
+        fileManager: FileManager,
+        appConfigProvider: () -> AppConfig
     ) throws -> AgentLaunchPlan {
         var setEnvironment = ["ZENTTY_AGENT_TOOL": "opencode"]
         let sourceConfigPath = environment["ZENTTY_OPENCODE_BASE_CONFIG_DIR"]?.nilIfBlank
             ?? environment["OPENCODE_CONFIG_DIR"]?.nilIfBlank
             ?? ""
         setEnvironment["ZENTTY_OPENCODE_BASE_CONFIG_DIR"] = sourceConfigPath
+        let appConfig = appConfigProvider()
 
         if let pluginURL = bundle.resourceURL?
             .appendingPathComponent("opencode", isDirectory: true)
@@ -304,7 +312,10 @@ enum AgentLaunchBootstrap {
                 runtimeDirectoryURL: runtimeDirectoryURL,
                 fileManager: fileManager
             )
-            let overlayConfigURL = overlayDirectoryURL.appendingPathComponent("config", isDirectory: true)
+            let overlayRoots = OpenCodeOverlayLayout.overlayRoots(for: overlayDirectoryURL)
+            let overlayConfigURL = appConfig.appearance.syncOpenCodeThemeWithTerminal
+                ? overlayRoots.configDirectoryURL
+                : overlayDirectoryURL.appendingPathComponent("config", isDirectory: true)
             try fileManager.createDirectory(at: overlayConfigURL, withIntermediateDirectories: true)
             if let sourceConfigPath = sourceConfigPath.nilIfBlank,
                fileManager.fileExists(atPath: sourceConfigPath) {
@@ -321,6 +332,23 @@ enum AgentLaunchBootstrap {
                 at: pluginURL,
                 to: pluginsURL.appendingPathComponent(pluginURL.lastPathComponent, isDirectory: false)
             )
+            try OpenCodeThemeSync.apply(
+                toOverlayConfigDirectory: overlayConfigURL,
+                appConfig: appConfig,
+                configEnvironment: GhosttyConfigEnvironment(appConfigProvider: { appConfig }),
+                effectiveAppearance: NSApp?.effectiveAppearance ?? NSAppearance(named: .darkAqua) ?? NSAppearance.current,
+                themeDirectories: GhosttyThemeLibrary.resolverThemeDirectories(),
+                fileManager: fileManager
+            )
+            if appConfig.appearance.syncOpenCodeThemeWithTerminal {
+                try prepareOpenCodeStateOverlay(
+                    sourceStateDirectoryURL: opencodeSourceStateDirectoryURL(environment: environment),
+                    overlayStateDirectoryURL: overlayRoots.stateDirectoryURL,
+                    fileManager: fileManager
+                )
+                setEnvironment["XDG_CONFIG_HOME"] = overlayRoots.configHomeURL.path
+                setEnvironment["XDG_STATE_HOME"] = overlayRoots.stateHomeURL.path
+            }
             setEnvironment["OPENCODE_CONFIG_DIR"] = overlayConfigURL.path
         }
 
@@ -340,6 +368,28 @@ enum AgentLaunchBootstrap {
                 ),
             ]
         )
+    }
+
+    private static func resolvedOpenCodeExecutablePath(
+        _ executablePath: String,
+        fileManager: FileManager
+    ) -> String {
+        let executableURL = URL(fileURLWithPath: executablePath, isDirectory: false)
+        guard executableURL.lastPathComponent == "opencode" else {
+            return executablePath
+        }
+
+        let candidateExecutableURLs = [executableURL, executableURL.resolvingSymlinksInPath()]
+        for candidateExecutableURL in candidateExecutableURLs {
+            let siblingBinaryURL = candidateExecutableURL
+                .deletingLastPathComponent()
+                .appendingPathComponent(".opencode", isDirectory: false)
+            if fileManager.isExecutableFile(atPath: siblingBinaryURL.path) {
+                return siblingBinaryURL.path
+            }
+        }
+
+        return executablePath
     }
 
     private static func prepareCodexOverlay(
@@ -445,6 +495,51 @@ enum AgentLaunchBootstrap {
         }
         try fileManager.createDirectory(at: toolURL, withIntermediateDirectories: true)
         return toolURL
+    }
+
+    private static func opencodeSourceStateDirectoryURL(environment: [String: String]) -> URL {
+        let basePath = environment["XDG_STATE_HOME"]?.nilIfBlank
+            ?? URL(fileURLWithPath: environment["HOME"]?.nilIfBlank ?? NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent(".local", isDirectory: true)
+                .appendingPathComponent("state", isDirectory: true)
+                .path
+        return URL(fileURLWithPath: basePath, isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+    }
+
+    private static func prepareOpenCodeStateOverlay(
+        sourceStateDirectoryURL: URL,
+        overlayStateDirectoryURL: URL,
+        fileManager: FileManager
+    ) throws {
+        try fileManager.createDirectory(at: overlayStateDirectoryURL, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: sourceStateDirectoryURL.path) {
+            try copyDirectoryContents(
+                from: sourceStateDirectoryURL,
+                to: overlayStateDirectoryURL,
+                fileManager: fileManager
+            )
+        }
+        try scrubOpenCodeThemeState(in: overlayStateDirectoryURL, fileManager: fileManager)
+    }
+
+    private static func scrubOpenCodeThemeState(in stateDirectoryURL: URL, fileManager: FileManager) throws {
+        let kvURL = stateDirectoryURL.appendingPathComponent("kv.json", isDirectory: false)
+        guard fileManager.fileExists(atPath: kvURL.path) else {
+            return
+        }
+        guard let data = try? Data(contentsOf: kvURL),
+              var jsonObject = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return
+        }
+
+        jsonObject.removeValue(forKey: "theme")
+        jsonObject.removeValue(forKey: "theme_mode")
+        jsonObject.removeValue(forKey: "theme_mode_lock")
+
+        let cleaned = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .sortedKeys])
+        try cleaned.write(to: kvURL, options: .atomic)
     }
 
     private static func codexBaseHooksJSON(cliPath: String) throws -> Data {
@@ -939,6 +1034,18 @@ enum AgentLaunchBootstrap {
         }
 
         return output.data(using: .utf8)
+    }
+
+    private static func loadAppConfig() -> AppConfig {
+        let fileURL = AppConfigStore.defaultFileURL()
+        guard
+            let source = try? String(contentsOf: fileURL, encoding: .utf8),
+            let config = AppConfigTOML.decode(source)
+        else {
+            return .default
+        }
+
+        return config
     }
 }
 

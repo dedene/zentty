@@ -19,8 +19,10 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             subtitle: "Using your Ghostty config.",
             showsCreateSharedConfigAction: false
         )
+        var syncOpenCodeThemeWithTerminal = false
         private(set) var appliedThemes: [String] = []
         private(set) var appliedOpacities: [CGFloat] = []
+        private(set) var appliedOpenCodeThemeSyncValues: [Bool] = []
         private(set) var createSharedConfigCallCount = 0
 
         func applyTheme(_ name: String, presentingWindow _: NSWindow?) async {
@@ -29,6 +31,11 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
 
         func applyBackgroundOpacity(_ opacity: CGFloat, presentingWindow _: NSWindow?) async {
             appliedOpacities.append(opacity)
+        }
+
+        func applyOpenCodeThemeSync(_ enabled: Bool) async {
+            syncOpenCodeThemeWithTerminal = enabled
+            appliedOpenCodeThemeSyncValues.append(enabled)
         }
 
         func createSharedConfig(presentingWindow _: NSWindow?) async {
@@ -71,6 +78,37 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         return (controller, catalog, configCoordinator)
     }
 
+    private func loadAndWaitForThemes(
+        _ controller: AppearanceSettingsSectionViewController,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        controller.loadViewIfNeeded()
+        let expectation = XCTestExpectation(description: "Themes loaded")
+        Task {
+            while controller.themes.isEmpty {
+                try? await Task.sleep(nanoseconds: 5_000_000)
+            }
+            expectation.fulfill()
+        }
+        await fulfillment(of: [expectation], timeout: 2.0)
+    }
+
+    private func waitForCondition(
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ predicate: @escaping @MainActor () -> Bool
+    ) async {
+        let expectation = XCTestExpectation(description: "Condition satisfied")
+        Task {
+            while predicate() == false {
+                try? await Task.sleep(nanoseconds: 5_000_000)
+            }
+            expectation.fulfill()
+        }
+        await fulfillment(of: [expectation], timeout: 2.0)
+    }
+
     private func firstSlider(in view: NSView) -> NSSlider? {
         if let slider = view as? NSSlider {
             return slider
@@ -85,16 +123,28 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         return nil
     }
 
-    private func render(view: NSView, size: NSSize) {
-        view.frame = NSRect(origin: .zero, size: size)
-        view.layoutSubtreeIfNeeded()
+    private func makeVisibleWindow(
+        with controller: NSViewController,
+        size: NSSize = NSSize(width: 980, height: 760)
+    ) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        window.orderFrontRegardless()
+        return window
+    }
 
-        let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
-        XCTAssertNotNil(bitmap)
-        guard let bitmap else {
+    private func renderView(_ view: NSView) throws {
+        view.layoutSubtreeIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            XCTFail("Expected bitmap image rep for rendering")
             return
         }
-
         view.cacheDisplay(in: view.bounds, to: bitmap)
     }
 
@@ -184,7 +234,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertEqual(controller.activeThemeNameForTesting, "DarkTheme")
     }
 
-    func testActiveBuiltInDefaultThemeRemainsSelectableWhenOtherThemesExist() async {
+    func testActiveBuiltInDefaultThemeRemainsSelectableWhenOtherThemesExist() async throws {
         let themes = [
             makeTheme(
                 name: "Zentty-Default",
@@ -199,7 +249,12 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             themes: themes,
             activeThemeName: "Zentty-Default"
         )
-        await controller.loadThemesForTesting()
+        let window = makeVisibleWindow(with: controller)
+        addTeardownBlock {
+            window.close()
+        }
+        await loadAndWaitForThemes(controller)
+        try renderView(controller.view)
 
         XCTAssertEqual(controller.activeThemeNameForTesting, "Zentty-Default")
         XCTAssertEqual(controller.themes.map(\.displayName), ["Zentty Default Theme", "TokyoNight"])
@@ -287,7 +342,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertNotNil(attributes[.foregroundColor] as? NSColor)
     }
 
-    func testRenderingAppearanceSettingsControllerDoesNotCrash() async {
+    func testRenderingAppearanceSettingsControllerDoesNotCrash() async throws {
         let themes = [
             makeTheme(
                 name: "Zentty-Default",
@@ -308,8 +363,34 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         )
         await controller.loadThemesForTesting()
 
-        render(view: controller.view, size: NSSize(width: 860, height: 760))
-        render(view: controller.view, size: NSSize(width: 860, height: 760))
+        let window = makeVisibleWindow(with: controller, size: NSSize(width: 860, height: 760))
+        addTeardownBlock {
+            window.close()
+        }
+
+        try renderView(controller.view)
+        try renderView(controller.view)
+    }
+
+    func testOpenCodeThemeSyncToggleReflectsCoordinatorState() {
+        let coordinator = StubConfigCoordinator()
+        coordinator.syncOpenCodeThemeWithTerminal = true
+        let (controller, _, _) = makeController(configCoordinator: coordinator)
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertTrue(controller.isOpenCodeThemeSyncEnabledForTesting)
+    }
+
+    func testOpenCodeThemeSyncToggleCallsCoordinator() async {
+        let coordinator = StubConfigCoordinator()
+        let (controller, _, _) = makeController(configCoordinator: coordinator)
+
+        controller.loadViewIfNeeded()
+        controller.setOpenCodeThemeSyncEnabledForTesting(true)
+        await waitForCondition { coordinator.appliedOpenCodeThemeSyncValues == [true] }
+
+        XCTAssertEqual(coordinator.appliedOpenCodeThemeSyncValues, [true])
     }
 
     func testConformsToSettingsAppearanceUpdating() {
