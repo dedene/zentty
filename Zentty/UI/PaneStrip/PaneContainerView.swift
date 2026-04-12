@@ -438,14 +438,11 @@ final class PaneContainerView: NSView {
     }
 
     func animateInsetBorder(to targetSize: CGSize) {
+        _ = targetSize
         isInsetBorderAnimationManaged = true
         let backingScaleFactor = resolvedBackingScaleFactor
-        let inset = ChromeGeometry.paneBorderInset(backingScaleFactor: backingScaleFactor)
-        let insetRect = CGRect(origin: .zero, size: targetSize).insetBy(dx: inset, dy: inset)
-        let cornerRadius = max(0, Layout.cornerRadius - inset)
         insetBorderLayer.contentsScale = backingScaleFactor
-        insetBorderLayer.frame = insetRect
-        insetBorderLayer.cornerRadius = cornerRadius
+        insetBorderLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         // Remove the gap mask during animation — the tiny label notch is
         // imperceptible during a 0.24s transition, and this avoids any
         // stale-mask clipping artifacts. syncInsetBorderNow() restores it.
@@ -454,6 +451,7 @@ final class PaneContainerView: NSView {
 
     func syncInsetBorderNow() {
         isInsetBorderAnimationManaged = false
+        insetBorderLayer.autoresizingMask = []
         insetBorderLayer.mask = borderGapMaskLayer
         updateInsetBorderLayer()
     }

@@ -433,6 +433,37 @@ final class PaneContainerViewTests: AppKitTestCase {
         XCTAssertEqual(paneView.statusOverlayFrame, paneView.bounds)
     }
 
+    func test_animated_inset_border_resize_keeps_existing_geometry_until_parent_resizes() throws {
+        let pane = PaneState(id: PaneID("editor"), title: "editor")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: PaneContainerTerminalAdapterSpy(),
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil),
+            backingScaleFactorProvider: { 2 }
+        )
+        paneView.layoutSubtreeIfNeeded()
+
+        let originalFrame = paneView.insetBorderFrame
+
+        paneView.animateInsetBorder(to: CGSize(width: 560, height: 520))
+
+        XCTAssertEqual(
+            paneView.insetBorderFrame,
+            originalFrame,
+            "Inset border should keep its current geometry and ride the pane's parent animation instead of pre-sizing itself"
+        )
+    }
+
     func test_vertical_freeze_keeps_terminal_height_stable() {
         let pane = PaneState(id: PaneID("editor"), title: "editor")
         let runtime = PaneRuntime(
