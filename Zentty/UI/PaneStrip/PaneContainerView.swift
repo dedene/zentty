@@ -570,6 +570,9 @@ final class PaneContainerView: NSView {
 
     func animateInsetBorder(to targetSize: CGSize) {
         _ = targetSize
+        if insetBorderLayer.frame == .zero, !bounds.isEmpty {
+            updateInsetBorderLayer()
+        }
         isInsetBorderAnimationManaged = true
         let backingScaleFactor = resolvedBackingScaleFactor
         insetBorderLayer.contentsScale = backingScaleFactor

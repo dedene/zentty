@@ -27,6 +27,31 @@ final class RootViewCompositionTests: AppKitTestCase {
         )
     }
 
+    @MainActor
+    @discardableResult
+    private func hostInVisibleWindow(
+        _ controller: RootViewController,
+        frame: NSRect = NSRect(x: 0, y: 0, width: 1280, height: 840)
+    ) -> NSWindow {
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(origin: .zero, size: frame.size)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
+        window.contentView = controller.view
+        window.makeKeyAndOrderFront(nil)
+        controller.view.layoutSubtreeIfNeeded()
+        return window
+    }
+
     private func makeSidebarSummary(
         worklaneID: WorklaneID,
         title: String,
@@ -283,6 +308,31 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertGreaterThanOrEqual(rowFrame.minX, visibleLaneFrame.minX - 0.5)
     }
 
+    func test_root_controller_ignores_redundant_max_sidebar_width_updates() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 900, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        controller.setSidebarWidth(10_000)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let paneView = try XCTUnwrap(appCanvasView.descendantPaneViews().first)
+        let clampedWidth = SidebarWidthPreference.maximumWidth(for: controller.view.bounds.width)
+        let initialRenderCount = appCanvasView.paneStripRenderCountForTesting
+        let initialLeadingInset = appCanvasView.leadingVisibleInset
+        let initialBorderFrame = paneView.visibleInsetBorderFrameForTesting
+
+        controller.setSidebarWidth(10_000)
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(controller.currentSidebarWidth, clampedWidth, accuracy: 0.001)
+        XCTAssertEqual(appCanvasView.paneStripRenderCountForTesting, initialRenderCount)
+        XCTAssertEqual(appCanvasView.leadingVisibleInset, initialLeadingInset, accuracy: 0.001)
+        XCTAssertEqual(paneView.visibleInsetBorderFrameForTesting, initialBorderFrame)
+    }
+
     func test_root_controller_visible_lane_starts_at_actual_trailing_edge_of_left_controls() throws {
         let controller = makeControllerWithCrowdedHeader(width: 1280)
         let rootSubviews = controller.view.subviews
@@ -300,9 +350,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_animates_width_preset_with_split_curve() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
-        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
-        controller.view.layoutSubtreeIfNeeded()
+        hostInVisibleWindow(controller)
 
         controller.handle(.pane(.splitAfterFocusedPane))
         controller.view.layoutSubtreeIfNeeded()
@@ -490,9 +538,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_sidebar_toggle_relays_layout_change_as_single_canvas_transition() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
-        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
-        controller.view.layoutSubtreeIfNeeded()
+        hostInVisibleWindow(controller)
 
         let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
         let initialRenderCount = appCanvasView.paneStripRenderCountForTesting
@@ -1682,6 +1728,51 @@ final class RootViewCompositionTests: AppKitTestCase {
             paneViews[0].visibleInsetBorderFrameForTesting.minX,
             expectedLeadingEdge + 0.001
         )
+        XCTAssertEqual(
+            paneViews[1].visibleInsetBorderFrameForTesting.maxX,
+            expectedTrailingEdge,
+            accuracy: 0.001
+        )
+    }
+
+    func test_focus_shift_after_max_sidebar_width_keeps_strip_flush_with_visible_lane() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusFirstColumn))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.resizeRight))
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.setSidebarWidth(10_000)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.focusLastColumn))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView)
+        var paneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        XCTAssertEqual(paneViews.count, 2)
+
+        let expectedTrailingEdge = appCanvasView.bounds.width
+            - paneViews[1].insetBorderInset
+        XCTAssertEqual(
+            paneViews[1].visibleInsetBorderFrameForTesting.maxX,
+            expectedTrailingEdge,
+            accuracy: 0.001
+        )
+
+        controller.handle(.pane(.focusFirstColumn))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusLastColumn))
+        controller.view.layoutSubtreeIfNeeded()
+
+        paneViews = appCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
+        XCTAssertEqual(paneViews.count, 2)
         XCTAssertEqual(
             paneViews[1].visibleInsetBorderFrameForTesting.maxX,
             expectedTrailingEdge,

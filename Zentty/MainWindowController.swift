@@ -946,7 +946,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             displayClass: displayClass,
             viewportWidth: viewportWidth,
             leadingVisibleInset: SidebarVisibilityController(mode: config.sidebar.visibility)
-                .effectiveLeadingInset(sidebarWidth: config.sidebar.width),
+                .effectiveLeadingInset(
+                    sidebarWidth: config.sidebar.width,
+                    availableWidth: initialFrame.width
+                ),
             sizing: PaneLayoutSizing.forSidebarVisibility(config.sidebar.visibility)
         )
     }

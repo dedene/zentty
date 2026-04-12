@@ -1541,10 +1541,7 @@ final class RootViewController: NSViewController {
     }
 
     private func handleSidebarWidthChange(_ width: CGFloat) {
-        sidebarMotionCoordinator.setSidebarWidth(
-            width, availableWidth: resolvedSidebarAvailableWidth(), persist: true)
-        sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
-        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        updateSidebarWidth(width, persist: true)
     }
 
     private func syncSidebarVisibilityControls(animated: Bool) {
@@ -1814,10 +1811,7 @@ final class RootViewController: NSViewController {
         }
 
         func setSidebarWidth(_ width: CGFloat) {
-            sidebarMotionCoordinator.setSidebarWidth(
-                width, availableWidth: resolvedSidebarAvailableWidth(), persist: false)
-            sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
-            applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+            updateSidebarWidth(width, persist: false)
         }
 
         var paneStripStateForTesting: PaneStripState {
@@ -1874,6 +1868,21 @@ final class RootViewController: NSViewController {
         let previousWidth = sidebarMotionCoordinator.currentSidebarWidth
         sidebarMotionCoordinator.setSidebarWidth(
             previousWidth,
+            availableWidth: resolvedSidebarAvailableWidth(),
+            persist: persist
+        )
+        guard abs(sidebarMotionCoordinator.currentSidebarWidth - previousWidth) > 0.001 else {
+            return
+        }
+
+        sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
+        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+    }
+
+    private func updateSidebarWidth(_ width: CGFloat, persist: Bool) {
+        let previousWidth = sidebarMotionCoordinator.currentSidebarWidth
+        sidebarMotionCoordinator.setSidebarWidth(
+            width,
             availableWidth: resolvedSidebarAvailableWidth(),
             persist: persist
         )
@@ -2040,7 +2049,10 @@ extension RootViewController: RenderEnvironmentProviding {
     }
 
     func renderLeadingInset(sidebarWidth: CGFloat) -> CGFloat {
-        sidebarMotionCoordinator.effectiveLeadingInset(sidebarWidth: sidebarWidth)
+        sidebarMotionCoordinator.effectiveLeadingInset(
+            sidebarWidth: sidebarWidth,
+            availableWidth: resolvedSidebarAvailableWidth()
+        )
     }
 
     var renderWindowState: (isVisible: Bool, isKeyWindow: Bool) {

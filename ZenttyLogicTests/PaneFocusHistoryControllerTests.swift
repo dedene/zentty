@@ -14,134 +14,135 @@ final class PaneFocusHistoryControllerTests: XCTestCase {
         PaneFocusHistoryController(debounceInterval: 0.05)
     }
 
-    // MARK: - Debounce behaviour
-
-    func test_recordFocusChange_commits_after_debounce() async throws {
-        let controller = makeController()
-        let a = ref("w1", "a")
-
-        controller.recordFocusChange(from: a)
-        try await Task.sleep(for: .seconds(0.1))
-
-        XCTAssertTrue(controller.history.canGoBack, "history should have an entry after debounce fires")
-        XCTAssertEqual(controller.history.backStack.count, 1)
-        XCTAssertEqual(controller.history.backStack.first, a)
+    private func seededBackHistory() -> PaneFocusHistory {
+        var history = PaneFocusHistory()
+        history.record(ref("w1", "a"))
+        history.record(ref("w1", "b"))
+        return history
     }
 
-    func test_recordFocusChange_does_not_commit_before_debounce() {
+    private func seededForwardHistory() -> PaneFocusHistory {
+        let a = ref("w1", "a")
+        let b = ref("w1", "b")
+        var history = PaneFocusHistory()
+        history.record(a)
+        _ = history.navigateBack(current: b, allPaneIDs: [a, b])
+        return history
+    }
+
+    // MARK: - Pending entry staging
+
+    func test_recordFocusChange_stages_pending_entry_without_committing_history() {
         let controller = makeController()
         let a = ref("w1", "a")
 
         controller.recordFocusChange(from: a)
 
-        XCTAssertFalse(controller.history.canGoBack, "history should be empty before debounce fires")
+        XCTAssertEqual(controller.pendingEntryForTesting, a)
+        XCTAssertFalse(controller.history.canGoBack)
+    }
+
+    func test_commitPending_records_staged_entry_and_clears_pending_state() {
+        let controller = makeController()
+        let a = ref("w1", "a")
+
+        controller.recordFocusChange(from: a)
+        controller.commitPendingForTesting()
+
+        XCTAssertNil(controller.pendingEntryForTesting)
+        XCTAssertEqual(controller.history.backStack, [a])
+    }
+
+    func test_recordFocusChange_replaces_prior_pending_entry() {
+        let controller = makeController()
+        let a = ref("w1", "a")
+        let b = ref("w1", "b")
+
+        controller.recordFocusChange(from: a)
+        controller.recordFocusChange(from: b)
+
+        XCTAssertEqual(controller.pendingEntryForTesting, b)
+        XCTAssertTrue(controller.history.backStack.isEmpty)
     }
 
     // MARK: - Navigation cancels pending entries
 
-    func test_navigateBack_cancels_pending_entry() async throws {
+    func test_navigateBack_cancels_pending_entry() {
         let controller = makeController()
         let a = ref("w1", "a")
         let b = ref("w1", "b")
-        let allPanes: Set<WorklaneStore.PaneReference> = [a, b]
-
-        // Record a focus change but navigate back before debounce fires.
         controller.recordFocusChange(from: a)
-        _ = controller.navigateBack(current: b, allPaneIDs: allPanes)
 
-        // Wait longer than debounce interval to confirm it was discarded.
-        try await Task.sleep(for: .seconds(0.1))
+        _ = controller.navigateBack(current: b, allPaneIDs: [a, b])
 
-        XCTAssertFalse(controller.history.canGoBack, "pending entry should have been cancelled by navigateBack")
+        XCTAssertNil(controller.pendingEntryForTesting)
+        XCTAssertTrue(controller.history.backStack.isEmpty)
     }
 
-    func test_navigateForward_cancels_pending_entry() async throws {
+    func test_navigateForward_cancels_pending_entry() {
         let controller = makeController()
         let a = ref("w1", "a")
-        let b = ref("w1", "b")
-        let allPanes: Set<WorklaneStore.PaneReference> = [a, b]
-
-        // Record a focus change but navigate forward before debounce fires.
-        controller.recordFocusChange(from: a)
-        _ = controller.navigateForward(current: b, allPaneIDs: allPanes)
-
-        // Wait longer than debounce interval to confirm it was discarded.
-        try await Task.sleep(for: .seconds(0.1))
-
-        XCTAssertFalse(controller.history.canGoBack, "pending entry should have been cancelled by navigateForward")
-    }
-
-    // MARK: - Rapid focus changes
-
-    func test_rapid_focus_changes_only_commit_last() async throws {
-        let controller = makeController()
-        let a = ref("w1", "a")
-        let b = ref("w1", "b")
-        let c = ref("w1", "c")
 
         controller.recordFocusChange(from: a)
-        controller.recordFocusChange(from: b)
-        controller.recordFocusChange(from: c)
+        _ = controller.navigateForward(current: a, allPaneIDs: [a])
 
-        try await Task.sleep(for: .seconds(0.1))
-
-        XCTAssertEqual(controller.history.backStack.count, 1, "only the last rapid change should commit")
-        XCTAssertEqual(controller.history.backStack.first, c, "the committed entry should be the last 'from' ref")
+        XCTAssertNil(controller.pendingEntryForTesting)
+        XCTAssertTrue(controller.history.backStack.isEmpty)
     }
 
     // MARK: - Navigation is immediate
 
-    func test_navigateBack_is_immediate() async throws {
+    func test_navigateBack_is_immediate_when_history_exists() {
         let controller = makeController()
         let a = ref("w1", "a")
         let b = ref("w1", "b")
         let c = ref("w1", "c")
-        let allPanes: Set<WorklaneStore.PaneReference> = [a, b, c]
+        controller.replaceHistoryForTesting(seededBackHistory())
 
-        // Build up history: a -> b -> c
-        controller.recordFocusChange(from: a)
-        try await Task.sleep(for: .seconds(0.1))
-        controller.recordFocusChange(from: b)
-        try await Task.sleep(for: .seconds(0.1))
+        let target = controller.navigateBack(current: c, allPaneIDs: [a, b, c])
 
-        // Navigate back should return immediately with no debounce.
-        let target = controller.navigateBack(current: c, allPaneIDs: allPanes)
+        XCTAssertEqual(target, b)
+        XCTAssertEqual(controller.history.backStack, [a])
+        XCTAssertEqual(controller.history.forwardStack, [c])
+    }
 
-        XCTAssertEqual(target, b, "navigateBack should return the previous pane immediately")
-        XCTAssertTrue(controller.history.canGoForward, "forward stack should contain an entry after going back")
+    func test_navigateForward_is_immediate_when_forward_history_exists() {
+        let controller = makeController()
+        let a = ref("w1", "a")
+        let b = ref("w1", "b")
+        controller.replaceHistoryForTesting(seededForwardHistory())
+
+        let target = controller.navigateForward(current: a, allPaneIDs: [a, b])
+
+        XCTAssertEqual(target, b)
+        XCTAssertEqual(controller.history.backStack, [a])
+        XCTAssertTrue(controller.history.forwardStack.isEmpty)
     }
 
     // MARK: - onChange callback
 
-    func test_onChange_fires_on_commit() async {
+    func test_onChange_fires_on_commitPending() {
         let controller = makeController()
         let a = ref("w1", "a")
-
-        let changeFired = XCTestExpectation(description: "onChange fired on commit")
+        let changeFired = expectation(description: "onChange fired on commit")
         controller.onChange = { changeFired.fulfill() }
 
         controller.recordFocusChange(from: a)
+        controller.commitPendingForTesting()
 
-        await fulfillment(of: [changeFired], timeout: 5)
-        XCTAssertEqual(controller.history.backStack.count, 1)
+        wait(for: [changeFired], timeout: 0.1)
     }
 
-    func test_onChange_fires_on_navigateBack() async throws {
+    func test_onChange_fires_on_navigateBack() {
         let controller = makeController()
         let a = ref("w1", "a")
         let b = ref("w1", "b")
-        let allPanes: Set<WorklaneStore.PaneReference> = [a, b]
-
-        // Build history first.
-        controller.recordFocusChange(from: a)
-        try await Task.sleep(for: .seconds(0.1))
-
-        // Now set up the expectation for navigateBack.
-        let changeFired = XCTestExpectation(description: "onChange fired on navigateBack")
+        let changeFired = expectation(description: "onChange fired on navigateBack")
+        controller.replaceHistoryForTesting(seededBackHistory())
         controller.onChange = { changeFired.fulfill() }
 
-        _ = controller.navigateBack(current: b, allPaneIDs: allPanes)
+        _ = controller.navigateBack(current: b, allPaneIDs: [a, b])
 
-        await fulfillment(of: [changeFired], timeout: 5)
+        wait(for: [changeFired], timeout: 0.1)
     }
 }

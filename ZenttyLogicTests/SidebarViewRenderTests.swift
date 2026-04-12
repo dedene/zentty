@@ -253,6 +253,20 @@ final class SidebarViewRenderTests: XCTestCase {
         )
     }
 
+    func test_resize_proposal_does_not_preclamp_to_window_width() {
+        let sidebar = makeSidebar()
+
+        XCTAssertEqual(
+            sidebar.proposedResizeWidthForTesting(
+                startWidth: 280,
+                translation: 80,
+                availableWidth: 900
+            ),
+            360,
+            accuracy: 0.001
+        )
+    }
+
     private func worklaneButton(
         in sidebar: SidebarView,
         id: String
