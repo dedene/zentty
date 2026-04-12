@@ -71,11 +71,14 @@ struct SidebarVisibilityController: Equatable, Sendable {
         }
     }
 
-    func effectiveLeadingInset(sidebarWidth: CGFloat) -> CGFloat {
+    func effectiveLeadingInset(sidebarWidth: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
         guard mode == .pinnedOpen else {
             return 0
         }
-        return SidebarWidthPreference.clamped(sidebarWidth) + ShellMetrics.shellGap
+        return SidebarWidthPreference.clamped(
+            sidebarWidth,
+            availableWidth: availableWidth
+        ) + ShellMetrics.shellGap
     }
 
     private mutating func resetPointerTracking() {
