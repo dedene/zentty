@@ -236,8 +236,9 @@ final class RootViewController: NSViewController {
     }
 
     deinit {
-        if let appUpdateObserverID {
-            MainActor.assumeIsolated {
+        MainActor.assumeIsolated {
+            invalidateStaleAgentSweepTimer()
+            if let appUpdateObserverID {
                 appUpdateStateStore.removeObserver(appUpdateObserverID)
             }
         }
@@ -431,31 +432,29 @@ final class RootViewController: NSViewController {
 
     private func setupWorklaneStoreObserver() {
         _ = worklaneStore.subscribe { [weak self] change in
-            Task { @MainActor [weak self] in
-                guard let self else {
-                    return
-                }
+            guard let self else {
+                return
+            }
 
-                switch change {
-                case .paneStructure, .worklaneListChanged:
-                    if self.isGlobalSearchSessionActive {
-                        self.globalSearchCoordinator.end()
-                    } else {
-                        self.globalSearchCoordinator.reconcileTargets(with: self.worklaneStore.worklanes)
-                    }
-                    self.updateOpenWithChromeState()
-                    self.updatePaneNavigationButtonState()
-                case .focusChanged, .activeWorklaneChanged:
+            switch change {
+            case .paneStructure, .worklaneListChanged:
+                if self.isGlobalSearchSessionActive {
+                    self.globalSearchCoordinator.end()
+                } else {
                     self.globalSearchCoordinator.reconcileTargets(with: self.worklaneStore.worklanes)
-                    self.updateOpenWithChromeState()
-                    self.updatePaneNavigationButtonState()
-                case .historyChanged:
-                    self.updatePaneNavigationButtonState()
-                case .auxiliaryStateUpdated(_, _, let impacts) where impacts.contains(.openWith):
-                    self.updateOpenWithChromeState()
-                default:
-                    break
                 }
+                self.updateOpenWithChromeState()
+                self.updatePaneNavigationButtonState()
+            case .focusChanged, .activeWorklaneChanged:
+                self.globalSearchCoordinator.reconcileTargets(with: self.worklaneStore.worklanes)
+                self.updateOpenWithChromeState()
+                self.updatePaneNavigationButtonState()
+            case .historyChanged:
+                self.updatePaneNavigationButtonState()
+            case .auxiliaryStateUpdated(_, _, let impacts) where impacts.contains(.openWith):
+                self.updateOpenWithChromeState()
+            default:
+                break
             }
         }
     }
@@ -1297,7 +1296,7 @@ final class RootViewController: NSViewController {
         pathCopiedToastView?.removeFromSuperview()
         let toast = PathCopiedToastView()
         pathCopiedToastView = toast
-        toast.show(in: view, theme: currentTheme)
+        toast.show(in: appCanvasView, theme: currentTheme)
     }
 
     private func keyboardResizeStep(for axis: PaneResizeAxis) -> CGFloat {
@@ -1468,8 +1467,13 @@ final class RootViewController: NSViewController {
         // so we avoid forcing an additional resize render from the delegate path.
     }
 
-    private func installStaleAgentSweepTimer() {
+    private func invalidateStaleAgentSweepTimer() {
         staleAgentSweepTimer?.invalidate()
+        staleAgentSweepTimer = nil
+    }
+
+    private func installStaleAgentSweepTimer() {
+        invalidateStaleAgentSweepTimer()
         staleAgentSweepTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) {
             [weak self] _ in
             Task { @MainActor [weak self] in
@@ -1758,8 +1762,20 @@ final class RootViewController: NSViewController {
             notificationCoordinator.store
         }
 
+        var appCanvasViewForTesting: AppCanvasView {
+            appCanvasView
+        }
+
+        var pathCopiedToastViewForTesting: PathCopiedToastView? {
+            pathCopiedToastView
+        }
+
         func handleTerminalEventForTesting(paneID: PaneID, event: TerminalEvent) {
             handleTerminalEvent(paneID: paneID, event: event)
+        }
+
+        func triggerCopyFocusedPanePathForTesting() {
+            copyFocusedPanePath()
         }
 
         func handleSidebarVisibilityEvent(_ event: SidebarVisibilityEvent) {
@@ -1787,6 +1803,23 @@ final class RootViewController: NSViewController {
                 width, availableWidth: resolvedSidebarAvailableWidth(), persist: false)
             sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
             applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        }
+
+        func settleSidebarTransitionForTesting() {
+            applySidebarMotionState(
+                sidebarMotionCoordinator.currentMotionState,
+                animated: false
+            )
+            appCanvasView.settlePaneStripPresentationNow()
+            view.layoutSubtreeIfNeeded()
+        }
+
+        func prepareForTestingTearDown() {
+            invalidateStaleAgentSweepTimer()
+            appCanvasView.prepareForTestingTearDown()
+            view.layer?.removeAllAnimations()
+            sidebarView.layer?.removeAllAnimations()
+            view.layoutSubtreeIfNeeded()
         }
 
         var paneStripStateForTesting: PaneStripState {

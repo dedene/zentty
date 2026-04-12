@@ -332,7 +332,7 @@ final class PaneContainerViewTests: AppKitTestCase {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
-        )
+        ).prepareForAppKitTesting()
         addTeardownBlock { window.close() }
         window.contentView = paneView
         window.makeKeyAndOrderFront(nil)
@@ -577,8 +577,7 @@ final class PaneContainerViewTests: AppKitTestCase {
             styleMask: [.titled],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         addTeardownBlock {
             window.orderOut(nil)
             window.close()

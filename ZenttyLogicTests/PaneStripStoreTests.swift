@@ -3,6 +3,48 @@ import XCTest
 
 @MainActor
 final class PaneStripStoreTests: XCTestCase {
+    @MainActor
+    private final class ManualReadyStatusHandle: WorklaneStoreScheduledHandle {
+        private(set) var isCancelled = false
+        private let operation: @MainActor () -> Void
+
+        init(operation: @escaping @MainActor () -> Void) {
+            self.operation = operation
+        }
+
+        func cancel() {
+            isCancelled = true
+        }
+
+        func run() {
+            guard !isCancelled else { return }
+            isCancelled = true
+            operation()
+        }
+    }
+
+    @MainActor
+    private final class ManualReadyStatusScheduler {
+        private var handles: [ManualReadyStatusHandle] = []
+
+        func schedule(
+            interval _: TimeInterval,
+            operation: @escaping @MainActor () -> Void
+        ) -> any WorklaneStoreScheduledHandle {
+            let handle = ManualReadyStatusHandle(operation: operation)
+            handles.append(handle)
+            return handle
+        }
+
+        func runLatest(file: StaticString = #filePath, line: UInt = #line) {
+            guard let handle = handles.popLast() else {
+                XCTFail("Expected a pending ready-status callback", file: file, line: line)
+                return
+            }
+            handle.run()
+        }
+    }
+
     func test_store_starts_with_single_main_worklane_and_first_active() {
         let store = WorklaneStore()
 
@@ -2556,7 +2598,6 @@ final class PaneStripStoreTests: XCTestCase {
         addTeardownBlock {
             if process.isRunning {
                 process.terminate()
-                process.waitUntilExit()
             }
         }
 
@@ -4700,8 +4741,13 @@ final class PaneStripStoreTests: XCTestCase {
     }
 
     @MainActor
-    func test_idle_transition_waits_before_surfacing_agent_ready() async throws {
-        let store = WorklaneStore()
+    func test_idle_transition_waits_before_surfacing_agent_ready() throws {
+        let scheduler = ManualReadyStatusScheduler()
+        let store = WorklaneStore(
+            readyStatusScheduler: { interval, operation in
+                scheduler.schedule(interval: interval, operation: operation)
+            }
+        )
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
@@ -4739,25 +4785,22 @@ final class PaneStripStoreTests: XCTestCase {
             "Agent ready"
         )
 
-        let readyExpectation = expectation(description: "agent ready surfaced after debounce")
-        let subscription = store.subscribe { change in
-            guard case .auxiliaryStateUpdated(_, let updatedPaneID, let impacts) = change,
-                  updatedPaneID == paneID,
-                  impacts.contains(.attention),
-                  store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText == "Agent ready"
-            else {
-                return
-            }
-            readyExpectation.fulfill()
-        }
-        defer { store.unsubscribe(subscription) }
+        scheduler.runLatest()
 
-        await fulfillment(of: [readyExpectation], timeout: 1.0)
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
     }
 
     @MainActor
-    func test_work_resuming_within_ready_window_suppresses_agent_ready() async throws {
-        let store = WorklaneStore()
+    func test_work_resuming_within_ready_window_suppresses_agent_ready() throws {
+        let scheduler = ManualReadyStatusScheduler()
+        let store = WorklaneStore(
+            readyStatusScheduler: { interval, operation in
+                scheduler.schedule(interval: interval, operation: operation)
+            }
+        )
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
@@ -4803,7 +4846,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        try? await Task.sleep(for: .milliseconds(400))
+        scheduler.runLatest()
 
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
         XCTAssertNotEqual(

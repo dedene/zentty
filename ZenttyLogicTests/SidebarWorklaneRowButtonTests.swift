@@ -1609,8 +1609,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         window.contentView = sidebarView
         window.orderFrontRegardless()
         return window

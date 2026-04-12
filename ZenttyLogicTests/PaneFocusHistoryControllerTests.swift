@@ -4,24 +4,80 @@ import XCTest
 @MainActor
 final class PaneFocusHistoryControllerTests: XCTestCase {
 
+    @MainActor
+    private final class ManualDebounceHandle: PaneFocusHistoryDebounceHandle {
+        private(set) var isCancelled = false
+        private let operation: @MainActor () -> Void
+
+        init(operation: @escaping @MainActor () -> Void) {
+            self.operation = operation
+        }
+
+        func cancel() {
+            isCancelled = true
+        }
+
+        func run() {
+            guard !isCancelled else { return }
+            isCancelled = true
+            operation()
+        }
+    }
+
+    @MainActor
+    private final class ManualDebounceScheduler {
+        private var handles: [ManualDebounceHandle] = []
+
+        func schedule(
+            interval _: TimeInterval,
+            operation: @escaping @MainActor () -> Void
+        ) -> any PaneFocusHistoryDebounceHandle {
+            let handle = ManualDebounceHandle(operation: operation)
+            handles.append(handle)
+            return handle
+        }
+
+        func runLatest(file: StaticString = #filePath, line: UInt = #line) {
+            guard let handle = handles.popLast() else {
+                XCTFail("Expected a pending debounce callback", file: file, line: line)
+                return
+            }
+            handle.run()
+        }
+    }
+
     // MARK: - Helpers
 
     private func ref(_ worklane: String, _ pane: String) -> WorklaneStore.PaneReference {
         WorklaneStore.PaneReference(worklaneID: WorklaneID(worklane), paneID: PaneID(pane))
     }
 
-    private func makeController() -> PaneFocusHistoryController {
-        PaneFocusHistoryController(debounceInterval: 0.05)
+    private func makeController(
+        debounceInterval: TimeInterval = 0.05,
+        scheduler: ManualDebounceScheduler? = nil
+    ) -> PaneFocusHistoryController {
+        if let scheduler {
+            return PaneFocusHistoryController(
+                debounceInterval: debounceInterval,
+                scheduleDebounce: { interval, operation in
+                    scheduler.schedule(interval: interval, operation: operation)
+                }
+            )
+        }
+
+        return PaneFocusHistoryController(debounceInterval: debounceInterval)
     }
 
     // MARK: - Debounce behaviour
 
-    func test_recordFocusChange_commits_after_debounce() async throws {
-        let controller = makeController()
+    func test_recordFocusChange_commits_after_debounce() {
+        let scheduler = ManualDebounceScheduler()
+        let controller = makeController(scheduler: scheduler)
         let a = ref("w1", "a")
 
         controller.recordFocusChange(from: a)
-        try await Task.sleep(for: .seconds(0.1))
+
+        scheduler.runLatest()
 
         XCTAssertTrue(controller.history.canGoBack, "history should have an entry after debounce fires")
         XCTAssertEqual(controller.history.backStack.count, 1)
@@ -37,10 +93,21 @@ final class PaneFocusHistoryControllerTests: XCTestCase {
         XCTAssertFalse(controller.history.canGoBack, "history should be empty before debounce fires")
     }
 
+    func test_recordFocusChange_withZeroDebounce_commitsImmediately() {
+        let controller = makeController(debounceInterval: 0)
+        let a = ref("w1", "a")
+
+        controller.recordFocusChange(from: a)
+
+        XCTAssertTrue(controller.history.canGoBack, "zero debounce should commit immediately")
+        XCTAssertEqual(controller.history.backStack, [a])
+    }
+
     // MARK: - Navigation cancels pending entries
 
-    func test_navigateBack_cancels_pending_entry() async throws {
-        let controller = makeController()
+    func test_navigateBack_cancels_pending_entry() {
+        let scheduler = ManualDebounceScheduler()
+        let controller = makeController(scheduler: scheduler)
         let a = ref("w1", "a")
         let b = ref("w1", "b")
         let allPanes: Set<WorklaneStore.PaneReference> = [a, b]
@@ -49,14 +116,14 @@ final class PaneFocusHistoryControllerTests: XCTestCase {
         controller.recordFocusChange(from: a)
         _ = controller.navigateBack(current: b, allPaneIDs: allPanes)
 
-        // Wait longer than debounce interval to confirm it was discarded.
-        try await Task.sleep(for: .seconds(0.1))
+        scheduler.runLatest()
 
         XCTAssertFalse(controller.history.canGoBack, "pending entry should have been cancelled by navigateBack")
     }
 
-    func test_navigateForward_cancels_pending_entry() async throws {
-        let controller = makeController()
+    func test_navigateForward_cancels_pending_entry() {
+        let scheduler = ManualDebounceScheduler()
+        let controller = makeController(scheduler: scheduler)
         let a = ref("w1", "a")
         let b = ref("w1", "b")
         let allPanes: Set<WorklaneStore.PaneReference> = [a, b]
@@ -65,16 +132,16 @@ final class PaneFocusHistoryControllerTests: XCTestCase {
         controller.recordFocusChange(from: a)
         _ = controller.navigateForward(current: b, allPaneIDs: allPanes)
 
-        // Wait longer than debounce interval to confirm it was discarded.
-        try await Task.sleep(for: .seconds(0.1))
+        scheduler.runLatest()
 
         XCTAssertFalse(controller.history.canGoBack, "pending entry should have been cancelled by navigateForward")
     }
 
     // MARK: - Rapid focus changes
 
-    func test_rapid_focus_changes_only_commit_last() async throws {
-        let controller = makeController()
+    func test_rapid_focus_changes_only_commit_last() {
+        let scheduler = ManualDebounceScheduler()
+        let controller = makeController(scheduler: scheduler)
         let a = ref("w1", "a")
         let b = ref("w1", "b")
         let c = ref("w1", "c")
@@ -83,7 +150,7 @@ final class PaneFocusHistoryControllerTests: XCTestCase {
         controller.recordFocusChange(from: b)
         controller.recordFocusChange(from: c)
 
-        try await Task.sleep(for: .seconds(0.1))
+        scheduler.runLatest()
 
         XCTAssertEqual(controller.history.backStack.count, 1, "only the last rapid change should commit")
         XCTAssertEqual(controller.history.backStack.first, c, "the committed entry should be the last 'from' ref")
@@ -91,8 +158,8 @@ final class PaneFocusHistoryControllerTests: XCTestCase {
 
     // MARK: - Navigation is immediate
 
-    func test_navigateBack_is_immediate() async throws {
-        let controller = makeController()
+    func test_navigateBack_is_immediate() {
+        let controller = makeController(debounceInterval: 0)
         let a = ref("w1", "a")
         let b = ref("w1", "b")
         let c = ref("w1", "c")
@@ -100,9 +167,7 @@ final class PaneFocusHistoryControllerTests: XCTestCase {
 
         // Build up history: a -> b -> c
         controller.recordFocusChange(from: a)
-        try await Task.sleep(for: .seconds(0.1))
         controller.recordFocusChange(from: b)
-        try await Task.sleep(for: .seconds(0.1))
 
         // Navigate back should return immediately with no debounce.
         let target = controller.navigateBack(current: c, allPaneIDs: allPanes)
@@ -113,35 +178,34 @@ final class PaneFocusHistoryControllerTests: XCTestCase {
 
     // MARK: - onChange callback
 
-    func test_onChange_fires_on_commit() async {
-        let controller = makeController()
+    func test_onChange_fires_on_commit() {
+        let controller = makeController(debounceInterval: 0)
         let a = ref("w1", "a")
 
-        let changeFired = XCTestExpectation(description: "onChange fired on commit")
-        controller.onChange = { changeFired.fulfill() }
+        var changeCount = 0
+        controller.onChange = { changeCount += 1 }
 
         controller.recordFocusChange(from: a)
 
-        await fulfillment(of: [changeFired], timeout: 5)
+        XCTAssertEqual(changeCount, 1)
         XCTAssertEqual(controller.history.backStack.count, 1)
     }
 
-    func test_onChange_fires_on_navigateBack() async throws {
-        let controller = makeController()
+    func test_onChange_fires_on_navigateBack() {
+        let controller = makeController(debounceInterval: 0)
         let a = ref("w1", "a")
         let b = ref("w1", "b")
         let allPanes: Set<WorklaneStore.PaneReference> = [a, b]
 
         // Build history first.
         controller.recordFocusChange(from: a)
-        try await Task.sleep(for: .seconds(0.1))
 
         // Now set up the expectation for navigateBack.
-        let changeFired = XCTestExpectation(description: "onChange fired on navigateBack")
-        controller.onChange = { changeFired.fulfill() }
+        var changeCount = 0
+        controller.onChange = { changeCount += 1 }
 
         _ = controller.navigateBack(current: b, allPaneIDs: allPanes)
 
-        await fulfillment(of: [changeFired], timeout: 5)
+        XCTAssertEqual(changeCount, 1)
     }
 }

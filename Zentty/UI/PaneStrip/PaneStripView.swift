@@ -94,9 +94,11 @@ final class PaneStripView: NSView {
     private var lastFocusedPaneID: PaneID?
     private var pendingProgrammaticFocusPaneID: PaneID?
     private var focusGeneration: UInt64 = 0
+    private var deferredWorkGeneration: UInt64 = 0
     private(set) var lastInsertionTransition: PaneInsertionTransition?
     private(set) var lastRemovalTransition: PaneRemovalTransition?
     private(set) var lastRenderWasAnimated = false
+    private var pendingAnimatedSettleAction: (() -> Void)?
     private var renderGuard = RenderGuard()
     private var suppressDiffBasedTransitionsOnNextRender = false
     private var currentTheme = ZenttyTheme.fallback(for: nil)
@@ -391,6 +393,12 @@ final class PaneStripView: NSView {
         }
         dividerViews.values.forEach { $0.layer?.removeAllAnimations() }
 
+        if let pendingAnimatedSettleAction {
+            self.pendingAnimatedSettleAction = nil
+            pendingAnimatedSettleAction()
+            return
+        }
+
         guard let currentState, bounds.size != .zero else {
             return
         }
@@ -567,6 +575,18 @@ final class PaneStripView: NSView {
         }
 
         if shouldAnimate {
+            let settleAction: () -> Void = { [weak self] in
+                guard let self else { return }
+                self.finishAnimatedRender(
+                    settleGeneration: settleGeneration,
+                    presentation: presentation,
+                    state: state,
+                    targetOffset: targetOffset,
+                    insertionTransition: insertionTransition,
+                    needsTerminalRedrawAfterRender: needsTerminalRedrawAfterRender
+                )
+            }
+            pendingAnimatedSettleAction = settleAction
             motionController.animate(
                 in: self,
                 duration: animationDuration,
@@ -575,41 +595,27 @@ final class PaneStripView: NSView {
             ) { [weak self] in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-
-                    if self.renderGuard.generation == settleGeneration {
-                        self.applyPresentation(
-                            presentation,
-                            state: state,
-                            offset: targetOffset,
-                            animated: false,
-                            useNeutralBackground: false,
-                            insertionTransition: insertionTransition,
-                            allowInactiveDimming: true
-                        )
-                        self.reconcileDividerViews(with: presentation, offset: targetOffset)
-                        self.paneViews.values.forEach { $0.syncInsetBorderNow() }
-                    }
-
-                    if !self.isZoomedOut {
-                        self.applyTerminalAnimationFreeze(to: [])
-                        self.applyViewportSyncSuspension(to: [])
-                    }
-                    self.viewportView.layoutSubtreeIfNeeded()
-                    if needsTerminalRedrawAfterRender {
-                        self.refreshTerminalDisplays()
-                        for paneView in self.paneViews.values {
-                            paneView.forceTerminalViewportSync()
-                        }
-                    }
+                    self.pendingAnimatedSettleAction = nil
+                    self.finishAnimatedRender(
+                        settleGeneration: settleGeneration,
+                        presentation: presentation,
+                        state: state,
+                        targetOffset: targetOffset,
+                        insertionTransition: insertionTransition,
+                        needsTerminalRedrawAfterRender: needsTerminalRedrawAfterRender
+                    )
                 }
             }
         } else {
+            pendingAnimatedSettleAction = nil
             updates()
             if !isZoomedOut {
                 applyTerminalAnimationFreeze(to: [])
-                applyViewportSyncSuspension(to: [])
             }
             viewportView.layoutSubtreeIfNeeded()
+            if !isZoomedOut {
+                applyViewportSyncSuspension(to: [])
+            }
             if needsTerminalRedrawAfterRender {
                 refreshTerminalDisplays()
             }
@@ -698,6 +704,43 @@ final class PaneStripView: NSView {
         view.needsDisplay = true
         view.displayIfNeeded()
         view.subviews.forEach { refreshDisplayRecursively(in: $0) }
+    }
+
+    private func finishAnimatedRender(
+        settleGeneration: Int,
+        presentation: StripPresentation,
+        state: PaneStripState,
+        targetOffset: CGFloat,
+        insertionTransition: PaneInsertionTransition?,
+        needsTerminalRedrawAfterRender: Bool
+    ) {
+        if renderGuard.generation == settleGeneration {
+            applyPresentation(
+                presentation,
+                state: state,
+                offset: targetOffset,
+                animated: false,
+                useNeutralBackground: false,
+                insertionTransition: insertionTransition,
+                allowInactiveDimming: true
+            )
+            reconcileDividerViews(with: presentation, offset: targetOffset)
+            paneViews.values.forEach { $0.syncInsetBorderNow() }
+        }
+
+        if !isZoomedOut {
+            applyTerminalAnimationFreeze(to: [])
+        }
+        viewportView.layoutSubtreeIfNeeded()
+        if !isZoomedOut {
+            applyViewportSyncSuspension(to: [])
+        }
+        if needsTerminalRedrawAfterRender {
+            refreshTerminalDisplays()
+            for paneView in paneViews.values {
+                paneView.forceTerminalViewportSync()
+            }
+        }
     }
 
     private func applyPresentation(
@@ -993,6 +1036,24 @@ final class PaneStripView: NSView {
         }
     }
 
+    func prepareForTestingTearDown() {
+        deferredWorkGeneration &+= 1
+        focusGeneration &+= 1
+        pendingProgrammaticFocusPaneID = nil
+        lastFocusedPaneID = nil
+        stopZoomAnimation()
+        pendingAnimatedSettleAction = nil
+        endDropSettle()
+        dragCoordinator.prepareForTestingTearDown()
+        cancelDividerDrag()
+        removeDividerDragEscapeMonitor()
+        afterNextRenderCallback = nil
+        viewportView.layer?.removeAllAnimations()
+        dividerViews.values.forEach { $0.layer?.removeAllAnimations() }
+        layer?.removeAllAnimations()
+        settlePresentationNow()
+    }
+
     var leadingMaskMinX: CGFloat {
         0
     }
@@ -1212,8 +1273,11 @@ final class PaneStripView: NSView {
             // so the terminal re-renders at the correct full-size backing
             applyZoom(animated: animated)
             let unfreezeDelay = animated ? 0.35 : 0
+            let deferredWorkGeneration = self.deferredWorkGeneration
             DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
-                guard let self, !self.isZoomedOut else { return }
+                guard let self,
+                      deferredWorkGeneration == self.deferredWorkGeneration,
+                      !self.isZoomedOut else { return }
                 for (_, paneView) in self.paneViews {
                     paneView.endVerticalFreeze()
                     paneView.setTerminalViewportSyncSuspended(false)
@@ -1421,8 +1485,11 @@ final class PaneStripView: NSView {
         startZoomAnimation()
 
         let unfreezeDelay: TimeInterval = Self.zoomAnimationDuration + 0.05
+        let deferredWorkGeneration = self.deferredWorkGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
-            guard let self, !self.isZoomedOut else { return }
+            guard let self,
+                  deferredWorkGeneration == self.deferredWorkGeneration,
+                  !self.isZoomedOut else { return }
 
             // Restore viewport autoresizing (was disabled by the drag coordinator)
             self.viewportView.autoresizingMask = [.width, .height]

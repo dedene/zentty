@@ -253,12 +253,20 @@ final class WorklaneReviewStateResolver {
     }
 
     func resolve(path: String, branch: String) async -> WorklaneReviewResolution {
+        await resolve(path: path, branch: branch, forceReload: false)
+    }
+
+    func resolve(
+        path: String,
+        branch: String,
+        forceReload: Bool
+    ) async -> WorklaneReviewResolution {
         guard let sanitizedBranch = preferredBranch(from: branch) ?? WorklaneContextFormatter.trimmed(branch) else {
             return emptyResolution()
         }
 
         let key = RepositoryKey(repoRoot: path, branch: sanitizedBranch)
-        if let cached = cache[key] {
+        if !forceReload, let cached = cache[key] {
             return cached
         }
 
@@ -268,6 +276,67 @@ final class WorklaneReviewStateResolver {
 
         let resolution = await loadPullRequestResolution(
             path: path,
+            branch: sanitizedBranch,
+            fallback: cache[key]
+        )
+        if resolution.reviewState?.branch != nil {
+            cache[key] = resolution
+        }
+        return resolution
+    }
+
+    func refreshForTesting(for worklanes: [WorklaneState]) async -> [PaneID: WorklaneReviewResolution] {
+        var updates: [PaneID: WorklaneReviewResolution] = [:]
+
+        for worklane in worklanes {
+            for pane in worklane.paneStripState.panes {
+                let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
+                guard
+                    let repoRoot = auxiliaryState?.presentation.repoRoot,
+                    let branch = preferredBranch(from: auxiliaryState?.presentation.lookupBranch)
+                else {
+                    continue
+                }
+
+                let key = RepositoryKey(repoRoot: repoRoot, branch: branch)
+                let resolution: WorklaneReviewResolution
+                if let cached = cache[key] {
+                    resolution = cached
+                } else {
+                    resolution = await loadPullRequestResolution(
+                        path: repoRoot,
+                        branch: branch,
+                        fallback: cache[key]
+                    )
+                    if resolution.reviewState?.branch != nil {
+                        cache[key] = resolution
+                    }
+                }
+
+                updates[pane.id] = resolution
+            }
+        }
+
+        return updates
+    }
+
+    func refreshPaneForTesting(
+        repoRoot: String,
+        branch: String,
+        paneID _: PaneID,
+        forceReload: Bool = false
+    ) async -> WorklaneReviewResolution? {
+        guard let sanitizedBranch = preferredBranch(from: branch) else {
+            return nil
+        }
+
+        let key = RepositoryKey(repoRoot: repoRoot, branch: sanitizedBranch)
+        if !forceReload, let cached = cache[key] {
+            return cached
+        }
+
+        let resolution = await loadPullRequestResolution(
+            path: repoRoot,
             branch: sanitizedBranch,
             fallback: cache[key]
         )
@@ -729,6 +798,23 @@ final class WorklaneReviewStateResolver {
         return combinedOutput.contains("no pull requests found")
     }
 }
+
+#if DEBUG
+extension WorklaneReviewStateResolver {
+    func seedResolutionForTesting(
+        path: String,
+        branch: String,
+        resolution: WorklaneReviewResolution
+    ) {
+        guard let sanitizedBranch = preferredBranch(from: branch) else {
+            return
+        }
+
+        let key = RepositoryKey(repoRoot: path, branch: sanitizedBranch)
+        cache[key] = resolution
+    }
+}
+#endif
 
 struct GitRemoteHostInfo: Equatable, Sendable {
     enum HostKind: Equatable, Sendable {

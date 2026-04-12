@@ -212,9 +212,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshActiveThemeName()
         refreshOpacitySlider()
         Task {
-            allThemes = await catalogProvider.loadThemes()
-            applyFilter()
-            updatePreviewForCurrentSelection()
+            await reloadThemes()
         }
     }
 
@@ -283,10 +281,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await configCoordinator.applyTheme(name, presentingWindow: view.window)
-            refreshSourceState()
-            refreshActiveThemeName()
-            refreshOpacitySlider()
+            await applyThemeForTesting(name)
         }
     }
 
@@ -305,6 +300,16 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         applyTheme(name)
     }
 
+    func selectThemeForTesting(_ name: String) async {
+        activeThemeName = name
+        tableView.reloadData()
+        if let theme = filteredThemes.first(where: { $0.name == name }) {
+            selectedPreviewTheme = theme
+            previewView.configure(with: theme)
+        }
+        await applyThemeForTesting(name)
+    }
+
     func setSearchQueryForTesting(_ query: String) {
         searchField.stringValue = query
         searchQuery = query
@@ -316,8 +321,29 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         handleOpacityChanged(opacitySlider)
     }
 
+    func setOpacityForTesting(_ opacity: CGFloat) async {
+        opacitySlider.doubleValue = Double(opacity)
+        updateOpacityLabel(opacity)
+        await configCoordinator.applyBackgroundOpacity(opacity, presentingWindow: view.window)
+        refreshSourceState()
+        refreshActiveThemeName()
+        refreshOpacitySlider()
+    }
+
     func createSharedConfigForTesting() {
         handleCreateSharedConfig()
+    }
+
+    func createSharedConfigForTesting() async {
+        await configCoordinator.createSharedConfig(presentingWindow: view.window)
+        refreshSourceState()
+        refreshActiveThemeName()
+        refreshOpacitySlider()
+    }
+
+    func loadThemesForTesting() async {
+        loadViewIfNeeded()
+        await reloadThemes()
     }
 
     // MARK: - Search
@@ -352,6 +378,21 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         let opacity = currentBackgroundOpacityProvider() ?? 0.95
         opacitySlider.doubleValue = Double(opacity)
         updateOpacityLabel(opacity)
+    }
+
+    @MainActor
+    private func reloadThemes() async {
+        allThemes = await catalogProvider.loadThemes()
+        applyFilter()
+        updatePreviewForCurrentSelection()
+    }
+
+    @MainActor
+    private func applyThemeForTesting(_ name: String) async {
+        await configCoordinator.applyTheme(name, presentingWindow: view.window)
+        refreshSourceState()
+        refreshActiveThemeName()
+        refreshOpacitySlider()
     }
 
     private func updateOpacityLabel(_ opacity: CGFloat) {

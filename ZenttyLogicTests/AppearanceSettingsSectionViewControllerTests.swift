@@ -71,37 +71,6 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         return (controller, catalog, configCoordinator)
     }
 
-    private func loadAndWaitForThemes(
-        _ controller: AppearanceSettingsSectionViewController,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async {
-        controller.loadViewIfNeeded()
-        let expectation = XCTestExpectation(description: "Themes loaded")
-        Task {
-            while controller.themes.isEmpty {
-                try? await Task.sleep(nanoseconds: 5_000_000)
-            }
-            expectation.fulfill()
-        }
-        await fulfillment(of: [expectation], timeout: 2.0)
-    }
-
-    private func waitForCondition(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ predicate: @escaping @MainActor () -> Bool
-    ) async {
-        let expectation = XCTestExpectation(description: "Condition satisfied")
-        Task {
-            while predicate() == false {
-                try? await Task.sleep(nanoseconds: 5_000_000)
-            }
-            expectation.fulfill()
-        }
-        await fulfillment(of: [expectation], timeout: 2.0)
-    }
-
     private func firstSlider(in view: NSView) -> NSSlider? {
         if let slider = view as? NSSlider {
             return slider
@@ -126,7 +95,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         ]
 
         let (controller, _, _) = makeController(themes: themes)
-        await loadAndWaitForThemes(controller)
+        await controller.loadThemesForTesting()
 
         XCTAssertEqual(controller.themes.count, 3)
         XCTAssertEqual(controller.themes.map(\.name), ["Dracula", "Solarized", "TokyoNight"])
@@ -140,7 +109,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         ]
 
         let (controller, _, _) = makeController(themes: themes)
-        await loadAndWaitForThemes(controller)
+        await controller.loadThemesForTesting()
 
         controller.setSearchQueryForTesting("Dra")
 
@@ -155,7 +124,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         ]
 
         let (controller, _, _) = makeController(themes: themes)
-        await loadAndWaitForThemes(controller)
+        await controller.loadThemesForTesting()
 
         controller.setSearchQueryForTesting("Alpha")
         XCTAssertEqual(controller.themes.count, 1)
@@ -172,10 +141,9 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             themes: themes,
             configCoordinator: coordinator
         )
-        await loadAndWaitForThemes(controller)
+        await controller.loadThemesForTesting()
 
-        controller.selectThemeForTesting("Dracula")
-        await waitForCondition { coordinator.appliedThemes == ["Dracula"] }
+        await controller.selectThemeForTesting("Dracula")
 
         XCTAssertEqual(coordinator.appliedThemes, ["Dracula"])
     }
@@ -195,7 +163,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             currentThemeName: { _ in currentAppearanceTheme },
             currentBackgroundOpacity: { 0.8 }
         )
-        await loadAndWaitForThemes(controller)
+        await controller.loadThemesForTesting()
 
         currentAppearanceTheme = "DarkTheme"
         controller.handleAppearanceChange()
@@ -218,7 +186,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             themes: themes,
             activeThemeName: "Zentty-Default"
         )
-        await loadAndWaitForThemes(controller)
+        await controller.loadThemesForTesting()
 
         XCTAssertEqual(controller.activeThemeNameForTesting, "Zentty-Default")
         XCTAssertEqual(controller.themes.map(\.displayName), ["Zentty Default Theme", "TokyoNight"])
@@ -239,7 +207,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             themes: themes,
             activeThemeName: nil
         )
-        await loadAndWaitForThemes(controller)
+        await controller.loadThemesForTesting()
 
         XCTAssertEqual(controller.activeThemeNameForTesting, "Zentty-Default")
     }
@@ -275,8 +243,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         let (controller, _, _) = makeController(configCoordinator: coordinator)
 
         controller.loadViewIfNeeded()
-        controller.createSharedConfigForTesting()
-        await waitForCondition { coordinator.createSharedConfigCallCount == 1 }
+        await controller.createSharedConfigForTesting()
 
         XCTAssertEqual(coordinator.createSharedConfigCallCount, 1)
     }
@@ -286,8 +253,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         let (controller, _, _) = makeController(configCoordinator: coordinator)
 
         controller.loadViewIfNeeded()
-        controller.setOpacityForTesting(0.62)
-        await waitForCondition { coordinator.appliedOpacities.count == 1 }
+        await controller.setOpacityForTesting(0.62)
 
         let opacity = try XCTUnwrap(coordinator.appliedOpacities.first)
         XCTAssertEqual(opacity, 0.62, accuracy: 0.0001)
