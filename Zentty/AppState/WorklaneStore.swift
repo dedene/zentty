@@ -309,6 +309,20 @@ final class WorklaneStore {
         }
     }
 
+    func hasPendingReadyStatusRevealForTesting(
+        worklaneID: WorklaneID,
+        paneID: PaneID
+    ) -> Bool {
+        pendingReadyStatusTasks[PaneReference(worklaneID: worklaneID, paneID: paneID)] != nil
+    }
+
+    func commitReadyStatusRevealForTesting(
+        worklaneID: WorklaneID,
+        paneID: PaneID
+    ) {
+        commitReadyStatusReveal(for: PaneReference(worklaneID: worklaneID, paneID: paneID))
+    }
+
     var activeWorklane: WorklaneState? {
         get {
             worklanes.first { $0.id == activeWorklaneID }

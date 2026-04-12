@@ -65,3 +65,18 @@ final class PaneFocusHistoryController {
         onChange?()
     }
 }
+
+extension PaneFocusHistoryController {
+    var pendingEntryForTesting: WorklaneStore.PaneReference? {
+        pendingEntry
+    }
+
+    func replaceHistoryForTesting(_ history: PaneFocusHistory) {
+        cancelPending()
+        self.history = history
+    }
+
+    func commitPendingForTesting() {
+        commitPending()
+    }
+}

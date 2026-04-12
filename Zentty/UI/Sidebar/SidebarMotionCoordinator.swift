@@ -141,12 +141,15 @@ final class SidebarMotionCoordinator {
 
     // MARK: - Inset calculation
 
-    func effectiveLeadingInset(sidebarWidth: CGFloat) -> CGFloat {
-        sidebarVisibilityController.effectiveLeadingInset(sidebarWidth: sidebarWidth)
+    func effectiveLeadingInset(sidebarWidth: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
+        sidebarVisibilityController.effectiveLeadingInset(
+            sidebarWidth: sidebarWidth,
+            availableWidth: availableWidth
+        )
     }
 
-    func effectiveLeadingInset() -> CGFloat {
-        effectiveLeadingInset(sidebarWidth: currentSidebarWidth)
+    func effectiveLeadingInset(availableWidth: CGFloat? = nil) -> CGFloat {
+        effectiveLeadingInset(sidebarWidth: currentSidebarWidth, availableWidth: availableWidth)
     }
 
     // MARK: - Timers

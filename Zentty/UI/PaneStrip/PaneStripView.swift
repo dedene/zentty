@@ -80,6 +80,14 @@ final class PaneStripView: NSView {
     private let runtimeRegistry: PaneRuntimeRegistry
     private let backingScaleFactorProvider: () -> CGFloat
     private let dragCoordinator = PaneDragCoordinator()
+    private struct PendingAnimatedRenderSettle {
+        let generation: Int
+        let state: PaneStripState
+        let presentation: StripPresentation
+        let targetOffset: CGFloat
+        let insertionTransition: PaneInsertionTransition?
+        let needsTerminalRedrawAfterRender: Bool
+    }
 
     private var currentState: PaneStripState?
     private var currentPaneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:]
@@ -98,6 +106,7 @@ final class PaneStripView: NSView {
     private(set) var lastRemovalTransition: PaneRemovalTransition?
     private(set) var lastRenderWasAnimated = false
     private var renderGuard = RenderGuard()
+    private var pendingAnimatedRenderSettle: PendingAnimatedRenderSettle?
     private var suppressDiffBasedTransitionsOnNextRender = false
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resolvedLeadingVisibleInset: CGFloat = 0
@@ -391,6 +400,11 @@ final class PaneStripView: NSView {
         }
         dividerViews.values.forEach { $0.layer?.removeAllAnimations() }
 
+        if let pendingAnimatedRenderSettle {
+            completeAnimatedRenderIfPending(forGeneration: pendingAnimatedRenderSettle.generation)
+            return
+        }
+
         guard let currentState, bounds.size != .zero else {
             return
         }
@@ -482,6 +496,7 @@ final class PaneStripView: NSView {
     ) {
         guard !isDragActive || isDropSettling else { return }
         let settleGeneration = renderGuard.advanceGeneration()
+        pendingAnimatedRenderSettle = nil
         let previousPresentation = currentPresentation
         let previousOffset = currentOffset
         let targetOffsetOverride = pendingTargetOffsetOverride
@@ -515,6 +530,7 @@ final class PaneStripView: NSView {
             && (renderGuard.isResizeSuppressed || hasViewportSizeChangeSinceLastRender)
         let shouldAnimate = animated
             && sharesAnyPane(with: state, previousPresentation: previousPresentation)
+            && window?.isVisible == true
             && window?.inLiveResize != true
             && !inLiveResize
             && !isResizeSuppressedRender
@@ -567,6 +583,14 @@ final class PaneStripView: NSView {
         }
 
         if shouldAnimate {
+            pendingAnimatedRenderSettle = PendingAnimatedRenderSettle(
+                generation: settleGeneration,
+                state: state,
+                presentation: presentation,
+                targetOffset: targetOffset,
+                insertionTransition: insertionTransition,
+                needsTerminalRedrawAfterRender: needsTerminalRedrawAfterRender
+            )
             motionController.animate(
                 in: self,
                 duration: animationDuration,
@@ -574,33 +598,7 @@ final class PaneStripView: NSView {
                 updates: updates
             ) { [weak self] in
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
-
-                    if self.renderGuard.generation == settleGeneration {
-                        self.applyPresentation(
-                            presentation,
-                            state: state,
-                            offset: targetOffset,
-                            animated: false,
-                            useNeutralBackground: false,
-                            insertionTransition: insertionTransition,
-                            allowInactiveDimming: true
-                        )
-                        self.reconcileDividerViews(with: presentation, offset: targetOffset)
-                    }
-                    self.paneViews.values.forEach { $0.syncInsetBorderNow() }
-
-                    if !self.isZoomedOut {
-                        self.applyTerminalAnimationFreeze(to: [])
-                        self.applyViewportSyncSuspension(to: [])
-                    }
-                    self.viewportView.layoutSubtreeIfNeeded()
-                    if needsTerminalRedrawAfterRender {
-                        self.refreshTerminalDisplays()
-                        for paneView in self.paneViews.values {
-                            paneView.forceTerminalViewportSync()
-                        }
-                    }
+                    self?.completeAnimatedRenderIfPending(forGeneration: settleGeneration)
                 }
             }
         } else {
@@ -636,6 +634,42 @@ final class PaneStripView: NSView {
         if let callback = afterNextRenderCallback {
             afterNextRenderCallback = nil
             callback()
+        }
+    }
+
+    private func completeAnimatedRenderIfPending(forGeneration generation: Int) {
+        guard let pendingAnimatedRenderSettle, pendingAnimatedRenderSettle.generation == generation else {
+            return
+        }
+        self.pendingAnimatedRenderSettle = nil
+
+        if renderGuard.generation == generation {
+            applyPresentation(
+                pendingAnimatedRenderSettle.presentation,
+                state: pendingAnimatedRenderSettle.state,
+                offset: pendingAnimatedRenderSettle.targetOffset,
+                animated: false,
+                useNeutralBackground: false,
+                insertionTransition: pendingAnimatedRenderSettle.insertionTransition,
+                allowInactiveDimming: true
+            )
+            reconcileDividerViews(
+                with: pendingAnimatedRenderSettle.presentation,
+                offset: pendingAnimatedRenderSettle.targetOffset
+            )
+        }
+        paneViews.values.forEach { $0.syncInsetBorderNow() }
+
+        if !isZoomedOut {
+            applyTerminalAnimationFreeze(to: [])
+            applyViewportSyncSuspension(to: [])
+        }
+        viewportView.layoutSubtreeIfNeeded()
+        if pendingAnimatedRenderSettle.needsTerminalRedrawAfterRender {
+            refreshTerminalDisplays()
+            for paneView in paneViews.values {
+                paneView.forceTerminalViewportSync()
+            }
         }
     }
 

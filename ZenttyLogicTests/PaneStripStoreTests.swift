@@ -2549,16 +2549,7 @@ final class PaneStripStoreTests: XCTestCase {
     func test_command_finished_does_not_promote_running_agent_with_live_pid_to_unresolved_stop() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "sleep 5"]
-        try process.run()
-        addTeardownBlock {
-            if process.isRunning {
-                process.terminate()
-                process.waitUntilExit()
-            }
-        }
+        let livePID = ProcessInfo.processInfo.processIdentifier
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
@@ -2587,7 +2578,7 @@ final class PaneStripStoreTests: XCTestCase {
                 paneID: paneID,
                 signalKind: .pid,
                 state: nil,
-                pid: process.processIdentifier,
+                pid: livePID,
                 pidEvent: .attach,
                 origin: .explicitAPI,
                 toolName: "Codex",
@@ -2606,7 +2597,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.trackedPID,
-            process.processIdentifier
+            livePID
         )
     }
 
@@ -4699,9 +4690,9 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
-    @MainActor
-    func test_idle_transition_waits_before_surfacing_agent_ready() async throws {
+    func test_idle_transition_waits_before_surfacing_agent_ready() throws {
         let store = WorklaneStore()
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
@@ -4738,26 +4729,23 @@ final class PaneStripStoreTests: XCTestCase {
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
             "Agent ready"
         )
+        XCTAssertTrue(
+            store.hasPendingReadyStatusRevealForTesting(worklaneID: worklaneID, paneID: paneID)
+        )
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
 
-        let readyExpectation = expectation(description: "agent ready surfaced after debounce")
-        let subscription = store.subscribe { change in
-            guard case .auxiliaryStateUpdated(_, let updatedPaneID, let impacts) = change,
-                  updatedPaneID == paneID,
-                  impacts.contains(.attention),
-                  store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText == "Agent ready"
-            else {
-                return
-            }
-            readyExpectation.fulfill()
-        }
-        defer { store.unsubscribe(subscription) }
+        store.commitReadyStatusRevealForTesting(worklaneID: worklaneID, paneID: paneID)
 
-        await fulfillment(of: [readyExpectation], timeout: 1.0)
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
-    @MainActor
-    func test_work_resuming_within_ready_window_suppresses_agent_ready() async throws {
+    func test_work_resuming_within_ready_window_suppresses_agent_ready() throws {
         let store = WorklaneStore()
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
         store.applyAgentStatusPayload(
@@ -4803,7 +4791,11 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        try? await Task.sleep(for: .milliseconds(400))
+        XCTAssertFalse(
+            store.hasPendingReadyStatusRevealForTesting(worklaneID: worklaneID, paneID: paneID)
+        )
+
+        store.commitReadyStatusRevealForTesting(worklaneID: worklaneID, paneID: paneID)
 
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
         XCTAssertNotEqual(

@@ -836,6 +836,53 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(newestAdapter.lastRequest?.workingDirectory, "/tmp/project-right")
     }
 
+    func test_focus_change_after_key_cycle_keeps_strip_flush_when_sidebar_is_max_width() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let rootViewController = controller.rootViewControllerForTesting
+        rootViewController.handle(.pane(.splitAfterFocusedPane))
+        waitForLayout("split settled", delay: 0.05)
+        rootViewController.handle(.pane(.focusFirstColumn))
+        waitForLayout("focus first settled", delay: 0.05)
+        rootViewController.handle(.pane(.resizeRight))
+        waitForLayout("resize settled", delay: 0.05)
+
+        rootViewController.setSidebarWidth(10_000)
+        waitForLayout("sidebar width settled", delay: 0.05)
+
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        waitForLayout("window resign settled", delay: 0.05)
+        controller.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification))
+        waitForLayout("window key settled", delay: 0.05)
+
+        let appCanvasView = try XCTUnwrap(
+            controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
+        )
+        var paneViews = appCanvasView
+            .descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+        XCTAssertEqual(paneViews.count, 2)
+
+        let expectedLeadingInset = appCanvasView.leadingVisibleInset
+        let expectedTrailingEdge = appCanvasView.bounds.width - paneViews[1].insetBorderInset
+
+        paneViews[1].focusTerminal()
+        waitForLayout("focus second pane settled", delay: 0.05)
+
+        paneViews = appCanvasView
+            .descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+        XCTAssertEqual(paneViews.count, 2)
+        XCTAssertEqual(appCanvasView.leadingVisibleInset, expectedLeadingInset, accuracy: 0.001)
+        XCTAssertEqual(
+            appCanvasView.convert(paneViews[1].insetBorderFrame, from: paneViews[1]).maxX,
+            expectedTrailingEdge,
+            accuracy: 1.0
+        )
+    }
+
     func test_split_and_focus_actions_route_through_root_dispatcher() {
         let controller = makeController()
 
