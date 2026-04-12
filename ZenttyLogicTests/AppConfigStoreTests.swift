@@ -550,14 +550,16 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(AppConfig.default.appearance, .default)
         XCTAssertNil(AppConfig.default.appearance.localThemeName)
         XCTAssertNil(AppConfig.default.appearance.localBackgroundOpacity)
+        XCTAssertTrue(AppConfig.default.appearance.syncOpenCodeThemeWithTerminal)
 
         let persisted = AppConfigTOML.encode(.default)
         XCTAssertFalse(persisted.contains("[appearance]"))
         XCTAssertFalse(persisted.contains("local_theme_name"))
         XCTAssertFalse(persisted.contains("local_background_opacity"))
+        XCTAssertFalse(persisted.contains("sync_opencode_theme_with_terminal"))
     }
 
-    func test_store_persists_local_appearance_overrides_in_toml() throws {
+    func test_store_persists_opencode_theme_sync_opt_out_in_toml() throws {
         let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         let store = AppConfigStore(
@@ -570,15 +572,18 @@ final class AppConfigStoreTests: XCTestCase {
         try store.update { config in
             config.appearance.localThemeName = persistedFallbackThemeName
             config.appearance.localBackgroundOpacity = 0.87
+            config.appearance.syncOpenCodeThemeWithTerminal = false
         }
 
         let persisted = try String(contentsOf: fileURL, encoding: .utf8)
         XCTAssertTrue(persisted.contains("[appearance]"))
         XCTAssertTrue(persisted.contains("local_theme_name = \"\(persistedFallbackThemeName)\""))
         XCTAssertTrue(persisted.contains("local_background_opacity = 0.87"))
+        XCTAssertTrue(persisted.contains("sync_opencode_theme_with_terminal = false"))
 
         XCTAssertEqual(store.current.appearance.localThemeName, persistedFallbackThemeName)
         XCTAssertEqual(Double(store.current.appearance.localBackgroundOpacity ?? 0), 0.87, accuracy: 0.0001)
+        XCTAssertFalse(store.current.appearance.syncOpenCodeThemeWithTerminal)
     }
 
     func test_store_reads_local_appearance_overrides_from_config_file() throws {
@@ -597,6 +602,7 @@ final class AppConfigStoreTests: XCTestCase {
         [appearance]
         local_theme_name = "\(persistedFallbackThemeName)"
         local_background_opacity = 0.83
+        sync_opencode_theme_with_terminal = true
         """.write(to: fileURL, atomically: true, encoding: .utf8)
 
         let store = AppConfigStore(
@@ -608,6 +614,33 @@ final class AppConfigStoreTests: XCTestCase {
 
         XCTAssertEqual(store.current.appearance.localThemeName, persistedFallbackThemeName)
         XCTAssertEqual(Double(store.current.appearance.localBackgroundOpacity ?? 0), 0.83, accuracy: 0.0001)
+        XCTAssertTrue(store.current.appearance.syncOpenCodeThemeWithTerminal)
+    }
+
+    func test_store_reads_opencode_theme_sync_opt_out_from_config_file() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [sidebar]
+        width = 260
+        visibility = "pinnedOpen"
+
+        [pane_layout]
+        laptop = "balanced"
+        large_display = "balanced"
+        ultrawide = "balanced"
+
+        [appearance]
+        sync_opencode_theme_with_terminal = false
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertFalse(store.current.appearance.syncOpenCodeThemeWithTerminal)
     }
 
     private func makeDefaults(suffix: String) -> UserDefaults {
