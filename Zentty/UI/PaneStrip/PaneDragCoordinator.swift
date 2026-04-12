@@ -2086,6 +2086,10 @@ final class PaneDragCoordinator {
 
         onDragActiveChanged?(false)
     }
+
+    func prepareForTestingTearDown() {
+        teardown()
+    }
 }
 
 // MARK: - PaneDragPhase Helpers

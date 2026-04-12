@@ -8,13 +8,19 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
     ) -> RootViewController {
-        RootViewController(
+        let controller = RootViewController(
             configStore: AppConfigStore(
                 fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.RootViewController.UpdateRow")
             ),
             appUpdateStateStore: appUpdateStateStore,
             runtimeRegistry: runtimeRegistry
         )
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                controller.prepareForTestingTearDown()
+            }
+        }
+        return controller
     }
 
     func test_root_controller_hides_update_row_when_no_update_is_available() throws {
@@ -208,11 +214,6 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         XCTAssertTrue(controller.globalSearchStateForTesting.hasRememberedSearch)
 
         controller.replaceWorklanes([updatedWorklane], activeWorklaneID: worklaneID)
-        let invalidationSettled = expectation(description: "global search invalidation settled")
-        DispatchQueue.main.async {
-            invalidationSettled.fulfill()
-        }
-        wait(for: [invalidationSettled], timeout: 1.0)
 
         XCTAssertEqual(controller.globalSearchStateForTesting, GlobalSearchState())
         XCTAssertFalse(controller.isGlobalSearchHUDVisibleForTesting)

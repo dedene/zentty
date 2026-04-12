@@ -15,16 +15,15 @@ final class PathCopiedToastView: NSView {
         static let fadeInDuration: TimeInterval = 0.22
         static let fadeOutDuration: TimeInterval = 0.18
         static let bottomOffset: CGFloat = 32
-        static let entranceOffsetY: CGFloat = -6
-        static let exitOffsetY: CGFloat = -4
-        static let initialScale: CGFloat = 0.97
+        static let entranceOffsetY: CGFloat = -4
+        static let exitOffsetY: CGFloat = -2
+        static let initialScale: CGFloat = 0.985
     }
 
-    private let surfaceView = NSVisualEffectView()
+    private let surfaceView = GlassSurfaceView(style: .toast)
     private let contentStackView = NSStackView()
     private let iconView = NSImageView()
     private let messageLabel = NSTextField(labelWithString: "Path copied")
-    private let highlightLayer = CAGradientLayer()
     private var dismissWorkItem: DispatchWorkItem?
     private var restingFrame: CGRect = .zero
 
@@ -46,7 +45,6 @@ final class PathCopiedToastView: NSView {
             cornerHeight: Layout.cornerRadius,
             transform: nil
         )
-        highlightLayer.frame = bounds
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -99,13 +97,6 @@ final class PathCopiedToastView: NSView {
         layer?.shadowOpacity = 1
 
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
-        surfaceView.blendingMode = .withinWindow
-        surfaceView.state = .active
-        surfaceView.wantsLayer = true
-        surfaceView.layer?.masksToBounds = true
-        surfaceView.layer?.cornerRadius = Layout.cornerRadius
-        surfaceView.layer?.cornerCurve = .continuous
-        surfaceView.layer?.insertSublayer(highlightLayer, at: 0)
         addSubview(surfaceView)
 
         contentStackView.translatesAutoresizingMaskIntoConstraints = false
@@ -159,8 +150,7 @@ final class PathCopiedToastView: NSView {
     private func apply(theme: ZenttyTheme) {
         let isDark = theme.sidebarGlassAppearance == .dark
         appearance = NSAppearance(named: theme.sidebarGlassAppearance.nsAppearanceName)
-        surfaceView.appearance = appearance
-        surfaceView.material = theme.reducedTransparency ? .menu : .hudWindow
+        surfaceView.apply(theme: theme, animated: false)
 
         let labelColor = theme.openWithPopoverText.withAlphaComponent(isDark ? 0.96 : 0.92)
         messageLabel.textColor = labelColor
@@ -177,31 +167,12 @@ final class PathCopiedToastView: NSView {
         )?.withSymbolConfiguration(symbolConfiguration)
         iconView.image = icon
         iconView.contentTintColor = labelColor.withAlphaComponent(isDark ? 0.96 : 0.88)
-
-        let surfaceBackground = theme.openWithPopoverBackground
-            .mixed(towards: .black, amount: isDark ? 0.18 : 0.04)
-            .withAlphaComponent(theme.reducedTransparency ? 0.96 : (isDark ? 0.88 : 0.78))
-        let borderColor = theme.openWithPopoverBorder.withAlphaComponent(isDark ? 0.28 : 0.18)
         let shadowColor = theme.openWithPopoverShadow
             .mixed(towards: .black, amount: 0.52)
             .withAlphaComponent(isDark ? 0.42 : 0.18)
 
-        surfaceView.layer?.backgroundColor = surfaceBackground.cgColor
-        surfaceView.layer?.borderColor = borderColor.cgColor
-        surfaceView.layer?.borderWidth = 1
-
-        highlightLayer.colors = [
-            NSColor.white.withAlphaComponent(isDark ? 0.10 : 0.18).cgColor,
-            NSColor.white.withAlphaComponent(0).cgColor,
-            NSColor.black.withAlphaComponent(isDark ? 0.08 : 0.03).cgColor,
-        ]
-        highlightLayer.locations = [0, 0.45, 1]
-        highlightLayer.startPoint = CGPoint(x: 0.5, y: 1)
-        highlightLayer.endPoint = CGPoint(x: 0.5, y: 0)
-        highlightLayer.cornerRadius = Layout.cornerRadius
-
         layer?.shadowColor = shadowColor.cgColor
-        layer?.shadowRadius = isDark ? 18 : 14
+        layer?.shadowRadius = isDark ? 16 : 14
         layer?.shadowOffset = CGSize(width: 0, height: 8)
     }
 

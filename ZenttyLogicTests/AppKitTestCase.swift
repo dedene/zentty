@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 /// Base class for tests that create real AppKit views (`NSView`, `NSViewController`,
@@ -19,5 +20,14 @@ class AppKitTestCase: XCTestCase {
         autoreleasepool {
             super.invokeTest()
         }
+    }
+}
+
+extension NSWindow {
+    @discardableResult
+    func prepareForAppKitTesting() -> Self {
+        animationBehavior = .none
+        isReleasedWhenClosed = false
+        return self
     }
 }

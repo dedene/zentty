@@ -19,10 +19,12 @@ struct AppConfig: Equatable, Sendable {
     struct Appearance: Equatable, Sendable {
         var localThemeName: String?
         var localBackgroundOpacity: CGFloat?
+        var syncOpenCodeThemeWithTerminal: Bool
 
         static let `default` = Appearance(
             localThemeName: nil,
-            localBackgroundOpacity: nil
+            localBackgroundOpacity: nil,
+            syncOpenCodeThemeWithTerminal: true
         )
     }
 

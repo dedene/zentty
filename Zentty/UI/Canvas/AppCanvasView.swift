@@ -366,6 +366,10 @@ final class AppCanvasView: NSView {
         paneStripView.settlePresentationNow()
     }
 
+    func prepareForTestingTearDown() {
+        paneStripView.prepareForTestingTearDown()
+    }
+
     func centerFocusedInteriorPaneOnNextRender() {
         paneStripView.centerFocusedInteriorPaneOnNextRender()
     }

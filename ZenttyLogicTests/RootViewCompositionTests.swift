@@ -17,7 +17,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         initialLayoutContext: PaneLayoutContext = .fallback
     ) -> RootViewController {
-        RootViewController(
+        let controller = RootViewController(
             appUpdateStateStore: appUpdateStateStore,
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
             sidebarWidthDefaults: sidebarWidthDefaults,
@@ -25,6 +25,12 @@ final class RootViewCompositionTests: AppKitTestCase {
             paneLayoutDefaults: paneLayoutDefaults,
             initialLayoutContext: initialLayoutContext
         )
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                controller.prepareForTestingTearDown()
+            }
+        }
+        return controller
     }
 
     private func makeSidebarSummary(
@@ -89,6 +95,41 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertTrue(rootSubviews.contains { $0 is SidebarView })
         XCTAssertFalse(appCanvasView.containsDescendant(ofType: WindowChromeView.self))
         XCTAssertEqual(windowChromeView.frame.minY, appCanvasView.frame.maxY, accuracy: 0.5)
+    }
+
+    func test_copy_path_toast_mounts_inside_canvas_view() throws {
+        let controller = makeController()
+        let paneID = PaneID("pane-editor")
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "editor")],
+                    focusedPaneID: paneID
+                ),
+                auxiliaryStateByPaneID: [
+                    paneID: PaneAuxiliaryState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/Users/peter/src/zentty",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: "zenbook"
+                        )
+                    )
+                ]
+            ),
+        ])
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.triggerCopyFocusedPanePathForTesting()
+
+        let toast = try XCTUnwrap(controller.pathCopiedToastViewForTesting)
+        let canvasView = controller.appCanvasViewForTesting
+
+        XCTAssertTrue(toast.isDescendant(of: canvasView))
+        XCTAssertEqual(toast.frame.midX, canvasView.bounds.midX, accuracy: 0.5)
     }
 
     func test_global_search_hud_is_positioned_inside_top_right_of_canvas_area() throws {
@@ -1472,12 +1513,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         let hiddenToggleMinX = controller.sidebarToggleMinX
 
         controller.handleSidebarVisibilityEvent(.hoverRailEntered)
-        let settled = expectation(description: "hover peek settled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarTransitionProfile.standardDuration + 0.05) {
-            settled.fulfill()
-        }
-        wait(for: [settled], timeout: 2.0)
-        controller.view.layoutSubtreeIfNeeded()
+        controller.settleSidebarTransitionForTesting()
 
         XCTAssertEqual(controller.sidebarVisibilityMode, .hoverPeek)
         XCTAssertEqual(controller.sidebarToggleMinX, hiddenToggleMinX, accuracy: 0.001)
@@ -1514,12 +1550,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         controller.view.layoutSubtreeIfNeeded()
 
         controller.handleSidebarVisibilityEvent(.hoverRailEntered)
-        let settled = expectation(description: "hover peek header layout settled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarTransitionProfile.standardDuration + 0.05) {
-            settled.fulfill()
-        }
-        wait(for: [settled], timeout: 2.0)
-        controller.view.layoutSubtreeIfNeeded()
+        controller.settleSidebarTransitionForTesting()
 
         let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView } as? SidebarView)
 
@@ -1563,19 +1594,10 @@ final class RootViewCompositionTests: AppKitTestCase {
         controller.view.layoutSubtreeIfNeeded()
 
         controller.handle(.toggleSidebar)
-        let hideSettled = expectation(description: "sidebar hidden")
-        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarTransitionProfile.standardDuration + 0.05) {
-            hideSettled.fulfill()
-        }
-        wait(for: [hideSettled], timeout: 2.0)
+        controller.settleSidebarTransitionForTesting()
 
         controller.handle(.toggleSidebar)
-        let showSettled = expectation(description: "sidebar shown")
-        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarTransitionProfile.standardDuration + 0.05) {
-            showSettled.fulfill()
-        }
-        wait(for: [showSettled], timeout: 2.0)
-        controller.view.layoutSubtreeIfNeeded()
+        controller.settleSidebarTransitionForTesting()
 
         controller.handle(.pane(.resizeRight))
         controller.view.layoutSubtreeIfNeeded()
@@ -1625,11 +1647,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         controller.view.layoutSubtreeIfNeeded()
 
         controller.handle(.toggleSidebar)
-        let hideSettled = expectation(description: "sidebar hidden")
-        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarTransitionProfile.standardDuration + 0.05) {
-            hideSettled.fulfill()
-        }
-        wait(for: [hideSettled], timeout: 2.0)
+        controller.settleSidebarTransitionForTesting()
 
         controller.handle(.toggleSidebar)
         controller.handle(.pane(.resizeRight))

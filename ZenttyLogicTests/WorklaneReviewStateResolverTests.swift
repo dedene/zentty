@@ -165,17 +165,8 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
                 ),
             ]
         )
-        let firstRefresh = expectation(description: "first refresh")
-        resolver.refresh(for: [worklane]) { _, _ in
-            firstRefresh.fulfill()
-        }
-        await fulfillment(of: [firstRefresh], timeout: 1.0)
-
-        let secondRefresh = expectation(description: "second refresh")
-        resolver.refresh(for: [worklane]) { _, _ in
-            secondRefresh.fulfill()
-        }
-        await fulfillment(of: [secondRefresh], timeout: 1.0)
+        _ = await resolver.refreshForTesting(for: [worklane])
+        _ = await resolver.refreshForTesting(for: [worklane])
 
         let calls = await runner.calls
         XCTAssertEqual(calls.count, 4)
@@ -227,14 +218,8 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
                 ),
             ]
         )
-        var updates: [WorklaneReviewResolution] = []
-        let refreshExpectation = expectation(description: "refresh update")
-        resolver.refresh(for: [worklane]) { _, resolution in
-            updates.append(resolution)
-            refreshExpectation.fulfill()
-        }
-        await fulfillment(of: [refreshExpectation], timeout: 1.0)
-        let resolution = try XCTUnwrap(updates.last)
+        let updates = await resolver.refreshForTesting(for: [worklane])
+        let resolution = try XCTUnwrap(updates[paneID])
 
         XCTAssertEqual(resolution.reviewState?.branch, "feature/review-band")
         XCTAssertEqual(resolution.reviewState?.pullRequest?.state, .draft)
@@ -296,17 +281,11 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
             ]
         )
 
-        var updates: [WorklaneReviewResolution] = []
-        let refreshExpectation = expectation(description: "refresh update")
-        resolver.refresh(for: [worklane]) { _, resolution in
-            updates.append(resolution)
-            refreshExpectation.fulfill()
-        }
-        await fulfillment(of: [refreshExpectation], timeout: 1.0)
+        let updates = await resolver.refreshForTesting(for: [worklane])
 
-        XCTAssertEqual(updates.last?.reviewState?.branch, "main")
-        XCTAssertEqual(updates.last?.reviewState?.pullRequest?.number, 1413)
-        XCTAssertEqual(updates.last?.reviewState?.reviewChips.map(\.text), ["1 failing"])
+        XCTAssertEqual(updates[paneID]?.reviewState?.branch, "main")
+        XCTAssertEqual(updates[paneID]?.reviewState?.pullRequest?.number, 1413)
+        XCTAssertEqual(updates[paneID]?.reviewState?.reviewChips.map(\.text), ["1 failing"])
 
         let calls = await runner.calls
         XCTAssertEqual(calls.count, 4)
@@ -351,11 +330,7 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
                 ),
             ]
         )
-        var updates: [WorklaneReviewResolution] = []
-        resolver.refresh(for: [worklane]) { _, resolution in
-            updates.append(resolution)
-        }
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        let updates = await resolver.refreshForTesting(for: [worklane])
 
         XCTAssertEqual(updates.count, 0)
 
@@ -540,16 +515,10 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
             ]
         )
 
-        var updates: [WorklaneReviewResolution] = []
-        let refreshExpectation = expectation(description: "refresh update")
-        resolver.refresh(for: [worklane]) { _, resolution in
-            updates.append(resolution)
-            refreshExpectation.fulfill()
-        }
-        await fulfillment(of: [refreshExpectation], timeout: 1.0)
+        let updates = await resolver.refreshForTesting(for: [worklane])
 
-        XCTAssertEqual(updates.last?.reviewState?.branch, "main")
-        XCTAssertEqual(updates.last?.reviewState?.pullRequest?.number, 1413)
+        XCTAssertEqual(updates[paneID]?.reviewState?.branch, "main")
+        XCTAssertEqual(updates[paneID]?.reviewState?.pullRequest?.number, 1413)
 
         let calls = await runner.calls
         XCTAssertEqual(calls.count, 4)
@@ -630,20 +599,9 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
             ]
         )
 
-        var updates: [WorklaneReviewResolution] = []
-        let firstRefresh = expectation(description: "first refresh")
-        resolver.refresh(for: [worklane]) { _, resolution in
-            updates.append(resolution)
-            firstRefresh.fulfill()
-        }
-        await fulfillment(of: [firstRefresh], timeout: 1.0)
-
-        let secondRefresh = expectation(description: "second refresh")
-        resolver.refresh(for: [branchChangedWorklane]) { _, resolution in
-            updates.append(resolution)
-            secondRefresh.fulfill()
-        }
-        await fulfillment(of: [secondRefresh], timeout: 1.0)
+        let firstUpdates = await resolver.refreshForTesting(for: [worklane])
+        let secondUpdates = await resolver.refreshForTesting(for: [branchChangedWorklane])
+        let updates = [firstUpdates[paneID], secondUpdates[paneID]].compactMap { $0 }
 
         XCTAssertEqual(updates.map { $0.reviewState?.branch }, ["feature/review-band", "main"])
         XCTAssertEqual(updates.map { $0.reviewState?.pullRequest?.number }, [128, 256])
@@ -693,18 +651,12 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(initialResolution.reviewState?.pullRequest?.number, 128)
         XCTAssertEqual(initialResolution.reviewState?.reviewChips.map(\.text), ["Draft", "1 failing"])
 
-        var refreshedResolution: WorklaneReviewResolution?
-        let refreshExpectation = expectation(description: "forced refresh update")
-        resolver.refreshFocusedPane(
+        let refreshedResolution = await resolver.refreshPaneForTesting(
             repoRoot: "/tmp/project",
             branch: "main",
             paneID: PaneID("pane-main"),
             forceReload: true
-        ) { _, resolution in
-            refreshedResolution = resolution
-            refreshExpectation.fulfill()
-        }
-        await fulfillment(of: [refreshExpectation], timeout: 1.0)
+        )
 
         XCTAssertEqual(refreshedResolution?.reviewState?.pullRequest?.number, 256)
         XCTAssertEqual(refreshedResolution?.reviewState?.reviewChips.map(\.text), ["Checks passed"])
@@ -752,18 +704,12 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         let initialResolution = await resolver.resolve(path: "/tmp/project", branch: "main")
         XCTAssertEqual(initialResolution.reviewState?.pullRequest?.number, 128)
 
-        var refreshedResolution: WorklaneReviewResolution?
-        let refreshExpectation = expectation(description: "cached refresh update")
-        resolver.refreshPane(
+        let refreshedResolution = await resolver.refreshPaneForTesting(
             repoRoot: "/tmp/project",
             branch: "main",
             paneID: PaneID("pane-main"),
             forceReload: false
-        ) { _, resolution in
-            refreshedResolution = resolution
-            refreshExpectation.fulfill()
-        }
-        await fulfillment(of: [refreshExpectation], timeout: 1.0)
+        )
 
         XCTAssertEqual(refreshedResolution?.reviewState?.pullRequest?.number, 128)
 
@@ -789,18 +735,12 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(initialResolution.reviewState?.pullRequest?.number, 128)
         XCTAssertEqual(initialResolution.reviewState?.reviewChips.map { $0.text }, ["Checks passed"])
 
-        var refreshedResolution: WorklaneReviewResolution?
-        let refreshExpectation = expectation(description: "forced refresh keeps cache")
-        resolver.refreshFocusedPane(
+        let refreshedResolution = await resolver.refreshPaneForTesting(
             repoRoot: "/tmp/project",
             branch: "main",
             paneID: PaneID("pane-main"),
             forceReload: true
-        ) { _, resolution in
-            refreshedResolution = resolution
-            refreshExpectation.fulfill()
-        }
-        await fulfillment(of: [refreshExpectation], timeout: 1.0)
+        )
 
         XCTAssertEqual(refreshedResolution?.reviewState?.pullRequest?.number, 128)
         XCTAssertEqual(refreshedResolution?.reviewState?.reviewChips.map { $0.text }, ["Checks passed"])

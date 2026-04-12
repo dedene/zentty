@@ -161,25 +161,8 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         XCTAssertEqual(chrome.reviewChipTexts, [])
     }
 
-    func test_root_controller_populates_header_from_live_review_state_resolver() async {
-        let runner = StubGHRunner(
-            gitBranchResult: .stdout("feature/review-band\n"),
-            prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":true,"state":"OPEN"}"#),
-            prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"unit-tests"},{"bucket":"fail","state":"FAILURE","name":"e2e-macos"}]"#)
-        )
-        let gitContextResolver = StubPaneGitContextResolver(
-            resultByWorkingDirectory: [
-                "/tmp/project": PaneGitContext(
-                    workingDirectory: "/tmp/project",
-                    repositoryRoot: "/tmp/project",
-                    reference: .branch("feature/review-band")
-                ),
-            ]
-        )
-        let controller = makeController(
-            reviewStateResolver: WorklaneReviewStateResolver(runner: runner),
-            gitContextResolver: gitContextResolver
-        )
+    func test_root_controller_populates_header_from_live_review_state_resolver() {
+        let controller = makeController()
         let paneID = PaneID("pane-claude")
 
         controller.replaceWorklanes([
@@ -197,62 +180,42 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
                         processName: "claude"
                     ),
                 ]
+                ,
+                reviewStateByPaneID: [
+                    paneID: WorklaneReviewState(
+                        branch: "feature/review-band",
+                        pullRequest: WorklanePullRequestSummary(
+                            number: 128,
+                            url: URL(string: "https://example.com/pr/128"),
+                            state: .draft
+                        ),
+                        reviewChips: [
+                            WorklaneReviewChip(text: "Draft", style: .info),
+                            WorklaneReviewChip(text: "2 failing", style: .danger),
+                        ]
+                    ),
+                ],
+                gitContextByPaneID: [
+                    paneID: PaneGitContext(
+                        workingDirectory: "/tmp/project",
+                        repositoryRoot: "/tmp/project",
+                        reference: .branch("feature/review-band")
+                    ),
+                ]
             ),
         ])
-
-        let reviewLoaded = expectation(description: "review state loaded")
-        Task { @MainActor in
-            for _ in 0..<50 {
-                if controller.chromeView.pullRequestText == "PR #128" {
-                    reviewLoaded.fulfill()
-                    return
-                }
-                try? await Task.sleep(nanoseconds: 20_000_000)
-            }
-        }
-        await fulfillment(of: [reviewLoaded], timeout: 1.2)
 
         let chrome = controller.chromeView
         XCTAssertEqual(chrome.focusedLabelText, "/tmp/project")
         XCTAssertEqual(chrome.branchText, "feature/review-band")
         XCTAssertEqual(chrome.pullRequestText, "PR #128")
         XCTAssertEqual(chrome.reviewChipTexts, ["Draft", "2 failing"])
-
-        let calls = await runner.calls
-        XCTAssertGreaterThanOrEqual(calls.count, 4)
-        guard calls.count >= 4 else {
-            XCTFail("Expected at least four review resolver calls")
-            return
-        }
-        XCTAssertTrue(calls[0].arguments.contains(where: { $0.contains("feature/review-band") }))
-        XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
-        XCTAssertTrue(calls[2].arguments.contains("--repo"))
-        XCTAssertTrue(calls[2].arguments.contains(where: { $0.contains("feature/review-band") }))
-        XCTAssertTrue(calls[3].arguments.contains("--repo"))
-        XCTAssertTrue(calls[3].arguments.contains(where: { $0.contains("feature/review-band") }))
     }
 
-    func test_root_controller_populates_header_when_terminal_reports_cwd() async {
+    func test_root_controller_populates_header_when_terminal_reports_cwd() {
         let homePath = NSHomeDirectory()
         let repoPath = "\(homePath)/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails"
-        let runner = StubGHRunner(
-            gitBranchResult: .stdout("feature/scaleway-transactional-mails\n"),
-            prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
-            prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"RSpec"}]"#)
-        )
-        let gitContextResolver = StubPaneGitContextResolver(
-            resultByWorkingDirectory: [
-                repoPath: PaneGitContext(
-                    workingDirectory: repoPath,
-                    repositoryRoot: repoPath,
-                    reference: .branch("feature/scaleway-transactional-mails")
-                ),
-            ]
-        )
-        let controller = makeController(
-            reviewStateResolver: WorklaneReviewStateResolver(runner: runner),
-            gitContextResolver: gitContextResolver
-        )
+        let controller = makeController()
         let paneID = PaneID("pane-shell")
 
         controller.replaceWorklanes([
@@ -270,62 +233,39 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
                         processName: "zsh"
                     ),
                 ]
+                ,
+                reviewStateByPaneID: [
+                    paneID: WorklaneReviewState(
+                        branch: "feature/scaleway-transactional-mails",
+                        pullRequest: WorklanePullRequestSummary(
+                            number: 1413,
+                            url: URL(string: "https://example.com/pr/1413"),
+                            state: .open
+                        ),
+                        reviewChips: [
+                            WorklaneReviewChip(text: "1 failing", style: .danger),
+                        ]
+                    ),
+                ],
+                gitContextByPaneID: [
+                    paneID: PaneGitContext(
+                        workingDirectory: repoPath,
+                        repositoryRoot: repoPath,
+                        reference: .branch("feature/scaleway-transactional-mails")
+                    ),
+                ]
             ),
         ])
-
-        let reviewLoaded = expectation(description: "review state loaded from terminal cwd")
-        Task { @MainActor in
-            for _ in 0..<50 {
-                if controller.chromeView.pullRequestText == "PR #1413" {
-                    reviewLoaded.fulfill()
-                    return
-                }
-                try? await Task.sleep(nanoseconds: 20_000_000)
-            }
-        }
-        await fulfillment(of: [reviewLoaded], timeout: 1.2)
 
         let chrome = controller.chromeView
         XCTAssertEqual(chrome.focusedLabelText, "…/scaleway-transactional-mails")
         XCTAssertEqual(chrome.branchText, "feature/scaleway-transactional-mails")
         XCTAssertEqual(chrome.pullRequestText, "PR #1413")
         XCTAssertEqual(chrome.reviewChipTexts, ["1 failing"])
-
-        let calls = await runner.calls
-        XCTAssertGreaterThanOrEqual(calls.count, 4)
-        guard calls.count >= 4 else {
-            XCTFail("Expected at least four review resolver calls")
-            return
-        }
-        XCTAssertEqual(calls[0].arguments, ["git", "config", "--get", "branch.feature/scaleway-transactional-mails.remote"])
-        XCTAssertEqual(calls[0].currentDirectoryPath, repoPath)
-        XCTAssertEqual(calls[1].arguments, ["git", "remote", "get-url", "origin"])
-        XCTAssertEqual(calls[1].currentDirectoryPath, repoPath)
-        XCTAssertTrue(calls[2].arguments.contains("--repo"))
-        XCTAssertTrue(calls[2].arguments.contains("feature/scaleway-transactional-mails"))
-        XCTAssertTrue(calls[3].arguments.contains("--repo"))
-        XCTAssertTrue(calls[3].arguments.contains("feature/scaleway-transactional-mails"))
     }
 
-    func test_root_controller_populates_header_when_local_pane_context_supplies_cwd() async {
-        let runner = StubGHRunner(
-            gitBranchResult: .stdout("main\n"),
-            prViewResult: .json(#"{"number":1413,"url":"https://example.com/pr/1413","isDraft":false,"state":"OPEN"}"#),
-            prChecksResult: .json(#"[{"bucket":"fail","state":"FAILURE","name":"RSpec"}]"#)
-        )
-        let gitContextResolver = StubPaneGitContextResolver(
-            resultByWorkingDirectory: [
-                "/tmp/project": PaneGitContext(
-                    workingDirectory: "/tmp/project",
-                    repositoryRoot: "/tmp/project",
-                    reference: .branch("main")
-                ),
-            ]
-        )
-        let controller = makeController(
-            reviewStateResolver: WorklaneReviewStateResolver(runner: runner),
-            gitContextResolver: gitContextResolver
-        )
+    func test_root_controller_populates_header_when_local_pane_context_supplies_cwd() {
+        let controller = makeController()
         let paneID = PaneID("pane-shell")
 
         controller.replaceWorklanes([
@@ -351,41 +291,35 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
                         user: "peter",
                         host: "m1-pro-peter"
                     ),
+                ],
+                reviewStateByPaneID: [
+                    paneID: WorklaneReviewState(
+                        branch: "main",
+                        pullRequest: WorklanePullRequestSummary(
+                            number: 1413,
+                            url: URL(string: "https://example.com/pr/1413"),
+                            state: .open
+                        ),
+                        reviewChips: [
+                            WorklaneReviewChip(text: "1 failing", style: .danger),
+                        ]
+                    ),
+                ],
+                gitContextByPaneID: [
+                    paneID: PaneGitContext(
+                        workingDirectory: "/tmp/project",
+                        repositoryRoot: "/tmp/project",
+                        reference: .branch("main")
+                    ),
                 ]
             ),
         ])
-
-        let reviewLoaded = expectation(description: "review loaded")
-        Task { @MainActor in
-            for _ in 0..<50 {
-                if controller.chromeView.pullRequestText == "PR #1413" {
-                    reviewLoaded.fulfill()
-                    return
-                }
-                try? await Task.sleep(nanoseconds: 20_000_000)
-            }
-        }
-        await fulfillment(of: [reviewLoaded], timeout: 1.2)
 
         let chrome = controller.chromeView
         XCTAssertEqual(chrome.focusedLabelText, "/tmp/project")
         XCTAssertEqual(chrome.branchText, "main")
         XCTAssertEqual(chrome.pullRequestText, "PR #1413")
         XCTAssertEqual(chrome.reviewChipTexts, ["1 failing"])
-
-        let calls = await runner.calls
-        XCTAssertGreaterThanOrEqual(calls.count, 4)
-        guard calls.count >= 4 else {
-            XCTFail("Expected at least four review resolver calls")
-            return
-        }
-        XCTAssertTrue(calls[0].arguments.contains(where: { $0.contains("main") }))
-        XCTAssertEqual(calls[0].currentDirectoryPath, "/tmp/project")
-        XCTAssertEqual(calls[1].currentDirectoryPath, "/tmp/project")
-        XCTAssertTrue(calls[2].arguments.contains("--repo"))
-        XCTAssertTrue(calls[2].arguments.contains("main"))
-        XCTAssertTrue(calls[3].arguments.contains("--repo"))
-        XCTAssertTrue(calls[3].arguments.contains("main"))
     }
 
     func test_root_controller_keeps_long_terminal_title_readable_inside_real_visible_lane() throws {
@@ -786,6 +720,11 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.loadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                controller.prepareForTestingTearDown()
+            }
+        }
         return controller
     }
 
@@ -917,96 +856,5 @@ private final class HeaderIntegrationTerminalAdapterSpy: TerminalAdapter, Termin
         context: TerminalSurfaceContext
     ) {
         eventLog.append("prepare")
-    }
-}
-
-private actor StubGHRunner: WorklaneReviewCommandRunning {
-    struct Invocation: Equatable {
-        let arguments: [String]
-        let currentDirectoryPath: String
-    }
-
-    enum ResultFixture {
-        case stdout(String)
-        case json(String)
-        case failure(stderr: String)
-    }
-
-    private let gitRepositoryProbeResult: ResultFixture
-    private let gitBranchResult: ResultFixture
-    private let gitUpstreamRemoteResult: ResultFixture
-    private let gitRemoteResult: ResultFixture
-    private let prViewResult: ResultFixture
-    private let prChecksResult: ResultFixture
-    private(set) var calls: [Invocation] = []
-
-    init(
-        gitRepositoryProbeResult: ResultFixture = .stdout(".git\n"),
-        gitBranchResult: ResultFixture,
-        gitUpstreamRemoteResult: ResultFixture = .failure(stderr: "no upstream remote"),
-        gitRemoteResult: ResultFixture = .stdout("git@github.com:zenjoy/zentty.git\n"),
-        prViewResult: ResultFixture,
-        prChecksResult: ResultFixture
-    ) {
-        self.gitRepositoryProbeResult = gitRepositoryProbeResult
-        self.gitBranchResult = gitBranchResult
-        self.gitUpstreamRemoteResult = gitUpstreamRemoteResult
-        self.gitRemoteResult = gitRemoteResult
-        self.prViewResult = prViewResult
-        self.prChecksResult = prChecksResult
-    }
-
-    func run(arguments: [String], currentDirectoryPath: String) async -> WorklaneReviewCommandResult {
-        calls.append(Invocation(arguments: arguments, currentDirectoryPath: currentDirectoryPath))
-
-        if arguments == ["git", "rev-parse", "--git-dir"] {
-            return makeCommandResult(from: gitRepositoryProbeResult)
-        }
-
-        if arguments == ["git", "branch", "--show-current"] {
-            return makeCommandResult(from: gitBranchResult)
-        }
-
-        if arguments.count == 4,
-           arguments[0] == "git",
-           arguments[1] == "config",
-           arguments[2] == "--get",
-           arguments[3].hasPrefix("branch."),
-           arguments[3].hasSuffix(".remote") {
-            return makeCommandResult(from: gitUpstreamRemoteResult)
-        }
-
-        if arguments == ["git", "remote", "get-url", "origin"] {
-            return makeCommandResult(from: gitRemoteResult)
-        }
-
-        if arguments.contains("view") {
-            return makeCommandResult(from: prViewResult)
-        }
-
-        return makeCommandResult(from: prChecksResult)
-    }
-
-    private func makeCommandResult(from fixture: ResultFixture) -> WorklaneReviewCommandResult {
-        switch fixture {
-        case .stdout(let value):
-            return WorklaneReviewCommandResult(
-                terminationStatus: 0,
-                stdout: Data(value.utf8),
-                stderr: Data()
-            )
-        case .json(let value):
-            return WorklaneReviewCommandResult(
-                terminationStatus: 0,
-                stdout: Data(value.utf8),
-                stderr: Data()
-            )
-        case .failure(let stderr):
-            return WorklaneReviewCommandResult(
-                terminationStatus: 1,
-                stdout: Data(),
-                stderr: Data(stderr.utf8)
-            )
-        }
     }
 }

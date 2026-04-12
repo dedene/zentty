@@ -1,30 +1,58 @@
 import Foundation
 
 @MainActor
+protocol PaneFocusHistoryDebounceHandle: AnyObject {
+    func cancel()
+}
+
+@MainActor
+private final class TaskPaneFocusHistoryDebounceHandle: PaneFocusHistoryDebounceHandle {
+    private let task: Task<Void, Never>
+
+    init(task: Task<Void, Never>) {
+        self.task = task
+    }
+
+    func cancel() {
+        task.cancel()
+    }
+}
+
+@MainActor
 final class PaneFocusHistoryController {
+    typealias DebounceScheduler = @MainActor (
+        _ interval: TimeInterval,
+        _ operation: @escaping @MainActor () -> Void
+    ) -> any PaneFocusHistoryDebounceHandle
+
     private(set) var history = PaneFocusHistory()
     private var pendingEntry: WorklaneStore.PaneReference?
-    private var debounceTask: Task<Void, Never>?
+    private var debounceHandle: (any PaneFocusHistoryDebounceHandle)?
     private let debounceInterval: TimeInterval
+    private let scheduleDebounce: DebounceScheduler
 
     var onChange: (() -> Void)?
 
-    init(debounceInterval: TimeInterval = 0.5) {
+    init(
+        debounceInterval: TimeInterval = 0.5,
+        scheduleDebounce: @escaping DebounceScheduler = PaneFocusHistoryController.defaultDebounceScheduler
+    ) {
         self.debounceInterval = debounceInterval
+        self.scheduleDebounce = scheduleDebounce
     }
 
     /// Schedule a focus change to be recorded after the debounce interval.
     /// The `previous` reference is the pane that was focused before the transition.
     func recordFocusChange(from previous: WorklaneStore.PaneReference) {
-        debounceTask?.cancel()
+        debounceHandle?.cancel()
         pendingEntry = previous
 
-        debounceTask = Task { [weak self, debounceInterval] in
-            do {
-                try await Task.sleep(for: .seconds(debounceInterval))
-            } catch {
-                return
-            }
+        guard debounceInterval > 0 else {
+            commitPending()
+            return
+        }
+
+        debounceHandle = scheduleDebounce(debounceInterval) { [weak self] in
             self?.commitPending()
         }
     }
@@ -52,16 +80,32 @@ final class PaneFocusHistoryController {
     }
 
     func cancelPending() {
-        debounceTask?.cancel()
-        debounceTask = nil
+        debounceHandle?.cancel()
+        debounceHandle = nil
         pendingEntry = nil
     }
 
     private func commitPending() {
         guard let entry = pendingEntry else { return }
         pendingEntry = nil
-        debounceTask = nil
+        debounceHandle = nil
         history.record(entry)
         onChange?()
+    }
+
+    private static func defaultDebounceScheduler(
+        interval: TimeInterval,
+        operation: @escaping @MainActor () -> Void
+    ) -> any PaneFocusHistoryDebounceHandle {
+        let task = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(interval))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            operation()
+        }
+        return TaskPaneFocusHistoryDebounceHandle(task: task)
     }
 }

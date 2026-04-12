@@ -394,6 +394,8 @@ final class PaneContainerView: NSView {
     }
 
     func setTerminalViewportSyncSuspended(_ suspended: Bool) {
+        needsLayout = true
+        layoutSubtreeIfNeeded()
         terminalHostView.setViewportSyncSuspended(suspended)
     }
 
