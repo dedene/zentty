@@ -520,12 +520,12 @@ enum AgentLaunchBootstrap {
                 fileManager: fileManager
             )
         }
-        try scrubOpenCodeThemeState(in: overlayStateDirectoryURL)
+        try scrubOpenCodeThemeState(in: overlayStateDirectoryURL, fileManager: fileManager)
     }
 
-    private static func scrubOpenCodeThemeState(in stateDirectoryURL: URL) throws {
+    private static func scrubOpenCodeThemeState(in stateDirectoryURL: URL, fileManager: FileManager) throws {
         let kvURL = stateDirectoryURL.appendingPathComponent("kv.json", isDirectory: false)
-        guard FileManager.default.fileExists(atPath: kvURL.path) else {
+        guard fileManager.fileExists(atPath: kvURL.path) else {
             return
         }
         guard let data = try? Data(contentsOf: kvURL),

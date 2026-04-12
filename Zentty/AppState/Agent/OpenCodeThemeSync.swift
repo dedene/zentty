@@ -97,6 +97,7 @@ enum OpenCodeThemeSync {
 
     private static func loadTUIConfig(from url: URL) -> [String: Any]? {
         guard let data = try? Data(contentsOf: url) else {
+            // Missing tui.json means "start from an empty config" so sync can create one.
             return [:]
         }
 
@@ -307,11 +308,11 @@ enum OpenCodeThemeSync {
             }
         }
 
-        for color in fallbackColors {
+        if let color = fallbackColors.first {
             return color.themeHexString
         }
 
-        for hex in fallbackHexes {
+        if let hex = fallbackHexes.first {
             return hex
         }
 
