@@ -521,12 +521,19 @@ final class TerminalDiagnostics: @unchecked Sendable {
 
     private let quietPeriod: TimeInterval
     private let queue = DispatchQueue(label: "be.zenjoy.zentty.terminal-diagnostics", qos: .utility)
+    private let deliverEmission: (@escaping () -> Void) -> Void
     private let enabledLock = NSLock()
     private var enabled = false
     private var burstsByScope: [Scope: BurstState] = [:]
 
-    init(quietPeriod: TimeInterval = 1.0) {
+    init(
+        quietPeriod: TimeInterval = 1.0,
+        deliverEmission: @escaping (@escaping () -> Void) -> Void = {
+            DispatchQueue.main.async(execute: $0)
+        }
+    ) {
         self.quietPeriod = quietPeriod
+        self.deliverEmission = deliverEmission
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -866,8 +873,23 @@ final class TerminalDiagnostics: @unchecked Sendable {
         )
 
         let onEmit = self.onEmit
-        DispatchQueue.main.async {
+        deliverEmission {
             onEmit?(summary)
+        }
+    }
+
+    func flushForTesting() {
+        let pendingBursts: [(summary: BurstSummary, endedAt: Date)] = queue.sync {
+            let pendingBursts = burstsByScope.values.map { burst in
+                burst.flushWorkItem?.cancel()
+                return (summary: burst.summary, endedAt: burst.lastEventAt)
+            }
+            burstsByScope.removeAll()
+            return pendingBursts
+        }
+
+        pendingBursts.forEach { burst in
+            emit(burst.summary, endedAt: burst.endedAt)
         }
     }
 

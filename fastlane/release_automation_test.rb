@@ -90,6 +90,14 @@ assert_nil ReleaseAutomation.sparkle_channel("stable")
 assert_equal "beta", ReleaseAutomation.sparkle_channel("beta")
 assert_equal "Zentty-1.2.3-456", ReleaseAutomation.archive_basename(app_name: "Zentty", version: "v1.2.3", build: "456")
 assert_equal "appcast.xml", ReleaseAutomation.appcast_key
+assert_equal(
+  ["glitchtip-cli", "debug-files", "upload", "/tmp/build"],
+  ReleaseAutomation.glitchtip_debug_files_upload_command(upload_root: "/tmp/build")
+)
+assert_equal(
+  ["glitchtip-cli", "debug-files", "upload", "/tmp/build", "--org", "zenjoy", "--project", "zentty"],
+  ReleaseAutomation.glitchtip_debug_files_upload_command(upload_root: "/tmp/build", org: "zenjoy", project: "zentty")
+)
 
 error = assert_raises(ArgumentError) { ReleaseAutomation.validate_version!(channel: "stable", version: "1.2.3-beta.1") }
 assert_match(/Stable releases/, error.message)

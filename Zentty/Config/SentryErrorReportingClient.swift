@@ -13,6 +13,7 @@ final class SentryErrorReportingClient: ErrorReportingClient {
             options.enableAutoPerformanceTracing = configuration.enableAutoPerformanceTracing
             options.enableNetworkBreadcrumbs = configuration.enableNetworkBreadcrumbs
             options.enableWatchdogTerminationTracking = configuration.enableWatchdogTerminationTracking
+            options.enableUncaughtNSExceptionReporting = configuration.enableUncaughtNSExceptionReporting
             options.maxBreadcrumbs = configuration.maxBreadcrumbs
         }
     }

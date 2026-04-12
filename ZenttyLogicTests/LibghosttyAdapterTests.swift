@@ -513,15 +513,23 @@ final class LibghosttyAdapterTests: AppKitTestCase {
 }
 
 final class TerminalDiagnosticsTests: XCTestCase {
-    func test_terminal_diagnostics_emits_burst_summary_after_quiet_period() async {
-        let diagnostics = TerminalDiagnostics(quietPeriod: 0.02)
-        let emitted = expectation(description: "burst emitted")
-        var summary: TerminalDiagnostics.BurstSummary?
-        diagnostics.onEmit = { emittedSummary in
-            summary = emittedSummary
-            emitted.fulfill()
-        }
+    private func makeDiagnostics(
+        onEmit: @escaping (TerminalDiagnostics.BurstSummary) -> Void
+    ) -> TerminalDiagnostics {
+        let diagnostics = TerminalDiagnostics(
+            quietPeriod: 60,
+            deliverEmission: { work in work() }
+        )
+        diagnostics.onEmit = onEmit
         diagnostics.setEnabled(true)
+        return diagnostics
+    }
+
+    func test_terminal_diagnostics_emits_burst_summary_after_quiet_period() throws {
+        var summary: TerminalDiagnostics.BurstSummary?
+        let diagnostics = makeDiagnostics { emittedSummary in
+            summary = emittedSummary
+        }
 
         let paneID = PaneID("pane-1")
         let previous = TerminalMetadata(
@@ -554,7 +562,7 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
         diagnostics.recordRender(.canvas, activePaneID: paneID)
 
-        await fulfillment(of: [emitted], timeout: 1.0)
+        diagnostics.flushForTesting()
 
         XCTAssertEqual(summary?.scope, .pane(paneID))
         XCTAssertEqual(summary?.metadataDeliveryCount, 1)
@@ -570,23 +578,11 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertEqual(summary?.wouldHaveBeenVolatileClaudeCount, 1)
     }
 
-    func test_terminal_diagnostics_emits_tick_and_drain_timings_in_payload() async throws {
-        let diagnostics = TerminalDiagnostics(quietPeriod: 0.02)
-        let runtimeEmitted = expectation(description: "runtime burst emitted")
-        let paneEmitted = expectation(description: "pane burst emitted")
+    func test_terminal_diagnostics_emits_tick_and_drain_timings_in_payload() throws {
         var summariesByScope: [TerminalDiagnostics.Scope: TerminalDiagnostics.BurstSummary] = [:]
-        diagnostics.onEmit = { emittedSummary in
+        let diagnostics = makeDiagnostics { emittedSummary in
             summariesByScope[emittedSummary.scope] = emittedSummary
-            switch emittedSummary.scope {
-            case .runtime:
-                runtimeEmitted.fulfill()
-            case .pane(PaneID("pane-2")):
-                paneEmitted.fulfill()
-            default:
-                break
-            }
         }
-        diagnostics.setEnabled(true)
 
         let paneID = PaneID("pane-2")
         diagnostics.recordWakeupReceived()
@@ -595,7 +591,7 @@ final class TerminalDiagnosticsTests: XCTestCase {
         diagnostics.recordActionCallback(paneID: paneID, payload: .scrollbar(total: 100, offset: 0, len: 10))
         diagnostics.recordActionDrain(paneID: paneID, queueDelayNanoseconds: 4_250_000)
 
-        await fulfillment(of: [runtimeEmitted, paneEmitted], timeout: 1.0)
+        diagnostics.flushForTesting()
 
         let runtimeSummary = try XCTUnwrap(summariesByScope[.runtime])
         XCTAssertEqual(runtimeSummary.wakeupCount, 1)
@@ -625,19 +621,15 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertTrue(panePayload.contains("actionDrainQueueDelayMaxMilliseconds=4.25"))
     }
 
-    func test_terminal_diagnostics_emits_scroll_host_metrics_in_payload() async throws {
-        let diagnostics = TerminalDiagnostics(quietPeriod: 0.02)
-        let emitted = expectation(description: "pane burst emitted")
+    func test_terminal_diagnostics_emits_scroll_host_metrics_in_payload() throws {
         var summary: TerminalDiagnostics.BurstSummary?
         let paneID = PaneID("pane-scroll-host")
-        diagnostics.onEmit = { emittedSummary in
+        let diagnostics = makeDiagnostics { emittedSummary in
             guard emittedSummary.scope == .pane(paneID) else {
                 return
             }
             summary = emittedSummary
-            emitted.fulfill()
         }
-        diagnostics.setEnabled(true)
 
         diagnostics.recordScrollbarApply(paneID: paneID, durationNanoseconds: 3_500_000)
         diagnostics.recordScrollHostSync(
@@ -660,7 +652,7 @@ final class TerminalDiagnosticsTests: XCTestCase {
         diagnostics.recordScrollToRowAction(paneID: paneID)
         diagnostics.recordViewportSync(paneID: paneID, durationNanoseconds: 1_250_000)
 
-        await fulfillment(of: [emitted], timeout: 1.0)
+        diagnostics.flushForTesting()
 
         let emittedSummary = try XCTUnwrap(summary)
         XCTAssertEqual(emittedSummary.scrollbarApplyCount, 1)
@@ -704,19 +696,15 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertTrue(payload.contains("viewportSyncCount=1"))
     }
 
-    func test_terminal_diagnostics_tolerates_inconsistent_scrollbar_ranges() async throws {
-        let diagnostics = TerminalDiagnostics(quietPeriod: 0.02)
-        let emitted = expectation(description: "pane burst emitted")
+    func test_terminal_diagnostics_tolerates_inconsistent_scrollbar_ranges() throws {
         let paneID = PaneID("pane-scroll-overflow")
         var summary: TerminalDiagnostics.BurstSummary?
-        diagnostics.onEmit = { emittedSummary in
+        let diagnostics = makeDiagnostics { emittedSummary in
             guard emittedSummary.scope == .pane(paneID) else {
                 return
             }
             summary = emittedSummary
-            emitted.fulfill()
         }
-        diagnostics.setEnabled(true)
 
         diagnostics.recordScrollHostSync(
             paneID: paneID,
@@ -736,7 +724,7 @@ final class TerminalDiagnosticsTests: XCTestCase {
             explicitScrollbarSyncAllowed: nil
         )
 
-        await fulfillment(of: [emitted], timeout: 1.0)
+        diagnostics.flushForTesting()
 
         let emittedSummary = try XCTUnwrap(summary)
         XCTAssertEqual(emittedSummary.scrollbarBottomAlignedCount, 1)
@@ -746,17 +734,16 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertEqual(emittedSummary.scrollbarMaxVisibleRows, UInt64.max)
     }
 
-    func test_terminal_diagnostics_drops_events_when_disabled() async {
+    func test_terminal_diagnostics_drops_events_when_disabled() {
         let diagnostics = TerminalDiagnostics(quietPeriod: 0.02)
-        let emitted = expectation(description: "no burst emitted")
-        emitted.isInverted = true
+        var didEmit = false
         diagnostics.onEmit = { _ in
-            emitted.fulfill()
+            didEmit = true
         }
 
         diagnostics.recordStoreMetadataUpdate(paneID: PaneID("pane-1"))
 
-        await fulfillment(of: [emitted], timeout: 0.1)
+        XCTAssertFalse(didEmit)
     }
 }
 

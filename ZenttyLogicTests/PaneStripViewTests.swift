@@ -12,7 +12,16 @@ final class PaneStripViewTests: AppKitTestCase {
 
     @MainActor
     private func makePaneStripView(width: CGFloat = 1200, height: CGFloat = 680) -> PaneStripView {
-        PaneStripView(frame: NSRect(x: 0, y: 0, width: width, height: height), runtimeRegistry: stubRegistry())
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: width, height: height),
+            runtimeRegistry: stubRegistry()
+        )
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                paneStripView.prepareForTestingTearDown()
+            }
+        }
+        return paneStripView
     }
 
     @MainActor
@@ -464,8 +473,7 @@ final class PaneStripViewTests: AppKitTestCase {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         addTeardownBlock {
             window.orderOut(nil)
             window.close()
@@ -648,8 +656,7 @@ final class PaneStripViewTests: AppKitTestCase {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         addTeardownBlock {
             window.orderOut(nil)
             window.close()
@@ -715,8 +722,7 @@ final class PaneStripViewTests: AppKitTestCase {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         addTeardownBlock {
             window.orderOut(nil)
             window.close()
@@ -774,8 +780,7 @@ final class PaneStripViewTests: AppKitTestCase {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         addTeardownBlock {
             window.orderOut(nil)
             window.close()
@@ -1860,7 +1865,7 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
-    func test_vertical_split_suspends_terminal_viewport_sync_until_animation_settles() async throws {
+    func test_vertical_split_suspends_terminal_viewport_sync_until_animation_settles() throws {
         let adapterFactory = TerminalAdapterFactorySpy()
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
         let paneStripView = PaneStripView(
@@ -1911,11 +1916,7 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
         XCTAssertEqual(insertedAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
 
-        let settled = expectation(description: "vertical split animation settled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            settled.fulfill()
-        }
-        await fulfillment(of: [settled], timeout: 1.0)
+        paneStripView.settlePresentationNow()
 
         XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
         XCTAssertEqual(insertedAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
@@ -2050,7 +2051,7 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
-    func test_vertical_pane_removal_freezes_remaining_pane_until_animation_settles() async throws {
+    func test_vertical_pane_removal_freezes_remaining_pane_until_animation_settles() throws {
         let paneStripView = makePaneStripView()
         let splitState = PaneStripState(
             columns: [
@@ -2102,7 +2103,7 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
-    func test_closing_stacked_pane_resumes_terminal_viewport_sync_with_surviving_pane_height() async throws {
+    func test_closing_stacked_pane_resumes_terminal_viewport_sync_with_surviving_pane_height() throws {
         let adapterFactory = TerminalAdapterFactorySpy()
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
         let paneStripView = PaneStripView(
@@ -2151,11 +2152,7 @@ final class PaneStripViewTests: AppKitTestCase {
         let shellAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("shell")))
         XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
 
-        let settled = expectation(description: "close animation settled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            settled.fulfill()
-        }
-        await fulfillment(of: [settled], timeout: 1.0)
+        paneStripView.settlePresentationNow()
 
         XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
         let resumedHeight = try XCTUnwrap(shellAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
@@ -2166,7 +2163,7 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
-    func test_closing_stacked_pane_requests_terminal_redraw_after_size_change() async throws {
+    func test_closing_stacked_pane_requests_terminal_redraw_after_size_change() throws {
         let adapterFactory = TerminalAdapterFactorySpy()
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
         let paneStripView = PaneStripView(
@@ -2211,11 +2208,7 @@ final class PaneStripViewTests: AppKitTestCase {
 
         paneStripView.render(singlePane)
 
-        let settled = expectation(description: "close animation settled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            settled.fulfill()
-        }
-        await fulfillment(of: [settled], timeout: 1.0)
+        paneStripView.settlePresentationNow()
 
         XCTAssertGreaterThan(
             shellAdapter.terminalView.displayIfNeededCallCount,
@@ -2428,8 +2421,7 @@ final class PaneStripViewTests: AppKitTestCase {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         addTeardownBlock {
             window.orderOut(nil)
             window.close()
@@ -2872,8 +2864,7 @@ final class PaneStripViewTests: AppKitTestCase {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         addTeardownBlock {
             window.orderOut(nil)
             window.close()
@@ -2929,8 +2920,7 @@ final class PaneStripViewTests: AppKitTestCase {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         addTeardownBlock {
             window.orderOut(nil)
             window.close()
@@ -2979,8 +2969,7 @@ final class PaneStripViewTests: AppKitTestCase {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         addTeardownBlock {
             window.orderOut(nil)
             window.close()

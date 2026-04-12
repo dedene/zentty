@@ -98,4 +98,16 @@ module ReleaseAutomation
   def appcast_key
     APPCAST_FILENAME
   end
+
+  def glitchtip_debug_files_upload_command(upload_root:, org: nil, project: nil)
+    command = ["glitchtip-cli", "debug-files", "upload", upload_root]
+
+    normalized_org = org.to_s.strip
+    command += ["--org", normalized_org] unless normalized_org.empty?
+
+    normalized_project = project.to_s.strip
+    command += ["--project", normalized_project] unless normalized_project.empty?
+
+    command
+  end
 end

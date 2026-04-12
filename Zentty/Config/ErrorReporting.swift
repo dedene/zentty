@@ -66,6 +66,7 @@ struct ErrorReportingClientConfiguration: Equatable, Sendable {
     let enableAutoPerformanceTracing: Bool
     let enableNetworkBreadcrumbs: Bool
     let enableWatchdogTerminationTracking: Bool
+    let enableUncaughtNSExceptionReporting: Bool
     let maxBreadcrumbs: UInt
 }
 
@@ -113,6 +114,7 @@ enum ErrorReportingBootstrap {
                 enableAutoPerformanceTracing: false,
                 enableNetworkBreadcrumbs: false,
                 enableWatchdogTerminationTracking: false,
+                enableUncaughtNSExceptionReporting: true,
                 maxBreadcrumbs: 0
             )
         )

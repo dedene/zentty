@@ -40,8 +40,10 @@ typealias GhosttySharedConfigDecisionProvider = @MainActor (NSWindow?) async -> 
 @MainActor
 protocol AppearanceSettingsConfigCoordinating {
     var sourceState: AppearanceSettingsSourceState { get }
+    var syncOpenCodeThemeWithTerminal: Bool { get }
     func applyTheme(_ name: String, presentingWindow: NSWindow?) async
     func applyBackgroundOpacity(_ opacity: CGFloat, presentingWindow: NSWindow?) async
+    func applyOpenCodeThemeSync(_ enabled: Bool) async
     func createSharedConfig(presentingWindow: NSWindow?) async
 }
 
@@ -95,6 +97,10 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
         )
     }
 
+    var syncOpenCodeThemeWithTerminal: Bool {
+        configStore.current.appearance.syncOpenCodeThemeWithTerminal
+    }
+
     func applyTheme(_ name: String, presentingWindow: NSWindow?) async {
         let sanitized = GhosttyConfigWriter.sanitizedThemeName(name)
         let persistedThemeName = GhosttyThemeLibrary.persistedThemeName(for: sanitized)
@@ -129,6 +135,16 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
         }
 
         createSharedConfig(from: stack, pendingMutation: nil)
+    }
+
+    func applyOpenCodeThemeSync(_ enabled: Bool) async {
+        do {
+            try configStore.update { config in
+                config.appearance.syncOpenCodeThemeWithTerminal = enabled
+            }
+        } catch {
+            logger.error("Failed to persist OpenCode theme sync setting: \(error.localizedDescription)")
+        }
     }
 
     private func applyMutation(_ mutation: PendingMutation, presentingWindow: NSWindow?) async {

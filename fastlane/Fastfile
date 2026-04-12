@@ -361,6 +361,14 @@ def glitchtip_dsn
   resolved_env_value("GLITCHTIP_DSN")
 end
 
+def glitchtip_org
+  resolved_env_value("SENTRY_ORG")
+end
+
+def glitchtip_project
+  resolved_env_value("SENTRY_PROJECT")
+end
+
 def sparkle_private_ed_key_file
   explicit_path = resolved_env_value("SPARKLE_PRIVATE_ED_KEY_FILE")
   return explicit_path unless explicit_path.empty?
@@ -444,6 +452,22 @@ def archive_release!(version:)
     export_options: "fastlane/ExportOptions.plist",
     xcargs: xcargs_for_release(version: version)
   )
+end
+
+def upload_glitchtip_dsyms!
+  return if glitchtip_dsn.empty?
+
+  upload_root = File.join(PROJECT_ROOT, BUILD_DIR)
+  dsym_paths = Dir[File.join(upload_root, "**", "*.dSYM")]
+  UI.user_error!("No dSYM bundles found under #{upload_root}") if dsym_paths.empty?
+
+  capture_command!("glitchtip-cli", "--version", error_message: "glitchtip-cli must be installed to upload dSYMs")
+  command = ReleaseAutomation.glitchtip_debug_files_upload_command(
+    upload_root: upload_root,
+    org: glitchtip_org,
+    project: glitchtip_project
+  )
+  capture_command!(*command, error_message: "Failed to upload dSYMs to GlitchTip")
 end
 
 def notarize_app_bundle!
@@ -886,6 +910,7 @@ def run_release_pipeline(options)
 
   sync_signing!
   archive_release!(version: version)
+  upload_glitchtip_dsyms!
   notarize_app_bundle!
   package_release_zip!
   package_release_dmg!
@@ -950,6 +975,11 @@ platform :mac do
   lane :archive do |options|
     version = options[:version] || read_project_marketing_version
     archive_release!(version: version)
+  end
+
+  desc "Upload archived dSYMs to GlitchTip"
+  lane :upload_dsyms do
+    upload_glitchtip_dsyms!
   end
 
   desc "Notarize the .app bundle"

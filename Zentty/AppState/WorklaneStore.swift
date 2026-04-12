@@ -5,6 +5,24 @@ import os
 private let worklaneReadyLogger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneReady")
 private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "StopSignals")
 
+@MainActor
+protocol WorklaneStoreScheduledHandle: AnyObject {
+    func cancel()
+}
+
+@MainActor
+private final class TaskWorklaneStoreScheduledHandle: WorklaneStoreScheduledHandle {
+    private let task: Task<Void, Never>
+
+    init(task: Task<Void, Never>) {
+        self.task = task
+    }
+
+    func cancel() {
+        task.cancel()
+    }
+}
+
 struct WorklaneID: Hashable, Equatable, Sendable {
     let rawValue: String
 
@@ -211,6 +229,11 @@ struct WorklaneRuntimeIdentity: Sendable {
 
 @MainActor
 final class WorklaneStore {
+    typealias ReadyStatusScheduler = @MainActor (
+        _ interval: TimeInterval,
+        _ operation: @escaping @MainActor () -> Void
+    ) -> any WorklaneStoreScheduledHandle
+
     struct PaneReference: Hashable {
         let worklaneID: WorklaneID
         let paneID: PaneID
@@ -233,9 +256,10 @@ final class WorklaneStore {
     var knownNonRepositoryPaths: Set<String> = []
     var pendingGitContextPaths: Set<String> = []
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
-    private var pendingReadyStatusTasks: [PaneReference: Task<Void, Never>] = [:]
+    private var pendingReadyStatusTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
     private let processEnvironment: [String: String]
     private let readyStatusDebounceInterval: TimeInterval
+    private let scheduleReadyStatusTask: ReadyStatusScheduler
     let windowID: WindowID
     let runtimeIdentity: WorklaneRuntimeIdentity
     let focusHistoryController = PaneFocusHistoryController()
@@ -276,6 +300,7 @@ final class WorklaneStore {
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         readyStatusDebounceInterval: TimeInterval = 0.25,
+        readyStatusScheduler: @escaping ReadyStatusScheduler = WorklaneStore.defaultReadyStatusScheduler,
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
         terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
@@ -285,6 +310,7 @@ final class WorklaneStore {
         self.layoutContext = layoutContext
         self.processEnvironment = processEnvironment
         self.readyStatusDebounceInterval = readyStatusDebounceInterval
+        self.scheduleReadyStatusTask = readyStatusScheduler
         self.runtimeIdentity = runtimeIdentity
         let initialWorklanes = worklanes.isEmpty
             ? WorklaneStore.defaultWorklanes(
@@ -1594,14 +1620,24 @@ final class WorklaneStore {
             return
         }
 
-        pendingReadyStatusTasks[paneReference] = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(debounceInterval))
+        pendingReadyStatusTasks[paneReference] = scheduleReadyStatusTask(debounceInterval) { [weak self] in
+            self?.commitReadyStatusReveal(for: paneReference)
+        }
+    }
+
+    private static func defaultReadyStatusScheduler(
+        interval: TimeInterval,
+        operation: @escaping @MainActor () -> Void
+    ) -> any WorklaneStoreScheduledHandle {
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled else {
                 return
             }
 
-            self?.commitReadyStatusReveal(for: paneReference)
+            operation()
         }
+        return TaskWorklaneStoreScheduledHandle(task: task)
     }
 
     private func commitReadyStatusReveal(for paneReference: PaneReference) {

@@ -48,6 +48,11 @@ enum AppConfigTOML {
             if let localBackgroundOpacity = config.appearance.localBackgroundOpacity {
                 lines.append("local_background_opacity = \(format(number: localBackgroundOpacity))")
             }
+            if config.appearance.syncOpenCodeThemeWithTerminal != AppConfig.Appearance.default.syncOpenCodeThemeWithTerminal {
+                lines.append(
+                    "sync_opencode_theme_with_terminal = \(config.appearance.syncOpenCodeThemeWithTerminal)"
+                )
+            }
             lines.append("")
         }
 
@@ -330,6 +335,11 @@ enum AppConfigTOML {
                 return false
             }
             config.appearance.localBackgroundOpacity = CGFloat(value)
+        case "sync_opencode_theme_with_terminal":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.appearance.syncOpenCodeThemeWithTerminal = value
         default:
             return true
         }

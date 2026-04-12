@@ -230,10 +230,11 @@ final class ThemeCatalogService: ThemeCatalogProviding {
     }
 
     func loadThemes() async -> [ThemePreview] {
-        let directories = themeDirectories
-        return await Task.detached {
-            Self.discoverThemes(in: directories)
-        }.value
+        Self.discoverThemes(in: themeDirectories)
+    }
+
+    func loadThemesSynchronouslyForTesting() -> [ThemePreview] {
+        Self.discoverThemes(in: themeDirectories)
     }
 
     nonisolated private static func discoverThemes(in directories: [URL]) -> [ThemePreview] {

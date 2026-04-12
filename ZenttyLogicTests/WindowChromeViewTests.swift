@@ -278,8 +278,7 @@ final class WindowChromeViewTests: AppKitTestCase {
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
-        )
-        suppressionWindow.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
         )
@@ -1098,7 +1097,7 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
     }
 
-    func test_path_copied_toast_uses_glass_capsule_with_icon_and_depth() {
+    func test_path_copied_toast_uses_shared_glass_surface_and_centers_in_parent() {
         let parentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 160))
         let toast = PathCopiedToastView()
 
@@ -1113,8 +1112,9 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertGreaterThanOrEqual(toast.frame.width, 136)
         XCTAssertGreaterThanOrEqual(toast.frame.height, 34)
         XCTAssertGreaterThan(toast.layer?.shadowRadius ?? 0, 12)
-        XCTAssertTrue(toast.subviews.contains(where: { $0 is NSVisualEffectView }))
+        XCTAssertTrue(toast.subviews.contains(where: { $0 is GlassSurfaceView }))
         XCTAssertNotNil(findImageView(in: toast))
+        XCTAssertEqual(toast.frame.midX, parentView.bounds.midX, accuracy: 0.5)
     }
 
     private func makeNeedsInputAttention() -> WorklaneAttentionSummary {

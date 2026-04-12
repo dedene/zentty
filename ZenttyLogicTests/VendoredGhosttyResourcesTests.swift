@@ -91,11 +91,11 @@ final class VendoredGhosttyResourcesTests: XCTestCase {
     }
 
     @MainActor
-    func test_theme_catalog_includes_built_in_default_when_loading_vendored_library() async throws {
+    func test_theme_catalog_includes_built_in_default_when_loading_vendored_library() throws {
         let themeDirectory = repoRootURL()
             .appendingPathComponent("ZenttyResources/ghostty/themes", isDirectory: true)
 
-        let themes = await ThemeCatalogService(themeDirectories: [themeDirectory]).loadThemes()
+        let themes = ThemeCatalogService(themeDirectories: [themeDirectory]).loadThemesSynchronouslyForTesting()
 
         XCTAssertGreaterThan(themes.count, 100)
         let fallback = try XCTUnwrap(themes.first { $0.name == "Zentty-Default" })

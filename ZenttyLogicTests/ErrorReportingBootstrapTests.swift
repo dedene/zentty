@@ -32,6 +32,7 @@ final class ErrorReportingBootstrapTests: XCTestCase {
         XCTAssertFalse(configuration?.enableAutoPerformanceTracing ?? true)
         XCTAssertFalse(configuration?.enableNetworkBreadcrumbs ?? true)
         XCTAssertFalse(configuration?.enableWatchdogTerminationTracking ?? true)
+        XCTAssertTrue(configuration?.enableUncaughtNSExceptionReporting ?? false)
         XCTAssertEqual(configuration?.maxBreadcrumbs, 0)
         XCTAssertFalse(configuration?.sendDefaultPii ?? true)
     }
@@ -87,6 +88,7 @@ final class ErrorReportingBootstrapTests: XCTestCase {
                 enableAutoPerformanceTracing: false,
                 enableNetworkBreadcrumbs: false,
                 enableWatchdogTerminationTracking: false,
+                enableUncaughtNSExceptionReporting: true,
                 maxBreadcrumbs: 0
             )
         )
@@ -94,6 +96,7 @@ final class ErrorReportingBootstrapTests: XCTestCase {
         let options = try XCTUnwrap(SentrySDK.startOption)
         XCTAssertNil(options.beforeSend)
         XCTAssertNil(options.beforeBreadcrumb)
+        XCTAssertTrue(options.enableUncaughtNSExceptionReporting)
     }
 }
 

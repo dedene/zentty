@@ -5,6 +5,7 @@ enum GlassSurfaceStyle {
     case openWithPopover
     case notificationPanel
     case commandPalette
+    case toast
 
     var cornerRadius: CGFloat {
         switch self {
@@ -12,6 +13,8 @@ enum GlassSurfaceStyle {
             ChromeGeometry.sidebarRadius
         case .openWithPopover, .notificationPanel, .commandPalette:
             16
+        case .toast:
+            17
         }
     }
 }
@@ -126,6 +129,25 @@ final class GlassSurfaceView: NSVisualEffectView {
             ]
             shadowRadius = 24
             shadowOffset = CGSize(width: 0, height: 16)
+        case .toast:
+            material = theme.reducedTransparency ? .menu : .hudWindow
+            appearance = NSAppearance(named: theme.sidebarGlassAppearance.nsAppearanceName)
+            backgroundColor = theme.openWithPopoverBackground
+            borderColor = theme.openWithPopoverBorder
+            shadowColor = theme.openWithPopoverShadow
+            cornerRadius = style.cornerRadius
+            gradientColors = [
+                theme.openWithPopoverBackground
+                    .mixed(towards: .white, amount: theme.sidebarGlassAppearance == .dark ? 0.015 : 0.04)
+                    .withAlphaComponent(theme.reducedTransparency ? 0.08 : 0.06)
+                    .cgColor,
+                theme.openWithPopoverBackground
+                    .mixed(towards: .black, amount: theme.sidebarGlassAppearance == .dark ? 0.03 : 0.015)
+                    .withAlphaComponent(theme.reducedTransparency ? 0.05 : 0.04)
+                    .cgColor,
+            ]
+            shadowRadius = theme.sidebarGlassAppearance == .dark ? 16 : 14
+            shadowOffset = CGSize(width: 0, height: 8)
         }
 
         performThemeAnimation(animated: animated) {
