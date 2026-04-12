@@ -171,8 +171,9 @@ enum AgentLaunchBootstrap {
 
         var plannedArguments = arguments
         plannedArguments.insert(contentsOf: [
+            "-c", "features.codex_hooks=true",
             "-c", "tui.notification_method=osc9",
-            "-c", #"tui.terminal_title=["status","spinner","project"]"#,
+            "-c", #"tui.terminal_title=["status","spinner","project","task-progress"]"#,
         ], at: 0)
 
         if environment["ZENTTY_CODEX_NOTIFY_DISABLED"] != "1",
@@ -450,6 +451,8 @@ enum AgentLaunchBootstrap {
     private static func codexBaseHooksJSON(cliPath: String) throws -> Data {
         let commands = [
             "SessionStart": codexHookCommand(cliPath: cliPath, event: "session-start"),
+            "PreToolUse": codexHookCommand(cliPath: cliPath, event: "pre-tool-use"),
+            "PostToolUse": codexHookCommand(cliPath: cliPath, event: "post-tool-use"),
             "UserPromptSubmit": codexHookCommand(cliPath: cliPath, event: "prompt-submit"),
             "Stop": codexHookCommand(cliPath: cliPath, event: "stop"),
         ]
@@ -471,6 +474,8 @@ enum AgentLaunchBootstrap {
         }
         let commands = [
             ("SessionStart", codexHookCommand(cliPath: cliPath, event: "session-start")),
+            ("PreToolUse", codexHookCommand(cliPath: cliPath, event: "pre-tool-use")),
+            ("PostToolUse", codexHookCommand(cliPath: cliPath, event: "post-tool-use")),
             ("UserPromptSubmit", codexHookCommand(cliPath: cliPath, event: "prompt-submit")),
             ("Stop", codexHookCommand(cliPath: cliPath, event: "stop")),
         ]

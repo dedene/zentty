@@ -6,6 +6,7 @@ private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "
 extension WorklaneStore {
     // Suppress stale title ticks briefly after a ready-title-forced idle transition.
     private static let codexTitleIdleSuppressionWindow: TimeInterval = 1
+    private static let codexReadyNotificationRecoveryWindow: TimeInterval = 10
 
     func updateMetadata(paneID: PaneID, metadata: TerminalMetadata) {
         terminalDiagnostics.recordStoreMetadataUpdate(paneID: paneID)
@@ -94,12 +95,20 @@ extension WorklaneStore {
         stopSignalLogger.debug(
             "metadata.update pane=\(paneID.rawValue, privacy: .public) title=\(metadata.title ?? "<nil>", privacy: .public) prevTitle=\(previousMetadata?.title ?? "<nil>", privacy: .public) tool=\(preTitleTool, privacy: .public) state=\(preTitleState, privacy: .public) hasObservedRunning=\(preTitleHasObservedRunning, privacy: .public)"
         )
-        let codexInterrupted = surfaceReadyCodexSessionIfTitleIndicatesIdle(
+        let codexRecoveredNeedsInput = promoteCodexSessionIfReadyTitleRecoversNeedsInput(
             paneID: paneID,
             previousMetadata: previousMetadata,
             metadata: metadata,
             in: &worklane
         )
+        let codexInterrupted = codexRecoveredNeedsInput
+            ? false
+            : surfaceReadyCodexSessionIfTitleIndicatesIdle(
+                paneID: paneID,
+                previousMetadata: previousMetadata,
+                metadata: metadata,
+                in: &worklane
+            )
         let claudeCodeInterrupted = markClaudeCodeSessionIdleIfTitleIndicatesIdle(
             paneID: paneID,
             metadata: metadata,
@@ -550,6 +559,79 @@ extension WorklaneStore {
         )
         requestReadyStatusIfNeeded(for: paneID, in: &worklane)
         return false
+    }
+
+    @discardableResult
+    private func promoteCodexSessionIfReadyTitleRecoversNeedsInput(
+        paneID: PaneID,
+        previousMetadata: TerminalMetadata?,
+        metadata: TerminalMetadata,
+        in worklane: inout WorklaneState
+    ) -> Bool {
+        let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
+            ?? AgentToolRecognizer.recognize(metadata: metadata)
+        guard
+            recognizedTool == .codex,
+            let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+                metadata.title,
+                recognizedTool: recognizedTool
+            ),
+            signature.phase == .idle,
+            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+            let existingStatus = auxiliaryState.agentStatus,
+            existingStatus.tool == .codex,
+            existingStatus.source == .explicit,
+            existingStatus.hasObservedRunning,
+            existingStatus.state == .running || existingStatus.state == .starting,
+            let notificationText = AgentInteractionClassifier.trimmed(auxiliaryState.raw.lastDesktopNotificationText),
+            let notificationDate = auxiliaryState.raw.lastDesktopNotificationDate
+        else {
+            return false
+        }
+
+        if TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            previousMetadata?.title,
+            recognizedTool: recognizedTool
+        )?.phase == .idle {
+            return false
+        }
+
+        let now = Date()
+        guard now.timeIntervalSince(notificationDate) <= Self.codexReadyNotificationRecoveryWindow,
+              let interactionKind = AgentInteractionClassifier.interactionKind(forWaitingMessage: notificationText),
+              interactionKind != .genericInput else {
+            return false
+        }
+
+        let newStatus = PaneAgentStatus(
+            tool: .codex,
+            state: .needsInput,
+            text: notificationText,
+            artifactLink: existingStatus.artifactLink,
+            updatedAt: now,
+            source: existingStatus.source,
+            origin: .heuristic,
+            interactionKind: interactionKind,
+            confidence: .strong,
+            shellActivityState: existingStatus.shellActivityState,
+            trackedPID: existingStatus.trackedPID,
+            workingDirectory: existingStatus.workingDirectory,
+            hasObservedRunning: true,
+            sessionID: existingStatus.sessionID,
+            parentSessionID: existingStatus.parentSessionID,
+            taskProgress: existingStatus.taskProgress
+        )
+        auxiliaryState.agentStatus = newStatus
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            PaneAgentReducerState(),
+            from: newStatus
+        )
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        clearReadyStatusIfNeeded(for: paneID, in: &worklane)
+        stopSignalLogger.debug(
+            "codex.title.ready recoverNeedsInput pane=\(paneID.rawValue, privacy: .public) interaction=\(interactionKind.rawValue, privacy: .public) notification=\(notificationText, privacy: .public)"
+        )
+        return true
     }
 
     private func clearExpiredCodexTitleIdleSuppression(

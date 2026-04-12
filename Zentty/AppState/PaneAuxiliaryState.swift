@@ -293,10 +293,15 @@ enum PanePresentationNormalizer {
         let hasObservedRunning = raw.agentStatus?.hasObservedRunning == true
             || titlePhase == .running
             || previous?.runtimePhase == .running
+        let taskProgress = (
+            recognizedTool == .codex
+                ? TerminalMetadataChangeClassifier.codexTaskProgress(for: raw.metadata?.title)
+                : nil
+        ) ?? raw.agentStatus?.taskProgress
         let statusText = visibleStatusText(
             for: runtimePhase,
             interactionKind: agentInteractionKind,
-            taskProgress: raw.agentStatus?.taskProgress,
+            taskProgress: taskProgress,
             hasObservedRunning: hasObservedRunning,
             showsReadyStatus: showsReadyStatus,
             suppressIdleLabel: codexBackgroundWait,
@@ -320,7 +325,7 @@ enum PanePresentationNormalizer {
         let statusSymbolName = statusSymbolName(
             for: runtimePhase,
             showsReadyStatus: showsReadyStatus,
-            taskProgress: raw.agentStatus?.taskProgress
+            taskProgress: taskProgress
         )
         let pullRequest = derivePullRequest(
             from: raw,
@@ -346,7 +351,7 @@ enum PanePresentationNormalizer {
         let branchURL = deriveBranchURL(from: raw, repoRoot: repoRoot, lookupBranch: lookupBranch)
         let isReady = runtimePhase == .idle
             && showsReadyStatus
-            && incompleteTaskProgress(raw.agentStatus?.taskProgress) == nil
+            && incompleteTaskProgress(taskProgress) == nil
 
         return PanePresentationState(
             cwd: cwd,
@@ -371,7 +376,7 @@ enum PanePresentationNormalizer {
             interactionKind: interactionKind,
             interactionLabel: interactionLabel,
             interactionSymbolName: interactionSymbolName,
-            taskProgress: raw.agentStatus?.taskProgress
+            taskProgress: taskProgress
         )
     }
 

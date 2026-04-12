@@ -110,8 +110,11 @@ enum TerminalMetadataChangeClassifier {
         recognizedTool: AgentTool?
     ) -> VolatileAgentStatusTitleSignature? {
         guard recognizedTool == .codex,
-              let normalized = WorklaneContextFormatter.trimmed(value),
-              let parsed = parseAgentStatusTitle(
+              let rawNormalized = WorklaneContextFormatter.trimmed(value) else {
+            return nil
+        }
+        let normalized = stripTrailingCodexTaskProgress(from: rawNormalized)
+        guard let parsed = parseAgentStatusTitle(
                   normalized,
                   runningWords: ["working", "thinking"],
                   startingWords: ["starting"],
@@ -122,7 +125,7 @@ enum TerminalMetadataChangeClassifier {
         }
 
         let phase: VolatileAgentStatusPhase
-        switch codexWaitingTitleKind(for: normalized) {
+        switch codexWaitingTitleKind(for: rawNormalized) {
         case .backgroundWait:
             phase = .idle
         case .needsInput:
@@ -142,8 +145,11 @@ enum TerminalMetadataChangeClassifier {
         recognizedTool: AgentTool?
     ) -> String? {
         guard recognizedTool == .codex,
-              let normalized = WorklaneContextFormatter.trimmed(value),
-              let parsed = parseAgentStatusTitle(
+              let rawNormalized = WorklaneContextFormatter.trimmed(value) else {
+            return nil
+        }
+        let normalized = stripTrailingCodexTaskProgress(from: rawNormalized)
+        guard let parsed = parseAgentStatusTitle(
                   normalized,
                   runningWords: ["working", "thinking"],
                   startingWords: ["starting"],
@@ -253,9 +259,10 @@ enum TerminalMetadataChangeClassifier {
     }
 
     static func codexWaitingTitleKind(for value: String?) -> CodexWaitingTitleKind? {
-        guard let normalized = WorklaneContextFormatter.trimmed(value) else {
+        guard let rawNormalized = WorklaneContextFormatter.trimmed(value) else {
             return nil
         }
+        let normalized = stripTrailingCodexTaskProgress(from: rawNormalized)
 
         let firstWord = normalized.prefix(while: { $0.isLetter }).lowercased()
         guard firstWord == "waiting" else {
@@ -267,6 +274,15 @@ enum TerminalMetadataChangeClassifier {
         }
 
         return .backgroundWait
+    }
+
+    static func codexTaskProgress(for value: String?) -> PaneAgentTaskProgress? {
+        guard let normalized = WorklaneContextFormatter.trimmed(value),
+              let (_, progress) = splitTrailingCodexTaskProgress(from: normalized) else {
+            return nil
+        }
+
+        return progress
     }
 
     private static func parseClaudeCodeGlyphTitle(
@@ -341,6 +357,31 @@ enum TerminalMetadataChangeClassifier {
             phase: phase,
             displaySubject: remainder
         )
+    }
+
+    private static func stripTrailingCodexTaskProgress(from value: String) -> String {
+        splitTrailingCodexTaskProgress(from: value)?.title ?? value
+    }
+
+    private static func splitTrailingCodexTaskProgress(
+        from value: String
+    ) -> (title: String, progress: PaneAgentTaskProgress)? {
+        guard let tasksRange = value.range(of: " | Tasks ", options: .backwards) else {
+            return nil
+        }
+
+        let title = value[..<tasksRange.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        let progressValue = value[tasksRange.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = progressValue.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              let doneCount = Int(parts[0]),
+              let totalCount = Int(parts[1]),
+              let progress = PaneAgentTaskProgress(doneCount: doneCount, totalCount: totalCount),
+              !title.isEmpty else {
+            return nil
+        }
+
+        return (title: title, progress: progress)
     }
 }
 

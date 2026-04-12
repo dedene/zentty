@@ -160,6 +160,8 @@ extension AgentEventBridge {
             }
             payloads.append(lifecyclePayload(target: target, toolName: toolName, state: .starting, sessionID: sessionID, cwd: cwd))
             return payloads
+        case "PreToolUse", "PostToolUse":
+            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
         case "UserPromptSubmit":
             return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
         case "Stop":
@@ -172,6 +174,8 @@ extension AgentEventBridge {
     private static func codexMappedEvent(_ raw: String?) -> String? {
         switch raw?.lowercased() {
         case "session-start": return "SessionStart"
+        case "pre-tool-use": return "PreToolUse"
+        case "post-tool-use": return "PostToolUse"
         case "prompt-submit": return "UserPromptSubmit"
         case "stop": return "Stop"
         default: return nil

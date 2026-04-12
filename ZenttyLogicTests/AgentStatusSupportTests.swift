@@ -759,9 +759,12 @@ final class AgentStatusSupportTests: XCTestCase {
         let overlayHooks = try String(contentsOf: overlayHooksURL, encoding: .utf8)
         XCTAssertTrue(overlayHooks.contains("session-start"))
         XCTAssertTrue(overlayHooks.contains("prompt-submit"))
+        XCTAssertTrue(overlayHooks.contains("pre-tool-use"))
+        XCTAssertTrue(overlayHooks.contains("post-tool-use"))
         XCTAssertTrue(overlayHooks.contains("echo existing"))
+        XCTAssertTrue(plan.arguments.contains("features.codex_hooks=true"))
         XCTAssertTrue(plan.arguments.contains("tui.notification_method=osc9"))
-        XCTAssertTrue(plan.arguments.contains(#"tui.terminal_title=["status","spinner","project"]"#))
+        XCTAssertTrue(plan.arguments.contains(#"tui.terminal_title=["status","spinner","project","task-progress"]"#))
         let notifyArgument = try XCTUnwrap(
             plan.arguments.first(where: { $0.contains("notify=[") && $0.contains(#""/tmp/zentty""#) })
         )
@@ -2270,6 +2273,48 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.toolName, "Codex")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_codex_hook_pre_tool_use_maps_to_running_payload() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.codexAdapter(
+                data: Data("""
+                {"hook_event_name":"PreToolUse","session_id":"session-1","cwd":"/tmp/project"}
+                """.utf8),
+                defaultEventName: nil,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.lifecycleEvent, .update)
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.toolName, "Codex")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_codex_hook_post_tool_use_maps_to_running_payload() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.codexAdapter(
+                data: Data("""
+                {"hook_event_name":"PostToolUse","session_id":"session-1","cwd":"/tmp/project"}
+                """.utf8),
+                defaultEventName: nil,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.lifecycleEvent, .update)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
