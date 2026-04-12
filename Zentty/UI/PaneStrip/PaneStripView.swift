@@ -587,8 +587,8 @@ final class PaneStripView: NSView {
                             allowInactiveDimming: true
                         )
                         self.reconcileDividerViews(with: presentation, offset: targetOffset)
-                        self.paneViews.values.forEach { $0.syncInsetBorderNow() }
                     }
+                    self.paneViews.values.forEach { $0.syncInsetBorderNow() }
 
                     if !self.isZoomedOut {
                         self.applyTerminalAnimationFreeze(to: [])
