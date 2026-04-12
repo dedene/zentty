@@ -1,5 +1,66 @@
 import AppKit
 
+typealias ThemePreviewPreferredFontProvider = (CGFloat, NSFont.Weight) -> NSFont?
+
+enum ThemePreviewTextAttributes {
+    static func make(
+        foreground: NSColor,
+        background: NSColor,
+        pointSize: CGFloat,
+        weight: NSFont.Weight,
+        preferredFontProvider: ThemePreviewPreferredFontProvider = { size, weight in
+            NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+        }
+    ) -> [NSAttributedString.Key: Any]? {
+        guard let font = resolveFont(
+            pointSize: pointSize,
+            weight: weight,
+            preferredFontProvider: preferredFontProvider
+        ) else {
+            return nil
+        }
+
+        return make(font: font, foreground: foreground, background: background)
+    }
+
+    static func make(font: NSFont?, foreground: NSColor, background: NSColor) -> [NSAttributedString.Key: Any]? {
+        guard let font else {
+            return nil
+        }
+
+        return [
+            .font: font,
+            .foregroundColor: resolvedTextColor(foreground: foreground, background: background),
+        ]
+    }
+
+    private static func resolveFont(
+        pointSize: CGFloat,
+        weight: NSFont.Weight,
+        preferredFontProvider: ThemePreviewPreferredFontProvider
+    ) -> NSFont? {
+        if let preferred = preferredFontProvider(pointSize, weight) {
+            return preferred
+        }
+
+        if let fixedPitch = NSFont.userFixedPitchFont(ofSize: pointSize) {
+            return fixedPitch
+        }
+
+        return NSFont.systemFont(ofSize: pointSize, weight: weight)
+    }
+
+    private static func resolvedTextColor(foreground: NSColor, background: NSColor) -> NSColor {
+        let resolvedForeground = foreground.srgbClamped
+        guard resolvedForeground.alphaComponent > 0 else {
+            return background.isDarkThemeColor
+                ? NSColor(calibratedWhite: 0.96, alpha: 1)
+                : NSColor(calibratedWhite: 0.08, alpha: 1)
+        }
+        return resolvedForeground
+    }
+}
+
 @MainActor
 final class AppearanceSettingsSectionViewController: SettingsScrollableSectionViewController,
     SettingsAppearanceUpdating {
@@ -660,18 +721,19 @@ private final class TwoRowPaletteView: NSView {
 
         // Draw "Ab" label in the top-left corner
         let abWidth: CGFloat = 20
-        let abString = NSAttributedString(
-            string: "Ab",
-            attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 7, weight: .medium),
-                .foregroundColor: foreground,
-            ]
-        )
-        let abSize = abString.size()
-        abString.draw(at: NSPoint(
-            x: (abWidth - abSize.width) / 2,
-            y: rowHeight + rowGap + (rowHeight - abSize.height) / 2
-        ))
+        if let abAttributes = ThemePreviewTextAttributes.make(
+            foreground: foreground,
+            background: background,
+            pointSize: 7,
+            weight: .medium
+        ) {
+            let abString = NSAttributedString(string: "Ab", attributes: abAttributes)
+            let abSize = abString.size()
+            abString.draw(at: NSPoint(
+                x: (abWidth - abSize.width) / 2,
+                y: rowHeight + rowGap + (rowHeight - abSize.height) / 2
+            ))
+        }
 
         // Top row: palette 0-7
         let paletteStartX = abWidth
@@ -752,14 +814,17 @@ private final class ThemePreviewPanel: NSView {
 
         // Theme name
         let titleFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
-        let titleString = NSAttributedString(string: theme.displayName, attributes: [
-            .font: titleFont,
-            .foregroundColor: theme.foreground,
-        ])
-        let titleSize = titleString.size()
-        y -= titleSize.height
-        titleString.draw(at: NSPoint(x: padding, y: y))
-        y -= 16
+        if let titleAttributes = ThemePreviewTextAttributes.make(
+            font: titleFont,
+            foreground: theme.foreground,
+            background: theme.background
+        ) {
+            let titleString = NSAttributedString(string: theme.displayName, attributes: titleAttributes)
+            let titleSize = titleString.size()
+            y -= titleSize.height
+            titleString.draw(at: NSPoint(x: padding, y: y))
+            y -= 16
+        }
 
         // Sample terminal content
         let monoFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -792,12 +857,15 @@ private final class ThemePreviewPanel: NSView {
         for line in sampleLines {
             guard y - lineHeight > padding + 80 else { break }
             if !line.text.isEmpty {
-                let lineString = NSAttributedString(string: line.text, attributes: [
-                    .font: line.font,
-                    .foregroundColor: line.color,
-                ])
                 y -= lineHeight
-                lineString.draw(at: NSPoint(x: padding, y: y))
+                if let lineAttributes = ThemePreviewTextAttributes.make(
+                    font: line.font,
+                    foreground: line.color,
+                    background: theme.background
+                ) {
+                    let lineString = NSAttributedString(string: line.text, attributes: lineAttributes)
+                    lineString.draw(at: NSPoint(x: padding, y: y))
+                }
             } else {
                 y -= lineHeight * 0.5
             }
@@ -843,15 +911,18 @@ private final class ThemePreviewPanel: NSView {
                 borderPath.stroke()
 
                 // Index label below
-                let indexString = NSAttributedString(string: "\(colorIndex)", attributes: [
-                    .font: labelFont,
-                    .foregroundColor: labelColor,
-                ])
-                let indexSize = indexString.size()
-                indexString.draw(at: NSPoint(
-                    x: x + (swatchSize - indexSize.width) / 2,
-                    y: rowY - indexSize.height - 1
-                ))
+                if let indexAttributes = ThemePreviewTextAttributes.make(
+                    font: labelFont,
+                    foreground: labelColor,
+                    background: theme.background
+                ) {
+                    let indexString = NSAttributedString(string: "\(colorIndex)", attributes: indexAttributes)
+                    let indexSize = indexString.size()
+                    indexString.draw(at: NSPoint(
+                        x: x + (swatchSize - indexSize.width) / 2,
+                        y: rowY - indexSize.height - 1
+                    ))
+                }
             }
         }
     }

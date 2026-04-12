@@ -85,6 +85,19 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         return nil
     }
 
+    private func render(view: NSView, size: NSSize) {
+        view.frame = NSRect(origin: .zero, size: size)
+        view.layoutSubtreeIfNeeded()
+
+        let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        XCTAssertNotNil(bitmap)
+        guard let bitmap else {
+            return
+        }
+
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+    }
+
     // MARK: - Tests
 
     func testTablePopulatesWithDiscoveredThemes() async {
@@ -257,6 +270,46 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
 
         let opacity = try XCTUnwrap(coordinator.appliedOpacities.first)
         XCTAssertEqual(opacity, 0.62, accuracy: 0.0001)
+    }
+
+    func testPreviewTextAttributesFallsBackWhenPreferredFontProviderReturnsNil() throws {
+        let attributes = try XCTUnwrap(
+            ThemePreviewTextAttributes.make(
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                background: NSColor(hexString: "#0A0C10")!,
+                pointSize: 7,
+                weight: .medium,
+                preferredFontProvider: { _, _ in nil }
+            )
+        )
+
+        XCTAssertNotNil(attributes[.font] as? NSFont)
+        XCTAssertNotNil(attributes[.foregroundColor] as? NSColor)
+    }
+
+    func testRenderingAppearanceSettingsControllerDoesNotCrash() async {
+        let themes = [
+            makeTheme(
+                name: "Zentty-Default",
+                displayName: "Zentty Default Theme",
+                background: "#0A0C10",
+                foreground: "#F0F3F6"
+            ),
+            makeTheme(
+                name: "Bright",
+                background: "#F7FBFF",
+                foreground: "#102030"
+            ),
+        ]
+
+        let (controller, _, _) = makeController(
+            themes: themes,
+            activeThemeName: "Zentty-Default"
+        )
+        await controller.loadThemesForTesting()
+
+        render(view: controller.view, size: NSSize(width: 860, height: 760))
+        render(view: controller.view, size: NSSize(width: 860, height: 760))
     }
 
     func testConformsToSettingsAppearanceUpdating() {
