@@ -86,6 +86,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     private let previewView = ThemePreviewPanel()
     private let opacitySlider = NSSlider()
     private let opacityValueLabel = NSTextField(labelWithString: "")
+    private let openCodeThemeSyncSwitch = NSSwitch()
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let createSharedConfigButton = NSButton(title: "Create Ghostty Config...", target: nil, action: nil)
 
@@ -259,6 +260,24 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         stackView.addArrangedSubview(opacityCard)
         opacityCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
+        let openCodeThemeCard = SettingsCardView()
+        let openCodeThemeRow = makeSwitchRow(
+            title: "Sync OpenCode Theme",
+            subtitle: "Override OpenCode's launch theme to match your current terminal theme.",
+            toggle: openCodeThemeSyncSwitch,
+            action: #selector(handleOpenCodeThemeSyncChanged(_:))
+        )
+        openCodeThemeCard.addSubview(openCodeThemeRow)
+        openCodeThemeRow.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            openCodeThemeRow.topAnchor.constraint(equalTo: openCodeThemeCard.topAnchor),
+            openCodeThemeRow.leadingAnchor.constraint(equalTo: openCodeThemeCard.leadingAnchor),
+            openCodeThemeRow.trailingAnchor.constraint(equalTo: openCodeThemeCard.trailingAnchor),
+            openCodeThemeRow.bottomAnchor.constraint(equalTo: openCodeThemeCard.bottomAnchor),
+        ])
+        stackView.addArrangedSubview(openCodeThemeCard)
+        openCodeThemeCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
             stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -272,6 +291,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshSourceState()
         refreshActiveThemeName()
         refreshOpacitySlider()
+        refreshOpenCodeThemeSyncSwitch()
         Task {
             await reloadThemes()
         }
@@ -281,6 +301,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshSourceState()
         refreshActiveThemeName()
         refreshOpacitySlider()
+        refreshOpenCodeThemeSyncSwitch()
         super.prepareForPresentation()
     }
 
@@ -288,6 +309,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshSourceState()
         refreshActiveThemeName()
         refreshOpacitySlider()
+        refreshOpenCodeThemeSyncSwitch()
     }
 
     // MARK: - Theme State
@@ -303,6 +325,10 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
 
     var isCreateSharedConfigButtonHiddenForTesting: Bool {
         createSharedConfigButton.isHidden
+    }
+
+    var isOpenCodeThemeSyncEnabledForTesting: Bool {
+        openCodeThemeSyncSwitch.state == .on
     }
 
     private func refreshActiveThemeName() {
@@ -391,6 +417,11 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshOpacitySlider()
     }
 
+    func setOpenCodeThemeSyncEnabledForTesting(_ enabled: Bool) {
+        openCodeThemeSyncSwitch.state = enabled ? .on : .off
+        handleOpenCodeThemeSyncChanged(openCodeThemeSyncSwitch)
+    }
+
     func createSharedConfigForTesting() {
         handleCreateSharedConfig()
     }
@@ -456,6 +487,10 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshOpacitySlider()
     }
 
+    private func refreshOpenCodeThemeSyncSwitch() {
+        openCodeThemeSyncSwitch.state = configCoordinator.syncOpenCodeThemeWithTerminal ? .on : .off
+    }
+
     private func updateOpacityLabel(_ opacity: CGFloat) {
         opacityValueLabel.stringValue = "\(Int(round(opacity * 100)))%"
     }
@@ -481,7 +516,67 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
             refreshSourceState()
             refreshActiveThemeName()
             refreshOpacitySlider()
+            refreshOpenCodeThemeSyncSwitch()
         }
+    }
+
+    @objc
+    private func handleOpenCodeThemeSyncChanged(_ sender: NSSwitch) {
+        let enabled = sender.state == .on
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await configCoordinator.applyOpenCodeThemeSync(enabled)
+            refreshOpenCodeThemeSyncSwitch()
+        }
+    }
+
+    private func makeSwitchRow(
+        title: String,
+        subtitle: String,
+        toggle: NSSwitch,
+        action: Selector
+    ) -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let leftStack = NSStackView()
+        leftStack.orientation = .vertical
+        leftStack.alignment = .leading
+        leftStack.spacing = 2
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        leftStack.addArrangedSubview(titleLabel)
+
+        let subtitleLabel = NSTextField(labelWithString: subtitle)
+        subtitleLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.lineBreakMode = .byWordWrapping
+        subtitleLabel.maximumNumberOfLines = 0
+        leftStack.addArrangedSubview(subtitleLabel)
+
+        toggle.target = self
+        toggle.action = action
+        toggle.controlSize = .regular
+        toggle.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(leftStack)
+        container.addSubview(toggle)
+
+        NSLayoutConstraint.activate([
+            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+
+            toggle.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 16),
+            toggle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            toggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+
+            subtitleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+        ])
+
+        return container
     }
 
     // MARK: - Table
@@ -553,6 +648,34 @@ extension AppearanceSettingsSectionViewController: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         Layout.rowHeight
     }
+}
+
+private func previewSystemFont(ofSize size: CGFloat, weight: NSFont.Weight) -> NSFont {
+    if let font = NSFont.systemFont(ofSize: size, weight: weight) as NSFont? {
+        return font
+    }
+    return NSFont.systemFont(ofSize: size)
+}
+
+private func previewMonospacedFont(ofSize size: CGFloat, weight: NSFont.Weight) -> NSFont {
+    if let font = NSFont.monospacedSystemFont(ofSize: size, weight: weight) as NSFont? {
+        return font
+    }
+    if let font = NSFont.userFixedPitchFont(ofSize: size) {
+        return font
+    }
+    return previewSystemFont(ofSize: size, weight: weight)
+}
+
+private func previewTextAttributes(font: NSFont?, color: NSColor?) -> [NSAttributedString.Key: Any] {
+    var attributes: [NSAttributedString.Key: Any] = [:]
+    if let font {
+        attributes[.font] = font
+    }
+    if let color {
+        attributes[.foregroundColor] = color
+    }
+    return attributes
 }
 
 // MARK: - ThemeRowCellView
@@ -827,8 +950,8 @@ private final class ThemePreviewPanel: NSView {
         }
 
         // Sample terminal content
-        let monoFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        let monoBoldFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+        let monoFont = previewMonospacedFont(ofSize: 11, weight: .regular)
+        let monoBoldFont = previewMonospacedFont(ofSize: 11, weight: .bold)
         let lineHeight: CGFloat = 17
 
         func paletteColor(_ index: Int) -> NSColor {
@@ -884,7 +1007,7 @@ private final class ThemePreviewPanel: NSView {
         let rowHeight = swatchSize + swatchSpacing
 
         // Row labels
-        let labelFont = NSFont.monospacedSystemFont(ofSize: 8, weight: .regular)
+        let labelFont = previewMonospacedFont(ofSize: 8, weight: .regular)
         let labelColor = theme.foreground.withAlphaComponent(0.5)
 
         for row in 0..<2 {

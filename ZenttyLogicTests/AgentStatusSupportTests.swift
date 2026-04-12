@@ -1145,6 +1145,229 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(action.standardInput?.contains(AgentIPCProtocol.selfPIDPlaceholder) == true)
     }
 
+    func test_agent_launch_bootstrap_resolves_real_opencode_binary_from_node_shim() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-real-binary-runtime")
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-opencode-real-binary-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try "export const ZenttyOpenCodePlugin = async () => ({})\n".write(
+            to: pluginDirectory.appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let wrapperRoot = try makeTemporaryDirectory(named: "agent-launch-opencode-real-binary-wrapper-root")
+        let binDirectory = wrapperRoot.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+
+        let shimURL = binDirectory.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/usr/bin/env node\n".write(to: shimURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shimURL.path)
+
+        let realBinaryURL = binDirectory.appendingPathComponent(".opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realBinaryURL.path)
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["run", "hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": shimURL.path,
+            ],
+            expectsResponse: true,
+            tool: .opencode
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory,
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot))
+        )
+
+        XCTAssertEqual(plan.executablePath, realBinaryURL.path)
+    }
+
+    func test_agent_launch_bootstrap_resolves_real_opencode_binary_from_symlink() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-symlink-runtime")
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-opencode-symlink-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try "export const ZenttyOpenCodePlugin = async () => ({})\n".write(
+            to: pluginDirectory.appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let shimRoot = try makeTemporaryDirectory(named: "agent-launch-opencode-symlink-shim-root")
+        let binDirectory = shimRoot.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+
+        let realRoot = try makeTemporaryDirectory(named: "agent-launch-opencode-symlink-real-root")
+        let realBinDirectory = realRoot.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: realBinDirectory, withIntermediateDirectories: true)
+
+        let realShimURL = realBinDirectory.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/usr/bin/env node\n".write(to: realShimURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realShimURL.path)
+
+        let realBinaryURL = realBinDirectory.appendingPathComponent(".opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realBinaryURL.path)
+
+        let shimURL = binDirectory.appendingPathComponent("opencode", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: shimURL, withDestinationURL: realShimURL)
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["run", "hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": shimURL.path,
+            ],
+            expectsResponse: true,
+            tool: .opencode
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory,
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot))
+        )
+
+        XCTAssertEqual(plan.executablePath, realBinaryURL.path)
+    }
+
+    func test_agent_launch_bootstrap_isolates_opencode_xdg_config_and_state_when_sync_enabled() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-sync-runtime")
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-opencode-sync-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try "export const ZenttyOpenCodePlugin = async () => ({})\n".write(
+            to: pluginDirectory.appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sourceConfigDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-sync-source")
+        try FileManager.default.createDirectory(
+            at: sourceConfigDirectory.appendingPathComponent("markers", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "user-config".write(
+            to: sourceConfigDirectory
+                .appendingPathComponent("markers", isDirectory: true)
+                .appendingPathComponent("user.txt", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sourceStateHomeDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-sync-state-home")
+        let sourceStateDirectory = sourceStateHomeDirectory.appendingPathComponent("opencode", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceStateDirectory, withIntermediateDirectories: true)
+        let kvData = try XCTUnwrap(
+            try? JSONSerialization.data(
+                withJSONObject: [
+                    "theme": "dracula",
+                    "theme_mode": "dark",
+                    "theme_mode_lock": true,
+                    "unrelated": "preserved",
+                ],
+                options: [.sortedKeys]
+            )
+        )
+        try kvData.write(
+            to: sourceStateDirectory.appendingPathComponent("kv.json", isDirectory: false),
+            options: .atomic
+        )
+
+        var appConfig = AppConfig.default
+        appConfig.appearance.syncOpenCodeThemeWithTerminal = true
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["run", "hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/opencode",
+                "ZENTTY_OPENCODE_BASE_CONFIG_DIR": sourceConfigDirectory.path,
+                "XDG_STATE_HOME": sourceStateHomeDirectory.path,
+            ],
+            expectsResponse: true,
+            tool: .opencode
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory,
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot)),
+            appConfigProvider: { appConfig }
+        )
+
+        let overlayConfigDirectory = URL(
+            fileURLWithPath: try XCTUnwrap(plan.setEnvironment["OPENCODE_CONFIG_DIR"]),
+            isDirectory: true
+        )
+        let xdgConfigHome: String = try XCTUnwrap(plan.setEnvironment["XDG_CONFIG_HOME"])
+        let xdgStateHome: String = try XCTUnwrap(plan.setEnvironment["XDG_STATE_HOME"])
+        XCTAssertEqual(overlayConfigDirectory.path, URL(fileURLWithPath: xdgConfigHome, isDirectory: true).appendingPathComponent("opencode", isDirectory: true).path)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: overlayConfigDirectory
+                    .appendingPathComponent("plugins", isDirectory: true)
+                    .appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false)
+                    .path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: overlayConfigDirectory
+                    .appendingPathComponent("markers", isDirectory: true)
+                    .appendingPathComponent("user.txt", isDirectory: false)
+                    .path
+            )
+        )
+
+        let overlayStateDirectory = URL(fileURLWithPath: xdgStateHome, isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+        let overlayKVData = try Data(contentsOf: overlayStateDirectory.appendingPathComponent("kv.json", isDirectory: false))
+        let overlayKV = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: overlayKVData) as? [String: Any]
+        )
+        XCTAssertNil(overlayKV["theme"])
+        XCTAssertNil(overlayKV["theme_mode"])
+        XCTAssertNil(overlayKV["theme_mode_lock"])
+        XCTAssertEqual(overlayKV["unrelated"] as? String, "preserved")
+    }
+
     func test_agent_ipc_authentication_is_pane_scoped() {
         let authentication = AgentIPCAuthentication(secret: "unit-test-secret")
 
