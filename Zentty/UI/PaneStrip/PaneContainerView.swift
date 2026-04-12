@@ -446,10 +446,15 @@ final class PaneContainerView: NSView {
         insetBorderLayer.contentsScale = backingScaleFactor
         insetBorderLayer.frame = insetRect
         insetBorderLayer.cornerRadius = cornerRadius
+        // Remove the gap mask during animation — the tiny label notch is
+        // imperceptible during a 0.24s transition, and this avoids any
+        // stale-mask clipping artifacts. syncInsetBorderNow() restores it.
+        insetBorderLayer.mask = nil
     }
 
     func syncInsetBorderNow() {
         isInsetBorderAnimationManaged = false
+        insetBorderLayer.mask = borderGapMaskLayer
         updateInsetBorderLayer()
     }
 
