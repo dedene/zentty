@@ -18,6 +18,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let runtimeErrorReportingEnabled: Bool
     private var currentNotifications: AppConfig.Notifications = .default
     private var currentConfirmations: AppConfig.Confirmations = .default
+    private var currentRestore: AppConfig.Restore = .default
     private var currentUpdates: AppConfig.Updates = .default
     private var currentErrorReporting: AppConfig.ErrorReporting = .default
 
@@ -30,6 +31,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let closePaneSwitch = NSSwitch()
     private let closeWindowSwitch = NSSwitch()
     private let quitSwitch = NSSwitch()
+    private let restoreWorkspaceSwitch = NSSwitch()
     private let updateChannelPopupButton = NSPopUpButton()
     private let errorReportingSwitch = NSSwitch()
     private let errorReportingStatusLabel = NSTextField(labelWithString: "")
@@ -52,6 +54,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         self.runtimeErrorReportingEnabled = runtimeErrorReportingEnabled
         self.currentNotifications = configStore.current.notifications
         self.currentConfirmations = configStore.current.confirmations
+        self.currentRestore = configStore.current.restore
         self.currentUpdates = configStore.current.updates
         self.currentErrorReporting = configStore.current.errorReporting
         super.init(nibName: nil, bundle: nil)
@@ -187,6 +190,21 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         confirmStack.addArrangedSubview(quitRow)
         quitRow.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
 
+        let confirmSeparator3 = NSBox()
+        confirmSeparator3.boxType = .separator
+        confirmSeparator3.translatesAutoresizingMaskIntoConstraints = false
+        confirmStack.addArrangedSubview(confirmSeparator3)
+        confirmSeparator3.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+
+        let restoreRow = makeSwitchRow(
+            title: "Restore worklanes on next launch",
+            subtitle: "Reopen windows, pane layout, and saved working directories after quitting.",
+            toggle: restoreWorkspaceSwitch,
+            action: #selector(handleRestoreWorkspaceSwitchChanged(_:))
+        )
+        confirmStack.addArrangedSubview(restoreRow)
+        restoreRow.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+
         NSLayoutConstraint.activate([
             confirmStack.topAnchor.constraint(equalTo: confirmCard.topAnchor),
             confirmStack.leadingAnchor.constraint(equalTo: confirmCard.leadingAnchor),
@@ -210,6 +228,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         closePaneSwitch.state = currentConfirmations.confirmBeforeClosingPane ? .on : .off
         closeWindowSwitch.state = currentConfirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = currentConfirmations.confirmBeforeQuitting ? .on : .off
+        restoreWorkspaceSwitch.state = currentRestore.restoreWorkspaceOnLaunch ? .on : .off
         selectUpdateChannelPopupItem(for: currentUpdates.channel)
         errorReportingSwitch.state = currentErrorReporting.enabled ? .on : .off
         refreshNotificationStatus()
@@ -233,6 +252,12 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         closePaneSwitch.state = confirmations.confirmBeforeClosingPane ? .on : .off
         closeWindowSwitch.state = confirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = confirmations.confirmBeforeQuitting ? .on : .off
+    }
+
+    func apply(restore: AppConfig.Restore) {
+        currentRestore = restore
+        guard isViewLoaded else { return }
+        restoreWorkspaceSwitch.state = restore.restoreWorkspaceOnLaunch ? .on : .off
     }
 
     func apply(updates: AppConfig.Updates) {
@@ -558,6 +583,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     }
 
     @objc
+    private func handleRestoreWorkspaceSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.restore.restoreWorkspaceOnLaunch = sender.state == .on
+        }
+        currentRestore = configStore.current.restore
+    }
+
+    @objc
     private func handleUpdateChannelChanged(_ sender: NSPopUpButton) {
         guard let channel = sender.selectedItem?.representedObject as? AppUpdateChannel else {
             return
@@ -791,6 +824,10 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         quitSwitch.state == .on
     }
 
+    var isRestoreWorkspaceSwitchOn: Bool {
+        restoreWorkspaceSwitch.state == .on
+    }
+
     var isErrorReportingSwitchOn: Bool {
         errorReportingSwitch.state == .on
     }
@@ -825,6 +862,11 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         } ?? 0
         updateChannelPopupButton.selectItem(at: index)
         handleUpdateChannelChanged(updateChannelPopupButton)
+    }
+
+    func setRestoreWorkspaceEnabledForTesting(_ enabled: Bool) {
+        restoreWorkspaceSwitch.state = enabled ? .on : .off
+        handleRestoreWorkspaceSwitchChanged(restoreWorkspaceSwitch)
     }
 }
 

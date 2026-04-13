@@ -21,6 +21,7 @@ enum AppConfigTOML {
         case notifications
         case confirmations
         case updates
+        case restore
     }
 
     static func encode(_ config: AppConfig) -> String {
@@ -107,6 +108,10 @@ enum AppConfigTOML {
         lines.append("confirm_before_closing_window = \(config.confirmations.confirmBeforeClosingWindow)")
         lines.append("confirm_before_quitting = \(config.confirmations.confirmBeforeQuitting)")
 
+        lines.append("")
+        lines.append("[restore]")
+        lines.append("restore_workspace_on_launch = \(config.restore.restoreWorkspaceOnLaunch)")
+
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -172,6 +177,10 @@ enum AppConfigTOML {
                 section = .updates
                 continue
             }
+            if line == "[restore]" {
+                section = .restore
+                continue
+            }
             guard let assignment = parseAssignment(line) else {
                 return nil
             }
@@ -227,6 +236,10 @@ enum AppConfigTOML {
                 }
             case .updates:
                 guard decodeUpdatesAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .restore:
+                guard decodeRestoreAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .root:
@@ -493,6 +506,21 @@ enum AppConfigTOML {
         default:
             return true
         }
+        return true
+    }
+
+    private static func decodeRestoreAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "restore_workspace_on_launch":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.restore.restoreWorkspaceOnLaunch = value
+        default:
+            return true
+        }
+
         return true
     }
 

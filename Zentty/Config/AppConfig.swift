@@ -95,6 +95,12 @@ struct AppConfig: Equatable, Sendable {
         static let `default` = Updates(channel: .stable)
     }
 
+    struct Restore: Equatable, Sendable {
+        var restoreWorkspaceOnLaunch: Bool
+
+        static let `default` = Restore(restoreWorkspaceOnLaunch: true)
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var panes: Panes
@@ -105,6 +111,7 @@ struct AppConfig: Equatable, Sendable {
     var notifications: Notifications
     var confirmations: Confirmations
     var appearance: Appearance
+    var restore: Restore
 
     static let `default` = AppConfig(
         sidebar: Sidebar(
@@ -119,7 +126,8 @@ struct AppConfig: Equatable, Sendable {
         shortcuts: .default,
         notifications: .default,
         confirmations: .default,
-        appearance: .default
+        appearance: .default,
+        restore: .default
     )
 
     static func migrated(
@@ -140,7 +148,8 @@ struct AppConfig: Equatable, Sendable {
             shortcuts: .default,
             notifications: .default,
             confirmations: .default,
-            appearance: .default
+            appearance: .default,
+            restore: .default
         )
     }
 

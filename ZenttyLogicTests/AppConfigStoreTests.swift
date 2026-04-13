@@ -643,6 +643,42 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertFalse(store.current.appearance.syncOpenCodeThemeWithTerminal)
     }
 
+    func test_store_reads_restore_workspace_on_launch_preference_from_config_file() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [restore]
+        restore_workspace_on_launch = false
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertFalse(store.current.restore.restoreWorkspaceOnLaunch)
+    }
+
+    func test_store_persists_restore_workspace_on_launch_preference_in_toml() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.restore.restoreWorkspaceOnLaunch = false
+        }
+
+        let persisted = try String(contentsOf: fileURL)
+        XCTAssertTrue(persisted.contains("[restore]"))
+        XCTAssertTrue(persisted.contains("restore_workspace_on_launch = false"))
+        XCTAssertFalse(store.current.restore.restoreWorkspaceOnLaunch)
+    }
+
     private func makeDefaults(suffix: String) -> UserDefaults {
         let suiteName = "ZenttyTests.AppConfigStoreTests.\(suffix).\(UUID().uuidString)"
         defaultsSuiteNames.append(suiteName)

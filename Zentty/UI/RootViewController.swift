@@ -137,6 +137,7 @@ final class RootViewController: NSViewController {
     var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
+    var onWorkspaceStateDidChange: (() -> Void)?
 
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
@@ -147,7 +148,8 @@ final class RootViewController: NSViewController {
         notificationStore: NotificationStore = NotificationStore(),
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
-        initialLayoutContext: PaneLayoutContext = .fallback
+        initialLayoutContext: PaneLayoutContext = .fallback,
+        initialWorkspaceState: WindowWorkspaceState? = nil
     ) {
         self.windowID = windowID
         self.runtimeRegistry = runtimeRegistry
@@ -176,7 +178,9 @@ final class RootViewController: NSViewController {
         )
         self.worklaneStore = WorklaneStore(
             windowID: windowID,
+            worklanes: initialWorkspaceState?.worklanes ?? [],
             layoutContext: initialLayoutContext,
+            activeWorklaneID: initialWorkspaceState?.activeWorklaneID,
             gitContextResolver: gitContextResolver
         )
         self.renderCoordinator = WorklaneRenderCoordinator(
@@ -211,7 +215,8 @@ final class RootViewController: NSViewController {
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
-        initialLayoutContext: PaneLayoutContext = .fallback
+        initialLayoutContext: PaneLayoutContext = .fallback,
+        initialWorkspaceState: WindowWorkspaceState? = nil
     ) {
         self.init(
             windowID: windowID,
@@ -228,7 +233,8 @@ final class RootViewController: NSViewController {
             notificationStore: notificationStore,
             reviewStateResolver: reviewStateResolver,
             gitContextResolver: gitContextResolver,
-            initialLayoutContext: initialLayoutContext
+            initialLayoutContext: initialLayoutContext,
+            initialWorkspaceState: initialWorkspaceState
         )
     }
 
@@ -459,6 +465,13 @@ final class RootViewController: NSViewController {
                 self.updateOpenWithChromeState()
             default:
                 break
+            }
+
+            switch change {
+            case .historyChanged, .volatileAgentTitleUpdated:
+                break
+            default:
+                self.onWorkspaceStateDidChange?()
             }
         }
     }
@@ -2024,8 +2037,15 @@ final class RootViewController: NSViewController {
                 .items
                 .filter { !$0.isSeparatorItem }
                 .map(\.title) ?? []
-        }
+    }
     #endif
+
+    var workspaceState: WindowWorkspaceState {
+        WindowWorkspaceState(
+            worklanes: worklaneStore.worklanes,
+            activeWorklaneID: worklaneStore.activeWorklaneID
+        )
+    }
 
     private func resolvedSidebarAvailableWidth() -> CGFloat? {
         view.bounds.width > 0 ? view.bounds.width : view.window?.screen?.visibleFrame.width

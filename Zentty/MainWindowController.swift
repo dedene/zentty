@@ -149,6 +149,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
+    var onWorkspaceStateDidChange: (() -> Void)?
 
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
@@ -160,7 +161,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
-        windowIndex: Int = 0
+        windowIndex: Int = 0,
+        initialWorkspaceState: WindowWorkspaceState? = nil
     ) {
         let resolvedConfigStore = configStore ?? AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.MainWindowController"),
@@ -181,7 +183,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             openWithService: openWithService,
             runtimeRegistry: runtimeRegistry,
             notificationStore: notificationStore,
-            initialLayoutContext: initialLayoutContext
+            initialLayoutContext: initialLayoutContext,
+            initialWorkspaceState: initialWorkspaceState
         )
         rootViewController.loadViewIfNeeded()
         let window = ProxyAwareWindow(
@@ -245,6 +248,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
+        }
+        rootViewController.onWorkspaceStateDidChange = { [weak self] in
+            self?.onWorkspaceStateDidChange?()
         }
         window.suppressionTargetAtPoint = { [weak rootViewController] point, eventType in
             rootViewController?.windowDragSuppressionTarget(at: point, eventType: eventType)
@@ -323,6 +329,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func windowDidResize(_ notification: Notification) {
         rootViewController.handleWindowDidResize()
         layoutTrafficLights()
+        onWorkspaceStateDidChange?()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -989,6 +996,26 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                     availableWidth: initialFrame.width
                 ),
             sizing: PaneLayoutSizing.forSidebarVisibility(config.sidebar.visibility)
+        )
+    }
+
+    static func defaultFrameForRestore() -> NSRect {
+        defaultFrame()
+    }
+
+    static func initialPaneLayoutContextForRestore(
+        initialFrame: NSRect,
+        config: AppConfig
+    ) -> PaneLayoutContext {
+        initialPaneLayoutContext(initialFrame: initialFrame, config: config)
+    }
+
+    var workspaceRecipeWindow: WorkspaceRecipe.Window {
+        let workspaceState = rootViewController.workspaceState
+        return WorkspaceRecipeExporter.makeWindow(
+            windowID: windowID,
+            worklanes: workspaceState.worklanes,
+            activeWorklaneID: workspaceState.activeWorklaneID
         )
     }
 

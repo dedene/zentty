@@ -3,10 +3,15 @@ import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private enum RestoreSnapshot {
+        static let debounceNanoseconds: UInt64 = 350_000_000
+    }
+
     private let shouldOpenMainWindow: Bool
     private let configStore: AppConfigStore
     private let runtimeRegistryFactory: () -> PaneRuntimeRegistry
     private let appUpdateController: AppUpdateControlling
+    private let sessionRestoreStore: SessionRestoreStore
     private let notificationStore = NotificationStore()
     private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
     private var aboutWindowController: AboutWindowController?
@@ -14,18 +19,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastKeyWindowControllerID: ObjectIdentifier?
     private var configObserverID: UUID?
     private var nextWindowIndex = 0
+    private var pendingSnapshotSaveTask: Task<Void, Never>?
+    private var isLaunchingWorkspace = false
+    private let isSessionRestoreEnabled: Bool
 
     init(
         shouldOpenMainWindow: Bool = true,
         runtimeRegistryFactory: @escaping () -> PaneRuntimeRegistry = { PaneRuntimeRegistry() },
         configStore: AppConfigStore = AppConfigStore(),
-        appUpdateController: AppUpdateControlling? = nil
+        appUpdateController: AppUpdateControlling? = nil,
+        sessionRestoreStore: SessionRestoreStore? = nil,
+        sessionRestoreEnabled: Bool? = nil
     ) {
         self.shouldOpenMainWindow = shouldOpenMainWindow
         self.runtimeRegistryFactory = runtimeRegistryFactory
         self.configStore = configStore
         self.appUpdateController = appUpdateController
             ?? makeDefaultAppUpdateController(configStore: configStore)
+        self.sessionRestoreStore = sessionRestoreStore
+            ?? SessionRestoreStore(configDirectoryURL: configStore.fileURL.deletingLastPathComponent())
+        self.isSessionRestoreEnabled = sessionRestoreEnabled
+            ?? !CommandLine.arguments.contains("-ApplePersistenceIgnoreState")
         super.init()
     }
 
@@ -45,15 +59,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
                 self.aboutWindowController?.applyTheme(self.resolvedAboutTheme)
                 self.licensesWindowController?.applyAppearance(self.resolvedAboutAppearance)
+                if self.isSessionRestoreEnabled {
+                    self.handleRestorePreferenceChange(config.restore)
+                }
             }
         }
         UNUserNotificationCenter.current().delegate = self
 
         guard shouldOpenMainWindow else { return }
 
-        let windowController = makeWindowController()
-        windowController.showWindow(nil)
+        if isSessionRestoreEnabled {
+            let launchDecision = try? sessionRestoreStore.prepareForLaunch(
+                restorePreferenceEnabled: configStore.current.restore.restoreWorkspaceOnLaunch
+            )
+            try? sessionRestoreStore.markLaunchStarted()
+
+            if let launchDecision, launchWorkspace(launchDecision.envelope.workspace) {
+                try? sessionRestoreStore.consumeSnapshot()
+            } else {
+                if launchDecision != nil {
+                    try? sessionRestoreStore.deleteSnapshot()
+                }
+
+                let windowController = makeWindowController()
+                windowController.showWindow(nil)
+            }
+        } else {
+            let windowController = makeWindowController()
+            windowController.showWindow(nil)
+        }
+
         NSApp.activate(ignoringOtherApps: true)
+        if isSessionRestoreEnabled {
+            scheduleWorkspaceSnapshotSave()
+        }
     }
 
     @objc
@@ -116,20 +155,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
         alert.window.appearance = blockingController.terminalAppearance
+        let restoreToggle = makeRestoreToggleButton()
+        alert.accessoryView = restoreToggle
 
         let window = blockingController.window
         if window.isVisible {
-            alert.beginSheetModal(for: window) { response in
+            alert.beginSheetModal(for: window) { [weak self] response in
+                if response == .alertFirstButtonReturn {
+                    self?.persistRestorePreferenceIfNeeded(from: restoreToggle)
+                }
                 NSApp.reply(toApplicationShouldTerminate: response == .alertFirstButtonReturn)
             }
             return .terminateLater
         }
 
-        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            persistRestorePreferenceIfNeeded(from: restoreToggle)
+            return .terminateNow
+        }
+
+        return .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        if isSessionRestoreEnabled {
+            pendingSnapshotSaveTask?.cancel()
+            saveWorkspaceSnapshot(reason: .cleanExit)
+            try? sessionRestoreStore.markCleanExit()
+        }
         AgentIPCServer.shared.stop()
         for controller in windowControllers.values {
             controller.tearDownRuntime()
@@ -149,15 +204,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makeWindowController() -> MainWindowController {
+        let controller = makeWindowController(
+            windowID: makeWindowID(),
+            initialWorkspaceState: nil
+        )
+        scheduleWorkspaceSnapshotSave()
+        return controller
+    }
+
+    private func makeWindowController(
+        windowID: WindowID,
+        initialWorkspaceState: WindowWorkspaceState?
+    ) -> MainWindowController {
         let index = nextWindowIndex
         nextWindowIndex += 1
         let controller = MainWindowController(
-            windowID: makeWindowID(),
+            windowID: windowID,
             runtimeRegistry: runtimeRegistryFactory(),
             configStore: configStore,
             appUpdateStateStore: appUpdateController.updateStateStore,
             notificationStore: notificationStore,
-            windowIndex: index
+            windowIndex: index,
+            initialWorkspaceState: initialWorkspaceState
         )
         let id = ObjectIdentifier(controller)
         windowControllers[id] = controller
@@ -179,6 +247,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onNavigateToNotificationRequested = { [weak self] windowID, worklaneID, paneID in
             self?.navigateToNotification(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
         }
+        controller.onWorkspaceStateDidChange = { [weak self] in
+            self?.scheduleWorkspaceSnapshotSave()
+        }
         return controller
     }
 
@@ -197,6 +268,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         licensesWindowController?.applyAppearance(resolvedAboutAppearance)
         if windowControllers.isEmpty {
             NSApp.terminate(nil)
+        } else {
+            scheduleWorkspaceSnapshotSave()
         }
     }
 
@@ -224,6 +297,151 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var resolvedAboutTheme: ZenttyTheme {
         aboutThemeSourceController?.currentWindowTheme
             ?? ZenttyTheme.fallback(for: resolvedAboutAppearance)
+    }
+
+    private func makeRestoreToggleButton() -> NSButton {
+        let button = NSButton(checkboxWithTitle: "Restore worklanes on next launch", target: nil, action: nil)
+        button.state = configStore.current.restore.restoreWorkspaceOnLaunch ? .on : .off
+        return button
+    }
+
+    private func persistRestorePreferenceIfNeeded(from button: NSButton) {
+        let shouldRestore = button.state == .on
+        guard shouldRestore != configStore.current.restore.restoreWorkspaceOnLaunch else {
+            return
+        }
+
+        try? configStore.update { config in
+            config.restore.restoreWorkspaceOnLaunch = shouldRestore
+        }
+    }
+
+    private func handleRestorePreferenceChange(_ restore: AppConfig.Restore) {
+        guard isSessionRestoreEnabled else {
+            return
+        }
+
+        if restore.restoreWorkspaceOnLaunch {
+            scheduleWorkspaceSnapshotSave()
+        } else {
+            pendingSnapshotSaveTask?.cancel()
+            try? sessionRestoreStore.deleteSnapshot()
+        }
+    }
+
+    private func scheduleWorkspaceSnapshotSave() {
+        guard isSessionRestoreEnabled else {
+            return
+        }
+
+        guard !isLaunchingWorkspace else {
+            return
+        }
+
+        pendingSnapshotSaveTask?.cancel()
+        pendingSnapshotSaveTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: RestoreSnapshot.debounceNanoseconds)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            self.saveWorkspaceSnapshot(reason: .liveSnapshot)
+        }
+    }
+
+    private func saveWorkspaceSnapshot(reason: SessionRestoreEnvelope.SaveReason) {
+        if !configStore.current.restore.restoreWorkspaceOnLaunch {
+            try? sessionRestoreStore.deleteSnapshot()
+            return
+        }
+
+        let recipe = currentWorkspaceRecipe()
+        guard let recipe else {
+            return
+        }
+
+        let defaultWorkingDirectory = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        guard WorkspaceRecipeMeaningfulness.isMeaningful(recipe, defaultWorkingDirectory: defaultWorkingDirectory) else {
+            try? sessionRestoreStore.deleteSnapshot()
+            return
+        }
+
+        try? sessionRestoreStore.saveSnapshot(
+            SessionRestoreEnvelope(reason: reason, workspace: recipe)
+        )
+    }
+
+    private func currentWorkspaceRecipe() -> WorkspaceRecipe? {
+        let controllers = orderedWindowControllers
+        guard !controllers.isEmpty else {
+            return nil
+        }
+
+        let activeWindowID = keyWindowController?.windowID.rawValue
+            ?? lastKeyWindowControllerID.flatMap { windowControllers[$0]?.windowID.rawValue }
+
+        return WorkspaceRecipe(
+            windows: controllers.map(\.workspaceRecipeWindow),
+            activeWindowID: activeWindowID
+        )
+    }
+
+    private var orderedWindowControllers: [MainWindowController] {
+        windowControllers.values.sorted { lhs, rhs in
+            lhs.window.windowNumber < rhs.window.windowNumber
+        }
+    }
+
+    private func launchWorkspace(_ workspace: WorkspaceRecipe) -> Bool {
+        let windows = workspace.windows
+        guard !windows.isEmpty else {
+            return false
+        }
+
+        isLaunchingWorkspace = true
+        defer { isLaunchingWorkspace = false }
+
+        let config = configStore.current
+        var launchedControllers: [MainWindowController] = []
+
+        for recipeWindow in windows {
+            let initialFrame = MainWindowController.defaultFrameForRestore()
+            let layoutContext = MainWindowController.initialPaneLayoutContextForRestore(
+                initialFrame: initialFrame,
+                config: config
+            )
+            let importedState = WorkspaceRecipeImporter.makeWorklanes(
+                from: recipeWindow,
+                windowID: WindowID(recipeWindow.id),
+                layoutContext: layoutContext,
+                processEnvironment: ProcessInfo.processInfo.environment
+            )
+            let controller = makeWindowController(
+                windowID: WindowID(recipeWindow.id),
+                initialWorkspaceState: importedState
+            )
+            launchedControllers.append(controller)
+        }
+
+        guard !launchedControllers.isEmpty else {
+            return false
+        }
+
+        let activeControllerID = workspace.activeWindowID
+        let activeController = activeControllerID.flatMap { activeID in
+            launchedControllers.first { $0.windowID.rawValue == activeID }
+        } ?? launchedControllers.first
+
+        for controller in launchedControllers {
+            controller.showWindow(nil)
+        }
+
+        activeController?.window.makeKeyAndOrderFront(nil)
+        return true
     }
 
     @objc

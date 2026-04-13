@@ -1023,6 +1023,7 @@ final class SettingsWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(generalController.availableUpdateChannels, [.stable, .beta])
         XCTAssertEqual(generalController.selectedUpdateChannel, .stable)
+        XCTAssertTrue(generalController.isRestoreWorkspaceSwitchOn)
     }
 
     func test_general_section_persists_update_channel_to_config() throws {
@@ -1052,6 +1053,35 @@ final class SettingsWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(store.current.updates.channel, .beta)
         XCTAssertEqual(generalController.selectedUpdateChannel, .beta)
+    }
+
+    func test_general_section_persists_restore_workspace_preference_to_config() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let generalController = try XCTUnwrap(
+            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        )
+
+        generalController.setRestoreWorkspaceEnabledForTesting(false)
+
+        XCTAssertFalse(store.current.restore.restoreWorkspaceOnLaunch)
+        XCTAssertFalse(generalController.isRestoreWorkspaceSwitchOn)
     }
 
     func test_general_section_confirms_error_reporting_change_before_persisting() throws {

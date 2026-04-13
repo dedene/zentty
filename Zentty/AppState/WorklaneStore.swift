@@ -1489,53 +1489,13 @@ final class WorklaneStore {
         initialWorkingDirectory: String? = nil,
         processEnvironment: [String: String]
     ) -> [String: String] {
-        var environment: [String: String] = [
-            "ZENTTY_WINDOW_ID": windowID.rawValue,
-            "ZENTTY_WORKLANE_ID": worklaneID.rawValue,
-            "ZENTTY_PANE_ID": paneID.rawValue,
-        ]
-        if let initialWorkingDirectory = trimmedWorkingDirectory(initialWorkingDirectory) {
-            environment["ZENTTY_INITIAL_WORKING_DIRECTORY"] = initialWorkingDirectory
-        }
-        if let connectionInfo = AgentIPCServer.shared.connectionInfo(
+        WorklaneSessionEnvironment.make(
             windowID: windowID,
             worklaneID: worklaneID,
-            paneID: paneID
-        ) {
-            environment["ZENTTY_INSTANCE_SOCKET"] = connectionInfo.socketPath
-            environment["ZENTTY_PANE_TOKEN"] = connectionInfo.paneToken
-            environment["ZENTTY_CLI_BIN"] = connectionInfo.cliPath
-        }
-        if let wrapperDirectories = AgentStatusHelper.wrapperDirectoryPaths() {
-            environment["ZENTTY_ALL_WRAPPER_BIN_DIRS"] = wrapperDirectories.joined(separator: ":")
-        }
-        if let supportDirectory = AgentStatusHelper.wrapperSupportDirectoryPath(in: .main) {
-            let currentPath = processEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-            let pathEntries = currentPath.split(separator: ":").map(String.init)
-            if !pathEntries.contains(supportDirectory) {
-                environment["PATH"] = ([supportDirectory] + pathEntries).joined(separator: ":")
-            } else {
-                environment["PATH"] = currentPath
-            }
-        }
-        if let shellIntegrationDirectory = AgentStatusHelper.shellIntegrationDirectoryPath() {
-            environment["ZENTTY_SHELL_INTEGRATION_DIR"] = shellIntegrationDirectory
-            environment["ZENTTY_SHELL_INTEGRATION"] = "1"
-            environment["ZDOTDIR"] = shellIntegrationDirectory
-            if let currentZDOTDIR = processEnvironment["ZDOTDIR"], !currentZDOTDIR.isEmpty {
-                environment["ZENTTY_ORIGINAL_ZDOTDIR"] = currentZDOTDIR
-            }
-            if let currentPromptCommand = processEnvironment["PROMPT_COMMAND"], !currentPromptCommand.isEmpty {
-                environment["ZENTTY_BASH_ORIGINAL_PROMPT_COMMAND"] = currentPromptCommand
-            }
-            environment["PROMPT_COMMAND"] = ". \"\(shellIntegrationDirectory)/zentty-bash-integration.bash\""
-        }
-        if let ghosttyLog = processEnvironment["GHOSTTY_LOG"], !ghosttyLog.isEmpty {
-            environment["GHOSTTY_LOG"] = ghosttyLog
-        } else {
-            environment["GHOSTTY_LOG"] = "macos,no-stderr"
-        }
-        return environment
+            paneID: paneID,
+            initialWorkingDirectory: initialWorkingDirectory,
+            processEnvironment: processEnvironment
+        )
     }
 
     private func sourcePaneIDForSessionInheritance(in worklane: WorklaneState) -> PaneID? {
