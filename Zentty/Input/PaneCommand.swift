@@ -1,3 +1,5 @@
+import CoreGraphics
+
 enum PaneHorizontalArrangement: Int, CaseIterable, Equatable, Sendable {
     case fullWidth = 1
     case halfWidth = 2
@@ -23,11 +25,19 @@ enum GoldenRatioPreset: Equatable, Sendable {
     case focusShort
 }
 
+enum SplitLayoutAction: Equatable, Sendable {
+    case none
+    case equal
+    case golden
+    case ratio(CGFloat)
+}
+
 enum PaneCommand: Equatable, Sendable {
     case duplicateFocusedPane
     case split
     case splitHorizontally
     case splitVertically
+    case splitVerticallyBefore
     case splitAfterFocusedPane
     case splitBeforeFocusedPane
     case closeFocusedPane

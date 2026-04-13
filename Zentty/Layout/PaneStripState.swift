@@ -194,7 +194,7 @@ struct PaneColumnState: Equatable, Sendable {
         moveFocus(by: 1)
     }
 
-    mutating func insertPaneVertically(_ pane: PaneState) {
+    mutating func insertPaneVertically(_ pane: PaneState, placement: PanePlacement = .afterFocused) {
         guard !panes.isEmpty else {
             panes = [pane]
             paneHeights = [1]
@@ -203,7 +203,13 @@ struct PaneColumnState: Equatable, Sendable {
         }
 
         let sourceIndex = max(0, min(focusedPaneIndex, paneHeights.count - 1))
-        let insertionIndex = min(sourceIndex + 1, panes.count)
+        let insertionIndex: Int
+        switch placement {
+        case .afterFocused:
+            insertionIndex = min(sourceIndex + 1, panes.count)
+        case .beforeFocused:
+            insertionIndex = sourceIndex
+        }
         let sourceHeight = paneHeights[sourceIndex]
         let insertedHeight = max(1, sourceHeight / 2)
         let retainedHeight = max(1, sourceHeight - insertedHeight)
@@ -322,6 +328,31 @@ struct PaneColumnState: Equatable, Sendable {
 
     mutating func resetPaneHeights() {
         paneHeights = Self.resolvedStoredPaneHeights(preferred: [], paneCount: panes.count)
+    }
+
+    @discardableResult
+    mutating func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) -> Bool {
+        guard panes.count >= 2,
+              let focusedPaneID,
+              let focusedIndex = panes.firstIndex(where: { $0.id == focusedPaneID }) else {
+            return false
+        }
+
+        let clampedFraction = max(0.05, min(0.95, fraction))
+        let totalWeight = paneHeights.reduce(0, +)
+        guard totalWeight > 0 else { return false }
+
+        let otherTotalWeight = totalWeight - paneHeights[focusedIndex]
+        let targetFocusedWeight = (clampedFraction / (1.0 - clampedFraction)) * otherTotalWeight
+        guard targetFocusedWeight > 0 else { return false }
+
+        paneHeights[focusedIndex] = targetFocusedWeight
+        reconcilePaneHeights()
+        return true
+    }
+
+    mutating func equalizePaneHeights() {
+        paneHeights = Array(repeating: 1, count: panes.count)
     }
 
     func resolvedPaneHeights(
@@ -727,6 +758,7 @@ struct PaneStripState: Equatable, Sendable {
     mutating func insertPaneVertically(
         _ pane: PaneState,
         in columnID: PaneColumnID? = nil,
+        placement: PanePlacement = .afterFocused,
         availableHeight: CGFloat,
         minimumPaneHeight: CGFloat = PaneStripState.minimumVerticalPaneHeight
     ) -> Bool {
@@ -749,7 +781,7 @@ struct PaneStripState: Equatable, Sendable {
             return false
         }
 
-        columns[targetIndex].insertPaneVertically(pane)
+        columns[targetIndex].insertPaneVertically(pane, placement: placement)
         focusedColumnID = columns[targetIndex].id
         sanitizeLastInteractedDivider()
         return true
@@ -1847,6 +1879,58 @@ struct PaneStripState: Equatable, Sendable {
         columns[columnIndex].width = resolvedWidth
         lastInteractedDivider = divider
         return appliedDelta
+    }
+
+    @discardableResult
+    mutating func resizeFocusedColumnToFraction(
+        _ fraction: CGFloat,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+    ) -> Bool {
+        guard let focusedColumnIndex, columns.count > 1 else {
+            return false
+        }
+
+        let usableWidth = max(1, availableWidth - leadingVisibleInset)
+        let targetWidth = usableWidth * max(0.05, min(0.95, fraction))
+        let delta = targetWidth - columns[focusedColumnIndex].width
+
+        let dividerColumnID: PaneColumnID
+        if focusedColumnIndex + 1 < columns.count {
+            dividerColumnID = columns[focusedColumnIndex].id
+        } else {
+            dividerColumnID = columns[focusedColumnIndex - 1].id
+        }
+
+        let appliedDelta = resizeColumnWidth(
+            at: focusedColumnIndex,
+            widthDelta: delta,
+            divider: .column(afterColumnID: dividerColumnID),
+            availableSize: CGSize(width: availableWidth, height: 1),
+            leadingVisibleInset: leadingVisibleInset,
+            minimumSizeByPaneID: minimumSizeByPaneID
+        )
+        return abs(appliedDelta) > 0.001
+    }
+
+    @discardableResult
+    mutating func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) -> Bool {
+        guard let focusedColumnIndex, columns[focusedColumnIndex].panes.count >= 2 else {
+            return false
+        }
+
+        return columns[focusedColumnIndex].resizeFocusedPaneHeightToFraction(fraction)
+    }
+
+    @discardableResult
+    mutating func equalizeFocusedColumnPaneHeights() -> Bool {
+        guard let focusedColumnIndex, columns[focusedColumnIndex].panes.count >= 2 else {
+            return false
+        }
+
+        columns[focusedColumnIndex].equalizePaneHeights()
+        return true
     }
 
     private func adjustedResizeDelta(

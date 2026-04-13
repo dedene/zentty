@@ -1745,6 +1745,106 @@ final class RootViewController: NSViewController {
         }
     }
 
+    // MARK: - Pane IPC
+
+    func handlePaneIPCCommand(_ command: PaneCommand) {
+        handlePaneCommand(command)
+    }
+
+    func splitWithLayout(
+        placement: PanePlacement,
+        isHorizontal: Bool,
+        layout: SplitLayoutAction
+    ) {
+        appCanvasView.settlePaneStripPresentationNow()
+        worklaneStore.splitWithLayout(
+            placement: placement,
+            isHorizontal: isHorizontal,
+            layout: layout,
+            availableWidth: appCanvasView.bounds.width,
+            leadingVisibleInset: appCanvasView.leadingVisibleInset,
+            availableSize: appCanvasView.bounds.size,
+            minimumSizeByPaneID: paneMinimumSizesByPaneID()
+        )
+    }
+
+    func focusPaneByID(_ paneID: PaneID, in worklaneID: WorklaneID) {
+        worklaneStore.selectWorklane(id: worklaneID)
+        worklaneStore.focusPane(id: paneID)
+    }
+
+    func closePaneByID(_ paneID: PaneID) {
+        handlePaneCloseResult(worklaneStore.closePane(id: paneID))
+    }
+
+    func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
+        appCanvasView.settlePaneStripPresentationNow()
+        worklaneStore.resizeFocusedColumnToFraction(
+            fraction,
+            availableWidth: appCanvasView.bounds.width,
+            leadingVisibleInset: appCanvasView.leadingVisibleInset,
+            minimumSizeByPaneID: paneMinimumSizesByPaneID()
+        )
+    }
+
+    func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) {
+        worklaneStore.resizeFocusedPaneHeightToFraction(fraction)
+    }
+
+    func equalizeFocusedColumnPaneHeights() {
+        worklaneStore.equalizeFocusedColumnPaneHeights()
+    }
+
+    func paneListEntries(for worklaneID: WorklaneID) -> [PaneListEntry] {
+        guard let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }) else {
+            return []
+        }
+
+        var entries: [PaneListEntry] = []
+        var index = 1
+        for (columnIndex, column) in worklane.paneStripState.columns.enumerated() {
+            for pane in column.panes {
+                let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
+                let isFocused = worklane.paneStripState.focusedPaneID == pane.id
+                entries.append(PaneListEntry(
+                    index: index,
+                    id: pane.id.rawValue,
+                    column: columnIndex + 1,
+                    title: pane.title,
+                    workingDirectory: auxiliaryState?.shellContext?.path,
+                    isFocused: isFocused,
+                    agentTool: auxiliaryState?.agentStatus?.tool.displayName,
+                    agentStatus: auxiliaryState?.agentStatus?.state.rawValue
+                ))
+                index += 1
+            }
+        }
+        return entries
+    }
+
+    func resolvePaneID(_ target: String, in worklaneID: WorklaneID) -> PaneID? {
+        guard let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }) else {
+            return nil
+        }
+
+        if target.hasPrefix("pn_") {
+            let paneID = PaneID(target)
+            if worklane.paneStripState.panes.contains(where: { $0.id == paneID }) {
+                return paneID
+            }
+            return nil
+        }
+
+        if let displayIndex = Int(target), displayIndex >= 1 {
+            let allPanes = worklane.paneStripState.columns.flatMap(\.panes)
+            if displayIndex <= allPanes.count {
+                return allPanes[displayIndex - 1].id
+            }
+        }
+
+        return nil
+    }
+
     var worklaneTitles: [String] {
         worklaneStore.worklanes.map(\.title)
     }
