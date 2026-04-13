@@ -1818,6 +1818,18 @@ final class AgentStatusSupportTests: XCTestCase {
         )
     }
 
+    func test_claude_parse_input_preserves_transcript_path() throws {
+        let input = try AgentEventBridge.claudeParseInput(
+            Data("""
+            {"hook_event_name":"SessionStart","session_id":"session-1","cwd":"/tmp/project","transcript_path":"/tmp/claude/session-1.jsonl"}
+            """.utf8)
+        )
+
+        XCTAssertEqual(input.sessionID, "session-1")
+        XCTAssertEqual(input.cwd, "/tmp/project")
+        XCTAssertEqual(input.transcriptPath, "/tmp/claude/session-1.jsonl")
+    }
+
     func test_claude_hook_notification_stays_generic_input_when_message_mentions_approval() throws {
         let input = try AgentEventBridge.claudeParseInput(
             Data("""
@@ -2211,7 +2223,7 @@ final class AgentStatusSupportTests: XCTestCase {
     func test_claude_hook_session_start_records_mapping_and_emits_pid_attach() throws {
         let input = try AgentEventBridge.claudeParseInput(
             Data("""
-            {"hook_event_name":"SessionStart","session_id":"session-1","cwd":"/tmp/project"}
+            {"hook_event_name":"SessionStart","session_id":"session-1","cwd":"/tmp/project","transcript_path":"/tmp/claude/session-1.jsonl"}
             """.utf8)
         )
         let store = try makeClaudeHookSessionStore()
@@ -2252,6 +2264,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(record.paneID, PaneID("worklane-main-shell"))
         XCTAssertEqual(record.cwd, "/tmp/project")
         XCTAssertEqual(record.pid, 4242)
+        XCTAssertEqual(record.transcriptPath, "/tmp/claude/session-1.jsonl")
     }
 
     func test_claude_hook_notification_uses_persisted_session_target_not_current_env() throws {

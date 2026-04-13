@@ -346,6 +346,7 @@ final class TerminalPaneHostViewTests: XCTestCase {
 
     func test_pane_runtime_waits_for_shell_ready_event_before_sending_initial_command() {
         let adapter = TerminalAdapterSpy()
+        let sent = expectation(description: "startup command sent")
         let runtime = PaneRuntime(
             pane: PaneState(
                 id: PaneID("shell"),
@@ -357,15 +358,133 @@ final class TerminalPaneHostViewTests: XCTestCase {
             ),
             adapter: adapter,
             metadataSink: { _, _ in },
-            eventSink: { _, _ in }
+            eventSink: { _, _ in },
+            startupTextSettleDelay: 0.01
         )
+        adapter.onSendText = { _ in sent.fulfill() }
 
         runtime.ensureStarted()
         adapter.metadataDidChange?(TerminalMetadata(currentWorkingDirectory: "/tmp/project"))
         XCTAssertEqual(adapter.sentTexts, [])
 
         adapter.metadataDidChange?(TerminalMetadata(title: "shell", currentWorkingDirectory: "/tmp/project"))
+        XCTAssertEqual(adapter.sentTexts, [])
+
+        wait(for: [sent], timeout: 0.2)
         XCTAssertEqual(adapter.sentTexts, ["drift --showcase\n"])
+    }
+
+    func test_pane_runtime_prefills_restore_draft_without_submitting() {
+        let adapter = TerminalAdapterSpy()
+        let prefilled = expectation(description: "restore draft prefilled")
+        let runtime = PaneRuntime(
+            pane: PaneState(
+                id: PaneID("shell"),
+                title: "shell",
+                sessionRequest: TerminalSessionRequest(
+                    workingDirectory: "/tmp/project",
+                    prefillText: "claude --resume session-123"
+                )
+            ),
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in },
+            startupTextSettleDelay: 0.01
+        )
+        adapter.onSendText = { _ in prefilled.fulfill() }
+
+        runtime.ensureStarted()
+        adapter.metadataDidChange?(TerminalMetadata(title: "shell", currentWorkingDirectory: "/tmp/project"))
+        XCTAssertEqual(adapter.sentTexts, [])
+
+        wait(for: [prefilled], timeout: 0.2)
+        XCTAssertEqual(adapter.sentTexts, ["claude --resume session-123"])
+    }
+
+    func test_pane_runtime_prefills_restore_draft_when_shell_ready_arrives_before_title() {
+        let adapter = TerminalAdapterSpy()
+        let prefilled = expectation(description: "restore draft prefilled")
+        let runtime = PaneRuntime(
+            pane: PaneState(
+                id: PaneID("shell"),
+                title: "shell",
+                sessionRequest: TerminalSessionRequest(
+                    workingDirectory: "/tmp/project",
+                    prefillText: "codex resume session-123"
+                )
+            ),
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in },
+            startupTextSettleDelay: 0.01
+        )
+        adapter.onSendText = { _ in prefilled.fulfill() }
+
+        runtime.ensureStarted()
+        adapter.metadataDidChange?(TerminalMetadata(currentWorkingDirectory: "/tmp/project"))
+        adapter.eventDidOccur?(.shellReady)
+        XCTAssertEqual(adapter.sentTexts, [])
+
+        wait(for: [prefilled], timeout: 0.2)
+        XCTAssertEqual(adapter.sentTexts, ["codex resume session-123"])
+    }
+
+    func test_pane_runtime_sends_initial_command_when_shell_ready_arrives_before_title() {
+        let adapter = TerminalAdapterSpy()
+        let sent = expectation(description: "startup command sent")
+        let runtime = PaneRuntime(
+            pane: PaneState(
+                id: PaneID("shell"),
+                title: "shell",
+                sessionRequest: TerminalSessionRequest(
+                    workingDirectory: "/tmp/project",
+                    command: "echo ready"
+                )
+            ),
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in },
+            startupTextSettleDelay: 0.01
+        )
+        adapter.onSendText = { _ in sent.fulfill() }
+
+        runtime.ensureStarted()
+        adapter.metadataDidChange?(TerminalMetadata(currentWorkingDirectory: "/tmp/project"))
+        adapter.eventDidOccur?(.shellReady)
+        XCTAssertEqual(adapter.sentTexts, [])
+
+        wait(for: [sent], timeout: 0.2)
+        XCTAssertEqual(adapter.sentTexts, ["echo ready\n"])
+    }
+
+    func test_pane_runtime_reschedules_startup_text_until_metadata_settles() {
+        let adapter = TerminalAdapterSpy()
+        let sent = expectation(description: "startup command sent once")
+        sent.expectedFulfillmentCount = 1
+        let runtime = PaneRuntime(
+            pane: PaneState(
+                id: PaneID("shell"),
+                title: "shell",
+                sessionRequest: TerminalSessionRequest(
+                    workingDirectory: "/tmp/project",
+                    command: "codex"
+                )
+            ),
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in },
+            startupTextSettleDelay: 0.03
+        )
+        adapter.onSendText = { _ in sent.fulfill() }
+
+        runtime.ensureStarted()
+        adapter.eventDidOccur?(.shellReady)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+            adapter.metadataDidChange?(TerminalMetadata(title: "prompt", currentWorkingDirectory: "/tmp/project"))
+        }
+
+        wait(for: [sent], timeout: 0.2)
+        XCTAssertEqual(adapter.sentTexts, ["codex\n"])
     }
 }
 
@@ -381,6 +500,7 @@ private final class TerminalAdapterSpy: TerminalAdapter {
     private(set) var lastRequest: TerminalSessionRequest?
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: true, isFocused: false)
     private(set) var sentTexts: [String] = []
+    var onSendText: ((String) -> Void)?
 
     init(terminalView: NSView = FirstResponderTerminalView()) {
         self.terminalView = terminalView
@@ -398,6 +518,7 @@ private final class TerminalAdapterSpy: TerminalAdapter {
     func close() {}
     func sendText(_ text: String) {
         sentTexts.append(text)
+        onSendText?(text)
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {

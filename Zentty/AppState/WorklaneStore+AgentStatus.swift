@@ -47,7 +47,7 @@ extension WorklaneStore {
                     )
                 }
             }
-        case .userSubmittedInput:
+        case .userSubmittedInput, .userEditedInput:
             let now = Date()
             clearCodexTitleIdleSuppression(for: paneID, in: &worklane)
             clearReadyStatusIfNeeded(for: paneID, in: &worklane)

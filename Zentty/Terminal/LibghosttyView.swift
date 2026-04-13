@@ -852,6 +852,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let shouldEmitUserSubmittedInput = Self.shouldEmitUserSubmittedInput(for: event)
+        let shouldEmitUserEditedInput = Self.shouldEmitUserEditedInput(for: event)
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
             let controlText = event.charactersIgnoringModifiers ?? event.characters
             let handled = surfaceController.sendKey(
@@ -863,6 +864,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
             if handled {
                 if shouldEmitUserSubmittedInput {
                     onLocalEventDidOccur?(.userSubmittedInput)
+                }
+                if shouldEmitUserEditedInput {
+                    onLocalEventDidOccur?(.userEditedInput)
                 }
                 return
             }
@@ -879,6 +883,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         )
         if shouldEmitUserSubmittedInput {
             onLocalEventDidOccur?(.userSubmittedInput)
+        }
+        if shouldEmitUserEditedInput {
+            onLocalEventDidOccur?(.userEditedInput)
         }
         keyTextAccumulator = ""
     }
@@ -982,6 +989,35 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
 
         let characters = event.charactersIgnoringModifiers ?? event.characters
         return characters == "\r" || characters == "\n" || characters == "\u{3}"
+    }
+
+    private static func shouldEmitUserEditedInput(for event: NSEvent) -> Bool {
+        guard event.type == .keyDown, !event.isARepeat else {
+            return false
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) || flags.contains(.control) || flags.contains(.option) || flags.contains(.function) {
+            return false
+        }
+
+        // Return, Tab, Enter, Home, PgUp, forward delete, End, PgDn, and arrows
+        // are navigation/editing control keys. Only forward delete mutates input here.
+        switch event.keyCode {
+        case 36, 48, 76, 115, 116, 117, 119, 121, 123, 124, 125, 126:
+            return event.keyCode == 117
+        case 51:
+            return true
+        default:
+            break
+        }
+
+        let characters = event.charactersIgnoringModifiers ?? event.characters
+        guard let characters, !characters.isEmpty else {
+            return false
+        }
+
+        return sanitizedInputText(characters) != nil
     }
 
     private static func shouldDeferToSystemWindowTiling(for event: NSEvent) -> Bool {

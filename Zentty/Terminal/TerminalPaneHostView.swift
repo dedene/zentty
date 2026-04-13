@@ -304,19 +304,31 @@ private enum PaneSearchOwner: Equatable {
     case global
 }
 
+private enum PaneRestoreDraftLifecycleState: Equatable {
+    case none
+    case pending(String)
+    case injected
+    case consumed
+}
+
 @MainActor
 final class PaneRuntime {
     static let startupFailureMessage = "GhosttyKit could not start this pane. Check your shell environment and retry."
+    private static let defaultStartupTextSettleDelay: TimeInterval = 0.12
 
     private let paneIDValue: PaneID
     private let adapterValue: any TerminalAdapter
     private let hostViewValue: TerminalPaneHostView
     private let metadataSink: (PaneID, TerminalMetadata) -> Void
     private let eventSink: (PaneID, TerminalEvent) -> Void
+    private let startupTextSettleDelay: TimeInterval
     private var sessionRequest: TerminalSessionRequest
     private var hasAttemptedStart = false
     private var hasReceivedMetadata = false
     private var hasSentInitialCommand = false
+    private var hasObservedShellReady = false
+    private var restoreDraftLifecycleState: PaneRestoreDraftLifecycleState
+    private var pendingStartupTextWorkItem: DispatchWorkItem?
     private var observers: [UUID: (PaneRuntimeSnapshot) -> Void] = [:]
     private var searchUpdateWorkItem: DispatchWorkItem?
     private var ignoreNextTerminalBlurForSearchFocus = false
@@ -355,14 +367,17 @@ final class PaneRuntime {
         pane: PaneState,
         adapter: any TerminalAdapter,
         metadataSink: @escaping (PaneID, TerminalMetadata) -> Void,
-        eventSink: @escaping (PaneID, TerminalEvent) -> Void
+        eventSink: @escaping (PaneID, TerminalEvent) -> Void,
+        startupTextSettleDelay: TimeInterval = PaneRuntime.defaultStartupTextSettleDelay
     ) {
         paneIDValue = pane.id
         sessionRequest = pane.sessionRequest
+        restoreDraftLifecycleState = Self.initialRestoreDraftLifecycleState(for: pane.sessionRequest)
         adapterValue = adapter
         hostViewValue = TerminalPaneHostView(adapter: adapter)
         self.metadataSink = metadataSink
         self.eventSink = eventSink
+        self.startupTextSettleDelay = startupTextSettleDelay
         hostViewValue.onMetadataDidChange = { [weak self] metadata in
             self?.handleMetadataDidChange(metadata)
         }
@@ -372,6 +387,21 @@ final class PaneRuntime {
         (adapter as? any TerminalSearchControlling)?.searchDidChange = { [weak self] event in
             self?.handleSearchDidChange(event)
         }
+    }
+
+    convenience init(
+        pane: PaneState,
+        adapter: any TerminalAdapter,
+        metadataSink: @escaping (PaneID, TerminalMetadata) -> Void,
+        eventSink: @escaping (PaneID, TerminalEvent) -> Void
+    ) {
+        self.init(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: metadataSink,
+            eventSink: eventSink,
+            startupTextSettleDelay: Self.defaultStartupTextSettleDelay
+        )
     }
 
     var paneID: PaneID {
@@ -414,6 +444,9 @@ final class PaneRuntime {
 
     func update(pane: PaneState) {
         sessionRequest = pane.sessionRequest
+        if case .none = restoreDraftLifecycleState {
+            restoreDraftLifecycleState = Self.initialRestoreDraftLifecycleState(for: pane.sessionRequest)
+        }
     }
 
     func ensureStarted() {
@@ -652,25 +685,114 @@ final class PaneRuntime {
         hasReceivedMetadata = true
         self.metadata = metadata
         metadataSink(paneIDValue, metadata)
-        sendInitialCommandIfNeeded(using: metadata)
+        scheduleStartupTextIfNeeded(using: metadata)
     }
 
     private func handleEventDidOccur(_ event: TerminalEvent) {
+        switch event {
+        case .shellReady:
+            hasObservedShellReady = true
+            scheduleStartupTextIfNeeded(using: metadata)
+        case .userEditedInput, .userSubmittedInput:
+            consumeRestoreDraftIfNeeded()
+        default:
+            break
+        }
         eventSink(paneIDValue, event)
     }
 
-    private func sendInitialCommandIfNeeded(using metadata: TerminalMetadata) {
-        guard !hasSentInitialCommand,
-              let command = sessionRequest.command?.trimmingCharacters(in: .whitespacesAndNewlines),
-              isReadyForInitialCommand(metadata),
-              !command.isEmpty else {
+    private func scheduleStartupTextIfNeeded(using metadata: TerminalMetadata) {
+        guard shouldScheduleStartupText(using: metadata) else {
             return
         }
-        hasSentInitialCommand = true
-        adapterValue.sendText(command + "\n")
+
+        pendingStartupTextWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.flushStartupTextIfNeeded()
+        }
+        pendingStartupTextWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + startupTextSettleDelay, execute: workItem)
     }
 
-    private func isReadyForInitialCommand(_ metadata: TerminalMetadata) -> Bool {
+    private func flushStartupTextIfNeeded() {
+        pendingStartupTextWorkItem = nil
+
+        if sendInitialCommandIfNeeded(using: metadata) {
+            return
+        }
+
+        _ = sendRestoreDraftIfNeeded(using: metadata)
+    }
+
+    private func shouldScheduleStartupText(using metadata: TerminalMetadata) -> Bool {
+        canSendInitialCommand(using: metadata) || canSendRestoreDraft(using: metadata)
+    }
+
+    private func sendInitialCommandIfNeeded(using metadata: TerminalMetadata) -> Bool {
+        guard let command = normalizedInitialCommand,
+              canSendInitialCommand(using: metadata) else {
+            return false
+        }
+
+        hasSentInitialCommand = true
+        adapterValue.sendText(command + "\n")
+        return true
+    }
+
+    private func sendRestoreDraftIfNeeded(using metadata: TerminalMetadata) -> Bool {
+        guard case .pending(let draftText) = restoreDraftLifecycleState,
+              canSendRestoreDraft(using: metadata) else {
+            return false
+        }
+
+        restoreDraftLifecycleState = .injected
+        adapterValue.sendText(draftText)
+        return true
+    }
+
+    private var normalizedInitialCommand: String? {
+        let command = sessionRequest.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let command, !command.isEmpty else {
+            return nil
+        }
+        return command
+    }
+
+    private func canSendInitialCommand(using metadata: TerminalMetadata) -> Bool {
+        !hasSentInitialCommand
+            && normalizedInitialCommand != nil
+            && isReadyForStartupText(metadata)
+    }
+
+    private func canSendRestoreDraft(using metadata: TerminalMetadata) -> Bool {
+        let normalizedInitialCommand = sessionRequest.command?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard case .pending(let draftText) = restoreDraftLifecycleState,
+              hasSentInitialCommand == false,
+              normalizedInitialCommand?.isEmpty != false,
+              isReadyForStartupText(metadata) else {
+            return false
+        }
+
+        return !draftText.isEmpty
+    }
+
+    private func consumeRestoreDraftIfNeeded() {
+        switch restoreDraftLifecycleState {
+        case .pending, .injected:
+            pendingStartupTextWorkItem?.cancel()
+            pendingStartupTextWorkItem = nil
+            restoreDraftLifecycleState = .consumed
+        case .none, .consumed:
+            return
+        }
+    }
+
+    private func isReadyForStartupText(_ metadata: TerminalMetadata) -> Bool {
+        if hasObservedShellReady {
+            return true
+        }
+
         if let title = metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty {
             return true
@@ -682,6 +804,17 @@ final class PaneRuntime {
         }
 
         return false
+    }
+
+    private static func initialRestoreDraftLifecycleState(
+        for request: TerminalSessionRequest
+    ) -> PaneRestoreDraftLifecycleState {
+        guard let draftText = request.prefillText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !draftText.isEmpty else {
+            return .none
+        }
+
+        return .pending(draftText)
     }
 
     private func handleSearchDidChange(_ event: TerminalSearchEvent) {

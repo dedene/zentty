@@ -9,6 +9,7 @@ enum TerminalSurfaceContext: Equatable, Sendable {
 struct TerminalSessionRequest: Equatable, Sendable {
     var workingDirectory: String?
     var command: String?
+    var prefillText: String?
     var inheritFromPaneID: PaneID?
     var configInheritanceSourcePaneID: PaneID?
     var surfaceContext: TerminalSurfaceContext
@@ -21,6 +22,7 @@ struct TerminalSessionRequest: Equatable, Sendable {
     init(
         workingDirectory: String? = nil,
         command: String? = nil,
+        prefillText: String? = nil,
         inheritFromPaneID: PaneID? = nil,
         configInheritanceSourcePaneID: PaneID? = nil,
         surfaceContext: TerminalSurfaceContext = .split,
@@ -28,6 +30,7 @@ struct TerminalSessionRequest: Equatable, Sendable {
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
+        self.prefillText = prefillText
         self.inheritFromPaneID = inheritFromPaneID
         self.configInheritanceSourcePaneID = configInheritanceSourcePaneID
         self.surfaceContext = surfaceContext
@@ -83,6 +86,7 @@ enum TerminalEvent: Equatable, Sendable {
     case progressReport(TerminalProgressReport)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
     case desktopNotification(TerminalDesktopNotification)
+    case userEditedInput
     case userSubmittedInput
     case surfaceClosed
 }

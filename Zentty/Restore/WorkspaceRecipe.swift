@@ -133,6 +133,7 @@ enum WorkspaceRecipeExporter {
 enum WorkspaceRecipeImporter {
     static func makeWorklanes(
         from window: WorkspaceRecipe.Window,
+        restoreDraftWindow: SessionRestoreDraftWindow? = nil,
         windowID: WindowID,
         layoutContext: PaneLayoutContext,
         processEnvironment: [String: String]
@@ -141,6 +142,7 @@ enum WorkspaceRecipeImporter {
             makeWorklane(
                 $0,
                 window: window,
+                restoreDraftWindow: restoreDraftWindow,
                 windowID: windowID,
                 layoutContext: layoutContext,
                 processEnvironment: processEnvironment
@@ -160,6 +162,7 @@ enum WorkspaceRecipeImporter {
     private static func makeWorklane(
         _ recipe: WorkspaceRecipe.Worklane,
         window: WorkspaceRecipe.Window,
+        restoreDraftWindow: SessionRestoreDraftWindow?,
         windowID: WindowID,
         layoutContext: PaneLayoutContext,
         processEnvironment: [String: String]
@@ -171,6 +174,7 @@ enum WorkspaceRecipeImporter {
                 column,
                 window: window,
                 worklane: recipe,
+                restoreDraftWindow: restoreDraftWindow,
                 windowID: windowID,
                 worklaneID: worklaneID,
                 auxiliaryStateByPaneID: &auxiliaryStateByPaneID,
@@ -195,6 +199,7 @@ enum WorkspaceRecipeImporter {
         _ recipe: WorkspaceRecipe.Column,
         window: WorkspaceRecipe.Window,
         worklane: WorkspaceRecipe.Worklane,
+        restoreDraftWindow: SessionRestoreDraftWindow?,
         windowID: WindowID,
         worklaneID: WorklaneID,
         auxiliaryStateByPaneID: inout [PaneID: PaneAuxiliaryState],
@@ -207,6 +212,7 @@ enum WorkspaceRecipeImporter {
                 paneCountInColumn: recipe.panes.count,
                 window: window,
                 worklane: worklane,
+                restoreDraftWindow: restoreDraftWindow,
                 windowID: windowID,
                 worklaneID: worklaneID,
                 columnWidth: CGFloat(recipe.width),
@@ -231,6 +237,7 @@ enum WorkspaceRecipeImporter {
         paneCountInColumn: Int,
         window: WorkspaceRecipe.Window,
         worklane: WorkspaceRecipe.Worklane,
+        restoreDraftWindow: SessionRestoreDraftWindow?,
         windowID: WindowID,
         worklaneID: WorklaneID,
         columnWidth: CGFloat,
@@ -269,12 +276,16 @@ enum WorkspaceRecipeImporter {
             raw: raw,
             presentation: presentation
         )
+        let prefillText = restoreDraftWindow
+            .flatMap { $0.draft(forPaneID: paneID) }
+            .flatMap(AgentResumeCommandBuilder.command(for:))
 
         return PaneState(
             id: paneID,
             title: title,
             sessionRequest: TerminalSessionRequest(
                 workingDirectory: resolvedDirectory,
+                prefillText: prefillText,
                 surfaceContext: inferredSurfaceContext(
                     paneCountInColumn: paneCountInColumn,
                     totalColumns: worklane.columns.count,

@@ -7,6 +7,7 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     var worklaneIDRawValue: String
     var paneIDRawValue: String
     var cwd: String?
+    var transcriptPath: String?
     var pid: Int32?
     var lastHumanMessage: String?
     var lastInteractionKindRawValue: String?
@@ -116,6 +117,7 @@ final class ClaudeHookSessionStore {
         worklaneID: WorklaneID,
         paneID: PaneID,
         cwd: String?,
+        transcriptPath: String? = nil,
         pid: Int32?,
         lastHumanMessage: String? = nil,
         lastInteractionKind: PaneAgentInteractionKind? = nil
@@ -133,6 +135,7 @@ final class ClaudeHookSessionStore {
                 worklaneIDRawValue: worklaneID.rawValue,
                 paneIDRawValue: paneID.rawValue,
                 cwd: nil,
+                transcriptPath: nil,
                 pid: nil,
                 lastHumanMessage: nil,
                 lastInteractionKindRawValue: nil,
@@ -148,6 +151,9 @@ final class ClaudeHookSessionStore {
             record.paneIDRawValue = paneID.rawValue
             if let cwd = normalizedOptional(cwd) {
                 record.cwd = cwd
+            }
+            if let transcriptPath = normalizedOptional(transcriptPath) {
+                record.transcriptPath = transcriptPath
             }
             if let pid {
                 record.pid = pid
@@ -187,6 +193,7 @@ final class ClaudeHookSessionStore {
                 worklaneIDRawValue: worklaneID.rawValue,
                 paneIDRawValue: paneID.rawValue,
                 cwd: nil,
+                transcriptPath: nil,
                 pid: nil,
                 lastHumanMessage: nil,
                 lastInteractionKindRawValue: nil,

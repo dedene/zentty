@@ -629,6 +629,67 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertNil(status?.text)
     }
 
+    func test_idle_session_preserves_tracked_pid_when_process_is_still_running() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(0.5)
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .promptIdle,
+                origin: .shell,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+
+        let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(1))
+        XCTAssertEqual(status?.state, .idle)
+        XCTAssertEqual(status?.trackedPID, 4242)
+    }
+
     func test_reduced_status_preserves_task_progress_across_lifecycle_updates() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()
@@ -1058,6 +1119,55 @@ final class PaneAgentReducerTests: XCTestCase {
         let status = reducerState.reducedStatus(now: now.addingTimeInterval(5))
         XCTAssertEqual(status?.sessionID, "child")
         XCTAssertEqual(status?.state, .needsInput)
+    }
+
+    func test_child_running_surfaces_over_parent_unresolved_stop() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.sessionsByID["parent"] = PaneAgentSessionState(
+            sessionID: "parent",
+            parentSessionID: nil,
+            tool: .codex,
+            state: .unresolvedStop,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: now.addingTimeInterval(5),
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: nil,
+            hasObservedRunning: true,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: nil,
+            unresolvedStopVisibleUntil: now.addingTimeInterval(600)
+        )
+
+        reducerState.sessionsByID["child"] = PaneAgentSessionState(
+            sessionID: "child",
+            parentSessionID: "parent",
+            tool: .codex,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: now,
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: nil,
+            hasObservedRunning: true,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: nil,
+            unresolvedStopVisibleUntil: nil
+        )
+
+        let status = reducerState.reducedStatus(now: now.addingTimeInterval(5))
+        XCTAssertEqual(status?.sessionID, "child")
+        XCTAssertEqual(status?.state, .running)
     }
 
     func test_parent_task_progress_visible_when_child_running_without_progress() {

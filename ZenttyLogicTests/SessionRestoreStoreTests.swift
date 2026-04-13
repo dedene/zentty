@@ -108,6 +108,141 @@ final class SessionRestoreStoreTests: XCTestCase {
         )
     }
 
+    func test_save_snapshot_round_trips_restore_drafts() throws {
+        let envelope = SessionRestoreEnvelope(
+            workspace: WorkspaceRecipe(
+                windows: [
+                    WorkspaceRecipe.Window(
+                        id: "window-main",
+                        worklanes: [],
+                        activeWorklaneID: nil
+                    )
+                ]
+            ),
+            restoreDraftWindows: [
+                SessionRestoreDraftWindow(
+                    windowID: "window-main",
+                    paneDrafts: [
+                        PaneRestoreDraft(
+                            paneID: "pane-agent",
+                            kind: .agentResume,
+                            toolName: "Codex",
+                            sessionID: "session-codex",
+                            workingDirectory: "/tmp/project",
+                            trackedPID: 4242
+                        )
+                    ]
+                )
+            ]
+        )
+
+        try store.saveSnapshot(envelope)
+        try store.markLaunchStarted()
+        try store.markCleanExit()
+
+        let relaunchedStore = SessionRestoreStore(
+            snapshotURL: directoryURL.appendingPathComponent("restore-snapshot.json"),
+            lifecycleURL: directoryURL.appendingPathComponent("restore-lifecycle.json")
+        )
+        let decision = try XCTUnwrap(
+            relaunchedStore.prepareForLaunch(restorePreferenceEnabled: true)
+        )
+
+        XCTAssertEqual(decision.envelope.restoreDraftWindows, envelope.restoreDraftWindows)
+    }
+
+    func test_clean_exit_save_preserves_existing_restore_drafts_for_matching_panes() throws {
+        let workspace = WorkspaceRecipe(
+            windows: [
+                WorkspaceRecipe.Window(
+                    id: "window-main",
+                    worklanes: [
+                        WorkspaceRecipe.Worklane(
+                            id: "main",
+                            title: "MAIN",
+                            nextPaneNumber: 2,
+                            focusedColumnID: "column-main",
+                            columns: [
+                                WorkspaceRecipe.Column(
+                                    id: "column-main",
+                                    width: 640,
+                                    focusedPaneID: "pane-agent",
+                                    lastFocusedPaneID: "pane-agent",
+                                    paneHeights: [480],
+                                    panes: [
+                                        WorkspaceRecipe.Pane(
+                                            id: "pane-agent",
+                                            titleSeed: "Codex",
+                                            workingDirectory: "/tmp/project"
+                                        )
+                                    ]
+                                )
+                            ]
+                        )
+                    ],
+                    activeWorklaneID: "main"
+                )
+            ]
+        )
+        let liveEnvelope = SessionRestoreEnvelope(
+            reason: .liveSnapshot,
+            workspace: workspace,
+            restoreDraftWindows: [
+                SessionRestoreDraftWindow(
+                    windowID: "window-main",
+                    paneDrafts: [
+                        PaneRestoreDraft(
+                            paneID: "pane-agent",
+                            kind: .agentResume,
+                            toolName: "Codex",
+                            sessionID: "session-codex",
+                            workingDirectory: "/tmp/project",
+                            trackedPID: 4242
+                        )
+                    ]
+                )
+            ]
+        )
+        let cleanExitEnvelope = SessionRestoreEnvelope(
+            reason: .cleanExit,
+            workspace: workspace,
+            restoreDraftWindows: []
+        )
+
+        try store.saveSnapshot(liveEnvelope)
+        try store.saveSnapshot(cleanExitEnvelope)
+        try store.markLaunchStarted()
+        try store.markCleanExit()
+
+        let relaunchedStore = SessionRestoreStore(
+            snapshotURL: directoryURL.appendingPathComponent("restore-snapshot.json"),
+            lifecycleURL: directoryURL.appendingPathComponent("restore-lifecycle.json")
+        )
+        let decision = try XCTUnwrap(
+            relaunchedStore.prepareForLaunch(restorePreferenceEnabled: true)
+        )
+
+        XCTAssertEqual(decision.envelope.reason, .cleanExit)
+        XCTAssertEqual(decision.envelope.restoreDraftWindows, liveEnvelope.restoreDraftWindows)
+    }
+
+    func test_prepare_for_launch_throws_when_snapshot_is_corrupt() throws {
+        let snapshotURL = directoryURL.appendingPathComponent("restore-snapshot.json")
+        try Data("not valid json".utf8).write(to: snapshotURL, options: .atomic)
+
+        let relaunchedStore = SessionRestoreStore(
+            snapshotURL: snapshotURL,
+            lifecycleURL: directoryURL.appendingPathComponent("restore-lifecycle.json")
+        )
+
+        XCTAssertThrowsError(
+            try relaunchedStore.prepareForLaunch(restorePreferenceEnabled: true)
+        ) { error in
+            XCTAssertTrue(error is DecodingError)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: snapshotURL.path))
+    }
+
     func test_meaningfulness_classifier_rejects_trivial_default_workspace() {
         let recipe = WorkspaceRecipe(
             windows: [

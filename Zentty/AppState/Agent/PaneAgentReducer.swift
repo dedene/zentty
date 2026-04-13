@@ -277,7 +277,18 @@ struct PaneAgentReducerState: Equatable, Sendable {
 
             return true
         }
-        guard let session = sessions.sorted(by: Self.preferred(lhs:rhs:)).first else {
+        let activeSessions = sessions.filter { session in
+            session.completionCandidateDeadline != nil
+                || session.state == .starting
+                || session.state == .running
+                || session.state == .needsInput
+                || session.interactionKind.requiresHumanAttention
+        }
+        let preferredSessions = activeSessions.isEmpty
+            ? sessions
+            : sessions.filter { $0.state != .unresolvedStop }
+
+        guard let session = preferredSessions.sorted(by: Self.preferred(lhs:rhs:)).first else {
             return nil
         }
 
@@ -292,7 +303,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             interactionKind: session.interactionKind,
             confidence: session.confidence,
             shellActivityState: session.shellActivityState,
-            trackedPID: session.state == .idle ? nil : session.trackedPID,
+            trackedPID: session.trackedPID,
             hasObservedRunning: session.hasObservedRunning,
             sessionID: session.sessionID,
             parentSessionID: session.parentSessionID,

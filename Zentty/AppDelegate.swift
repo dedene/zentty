@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import UserNotifications
 
 @MainActor
@@ -6,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum RestoreSnapshot {
         static let debounceNanoseconds: UInt64 = 350_000_000
     }
+
+    private static let logger = Logger(subsystem: "be.zenjoy.zentty", category: "SessionRestore")
 
     private let shouldOpenMainWindow: Bool
     private let configStore: AppConfigStore
@@ -22,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingSnapshotSaveTask: Task<Void, Never>?
     private var isLaunchingWorkspace = false
     private let isSessionRestoreEnabled: Bool
+    private let restoreErrorReporter: ((String) -> Void)?
 
     init(
         shouldOpenMainWindow: Bool = true,
@@ -29,7 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configStore: AppConfigStore = AppConfigStore(),
         appUpdateController: AppUpdateControlling? = nil,
         sessionRestoreStore: SessionRestoreStore? = nil,
-        sessionRestoreEnabled: Bool? = nil
+        sessionRestoreEnabled: Bool? = nil,
+        restoreErrorReporter: ((String) -> Void)? = nil
     ) {
         self.shouldOpenMainWindow = shouldOpenMainWindow
         self.runtimeRegistryFactory = runtimeRegistryFactory
@@ -40,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? SessionRestoreStore(configDirectoryURL: configStore.fileURL.deletingLastPathComponent())
         self.isSessionRestoreEnabled = sessionRestoreEnabled
             ?? !CommandLine.arguments.contains("-ApplePersistenceIgnoreState")
+        self.restoreErrorReporter = restoreErrorReporter
         super.init()
     }
 
@@ -71,16 +77,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard shouldOpenMainWindow else { return }
 
         if isSessionRestoreEnabled {
-            let launchDecision = try? sessionRestoreStore.prepareForLaunch(
-                restorePreferenceEnabled: configStore.current.restore.restoreWorkspaceOnLaunch
-            )
-            try? sessionRestoreStore.markLaunchStarted()
+            let launchDecision: SessionRestoreStore.LaunchDecision?
+            do {
+                launchDecision = try sessionRestoreStore.prepareForLaunch(
+                    restorePreferenceEnabled: configStore.current.restore.restoreWorkspaceOnLaunch
+                )
+            } catch {
+                reportRestoreError("Failed to prepare restore launch", error: error)
+                launchDecision = nil
+            }
 
-            if let launchDecision, launchWorkspace(launchDecision.envelope.workspace) {
-                try? sessionRestoreStore.consumeSnapshot()
+            do {
+                try sessionRestoreStore.markLaunchStarted()
+            } catch {
+                reportRestoreError("Failed to mark restore launch as started", error: error)
+            }
+
+            if let launchDecision, launchWorkspace(launchDecision.envelope) {
+                do {
+                    try sessionRestoreStore.consumeSnapshot()
+                } catch {
+                    reportRestoreError("Failed to consume restore snapshot after successful launch", error: error)
+                }
             } else {
                 if launchDecision != nil {
-                    try? sessionRestoreStore.deleteSnapshot()
+                    reportRestoreError("Prepared restore snapshot could not be launched; deleting snapshot")
+                    do {
+                        try sessionRestoreStore.deleteSnapshot()
+                    } catch {
+                        reportRestoreError("Failed to delete unusable restore snapshot", error: error)
+                    }
                 }
 
                 let windowController = makeWindowController()
@@ -361,23 +387,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let recipe = currentWorkspaceRecipe()
-        guard let recipe else {
+        let envelope = currentSessionRestoreEnvelope(reason: reason)
+        guard let envelope else {
             return
         }
 
         let defaultWorkingDirectory = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
-        guard WorkspaceRecipeMeaningfulness.isMeaningful(recipe, defaultWorkingDirectory: defaultWorkingDirectory) else {
+        guard WorkspaceRecipeMeaningfulness.isMeaningful(envelope.workspace, defaultWorkingDirectory: defaultWorkingDirectory) else {
             try? sessionRestoreStore.deleteSnapshot()
             return
         }
 
-        try? sessionRestoreStore.saveSnapshot(
-            SessionRestoreEnvelope(reason: reason, workspace: recipe)
-        )
+        try? sessionRestoreStore.saveSnapshot(envelope)
     }
 
-    private func currentWorkspaceRecipe() -> WorkspaceRecipe? {
+    private func currentSessionRestoreEnvelope(reason: SessionRestoreEnvelope.SaveReason) -> SessionRestoreEnvelope? {
         let controllers = orderedWindowControllers
         guard !controllers.isEmpty else {
             return nil
@@ -386,9 +410,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let activeWindowID = keyWindowController?.windowID.rawValue
             ?? lastKeyWindowControllerID.flatMap { windowControllers[$0]?.windowID.rawValue }
 
-        return WorkspaceRecipe(
-            windows: controllers.map(\.workspaceRecipeWindow),
-            activeWindowID: activeWindowID
+        return SessionRestoreEnvelope(
+            reason: reason,
+            workspace: WorkspaceRecipe(
+                windows: controllers.map(\.workspaceRecipeWindow),
+                activeWindowID: activeWindowID
+            ),
+            restoreDraftWindows: controllers.compactMap(\.sessionRestoreDraftWindow)
         )
     }
 
@@ -398,7 +426,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func launchWorkspace(_ workspace: WorkspaceRecipe) -> Bool {
+    private func launchWorkspace(_ envelope: SessionRestoreEnvelope) -> Bool {
+        let workspace = envelope.workspace
         let windows = workspace.windows
         guard !windows.isEmpty else {
             return false
@@ -418,6 +447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             let importedState = WorkspaceRecipeImporter.makeWorklanes(
                 from: recipeWindow,
+                restoreDraftWindow: envelope.restoreDraftWindow(forWindowID: recipeWindow.id),
                 windowID: WindowID(recipeWindow.id),
                 layoutContext: layoutContext,
                 processEnvironment: ProcessInfo.processInfo.environment
@@ -480,6 +510,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func windowController(with windowID: WindowID) -> MainWindowController? {
         windowControllers.values.first { $0.windowID == windowID }
+    }
+
+    private func reportRestoreError(_ message: String, error: Error? = nil) {
+        if let error {
+            let errorDescription = String(describing: error)
+            Self.logger.error("\(message, privacy: .public): \(errorDescription, privacy: .public)")
+            restoreErrorReporter?("\(message): \(errorDescription)")
+        } else {
+            Self.logger.error("\(message, privacy: .public)")
+            restoreErrorReporter?(message)
+        }
     }
 
     var windowControllerCount: Int {

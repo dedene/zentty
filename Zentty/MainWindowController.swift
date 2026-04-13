@@ -1049,6 +1049,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         )
     }
 
+    var sessionRestoreDraftWindow: SessionRestoreDraftWindow? {
+        let workspaceState = rootViewController.workspaceState
+        return SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: windowID,
+            worklanes: workspaceState.worklanes
+        )
+    }
+
     #if DEBUG
     private var lastNavigateRequestWorklaneID: WorklaneID?
     private var lastNavigateRequestPaneID: PaneID?

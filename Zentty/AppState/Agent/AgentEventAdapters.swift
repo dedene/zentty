@@ -507,6 +507,7 @@ struct ClaudeAdapterInput {
     let message: String?
     let notificationType: String?
     let cwd: String?
+    let transcriptPath: String?
     let toolName: String?
     let toolInput: [String: Any]
     let taskID: String?
@@ -528,6 +529,7 @@ extension AgentEventBridge {
             message: firstString(in: json, keys: ["message", "body", "text", "prompt", "error", "description"]),
             notificationType: firstString(in: json, keys: ["notification_type", "notificationType"]),
             cwd: firstString(in: json, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"]),
+            transcriptPath: firstString(in: json, keys: ["transcript_path", "transcriptPath"]),
             toolName: firstString(in: json, keys: ["tool_name", "toolName"]),
             toolInput: (json["tool_input"] as? [String: Any]) ?? [:],
             taskID: firstString(in: json, keys: ["task_id", "taskId"]),
@@ -553,6 +555,7 @@ extension AgentEventBridge {
                     worklaneID: target.worklaneID,
                     paneID: target.paneID,
                     cwd: input.cwd,
+                    transcriptPath: input.transcriptPath,
                     pid: pid
                 )
             }
