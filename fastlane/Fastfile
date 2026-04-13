@@ -458,6 +458,12 @@ def upload_glitchtip_dsyms!
   return if glitchtip_dsn.empty?
 
   upload_root = File.join(PROJECT_ROOT, BUILD_DIR)
+
+  # gym exports dSYMs as .dSYM.zip — unzip them so glitchtip-cli can find the bundles
+  Dir[File.join(upload_root, "**", "*.dSYM.zip")].each do |zip|
+    Actions.sh("unzip", "-o", "-q", zip, "-d", File.dirname(zip))
+  end
+
   dsym_paths = Dir[File.join(upload_root, "**", "*.dSYM")]
   UI.user_error!("No dSYM bundles found under #{upload_root}") if dsym_paths.empty?
 

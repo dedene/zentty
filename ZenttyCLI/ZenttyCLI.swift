@@ -9,6 +9,11 @@ struct ZenttyCLI: ParsableCommand {
         abstract: "Zentty command-line interface.",
         subcommands: [
             VersionCommand.self,
+            SplitCommand.self,
+            HSplitCommand.self,
+            VSplitCommand.self,
+            PaneCommandGroup.self,
+            LayoutCommand.self,
             CodexNotifyCommand.self,
             GeminiHookCommand.self,
             IPCCommand.self,
@@ -28,6 +33,241 @@ struct VersionCommand: ParsableCommand {
         print("zentty \(metadata.version) (\(metadata.commit))")
     }
 }
+
+// MARK: - Pane IPC Helpers
+
+private enum PaneIPC {
+    static func send(
+        subcommand: String,
+        arguments: [String] = [],
+        expectsResponse: Bool = true
+    ) throws -> AgentIPCResponse? {
+        let env = ProcessInfo.processInfo.environment
+        guard let socketPath = env["ZENTTY_INSTANCE_SOCKET"], !socketPath.isEmpty,
+              IPCCommand.hasRequiredRoutingEnvironment(env) else {
+            throw ValidationError("Not running inside a Zentty pane.")
+        }
+
+        let request = AgentIPCRequest(
+            kind: .pane,
+            arguments: arguments,
+            standardInput: nil,
+            environment: IPCCommand.forwardedEnvironment(from: env),
+            expectsResponse: expectsResponse,
+            subcommand: subcommand
+        )
+        return try AgentIPCClient.send(request: request, socketPath: socketPath)
+    }
+}
+
+// MARK: - Split Commands
+
+struct SplitLayoutOptions: ParsableArguments {
+    @Flag(name: .long, help: "Split into equal halves.")
+    var equal = false
+
+    @Flag(name: .long, help: "Split using golden ratio (focused pane gets ~62%).")
+    var golden = false
+
+    @Option(name: .long, help: "Set the focused pane to this percentage (e.g. 60).")
+    var ratio: Int?
+
+    func layoutArguments() -> [String] {
+        if equal { return ["--equal"] }
+        if golden { return ["--golden"] }
+        if let ratio { return ["--ratio", String(ratio)] }
+        return []
+    }
+}
+
+struct SplitCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "split",
+        abstract: "Split the focused pane."
+    )
+
+    @Argument(help: "Direction: right (default), left, up, down.")
+    var direction: String = "right"
+
+    @OptionGroup var layout: SplitLayoutOptions
+
+    mutating func run() throws {
+        let validDirections = ["right", "left", "up", "down"]
+        guard validDirections.contains(direction) else {
+            throw ValidationError("Invalid direction '\(direction)'. Use: \(validDirections.joined(separator: ", "))")
+        }
+        _ = try PaneIPC.send(subcommand: "split", arguments: [direction] + layout.layoutArguments())
+    }
+}
+
+struct HSplitCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "hsplit",
+        abstract: "Split horizontally (alias for 'split right')."
+    )
+
+    @OptionGroup var layout: SplitLayoutOptions
+
+    mutating func run() throws {
+        _ = try PaneIPC.send(subcommand: "split", arguments: ["right"] + layout.layoutArguments())
+    }
+}
+
+struct VSplitCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "vsplit",
+        abstract: "Split vertically (alias for 'split down')."
+    )
+
+    @OptionGroup var layout: SplitLayoutOptions
+
+    mutating func run() throws {
+        _ = try PaneIPC.send(subcommand: "split", arguments: ["down"] + layout.layoutArguments())
+    }
+}
+
+// MARK: - Pane Commands
+
+struct PaneCommandGroup: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "pane",
+        abstract: "Manage panes.",
+        subcommands: [
+            PaneListCommand.self,
+            PaneFocusCommand.self,
+            PaneCloseCommand.self,
+            PaneZoomCommand.self,
+            PaneResizeCommand.self,
+        ]
+    )
+}
+
+struct PaneListCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "list",
+        abstract: "List all panes in the current worklane."
+    )
+
+    @Flag(name: .long, help: "Output as JSON.")
+    var json = false
+
+    mutating func run() throws {
+        let response = try PaneIPC.send(subcommand: "list")
+        guard let entries = response?.result?.paneList, !entries.isEmpty else {
+            print("No panes.")
+            return
+        }
+
+        if json {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(entries)
+            print(String(data: data, encoding: .utf8) ?? "[]")
+            return
+        }
+
+        print("\(pad("ID", 4))  \(pad("COL", 3))  F  \(pad("TITLE", 16))  \(pad("CWD", 30))  \(pad("AGENT", 12))  STATUS")
+        for entry in entries {
+            let focus = entry.isFocused ? "*" : " "
+            let cwd = entry.workingDirectory.map { abbreviateHome($0) } ?? "-"
+            let agent = entry.agentTool ?? "-"
+            let status = entry.agentStatus ?? "-"
+            print("\(pad(String(entry.index), 4))  \(pad(String(entry.column), 3))  \(focus)  \(pad(String(entry.title.prefix(16)), 16))  \(pad(String(cwd.prefix(30)), 30))  \(pad(String(agent.prefix(12)), 12))  \(status)")
+        }
+    }
+
+    private func pad(_ string: String, _ width: Int) -> String {
+        string.count >= width ? string : string + String(repeating: " ", count: width - string.count)
+    }
+
+    private func abbreviateHome(_ path: String) -> String {
+        let home = ProcessInfo.processInfo.environment["HOME"] ?? ""
+        guard !home.isEmpty, path.hasPrefix(home) else { return path }
+        return "~" + path.dropFirst(home.count)
+    }
+}
+
+struct PaneFocusCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "focus",
+        abstract: "Focus a pane by index, ID, or direction."
+    )
+
+    @Argument(help: "Pane index (1-based), pane ID, or direction (left/right/up/down).")
+    var target: String
+
+    mutating func run() throws {
+        _ = try PaneIPC.send(subcommand: "focus", arguments: [target])
+    }
+}
+
+struct PaneCloseCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "close",
+        abstract: "Close a pane."
+    )
+
+    @Argument(help: "Pane index or ID. Defaults to the current pane.")
+    var target: String?
+
+    mutating func run() throws {
+        var args: [String] = []
+        if let target {
+            args.append(target)
+        }
+        _ = try PaneIPC.send(subcommand: "close", arguments: args)
+    }
+}
+
+struct PaneZoomCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "zoom",
+        abstract: "Toggle zoomed-out pane view."
+    )
+
+    mutating func run() throws {
+        _ = try PaneIPC.send(subcommand: "zoom")
+    }
+}
+
+struct PaneResizeCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "resize",
+        abstract: "Resize the focused pane."
+    )
+
+    @Argument(help: "Direction (left/right/up/down) or percentage (e.g. 60%).")
+    var target: String
+
+    mutating func run() throws {
+        _ = try PaneIPC.send(subcommand: "resize", arguments: [target])
+    }
+}
+
+// MARK: - Layout Commands
+
+struct LayoutCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "layout",
+        abstract: "Apply a layout preset."
+    )
+
+    @Argument(help: "Preset: full, halves, thirds, quarters, golden-wide, golden-narrow, golden-tall, golden-short, reset.")
+    var preset: String
+
+    @Flag(name: [.short, .long], help: "Apply vertically (panes per column) instead of horizontally (columns).")
+    var vertical = false
+
+    mutating func run() throws {
+        var args = [preset]
+        if vertical {
+            args.append("--vertical")
+        }
+        _ = try PaneIPC.send(subcommand: "layout", arguments: args)
+    }
+}
+
+// MARK: - Agent Commands
 
 struct CodexNotifyCommand: ParsableCommand {
     static let configuration = CommandConfiguration(

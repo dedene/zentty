@@ -232,8 +232,8 @@ final class PaneStripStateTests: XCTestCase {
         let didInsert = state.insertPaneVertically(
             PaneState(id: PaneID("inserted"), title: "inserted"),
             in: PaneColumnID("stack"),
-            availableHeight: 900,
-            placement: .beforeFocused
+            placement: .beforeFocused,
+            availableHeight: 900
         )
 
         XCTAssertTrue(didInsert)

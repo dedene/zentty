@@ -80,7 +80,6 @@ final class PaneStripView: NSView {
     private let runtimeRegistry: PaneRuntimeRegistry
     private let backingScaleFactorProvider: () -> CGFloat
     private let dragCoordinator = PaneDragCoordinator()
-
     private var currentState: PaneStripState?
     private var currentPaneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:]
     private var currentShowsPaneLabels = AppConfig.Panes.default.showLabels
@@ -523,6 +522,7 @@ final class PaneStripView: NSView {
             && (renderGuard.isResizeSuppressed || hasViewportSizeChangeSinceLastRender)
         let shouldAnimate = animated
             && sharesAnyPane(with: state, previousPresentation: previousPresentation)
+            && window?.isVisible == true
             && window?.inLiveResize != true
             && !inLiveResize
             && !isResizeSuppressedRender

@@ -8,6 +8,7 @@ enum AgentIPCProtocol {
 enum AgentIPCRequestKind: String, Codable, Equatable {
     case ipc
     case bootstrap
+    case pane
 }
 
 enum AgentBootstrapTool: String, Codable, Equatable {
@@ -67,11 +68,24 @@ struct AgentLaunchPlan: Codable, Equatable {
     let preLaunchActions: [AgentLaunchAction]
 }
 
+struct PaneListEntry: Codable, Equatable {
+    let index: Int
+    let id: String
+    let column: Int
+    let title: String
+    let workingDirectory: String?
+    let isFocused: Bool
+    let agentTool: String?
+    let agentStatus: String?
+}
+
 struct AgentIPCResponseResult: Codable, Equatable {
     let launchPlan: AgentLaunchPlan?
+    let paneList: [PaneListEntry]?
 
-    init(launchPlan: AgentLaunchPlan? = nil) {
+    init(launchPlan: AgentLaunchPlan? = nil, paneList: [PaneListEntry]? = nil) {
         self.launchPlan = launchPlan
+        self.paneList = paneList
     }
 }
 

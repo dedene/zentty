@@ -161,6 +161,8 @@ enum AgentIPCBridge {
                 ok: true,
                 result: AgentIPCResponseResult(launchPlan: launchPlan)
             )
+        case .pane:
+            throw AgentIPCError.unsupportedSubcommand("pane (must be handled by server)")
         }
     }
 
@@ -522,6 +524,17 @@ final class AgentIPCServer: @unchecked Sendable {
                 return
             }
             let canonicalRequest = request.canonicalized(for: target)
+
+            if canonicalRequest.kind == .pane {
+                let result = try PaneIPCHandler.handle(request: canonicalRequest, target: target)
+                if canonicalRequest.expectsResponse {
+                    try writeResponse(
+                        AgentIPCResponse(id: canonicalRequest.id, ok: true, result: result),
+                        to: fileDescriptor
+                    )
+                }
+                return
+            }
 
             let response = try AgentIPCBridge.handle(
                 request: canonicalRequest,
