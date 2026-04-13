@@ -846,7 +846,7 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
         state: ghostty_input_mouse_state_e,
         button: ghostty_input_mouse_button_e,
         modifiers: NSEvent.ModifierFlags
-    ) {}
+    ) -> Bool { false }
     func sendText(_ text: String) {}
     func performBindingAction(_ action: String) -> Bool {
         bindingActions.append(action)

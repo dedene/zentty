@@ -377,12 +377,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         state: ghostty_input_mouse_state_e,
         button: ghostty_input_mouse_button_e,
         modifiers: NSEvent.ModifierFlags
-    ) {
+    ) -> Bool {
         guard let surface else {
-            return
+            return false
         }
 
-        _ = ghostty_surface_mouse_button(surface, state, button, Self.modsFromFlags(modifiers))
+        return ghostty_surface_mouse_button(surface, state, button, Self.modsFromFlags(modifiers))
     }
 
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {

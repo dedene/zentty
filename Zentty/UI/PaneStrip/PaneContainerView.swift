@@ -214,6 +214,9 @@ final class PaneContainerView: NSView {
         terminalHostView.onSearchHUDFrameDidChange = { [weak self] in
             self?.updateSearchHUDMouseSuppression()
         }
+        terminalHostView.contextMenuBuilder = { [weak self] _, systemMenu in
+            self?.makeContextMenu(merging: systemMenu)
+        }
         setupInsetBorderLayer()
         setupStatusOverlay()
         runtimeObserverID = runtime.addObserver { [weak self] snapshot in
@@ -677,6 +680,10 @@ final class PaneContainerView: NSView {
         return borderContextView.hitTest(pointInBorderSuperview) as? PaneBorderContextInsetView
     }
 
+    func contextMenuForTesting(merging systemMenu: NSMenu? = nil) -> NSMenu? {
+        makeContextMenu(merging: systemMenu)
+    }
+
     func setBorderLabelGap(width: CGFloat) {
         guard currentBorderGapWidth != width else { return }
         currentBorderGapWidth = width
@@ -831,6 +838,56 @@ final class PaneContainerView: NSView {
             width: size.width,
             height: size.height
         )
+    }
+
+    private func makeContextMenu(merging systemMenu: NSMenu?) -> NSMenu? {
+        focusTerminal()
+
+        let customMenu = NSMenu(title: "")
+        customMenu.addItem(makeContextMenuItem(title: "Copy", action: #selector(NSText.copy(_:))))
+        customMenu.addItem(makeContextMenuItem(title: "Paste", action: #selector(NSText.paste(_:))))
+        customMenu.addItem(.separator())
+        customMenu.addItem(makeContextMenuItem(title: "Add Pane Right", action: #selector(MainWindowController.addPaneRight(_:))))
+        customMenu.addItem(makeContextMenuItem(title: "Add Pane Left", action: #selector(MainWindowController.addPaneLeft(_:))))
+        customMenu.addItem(makeContextMenuItem(title: "Add Pane Down", action: #selector(MainWindowController.addPaneDown(_:))))
+        customMenu.addItem(makeContextMenuItem(title: "Add Pane Up", action: #selector(MainWindowController.addPaneUp(_:))))
+
+        let mergedMenu = NSMenu(title: "")
+        customMenu.items.forEach { mergedMenu.addItem($0.copy() as! NSMenuItem) }
+
+        let systemItems = (systemMenu?.items ?? []).filter { item in
+            item.isSeparatorItem || Self.shouldIncludeSystemContextMenuItem(item)
+        }
+        if !systemItems.isEmpty {
+            mergedMenu.addItem(.separator())
+            systemItems.forEach { mergedMenu.addItem($0.copy() as! NSMenuItem) }
+        }
+
+        return mergedMenu.items.isEmpty ? nil : mergedMenu
+    }
+
+    private func makeContextMenuItem(title: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = nil
+        return item
+    }
+
+    private static func shouldIncludeSystemContextMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.submenu != nil {
+            return true
+        }
+
+        switch item.action {
+        case #selector(NSText.copy(_:)),
+             #selector(NSText.paste(_:)),
+             #selector(MainWindowController.addPaneRight(_:)),
+             #selector(MainWindowController.addPaneLeft(_:)),
+             #selector(MainWindowController.addPaneDown(_:)),
+             #selector(MainWindowController.addPaneUp(_:)):
+            return false
+        default:
+            return true
+        }
     }
 
     private var resolvedBackingScaleFactor: CGFloat {

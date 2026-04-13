@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyKit
 import XCTest
 @testable import Zentty
 
@@ -165,6 +166,73 @@ final class TerminalPaneHostViewTests: XCTestCase {
             hostView.searchHUDCloseButtonForTesting.isDescendant(of: terminalView.overlayHostView),
             "Search HUD should be mounted inside the terminal's overlay host, matching the portal-hosted overlay pattern"
         )
+    }
+
+    func test_context_menu_builder_is_forwarded_to_terminal_view_when_supported() throws {
+        let terminalView = ContextMenuCapableTerminalView()
+        let adapter = TerminalAdapterSpy(terminalView: terminalView)
+        let hostView = TerminalPaneHostView(adapter: adapter)
+        let expectedMenu = NSMenu(title: "")
+        expectedMenu.addItem(withTitle: "Add Pane Up", action: nil, keyEquivalent: "")
+
+        hostView.contextMenuBuilder = { _, _ in expectedMenu }
+
+        let event = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .rightMouseDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 0
+            )
+        )
+
+        XCTAssertEqual(terminalView.contextMenuBuilder?(event, nil)?.items.map(\.title), ["Add Pane Up"])
+    }
+
+    func test_hosted_libghostty_right_click_without_custom_menu_does_not_recurse() throws {
+        let surfaceView = LibghosttyView(frame: NSRect(x: 0, y: 0, width: 480, height: 240))
+        let surface = HostedRightClickSurfaceSpy()
+        surfaceView.bind(surfaceController: surface)
+        var builderCallCount = 0
+        var presentationCount = 0
+        surfaceView.contextMenuBuilder = { _, _ in
+            builderCallCount += 1
+            let menu = NSMenu(title: "")
+            menu.addItem(withTitle: "Add Pane Up", action: nil, keyEquivalent: "")
+            return menu
+        }
+        surfaceView.contextMenuPresenter = { _, _, _ in
+            presentationCount += 1
+        }
+        let hostView = LibghosttySurfaceScrollHostView(
+            surfaceView: surfaceView,
+            paneID: PaneID("test-pane"),
+            diagnostics: .shared
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 240),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+
+        hostView.frame = window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 480, height: 240)
+        window.contentView = hostView
+        window.makeKeyAndOrderFront(nil)
+        hostView.layoutSubtreeIfNeeded()
+
+        try sendHostedRightMouseClick(at: CGPoint(x: 120, y: 80), in: hostView, window: window)
+
+        XCTAssertEqual(surface.mouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
+        XCTAssertEqual(surface.mouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
+        XCTAssertEqual(builderCallCount, 1)
+        XCTAssertEqual(presentationCount, 1)
     }
 
     func test_pane_container_search_hud_close_button_receives_real_window_clicks() throws {
@@ -385,6 +453,45 @@ private final class ScrollForwardingTerminalView: NSView, TerminalFocusReporting
     }
 }
 
+private final class ContextMenuCapableTerminalView: NSView, TerminalContextMenuConfiguring {
+    var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)?
+}
+
+@MainActor
+private final class HostedRightClickSurfaceSpy: LibghosttySurfaceControlling {
+    struct MouseButtonEvent: Equatable {
+        let state: ghostty_input_mouse_state_e
+        let button: ghostty_input_mouse_button_e
+        let modifiers: NSEvent.ModifierFlags
+    }
+
+    var hasScrollback = false
+    var cellWidth: CGFloat = 8
+    var cellHeight: CGFloat = 16
+    var searchDidChange: ((TerminalSearchEvent) -> Void)?
+    private(set) var mouseButtons: [MouseButtonEvent] = []
+
+    func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
+    func setFocused(_ isFocused: Bool) {}
+    func refresh() {}
+    func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool { true }
+    func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {}
+    func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags) {}
+    func sendMouseButton(
+        state: ghostty_input_mouse_state_e,
+        button: ghostty_input_mouse_button_e,
+        modifiers: NSEvent.ModifierFlags
+    ) -> Bool {
+        mouseButtons.append(MouseButtonEvent(state: state, button: button, modifiers: modifiers))
+        return false
+    }
+    func sendText(_ text: String) {}
+    func performBindingAction(_ action: String) -> Bool { true }
+    func hasSelection() -> Bool { false }
+    func close() {}
+    func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? { nil }
+}
+
 private final class LayoutTrackingTerminalView: NSView, TerminalFocusReporting {
     var onFocusDidChange: ((Bool) -> Void)?
     private(set) var layoutCallCount = 0
@@ -500,8 +607,10 @@ private final class PaneContainerHostedTerminalAdapterSpy: TerminalAdapter, Term
 }
 
 @MainActor
-private final class HostedMouseTrackingTerminalView: NSView, TerminalFocusReporting {
+private final class HostedMouseTrackingTerminalView: NSView, TerminalFocusReporting, TerminalScrollRouting, TerminalContextMenuConfiguring {
     var onFocusDidChange: ((Bool) -> Void)?
+    var onScrollWheel: ((NSEvent) -> Bool)?
+    var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)?
     private(set) var mouseDownCount = 0
     private(set) var mouseDraggedCount = 0
 
@@ -581,6 +690,39 @@ private func sendHostedMouseClick(at point: CGPoint, in view: NSView, window: NS
             eventNumber: 0,
             clickCount: 1,
             pressure: 1
+        )
+    )
+
+    NSApp.postEvent(mouseUp, atStart: false)
+    window.sendEvent(mouseDown)
+}
+
+private func sendHostedRightMouseClick(at point: CGPoint, in view: NSView, window: NSWindow) throws {
+    let locationInWindow = view.convert(point, to: nil)
+    let mouseDown = try XCTUnwrap(
+        NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: locationInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )
+    )
+    let mouseUp = try XCTUnwrap(
+        NSEvent.mouseEvent(
+            with: .rightMouseUp,
+            location: locationInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 0
         )
     )
 

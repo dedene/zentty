@@ -51,7 +51,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
         state: ghostty_input_mouse_state_e,
         button: ghostty_input_mouse_button_e,
         modifiers: NSEvent.ModifierFlags
-    )
+    ) -> Bool
     func sendText(_ text: String)
     func performBindingAction(_ action: String) -> Bool
     func hasSelection() -> Bool

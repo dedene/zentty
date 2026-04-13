@@ -18,6 +18,20 @@ private protocol LibghosttyScrollbarHandling: AnyObject {
 }
 
 @MainActor
+private final class LibghosttyOverlayHostView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        for subview in subviews.reversed() {
+            let pointInSubview = convert(point, to: subview)
+            if let hitView = subview.hitTest(pointInSubview) {
+                return hitView
+            }
+        }
+
+        return nil
+    }
+}
+
+@MainActor
 private final class LibghosttyScrollView: NSScrollView {
     weak var surfaceView: LibghosttyView?
 
@@ -36,10 +50,48 @@ private final class LibghosttyScrollView: NSScrollView {
         }
         surfaceView.scrollWheel(with: event)
     }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let surfaceView else {
+            super.rightMouseDown(with: event)
+            return
+        }
+
+        if surfaceView.handleSecondaryMouseDownForContextMenuRouting(event) {
+            return
+        }
+
+        if surfaceView.presentContextMenuForSecondaryClick(event, anchorView: self) {
+            return
+        }
+
+        super.rightMouseDown(with: event)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        guard let surfaceView else {
+            super.rightMouseUp(with: event)
+            return
+        }
+
+        if surfaceView.handleSecondaryMouseUpForContextMenuRouting(event) {
+            return
+        }
+
+        super.rightMouseUp(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let surfaceView else {
+            return super.menu(for: event)
+        }
+
+        return surfaceView.menu(for: event)
+    }
 }
 
 @MainActor
-final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalMouseInteractionSuppressionControlling, LibghosttyScrollbarHandling {
+final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalMouseInteractionSuppressionControlling, TerminalContextMenuConfiguring, LibghosttyScrollbarHandling {
     private struct ScrollHostSyncMetrics {
         let geometryApplied: Bool
         let documentHeightChanged: Bool
@@ -59,7 +111,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private let paneID: PaneID
     private let diagnostics: TerminalDiagnostics
     private let scrollView: LibghosttyScrollView
-    private let overlayHostView = NSView()
+    private let overlayHostView = LibghosttyOverlayHostView()
     private let documentView: NSView
     private let surfaceView: LibghosttyView
     private var isLiveScrolling = false
@@ -89,6 +141,11 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     var onScrollWheel: ((NSEvent) -> Bool)? {
         get { surfaceView.onScrollWheel }
         set { surfaceView.onScrollWheel = newValue }
+    }
+
+    var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)? {
+        get { surfaceView.contextMenuBuilder }
+        set { surfaceView.contextMenuBuilder = newValue }
     }
 
     init(
@@ -190,6 +247,30 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             synchronizeSurfaceView()
             synchronizeCoreSurface()
         }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if surfaceView.handleSecondaryMouseDownForContextMenuRouting(event) {
+            return
+        }
+
+        if surfaceView.presentContextMenuForSecondaryClick(event, anchorView: self) {
+            return
+        }
+
+        super.rightMouseDown(with: event)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        if surfaceView.handleSecondaryMouseUpForContextMenuRouting(event) {
+            return
+        }
+
+        super.rightMouseUp(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        surfaceView.menu(for: event)
     }
 
     func setViewportSyncSuspended(_ suspended: Bool) {
@@ -530,6 +611,8 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     var onExplicitWheelScroll: (() -> Void)?
     var onSelectionDragStateDidChange: ((Bool) -> Void)?
     var onMouseLocationDidChange: ((CGPoint?) -> Void)?
+    var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)?
+    var contextMenuPresenter: ((NSMenu, NSEvent, NSView) -> Void)?
 
     override var acceptsFirstResponder: Bool {
         true
@@ -692,7 +775,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         onSelectionDragStateDidChange?(true)
         window?.makeFirstResponder(self)
         forwardMousePosition(event)
-        surfaceController?.sendMouseButton(
+        _ = surfaceController?.sendMouseButton(
             state: GHOSTTY_MOUSE_PRESS,
             button: GHOSTTY_MOUSE_LEFT,
             modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -713,11 +796,25 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
             return
         }
         forwardMousePosition(event)
-        surfaceController?.sendMouseButton(
+        _ = surfaceController?.sendMouseButton(
             state: GHOSTTY_MOUSE_RELEASE,
             button: GHOSTTY_MOUSE_LEFT,
             modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         )
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if handleSecondaryMouseDownForContextMenuRouting(event) {
+            return
+        }
+
+        if presentContextMenuForSecondaryClick(event, anchorView: self) {
+            return
+        }
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        _ = handleSecondaryMouseUpForContextMenuRouting(event)
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -828,6 +925,33 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         mouseInteractionSuppressionRects.contains { $0.contains(point) }
     }
 
+    fileprivate func handleSecondaryMouseDownForContextMenuRouting(_ event: NSEvent) -> Bool {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return true
+        }
+        window?.makeFirstResponder(self)
+        forwardMousePosition(event)
+
+        return surfaceController?.sendMouseButton(
+            state: GHOSTTY_MOUSE_PRESS,
+            button: GHOSTTY_MOUSE_RIGHT,
+            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        ) ?? false
+    }
+
+    fileprivate func handleSecondaryMouseUpForContextMenuRouting(_ event: NSEvent) -> Bool {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return true
+        }
+        forwardMousePosition(event)
+
+        return surfaceController?.sendMouseButton(
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: GHOSTTY_MOUSE_RIGHT,
+            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        ) ?? false
+    }
+
     @IBAction func copy(_ sender: Any?) {
         _ = surfaceController?.performBindingAction(BindingAction.copyToClipboard)
     }
@@ -875,6 +999,26 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
 
     @IBAction override func selectAll(_ sender: Any?) {
         _ = surfaceController?.performBindingAction(BindingAction.selectAll)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let systemMenu = super.menu(for: event)
+        return contextMenuBuilder?(event, systemMenu) ?? systemMenu
+    }
+
+    @discardableResult
+    fileprivate func presentContextMenuForSecondaryClick(_ event: NSEvent, anchorView: NSView) -> Bool {
+        guard let menu = menu(for: event) else {
+            return false
+        }
+
+        if let contextMenuPresenter {
+            contextMenuPresenter(menu, event, anchorView)
+        } else {
+            NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
+        }
+
+        return true
     }
 
     func bind(surfaceController: any LibghosttySurfaceControlling) {
@@ -1024,6 +1168,9 @@ extension LibghosttyView: TerminalFocusTargetProviding {
 
 @MainActor
 extension LibghosttyView: TerminalScrollRouting {}
+
+@MainActor
+extension LibghosttyView: TerminalContextMenuConfiguring {}
 
 extension LibghosttyView: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {

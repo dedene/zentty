@@ -193,7 +193,10 @@ struct PaneColumnState: Equatable, Sendable {
         moveFocus(by: 1)
     }
 
-    mutating func insertPaneVertically(_ pane: PaneState) {
+    mutating func insertPaneVertically(
+        _ pane: PaneState,
+        placement: PanePlacement = .afterFocused
+    ) {
         guard !panes.isEmpty else {
             panes = [pane]
             paneHeights = [1]
@@ -202,7 +205,13 @@ struct PaneColumnState: Equatable, Sendable {
         }
 
         let sourceIndex = max(0, min(focusedPaneIndex, paneHeights.count - 1))
-        let insertionIndex = min(sourceIndex + 1, panes.count)
+        let insertionIndex: Int
+        switch placement {
+        case .beforeFocused:
+            insertionIndex = sourceIndex
+        case .afterFocused:
+            insertionIndex = min(sourceIndex + 1, panes.count)
+        }
         let sourceHeight = paneHeights[sourceIndex]
         let insertedHeight = max(1, sourceHeight / 2)
         let retainedHeight = max(1, sourceHeight - insertedHeight)
@@ -720,6 +729,7 @@ struct PaneStripState: Equatable, Sendable {
         _ pane: PaneState,
         in columnID: PaneColumnID? = nil,
         availableHeight: CGFloat,
+        placement: PanePlacement = .afterFocused,
         minimumPaneHeight: CGFloat = PaneStripState.minimumVerticalPaneHeight
     ) -> Bool {
         let targetColumnID = columnID ?? focusedColumnID
@@ -739,7 +749,7 @@ struct PaneStripState: Equatable, Sendable {
             return false
         }
 
-        columns[targetIndex].insertPaneVertically(pane)
+        columns[targetIndex].insertPaneVertically(pane, placement: placement)
         focusedColumnID = columns[targetIndex].id
         sanitizeLastInteractedDivider()
         return true

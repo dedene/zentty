@@ -69,6 +69,48 @@ final class LibghosttyViewScrollRoutingTests: AppKitTestCase {
         let position = try XCTUnwrap(surface.sentMousePositions.last?.position)
         XCTAssertEqual(position, CGPoint(x: -1, y: -1))
     }
+
+    func test_unconsumed_right_click_requests_context_menu_presentation() throws {
+        var builderCallCount = 0
+        var presentedMenuTitles: [String] = []
+        surface.mouseButtonResults[GHOSTTY_MOUSE_RIGHT] = false
+        view.contextMenuBuilder = { _, _ in
+            builderCallCount += 1
+            let menu = NSMenu(title: "")
+            menu.addItem(withTitle: "Add Pane Up", action: nil, keyEquivalent: "")
+            return menu
+        }
+        view.contextMenuPresenter = { menu, _, _ in
+            presentedMenuTitles = menu.items.map(\.title)
+        }
+
+        view.rightMouseDown(with: try makeMouseEvent(type: .rightMouseDown, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertEqual(builderCallCount, 1)
+        XCTAssertEqual(presentedMenuTitles, ["Add Pane Up"])
+        XCTAssertEqual(surface.sentMouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
+        XCTAssertEqual(surface.sentMouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
+    }
+
+    func test_consumed_right_click_does_not_request_context_menu_presentation() throws {
+        var builderCallCount = 0
+        var presentationCount = 0
+        surface.mouseButtonResults[GHOSTTY_MOUSE_RIGHT] = true
+        view.contextMenuBuilder = { _, _ in
+            builderCallCount += 1
+            return NSMenu(title: "")
+        }
+        view.contextMenuPresenter = { _, _, _ in
+            presentationCount += 1
+        }
+
+        view.rightMouseDown(with: try makeMouseEvent(type: .rightMouseDown, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertEqual(builderCallCount, 0)
+        XCTAssertEqual(presentationCount, 0)
+        XCTAssertEqual(surface.sentMouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
+        XCTAssertEqual(surface.sentMouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
+    }
 }
 
 private final class ScrollRoutingSurfaceSpy: LibghosttySurfaceControlling {
@@ -84,12 +126,20 @@ private final class ScrollRoutingSurfaceSpy: LibghosttySurfaceControlling {
         let modifiers: NSEvent.ModifierFlags
     }
 
+    struct MouseButtonEvent: Equatable {
+        let state: ghostty_input_mouse_state_e
+        let button: ghostty_input_mouse_button_e
+        let modifiers: NSEvent.ModifierFlags
+    }
+
     var hasScrollback = false
     var cellWidth: CGFloat = 8
     var cellHeight: CGFloat = 16
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var sentScrollEvents: [ScrollEvent] = []
     private(set) var sentMousePositions: [MousePositionEvent] = []
+    private(set) var sentMouseButtons: [MouseButtonEvent] = []
+    var mouseButtonResults: [ghostty_input_mouse_button_e: Bool] = [:]
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) {}
@@ -105,7 +155,10 @@ private final class ScrollRoutingSurfaceSpy: LibghosttySurfaceControlling {
         state: ghostty_input_mouse_state_e,
         button: ghostty_input_mouse_button_e,
         modifiers: NSEvent.ModifierFlags
-    ) {}
+    ) -> Bool {
+        sentMouseButtons.append(MouseButtonEvent(state: state, button: button, modifiers: modifiers))
+        return mouseButtonResults[button] ?? false
+    }
     func sendText(_ text: String) {}
     func performBindingAction(_ action: String) -> Bool { true }
     func hasSelection() -> Bool { false }
