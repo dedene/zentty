@@ -177,6 +177,11 @@ protocol TerminalMouseInteractionSuppressionControlling: AnyObject {
 }
 
 @MainActor
+protocol TerminalContextMenuConfiguring: AnyObject {
+    var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)? { get set }
+}
+
+@MainActor
 protocol TerminalSessionInheritanceConfiguring: AnyObject {
     func prepareSessionStart(
         from sourceAdapter: (any TerminalAdapter)?,

@@ -162,6 +162,17 @@ final class AppDelegateTests: XCTestCase {
         ])
     }
 
+    func test_application_launch_registers_services_menu_with_appkit() throws {
+        NSApp.mainMenu = nil
+        NSApp.servicesMenu = nil
+
+        let delegate = AppDelegate(shouldOpenMainWindow: false)
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+
+        let servicesMenu = try XCTUnwrap(NSApp.servicesMenu)
+        XCTAssertEqual(servicesMenu.title, "Services")
+    }
+
     func test_application_launch_installs_navigation_menu_with_history_and_focus_actions() {
         NSApp.mainMenu = nil
 

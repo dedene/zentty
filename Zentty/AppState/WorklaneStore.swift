@@ -548,7 +548,10 @@ final class WorklaneStore {
             insertNewPaneHorizontally(into: &worklane, placement: .afterFocused)
             changeType = .paneStructure(activeWorklaneID)
         case .splitVertically:
-            insertNewPaneVertically(into: &worklane)
+            insertNewPaneVertically(into: &worklane, placement: .afterFocused)
+            changeType = .paneStructure(activeWorklaneID)
+        case .splitAboveFocusedPane:
+            insertNewPaneVertically(into: &worklane, placement: .beforeFocused)
             changeType = .paneStructure(activeWorklaneID)
         case .splitBeforeFocusedPane:
             insertNewPaneHorizontally(into: &worklane, placement: .beforeFocused)
@@ -864,7 +867,10 @@ final class WorklaneStore {
         worklane.paneStripState.insertPaneHorizontally(insertedPane, placement: placement)
     }
 
-    private func insertNewPaneVertically(into worklane: inout WorklaneState) {
+    private func insertNewPaneVertically(
+        into worklane: inout WorklaneState,
+        placement: PanePlacement
+    ) {
         let existingPaneCount = worklane.paneStripState.panes.count
         let sourceWidth = worklane.paneStripState.focusedColumn?.width
             ?? worklane.paneStripState.panes.first?.width
@@ -873,7 +879,8 @@ final class WorklaneStore {
         insertedPane.width = sourceWidth
         _ = worklane.paneStripState.insertPaneVertically(
             insertedPane,
-            availableHeight: paneViewportHeight
+            availableHeight: paneViewportHeight,
+            placement: placement
         )
     }
 

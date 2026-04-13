@@ -400,6 +400,26 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func addPaneRight(_ sender: Any?) {
+        handle(.pane(.splitHorizontally))
+    }
+
+    @objc
+    func addPaneLeft(_ sender: Any?) {
+        handle(.pane(.splitBeforeFocusedPane))
+    }
+
+    @objc
+    func addPaneDown(_ sender: Any?) {
+        handle(.pane(.splitVertically))
+    }
+
+    @objc
+    func addPaneUp(_ sender: Any?) {
+        handle(.pane(.splitAboveFocusedPane))
+    }
+
+    @objc
     func arrangePaneWidthFull(_ sender: Any?) {
         handle(.pane(.arrangeHorizontally(.fullWidth)))
     }
@@ -1058,6 +1078,15 @@ extension MainWindowController: NSMenuItemValidation {
         if let action = menuItem.action,
            let commandID = AppCommandRegistry.commandID(forMenuAction: action) {
             return rootViewController.isCommandAvailable(commandID)
+        }
+
+        switch menuItem.action {
+        case #selector(addPaneRight(_:)), #selector(addPaneLeft(_:)):
+            return rootViewController.isCommandAvailable(.splitHorizontally)
+        case #selector(addPaneDown(_:)), #selector(addPaneUp(_:)):
+            return rootViewController.isCommandAvailable(.splitVertically)
+        default:
+            break
         }
         return true
     }

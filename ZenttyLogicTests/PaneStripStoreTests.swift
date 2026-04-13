@@ -1807,6 +1807,40 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "pane 1")
     }
 
+    func test_split_above_inserts_adjacent_pane_above_focus() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("api"),
+                    title: "API",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("column"),
+                                panes: [
+                                    PaneState(id: PaneID("api-top"), title: "top"),
+                                    PaneState(id: PaneID("api-bottom"), title: "bottom"),
+                                ],
+                                width: 640,
+                                paneHeights: [1, 1],
+                                focusedPaneID: PaneID("api-bottom"),
+                                lastFocusedPaneID: PaneID("api-bottom")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("column")
+                    ),
+                    nextPaneNumber: 1
+                )
+            ],
+            activeWorklaneID: WorklaneID("api")
+        )
+
+        store.send(.splitAboveFocusedPane)
+
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns[0].panes.map(\.title), ["top", "pane 1", "bottom"])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "pane 1")
+    }
+
     func test_close_removes_focused_pane_inside_active_worklane_only() throws {
         let store = WorklaneStore()
         store.createWorklane()
