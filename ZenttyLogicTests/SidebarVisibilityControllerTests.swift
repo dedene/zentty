@@ -98,6 +98,21 @@ final class SidebarVisibilityControllerTests: XCTestCase {
         )
     }
 
+    func test_effective_leading_inset_preserves_available_width_based_sidebar_max() {
+        let availableWidth: CGFloat = 1_600
+        let resolvedSidebarWidth = SidebarWidthPreference.maximumWidth(for: availableWidth)
+
+        XCTAssertGreaterThan(resolvedSidebarWidth, SidebarWidthPreference.maximumWidth)
+        XCTAssertEqual(
+            SidebarVisibilityController(mode: .pinnedOpen).effectiveLeadingInset(
+                sidebarWidth: resolvedSidebarWidth,
+                availableWidth: availableWidth
+            ),
+            resolvedSidebarWidth + ShellMetrics.shellGap,
+            accuracy: 0.001
+        )
+    }
+
     func test_resize_handle_is_shown_only_when_pinned_open() {
         XCTAssertTrue(SidebarVisibilityController(mode: .pinnedOpen).showsResizeHandle)
         XCTAssertFalse(SidebarVisibilityController(mode: .hidden).showsResizeHandle)

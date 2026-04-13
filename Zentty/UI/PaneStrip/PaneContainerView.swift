@@ -20,6 +20,138 @@ final class TerminalAnchorView: NSView {
     }
 }
 
+private final class PaneInsetBorderLayer: CALayer {
+    var strokeColorValue: CGColor? {
+        didSet {
+            guard oldValue != strokeColorValue else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    var strokeWidth: CGFloat = 1 {
+        didSet {
+            guard oldValue != strokeWidth else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    var visibleCornerRadius: CGFloat = 0 {
+        didSet {
+            guard oldValue != visibleCornerRadius else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    var gapWidth: CGFloat = 0 {
+        didSet {
+            guard oldValue != gapWidth else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    var gapMinX: CGFloat = 0 {
+        didSet {
+            guard oldValue != gapMinX else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    var gapSuppressed = false {
+        didSet {
+            guard oldValue != gapSuppressed else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    override init() {
+        super.init()
+        backgroundColor = NSColor.clear.cgColor
+        needsDisplayOnBoundsChange = true
+        zPosition = 10
+        contentsGravity = .resize
+        isOpaque = false
+    }
+
+    override init(layer: Any) {
+        if let layer = layer as? PaneInsetBorderLayer {
+            strokeColorValue = layer.strokeColorValue
+            strokeWidth = layer.strokeWidth
+            visibleCornerRadius = layer.visibleCornerRadius
+            gapWidth = layer.gapWidth
+            gapMinX = layer.gapMinX
+            gapSuppressed = layer.gapSuppressed
+        }
+        super.init(layer: layer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(in context: CGContext) {
+        guard let strokeColorValue, bounds.width > 0, bounds.height > 0, strokeWidth > 0 else {
+            return
+        }
+
+        let strokeRect = pixelSnappedStrokeRect(scale: max(1, contentsScale))
+        guard !strokeRect.isEmpty else { return }
+
+        let cornerRadius = max(0, visibleCornerRadius - (strokeWidth / 2))
+        let path = CGPath(
+            roundedRect: strokeRect,
+            cornerWidth: cornerRadius,
+            cornerHeight: cornerRadius,
+            transform: nil
+        )
+
+        context.saveGState()
+        context.setStrokeColor(strokeColorValue)
+        context.setLineWidth(strokeWidth)
+        context.setLineJoin(.round)
+
+        if gapWidth > 0, !gapSuppressed {
+            let clipPath = CGMutablePath()
+            clipPath.addRect(bounds.insetBy(dx: -4, dy: -4))
+            clipPath.addRect(gapRect(in: strokeRect))
+            context.addPath(clipPath)
+            context.clip(using: .evenOdd)
+        }
+
+        context.addPath(path)
+        context.strokePath()
+        context.restoreGState()
+    }
+
+    var strokeRectForTesting: CGRect {
+        pixelSnappedStrokeRect(scale: max(1, contentsScale))
+    }
+
+    private func pixelSnappedStrokeRect(scale: CGFloat) -> CGRect {
+        let rootBounds = convert(bounds, to: nil)
+        let snappedRootBounds = snappedStrokeRect(in: rootBounds, scale: scale, lineWidth: strokeWidth)
+        return convert(snappedRootBounds, from: nil)
+    }
+
+    private func snappedStrokeRect(in bounds: CGRect, scale: CGFloat, lineWidth: CGFloat) -> CGRect {
+        let halfLine = lineWidth / 2
+        let minX = ceil((bounds.minX + halfLine) * scale) / scale
+        let minY = ceil((bounds.minY + halfLine) * scale) / scale
+        let maxX = floor((bounds.maxX - halfLine) * scale) / scale
+        let maxY = floor((bounds.maxY - halfLine) * scale) / scale
+        return CGRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
+    }
+
+    private func gapRect(in strokeRect: CGRect) -> CGRect {
+        CGRect(
+            x: gapMinX,
+            y: strokeRect.maxY - (strokeWidth / 2) - 1,
+            width: gapWidth,
+            height: strokeWidth + 2
+        )
+    }
+}
+
 @MainActor
 final class PaneContainerView: NSView {
     enum Layout {
@@ -41,8 +173,7 @@ final class PaneContainerView: NSView {
     private let terminalHostView: TerminalPaneHostView
     private let borderContextView = PaneBorderContextInsetView()
     private let backingScaleFactorProvider: () -> CGFloat
-    private let insetBorderLayer = CALayer()
-    private let borderGapMaskLayer = CAShapeLayer()
+    private let insetBorderLayer = PaneInsetBorderLayer()
     private let statusOverlayView = NSView()
     private let statusTitleLabel = NSTextField(labelWithString: "")
     private let statusMessageLabel = NSTextField(wrappingLabelWithString: "")
@@ -443,18 +574,19 @@ final class PaneContainerView: NSView {
     }
 
     func animateInsetBorder(to targetSize: CGSize) {
+        _ = targetSize
+        if insetBorderLayer.frame == .zero, !bounds.isEmpty {
+            updateInsetBorderLayer()
+        }
         isInsetBorderAnimationManaged = true
         let backingScaleFactor = resolvedBackingScaleFactor
-        let inset = ChromeGeometry.paneBorderInset(backingScaleFactor: backingScaleFactor)
-        let insetRect = CGRect(origin: .zero, size: targetSize).insetBy(dx: inset, dy: inset)
-        let cornerRadius = max(0, Layout.cornerRadius - inset)
         insetBorderLayer.contentsScale = backingScaleFactor
-        insetBorderLayer.frame = insetRect
-        insetBorderLayer.cornerRadius = cornerRadius
+        insetBorderLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
     }
 
     func syncInsetBorderNow() {
         isInsetBorderAnimationManaged = false
+        insetBorderLayer.autoresizingMask = []
         updateInsetBorderLayer()
     }
 
@@ -551,7 +683,7 @@ final class PaneContainerView: NSView {
     }
 
     var insetBorderLineWidth: CGFloat {
-        insetBorderLayer.borderWidth
+        insetBorderLayer.strokeWidth
     }
 
     var insetBorderFrame: CGRect {
@@ -563,7 +695,7 @@ final class PaneContainerView: NSView {
     }
 
     var insetBorderCornerRadius: CGFloat {
-        insetBorderLayer.cornerRadius
+        insetBorderLayer.visibleCornerRadius
     }
 
     var insetBorderCornerCurve: CALayerCornerCurve {
@@ -579,12 +711,20 @@ final class PaneContainerView: NSView {
     }
 
     var insetBorderColorToken: String? {
-        guard let cgColor = insetBorderLayer.borderColor, let color = NSColor(cgColor: cgColor)
+        guard let cgColor = insetBorderLayer.strokeColorValue, let color = NSColor(cgColor: cgColor)
         else {
             return nil
         }
 
         return color.themeToken
+    }
+
+    var insetBorderStrokeRectForTesting: CGRect {
+        insetBorderLayer.strokeRectForTesting
+    }
+
+    var isInsetBorderGapSuppressedForTesting: Bool {
+        insetBorderLayer.gapSuppressed
     }
 
     var shadowOpacityForTesting: Float {
@@ -691,13 +831,8 @@ final class PaneContainerView: NSView {
     }
 
     private func setupInsetBorderLayer() {
-        insetBorderLayer.backgroundColor = NSColor.clear.cgColor
-        insetBorderLayer.borderWidth = Layout.borderWidth
+        insetBorderLayer.strokeWidth = Layout.borderWidth
         insetBorderLayer.cornerCurve = .continuous
-        insetBorderLayer.zPosition = 10
-        borderGapMaskLayer.fillColor = NSColor.white.cgColor
-        borderGapMaskLayer.fillRule = .evenOdd
-        insetBorderLayer.mask = borderGapMaskLayer
         layer?.addSublayer(insetBorderLayer)
         updateInsetBorderLayer()
     }
@@ -707,14 +842,14 @@ final class PaneContainerView: NSView {
     func applyZoomBorderCompensation(zoomScale: CGFloat) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        insetBorderLayer.borderWidth = Layout.borderWidth / max(0.1, zoomScale)
+        insetBorderLayer.strokeWidth = Layout.borderWidth / max(0.1, zoomScale)
 
         // Boost border opacity so it's clearly visible at small scale
-        savedBorderColor = insetBorderLayer.borderColor
-        if let current = insetBorderLayer.borderColor,
+        savedBorderColor = insetBorderLayer.strokeColorValue
+        if let current = insetBorderLayer.strokeColorValue,
             let nsColor = NSColor(cgColor: current)
         {
-            insetBorderLayer.borderColor = nsColor.withAlphaComponent(0.4).cgColor
+            insetBorderLayer.strokeColorValue = nsColor.withAlphaComponent(0.4).cgColor
         }
         CATransaction.commit()
     }
@@ -722,9 +857,9 @@ final class PaneContainerView: NSView {
     func resetZoomBorderCompensation() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        insetBorderLayer.borderWidth = Layout.borderWidth
+        insetBorderLayer.strokeWidth = Layout.borderWidth
         if let saved = savedBorderColor {
-            insetBorderLayer.borderColor = saved
+            insetBorderLayer.strokeColorValue = saved
             savedBorderColor = nil
         }
         CATransaction.commit()
@@ -745,37 +880,18 @@ final class PaneContainerView: NSView {
         CATransaction.setDisableActions(true)
         insetBorderLayer.contentsScale = backingScaleFactor
         insetBorderLayer.frame = insetRect
-        insetBorderLayer.cornerRadius = cornerRadius
+        insetBorderLayer.visibleCornerRadius = cornerRadius
+        insetBorderLayer.gapMinX =
+            PaneBorderContextInsetView.Layout.paneContextLeadingInset - inset
         CATransaction.commit()
 
         updateBorderGapMask()
     }
 
     private func updateBorderGapMask() {
-        let borderBounds = insetBorderLayer.bounds
-        guard !borderBounds.isEmpty else { return }
-
-        let path = CGMutablePath()
-        path.addRect(borderBounds)
-
-        if currentBorderGapWidth > 0 {
-            let inset = ChromeGeometry.paneBorderInset(
-                backingScaleFactor: resolvedBackingScaleFactor
-            )
-            let gapX = 24 - inset
-            let gapRect = CGRect(
-                x: gapX,
-                y: borderBounds.maxY - Layout.borderWidth - 1,
-                width: currentBorderGapWidth,
-                height: Layout.borderWidth + 2
-            )
-            path.addRect(gapRect)
-        }
-
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        borderGapMaskLayer.frame = borderBounds
-        borderGapMaskLayer.path = path
+        insetBorderLayer.gapWidth = currentBorderGapWidth
         CATransaction.commit()
     }
 
@@ -828,7 +944,7 @@ final class PaneContainerView: NSView {
     }
 
     private func paneBorderContextFrame(for size: CGSize) -> CGRect {
-        let borderLineY = insetBorderLayer.frame.maxY - (Layout.borderWidth / 2)
+        let borderLineY = insetBorderLayer.frame.maxY - (insetBorderLayer.strokeWidth / 2)
         let borderInset = ChromeGeometry.paneBorderInset(backingScaleFactor: resolvedBackingScaleFactor)
         let minX = insetBorderLayer.frame.minX
             + (PaneBorderContextInsetView.Layout.paneContextLeadingInset - borderInset)
@@ -1063,7 +1179,7 @@ final class PaneContainerView: NSView {
                 (isFocused
                 ? theme.paneBorderFocused
                 : theme.paneBorderUnfocused).cgColor
-            self.insetBorderLayer.borderColor = borderColor
+            self.insetBorderLayer.strokeColorValue = borderColor
             self.layer?.shadowColor = theme.paneShadow.cgColor
             self.layer?.shadowOpacity = shadowOpacity
             self.layer?.shadowRadius = shadowRadius

@@ -1835,7 +1835,7 @@ final class PaneStripStoreTests: XCTestCase {
             activeWorklaneID: WorklaneID("api")
         )
 
-        store.send(.splitAboveFocusedPane)
+        store.send(.splitVerticallyBefore)
 
         XCTAssertEqual(store.activeWorklane?.paneStripState.columns[0].panes.map(\.title), ["top", "pane 1", "bottom"])
         XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.title, "pane 1")
@@ -2625,15 +2625,7 @@ final class PaneStripStoreTests: XCTestCase {
     func test_command_finished_does_not_promote_running_agent_with_live_pid_to_unresolved_stop() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "sleep 5"]
-        try process.run()
-        addTeardownBlock {
-            if process.isRunning {
-                process.terminate()
-            }
-        }
+        let livePID = ProcessInfo.processInfo.processIdentifier
 
         store.applyAgentStatusPayload(
             AgentStatusPayload(
@@ -2662,7 +2654,7 @@ final class PaneStripStoreTests: XCTestCase {
                 paneID: paneID,
                 signalKind: .pid,
                 state: nil,
-                pid: process.processIdentifier,
+                pid: livePID,
                 pidEvent: .attach,
                 origin: .explicitAPI,
                 toolName: "Codex",
@@ -2681,7 +2673,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.trackedPID,
-            process.processIdentifier
+            livePID
         )
     }
 
@@ -4948,6 +4940,7 @@ final class PaneStripStoreTests: XCTestCase {
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
             "Agent ready"
         )
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
 
         scheduler.runLatest()
 
@@ -4955,6 +4948,7 @@ final class PaneStripStoreTests: XCTestCase {
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
             "Agent ready"
         )
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
     @MainActor

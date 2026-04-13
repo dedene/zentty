@@ -49,8 +49,8 @@ final class RootViewController: NSViewController {
     }
 
     private enum PaneResize {
-        static let minimumColumns: CGFloat = 20
-        static let minimumRows: CGFloat = 8
+        static let minimumColumns: CGFloat = 5
+        static let minimumRows: CGFloat = 5
     }
 
     private let worklaneStore: WorklaneStore
@@ -164,7 +164,8 @@ final class RootViewController: NSViewController {
         )
         self.themeCoordinator = ThemeCoordinator(
             themeResolver: GhosttyThemeResolver(
-                configEnvironment: GhosttyConfigEnvironment(appConfigProvider: { [weak configStore] in
+                configEnvironment: GhosttyConfigEnvironment(appConfigProvider: {
+                    [weak configStore] in
                     configStore?.current ?? .default
                 })
             )
@@ -361,8 +362,10 @@ final class RootViewController: NSViewController {
             appCanvasView.bottomAnchor.constraint(
                 equalTo: view.bottomAnchor, constant: -ShellMetrics.canvasOuterInset),
 
-            globalSearchHUDView.topAnchor.constraint(equalTo: appCanvasView.topAnchor, constant: 14),
-            globalSearchHUDView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor, constant: -14),
+            globalSearchHUDView.topAnchor.constraint(
+                equalTo: appCanvasView.topAnchor, constant: 14),
+            globalSearchHUDView.trailingAnchor.constraint(
+                equalTo: appCanvasView.trailingAnchor, constant: -14),
 
             // Drag overlay matches canvas frame so coordinate conversion is identity
             dragOverlayView.topAnchor.constraint(equalTo: appCanvasView.topAnchor),
@@ -512,7 +515,8 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
-               let reason = self.worklaneStore.paneCloseConfirmationReason(paneID) {
+                let reason = self.worklaneStore.paneCloseConfirmationReason(paneID)
+            {
                 self.showClosePaneConfirmation(reason: reason) {
                     self.closePane(id: paneID)
                 }
@@ -545,7 +549,8 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onPaneStripStateRestoreRequested = { [weak self] state in
             self?.worklaneStore.restorePaneLayout(state)
         }
-        appCanvasView.paneStripView.onPaneReorderRequested = { [weak self] paneID, columnIndex, isDuplicate in
+        appCanvasView.paneStripView.onPaneReorderRequested = {
+            [weak self] paneID, columnIndex, isDuplicate in
             guard let self else { return }
             if isDuplicate {
                 self.worklaneStore.duplicatePaneAsColumn(
@@ -561,7 +566,8 @@ final class RootViewController: NSViewController {
                 )
             }
         }
-        appCanvasView.paneStripView.onPaneReorderInColumnRequested = { [weak self] paneID, columnID, paneIndex, isDuplicate in
+        appCanvasView.paneStripView.onPaneReorderInColumnRequested = {
+            [weak self] paneID, columnID, paneIndex, isDuplicate in
             guard let self else { return }
             if isDuplicate {
                 self.worklaneStore.duplicatePaneInColumn(
@@ -580,7 +586,8 @@ final class RootViewController: NSViewController {
                 )
             }
         }
-        appCanvasView.paneStripView.onPaneSplitDropRequested = { [weak self] paneID, targetID, axis, leading, isDuplicate in
+        appCanvasView.paneStripView.onPaneSplitDropRequested = {
+            [weak self] paneID, targetID, axis, leading, isDuplicate in
             guard let self else { return }
             if isDuplicate {
                 self.worklaneStore.duplicatePaneSplitDrop(
@@ -602,7 +609,8 @@ final class RootViewController: NSViewController {
                 )
             }
         }
-        appCanvasView.paneStripView.onPaneCrossWorklaneDropRequested = { [weak self] paneID, worklaneID, isDuplicate in
+        appCanvasView.paneStripView.onPaneCrossWorklaneDropRequested = {
+            [weak self] paneID, worklaneID, isDuplicate in
             guard let self else { return }
             if isDuplicate {
                 self.worklaneStore.duplicatePaneToWorklane(
@@ -618,7 +626,8 @@ final class RootViewController: NSViewController {
                 )
             }
         }
-        appCanvasView.paneStripView.onPaneNewWorklaneDropRequested = { [weak self] paneID, isDuplicate in
+        appCanvasView.paneStripView.onPaneNewWorklaneDropRequested = {
+            [weak self] paneID, isDuplicate in
             guard let self else { return }
             if isDuplicate {
                 self.worklaneStore.duplicatePaneToNewWorklane(
@@ -632,7 +641,8 @@ final class RootViewController: NSViewController {
                 )
             }
         }
-        appCanvasView.paneStripView.onNewWorklanePlaceholderVisibilityChanged = { [weak self] visible in
+        appCanvasView.paneStripView.onNewWorklanePlaceholderVisibilityChanged = {
+            [weak self] visible in
             if visible {
                 self?.sidebarView.showNewWorklanePlaceholder()
             } else {
@@ -666,7 +676,8 @@ final class RootViewController: NSViewController {
         }
         appCanvasView.paneStripView.sidebarBoundsProvider = { [weak self] in
             guard let self else { return .zero }
-            return self.sidebarView.convert(self.sidebarView.bounds, to: self.appCanvasView.paneStripView)
+            return self.sidebarView.convert(
+                self.sidebarView.bounds, to: self.appCanvasView.paneStripView)
         }
         appCanvasView.paneStripView.worklaneCountProvider = { [weak self] in
             self?.worklaneStore.worklanes.count ?? 1
@@ -694,13 +705,16 @@ final class RootViewController: NSViewController {
         sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
-               let reason = self.worklaneStore.paneCloseConfirmationReason(paneID) {
+                let reason = self.worklaneStore.paneCloseConfirmationReason(paneID)
+            {
                 self.showClosePaneConfirmation(reason: reason) {
-                    self.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+                    self.worklaneStore.selectWorklaneAndFocusPane(
+                        worklaneID: worklaneID, paneID: paneID)
                     self.closePane(id: paneID)
                 }
             } else {
-                self.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+                self.worklaneStore.selectWorklaneAndFocusPane(
+                    worklaneID: worklaneID, paneID: paneID)
                 self.closePane(id: paneID)
             }
         }
@@ -1057,7 +1071,8 @@ final class RootViewController: NSViewController {
         }
         switch action {
         case .interior:
-            let shouldCenterMiddlePane = shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize()
+            let shouldCenterMiddlePane =
+                shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize()
             if shouldCenterMiddlePane {
                 appCanvasView.centerFocusedInteriorPaneOnNextRender()
             }
@@ -1143,8 +1158,9 @@ final class RootViewController: NSViewController {
         case .closeFocusedPane:
             let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
             if configStore.current.confirmations.confirmBeforeClosingPane,
-               let focusedPaneID,
-               let reason = worklaneStore.paneCloseConfirmationReason(focusedPaneID) {
+                let focusedPaneID,
+                let reason = worklaneStore.paneCloseConfirmationReason(focusedPaneID)
+            {
                 showClosePaneConfirmation(reason: reason) { [weak self] in
                     self?.closeFocusedPane()
                 }
@@ -1248,7 +1264,8 @@ final class RootViewController: NSViewController {
 
     func navigateToPane(worklaneID: WorklaneID, paneID: PaneID) {
         worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
-        notificationCoordinator.store.resolve(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
+        notificationCoordinator.store.resolve(
+            windowID: windowID, worklaneID: worklaneID, paneID: paneID)
     }
 
     private func navigateToNotification(_ notification: AppNotification) {
@@ -1257,7 +1274,8 @@ final class RootViewController: NSViewController {
             return
         }
 
-        onNavigateToNotificationRequested?(notification.windowID, notification.worklaneID, notification.paneID)
+        onNavigateToNotificationRequested?(
+            notification.windowID, notification.worklaneID, notification.paneID)
     }
 
     private func endAllLocalSearches() {
@@ -1277,7 +1295,8 @@ final class RootViewController: NSViewController {
             return
         }
 
-        globalSearchHUDView.focusField(selectAll: selectAll && !globalSearchCoordinator.state.needle.isEmpty)
+        globalSearchHUDView.focusField(
+            selectAll: selectAll && !globalSearchCoordinator.state.needle.isEmpty)
     }
 
     private func showCommandPalette() {
@@ -1293,7 +1312,8 @@ final class RootViewController: NSViewController {
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
         }()
 
-        let openWithTargets = focusedOpenWithContext != nil
+        let openWithTargets =
+            focusedOpenWithContext != nil
             ? availableOpenWithTargets
             : []
 
@@ -1379,7 +1399,7 @@ final class RootViewController: NSViewController {
     private func keyboardResizeStep(for axis: PaneResizeAxis) -> CGFloat {
         let minimumSizesByPaneID = paneMinimumSizesByPaneID()
         guard let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
-              let minimumSize = minimumSizesByPaneID[focusedPaneID]
+            let minimumSize = minimumSizesByPaneID[focusedPaneID]
         else {
             switch axis {
             case .horizontal:
@@ -1417,8 +1437,8 @@ final class RootViewController: NSViewController {
 
     private var activeWorklaneHasBranchRemoteURL: Bool {
         guard let presentation = worklaneStore.activeWorklane?.focusedPaneContext?.presentation,
-              let branchURL = presentation.branchURL,
-              let branchText = WorklaneContextFormatter.trimmed(presentation.branchDisplayText)
+            let branchURL = presentation.branchURL,
+            let branchText = WorklaneContextFormatter.trimmed(presentation.branchDisplayText)
         else {
             return false
         }
@@ -1427,7 +1447,9 @@ final class RootViewController: NSViewController {
     }
 
     private func openBranchOnRemote() {
-        guard let branchURL = worklaneStore.activeWorklane?.focusedPaneContext?.presentation.branchURL else {
+        guard
+            let branchURL = worklaneStore.activeWorklane?.focusedPaneContext?.presentation.branchURL
+        else {
             return
         }
 
@@ -1451,7 +1473,10 @@ final class RootViewController: NSViewController {
     }
 
     private func resolvedVerticalKeyboardResizeDelta(_ delta: CGFloat) -> CGFloat {
-        guard worklaneStore.activeWorklane?.paneStripState.shouldInvertVerticalKeyboardResizeDelta() == true else {
+        guard
+            worklaneStore.activeWorklane?.paneStripState.shouldInvertVerticalKeyboardResizeDelta()
+                == true
+        else {
             return delta
         }
 
@@ -1540,7 +1565,8 @@ final class RootViewController: NSViewController {
 
     private func cancelPendingPaneStripScrollSwitchGestureIfNeeded(for action: AppAction) {
         switch action {
-        case .newWorklane, .nextWorklane, .previousWorklane, .navigateBack, .navigateForward, .pane(_):
+        case .newWorklane, .nextWorklane, .previousWorklane, .navigateBack, .navigateForward,
+            .pane(_):
             appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
         default:
             break
@@ -1602,10 +1628,7 @@ final class RootViewController: NSViewController {
     }
 
     private func handleSidebarWidthChange(_ width: CGFloat) {
-        sidebarMotionCoordinator.setSidebarWidth(
-            width, availableWidth: resolvedSidebarAvailableWidth(), persist: true)
-        sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
-        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        updateSidebarWidth(width, persist: true)
     }
 
     private func syncSidebarVisibilityControls(animated: Bool) {
@@ -1679,7 +1702,8 @@ final class RootViewController: NSViewController {
             motionState.reservedFraction == 1
             ? openToggleTarget
             : closedToggleTarget
-        windowChromeView.leadingControlsInset = (toggleTarget - ShellMetrics.outerInset)
+        windowChromeView.leadingControlsInset =
+            (toggleTarget - ShellMetrics.outerInset)
             + Self.chromeControlsBarWidth
         let pinnedHeaderContentMinX =
             trafficLightAnchor.x
@@ -1770,6 +1794,106 @@ final class RootViewController: NSViewController {
         }
     }
 
+    // MARK: - Pane IPC
+
+    func handlePaneIPCCommand(_ command: PaneCommand) {
+        handlePaneCommand(command)
+    }
+
+    func splitWithLayout(
+        placement: PanePlacement,
+        isHorizontal: Bool,
+        layout: SplitLayoutAction
+    ) {
+        appCanvasView.settlePaneStripPresentationNow()
+        worklaneStore.splitWithLayout(
+            placement: placement,
+            isHorizontal: isHorizontal,
+            layout: layout,
+            availableWidth: appCanvasView.bounds.width,
+            leadingVisibleInset: appCanvasView.leadingVisibleInset,
+            availableSize: appCanvasView.bounds.size,
+            minimumSizeByPaneID: paneMinimumSizesByPaneID()
+        )
+    }
+
+    func focusPaneByID(_ paneID: PaneID, in worklaneID: WorklaneID) {
+        worklaneStore.selectWorklane(id: worklaneID)
+        worklaneStore.focusPane(id: paneID)
+    }
+
+    func closePaneByID(_ paneID: PaneID) {
+        handlePaneCloseResult(worklaneStore.closePane(id: paneID))
+    }
+
+    func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
+        appCanvasView.settlePaneStripPresentationNow()
+        worklaneStore.resizeFocusedColumnToFraction(
+            fraction,
+            availableWidth: appCanvasView.bounds.width,
+            leadingVisibleInset: appCanvasView.leadingVisibleInset,
+            minimumSizeByPaneID: paneMinimumSizesByPaneID()
+        )
+    }
+
+    func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) {
+        worklaneStore.resizeFocusedPaneHeightToFraction(fraction)
+    }
+
+    func equalizeFocusedColumnPaneHeights() {
+        worklaneStore.equalizeFocusedColumnPaneHeights()
+    }
+
+    func paneListEntries(for worklaneID: WorklaneID) -> [PaneListEntry] {
+        guard let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }) else {
+            return []
+        }
+
+        var entries: [PaneListEntry] = []
+        var index = 1
+        for (columnIndex, column) in worklane.paneStripState.columns.enumerated() {
+            for pane in column.panes {
+                let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
+                let isFocused = worklane.paneStripState.focusedPaneID == pane.id
+                entries.append(PaneListEntry(
+                    index: index,
+                    id: pane.id.rawValue,
+                    column: columnIndex + 1,
+                    title: pane.title,
+                    workingDirectory: auxiliaryState?.shellContext?.path,
+                    isFocused: isFocused,
+                    agentTool: auxiliaryState?.agentStatus?.tool.displayName,
+                    agentStatus: auxiliaryState?.agentStatus?.state.rawValue
+                ))
+                index += 1
+            }
+        }
+        return entries
+    }
+
+    func resolvePaneID(_ target: String, in worklaneID: WorklaneID) -> PaneID? {
+        guard let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }) else {
+            return nil
+        }
+
+        if target.hasPrefix("pn_") {
+            let paneID = PaneID(target)
+            if worklane.paneStripState.panes.contains(where: { $0.id == paneID }) {
+                return paneID
+            }
+            return nil
+        }
+
+        if let displayIndex = Int(target), displayIndex >= 1 {
+            let allPanes = worklane.paneStripState.columns.flatMap(\.panes)
+            if displayIndex <= allPanes.count {
+                return allPanes[displayIndex - 1].id
+            }
+        }
+
+        return nil
+    }
+
     var worklaneTitles: [String] {
         worklaneStore.worklanes.map(\.title)
     }
@@ -1799,7 +1923,8 @@ final class RootViewController: NSViewController {
     }
 
     private var isGlobalSearchSessionActive: Bool {
-        globalSearchCoordinator.state.isHUDVisible || globalSearchCoordinator.state.hasRememberedSearch
+        globalSearchCoordinator.state.isHUDVisible
+            || globalSearchCoordinator.state.hasRememberedSearch
     }
 
     var focusedPaneIDForTesting: PaneID? {
@@ -1840,7 +1965,8 @@ final class RootViewController: NSViewController {
         }
 
         var focusedPaneEnvironmentForTesting: [String: String]? {
-            worklaneStore.activeWorklane?.paneStripState.focusedPane?.sessionRequest.environmentVariables
+            worklaneStore.activeWorklane?.paneStripState.focusedPane?.sessionRequest
+                .environmentVariables
         }
 
         var notificationStoreForTesting: NotificationStore {
@@ -1884,10 +2010,7 @@ final class RootViewController: NSViewController {
         }
 
         func setSidebarWidth(_ width: CGFloat) {
-            sidebarMotionCoordinator.setSidebarWidth(
-                width, availableWidth: resolvedSidebarAvailableWidth(), persist: false)
-            sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
-            applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+            updateSidebarWidth(width, persist: false)
         }
 
         func settleSidebarTransitionForTesting() {
@@ -1961,6 +2084,21 @@ final class RootViewController: NSViewController {
         let previousWidth = sidebarMotionCoordinator.currentSidebarWidth
         sidebarMotionCoordinator.setSidebarWidth(
             previousWidth,
+            availableWidth: resolvedSidebarAvailableWidth(),
+            persist: persist
+        )
+        guard abs(sidebarMotionCoordinator.currentSidebarWidth - previousWidth) > 0.001 else {
+            return
+        }
+
+        sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
+        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+    }
+
+    private func updateSidebarWidth(_ width: CGFloat, persist: Bool) {
+        let previousWidth = sidebarMotionCoordinator.currentSidebarWidth
+        sidebarMotionCoordinator.setSidebarWidth(
+            width,
             availableWidth: resolvedSidebarAvailableWidth(),
             persist: persist
         )
@@ -2127,7 +2265,10 @@ extension RootViewController: RenderEnvironmentProviding {
     }
 
     func renderLeadingInset(sidebarWidth: CGFloat) -> CGFloat {
-        sidebarMotionCoordinator.effectiveLeadingInset(sidebarWidth: sidebarWidth)
+        sidebarMotionCoordinator.effectiveLeadingInset(
+            sidebarWidth: sidebarWidth,
+            availableWidth: resolvedSidebarAvailableWidth()
+        )
     }
 
     var renderWindowState: (isVisible: Bool, isKeyWindow: Bool) {

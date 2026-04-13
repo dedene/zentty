@@ -110,7 +110,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Toggle Sidebar")
         XCTAssertEqual(
             shortcutsController.selectedCommandDescriptionForTesting,
-            "Show or hide the sidebar so you can focus on the canvas or quickly jump between worklanes."
+            "Show or hide the sidebar."
         )
         XCTAssertNil(shortcutsController.selectedCommandDefaultShortcutForTesting)
         XCTAssertEqual(shortcutsController.displayString(for: .toggleSidebar), "⌘B")
