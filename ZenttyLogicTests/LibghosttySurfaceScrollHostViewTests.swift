@@ -79,6 +79,116 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
 
         XCTAssertEqual(surface.sentMousePositions.last?.position, CGPoint(x: 120, y: 80))
     }
+
+    func test_scroll_view_right_click_forwards_to_surface_context_menu() throws {
+        let harness = makeScrollHostHarness()
+        let scrollView = try scrollView(from: harness.hostView)
+        var builderCallCount = 0
+        var presentationCount = 0
+        harness.surfaceView.contextMenuBuilder = { _, _ in
+            builderCallCount += 1
+            let menu = NSMenu(title: "")
+            menu.addItem(withTitle: "Add Pane Up", action: nil, keyEquivalent: "")
+            return menu
+        }
+        harness.surfaceView.contextMenuPresenter = { _, _, _ in
+            presentationCount += 1
+        }
+
+        let event = try makeMouseEvent(type: .rightMouseDown, location: CGPoint(x: 120, y: 80))
+
+        scrollView.rightMouseDown(with: event)
+
+        XCTAssertEqual(harness.surface.mouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
+        XCTAssertEqual(harness.surface.mouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
+        XCTAssertEqual(builderCallCount, 1)
+        XCTAssertEqual(presentationCount, 1)
+    }
+
+    func test_scroll_host_right_click_forwards_to_surface_context_menu() throws {
+        let harness = makeScrollHostHarness()
+        var builderCallCount = 0
+        var presentationCount = 0
+        harness.surfaceView.contextMenuBuilder = { _, _ in
+            builderCallCount += 1
+            let menu = NSMenu(title: "")
+            menu.addItem(withTitle: "Add Pane Up", action: nil, keyEquivalent: "")
+            return menu
+        }
+        harness.surfaceView.contextMenuPresenter = { _, _, _ in
+            presentationCount += 1
+        }
+
+        let event = try makeMouseEvent(type: .rightMouseDown, location: CGPoint(x: 120, y: 80))
+
+        harness.hostView.rightMouseDown(with: event)
+
+        XCTAssertEqual(harness.surface.mouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
+        XCTAssertEqual(harness.surface.mouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
+        XCTAssertEqual(builderCallCount, 1)
+        XCTAssertEqual(presentationCount, 1)
+    }
+
+    func test_scroll_view_right_click_does_not_present_context_menu_when_surface_consumes_event() throws {
+        let harness = makeScrollHostHarness()
+        let scrollView = try scrollView(from: harness.hostView)
+        var builderCallCount = 0
+        var presentationCount = 0
+        harness.surface.mouseButtonResults[GHOSTTY_MOUSE_RIGHT] = true
+        harness.surfaceView.contextMenuBuilder = { _, _ in
+            builderCallCount += 1
+            return NSMenu(title: "")
+        }
+        harness.surfaceView.contextMenuPresenter = { _, _, _ in
+            presentationCount += 1
+        }
+
+        let event = try makeMouseEvent(type: .rightMouseDown, location: CGPoint(x: 120, y: 80))
+
+        scrollView.rightMouseDown(with: event)
+
+        XCTAssertEqual(harness.surface.mouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
+        XCTAssertEqual(harness.surface.mouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
+        XCTAssertEqual(builderCallCount, 0)
+        XCTAssertEqual(presentationCount, 0)
+    }
+
+    func test_overlay_host_hit_testing_passes_through_to_terminal_when_empty() throws {
+        let harness = makeScrollHostHarness()
+
+        let hitView = try XCTUnwrap(harness.hostView.hitTest(CGPoint(x: 120, y: 80)))
+
+        XCTAssertFalse(hitView === harness.hostView.terminalOverlayHostView)
+        XCTAssertTrue(hitView === harness.surfaceView || hitView.isDescendant(of: harness.surfaceView))
+    }
+
+    func test_overlay_host_hit_testing_preserves_interactive_overlay_subviews() throws {
+        let harness = makeScrollHostHarness()
+        let overlayControl = HitTestableOverlayView(frame: NSRect(x: 20, y: 20, width: 80, height: 30))
+        harness.hostView.terminalOverlayHostView.addSubview(overlayControl)
+
+        let hitView = harness.hostView.hitTest(CGPoint(x: 30, y: 30))
+
+        XCTAssertTrue(hitView === overlayControl)
+    }
+
+    func test_context_menu_builder_set_on_scroll_host_reaches_surface_view() {
+        let harness = makeScrollHostHarness()
+        var builderCalled = false
+
+        (harness.hostView as TerminalContextMenuConfiguring).contextMenuBuilder = { _, _ in
+            builderCalled = true
+            return NSMenu(title: "")
+        }
+
+        XCTAssertNotNil(harness.surfaceView.contextMenuBuilder)
+
+        _ = harness.surfaceView.contextMenuBuilder?(
+            NSEvent(),
+            nil
+        )
+        XCTAssertTrue(builderCalled)
+    }
 }
 
 @MainActor
@@ -113,6 +223,7 @@ private final class ScrollHostSurfaceSpy: LibghosttySurfaceControlling {
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var mouseButtons: [MouseButtonEvent] = []
     private(set) var sentMousePositions: [(position: CGPoint, modifiers: NSEvent.ModifierFlags)] = []
+    var mouseButtonResults: [ghostty_input_mouse_button_e: Bool] = [:]
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) {}
@@ -126,14 +237,22 @@ private final class ScrollHostSurfaceSpy: LibghosttySurfaceControlling {
         state: ghostty_input_mouse_state_e,
         button: ghostty_input_mouse_button_e,
         modifiers: NSEvent.ModifierFlags
-    ) {
+    ) -> Bool {
         mouseButtons.append(MouseButtonEvent(state: state, button: button, modifiers: modifiers))
+        return mouseButtonResults[button] ?? false
     }
     func sendText(_ text: String) {}
     func performBindingAction(_ action: String) -> Bool { true }
     func hasSelection() -> Bool { false }
     func close() {}
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? { nil }
+}
+
+@MainActor
+private final class HitTestableOverlayView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        bounds.contains(point) ? self : nil
+    }
 }
 
 private func scrollView(from hostView: LibghosttySurfaceScrollHostView) throws -> NSScrollView {

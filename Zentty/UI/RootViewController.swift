@@ -278,6 +278,12 @@ final class RootViewController: NSViewController {
         setupSidebarCallbacks()
         setupCoordinatorsAndServices()
         applyInitialState()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCleanCopyDidModifyPasteboard),
+            name: .cleanCopyDidModifyPasteboard,
+            object: nil
+        )
     }
 
     override func viewWillAppear() {
@@ -1003,6 +1009,10 @@ final class RootViewController: NSViewController {
             findPreviousInFocusedPane()
         case .copyFocusedPanePath:
             copyFocusedPanePath()
+        case .cleanCopy:
+            performCleanCopy()
+        case .copyRaw:
+            performCopyRaw()
         case .jumpToLatestNotification:
             if let notification = notificationCoordinator.store.mostUrgentUnresolved() {
                 notificationCoordinator.closePanel()
@@ -1368,6 +1378,37 @@ final class RootViewController: NSViewController {
         toast.show(in: appCanvasView, theme: currentTheme)
     }
 
+    private func performCleanCopy() {
+        // Suppress callback cleaning — we clean at this call site instead.
+        // Safe because ghostty_surface_binding_action is a synchronous C FFI call:
+        // the clipboard write callback fires within performBindingAction before
+        // NSApp.sendAction returns, so the flag is always set when the callback reads it.
+        CleanCopyPipeline.suppressCallbackCleaning = true
+        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+        CleanCopyPipeline.suppressCallbackCleaning = false
+
+        let result = CleanCopyPipeline.cleanPasteboardInPlace(.general)
+        let message = (result?.wasModified == true) ? "Copied (cleaned)" : "Copied"
+        showCopyToast(message: message)
+    }
+
+    private func performCopyRaw() {
+        CleanCopyPipeline.suppressCallbackCleaning = true
+        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+        CleanCopyPipeline.suppressCallbackCleaning = false
+    }
+
+    @objc private func handleCleanCopyDidModifyPasteboard() {
+        showCopyToast(message: "Copied (cleaned)")
+    }
+
+    private func showCopyToast(message: String) {
+        pathCopiedToastView?.removeFromSuperview()
+        let toast = PathCopiedToastView()
+        pathCopiedToastView = toast
+        toast.show(message: message, in: appCanvasView, theme: currentTheme)
+    }
+
     private func keyboardResizeStep(for axis: PaneResizeAxis) -> CGFloat {
         let minimumSizesByPaneID = paneMinimumSizesByPaneID()
         guard let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
@@ -1426,6 +1467,14 @@ final class RootViewController: NSViewController {
         }
 
         NSWorkspace.shared.open(branchURL)
+    }
+
+    var focusedTerminalHasSelection: Bool {
+        guard let validator = view.window?.firstResponder as? NSMenuItemValidation else {
+            return false
+        }
+        let probe = NSMenuItem(title: "", action: #selector(NSText.copy(_:)), keyEquivalent: "")
+        return validator.validateMenuItem(probe)
     }
 
     func isCommandAvailable(_ commandID: AppCommandID) -> Bool {

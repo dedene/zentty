@@ -118,21 +118,27 @@ final class AppDelegateTests: XCTestCase {
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
         let editMenu = menu(named: "Edit")
-        let requiredItems = Array(editMenu?.items.prefix(5) ?? [])
+        let requiredItems = Array(editMenu?.items.prefix(7) ?? [])
         let findMenu = editMenu?.items.first(where: { $0.title == "Find" })?.submenu
 
         XCTAssertEqual(editMenu?.title, "Edit")
-        XCTAssertEqual(requiredItems.map(\.title), ["Copy", "Copy Path", "Paste", "Select All", "Find"])
+        XCTAssertEqual(requiredItems.map(\.title), [
+            "Copy", "Clean Copy", "Copy Raw", "Copy Path", "Paste", "Select All", "Find",
+        ])
         XCTAssertEqual(requiredItems.map(\.action), [
             #selector(NSText.copy(_:)),
+            #selector(MainWindowController.cleanCopy(_:)),
+            #selector(MainWindowController.copyRaw(_:)),
             #selector(MainWindowController.copyFocusedPanePath(_:)),
             #selector(NSText.paste(_:)),
             #selector(NSResponder.selectAll(_:)),
             Selector(("submenuAction:")),
         ])
-        XCTAssertEqual(requiredItems.map(\.keyEquivalent), ["c", "c", "v", "a", ""])
+        XCTAssertEqual(requiredItems.map(\.keyEquivalent), ["c", "c", "", "c", "v", "a", ""])
         XCTAssertEqual(requiredItems.map(\.keyEquivalentModifierMask), [
             [.command],
+            [.command, .control],
+            [],
             [.command, .shift],
             [.command],
             [.command],
@@ -160,6 +166,17 @@ final class AppDelegateTests: XCTestCase {
             [.command, .shift],
             [.command],
         ])
+    }
+
+    func test_application_launch_registers_services_menu_with_appkit() throws {
+        NSApp.mainMenu = nil
+        NSApp.servicesMenu = nil
+
+        let delegate = AppDelegate(shouldOpenMainWindow: false)
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+
+        let servicesMenu = try XCTUnwrap(NSApp.servicesMenu)
+        XCTAssertEqual(servicesMenu.title, "Services")
     }
 
     func test_application_launch_installs_navigation_menu_with_history_and_focus_actions() {

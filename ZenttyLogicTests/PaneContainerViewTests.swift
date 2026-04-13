@@ -1319,6 +1319,81 @@ final class PaneContainerViewTests: AppKitTestCase {
         XCTAssertEqual(runtime.snapshot.search.hudCorner, .bottomLeading)
     }
 
+    func test_context_menu_prepends_pane_actions_before_system_items() throws {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        let systemMenu = NSMenu(title: "")
+        systemMenu.addItem(withTitle: "AutoFill", action: nil, keyEquivalent: "")
+        systemMenu.addItem(withTitle: "Services", action: nil, keyEquivalent: "")
+
+        let menu = try XCTUnwrap(paneView.contextMenuForTesting(merging: systemMenu))
+
+        XCTAssertEqual(
+            menu.items.map { $0.isSeparatorItem ? "---" : $0.title },
+            [
+                "Copy",
+                "Clean Copy",
+                "Paste",
+                "---",
+                "Add Pane Right",
+                "Add Pane Left",
+                "Add Pane Down",
+                "Add Pane Up",
+                "---",
+                "AutoFill",
+                "Services",
+            ]
+        )
+    }
+
+    func test_context_menu_actions_route_directional_add_pane_selectors() throws {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        let menu = try XCTUnwrap(paneView.contextMenuForTesting())
+
+        XCTAssertEqual(
+            menu.items.filter { !$0.isSeparatorItem }.suffix(4).map(\.action),
+            [
+                #selector(MainWindowController.addPaneRight(_:)),
+                #selector(MainWindowController.addPaneLeft(_:)),
+                #selector(MainWindowController.addPaneDown(_:)),
+                #selector(MainWindowController.addPaneUp(_:)),
+            ]
+        )
+    }
+
 }
 
 private enum TestError: Error {

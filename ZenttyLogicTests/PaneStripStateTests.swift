@@ -215,6 +215,36 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("top"), PaneID("bottom")])
     }
 
+    func test_vertical_insert_before_focused_pane_inserts_above_and_focuses_new_pane() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "stack",
+                    paneIDs: ["top", "middle", "bottom"],
+                    paneHeights: [2, 6, 4],
+                    focusedPaneID: PaneID("middle"),
+                    lastFocusedPaneID: PaneID("middle")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        let didInsert = state.insertPaneVertically(
+            PaneState(id: PaneID("inserted"), title: "inserted"),
+            in: PaneColumnID("stack"),
+            placement: .beforeFocused,
+            availableHeight: 900
+        )
+
+        XCTAssertTrue(didInsert)
+        XCTAssertEqual(
+            state.columns[0].panes.map(\.id),
+            [PaneID("top"), PaneID("inserted"), PaneID("middle"), PaneID("bottom")]
+        )
+        XCTAssertEqual(state.focusedPane?.id, PaneID("inserted"))
+        XCTAssertEqual(state.columns[0].paneHeights, [2, 3, 3, 4])
+    }
+
     func test_resize_vertical_divider_adjusts_only_adjacent_panes() {
         var state = PaneStripState(
             columns: [

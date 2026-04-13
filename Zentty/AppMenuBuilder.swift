@@ -10,11 +10,13 @@ enum AppMenuBuilder {
         guard hasRequiredMenuItems(in: application.mainMenu, appName: appName) == false else {
             applyConfiguredShortcuts(to: application.mainMenu, config: config)
             application.windowsMenu = menu(named: "Window", in: application.mainMenu)
+            application.servicesMenu = servicesMenu(in: application.mainMenu)
             return
         }
 
         application.mainMenu = makeMainMenu(appName: appName, config: config)
         application.windowsMenu = menu(named: "Window", in: application.mainMenu)
+        application.servicesMenu = servicesMenu(in: application.mainMenu)
     }
 
     static func makeMainMenu(appName: String, config: AppConfig = .default) -> NSMenu {
@@ -94,6 +96,8 @@ enum AppMenuBuilder {
             action: #selector(NSText.copy(_:)),
             keyEquivalent: "c"
         ))
+        editMenu.addItem(makeCommandMenuItem(commandID: .cleanCopy, shortcutManager: shortcutManager))
+        editMenu.addItem(makeCommandMenuItem(commandID: .copyRaw, shortcutManager: shortcutManager))
         editMenu.addItem(makeCommandMenuItem(commandID: .copyFocusedPanePath, shortcutManager: shortcutManager))
         editMenu.addItem(makeStandardMenuActionItem(
             title: "Paste",
@@ -115,6 +119,7 @@ enum AppMenuBuilder {
             ]),
             shortcutManager: shortcutManager
         ))
+        editMenu.addItem(makeServicesMenuItem())
 
         editMenuItem.submenu = editMenu
         return editMenuItem
@@ -253,6 +258,8 @@ enum AppMenuBuilder {
         let windowMenu = menu(named: "Window", in: mainMenu)
         let requiredEditItems: [(String, Selector)] = [
             ("Copy", #selector(NSText.copy(_:))),
+            ("Clean Copy", #selector(MainWindowController.cleanCopy(_:))),
+            ("Copy Raw", #selector(MainWindowController.copyRaw(_:))),
             ("Copy Path", #selector(MainWindowController.copyFocusedPanePath(_:))),
             ("Paste", #selector(NSText.paste(_:))),
             ("Select All", #selector(NSResponder.selectAll(_:))),
@@ -272,7 +279,8 @@ enum AppMenuBuilder {
             matches(
                 item: editMenu?.items[requiredEditItems.count] ?? NSMenuItem(),
                 expected: .submenu("Find", requiredFindEntries)
-            )
+            ) &&
+            editMenu?.items.contains(where: { $0.title == "Services" && $0.submenu != nil }) == true
         let hasNavigationItems =
             navigationMenu?.title == AppMenuSection.navigation.rawValue &&
             hasRequiredStructure(expectedEntries(for: .navigation), in: navigationMenu)
@@ -304,9 +312,23 @@ enum AppMenuBuilder {
         mainMenu?.items.first(where: { $0.submenu?.title == title })?.submenu
     }
 
+    private static func servicesMenu(in mainMenu: NSMenu?) -> NSMenu? {
+        menuItem(titled: "Services", inMainMenu: mainMenu)?.submenu
+    }
+
     private static func menuItem(for action: Selector, inMainMenu mainMenu: NSMenu?) -> NSMenuItem? {
         for rootItem in mainMenu?.items ?? [] {
             if let found = menuItem(for: action, in: rootItem.submenu) {
+                return found
+            }
+        }
+
+        return nil
+    }
+
+    private static func menuItem(titled title: String, inMainMenu mainMenu: NSMenu?) -> NSMenuItem? {
+        for rootItem in mainMenu?.items ?? [] {
+            if let found = menuItem(titled: title, in: rootItem.submenu) {
                 return found
             }
         }
@@ -327,6 +349,19 @@ enum AppMenuBuilder {
         return nil
     }
 
+    private static func menuItem(titled title: String, in menu: NSMenu?) -> NSMenuItem? {
+        for item in menu?.items ?? [] {
+            if item.title == title {
+                return item
+            }
+            if let found = menuItem(titled: title, in: item.submenu) {
+                return found
+            }
+        }
+
+        return nil
+    }
+
     private static func hasRequiredItems(
         _ requiredItems: [(String, Selector)],
         in menu: NSMenu?
@@ -339,6 +374,13 @@ enum AppMenuBuilder {
             item.title == expected.0 &&
             item.action == expected.1
         }
+    }
+
+    private static func makeServicesMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
+        item.submenu = NSMenu(title: "Services")
+        item.keyEquivalentModifierMask = []
+        return item
     }
 
     private static func hasRequiredItems(
