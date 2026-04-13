@@ -89,11 +89,14 @@ extension PaneStripView {
 
         if insertedColumnIndex > 0 {
             let anchorColumn = nextPresentation.columns[insertedColumnIndex - 1]
+            let previousAnchorMaxX = previousPresentation.columns
+                .first(where: { $0.columnID == anchorColumn.columnID })?.frame.maxX
+                ?? anchorColumn.frame.maxX
             return PaneInsertionTransition(
                 paneID: insertedPaneID,
                 side: .right,
                 initialFrame: CGRect(
-                    x: anchorColumn.frame.maxX + spacing,
+                    x: previousAnchorMaxX + spacing,
                     y: insertedPane.frame.minY,
                     width: insertedPane.frame.width,
                     height: insertedPane.frame.height

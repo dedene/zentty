@@ -621,6 +621,44 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.containsPane(worklaneID: worklaneID, paneID: paneID)
     }
 
+    // MARK: - Pane IPC
+
+    func handlePaneIPCCommand(_ command: PaneCommand) {
+        rootViewController.handlePaneIPCCommand(command)
+    }
+
+    func splitWithLayout(placement: PanePlacement, isHorizontal: Bool, layout: SplitLayoutAction) {
+        rootViewController.splitWithLayout(placement: placement, isHorizontal: isHorizontal, layout: layout)
+    }
+
+    func paneListEntries(for worklaneID: WorklaneID) -> [PaneListEntry] {
+        rootViewController.paneListEntries(for: worklaneID)
+    }
+
+    func resolvePaneID(_ target: String, in worklaneID: WorklaneID) -> PaneID? {
+        rootViewController.resolvePaneID(target, in: worklaneID)
+    }
+
+    func focusPane(id: PaneID, in worklaneID: WorklaneID) {
+        rootViewController.focusPaneByID(id, in: worklaneID)
+    }
+
+    func closePane(id: PaneID) {
+        rootViewController.closePaneByID(id)
+    }
+
+    func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
+        rootViewController.resizeFocusedColumnToFraction(fraction)
+    }
+
+    func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) {
+        rootViewController.resizeFocusedPaneHeightToFraction(fraction)
+    }
+
+    func equalizeFocusedColumnPaneHeights() {
+        rootViewController.equalizeFocusedColumnPaneHeights()
+    }
+
     func tearDownRuntime() {
         runtimeRegistry.destroyAll()
     }
