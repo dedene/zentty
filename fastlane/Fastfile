@@ -637,6 +637,7 @@ def draft_release_notes_with_claude(tag_name:, previous_tag_name:, fallback_text
   UI.message("Drafting release notes with Claude (#{previous_tag_name}..#{tag_name})...")
   stdout, stderr, status = Open3.capture3(
     "claude", "-p", prompt,
+    "--bare",
     "--tools", "",
     "--no-session-persistence",
     chdir: PROJECT_ROOT
@@ -916,7 +917,8 @@ def run_release_pipeline(options)
 
   sync_signing!
   archive_release!(version: version)
-  upload_glitchtip_dsyms!
+  # TODO: re-enable once nginx ingress body size is increased for chunk uploads
+  # upload_glitchtip_dsyms!
   notarize_app_bundle!
   package_release_zip!
   package_release_dmg!
