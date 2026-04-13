@@ -548,7 +548,10 @@ final class WorklaneStore {
             insertNewPaneHorizontally(into: &worklane, placement: .afterFocused)
             changeType = .paneStructure(activeWorklaneID)
         case .splitVertically:
-            insertNewPaneVertically(into: &worklane)
+            insertNewPaneVertically(into: &worklane, placement: .afterFocused)
+            changeType = .paneStructure(activeWorklaneID)
+        case .splitVerticallyBefore:
+            insertNewPaneVertically(into: &worklane, placement: .beforeFocused)
             changeType = .paneStructure(activeWorklaneID)
         case .splitBeforeFocusedPane:
             insertNewPaneHorizontally(into: &worklane, placement: .beforeFocused)
@@ -616,6 +619,77 @@ final class WorklaneStore {
 
         refreshLastFocusedLocalWorkingDirectory()
         notify(changeType)
+    }
+
+    func splitWithLayout(
+        placement: PanePlacement,
+        isHorizontal: Bool,
+        layout: SplitLayoutAction,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat,
+        availableSize: CGSize,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+    ) {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        let previousPaneRef = currentPaneReference
+
+        if isHorizontal {
+            insertNewPaneHorizontally(into: &worklane, placement: placement)
+        } else {
+            insertNewPaneVertically(into: &worklane, placement: placement)
+        }
+
+        switch layout {
+        case .none:
+            break
+        case .equal:
+            if isHorizontal {
+                _ = worklane.paneStripState.arrangeHorizontally(
+                    .halfWidth,
+                    availableWidth: availableWidth,
+                    leadingVisibleInset: leadingVisibleInset
+                )
+            } else {
+                _ = worklane.paneStripState.equalizeFocusedColumnPaneHeights()
+            }
+        case .golden:
+            if isHorizontal {
+                _ = worklane.paneStripState.arrangeGoldenWidth(
+                    focusWide: true,
+                    availableWidth: availableWidth,
+                    leadingVisibleInset: leadingVisibleInset
+                )
+            } else {
+                _ = worklane.paneStripState.arrangeGoldenHeight(
+                    focusTall: true,
+                    availableSize: availableSize
+                )
+            }
+        case .ratio(let fraction):
+            if isHorizontal {
+                _ = worklane.paneStripState.resizeFocusedColumnToFraction(
+                    fraction,
+                    availableWidth: availableWidth,
+                    leadingVisibleInset: leadingVisibleInset,
+                    minimumSizeByPaneID: minimumSizeByPaneID
+                )
+            } else {
+                _ = worklane.paneStripState.resizeFocusedPaneHeightToFraction(fraction)
+            }
+        }
+
+        activeWorklane = worklane
+
+        let newPaneRef = currentPaneReference
+        if previousPaneRef != newPaneRef {
+            recordFocusTransition(from: previousPaneRef)
+        }
+
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(activeWorklaneID))
     }
 
     func markDividerInteraction(_ divider: PaneDivider) {
@@ -726,6 +800,55 @@ final class WorklaneStore {
         activeWorklane = worklane
         notifyLayoutResized(animation: .splitCurve)
         return true
+    }
+
+    func resizeFocusedColumnToFraction(
+        _ fraction: CGFloat,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+    ) {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        guard worklane.paneStripState.resizeFocusedColumnToFraction(
+            fraction,
+            availableWidth: availableWidth,
+            leadingVisibleInset: leadingVisibleInset,
+            minimumSizeByPaneID: minimumSizeByPaneID
+        ) else {
+            return
+        }
+
+        activeWorklane = worklane
+        notifyLayoutResized(animation: .splitCurve)
+    }
+
+    func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        guard worklane.paneStripState.resizeFocusedPaneHeightToFraction(fraction) else {
+            return
+        }
+
+        activeWorklane = worklane
+        notifyLayoutResized(animation: .splitCurve)
+    }
+
+    func equalizeFocusedColumnPaneHeights() {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        guard worklane.paneStripState.equalizeFocusedColumnPaneHeights() else {
+            return
+        }
+
+        activeWorklane = worklane
+        notifyLayoutResized(animation: .splitCurve)
     }
 
     func restorePaneLayout(_ paneStripState: PaneStripState) {
@@ -864,7 +987,7 @@ final class WorklaneStore {
         worklane.paneStripState.insertPaneHorizontally(insertedPane, placement: placement)
     }
 
-    private func insertNewPaneVertically(into worklane: inout WorklaneState) {
+    private func insertNewPaneVertically(into worklane: inout WorklaneState, placement: PanePlacement = .afterFocused) {
         let existingPaneCount = worklane.paneStripState.panes.count
         let sourceWidth = worklane.paneStripState.focusedColumn?.width
             ?? worklane.paneStripState.panes.first?.width
@@ -873,6 +996,7 @@ final class WorklaneStore {
         insertedPane.width = sourceWidth
         _ = worklane.paneStripState.insertPaneVertically(
             insertedPane,
+            placement: placement,
             availableHeight: paneViewportHeight
         )
     }
