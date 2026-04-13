@@ -29,9 +29,12 @@
 
 - **Worklanes, not just tabs.** Borrowed from niri and Hyprland: a horizontally-scrolling strip of columns, each column a vertical stack of panes. Rearrange, resize, and navigate without losing your place.
 - **Keyboard-first, top to bottom.** Every action is a command. Every command is bindable. Rebind anything in settings, or fall back to the command palette when your muscle memory runs out.
-- **Command palette.** A fuzzy-searchable list of every action in the app, with your recent commands on top.
+- **Resume your workspace** Zentty restores your worklanes on relaunch and can reopen agent sessions that were closed without finishing.
+- **Command palette** A fuzzy-searchable list of every action in the app, with your recent commands on top.
+- **Global search** Search inside the current pane or across every worklane with a single shortcut. Search without losing flow.
 - **Agent-aware.** Claude Code, Codex, Copilot CLI, Gemini CLI, and OpenCode report their status into the sidebar, so you see what they're doing, what they're asking, and when they need you, without switching panes.
-- **Native Ghostty themes.** Zentty reads Ghostty's own theme files (your `~/.config/ghostty/themes` and the bundled library), with automatic light/dark switching.
+- **Native Ghostty themes.** Zentty reads Ghostty themes directly, with a built-in picker, live preview, opacity, and blur.
+- **Scriptable control** Interaction with worklanes or panes is scriptable via the embedded zentty CLI.
 - **Built on Ghostty.** GPU-accelerated rendering via `libghostty`, wrapped in a native Swift and AppKit shell. No Electron, no web views. It feels like a Mac app because it is one.
 
 ## Install
