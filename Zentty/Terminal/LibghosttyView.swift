@@ -953,7 +953,17 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     }
 
     @IBAction func copy(_ sender: Any?) {
-        _ = surfaceController?.performBindingAction(BindingAction.copyToClipboard)
+        if CleanCopyPipeline.isAutoCleanEnabled {
+            CleanCopyPipeline.suppressCallbackCleaning = true
+            _ = surfaceController?.performBindingAction(BindingAction.copyToClipboard)
+            CleanCopyPipeline.suppressCallbackCleaning = false
+            let result = CleanCopyPipeline.cleanPasteboardInPlace(.general)
+            if result?.wasModified == true {
+                NotificationCenter.default.post(name: .cleanCopyDidModifyPasteboard, object: nil)
+            }
+        } else {
+            _ = surfaceController?.performBindingAction(BindingAction.copyToClipboard)
+        }
     }
 
     private static func shouldEmitUserSubmittedInput(for event: NSEvent) -> Bool {
@@ -1175,7 +1185,9 @@ extension LibghosttyView: TerminalContextMenuConfiguring {}
 extension LibghosttyView: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
-        case #selector(copy(_:)):
+        case #selector(copy(_:)),
+             #selector(MainWindowController.cleanCopy(_:)),
+             #selector(MainWindowController.copyRaw(_:)):
             return surfaceController?.hasSelection() ?? false
         default:
             return true

@@ -18,6 +18,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let runtimeErrorReportingEnabled: Bool
     private var currentNotifications: AppConfig.Notifications = .default
     private var currentConfirmations: AppConfig.Confirmations = .default
+    private var currentClipboard: AppConfig.Clipboard = .default
     private var currentUpdates: AppConfig.Updates = .default
     private var currentErrorReporting: AppConfig.ErrorReporting = .default
 
@@ -32,17 +33,21 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let quitSwitch = NSSwitch()
     private let updateChannelPopupButton = NSPopUpButton()
     private let errorReportingSwitch = NSSwitch()
+    private let alwaysCleanCopiesSwitch = NSSwitch()
     private let errorReportingStatusLabel = NSTextField(labelWithString: "")
     private let errorReportingSubtitleLabel = NSTextField(labelWithString: "")
     private let errorReportingRestartLabel = NSTextField(labelWithString: "")
 
     init(
         configStore: AppConfigStore,
-        errorReportingBundleConfigurationProvider: @escaping ErrorReportingBundleConfigurationProvider = {
-            ErrorReportingBundleConfiguration.load(from: .main)
-        },
-        errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter = ErrorReportingRestartConfirmation.present,
-        errorReportingRestartHandler: @escaping ErrorReportingRestartHandler = ErrorReportingApplicationRestart.restart,
+        errorReportingBundleConfigurationProvider:
+            @escaping ErrorReportingBundleConfigurationProvider = {
+                ErrorReportingBundleConfiguration.load(from: .main)
+            },
+        errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter =
+            ErrorReportingRestartConfirmation.present,
+        errorReportingRestartHandler: @escaping ErrorReportingRestartHandler =
+            ErrorReportingApplicationRestart.restart,
         runtimeErrorReportingEnabled: Bool = ErrorReportingRuntimeState.isEnabledForCurrentProcess
     ) {
         self.configStore = configStore
@@ -52,6 +57,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         self.runtimeErrorReportingEnabled = runtimeErrorReportingEnabled
         self.currentNotifications = configStore.current.notifications
         self.currentConfirmations = configStore.current.confirmations
+        self.currentClipboard = configStore.current.clipboard
         self.currentUpdates = configStore.current.updates
         self.currentErrorReporting = configStore.current.errorReporting
         super.init(nibName: nil, bundle: nil)
@@ -127,12 +133,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
         let errorReportingRow = makeErrorReportingRow()
         errorReportingStack.addArrangedSubview(errorReportingRow)
-        errorReportingRow.widthAnchor.constraint(equalTo: errorReportingStack.widthAnchor).isActive = true
+        errorReportingRow.widthAnchor.constraint(equalTo: errorReportingStack.widthAnchor)
+            .isActive = true
 
         NSLayoutConstraint.activate([
             errorReportingStack.topAnchor.constraint(equalTo: errorReportingCard.topAnchor),
             errorReportingStack.leadingAnchor.constraint(equalTo: errorReportingCard.leadingAnchor),
-            errorReportingStack.trailingAnchor.constraint(equalTo: errorReportingCard.trailingAnchor),
+            errorReportingStack.trailingAnchor.constraint(
+                equalTo: errorReportingCard.trailingAnchor),
             errorReportingStack.bottomAnchor.constraint(equalTo: errorReportingCard.bottomAnchor),
         ])
 
@@ -197,6 +205,35 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         stackView.addArrangedSubview(confirmCard)
         confirmCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
+        // Clipboard card
+        let clipboardCard = SettingsCardView()
+        let clipboardStack = NSStackView()
+        clipboardStack.orientation = .vertical
+        clipboardStack.alignment = .leading
+        clipboardStack.spacing = 0
+        clipboardStack.translatesAutoresizingMaskIntoConstraints = false
+        clipboardCard.addSubview(clipboardStack)
+
+        let cleanCopyRow = makeSwitchRow(
+            title: "Always clean copied content",
+            subtitle:
+                "Remove extra whitespace, color codes, and shell prompts when you copy from the terminal.",
+            toggle: alwaysCleanCopiesSwitch,
+            action: #selector(handleAlwaysCleanCopiesSwitchChanged(_:))
+        )
+        clipboardStack.addArrangedSubview(cleanCopyRow)
+        cleanCopyRow.widthAnchor.constraint(equalTo: clipboardStack.widthAnchor).isActive = true
+
+        NSLayoutConstraint.activate([
+            clipboardStack.topAnchor.constraint(equalTo: clipboardCard.topAnchor),
+            clipboardStack.leadingAnchor.constraint(equalTo: clipboardCard.leadingAnchor),
+            clipboardStack.trailingAnchor.constraint(equalTo: clipboardCard.trailingAnchor),
+            clipboardStack.bottomAnchor.constraint(equalTo: clipboardCard.bottomAnchor),
+        ])
+
+        stackView.addArrangedSubview(clipboardCard)
+        clipboardCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
             stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -210,6 +247,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         closePaneSwitch.state = currentConfirmations.confirmBeforeClosingPane ? .on : .off
         closeWindowSwitch.state = currentConfirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = currentConfirmations.confirmBeforeQuitting ? .on : .off
+        alwaysCleanCopiesSwitch.state = currentClipboard.alwaysCleanCopies ? .on : .off
         selectUpdateChannelPopupItem(for: currentUpdates.channel)
         errorReportingSwitch.state = currentErrorReporting.enabled ? .on : .off
         refreshNotificationStatus()
@@ -233,6 +271,12 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         closePaneSwitch.state = confirmations.confirmBeforeClosingPane ? .on : .off
         closeWindowSwitch.state = confirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = confirmations.confirmBeforeQuitting ? .on : .off
+    }
+
+    func apply(clipboard: AppConfig.Clipboard) {
+        currentClipboard = clipboard
+        guard isViewLoaded else { return }
+        alwaysCleanCopiesSwitch.state = clipboard.alwaysCleanCopies ? .on : .off
     }
 
     func apply(updates: AppConfig.Updates) {
@@ -306,7 +350,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
             leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
 
             rightStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            rightStack.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
+            rightStack.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
             rightStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
         ])
 
@@ -377,7 +422,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
             leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
 
             rightStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            rightStack.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
+            rightStack.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
             rightStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
         ])
 
@@ -433,7 +479,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
             leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
 
             rightStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            rightStack.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
+            rightStack.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
             rightStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
         ])
 
@@ -492,7 +539,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
             leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
 
             rightStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            rightStack.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
+            rightStack.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
             rightStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
         ])
 
@@ -504,7 +552,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     @objc
     private func handleOpenSettings(_ sender: Any?) {
         guard let bundleID = Bundle.main.bundleIdentifier else { return }
-        let urlString = "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(bundleID)"
+        let urlString =
+            "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(bundleID)"
         if let url = URL(string: urlString) {
             NSWorkspace.shared.open(url)
         }
@@ -555,6 +604,15 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
             config.confirmations.confirmBeforeQuitting = sender.state == .on
         }
         currentConfirmations = configStore.current.confirmations
+    }
+
+    @objc
+    private func handleAlwaysCleanCopiesSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.clipboard.alwaysCleanCopies = sender.state == .on
+        }
+        currentClipboard = configStore.current.clipboard
+        CleanCopyPipeline.isAutoCleanEnabled = currentClipboard.alwaysCleanCopies
     }
 
     @objc
@@ -640,7 +698,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         case .denied:
             statusLabel.stringValue = "Denied"
             statusLabel.textColor = .systemRed
-            subtitleLabel.stringValue = "Desktop notifications are disabled. Enable them in System Settings."
+            subtitleLabel.stringValue =
+                "Desktop notifications are disabled. Enable them in System Settings."
         case .provisional:
             statusLabel.stringValue = "Provisional"
             statusLabel.textColor = .systemOrange
@@ -668,18 +727,21 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
             errorReportingStatusLabel.stringValue = ""
             errorReportingStatusLabel.textColor = .secondaryLabelColor
             errorReportingStatusLabel.isHidden = true
-            errorReportingSubtitleLabel.stringValue = "Send anonymous crash reports to help improve Zentty. Privacy-first by design."
+            errorReportingSubtitleLabel.stringValue =
+                "Send anonymous crash reports to help improve Zentty. Privacy-first by design."
         } else {
             errorReportingStatusLabel.stringValue = "Unavailable"
             errorReportingStatusLabel.textColor = .secondaryLabelColor
             errorReportingStatusLabel.isHidden = false
-            errorReportingSubtitleLabel.stringValue = "Error reporting is unavailable in this build."
+            errorReportingSubtitleLabel.stringValue =
+                "Error reporting is unavailable in this build."
         }
     }
 
     private func updateErrorReportingRestartMessage() {
         let needsRestart = currentErrorReporting.enabled != runtimeErrorReportingEnabled
-        errorReportingRestartLabel.stringValue = needsRestart ? "Restart Zentty to apply this change." : ""
+        errorReportingRestartLabel.stringValue =
+            needsRestart ? "Restart Zentty to apply this change." : ""
         errorReportingRestartLabel.isHidden = !needsRestart
     }
 
@@ -687,17 +749,19 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
     private func selectSoundPopupItem(for soundName: String) {
         guard isViewLoaded else { return }
-        let index = soundPopupButton.itemArray.firstIndex {
-            ($0.representedObject as? String) == soundName
-        } ?? 0
+        let index =
+            soundPopupButton.itemArray.firstIndex {
+                ($0.representedObject as? String) == soundName
+            } ?? 0
         soundPopupButton.selectItem(at: index)
     }
 
     private func selectUpdateChannelPopupItem(for channel: AppUpdateChannel) {
         guard isViewLoaded else { return }
-        let index = updateChannelPopupButton.itemArray.firstIndex {
-            ($0.representedObject as? AppUpdateChannel) == channel
-        } ?? 0
+        let index =
+            updateChannelPopupButton.itemArray.firstIndex {
+                ($0.representedObject as? AppUpdateChannel) == channel
+            } ?? 0
         updateChannelPopupButton.selectItem(at: index)
     }
 
@@ -742,7 +806,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
             leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
 
             toggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            toggle.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
+            toggle.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
             toggle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
         ])
 
@@ -812,7 +877,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     }
 
     var errorReportingRestartMessage: String? {
-        errorReportingRestartLabel.stringValue.isEmpty ? nil : errorReportingRestartLabel.stringValue
+        errorReportingRestartLabel.stringValue.isEmpty
+            ? nil : errorReportingRestartLabel.stringValue
     }
 
     func setErrorReportingEnabledForTesting(_ enabled: Bool) {
@@ -820,9 +886,10 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     }
 
     func setUpdateChannelForTesting(_ channel: AppUpdateChannel) {
-        let index = updateChannelPopupButton.itemArray.firstIndex {
-            ($0.representedObject as? AppUpdateChannel) == channel
-        } ?? 0
+        let index =
+            updateChannelPopupButton.itemArray.firstIndex {
+                ($0.representedObject as? AppUpdateChannel) == channel
+            } ?? 0
         updateChannelPopupButton.selectItem(at: index)
         handleUpdateChannelChanged(updateChannelPopupButton)
     }

@@ -38,9 +38,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSWindow.didBecomeKeyNotification,
             object: nil
         )
+        CleanCopyPipeline.isAutoCleanEnabled = configStore.current.clipboard.alwaysCleanCopies
         configObserverID = configStore.addObserver { [weak self] config in
             Task { @MainActor in
                 guard let self else { return }
+                CleanCopyPipeline.isAutoCleanEnabled = config.clipboard.alwaysCleanCopies
                 AppMenuBuilder.installIfNeeded(on: NSApp, config: config)
                 self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
                 self.aboutWindowController?.applyTheme(self.resolvedAboutTheme)

@@ -425,6 +425,7 @@ final class SettingsViewController: NSTabViewController {
     private func apply(config: AppConfig) {
         generalViewController.apply(notifications: config.notifications)
         generalViewController.apply(confirmations: config.confirmations)
+        generalViewController.apply(clipboard: config.clipboard)
         generalViewController.apply(updates: config.updates)
         generalViewController.apply(errorReporting: config.errorReporting)
         shortcutsViewController.apply(shortcuts: config.shortcuts)

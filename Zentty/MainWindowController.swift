@@ -555,6 +555,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func cleanCopy(_ sender: Any?) {
+        handle(.cleanCopy)
+    }
+
+    @objc
+    func copyRaw(_ sender: Any?) {
+        handle(.copyRaw)
+    }
+
+    @objc
     func find(_ sender: Any?) {
         handle(.find)
     }
@@ -1077,7 +1087,12 @@ extension MainWindowController: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if let action = menuItem.action,
            let commandID = AppCommandRegistry.commandID(forMenuAction: action) {
-            return rootViewController.isCommandAvailable(commandID)
+            switch commandID {
+            case .cleanCopy, .copyRaw:
+                return rootViewController.focusedTerminalHasSelection
+            default:
+                return rootViewController.isCommandAvailable(commandID)
+            }
         }
 
         switch menuItem.action {

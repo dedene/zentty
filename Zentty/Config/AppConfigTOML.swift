@@ -20,6 +20,7 @@ enum AppConfigTOML {
         case shortcutBinding(Int)
         case notifications
         case confirmations
+        case clipboard
         case updates
     }
 
@@ -107,6 +108,10 @@ enum AppConfigTOML {
         lines.append("confirm_before_closing_window = \(config.confirmations.confirmBeforeClosingWindow)")
         lines.append("confirm_before_quitting = \(config.confirmations.confirmBeforeQuitting)")
 
+        lines.append("")
+        lines.append("[clipboard]")
+        lines.append("always_clean_copies = \(config.clipboard.alwaysCleanCopies)")
+
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -168,6 +173,10 @@ enum AppConfigTOML {
                 section = .confirmations
                 continue
             }
+            if line == "[clipboard]" {
+                section = .clipboard
+                continue
+            }
             if line == "[updates]" {
                 section = .updates
                 continue
@@ -223,6 +232,10 @@ enum AppConfigTOML {
                 }
             case .confirmations:
                 guard decodeConfirmationsAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .clipboard:
+                guard decodeClipboardAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .updates:
@@ -490,6 +503,20 @@ enum AppConfigTOML {
         case "confirm_before_quitting":
             guard let value = decodeBool(assignment.value) else { return false }
             config.confirmations.confirmBeforeQuitting = value
+        default:
+            return true
+        }
+        return true
+    }
+
+    private static func decodeClipboardAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "always_clean_copies":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.clipboard.alwaysCleanCopies = value
         default:
             return true
         }

@@ -96,6 +96,8 @@ enum AppMenuBuilder {
             action: #selector(NSText.copy(_:)),
             keyEquivalent: "c"
         ))
+        editMenu.addItem(makeCommandMenuItem(commandID: .cleanCopy, shortcutManager: shortcutManager))
+        editMenu.addItem(makeCommandMenuItem(commandID: .copyRaw, shortcutManager: shortcutManager))
         editMenu.addItem(makeCommandMenuItem(commandID: .copyFocusedPanePath, shortcutManager: shortcutManager))
         editMenu.addItem(makeStandardMenuActionItem(
             title: "Paste",
@@ -256,6 +258,8 @@ enum AppMenuBuilder {
         let windowMenu = menu(named: "Window", in: mainMenu)
         let requiredEditItems: [(String, Selector)] = [
             ("Copy", #selector(NSText.copy(_:))),
+            ("Clean Copy", #selector(MainWindowController.cleanCopy(_:))),
+            ("Copy Raw", #selector(MainWindowController.copyRaw(_:))),
             ("Copy Path", #selector(MainWindowController.copyFocusedPanePath(_:))),
             ("Paste", #selector(NSText.paste(_:))),
             ("Select All", #selector(NSResponder.selectAll(_:))),

@@ -4,6 +4,8 @@ import os
 
 @MainActor
 final class TerminalPaneHostView: NSView {
+    private static let logger = Logger(subsystem: "be.zenjoy.zentty", category: "TerminalPaneHostView")
+
     private let adapter: any TerminalAdapter
     private let terminalView: NSView
     private let searchHUDView = PaneSearchHUDView()
@@ -26,15 +28,17 @@ final class TerminalPaneHostView: NSView {
     }
     var onFocusDidChange: ((Bool) -> Void)? {
         didSet {
-            assert(onFocusDidChange == nil || terminalView is any TerminalFocusReporting,
-                   "terminalView must conform to TerminalFocusReporting to forward onFocusDidChange")
+            if onFocusDidChange != nil, !(terminalView is any TerminalFocusReporting) {
+                Self.logger.warning("terminalView must conform to TerminalFocusReporting to forward onFocusDidChange")
+            }
             (terminalView as? any TerminalFocusReporting)?.onFocusDidChange = onFocusDidChange
         }
     }
     var onScrollWheel: ((NSEvent) -> Bool)? {
         didSet {
-            assert(onScrollWheel == nil || terminalView is any TerminalScrollRouting,
-                   "terminalView must conform to TerminalScrollRouting to forward onScrollWheel")
+            if onScrollWheel != nil, !(terminalView is any TerminalScrollRouting) {
+                Self.logger.warning("terminalView must conform to TerminalScrollRouting to forward onScrollWheel")
+            }
             (terminalView as? any TerminalScrollRouting)?.onScrollWheel = onScrollWheel
         }
     }
@@ -47,8 +51,9 @@ final class TerminalPaneHostView: NSView {
     var onSearchHUDFrameDidChange: (() -> Void)?
     var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)? {
         didSet {
-            assert(contextMenuBuilder == nil || terminalView is any TerminalContextMenuConfiguring,
-                   "terminalView must conform to TerminalContextMenuConfiguring to forward contextMenuBuilder")
+            if contextMenuBuilder != nil, !(terminalView is any TerminalContextMenuConfiguring) {
+                Self.logger.warning("terminalView must conform to TerminalContextMenuConfiguring to forward contextMenuBuilder")
+            }
             (terminalView as? any TerminalContextMenuConfiguring)?.contextMenuBuilder = contextMenuBuilder
         }
     }

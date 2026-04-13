@@ -845,6 +845,9 @@ final class PaneContainerView: NSView {
 
         let customMenu = NSMenu(title: "")
         customMenu.addItem(makeContextMenuItem(title: "Copy", action: #selector(NSText.copy(_:))))
+        let cleanCopyItem = makeContextMenuItem(title: "Clean Copy", action: #selector(MainWindowController.cleanCopy(_:)))
+        cleanCopyItem.image = NSImage(systemSymbolName: "sparkles.rectangle.stack", accessibilityDescription: "Clean Copy")
+        customMenu.addItem(cleanCopyItem)
         customMenu.addItem(makeContextMenuItem(title: "Paste", action: #selector(NSText.paste(_:))))
         customMenu.addItem(.separator())
         customMenu.addItem(makeContextMenuItem(title: "Add Pane Right", action: #selector(MainWindowController.addPaneRight(_:))))

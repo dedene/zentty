@@ -1283,6 +1283,7 @@ final class PaneContainerViewTests: AppKitTestCase {
             menu.items.map { $0.isSeparatorItem ? "---" : $0.title },
             [
                 "Copy",
+                "Clean Copy",
                 "Paste",
                 "---",
                 "Add Pane Right",

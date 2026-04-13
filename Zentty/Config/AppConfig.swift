@@ -95,6 +95,12 @@ struct AppConfig: Equatable, Sendable {
         static let `default` = Updates(channel: .stable)
     }
 
+    struct Clipboard: Equatable, Sendable {
+        var alwaysCleanCopies: Bool
+
+        static let `default` = Clipboard(alwaysCleanCopies: false)
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var panes: Panes
@@ -104,6 +110,7 @@ struct AppConfig: Equatable, Sendable {
     var shortcuts: Shortcuts
     var notifications: Notifications
     var confirmations: Confirmations
+    var clipboard: Clipboard
     var appearance: Appearance
 
     static let `default` = AppConfig(
@@ -119,6 +126,7 @@ struct AppConfig: Equatable, Sendable {
         shortcuts: .default,
         notifications: .default,
         confirmations: .default,
+        clipboard: .default,
         appearance: .default
     )
 
@@ -140,6 +148,7 @@ struct AppConfig: Equatable, Sendable {
             shortcuts: .default,
             notifications: .default,
             confirmations: .default,
+            clipboard: .default,
             appearance: .default
         )
     }
