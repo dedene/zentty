@@ -80,13 +80,15 @@ final class MockTerminalAdapter: TerminalAdapter, TerminalPreviewRendering, Term
     }
 }
 
-final class TerminalSurfaceMockView: NSView, TerminalFocusReporting {
+final class TerminalSurfaceMockView: NSView, TerminalFocusReporting, TerminalScrollRouting, TerminalContextMenuConfiguring {
     private enum Layout {
         static let contentInset: CGFloat = 12
     }
 
     private let contentLabel = NSTextField(wrappingLabelWithString: "")
     var onFocusDidChange: ((Bool) -> Void)?
+    var onScrollWheel: ((NSEvent) -> Bool)?
+    var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)?
 
     override var acceptsFirstResponder: Bool {
         true

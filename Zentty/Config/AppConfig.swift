@@ -101,6 +101,12 @@ struct AppConfig: Equatable, Sendable {
         static let `default` = Restore(restoreWorkspaceOnLaunch: true)
     }
 
+    struct Clipboard: Equatable, Sendable {
+        var alwaysCleanCopies: Bool
+
+        static let `default` = Clipboard(alwaysCleanCopies: false)
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var panes: Panes
@@ -110,6 +116,7 @@ struct AppConfig: Equatable, Sendable {
     var shortcuts: Shortcuts
     var notifications: Notifications
     var confirmations: Confirmations
+    var clipboard: Clipboard
     var appearance: Appearance
     var restore: Restore
 
@@ -126,6 +133,7 @@ struct AppConfig: Equatable, Sendable {
         shortcuts: .default,
         notifications: .default,
         confirmations: .default,
+        clipboard: .default,
         appearance: .default,
         restore: .default
     )
@@ -148,6 +156,7 @@ struct AppConfig: Equatable, Sendable {
             shortcuts: .default,
             notifications: .default,
             confirmations: .default,
+            clipboard: .default,
             appearance: .default,
             restore: .default
         )

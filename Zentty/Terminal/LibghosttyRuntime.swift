@@ -718,6 +718,12 @@ private func libghosttyWriteClipboardCallback(
         }
         pasteboard.setString(entry.data, forType: type)
     }
+
+    if location == GHOSTTY_CLIPBOARD_STANDARD,
+       !CleanCopyPipeline.suppressCallbackCleaning,
+       CleanCopyPipeline.isAutoCleanEnabled {
+        CleanCopyPipeline.cleanPasteboardInPlace(pasteboard)
+    }
 }
 
 private extension NSPasteboard.PasteboardType {

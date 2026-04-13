@@ -114,7 +114,7 @@ private final class SurfaceTextSpy: LibghosttySurfaceControlling {
         state: ghostty_input_mouse_state_e,
         button: ghostty_input_mouse_button_e,
         modifiers: NSEvent.ModifierFlags
-    ) {}
+    ) -> Bool { false }
     func sendText(_ text: String) { sentTexts.append(text) }
     func performBindingAction(_ action: String) -> Bool { true }
     func hasSelection() -> Bool { false }

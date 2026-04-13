@@ -52,6 +52,11 @@ final class PathCopiedToastView: NSView {
     }
 
     func show(in parentView: NSView, theme: ZenttyTheme) {
+        show(message: "Path copied", in: parentView, theme: theme)
+    }
+
+    func show(message: String, in parentView: NSView, theme: ZenttyTheme) {
+        messageLabel.stringValue = message
         dismissWorkItem?.cancel()
         removeFromSuperview()
 

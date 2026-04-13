@@ -67,6 +67,8 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case openSettings = "app.open_settings"
     case newWindow = "app.new_window"
     case closeWindow = "app.close_window"
+    case cleanCopy = "clipboard.clean_copy"
+    case copyRaw = "clipboard.copy_raw"
     case reloadConfig = "app.reload_config"
 }
 
@@ -86,6 +88,8 @@ enum AppAction: Equatable, Sendable {
     case findNext
     case findPrevious
     case copyFocusedPanePath
+    case cleanCopy
+    case copyRaw
     case jumpToLatestNotification
     case pane(PaneCommand)
     case navigateBack
@@ -270,6 +274,30 @@ enum AppCommandRegistry {
                 section: .edit,
                 title: "Copy Path",
                 selector: #selector(MainWindowController.copyFocusedPanePath(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .cleanCopy,
+            title: "Clean Copy",
+            category: .general,
+            defaultShortcut: .init(key: .character("c"), modifiers: [.command, .control]),
+            action: .cleanCopy,
+            menuItem: AppCommandMenuItem(
+                section: .edit,
+                title: "Clean Copy",
+                selector: #selector(MainWindowController.cleanCopy(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .copyRaw,
+            title: "Copy Raw",
+            category: .general,
+            defaultShortcut: nil,
+            action: .copyRaw,
+            menuItem: AppCommandMenuItem(
+                section: .edit,
+                title: "Copy Raw",
+                selector: #selector(MainWindowController.copyRaw(_:))
             )
         ),
         AppCommandDefinition(
@@ -685,6 +713,8 @@ enum AppCommandRegistry {
                 .command(.useSelectionForFind),
             ]),
             .command(.copyFocusedPanePath),
+            .command(.cleanCopy),
+            .command(.copyRaw),
         ],
         .navigation: [
             .command(.navigateBack),
@@ -759,99 +789,103 @@ extension AppCommandDefinition {
     var detailDescription: String {
         switch id {
         case .toggleSidebar:
-            "Show or hide the sidebar so you can focus on the canvas or quickly jump between worklanes."
+            "Show or hide the sidebar."
         case .navigateBack:
-            "Jump back to the previously focused pane, retracing your navigation history."
+            "Go back to the pane you were in before."
         case .navigateForward:
-            "Jump forward to the pane you navigated away from after going back."
+            "Go forward again after navigating back."
         case .newWorklane:
-            "Create a new worklane immediately, keeping your current context intact while opening a fresh lane for new work."
+            "Open a new worklane."
         case .nextWorklane:
-            "Move focus to the next worklane in sequence without leaving the keyboard."
+            "Switch to the next worklane."
         case .previousWorklane:
-            "Move focus to the previous worklane so you can cycle backward through your active lanes."
+            "Switch to the previous worklane."
         case .find:
-            "Open find for the focused pane and place the insertion point in the search field."
+            "Open find in the focused pane."
         case .globalFind:
-            "Open global find across all panes in the current window."
+            "Search across all panes in this window."
         case .useSelectionForFind:
-            "Search the focused pane using the current selection and show the find HUD."
+            "Find the selected text in the focused pane."
         case .findNext:
-            "Jump to the next search result in the focused pane."
+            "Go to the next search result."
         case .findPrevious:
-            "Jump to the previous search result in the focused pane."
+            "Go to the previous search result."
         case .copyFocusedPanePath:
-            "Copy the working path from the focused pane so you can paste it into another app or command."
+            "Copy the working directory path from the focused pane."
+        case .cleanCopy:
+            "Copy the selected text with extra whitespace, color codes, and shell prompts removed."
+        case .copyRaw:
+            "Copy the selected text exactly as it appears, without any cleanup."
         case .jumpToLatestNotification:
-            "Jump directly to the latest in-app notification so you can review recent activity without scanning manually."
+            "Go to the most recent notification."
         case .duplicateFocusedPane:
-            "Duplicate the focused pane into a new column to the right, carrying over its working directory and restartable command when available."
+            "Duplicate the focused pane in a new column, keeping its working directory."
         case .splitHorizontally:
-            "Split the focused pane horizontally to create another pane in the same column."
+            "Add a pane below in the same column."
         case .splitVertically:
-            "Split the focused pane vertically to create a new adjacent column."
+            "Add a pane to the right in a new column."
         case .arrangeWidthFull:
-            "Make every existing column span the full readable window width, preserving each column's current vertical stack."
+            "Give each column the full window width."
         case .arrangeWidthHalves:
-            "Normalize every existing column to half the readable window width while preserving vertical stacks."
+            "Set all columns to equal halves."
         case .arrangeWidthThirds:
-            "Normalize every existing column to one third of the readable window width while preserving vertical stacks."
+            "Set all columns to equal thirds."
         case .arrangeWidthQuarters:
-            "Normalize every existing column to one quarter of the readable window width while preserving vertical stacks."
+            "Set all columns to equal quarters."
         case .arrangeHeightFull:
-            "Repack panes into one pane per column so each pane takes the full height of its column."
+            "One pane per column, full height."
         case .arrangeHeightTwoPerColumn:
-            "Repack panes into columns of two panes each, distributed top-to-bottom then left-to-right."
+            "Stack two panes per column."
         case .arrangeHeightThreePerColumn:
-            "Repack panes into columns of three panes each, distributing any partial final column evenly."
+            "Stack three panes per column."
         case .arrangeHeightFourPerColumn:
-            "Repack panes into columns of four panes each, distributing any partial final column evenly."
+            "Stack four panes per column."
         case .arrangeWidthGoldenFocusWide:
-            "Apply golden ratio to the focused column and its neighbor, making the focused column the wider one (~61.8%)."
+            "Golden ratio: focused column gets the wide side (~62%)."
         case .arrangeWidthGoldenFocusNarrow:
-            "Apply golden ratio to the focused column and its neighbor, making the focused column the narrower one (~38.2%)."
+            "Golden ratio: focused column gets the narrow side (~38%)."
         case .arrangeHeightGoldenFocusTall:
-            "Apply golden ratio to the focused pane and its neighbor, making the focused pane the taller one (~61.8%)."
+            "Golden ratio: focused pane gets the tall side (~62%)."
         case .arrangeHeightGoldenFocusShort:
-            "Apply golden ratio to the focused pane and its neighbor, making the focused pane the shorter one (~38.2%)."
+            "Golden ratio: focused pane gets the short side (~38%)."
         case .closeFocusedPane:
-            "Close the currently focused pane while keeping the rest of the layout intact."
+            "Close the focused pane."
         case .focusPreviousPane:
-            "Move focus to the previous pane in sidebar order, crossing worklanes and wrapping at the beginning."
+            "Focus the previous pane, wrapping across worklanes."
         case .focusNextPane:
-            "Move focus to the next pane in sidebar order, crossing worklanes and wrapping at the end."
+            "Focus the next pane, wrapping across worklanes."
         case .focusLeftPane:
-            "Move focus to the pane immediately to the left of the current pane."
+            "Focus the pane to the left."
         case .focusRightPane:
-            "Move focus to the pane immediately to the right of the current pane."
+            "Focus the pane to the right."
         case .focusUpInColumn:
-            "Move focus up within the column, or to the previous worklane at the top."
+            "Focus the pane above, or the previous worklane at the top."
         case .focusDownInColumn:
-            "Move focus down within the column, or to the next worklane at the bottom."
+            "Focus the pane below, or the next worklane at the bottom."
         case .resizePaneLeft:
-            "Make the focused pane wider by pulling its left boundary outward."
+            "Grow the focused pane to the left."
         case .resizePaneRight:
-            "Make the focused pane wider by pushing its right boundary outward."
+            "Grow the focused pane to the right."
         case .resizePaneUp:
-            "Increase the height of the focused pane by moving its upper split."
+            "Grow the focused pane upward."
         case .resizePaneDown:
-            "Increase the height of the focused pane by moving its lower split."
+            "Grow the focused pane downward."
         case .resetPaneLayout:
-            "Restore the current pane layout to its default proportions."
+            "Reset pane sizes to their defaults."
         case .toggleZoomOut:
-            "Toggle zoomed-out view of all panes for drag reordering."
+            "Zoom out to see all panes and drag to reorder."
         case .showCommandPalette:
-            "Open the command palette to quickly find and run any command."
+            "Open the command palette."
         case .openBranchOnRemote:
-            "Open the active branch on its remote hosting provider, such as a GitHub branch page in your browser."
+            "Open the current branch on GitHub or your remote host."
         case .openSettings:
-            "Open the settings window to customize shortcuts, appearance, and behavior."
+            "Open settings."
         case .newWindow:
-            "Open a new independent window with its own worklanes and panes."
+            "Open a new window."
         case .closeWindow:
-            "Close the current window."
+            "Close this window."
         case .reloadConfig:
-            "Reload the configuration file from disk and apply any changes."
+            "Reload the config file from disk."
         }
     }
 
