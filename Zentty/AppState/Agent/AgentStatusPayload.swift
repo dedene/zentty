@@ -243,7 +243,24 @@ struct AgentStatusPayload: Equatable, Sendable {
 }
 
 enum AgentStatusTransport {
-    static let notificationName = Notification.Name("be.zenjoy.zentty.agent-status")
+    static let instanceIDEnvironmentKey = "ZENTTY_INSTANCE_ID"
+    private static let notificationNamePrefix = "be.zenjoy.zentty.agent-status"
+
+    static func notificationName(instanceID: String?) -> Notification.Name {
+        guard let instanceID = trimmed(instanceID) else {
+            return Notification.Name(notificationNamePrefix)
+        }
+
+        return Notification.Name("\(notificationNamePrefix).\(instanceID)")
+    }
+
+    private static func trimmed(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+
+        return value
+    }
 }
 
 private extension PaneAgentState {

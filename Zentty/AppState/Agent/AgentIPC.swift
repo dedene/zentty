@@ -261,6 +261,7 @@ struct AgentIPCConnectionInfo {
     let socketPath: String
     let paneToken: String
     let cliPath: String
+    let instanceID: String
 }
 
 struct AgentIPCTarget: Equatable {
@@ -277,6 +278,7 @@ final class AgentIPCServer: @unchecked Sendable {
 
     private let fileManager: FileManager
     private let authentication: AgentIPCAuthentication
+    let instanceID: String
     private let queue = DispatchQueue(label: "be.zenjoy.zentty.agent-ipc")
     private let diagnosticsEnabled: Bool
     private var socketFileDescriptor: Int32 = -1
@@ -287,10 +289,12 @@ final class AgentIPCServer: @unchecked Sendable {
     init(
         fileManager: FileManager = .default,
         authentication: AgentIPCAuthentication = AgentIPCAuthentication(),
+        instanceID: String = UUID().uuidString.lowercased(),
         diagnosticsEnabled: Bool = ProcessInfo.processInfo.environment["ZENTTY_IPC_DIAGNOSTICS"] == "1"
     ) {
         self.fileManager = fileManager
         self.authentication = authentication
+        self.instanceID = instanceID
         self.diagnosticsEnabled = diagnosticsEnabled
     }
 
@@ -313,7 +317,8 @@ final class AgentIPCServer: @unchecked Sendable {
         return AgentIPCConnectionInfo(
             socketPath: socketPath,
             paneToken: authentication.token(windowID: windowID, worklaneID: worklaneID, paneID: paneID),
-            cliPath: cliPath
+            cliPath: cliPath,
+            instanceID: instanceID
         )
     }
 
@@ -446,6 +451,7 @@ final class AgentIPCServer: @unchecked Sendable {
                 let diagnosticsEnabled = diagnosticsEnabled
                 let authentication = authentication
                 let runtimeDirectoryURL = runtimeDirectoryURL
+                let instanceID = instanceID
                 let bundle = Bundle.main
                 DispatchQueue.global(qos: .utility).async {
                     Self.handleConnection(
@@ -454,7 +460,9 @@ final class AgentIPCServer: @unchecked Sendable {
                         diagnosticsEnabled: diagnosticsEnabled,
                         runtimeDirectoryURL: runtimeDirectoryURL,
                         bundle: bundle,
-                        post: AgentStatusHelper.post,
+                        post: { payload in
+                            AgentStatusHelper.post(payload, instanceID: instanceID)
+                        },
                         writeError: { [weak self] message in
                             self?.logError(message)
                         }

@@ -26,6 +26,7 @@ enum WorklaneSessionEnvironment {
             environment["ZENTTY_INSTANCE_SOCKET"] = connectionInfo.socketPath
             environment["ZENTTY_PANE_TOKEN"] = connectionInfo.paneToken
             environment["ZENTTY_CLI_BIN"] = connectionInfo.cliPath
+            environment[AgentStatusTransport.instanceIDEnvironmentKey] = connectionInfo.instanceID
         }
 
         if let wrapperDirectories = AgentStatusHelper.wrapperDirectoryPaths() {

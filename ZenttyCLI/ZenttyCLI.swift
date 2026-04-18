@@ -370,6 +370,7 @@ struct IPCCommand: ParsableCommand {
         "ZENTTY_WORKLANE_ID",
         "ZENTTY_PANE_ID",
         "ZENTTY_PANE_TOKEN",
+        "ZENTTY_INSTANCE_ID",
         "ZENTTY_CLAUDE_PID",
         "ZENTTY_CODEX_PID",
         "ZENTTY_COPILOT_PID",

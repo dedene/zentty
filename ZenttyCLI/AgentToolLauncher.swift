@@ -93,6 +93,7 @@ struct AgentToolLauncher {
             "ZENTTY_WORKLANE_ID",
             "ZENTTY_PANE_ID",
             "ZENTTY_PANE_TOKEN",
+            "ZENTTY_INSTANCE_ID",
             "ZENTTY_CLAUDE_HOOKS_DISABLED",
             "ZENTTY_COPILOT_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",

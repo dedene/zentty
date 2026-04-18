@@ -2365,7 +2365,8 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_agent_status_center_delivers_payloads_on_main_actor() {
-        let center = AgentStatusCenter()
+        let instanceID = "instance-\(UUID().uuidString.lowercased())"
+        let center = AgentStatusCenter(instanceID: instanceID)
         // Use test-only IDs to avoid leaking a real distributed notification
         // into a running Zentty instance (which uses "worklane-main" by default).
         let payload = AgentStatusPayload(
@@ -2390,7 +2391,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         DispatchQueue.global(qos: .userInitiated).async {
             DistributedNotificationCenter.default().postNotificationName(
-                AgentStatusTransport.notificationName,
+                AgentStatusTransport.notificationName(instanceID: instanceID),
                 object: nil,
                 userInfo: payload.notificationUserInfo,
                 deliverImmediately: true
@@ -2398,6 +2399,69 @@ final class AgentStatusSupportTests: XCTestCase {
         }
 
         wait(for: [deliveredOnMain], timeout: 2)
+    }
+
+    func test_agent_status_center_filters_notifications_by_instance_id() {
+        let instanceID = "instance-\(UUID().uuidString.lowercased())"
+        let otherInstanceID = "instance-\(UUID().uuidString.lowercased())"
+        let center = AgentStatusCenter(instanceID: instanceID)
+        let payload = AgentStatusPayload(
+            worklaneID: WorklaneID("test-status-scope"),
+            paneID: PaneID("test-status-scope-shell"),
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: "Working",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+        let unexpectedDelivery = expectation(description: "other scoped notification ignored")
+        unexpectedDelivery.isInverted = true
+        let expectedDelivery = expectation(description: "matching scoped notification delivered")
+
+        center.onPayload = { receivedPayload in
+            XCTAssertEqual(receivedPayload, payload)
+            expectedDelivery.fulfill()
+            unexpectedDelivery.fulfill()
+        }
+        center.start()
+
+        DistributedNotificationCenter.default().postNotificationName(
+            AgentStatusTransport.notificationName(instanceID: otherInstanceID),
+            object: nil,
+            userInfo: payload.notificationUserInfo,
+            deliverImmediately: true
+        )
+
+        wait(for: [unexpectedDelivery], timeout: 0.3)
+
+        DistributedNotificationCenter.default().postNotificationName(
+            AgentStatusTransport.notificationName(instanceID: instanceID),
+            object: nil,
+            userInfo: payload.notificationUserInfo,
+            deliverImmediately: true
+        )
+
+        wait(for: [expectedDelivery], timeout: 2)
+    }
+
+    func test_worklane_session_environment_sets_agent_status_instance_id() {
+        let windowID = WindowID("window-main")
+        let worklaneID = WorklaneID("worklane-main")
+        let paneID = PaneID("pane-main")
+
+        let environment = WorklaneSessionEnvironment.make(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            processEnvironment: [:]
+        )
+
+        XCTAssertEqual(
+            environment[AgentStatusTransport.instanceIDEnvironmentKey],
+            AgentIPCServer.shared.instanceID
+        )
     }
 
     func test_claude_hook_pre_tool_use_clears_waiting_and_restores_running() throws {
@@ -3127,6 +3191,71 @@ final class AgentStatusSupportTests: XCTestCase {
 
         XCTAssertEqual(completedPayload.state, .running)
         XCTAssertEqual(completedPayload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 1))
+    }
+
+    func test_claude_hook_task_created_resets_when_prior_batch_all_completed() throws {
+        let store = try makeClaudeHookSessionStore()
+        try store.upsert(
+            sessionID: "session-1",
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            cwd: "/tmp/project",
+            pid: 4242
+        )
+
+        for index in 1...5 {
+            _ = try store.updateTask(sessionID: "session-1", taskID: "task-\(index)", isCompleted: false)
+        }
+        for index in 1...5 {
+            _ = try store.updateTask(sessionID: "session-1", taskID: "task-\(index)", isCompleted: true)
+        }
+
+        let priorProgress = try store.taskProgress(sessionID: "session-1")
+        XCTAssertEqual(priorProgress, PaneAgentTaskProgress(doneCount: 5, totalCount: 5))
+
+        let firstNew = try store.updateTask(sessionID: "session-1", taskID: "task-6", isCompleted: false)
+        XCTAssertEqual(firstNew, PaneAgentTaskProgress(doneCount: 0, totalCount: 1))
+
+        _ = try store.updateTask(sessionID: "session-1", taskID: "task-7", isCompleted: false)
+        let thirdNew = try store.updateTask(sessionID: "session-1", taskID: "task-8", isCompleted: false)
+        XCTAssertEqual(thirdNew, PaneAgentTaskProgress(doneCount: 0, totalCount: 3))
+    }
+
+    func test_claude_hook_task_created_does_not_reset_mid_batch() throws {
+        let store = try makeClaudeHookSessionStore()
+        try store.upsert(
+            sessionID: "session-1",
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            cwd: "/tmp/project",
+            pid: 4242
+        )
+
+        _ = try store.updateTask(sessionID: "session-1", taskID: "task-1", isCompleted: false)
+        _ = try store.updateTask(sessionID: "session-1", taskID: "task-2", isCompleted: false)
+        _ = try store.updateTask(sessionID: "session-1", taskID: "task-1", isCompleted: true)
+
+        let progress = try store.updateTask(sessionID: "session-1", taskID: "task-3", isCompleted: false)
+        XCTAssertEqual(progress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+    }
+
+    func test_claude_hook_task_created_for_existing_id_does_not_reset() throws {
+        let store = try makeClaudeHookSessionStore()
+        try store.upsert(
+            sessionID: "session-1",
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            cwd: "/tmp/project",
+            pid: 4242
+        )
+
+        _ = try store.updateTask(sessionID: "session-1", taskID: "task-1", isCompleted: false)
+        _ = try store.updateTask(sessionID: "session-1", taskID: "task-2", isCompleted: false)
+        _ = try store.updateTask(sessionID: "session-1", taskID: "task-1", isCompleted: true)
+        _ = try store.updateTask(sessionID: "session-1", taskID: "task-2", isCompleted: true)
+
+        let progress = try store.updateTask(sessionID: "session-1", taskID: "task-1", isCompleted: false)
+        XCTAssertEqual(progress, PaneAgentTaskProgress(doneCount: 1, totalCount: 2))
     }
 
     func test_claude_hook_session_end_clears_status_pid_and_mapping() throws {
