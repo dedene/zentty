@@ -123,65 +123,11 @@ extension WorklaneState {
     }
 
     var paneBorderContextDisplayByPaneID: [PaneID: PaneBorderContextDisplayModel] {
-        auxiliaryStateByPaneID.compactMapValues { $0.shellContext?.displayModel }
-    }
-}
-
-private extension PaneShellContext {
-    var displayModel: PaneBorderContextDisplayModel? {
-        switch scope {
-        case .local:
-            guard let compactPath = Self.compactPath(path, home: home) else {
-                return nil
-            }
-            if compactPath == "~" {
-                let identity = [user, host].compactMap { $0 }.joined(separator: "@")
-                if !identity.isEmpty {
-                    return PaneBorderContextDisplayModel(text: "\(identity):\(compactPath)")
-                }
-            }
-            return PaneBorderContextDisplayModel(text: compactPath)
-        case .remote:
-            let identity = [user, host]
-                .compactMap { value -> String? in
-                    guard let value, !value.isEmpty else {
-                        return nil
-                    }
-                    return value
-                }
-                .joined(separator: "@")
-            let compactPath = Self.compactPath(path, home: home)
-
-            if !identity.isEmpty, let compactPath, !compactPath.isEmpty {
-                return PaneBorderContextDisplayModel(text: "\(identity) \(compactPath)")
-            }
-
-            if !identity.isEmpty {
-                return PaneBorderContextDisplayModel(text: identity)
-            }
-
-            if let compactPath, !compactPath.isEmpty {
-                return PaneBorderContextDisplayModel(text: compactPath)
-            }
-
-            return nil
+        auxiliaryStateByPaneID.compactMapValues { auxiliaryState in
+            let borderText = WorklaneContextFormatter.trimmed(auxiliaryState.presentation.sshConnectionLabel)
+                ?? auxiliaryState.shellContext?.borderContextDisplayText
+            return borderText.map(PaneBorderContextDisplayModel.init(text:))
         }
-    }
-
-    static func compactPath(_ path: String?, home: String?) -> String? {
-        guard let path, !path.isEmpty else {
-            return nil
-        }
-
-        guard let home, !home.isEmpty, path.hasPrefix(home) else {
-            return path
-        }
-
-        if path == home {
-            return "~"
-        }
-
-        return path.replacingOccurrences(of: home, with: "~", options: [.anchored])
     }
 }
 

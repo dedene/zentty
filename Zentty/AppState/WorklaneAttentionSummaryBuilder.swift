@@ -35,13 +35,70 @@ enum WorklaneAttentionSummaryBuilder {
             state: attentionState,
             interactionKind: presentation.interactionKind,
             interactionLabel: presentation.interactionLabel ?? presentation.interactionKind?.defaultLabel,
-            primaryText: presentation.visibleIdentityText ?? "Shell",
+            primaryText: primaryText(for: presentation),
             statusText: summaryStatusText(for: presentation),
-            contextText: presentation.contextText ?? "",
+            contextText: contextText(for: presentation),
             artifactLink: presentation.attentionArtifactLink,
             interactionSymbolName: presentation.interactionSymbolName ?? presentation.interactionKind?.defaultSymbolName,
             updatedAt: presentation.updatedAt
         )
+    }
+
+    private static func primaryText(for presentation: PanePresentationState) -> String {
+        guard presentation.isRemoteShell else {
+            return presentation.visibleIdentityText ?? "Shell"
+        }
+
+        let host = WorklaneContextFormatter.trimmed(presentation.remoteHostLabel)
+        let title = meaningfulRemoteTitle(for: presentation)
+
+        switch (host, title) {
+        case let (host?, title?) where !host.isEmpty && !title.isEmpty:
+            return "\(host) · \(title)"
+        case let (host?, _):
+            return host
+        case let (_, title?):
+            return title
+        case (nil, nil):
+            return presentation.visibleIdentityText ?? "Shell"
+        }
+    }
+
+    private static func contextText(for presentation: PanePresentationState) -> String {
+        if presentation.isRemoteShell,
+           let remotePath = WorklaneContextFormatter.trimmed(presentation.remotePathLabel) {
+            return remotePath
+        }
+
+        return presentation.contextText ?? ""
+    }
+
+    private static func meaningfulRemoteTitle(for presentation: PanePresentationState) -> String? {
+        let candidates = [
+            WorklaneContextFormatter.trimmed(presentation.rememberedTitle),
+            WorklaneContextFormatter.trimmed(presentation.identityText),
+        ]
+
+        for candidate in candidates {
+            guard let candidate else {
+                continue
+            }
+
+            let lowered = candidate.lowercased()
+            if lowered == "shell" {
+                continue
+            }
+            if candidate.contains("/") || candidate.hasPrefix("~") {
+                continue
+            }
+            if candidate == presentation.remoteHostLabel {
+                continue
+            }
+
+            return candidate
+        }
+
+        return nil
     }
 
     private static func attentionState(for presentation: PanePresentationState) -> WorklaneAttentionState? {

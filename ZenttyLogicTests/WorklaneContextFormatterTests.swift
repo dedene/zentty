@@ -169,4 +169,30 @@ final class WorklaneContextFormatterTests: XCTestCase {
 
         XCTAssertEqual(identity, "claude")
     }
+
+    func test_ssh_connection_label_parses_user_and_host_from_interactive_ssh_title() {
+        let label = WorklaneContextFormatter.sshConnectionLabel(
+            for: TerminalMetadata(
+                title: "ssh peter@ssh.example.test",
+                currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                processName: "ssh",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(label, "peter@ssh.example.test")
+    }
+
+    func test_ssh_connection_label_parses_dash_l_username_flag() {
+        let label = WorklaneContextFormatter.sshConnectionLabel(
+            for: TerminalMetadata(
+                title: "ssh -p 2222 -l peter 203.0.113.10",
+                currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                processName: "ssh",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(label, "peter@203.0.113.10")
+    }
 }

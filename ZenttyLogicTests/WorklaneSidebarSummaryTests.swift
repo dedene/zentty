@@ -95,6 +95,82 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.primaryText, "~")
     }
 
+    func test_builder_prefixes_remote_host_for_realtime_agent_titles() {
+        let paneID = PaneID("worklane-main-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Working… zentty",
+                currentWorkingDirectory: "/home/peter/project",
+                processName: "codex"
+            ),
+            shellContext: PaneShellContext(
+                scope: .remote,
+                path: "/home/peter/project",
+                home: "/home/peter",
+                user: "peter",
+                host: "gilfoyle"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true
+            )
+        )
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+
+        XCTAssertEqual(summary.primaryText, "gilfoyle · Working… zentty")
+        XCTAssertEqual(summary.detailLines.map(\.text), [])
+        XCTAssertEqual(summary.paneRows.first?.primaryText, "gilfoyle · Working… zentty")
+        XCTAssertEqual(summary.paneRows.first?.detailText, "~/project")
+    }
+
+    func test_builder_uses_inferred_ssh_identity_over_local_cwd_while_ssh_is_active() {
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "ssh peter@ssh.example.test",
+                    currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                    processName: "ssh",
+                    gitBranch: "main"
+                )
+            ]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+
+        XCTAssertEqual(summary.primaryText, "peter@ssh.example.test")
+        XCTAssertEqual(summary.detailLines.map(\.text), [])
+        XCTAssertEqual(summary.paneRows.first?.primaryText, "peter@ssh.example.test")
+        XCTAssertNil(summary.paneRows.first?.detailText)
+    }
+
     func test_builder_prefers_more_specific_local_pane_context_over_stale_home_metadata() {
         let paneID = PaneID("worklane-main-shell")
         let projectPath = (NSHomeDirectory() as NSString).appendingPathComponent(

@@ -6150,7 +6150,7 @@ final class PaneStripStoreTests: XCTestCase {
 
         XCTAssertEqual(
             store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text,
-            "peter@gilfoyle ~/project"
+            "gilfoyle ~/project"
         )
     }
 
@@ -6180,7 +6180,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text, "peter@gilfoyle")
+        XCTAssertEqual(store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text, "gilfoyle")
     }
 
     func test_pane_context_signal_clear_removes_stored_context() throws {
@@ -6226,6 +6226,63 @@ final class PaneStripStoreTests: XCTestCase {
 
         XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext)
         XCTAssertNil(store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID])
+    }
+
+    func test_local_pane_border_shows_inferred_ssh_identity_while_ssh_is_active_and_reverts_on_exit() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/Users/peter/Development/Personal/zentty",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: "m1-pro-peter"
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "ssh peter@ssh.example.test",
+                currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                processName: "ssh",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text,
+            "peter@ssh.example.test"
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                processName: "zsh",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.paneBorderContextDisplayByPaneID[paneID]?.text,
+            "~/Development/Personal/zentty"
+        )
     }
 
     func test_pane_context_is_removed_when_pane_closes() throws {

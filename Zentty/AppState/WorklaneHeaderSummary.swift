@@ -3,6 +3,7 @@ import Foundation
 struct WorklaneChromeSummary: Equatable, Sendable {
     var attention: WorklaneAttentionSummary?
     var focusedLabel: String?
+    var remoteContextLabel: String?
     var cwdPath: String?
     var branch: String?
     var branchURL: URL?
@@ -12,6 +13,7 @@ struct WorklaneChromeSummary: Equatable, Sendable {
     init(
         attention: WorklaneAttentionSummary?,
         focusedLabel: String?,
+        remoteContextLabel: String? = nil,
         cwdPath: String? = nil,
         branch: String?,
         branchURL: URL? = nil,
@@ -20,6 +22,7 @@ struct WorklaneChromeSummary: Equatable, Sendable {
     ) {
         self.attention = attention
         self.focusedLabel = focusedLabel
+        self.remoteContextLabel = remoteContextLabel
         self.cwdPath = cwdPath
         self.branch = branch
         self.branchURL = branchURL

@@ -54,3 +54,76 @@ struct PaneShellContext: Equatable, Sendable {
         return value
     }
 }
+
+extension PaneShellContext {
+    var compactPathLabel: String? {
+        Self.compactPath(path, home: home)
+    }
+
+    var remoteHostLabel: String? {
+        guard scope == .remote else {
+            return nil
+        }
+
+        return host ?? user
+    }
+
+    var remotePathLabel: String? {
+        guard scope == .remote else {
+            return nil
+        }
+
+        return compactPathLabel
+    }
+
+    var remoteLocationLabel: String? {
+        guard scope == .remote else {
+            return nil
+        }
+
+        switch (remoteHostLabel, remotePathLabel) {
+        case let (host?, path?) where !host.isEmpty && !path.isEmpty:
+            return "\(host) \(path)"
+        case let (host?, _):
+            return host
+        case let (_, path?):
+            return path
+        case (nil, nil):
+            return nil
+        }
+    }
+
+    var borderContextDisplayText: String? {
+        switch scope {
+        case .local:
+            guard let compactPath = compactPathLabel else {
+                return nil
+            }
+            if compactPath == "~" {
+                let identity = [user, host].compactMap { $0 }.joined(separator: "@")
+                if !identity.isEmpty {
+                    return "\(identity):\(compactPath)"
+                }
+            }
+            return compactPath
+        case .remote:
+            return remoteLocationLabel
+        }
+    }
+
+    private static func compactPath(_ path: String?, home: String?) -> String? {
+        guard let path, !path.isEmpty else {
+            return nil
+        }
+
+        guard let home, !home.isEmpty, path.hasPrefix(home) else {
+            return path
+        }
+
+        if path == home {
+            return "~"
+        }
+
+        return path.replacingOccurrences(of: home, with: "~", options: [.anchored])
+    }
+}

@@ -347,6 +347,10 @@ enum WorklaneSidebarSummaryBuilder {
     private static func paneDetailCandidate(
         for paneContext: WorklanePaneContext
     ) -> PaneDetailCandidate? {
+        guard paneContext.presentation.hasInferredSSHConnection == false else {
+            return nil
+        }
+
         let metadata = paneContext.metadata
         let cwdPath = resolvedWorkingDirectory(for: paneContext)
         let maxPathSegments = cwdPath.flatMap {
@@ -400,6 +404,22 @@ enum WorklaneSidebarSummaryBuilder {
         style: PaneIdentityStyle,
         fallbackTitle: String?
     ) -> PaneSidebarIdentity {
+        if presentation.isRemoteShell {
+            return remotePaneIdentity(
+                metadata: metadata,
+                presentation: presentation,
+                fallbackTitle: fallbackTitle
+            )
+        }
+
+        if let sshConnectionLabel = WorklaneContextFormatter.trimmed(presentation.sshConnectionLabel) {
+            return PaneSidebarIdentity(
+                primaryText: sshConnectionLabel,
+                trailingText: nil,
+                detailText: nil
+            )
+        }
+
         let branch = presentation.branchDisplayText
         let workingDirectory = compactWorkingDirectory(for: presentation)
 
@@ -469,6 +489,81 @@ enum WorklaneSidebarSummaryBuilder {
             trailingText: nil,
             detailText: nil
         )
+    }
+
+    private static func remotePaneIdentity(
+        metadata: TerminalMetadata?,
+        presentation: PanePresentationState,
+        fallbackTitle: String?
+    ) -> PaneSidebarIdentity {
+        let host = WorklaneContextFormatter.trimmed(presentation.remoteHostLabel)
+        let path = WorklaneContextFormatter.trimmed(presentation.remotePathLabel)
+
+        if let title = meaningfulRemoteTitle(
+            metadata: metadata,
+            presentation: presentation,
+            fallbackTitle: fallbackTitle
+        ) {
+            let primaryText = [host, title].compactMap(WorklaneContextFormatter.trimmed).joined(separator: " · ")
+            return PaneSidebarIdentity(
+                primaryText: primaryText.isEmpty ? title : primaryText,
+                trailingText: nil,
+                detailText: path
+            )
+        }
+
+        return PaneSidebarIdentity(
+            primaryText: WorklaneContextFormatter.trimmed(presentation.remoteLocationLabel)
+                ?? WorklaneContextFormatter.normalizeSidebarFallbackTitle(fallbackTitle)
+                ?? "Shell",
+            trailingText: nil,
+            detailText: nil
+        )
+    }
+
+    private static func meaningfulRemoteTitle(
+        metadata: TerminalMetadata?,
+        presentation: PanePresentationState,
+        fallbackTitle: String?
+    ) -> String? {
+        if let recognizedTool = presentation.recognizedTool,
+           let volatileTitle = WorklaneContextFormatter.trimmed(metadata?.title),
+           TerminalMetadataChangeClassifier.isRealtimeAgentStatusTitle(
+               volatileTitle,
+               recognizedTool: recognizedTool
+           ) {
+            return volatileTitle
+        }
+
+        let candidates = [
+            WorklaneContextFormatter.trimmed(presentation.rememberedTitle),
+            WorklaneContextFormatter.displayMeaningfulTerminalIdentity(
+                for: metadata,
+                fallbackTitle: fallbackTitle
+            ),
+            WorklaneContextFormatter.trimmed(presentation.identityText),
+        ]
+
+        for candidate in candidates {
+            guard let candidate else {
+                continue
+            }
+
+            let lowered = candidate.lowercased()
+            if lowered == "shell" {
+                continue
+            }
+            if candidate.contains("/") || candidate.hasPrefix("~") {
+                continue
+            }
+            if candidate == presentation.remoteHostLabel {
+                continue
+            }
+
+            return candidate
+        }
+
+        return nil
     }
 
     private static func paneSidebarStatusPresentation(

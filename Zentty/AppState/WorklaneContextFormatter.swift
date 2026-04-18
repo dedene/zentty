@@ -25,7 +25,11 @@ enum WorklaneContextFormatter {
         for metadata: TerminalMetadata?,
         fallbackTitle: String? = nil
     ) -> String? {
-        [
+        if let sshConnectionLabel = sshConnectionLabel(for: metadata) {
+            return sshConnectionLabel
+        }
+
+        return [
             normalizeDisplayIdentity(metadata?.title),
             normalizeDisplayIdentity(metadata?.processName),
             normalizeDisplayIdentity(fallbackTitle),
@@ -76,6 +80,51 @@ enum WorklaneContextFormatter {
             ?? formattedWorkingDirectory
             ?? displayTerminalIdentity(for: metadata, fallbackTitle: fallbackTitle)
             ?? normalizeSidebarFallbackTitle(fallbackTitle)
+    }
+
+    static func sshConnectionLabel(for metadata: TerminalMetadata?) -> String? {
+        if let title = trimmed(metadata?.title),
+           let parsedLabel = sshConnectionLabel(fromCommandTitle: title) {
+            return parsedLabel
+        }
+
+        guard isSSHProcess(metadata?.processName),
+              let title = trimmed(metadata?.title) else {
+            return nil
+        }
+
+        return sshConnectionLabel(fromRemoteSessionTitle: title)
+    }
+
+    static func isSSHProcess(_ processName: String?) -> Bool {
+        guard let processName = trimmed(processName)?.lowercased() else {
+            return false
+        }
+
+        return processName == "ssh"
+    }
+
+    static func looksLikeSSHCommandTitle(_ value: String) -> Bool {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty else {
+            return false
+        }
+
+        let lowered = trimmedValue.lowercased()
+        if lowered == "ssh" {
+            return true
+        }
+
+        guard lowered.hasPrefix("ssh ") else {
+            return false
+        }
+
+        let tokens = trimmedValue.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard let target = firstSSHTargetArgument(in: tokens) else {
+            return true
+        }
+
+        return looksLikeSSHTarget(target)
     }
 
     static func formattedWorkingDirectory(
@@ -637,6 +686,174 @@ enum WorklaneContextFormatter {
 
         return standardPath(trimmedPath)
     }
+
+    private static func sshConnectionLabel(fromCommandTitle title: String) -> String? {
+        guard looksLikeSSHCommandTitle(title) else {
+            return nil
+        }
+
+        let tokens = title.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard let target = firstSSHTargetArgument(in: tokens) else {
+            return nil
+        }
+
+        let normalizedTarget = normalizeSSHTarget(target)
+        guard looksLikeSSHTarget(normalizedTarget) else {
+            return nil
+        }
+
+        if normalizedTarget.contains("@") {
+            return normalizedTarget
+        }
+
+        if let username = sshUsernameArgument(in: tokens) {
+            return "\(username)@\(normalizedTarget)"
+        }
+
+        return normalizedTarget
+    }
+
+    private static func sshConnectionLabel(fromRemoteSessionTitle title: String) -> String? {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            return nil
+        }
+
+        if let firstComponent = trimmedTitle.split(separator: " ").first {
+            let candidate = String(firstComponent)
+            if let promptIdentity = sshPromptIdentity(from: candidate) {
+                return promptIdentity
+            }
+        }
+
+        return sshPromptIdentity(from: trimmedTitle)
+    }
+
+    private static func sshPromptIdentity(from value: String) -> String? {
+        let identity = value.split(separator: ":").first.map(String.init) ?? value
+        guard looksLikeSSHPromptIdentity(identity) else {
+            return nil
+        }
+
+        return identity
+    }
+
+    private static func sshUsernameArgument(in tokens: [String]) -> String? {
+        guard tokens.count > 1 else {
+            return nil
+        }
+
+        var index = 1
+        while index < tokens.count {
+            let token = tokens[index]
+            if token == "--" {
+                return nil
+            }
+
+            if token == "-l" {
+                return index + 1 < tokens.count ? trimmed(tokens[index + 1]) : nil
+            }
+
+            if token.hasPrefix("-l"), token.count > 2 {
+                return trimmed(String(token.dropFirst(2)))
+            }
+
+            let optionsRequiringValues = sshOptionsRequiringValues
+            if token.hasPrefix("-") {
+                if optionsRequiringValues.contains(token) {
+                    index += 2
+                } else {
+                    index += 1
+                }
+                continue
+            }
+
+            return nil
+        }
+
+        return nil
+    }
+
+    private static func firstSSHTargetArgument(in tokens: [String]) -> String? {
+        guard tokens.count > 1 else {
+            return nil
+        }
+
+        var index = 1
+        while index < tokens.count {
+            let token = tokens[index]
+            if token == "--" {
+                return index + 1 < tokens.count ? tokens[index + 1] : nil
+            }
+
+            if token == "-l" {
+                index += 2
+                continue
+            }
+
+            if token.hasPrefix("-l"), token.count > 2 {
+                index += 1
+                continue
+            }
+
+            if token.hasPrefix("-") {
+                if sshOptionsRequiringValues.contains(token) {
+                    index += 2
+                } else {
+                    index += 1
+                }
+                continue
+            }
+
+            return token
+        }
+
+        return nil
+    }
+
+    private static func normalizeSSHTarget(_ value: String) -> String {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let firstComponent = trimmedValue.split(separator: ":", maxSplits: 1).first else {
+            return trimmedValue
+        }
+
+        return String(firstComponent)
+    }
+
+    private static func looksLikeSSHTarget(_ value: String) -> Bool {
+        if value == "localhost" {
+            return true
+        }
+
+        if value.contains("@") || value.contains(".") || value.contains(":") {
+            return true
+        }
+
+        return value.range(
+            of: #"^\d{1,3}(?:\.\d{1,3}){3}$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func looksLikeSSHPromptIdentity(_ value: String) -> Bool {
+        guard value.contains("@") else {
+            return false
+        }
+
+        let components = value.split(separator: "@", maxSplits: 1).map(String.init)
+        guard components.count == 2,
+              let user = trimmed(components[0]),
+              let host = trimmed(components[1]) else {
+            return false
+        }
+
+        return user.isEmpty == false && host.isEmpty == false
+    }
+
+    private static let sshOptionsRequiringValues: Set<String> = [
+        "-B", "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L",
+        "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"
+    ]
 
     private static func isGenericShellIdentity(_ value: String) -> Bool {
         switch value.lowercased() {

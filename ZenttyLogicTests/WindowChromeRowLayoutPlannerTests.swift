@@ -51,6 +51,21 @@ final class WindowChromeRowLayoutPlannerTests: XCTestCase {
         assertAssignedWidths(plan.items.map(\.assignedWidth), equal: [155, 30, 55, 88])
     }
 
+    func test_planner_compresses_focused_label_before_remote_context() {
+        let plan = WindowChromeRowLayoutPlanner.plan(
+            availableWidth: 245,
+            items: [
+                .init(kind: .focusedLabel, preferredWidth: 160, minimumWidth: 0),
+                .init(kind: .remoteContext, preferredWidth: 100, minimumWidth: 0),
+                .init(kind: .branch, preferredWidth: 30, minimumWidth: 30),
+            ]
+        )
+
+        XCTAssertGreaterThan(plan.overflowBeforeCompression, 0)
+        XCTAssertTrue(plan.didCompressItems)
+        assertAssignedWidths(plan.items.map(\.assignedWidth), equal: [95, 100, 30])
+    }
+
     private func assertAssignedWidths(_ actual: [CGFloat], equal expected: [CGFloat], file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertEqual(actual.count, expected.count, file: file, line: line)
         for (actualWidth, expectedWidth) in zip(actual, expected) {
