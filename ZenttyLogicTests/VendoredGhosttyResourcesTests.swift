@@ -79,6 +79,7 @@ final class VendoredGhosttyResourcesTests: XCTestCase {
         XCTAssertTrue(defaults.contains("font-feature = -dlig"))
         XCTAssertTrue(defaults.contains("window-padding-x = 10"))
         XCTAssertTrue(defaults.contains("window-padding-y = 10"))
+        XCTAssertTrue(defaults.contains("window-padding-balance = true"))
         XCTAssertTrue(defaults.contains("cursor-style = block"))
         XCTAssertTrue(defaults.contains("cursor-style-blink = true"))
         XCTAssertTrue(defaults.contains("cursor-opacity = 0.8"))
