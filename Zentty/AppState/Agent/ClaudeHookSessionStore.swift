@@ -276,6 +276,15 @@ final class ClaudeHookSessionStore {
             guard var record = state.sessions[normalizedSessionID] else {
                 return nil
             }
+            // A new task ID arriving after every prior task is done signals a fresh
+            // TodoWrite batch within the same session. Drop the prior batch so the
+            // sidebar counter restarts at 0/N instead of accumulating.
+            if !isCompleted,
+               !record.tasksByID.isEmpty,
+               record.tasksByID[normalizedTaskID] == nil,
+               record.tasksByID.values.allSatisfy({ $0 }) {
+                record.tasksByID.removeAll()
+            }
             record.tasksByID[normalizedTaskID] = isCompleted
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalizedSessionID] = record
