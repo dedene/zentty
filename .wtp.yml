@@ -1,0 +1,6 @@
+version: "1.0"
+hooks:
+  post_create:
+    - type: copy
+      from: "FrameworksLocal/GhosttyKit.xcframework"
+      to: "FrameworksLocal/GhosttyKit.xcframework"
