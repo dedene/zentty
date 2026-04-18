@@ -25,6 +25,7 @@ font-feature = -liga
 font-feature = -dlig
 window-padding-x = 10
 window-padding-y = 10
+window-padding-balance = true
 cursor-style = block
 cursor-style-blink = true
 cursor-opacity = 0.8

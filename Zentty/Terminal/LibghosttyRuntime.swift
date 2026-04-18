@@ -357,6 +357,10 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
     private static let localOverridePath = NSTemporaryDirectory() + "zentty-ghostty-local-overrides.conf"
     private static let builtInThemeOverridePath = NSTemporaryDirectory() + "zentty-ghostty-built-in-theme-override.conf"
     private static let transparentOverridePath = NSTemporaryDirectory() + "zentty-ghostty-transparent-override.conf"
+    private static let paddingPolicyOverridePath = NSTemporaryDirectory() + "zentty-ghostty-padding-policy-override.conf"
+
+    private static let defaultWindowPadding = 10
+    private static let minimumWindowPadding = 6
 
     private static func loadConfigStack(_ config: ghostty_config_t, environment: GhosttyConfigEnvironment) {
         let stack = environment.resolvedStack()
@@ -375,15 +379,11 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             loadConfigFile(contents: localOverrideContents, path: localOverridePath, into: config)
         }
 
-        loadBuiltInThemeOverride(
-            config,
-            userConfigContents: stack?.mergedUserConfigContents()
-        )
+        let mergedUserConfigContents = stack?.mergedUserConfigContents()
 
-        loadTransparentBackgroundOverride(
-            config,
-            userConfigContents: stack?.mergedUserConfigContents()
-        )
+        loadBuiltInThemeOverride(config, userConfigContents: mergedUserConfigContents)
+        loadTransparentBackgroundOverride(config, userConfigContents: mergedUserConfigContents)
+        loadPaddingPolicyOverride(config, userConfigContents: mergedUserConfigContents)
     }
 
     private static func loadBuiltInThemeOverride(
@@ -408,6 +408,19 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         }
 
         loadConfigFile(contents: lines, path: transparentOverridePath, into: config)
+    }
+
+    private static func loadPaddingPolicyOverride(
+        _ config: ghostty_config_t,
+        userConfigContents: String?
+    ) {
+        guard let lines = paddingPolicyOverrideContents(
+            userConfigContents: userConfigContents
+        ) else {
+            return
+        }
+
+        loadConfigFile(contents: lines, path: paddingPolicyOverridePath, into: config)
     }
 
     private static func loadConfigFile(contents: String, path: String, into config: ghostty_config_t) {
@@ -451,6 +464,65 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         return lines
     }
 
+    static func paddingPolicyOverrideContents(userConfigContents: String?) -> String? {
+        let keys = configuredKeys(in: userConfigContents)
+        let x = resolvedWindowPadding(for: "window-padding-x", in: userConfigContents)
+        let y = resolvedWindowPadding(for: "window-padding-y", in: userConfigContents)
+
+        var lines: [String] = []
+        if let x {
+            lines.append("window-padding-x = \(x)")
+        }
+        if let y {
+            lines.append("window-padding-y = \(y)")
+        }
+        if !keys.contains("window-padding-balance") {
+            lines.append("window-padding-balance = true")
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    private static func resolvedWindowPadding(for key: String, in content: String?) -> Int? {
+        guard let parsed = lastIntValue(for: key, in: content) else {
+            return defaultWindowPadding
+        }
+        if parsed < minimumWindowPadding {
+            return minimumWindowPadding
+        }
+        return nil
+    }
+
+    private static func lastIntValue(for key: String, in content: String?) -> Int? {
+        guard let content else {
+            return nil
+        }
+
+        var latest: Int?
+        for rawLine in content.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else {
+                continue
+            }
+
+            let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else {
+                continue
+            }
+
+            let parsedKey = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard parsedKey == key else {
+                continue
+            }
+
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if let intValue = Int(value) {
+                latest = intValue
+            }
+        }
+
+        return latest
+    }
+
     private static func configuredThemeName(in content: String?) -> String? {
         guard let content else {
             return nil
@@ -487,12 +559,6 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             lines.append("font-feature = -calt")
             lines.append("font-feature = -liga")
             lines.append("font-feature = -dlig")
-        }
-        if !configuredKeys.contains("window-padding-x") {
-            lines.append("window-padding-x = 10")
-        }
-        if !configuredKeys.contains("window-padding-y") {
-            lines.append("window-padding-y = 10")
         }
         if !configuredKeys.contains("cursor-style") {
             lines.append("cursor-style = block")
