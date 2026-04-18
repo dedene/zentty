@@ -4,12 +4,14 @@ enum WorklaneHeaderSummaryBuilder {
         let presentation = focusedPaneContext?.presentation
         let metadata = focusedPaneContext?.metadata
         let focusedLabel = visibleFocusedLabel(from: presentation, metadata: metadata)
+        let remoteContextLabel = visibleRemoteContextLabel(from: presentation)
         let branch = visibleBranch(from: presentation)
 
         return WorklaneChromeSummary(
             attention: WorklaneAttentionSummaryBuilder.summary(for: worklane),
             focusedLabel: focusedLabel,
-            cwdPath: WorklaneContextFormatter.trimmed(presentation?.cwd),
+            remoteContextLabel: remoteContextLabel,
+            cwdPath: visibleLocalCwdPath(from: presentation),
             branch: branch,
             branchURL: presentation?.branchURL,
             pullRequest: presentation?.pullRequest,
@@ -21,6 +23,10 @@ enum WorklaneHeaderSummaryBuilder {
         from presentation: PanePresentationState?,
         metadata: TerminalMetadata?
     ) -> String? {
+        if let sshConnectionLabel = WorklaneContextFormatter.trimmed(presentation?.sshConnectionLabel) {
+            return sshConnectionLabel
+        }
+
         // When the focused codex pane is in a volatile agent status state
         // (e.g. "Working... (5s) · my-project"), surface the raw codex title
         // in the chrome so the title bar ticks in realtime alongside the
@@ -53,6 +59,10 @@ enum WorklaneHeaderSummaryBuilder {
     }
 
     private static func visibleFallbackLabel(from presentation: PanePresentationState) -> String? {
+        if let sshConnectionLabel = WorklaneContextFormatter.trimmed(presentation.sshConnectionLabel) {
+            return sshConnectionLabel
+        }
+
         if let cwd = WorklaneContextFormatter.trimmed(presentation.cwd) {
             let formattedWorkingDirectory = WorklaneContextFormatter.formattedWorkingDirectory(cwd, branch: nil)
             if presentation.lookupBranch != nil,
@@ -72,7 +82,29 @@ enum WorklaneHeaderSummaryBuilder {
             return nil
         }
 
+        guard presentation.hasInferredSSHConnection == false else {
+            return nil
+        }
+
         return WorklaneContextFormatter.trimmed(presentation.branchDisplayText)
+    }
+
+    private static func visibleRemoteContextLabel(from presentation: PanePresentationState?) -> String? {
+        guard let presentation, presentation.isRemoteShell else {
+            return nil
+        }
+
+        return WorklaneContextFormatter.trimmed(presentation.remoteLocationLabel)
+    }
+
+    private static func visibleLocalCwdPath(from presentation: PanePresentationState?) -> String? {
+        guard let presentation,
+              !presentation.isRemoteShell,
+              !presentation.hasInferredSSHConnection else {
+            return nil
+        }
+
+        return WorklaneContextFormatter.trimmed(presentation.cwd)
     }
 
     private static func decomposedRememberedTitle(

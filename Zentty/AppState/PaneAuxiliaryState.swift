@@ -118,6 +118,11 @@ struct PanePresentationState: Equatable, Sendable {
     var identityText: String?
     var contextText: String?
     var rememberedTitle: String?
+    var sshConnectionLabel: String? = nil
+    var isRemoteShell = false
+    var remoteHostLabel: String? = nil
+    var remotePathLabel: String? = nil
+    var remoteLocationLabel: String? = nil
     var recognizedTool: AgentTool?
     var runtimePhase: PanePresentationPhase = .idle
     var statusText: String?
@@ -134,11 +139,15 @@ struct PanePresentationState: Equatable, Sendable {
     var taskProgress: PaneAgentTaskProgress? = nil
 
     var hasResolvedIdentity: Bool {
-        identityText != nil || contextText != nil || rememberedTitle != nil || branch != nil || cwd != nil
+        identityText != nil || contextText != nil || rememberedTitle != nil || sshConnectionLabel != nil || branch != nil || cwd != nil
     }
 
     var visibleIdentityText: String? {
         identityText ?? contextText
+    }
+
+    var hasInferredSSHConnection: Bool {
+        isRemoteShell == false && WorklaneContextFormatter.trimmed(sshConnectionLabel) != nil
     }
 
     var prLookupKey: String? {
@@ -256,15 +265,24 @@ enum PanePresentationNormalizer {
             ?? provisionalShellBranchDisplayText(from: raw.shellContext)
         let lookupBranch = gitContext?.lookupBranch
         let cwdLabel = cwd.flatMap { WorklaneContextFormatter.formattedWorkingDirectory($0, branch: nil) }
+        let remoteHostLabel = raw.shellContext?.remoteHostLabel
+        let remotePathLabel = raw.shellContext?.remotePathLabel
+        let remoteLocationLabel = raw.shellContext?.remoteLocationLabel
         let contextText = [branchDisplayText, cwdLabel]
             .compactMap(WorklaneContextFormatter.trimmed)
             .joined(separator: " · ")
             .nilIfEmpty
         let recognizedTool = raw.agentStatus?.tool ?? AgentToolRecognizer.recognize(metadata: raw.metadata)
+        let sshConnectionLabel = inferredSSHConnectionLabel(
+            metadata: raw.metadata,
+            shellContext: raw.shellContext,
+            previous: previous
+        )
         let latestMeaningfulTitle = meaningfulTitle(
             metadata: raw.metadata,
             fallbackTitle: paneTitle,
-            recognizedTool: recognizedTool
+            recognizedTool: recognizedTool,
+            sshConnectionLabel: sshConnectionLabel
         )
         let rememberedTitle: String?
         if let latestMeaningfulTitle {
@@ -342,7 +360,8 @@ enum PanePresentationNormalizer {
             for: raw.metadata,
             fallbackTitle: paneTitle
         ) ?? WorklaneContextFormatter.trimmed(paneTitle)
-        let identityText = WorklaneContextFormatter.trimmed(rememberedTitle)
+        let identityText = WorklaneContextFormatter.trimmed(sshConnectionLabel)
+            ?? WorklaneContextFormatter.trimmed(rememberedTitle)
             ?? contextText
             ?? terminalFallback
             ?? "Shell"
@@ -363,6 +382,11 @@ enum PanePresentationNormalizer {
             identityText: identityText,
             contextText: contextText,
             rememberedTitle: rememberedTitle,
+            sshConnectionLabel: sshConnectionLabel,
+            isRemoteShell: raw.shellContext?.scope == .remote,
+            remoteHostLabel: remoteHostLabel,
+            remotePathLabel: remotePathLabel,
+            remoteLocationLabel: remoteLocationLabel,
             recognizedTool: recognizedTool,
             runtimePhase: runtimePhase,
             statusText: statusText,
@@ -386,6 +410,26 @@ enum PanePresentationNormalizer {
         }
 
         return WorklaneContextFormatter.displayBranch(shellContext?.gitBranch)
+    }
+
+    private static func inferredSSHConnectionLabel(
+        metadata: TerminalMetadata?,
+        shellContext: PaneShellContext?,
+        previous: PanePresentationState?
+    ) -> String? {
+        guard shellContext?.scope != .remote else {
+            return nil
+        }
+
+        if let currentLabel = WorklaneContextFormatter.sshConnectionLabel(for: metadata) {
+            return currentLabel
+        }
+
+        guard WorklaneContextFormatter.isSSHProcess(metadata?.processName) else {
+            return nil
+        }
+
+        return WorklaneContextFormatter.trimmed(previous?.sshConnectionLabel)
     }
 
     private static func resolvedWorkingDirectory(
@@ -613,8 +657,17 @@ enum PanePresentationNormalizer {
     private static func meaningfulTitle(
         metadata: TerminalMetadata?,
         fallbackTitle: String?,
-        recognizedTool: AgentTool?
+        recognizedTool: AgentTool?,
+        sshConnectionLabel: String?
     ) -> String? {
+        if let sshConnectionLabel = WorklaneContextFormatter.trimmed(sshConnectionLabel) {
+            return sshConnectionLabel
+        }
+
+        if WorklaneContextFormatter.isSSHProcess(metadata?.processName) {
+            return nil
+        }
+
         let candidates = [
             WorklaneContextFormatter.normalizeDisplayIdentity(metadata?.title),
             WorklaneContextFormatter.normalizeDisplayIdentity(metadata?.processName),
@@ -681,6 +734,7 @@ enum PanePresentationNormalizer {
             "agent",
             "terminal",
             "pane",
+            "ssh",
         ]
         return genericPaneTitles.contains(normalized) == false
     }

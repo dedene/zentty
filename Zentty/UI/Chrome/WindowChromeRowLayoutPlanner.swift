@@ -5,6 +5,7 @@ enum WindowChromeRowLayoutPlanner {
         case attention
         case proxyIcon
         case focusedLabel
+        case remoteContext
         case branch
         case pullRequest
         case reviewChip
@@ -37,6 +38,7 @@ enum WindowChromeRowLayoutPlanner {
         .reviewChip,
         .attention,
         .focusedLabel,
+        .remoteContext,
         .proxyIcon,
         .branch,
         .pullRequest,
@@ -80,7 +82,7 @@ enum WindowChromeRowLayoutPlanner {
                 &plannedItems,
                 availableWidth: availableWidth,
                 floorResolver: { $0.minimumWidth },
-                compressionOrder: [.attention, .focusedLabel, .proxyIcon, .pullRequest, .branch]
+                compressionOrder: [.attention, .focusedLabel, .remoteContext, .proxyIcon, .pullRequest, .branch]
             )
         }
 

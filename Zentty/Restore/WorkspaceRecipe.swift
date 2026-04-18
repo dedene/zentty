@@ -104,13 +104,74 @@ enum WorkspaceRecipeExporter {
                 ?? trimmedWorkingDirectory(auxiliary?.presentation.cwd)
                 ?? trimmedWorkingDirectory(pane.sessionRequest.workingDirectory)
         }
-        let titleSeed = trimmedTitle(auxiliary?.presentation.rememberedTitle) ?? trimmedTitle(pane.title)
+        let titleSeed = exportedTitleSeed(
+            pane: pane,
+            auxiliary: auxiliary
+        )
 
         return WorkspaceRecipe.Pane(
             id: pane.id.rawValue,
             titleSeed: titleSeed,
             workingDirectory: workingDirectory
         )
+    }
+
+    private static func exportedTitleSeed(
+        pane: PaneState,
+        auxiliary: PaneAuxiliaryState?
+    ) -> String? {
+        let recognizedTool = auxiliary?.presentation.recognizedTool ?? auxiliary?.agentStatus?.tool
+        let isRemoteShell = auxiliary?.shellContext?.scope == .remote
+
+        for candidate in [
+            trimmedTitle(auxiliary?.presentation.rememberedTitle),
+            trimmedTitle(pane.title),
+        ] {
+            guard let candidate else {
+                continue
+            }
+
+            if shouldPersistTitleSeed(
+                candidate,
+                recognizedTool: recognizedTool,
+                isRemoteShell: isRemoteShell
+            ) {
+                return candidate
+            }
+        }
+
+        return nil
+    }
+
+    private static func shouldPersistTitleSeed(
+        _ candidate: String,
+        recognizedTool: AgentTool?,
+        isRemoteShell: Bool
+    ) -> Bool {
+        if recognizedTool != nil || isRemoteShell {
+            return true
+        }
+
+        return !looksLikeTransientSSHCommandTitle(candidate)
+            && !isGenericLocalShellTitle(candidate)
+    }
+
+    private static func looksLikeTransientSSHCommandTitle(_ value: String) -> Bool {
+        WorklaneContextFormatter.looksLikeSSHCommandTitle(value)
+    }
+
+    private static func isGenericLocalShellTitle(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return [
+            "shell",
+            "shell pane",
+            "terminal",
+            "pane",
+            "zsh",
+            "bash",
+            "sh",
+            "fish",
+        ].contains(normalized)
     }
 
     private static func trimmedTitle(_ value: String?) -> String? {

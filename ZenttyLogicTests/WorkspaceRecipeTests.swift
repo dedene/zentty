@@ -180,6 +180,72 @@ final class WorkspaceRecipeTests: XCTestCase {
         XCTAssertEqual(auxiliary.presentation.rememberedTitle, "Main shell")
     }
 
+    func test_export_and_restore_drop_stale_local_ssh_command_title() throws {
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.WorkspaceRecipe.ssh-title", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: workingDirectory)
+        }
+
+        let paneID = PaneID("pane-main")
+        let worklaneID = WorklaneID("main")
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(
+                        id: paneID,
+                        title: "shell",
+                        sessionRequest: TerminalSessionRequest(
+                            workingDirectory: workingDirectory.path,
+                            surfaceContext: .window
+                        ),
+                        width: 640
+                    )
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: workingDirectory.path,
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        )
+                    ),
+                    presentation: PanePresentationState(
+                        cwd: workingDirectory.path,
+                        rememberedTitle: "ssh root@203.0.113.10"
+                    )
+                )
+            ]
+        )
+
+        let window = WorkspaceRecipeExporter.makeWindow(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            activeWorklaneID: worklaneID
+        )
+
+        let restored = WorkspaceRecipeImporter.makeWorklanes(
+            from: window,
+            windowID: WindowID("window-main"),
+            layoutContext: .fallback,
+            processEnvironment: ["HOME": "/Users/peter", "USER": "peter"]
+        )
+
+        let summary = WorklaneHeaderSummaryBuilder.summary(for: try XCTUnwrap(restored.worklanes.first))
+
+        XCTAssertEqual(summary.focusedLabel, WorklaneContextFormatter.formattedWorkingDirectory(workingDirectory.path, branch: nil))
+        XCTAssertNil(restored.worklanes[0].auxiliaryStateByPaneID[paneID]?.presentation.rememberedTitle)
+    }
+
     func test_import_injects_restore_draft_prefill_for_supported_agent_pane() throws {
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ZenttyTests.WorkspaceRecipe.resume", isDirectory: true)

@@ -67,6 +67,12 @@ final class WindowChromeView: NSView {
         font: .systemFont(ofSize: 12, weight: .medium),
         lineBreakMode: .byTruncatingTail
     )
+    private let remoteContextLabel = WindowChromeView.makeLabel(
+        text: "",
+        color: .tertiaryLabelColor,
+        font: .systemFont(ofSize: 12, weight: .regular),
+        lineBreakMode: .byTruncatingTail
+    )
     private let branchLabel = WindowChromeBranchLabel()
     private let pullRequestButton = WindowChromePullRequestButton(title: "", target: nil, action: nil)
     private let urlOpener: (URL) -> Void
@@ -141,6 +147,8 @@ final class WindowChromeView: NSView {
         focusedProxyIconView.openComputerLocation = computerLocationOpener
         focusedLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         focusedLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        remoteContextLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        remoteContextLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         branchLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         branchLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         branchLabel.target = self
@@ -207,7 +215,7 @@ final class WindowChromeView: NSView {
         openWithContainerView.addSubview(openWithDividerView)
         openWithContainerView.addSubview(openWithPrimaryButton)
         openWithContainerView.addSubview(openWithMenuButton)
-        [attentionChipView, focusedProxyIconView, focusedLabel, branchLabel, pullRequestButton].forEach {
+        [attentionChipView, focusedProxyIconView, focusedLabel, remoteContextLabel, branchLabel, pullRequestButton].forEach {
             rowContainerView.addSubview($0)
         }
 
@@ -242,6 +250,10 @@ final class WindowChromeView: NSView {
         let focusedText = summary.focusedLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         focusedLabel.stringValue = focusedText
         focusedLabel.isHidden = focusedText.isEmpty
+
+        let remoteContextText = summary.remoteContextLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        remoteContextLabel.stringValue = remoteContextText
+        remoteContextLabel.isHidden = remoteContextText.isEmpty
         renderFocusedProxyIcon()
 
         let branchText = summary.branch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -266,6 +278,7 @@ final class WindowChromeView: NSView {
         attentionChipView.apply(theme: theme, animated: animated)
 
         focusedLabel.textColor = theme.secondaryText
+        remoteContextLabel.textColor = theme.tertiaryText
         renderFocusedProxyIcon()
         updateBranchAppearance(animated: animated)
         updatePullRequestAppearance(animated: animated)
@@ -676,6 +689,8 @@ final class WindowChromeView: NSView {
             return .proxyIcon
         case let label as NSTextField where label === focusedLabel:
             return .focusedLabel
+        case let label as NSTextField where label === remoteContextLabel:
+            return .remoteContext
         case let label as WindowChromeBranchLabel where label === branchLabel:
             return .branch
         case let button as NSButton where button === pullRequestButton:
@@ -697,7 +712,7 @@ final class WindowChromeView: NSView {
             return min(preferredWidth, Self.readableBranchWidth)
         case .pullRequest:
             return preferredWidth
-        case .attention, .focusedLabel, .reviewChip:
+        case .attention, .focusedLabel, .remoteContext, .reviewChip:
             return 0
         }
     }
@@ -812,7 +827,7 @@ final class WindowChromeView: NSView {
     }
 
     private func visibleLeadingViews() -> [NSView] {
-        [attentionChipView, focusedProxyIconView, focusedLabel, branchLabel, pullRequestButton]
+        [attentionChipView, focusedProxyIconView, focusedLabel, remoteContextLabel, branchLabel, pullRequestButton]
             .filter { !$0.isHidden }
     }
 
@@ -898,6 +913,8 @@ final class WindowChromeView: NSView {
     var focusedProxyIconFrame: NSRect { focusedProxyIconView.frame }
     var focusedLabelText: String { focusedLabel.stringValue }
     var focusedLabelFrame: NSRect { focusedLabel.frame }
+    var remoteContextLabelText: String { remoteContextLabel.stringValue }
+    var remoteContextLabelFrame: NSRect { remoteContextLabel.frame }
     var branchText: String { branchLabel.stringValue }
     var isBranchInteractive: Bool { branchLabel.isInteractive }
     var branchToolTip: String { branchLabel.toolTip ?? "" }
@@ -933,7 +950,7 @@ final class WindowChromeView: NSView {
         branchLabel.font?.fontDescriptor.symbolicTraits.contains(.monoSpace) ?? false
     }
     var rowLineCount: Int {
-        let labelsStaySingleLine = [focusedLabel, branchLabel]
+        let labelsStaySingleLine = [focusedLabel, remoteContextLabel, branchLabel]
             .filter { !$0.isHidden }
             .allSatisfy { $0.usesSingleLineMode && $0.lineBreakMode != .byWordWrapping }
         let pullRequestStaysSingleLine = pullRequestButton.isHidden || (pullRequestButton.cell?.wraps == false)
@@ -942,6 +959,10 @@ final class WindowChromeView: NSView {
     var isFocusedLabelCompressed: Bool {
         focusedLabel.frame.width > 0 && focusedLabel.frame.width < Self.requiredSingleLineWidth(for: focusedLabel)
     }
+    var isRemoteContextLabelCompressed: Bool {
+        remoteContextLabel.frame.width > 0 &&
+            remoteContextLabel.frame.width < Self.requiredSingleLineWidth(for: remoteContextLabel)
+    }
     var didCompressItems: Bool { lastRowLayoutPlan.didCompressItems }
     var preferredTotalWidth: CGFloat { lastRowLayoutPlan.preferredTotalWidth }
     var finalTotalWidth: CGFloat { lastRowLayoutPlan.finalTotalWidth }
@@ -949,6 +970,8 @@ final class WindowChromeView: NSView {
     var overflowAfterChipEviction: CGFloat { lastRowLayoutPlan.overflowAfterChipEviction }
     var focusedLabelFrameWidth: CGFloat { focusedLabel.frame.width }
     var focusedLabelIntrinsicWidth: CGFloat { Self.requiredSingleLineWidth(for: focusedLabel) }
+    var remoteContextLabelFrameWidth: CGFloat { remoteContextLabel.frame.width }
+    var remoteContextLabelIntrinsicWidth: CGFloat { Self.requiredSingleLineWidth(for: remoteContextLabel) }
     var branchFrameWidth: CGFloat { branchLabel.frame.width }
     var branchIntrinsicWidth: CGFloat { Self.requiredSingleLineWidth(for: branchLabel) }
     var rowFrame: NSRect { rowContainerView.frame }

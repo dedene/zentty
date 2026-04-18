@@ -457,6 +457,60 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary.focusedLabel, "/tmp/project")
     }
 
+    func test_summary_surfaces_remote_context_without_reusing_local_cwd_path() {
+        let paneID = PaneID("pane-shell")
+        let worklane = makeWorklane(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working… zentty",
+                currentWorkingDirectory: nil,
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42)
+            ),
+            shellContext: PaneShellContext(
+                scope: .remote,
+                path: "/home/peter/project",
+                home: "/home/peter",
+                user: "peter",
+                host: "gilfoyle"
+            )
+        )
+
+        let summary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
+
+        XCTAssertEqual(summary.focusedLabel, "Working… zentty")
+        XCTAssertEqual(summary.remoteContextLabel, "gilfoyle ~/project")
+        XCTAssertNil(summary.cwdPath)
+        XCTAssertEqual(summary.branch, "main")
+    }
+
+    func test_summary_prefers_inferred_ssh_identity_over_local_cwd_while_ssh_is_active() {
+        let paneID = PaneID("pane-shell")
+        let worklane = makeWorklane(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "ssh peter@ssh.example.test",
+                currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                processName: "ssh",
+                gitBranch: "main"
+            )
+        )
+
+        let summary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
+
+        XCTAssertEqual(summary.focusedLabel, "peter@ssh.example.test")
+        XCTAssertNil(summary.remoteContextLabel)
+        XCTAssertNil(summary.cwdPath)
+        XCTAssertNil(summary.branch)
+    }
+
     func test_summary_keeps_meaningful_session_title_for_idle_agent_panes() {
         let paneID = PaneID("pane-shell")
         let worklane = makeWorklane(
@@ -614,7 +668,8 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         paneTitle: String = "shell",
         metadata: TerminalMetadata,
         agentStatus: PaneAgentStatus? = nil,
-        reviewState: WorklaneReviewState? = nil
+        reviewState: WorklaneReviewState? = nil,
+        shellContext: PaneShellContext? = nil
     ) -> WorklaneState {
         WorklaneState(
             id: WorklaneID("worklane-main"),
@@ -624,6 +679,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
                 focusedPaneID: paneID
             ),
             metadataByPaneID: [paneID: metadata],
+            paneContextByPaneID: shellContext.map { [paneID: $0] } ?? [:],
             agentStatusByPaneID: agentStatus.map { [paneID: $0] } ?? [:],
             reviewStateByPaneID: reviewState.map { [paneID: $0] } ?? [:]
         )

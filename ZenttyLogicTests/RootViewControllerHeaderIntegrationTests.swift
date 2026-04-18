@@ -322,6 +322,45 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         XCTAssertEqual(chrome.reviewChipTexts, ["1 failing"])
     }
 
+    func test_root_controller_renders_remote_context_without_local_proxy_icon() {
+        let controller = makeController()
+        let paneID = PaneID("pane-shell")
+
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "shell")],
+                    focusedPaneID: paneID
+                ),
+                metadataByPaneID: [
+                    paneID: TerminalMetadata(
+                        title: "General coding assistance session",
+                        currentWorkingDirectory: nil,
+                        processName: "codex",
+                        gitBranch: "main"
+                    ),
+                ],
+                paneContextByPaneID: [
+                    paneID: PaneShellContext(
+                        scope: .remote,
+                        path: "/home/peter/project",
+                        home: "/home/peter",
+                        user: "peter",
+                        host: "gilfoyle"
+                    ),
+                ]
+            ),
+        ])
+
+        let chrome = controller.chromeView
+        XCTAssertEqual(chrome.focusedLabelText, "General coding assistance session")
+        XCTAssertEqual(chrome.remoteContextLabelText, "gilfoyle ~/project")
+        XCTAssertEqual(chrome.branchText, "")
+        XCTAssertTrue(chrome.isFocusedProxyIconHidden)
+    }
+
     func test_root_controller_keeps_long_terminal_title_readable_inside_real_visible_lane() throws {
         let controller = makeController()
         let paneID = PaneID("pane-shell")

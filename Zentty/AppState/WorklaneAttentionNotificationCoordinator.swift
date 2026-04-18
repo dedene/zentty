@@ -295,6 +295,11 @@ final class WorklaneAttentionNotificationCoordinator {
     }
 
     private func compactLocationText(for presentation: PanePresentationState) -> String? {
+        if presentation.isRemoteShell {
+            return WorklaneContextFormatter.trimmed(presentation.remotePathLabel)
+                ?? WorklaneContextFormatter.trimmed(presentation.remoteLocationLabel)
+        }
+
         guard let cwd = standardizedPath(presentation.cwd) else {
             return nil
         }
@@ -451,10 +456,21 @@ final class WorklaneAttentionNotificationCoordinator {
         for attention: WorklaneAttentionSummary,
         in worklane: WorklaneState
     ) -> String {
+        let remotePrimaryText = worklane.paneContext(for: attention.paneID)
+            .flatMap { paneContext -> String? in
+                guard paneContext.presentation.isRemoteShell else {
+                    return nil
+                }
+                return WorklaneContextFormatter.trimmed(attention.primaryText)
+            }
+
         switch attention.state {
         case .needsInput:
             return attention.primaryText
         case .unresolvedStop:
+            if let remotePrimaryText {
+                return remotePrimaryText
+            }
             if let presentation = worklane.paneContext(for: attention.paneID)?.presentation {
                 let meaningfulTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
                     ?? WorklaneContextFormatter.trimmed(presentation.identityText)
@@ -472,6 +488,9 @@ final class WorklaneAttentionNotificationCoordinator {
 
             return "Agent stopped early."
         case .ready:
+            if let remotePrimaryText {
+                return remotePrimaryText
+            }
             if let presentation = worklane.paneContext(for: attention.paneID)?.presentation {
                 let meaningfulTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
                     ?? WorklaneContextFormatter.trimmed(presentation.identityText)

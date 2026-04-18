@@ -201,6 +201,53 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary?.primaryText, "Implement ready notifications")
     }
 
+    func test_summary_prefixes_remote_host_and_uses_remote_path_context() {
+        let paneID = PaneID("pane-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Investigate prod latency",
+                currentWorkingDirectory: "/home/peter/project",
+                processName: "claude"
+            ),
+            shellContext: PaneShellContext(
+                scope: .remote,
+                path: "/home/peter/project",
+                home: "/home/peter",
+                user: "peter",
+                host: "gilfoyle"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .needsInput,
+                text: "Needs input",
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42)
+            )
+        )
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorklaneAttentionSummaryBuilder.summary(for: worklane)
+
+        XCTAssertEqual(summary?.state, .needsInput)
+        XCTAssertEqual(summary?.primaryText, "gilfoyle · Investigate prod latency")
+        XCTAssertEqual(summary?.contextText, "~/project")
+    }
+
     func test_summary_does_not_surface_ready_state_while_tasks_remain_incomplete() {
         let paneID = PaneID("pane-shell")
         var auxiliaryState = PaneAuxiliaryState()

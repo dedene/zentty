@@ -49,6 +49,48 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertEqual(view.reviewChipTexts, [])
     }
 
+    func test_window_chrome_renders_remote_context_as_separate_secondary_label() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Working… zentty",
+            remoteContextLabel: "gilfoyle ~/project",
+            cwdPath: nil,
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+
+        XCTAssertEqual(view.focusedLabelText, "Working… zentty")
+        XCTAssertEqual(view.remoteContextLabelText, "gilfoyle ~/project")
+        XCTAssertTrue(view.isFocusedProxyIconHidden)
+    }
+
+    func test_window_chrome_keeps_remote_context_uncompressed_before_focused_label() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Claude Code Session With An Intentionally Long Focus Label",
+            remoteContextLabel: "gilfoyle ~/project",
+            cwdPath: nil,
+            branch: nil,
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.remoteContextLabelText, "gilfoyle ~/project")
+        XCTAssertTrue(view.isFocusedLabelCompressed)
+        XCTAssertFalse(view.isRemoteContextLabelCompressed)
+        XCTAssertGreaterThan(view.remoteContextLabelFrameWidth, 0.5)
+    }
+
     func test_window_chrome_shows_proxy_icon_for_underlying_cwd_when_visible_label_is_non_path_title() {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
