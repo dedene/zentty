@@ -28,7 +28,9 @@ enum AgentEventBridge {
             arguments: arguments,
             environment: environment,
             inputData: readStandardInput(),
-            post: AgentStatusHelper.post,
+            post: { payload in
+                AgentStatusHelper.post(payload)
+            },
             writeError: AgentStatusHelper.writeError
         )
     }

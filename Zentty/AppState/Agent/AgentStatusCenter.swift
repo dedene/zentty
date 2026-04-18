@@ -8,10 +8,15 @@ final class AgentStatusCenter: NSObject {
     var onPayload: ((AgentStatusPayload) -> Void)?
 
     private let center: DistributedNotificationCenter
+    private let notificationName: Notification.Name
     private var hasStarted = false
 
-    init(center: DistributedNotificationCenter = .default()) {
+    init(
+        instanceID: String? = AgentIPCServer.shared.instanceID,
+        center: DistributedNotificationCenter = .default()
+    ) {
         self.center = center
+        self.notificationName = AgentStatusTransport.notificationName(instanceID: instanceID)
         super.init()
     }
 
@@ -23,7 +28,7 @@ final class AgentStatusCenter: NSObject {
         center.addObserver(
             self,
             selector: #selector(handleDistributedNotification(_:)),
-            name: AgentStatusTransport.notificationName,
+            name: notificationName,
             object: nil,
             suspensionBehavior: .deliverImmediately
         )
@@ -34,7 +39,7 @@ final class AgentStatusCenter: NSObject {
         if hasStarted {
             center.removeObserver(
                 self,
-                name: AgentStatusTransport.notificationName,
+                name: notificationName,
                 object: nil
             )
         }

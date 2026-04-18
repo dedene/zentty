@@ -149,10 +149,13 @@ enum AgentStatusHelper {
         return nil
     }
 
-    static func post(_ payload: AgentStatusPayload) {
+    static func post(
+        _ payload: AgentStatusPayload,
+        instanceID: String? = ProcessInfo.processInfo.environment[AgentStatusTransport.instanceIDEnvironmentKey]
+    ) {
         let center = DistributedNotificationCenter.default()
         center.postNotificationName(
-            AgentStatusTransport.notificationName,
+            AgentStatusTransport.notificationName(instanceID: instanceID),
             object: nil,
             userInfo: payload.notificationUserInfo,
             deliverImmediately: true
