@@ -7,7 +7,7 @@ enum ChromeGeometry {
     static let rowInset: CGFloat = 4
     static let pillInset: CGFloat = 2
 
-    static let headerHeight: CGFloat = 44
+    static let headerHeight: CGFloat = 36
     static let headerHorizontalInset: CGFloat = 16
 
     static let trafficLightOpticalLeadingOffset: CGFloat = 12
