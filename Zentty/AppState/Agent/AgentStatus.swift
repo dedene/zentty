@@ -6,6 +6,7 @@ enum AgentTool: Equatable, Sendable {
     case copilot
     case gemini
     case openCode
+    case pi
     case custom(String)
 
     var displayName: String {
@@ -20,6 +21,8 @@ enum AgentTool: Equatable, Sendable {
             return "Gemini"
         case .openCode:
             return "OpenCode"
+        case .pi:
+            return "Pi"
         case .custom(let name):
             return name
         }
@@ -44,6 +47,9 @@ enum AgentTool: Equatable, Sendable {
         }
         if normalized.contains("opencode") || normalized.contains("open code") {
             return .openCode
+        }
+        if matchesPi(normalized) {
+            return .pi
         }
 
         guard let rawName = rawName?.trimmingCharacters(in: .whitespacesAndNewlines), !rawName.isEmpty else {
@@ -70,10 +76,25 @@ enum AgentTool: Equatable, Sendable {
         if normalized.contains("opencode") || normalized.contains("open code") {
             return .openCode
         }
+        if matchesPi(normalized) {
+            return .pi
+        }
 
         // Keep Copilot hook-driven only for metadata recognition so generic
         // terminal-progress fallback still shows Running when hooks are absent.
         return nil
+    }
+
+    private static func matchesPi(_ normalized: String) -> Bool {
+        // Pi's binary name is short ("pi") and its titlebar extension uses
+        // the Greek letter π, sometimes prefixed with a braille spinner
+        // frame (e.g. "⠋ π - cwd"). Split on whitespace and require an
+        // exact token match so "pip", "pizza", "apipie", "pi.py" etc.
+        // don't get caught.
+        for token in normalized.split(separator: " ") {
+            if token == "pi" || token == "π" { return true }
+        }
+        return false
     }
 
     private static func normalized(_ value: String?) -> String? {

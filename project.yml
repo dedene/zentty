@@ -116,12 +116,13 @@ targets:
           RESOURCES_SRC="${PROJECT_DIR}/ZenttyResources"
           RESOURCES_DST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
 
-          mkdir -p "${RESOURCES_DST}/bin" "${RESOURCES_DST}/shell-integration" "${RESOURCES_DST}/opencode/plugins" "${RESOURCES_DST}/ghostty" "${RESOURCES_DST}/terminfo"
+          mkdir -p "${RESOURCES_DST}/bin" "${RESOURCES_DST}/shell-integration" "${RESOURCES_DST}/opencode/plugins" "${RESOURCES_DST}/pi/extensions" "${RESOURCES_DST}/ghostty" "${RESOURCES_DST}/terminfo"
           rsync -a --delete "${RESOURCES_SRC}/bin/" "${RESOURCES_DST}/bin/"
           install -m 755 "${BUILT_PRODUCTS_DIR}/zentty" "${RESOURCES_DST}/bin/shared/zentty"
-          find "${RESOURCES_DST}/bin" -type f \( -path "*/claude/claude" -o -path "*/codex/codex" -o -path "*/copilot/copilot" -o -path "*/gemini/gemini" -o -path "*/opencode/opencode" -o -path "*/shared/zentty" -o -path "*/shared/zentty-agent-wrapper" \) -exec chmod 755 {} +
+          find "${RESOURCES_DST}/bin" -type f \( -path "*/claude/claude" -o -path "*/codex/codex" -o -path "*/copilot/copilot" -o -path "*/gemini/gemini" -o -path "*/opencode/opencode" -o -path "*/pi/pi" -o -path "*/shared/zentty" -o -path "*/shared/zentty-agent-wrapper" \) -exec chmod 755 {} +
           rsync -a --delete "${RESOURCES_SRC}/shell-integration/" "${RESOURCES_DST}/shell-integration/"
           rsync -a --delete "${RESOURCES_SRC}/opencode/" "${RESOURCES_DST}/opencode/"
+          rsync -a --delete "${RESOURCES_SRC}/pi/" "${RESOURCES_DST}/pi/"
           rsync -a --delete "${RESOURCES_SRC}/ghostty/" "${RESOURCES_DST}/ghostty/"
           rsync -a --delete "${RESOURCES_SRC}/terminfo/" "${RESOURCES_DST}/terminfo/"
         basedOnDependencyAnalysis: false
