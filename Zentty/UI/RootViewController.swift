@@ -360,7 +360,10 @@ final class RootViewController: NSViewController {
                 equalTo: view.bottomAnchor, constant: -ShellMetrics.outerInset),
             sidebarWidthConstraint,
 
-            appCanvasView.topAnchor.constraint(equalTo: windowChromeView.bottomAnchor),
+            appCanvasView.topAnchor.constraint(
+                equalTo: windowChromeView.bottomAnchor,
+                constant: ShellMetrics.headerOuterPadding
+            ),
             appCanvasView.leadingAnchor.constraint(
                 equalTo: view.leadingAnchor, constant: ShellMetrics.outerInset),
             appCanvasView.trailingAnchor.constraint(
@@ -380,7 +383,7 @@ final class RootViewController: NSViewController {
             dragOverlayView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
 
             windowChromeView.topAnchor.constraint(
-                equalTo: view.topAnchor, constant: ShellMetrics.outerInset),
+                equalTo: view.topAnchor, constant: ShellMetrics.headerOuterPadding),
             windowChromeView.leadingAnchor.constraint(
                 equalTo: view.leadingAnchor, constant: ShellMetrics.outerInset),
             windowChromeView.trailingAnchor.constraint(

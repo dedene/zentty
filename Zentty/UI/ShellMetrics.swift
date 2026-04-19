@@ -7,8 +7,13 @@ enum ChromeGeometry {
     static let rowInset: CGFloat = 4
     static let pillInset: CGFloat = 2
 
-    static let headerHeight: CGFloat = 36
-    static let headerHorizontalInset: CGFloat = 16
+    static let headerHeight: CGFloat = 40
+    static let headerHorizontalInset: CGFloat = 12
+    /// Vertical inset between the window's top edge and the chrome row, also
+    /// used as the gap between the chrome's bottom and the canvas top. Half
+    /// the side `shellInset` so the chrome icons land in the optical center
+    /// of the dark zone framing them.
+    static let headerOuterPadding: CGFloat = 4
 
     static let trafficLightOpticalLeadingOffset: CGFloat = 12
     static let trafficLightOpticalTopOffset: CGFloat = 12
@@ -137,6 +142,7 @@ enum ShellMetrics {
 
     static let headerHeight: CGFloat = ChromeGeometry.headerHeight
     static let headerHorizontalInset: CGFloat = ChromeGeometry.headerHorizontalInset
+    static let headerOuterPadding: CGFloat = ChromeGeometry.headerOuterPadding
     static let contentPadding: CGFloat = 8
 
     static let sidebarContentInset: CGFloat = 8
