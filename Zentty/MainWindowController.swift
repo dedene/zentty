@@ -807,7 +807,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private func showOpenWithMenu() {
         let menu = makeOpenWithMenu()
         let anchorRect = rootViewController.chromeView.openWithMenuAnchorRect
-        let menuLocation = NSPoint(x: anchorRect.minX, y: anchorRect.maxY)
+        let menuLocation = NSPoint(x: anchorRect.minX, y: anchorRect.minY)
         menu.popUp(positioning: nil, at: menuLocation, in: rootViewController.chromeView)
     }
 
