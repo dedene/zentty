@@ -260,7 +260,10 @@ final class PaneStripStateTests: XCTestCase {
         let didResize = state.resizeDivider(
             .pane(columnID: PaneColumnID("stack"), afterPaneID: PaneID("top")),
             delta: 50,
-            availableSize: CGSize(width: 1200, height: 920),
+            availableSize: CGSize(
+                width: 1200,
+                height: 920 + state.layoutSizing.topInset + state.layoutSizing.bottomInset
+            ),
             minimumSizeByPaneID: [
                 PaneID("top"): PaneMinimumSize(width: 320, height: 160),
                 PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
@@ -792,7 +795,10 @@ final class PaneStripStateTests: XCTestCase {
         let didResize = state.resizeFocusedPane(
             in: .vertical,
             delta: -40,
-            availableSize: CGSize(width: 1200, height: 706),
+            availableSize: CGSize(
+                width: 1200,
+                height: 706 + state.layoutSizing.topInset + state.layoutSizing.bottomInset
+            ),
             minimumSizeByPaneID: [
                 PaneID("top"): PaneMinimumSize(width: 320, height: 160),
                 PaneID("bottom"): PaneMinimumSize(width: 320, height: 160),

@@ -8,7 +8,7 @@ struct PaneLayoutSizing: Equatable, Sendable {
 
     static let balanced = PaneLayoutSizing(
         horizontalInset: 0,
-        topInset: 0,
+        topInset: 2,
         bottomInset: 0,
         interPaneSpacing: 6
     )

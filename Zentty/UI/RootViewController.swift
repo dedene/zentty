@@ -90,6 +90,12 @@ final class RootViewController: NSViewController {
     private var pathCopiedToastView: PathCopiedToastView?
     private let paneNavigationButtons = PaneNavigationButtons()
     private let paneLayoutMenuCoordinator: PaneLayoutMenuCoordinator
+    private lazy var leadingChromeControlsBar = LeadingChromeControlsBar(
+        toggle: sidebarToggleButton,
+        layoutMenu: paneLayoutMenuCoordinator.menuButton,
+        navigation: paneNavigationButtons,
+        inbox: notificationCoordinator.inboxButton
+    )
     private lazy var globalSearchCoordinator = GlobalSearchCoordinator(
         orderedTargetsProvider: { [weak self] in
             self?.worklaneStore.worklanes.flatMap { worklane in
@@ -301,10 +307,6 @@ final class RootViewController: NSViewController {
         windowChromeView.translatesAutoresizingMaskIntoConstraints = false
         sidebarView.translatesAutoresizingMaskIntoConstraints = false
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
-        sidebarToggleButton.translatesAutoresizingMaskIntoConstraints = false
-        paneNavigationButtons.translatesAutoresizingMaskIntoConstraints = false
-        paneLayoutMenuCoordinator.menuButton.translatesAutoresizingMaskIntoConstraints = false
-        notificationCoordinator.inboxButton.translatesAutoresizingMaskIntoConstraints = false
         globalSearchHUDView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appCanvasView)
         view.addSubview(globalSearchHUDView)
@@ -312,10 +314,7 @@ final class RootViewController: NSViewController {
         view.addSubview(sidebarHoverRailView)
         view.addSubview(sidebarView)
         view.addSubview(dragOverlayView)
-        view.addSubview(sidebarToggleButton)
-        view.addSubview(paneLayoutMenuCoordinator.menuButton)
-        view.addSubview(paneNavigationButtons)
-        view.addSubview(notificationCoordinator.inboxButton)
+        view.addSubview(leadingChromeControlsBar)
         sidebarView.setUpdateAvailable(isUpdateAvailable)
     }
 
@@ -332,15 +331,11 @@ final class RootViewController: NSViewController {
 
         let initialSidebarTrailing =
             ShellMetrics.outerInset + sidebarMotionCoordinator.currentSidebarWidth
-        let toggleLeadingConstraint = sidebarToggleButton.leadingAnchor.constraint(
+        let toggleLeadingConstraint = leadingChromeControlsBar.leadingAnchor.constraint(
             equalTo: view.leadingAnchor,
             constant: initialSidebarTrailing + ShellMetrics.shellGap
         )
         self.toggleLeadingConstraint = toggleLeadingConstraint
-
-        let toggleVerticalConstraint = sidebarToggleButton.centerYAnchor.constraint(
-            equalTo: windowChromeView.centerYAnchor
-        )
 
         NSLayoutConstraint.activate([
             sidebarView.topAnchor.constraint(
@@ -388,43 +383,16 @@ final class RootViewController: NSViewController {
                 equalToConstant: SidebarLayout.hoverRailWidth),
 
             toggleLeadingConstraint,
-            toggleVerticalConstraint,
-            sidebarToggleButton.widthAnchor.constraint(
-                equalToConstant: SidebarToggleButton.buttonSize),
-            sidebarToggleButton.heightAnchor.constraint(
-                equalToConstant: SidebarToggleButton.buttonSize),
-
-            paneLayoutMenuCoordinator.menuButton.leadingAnchor.constraint(
-                equalTo: sidebarToggleButton.trailingAnchor,
-                constant: 4
+            leadingChromeControlsBar.centerYAnchor.constraint(
+                equalTo: windowChromeView.centerYAnchor,
+                constant: 3
             ),
-            paneLayoutMenuCoordinator.menuButton.centerYAnchor.constraint(
-                equalTo: sidebarToggleButton.centerYAnchor
+            leadingChromeControlsBar.widthAnchor.constraint(
+                equalToConstant: LeadingChromeControlsBar.totalWidth
             ),
-            paneLayoutMenuCoordinator.menuButton.widthAnchor.constraint(
-                equalToConstant: PaneLayoutMenuButton.buttonSize
+            leadingChromeControlsBar.heightAnchor.constraint(
+                equalToConstant: LeadingChromeControlsBar.height
             ),
-            paneLayoutMenuCoordinator.menuButton.heightAnchor.constraint(
-                equalToConstant: PaneLayoutMenuButton.buttonSize
-            ),
-
-            paneNavigationButtons.leadingAnchor.constraint(
-                equalTo: paneLayoutMenuCoordinator.menuButton.trailingAnchor, constant: 4),
-            paneNavigationButtons.centerYAnchor.constraint(
-                equalTo: sidebarToggleButton.centerYAnchor),
-            paneNavigationButtons.widthAnchor.constraint(
-                equalToConstant: PaneNavigationButtons.totalWidth),
-            paneNavigationButtons.heightAnchor.constraint(
-                equalToConstant: PaneNavigationButtons.buttonSize),
-
-            notificationCoordinator.inboxButton.leadingAnchor.constraint(
-                equalTo: paneNavigationButtons.trailingAnchor, constant: 8),
-            notificationCoordinator.inboxButton.centerYAnchor.constraint(
-                equalTo: sidebarToggleButton.centerYAnchor),
-            notificationCoordinator.inboxButton.widthAnchor.constraint(
-                equalToConstant: NotificationInboxButton.buttonSize),
-            notificationCoordinator.inboxButton.heightAnchor.constraint(
-                equalToConstant: NotificationInboxButton.buttonSize),
         ])
     }
 
@@ -450,7 +418,8 @@ final class RootViewController: NSViewController {
                 if self.isGlobalSearchSessionActive {
                     self.globalSearchCoordinator.end()
                 } else {
-                    self.globalSearchCoordinator.reconcileTargets(with: self.worklaneStore.worklanes)
+                    self.globalSearchCoordinator.reconcileTargets(
+                        with: self.worklaneStore.worklanes)
                 }
                 self.updateOpenWithChromeState()
                 self.updatePaneNavigationButtonState()
@@ -1639,15 +1608,6 @@ final class RootViewController: NSViewController {
         onWindowChromeNeedsUpdate?()
     }
 
-    /// Total width of the left-side chrome controls that sit between the sidebar
-    /// trailing edge and the centered title row: toggle + pane layout menu +
-    /// navigation buttons + notification bell, including inter-button gaps.
-    private static let chromeControlsBarWidth: CGFloat =
-        SidebarToggleButton.buttonSize + 4
-        + PaneLayoutMenuButton.buttonSize + 4
-        + PaneNavigationButtons.totalWidth + 8
-        + NotificationInboxButton.buttonSize
-
     private func applySidebarMotionState(
         _ motionState: SidebarMotionState,
         animated: Bool,
@@ -1702,15 +1662,21 @@ final class RootViewController: NSViewController {
             : closedToggleTarget
         windowChromeView.leadingControlsInset =
             (toggleTarget - ShellMetrics.outerInset)
-            + Self.chromeControlsBarWidth
+            + LeadingChromeControlsBar.totalWidth
         let pinnedHeaderContentMinX =
             trafficLightAnchor.x
             - leadingConstant
             + SidebarToggleButton.spacingFromTrafficLights
-        sidebarView.updateHeaderLayout(
-            visibilityMode: sidebarMotionCoordinator.mode,
-            pinnedContentMinX: pinnedHeaderContentMinX
-        )
+        // Skip the header-layout update when the sidebar will be hidden — the
+        // button is about to slide off-screen with the sidebar body, and
+        // re-snapping its X/Y offsets to the default (.hidden) values here
+        // would cause a visible 1-frame jump before the slide starts.
+        if motionState.revealFraction > 0 {
+            sidebarView.updateHeaderLayout(
+                visibilityMode: sidebarMotionCoordinator.mode,
+                pinnedContentMinX: pinnedHeaderContentMinX
+            )
+        }
         if forceLayout {
             sidebarView.layoutSubtreeIfNeeded()
         }
@@ -1722,13 +1688,11 @@ final class RootViewController: NSViewController {
                 context.allowsImplicitAnimation = true
                 self.sidebarLeadingConstraint?.animator().constant = leadingConstant
                 self.toggleLeadingConstraint?.animator().constant = toggleTarget
-                self.sidebarView.animator().alphaValue = motionState.revealFraction
                 self.view.layoutSubtreeIfNeeded()
             }
         } else {
             sidebarLeadingConstraint?.constant = leadingConstant
             toggleLeadingConstraint?.constant = toggleTarget
-            sidebarView.alphaValue = motionState.revealFraction
             if forceLayout {
                 view.layoutSubtreeIfNeeded()
             }
@@ -1853,16 +1817,17 @@ final class RootViewController: NSViewController {
             for pane in column.panes {
                 let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
                 let isFocused = worklane.paneStripState.focusedPaneID == pane.id
-                entries.append(PaneListEntry(
-                    index: index,
-                    id: pane.id.rawValue,
-                    column: columnIndex + 1,
-                    title: pane.title,
-                    workingDirectory: auxiliaryState?.shellContext?.path,
-                    isFocused: isFocused,
-                    agentTool: auxiliaryState?.agentStatus?.tool.displayName,
-                    agentStatus: auxiliaryState?.agentStatus?.state.rawValue
-                ))
+                entries.append(
+                    PaneListEntry(
+                        index: index,
+                        id: pane.id.rawValue,
+                        column: columnIndex + 1,
+                        title: pane.title,
+                        workingDirectory: auxiliaryState?.shellContext?.path,
+                        isFocused: isFocused,
+                        agentTool: auxiliaryState?.agentStatus?.tool.displayName,
+                        agentStatus: auxiliaryState?.agentStatus?.state.rawValue
+                    ))
                 index += 1
             }
         }
@@ -2071,7 +2036,7 @@ final class RootViewController: NSViewController {
                 .items
                 .filter { !$0.isSeparatorItem }
                 .map(\.title) ?? []
-    }
+        }
     #endif
 
     var workspaceState: WindowWorkspaceState {
@@ -2129,12 +2094,12 @@ final class RootViewController: NSViewController {
             return
         }
 
-        let inboxMaxXInRoot = notificationCoordinator.inboxButton.frame.maxX
-        let inboxMaxXInChrome = windowChromeView.convert(
-            NSPoint(x: inboxMaxXInRoot, y: 0),
+        let barMaxXInRoot = leadingChromeControlsBar.frame.maxX
+        let barMaxXInChrome = windowChromeView.convert(
+            NSPoint(x: barMaxXInRoot, y: 0),
             from: view
         ).x
-        windowChromeView.leadingControlsInset = inboxMaxXInChrome
+        windowChromeView.leadingControlsInset = barMaxXInChrome
     }
 
     func updatePaneLayoutPreferences(_ preferences: PaneLayoutPreferences) {

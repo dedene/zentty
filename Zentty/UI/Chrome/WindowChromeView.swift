@@ -544,7 +544,7 @@ final class WindowChromeView: NSView {
         rowContainerView.isHidden = false
         rowContainerView.frame = NSRect(
             x: originX,
-            y: floor((bounds.height - rowHeight) / 2),
+            y: floor((bounds.height - rowHeight) / 2) - 2,
             width: rowWidth,
             height: rowHeight
         )
@@ -570,9 +570,9 @@ final class WindowChromeView: NSView {
         let height = Self.openWithControlHeight
         let originX = max(
             ChromeGeometry.headerHorizontalInset,
-            bounds.width - ChromeGeometry.headerHorizontalInset - width
+            bounds.width - ChromeGeometry.headerHorizontalInset - width - 2
         )
-        let originY = floor((bounds.height - height) / 2)
+        let originY = floor((bounds.height - height) / 2) - 2
         openWithContainerView.frame = NSRect(x: originX, y: originY, width: width, height: height)
         openWithPrimaryBackgroundView.frame = NSRect(
             x: Self.openWithSegmentInset,

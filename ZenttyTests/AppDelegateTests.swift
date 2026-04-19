@@ -631,7 +631,9 @@ final class AppDelegateTests: XCTestCase {
             })
         )
         let contentView = try XCTUnwrap(launchedWindow.contentView)
-        let toggleButton = try XCTUnwrap(contentView.firstDescendant(ofType: SidebarToggleButton.self))
+        let leadingControlsBar = try XCTUnwrap(
+            contentView.firstDescendant(ofType: LeadingChromeControlsBar.self)
+        )
         let sidebarView = try XCTUnwrap(contentView.firstDescendant(ofType: SidebarView.self))
         let zoomButton = try XCTUnwrap(launchedWindow.standardWindowButton(.zoomButton))
         let buttonSuperview = try XCTUnwrap(zoomButton.superview)
@@ -646,7 +648,7 @@ final class AppDelegateTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            toggleButton.frame.minX,
+            leadingControlsBar.frame.minX,
             expectedLeading,
             accuracy: 1.0
         )
