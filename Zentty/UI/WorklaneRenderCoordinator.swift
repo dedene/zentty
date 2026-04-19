@@ -246,7 +246,6 @@ final class WorklaneRenderCoordinator {
 
             terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.paneStripState.focusedPaneID)
             views.appCanvasView.render(
-                worklaneName: worklane.title,
                 state: worklane.paneStripState,
                 metadataByPaneID: worklane.auxiliaryStateByPaneID.compactMapValues(\.metadata),
                 paneBorderContextByPaneID: worklane.paneBorderContextDisplayByPaneID,

@@ -12,6 +12,10 @@ struct ZenttyCLI: ParsableCommand {
         abstract: "Zentty command-line interface.",
         subcommands: [
             VersionCommand.self,
+            ListCommandGroup.self,
+            WindowCommandGroup.self,
+            WorklaneCommandGroup.self,
+            SelectCommandGroup.self,
             SplitCommand.self,
             HSplitCommand.self,
             VSplitCommand.self,
@@ -124,9 +128,8 @@ private enum PaneIPC {
         expectsResponse: Bool = true
     ) throws -> AgentIPCResponse? {
         let env = ProcessInfo.processInfo.environment
-        guard let socketPath = env["ZENTTY_INSTANCE_SOCKET"], !socketPath.isEmpty,
-              IPCCommand.hasRequiredRoutingEnvironment(env) else {
-            throw ValidationError("Not running inside a Zentty pane.")
+        guard let socketPath = env["ZENTTY_INSTANCE_SOCKET"], !socketPath.isEmpty else {
+            throw ValidationError("Not running inside a Zentty instance.")
         }
 
         let request = AgentIPCRequest(
@@ -171,13 +174,17 @@ struct SplitCommand: ParsableCommand {
     var direction: String = "right"
 
     @OptionGroup var layout: SplitLayoutOptions
+    @OptionGroup var target: PaneTargetOptions
 
     mutating func run() throws {
         let validDirections = ["right", "left", "up", "down"]
         guard validDirections.contains(direction) else {
             throw ValidationError("Invalid direction '\(direction)'. Use: \(validDirections.joined(separator: ", "))")
         }
-        _ = try PaneIPC.send(subcommand: "split", arguments: [direction] + layout.layoutArguments())
+        _ = try PaneIPC.send(
+            subcommand: "split",
+            arguments: [direction] + layout.layoutArguments() + target.selectorArguments()
+        )
     }
 }
 
@@ -188,9 +195,13 @@ struct HSplitCommand: ParsableCommand {
     )
 
     @OptionGroup var layout: SplitLayoutOptions
+    @OptionGroup var target: PaneTargetOptions
 
     mutating func run() throws {
-        _ = try PaneIPC.send(subcommand: "split", arguments: ["right"] + layout.layoutArguments())
+        _ = try PaneIPC.send(
+            subcommand: "split",
+            arguments: ["right"] + layout.layoutArguments() + target.selectorArguments()
+        )
     }
 }
 
@@ -201,9 +212,13 @@ struct VSplitCommand: ParsableCommand {
     )
 
     @OptionGroup var layout: SplitLayoutOptions
+    @OptionGroup var target: PaneTargetOptions
 
     mutating func run() throws {
-        _ = try PaneIPC.send(subcommand: "split", arguments: ["down"] + layout.layoutArguments())
+        _ = try PaneIPC.send(
+            subcommand: "split",
+            arguments: ["down"] + layout.layoutArguments() + target.selectorArguments()
+        )
     }
 }
 
@@ -229,42 +244,22 @@ struct PaneListCommand: ParsableCommand {
         abstract: "List all panes in the current worklane."
     )
 
+    @OptionGroup var filters: PaneDiscoveryFilterOptions
+
     @Flag(name: .long, help: "Output as JSON.")
     var json = false
 
     mutating func run() throws {
-        let response = try PaneIPC.send(subcommand: "list")
-        guard let entries = response?.result?.paneList, !entries.isEmpty else {
-            print("No panes.")
-            return
+        var arguments = filters.arguments()
+        let environment = ProcessInfo.processInfo.environment
+        if filters.windowID == nil, filters.worklaneID == nil,
+           let worklaneID = environment["ZENTTY_WORKLANE_ID"] {
+            if let windowID = environment["ZENTTY_WINDOW_ID"] {
+                arguments.append(contentsOf: ["--window-id", windowID])
+            }
+            arguments.append(contentsOf: ["--worklane-id", worklaneID])
         }
-
-        if json {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(entries)
-            print(String(data: data, encoding: .utf8) ?? "[]")
-            return
-        }
-
-        print("\(pad("ID", 4))  \(pad("COL", 3))  F  \(pad("TITLE", 16))  \(pad("CWD", 30))  \(pad("AGENT", 12))  STATUS")
-        for entry in entries {
-            let focus = entry.isFocused ? "*" : " "
-            let cwd = entry.workingDirectory.map { abbreviateHome($0) } ?? "-"
-            let agent = entry.agentTool ?? "-"
-            let status = entry.agentStatus ?? "-"
-            print("\(pad(String(entry.index), 4))  \(pad(String(entry.column), 3))  \(focus)  \(pad(String(entry.title.prefix(16)), 16))  \(pad(String(cwd.prefix(30)), 30))  \(pad(String(agent.prefix(12)), 12))  \(status)")
-        }
-    }
-
-    private func pad(_ string: String, _ width: Int) -> String {
-        string.count >= width ? string : string + String(repeating: " ", count: width - string.count)
-    }
-
-    private func abbreviateHome(_ path: String) -> String {
-        let home = ProcessInfo.processInfo.environment["HOME"] ?? ""
-        guard !home.isEmpty, path.hasPrefix(home) else { return path }
-        return "~" + path.dropFirst(home.count)
+        try renderPanes(arguments: arguments, json: json)
     }
 }
 
@@ -275,10 +270,18 @@ struct PaneFocusCommand: ParsableCommand {
     )
 
     @Argument(help: "Pane index (1-based), pane ID, or direction (left/right/up/down).")
-    var target: String
+    var target: String?
+
+    @OptionGroup var selection: PaneTargetOptions
 
     mutating func run() throws {
-        _ = try PaneIPC.send(subcommand: "focus", arguments: [target])
+        try selection.validatedForPositionalPaneSelector(target)
+        var arguments: [String] = []
+        if let target {
+            arguments.append(target)
+        }
+        arguments += selection.selectorArguments()
+        _ = try PaneIPC.send(subcommand: "focus", arguments: arguments)
     }
 }
 
@@ -291,11 +294,15 @@ struct PaneCloseCommand: ParsableCommand {
     @Argument(help: "Pane index or ID. Defaults to the current pane.")
     var target: String?
 
+    @OptionGroup var selection: PaneTargetOptions
+
     mutating func run() throws {
+        try selection.validatedForPositionalPaneSelector(target)
         var args: [String] = []
         if let target {
             args.append(target)
         }
+        args += selection.selectorArguments()
         _ = try PaneIPC.send(subcommand: "close", arguments: args)
     }
 }
@@ -306,8 +313,10 @@ struct PaneZoomCommand: ParsableCommand {
         abstract: "Toggle zoomed-out pane view."
     )
 
+    @OptionGroup var target: PaneTargetOptions
+
     mutating func run() throws {
-        _ = try PaneIPC.send(subcommand: "zoom")
+        _ = try PaneIPC.send(subcommand: "zoom", arguments: target.selectorArguments())
     }
 }
 
@@ -320,8 +329,13 @@ struct PaneResizeCommand: ParsableCommand {
     @Argument(help: "Direction (left/right/up/down) or percentage (e.g. 60%).")
     var target: String
 
+    @OptionGroup var selection: PaneTargetOptions
+
     mutating func run() throws {
-        _ = try PaneIPC.send(subcommand: "resize", arguments: [target])
+        _ = try PaneIPC.send(
+            subcommand: "resize",
+            arguments: [target] + selection.selectorArguments()
+        )
     }
 }
 
@@ -339,11 +353,14 @@ struct LayoutCommand: ParsableCommand {
     @Flag(name: [.short, .long], help: "Apply vertically (panes per column) instead of horizontally (columns).")
     var vertical = false
 
+    @OptionGroup var target: PaneTargetOptions
+
     mutating func run() throws {
         var args = [preset]
         if vertical {
             args.append("--vertical")
         }
+        args += target.selectorArguments()
         _ = try PaneIPC.send(subcommand: "layout", arguments: args)
     }
 }

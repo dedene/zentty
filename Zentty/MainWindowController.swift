@@ -134,6 +134,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     let window: NSWindow
     let windowID: WindowID
+    let windowOrder: Int
     private let rootViewController: RootViewController
     private let runtimeRegistry: PaneRuntimeRegistry
     private let configStore: AppConfigStore
@@ -224,6 +225,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
         self.rootViewController = rootViewController
         self.windowID = windowID
+        self.windowOrder = windowIndex
         self.runtimeRegistry = runtimeRegistry
         self.configStore = resolvedConfigStore
         self.openWithService = openWithService
@@ -1092,6 +1094,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             worklanes: workspaceState.worklanes,
             activeWorklaneID: workspaceState.activeWorklaneID
         )
+    }
+
+    var discoveryWorkspaceState: WindowWorkspaceState {
+        rootViewController.workspaceState
     }
 
     var sessionRestoreDraftWindow: SessionRestoreDraftWindow? {

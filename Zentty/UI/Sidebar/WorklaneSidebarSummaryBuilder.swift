@@ -55,11 +55,12 @@ enum WorklaneSidebarSummaryBuilder {
                 (worklane.id, worklaneIdentity(for: worklane))
             }
         )
-        let baseSummaries = worklanes.map { worklane in
+        let baseSummaries = worklanes.enumerated().map { index, worklane in
             summary(
                 for: worklane,
                 isActive: worklane.id == activeWorklaneID,
-                identity: identitiesByWorklaneID[worklane.id]
+                identity: identitiesByWorklaneID[worklane.id],
+                displayOrder: index + 1
             )
         }
 
@@ -77,14 +78,16 @@ enum WorklaneSidebarSummaryBuilder {
         summary(
             for: worklane,
             isActive: isActive,
-            identity: worklaneIdentity(for: worklane)
+            identity: worklaneIdentity(for: worklane),
+            displayOrder: 1
         )
     }
 
     private static func summary(
         for worklane: WorklaneState,
         isActive: Bool,
-        identity: WorklaneSidebarIdentity?
+        identity: WorklaneSidebarIdentity?,
+        displayOrder: Int
     ) -> WorklaneSidebarSummary {
         let orderedPaneContexts = orderedPaneContexts(for: worklane)
         let paneRows = paneRows(
@@ -92,7 +95,7 @@ enum WorklaneSidebarSummaryBuilder {
             orderedPaneContexts: orderedPaneContexts
         )
         let isWorking = paneRows.contains(where: \.isWorking) || worklaneIsWorking(for: worklane)
-        let badgeText = badge(for: worklane.title)
+        let badgeText = badge(for: worklane.meaningfulTitle, displayOrder: displayOrder)
         let identity = identity ?? worklaneIdentity(
             for: worklane,
             orderedPaneContexts: orderedPaneContexts
@@ -103,7 +106,7 @@ enum WorklaneSidebarSummaryBuilder {
             orderedPaneContexts: orderedPaneContexts
         )
         let topLabel = visibleTopLabel(
-            worklane.title,
+            worklane.meaningfulTitle,
             primaryText: primaryText
         )
         let sidebarDetailLines = detailLines(
@@ -821,11 +824,10 @@ enum WorklaneSidebarSummaryBuilder {
     }
 
     private static func visibleTopLabel(
-        _ title: String,
+        _ title: String?,
         primaryText: String
     ) -> String? {
-        let normalizedTitle = WorklaneContextFormatter.trimmed(title)
-        guard let normalizedTitle, isGeneratedWorklaneTitle(normalizedTitle) == false else {
+        guard let normalizedTitle = WorklaneContextFormatter.trimmed(title) else {
             return nil
         }
 
@@ -930,7 +932,7 @@ enum WorklaneSidebarSummaryBuilder {
                 worklaneID: summary.worklaneID,
                 badgeText: summary.badgeText,
                 topLabel: visibleTopLabel(
-                    worklane.title,
+                    worklane.meaningfulTitle,
                     primaryText: summary.primaryText
                 ),
                 primaryText: summary.primaryText,
@@ -1100,7 +1102,11 @@ enum WorklaneSidebarSummaryBuilder {
         return "…/" + trimmed
     }
 
-    private static func badge(for title: String) -> String {
+    private static func badge(for title: String?, displayOrder: Int) -> String {
+        guard let title = WorklaneState.meaningfulTitle(from: title) else {
+            return String(displayOrder)
+        }
+
         let words = title
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
@@ -1118,18 +1124,6 @@ enum WorklaneSidebarSummaryBuilder {
         }
 
         return String(firstCharacter).uppercased()
-    }
-
-    private static func isGeneratedWorklaneTitle(_ title: String) -> Bool {
-        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalized.uppercased() == "MAIN" {
-            return true
-        }
-
-        return normalized.range(
-            of: #"^WS \d+$"#,
-            options: .regularExpression
-        ) != nil
     }
 
     private static func detailTextRepeatsPrimary(
