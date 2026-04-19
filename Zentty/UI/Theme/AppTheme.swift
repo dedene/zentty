@@ -100,6 +100,8 @@ struct ZenttyTheme: Equatable {
     let notificationPanelSeparator: NSColor
     let notificationPanelRowHoverBackground: NSColor
     let notificationPanelRowSelectedBackground: NSColor
+    let notificationBadgeBackground: NSColor
+    let notificationBadgeText: NSColor
     let commandPaletteBackground: NSColor
     let commandPaletteBorder: NSColor
     let commandPaletteShadow: NSColor
@@ -136,6 +138,7 @@ struct ZenttyTheme: Equatable {
             lhs.notificationPanelBackground, lhs.notificationPanelBorder, lhs.notificationPanelShadow,
             lhs.notificationPanelSeparator, lhs.notificationPanelRowHoverBackground,
             lhs.notificationPanelRowSelectedBackground,
+            lhs.notificationBadgeBackground, lhs.notificationBadgeText,
             lhs.commandPaletteBackground, lhs.commandPaletteBorder, lhs.commandPaletteShadow,
             lhs.commandPaletteText, lhs.commandPaletteSecondaryText,
             lhs.commandPaletteRowHoverBackground, lhs.commandPaletteRowSelectedBackground,
@@ -162,6 +165,7 @@ struct ZenttyTheme: Equatable {
             rhs.notificationPanelBackground, rhs.notificationPanelBorder, rhs.notificationPanelShadow,
             rhs.notificationPanelSeparator, rhs.notificationPanelRowHoverBackground,
             rhs.notificationPanelRowSelectedBackground,
+            rhs.notificationBadgeBackground, rhs.notificationBadgeText,
             rhs.commandPaletteBackground, rhs.commandPaletteBorder, rhs.commandPaletteShadow,
             rhs.commandPaletteText, rhs.commandPaletteSecondaryText,
             rhs.commandPaletteRowHoverBackground, rhs.commandPaletteRowSelectedBackground,
@@ -340,6 +344,16 @@ struct ZenttyTheme: Equatable {
         notificationPanelRowSelectedBackground = accent
             .mixed(towards: notificationPanelBase, amount: background.isDarkThemeColor ? 0.66 : 0.76)
             .withAlphaComponent(reduceTransparency ? 0.94 : (background.isDarkThemeColor ? 0.68 : 0.78))
+        let badgeBackground = paletteRed
+            .adjustedHSB(saturationBy: 0.18, brightnessBy: 0.10)
+        notificationBadgeBackground = badgeBackground.withAlphaComponent(1)
+        // Default to white (the badge convention) and only flip to dark when
+        // the palette red is genuinely pale (salmon/pink). A pure luminance
+        // contrast pick muddies the digit on vivid reds where white reads
+        // far more crisply despite a slightly lower WCAG ratio.
+        notificationBadgeText = badgeBackground.perceivedLuminance > 0.45
+            ? NSColor(calibratedWhite: 0.10, alpha: 1)
+            : NSColor(calibratedWhite: 0.98, alpha: 1)
         let commandPaletteBase = baseSidebar
             .mixed(towards: startupSurfaceBase, amount: background.isDarkThemeColor ? 0.18 : 0.36)
         commandPaletteBackground = commandPaletteBase.withAlphaComponent(
