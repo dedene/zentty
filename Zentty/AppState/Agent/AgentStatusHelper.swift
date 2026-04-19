@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 enum AgentStatusHelper {
-    private static let wrappedToolNames = ["claude", "codex", "copilot", "gemini", "opencode"]
+    private static let wrappedToolNames = ["claude", "codex", "copilot", "cursor", "gemini", "opencode", "pi"]
     private static let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     static func runIfNeeded(arguments: [String], environment: [String: String]) -> Int32? {
@@ -54,16 +54,20 @@ enum AgentStatusHelper {
                     "claude/claude",
                     "codex/codex",
                     "copilot/copilot",
+                    "cursor/cursor-agent",
                     "gemini/gemini",
                     "opencode/opencode",
+                    "pi/pi",
                     "shared/zentty-agent-wrapper",
                 ],
                 executableRelativePaths: [
                     "claude/claude",
                     "codex/codex",
                     "copilot/copilot",
+                    "cursor/cursor-agent",
                     "gemini/gemini",
                     "opencode/opencode",
+                    "pi/pi",
                     "shared/zentty-agent-wrapper",
                 ]
             ) {
@@ -119,15 +123,17 @@ enum AgentStatusHelper {
 
         return wrapperDirectories.filter { wrapperDirectory in
             let toolName = URL(fileURLWithPath: wrapperDirectory, isDirectory: true).lastPathComponent
+            let candidateBinaryNames = AgentBootstrapTool(rawValue: toolName)?.realBinaryNames ?? [toolName]
             return pathEntries.contains { entry in
                 guard !excludedDirectories.contains(entry) else {
                     return false
                 }
-
-                let candidatePath = URL(fileURLWithPath: entry, isDirectory: true)
-                    .appendingPathComponent(toolName, isDirectory: false)
-                    .path
-                return FileManager.default.isExecutableFile(atPath: candidatePath)
+                return candidateBinaryNames.contains { binaryName in
+                    let candidatePath = URL(fileURLWithPath: entry, isDirectory: true)
+                        .appendingPathComponent(binaryName, isDirectory: false)
+                        .path
+                    return FileManager.default.isExecutableFile(atPath: candidatePath)
+                }
             }
         }
     }

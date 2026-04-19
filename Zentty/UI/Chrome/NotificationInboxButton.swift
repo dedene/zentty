@@ -1,7 +1,8 @@
 import AppKit
+import CoreText
 
 @MainActor
-final class NotificationBellButton: NSButton {
+final class NotificationInboxButton: NSButton {
     static let buttonSize: CGFloat = 28
     private static let iconSize: CGFloat = 14
     private static let badgeSize: CGFloat = 12
@@ -10,7 +11,7 @@ final class NotificationBellButton: NSButton {
     var onClick: (() -> Void)?
 
     private let badgeLayer = CALayer()
-    private let badgeTextLayer = CATextLayer()
+    private let badgeCountLayer = BadgeCountLayer()
     private var currentCount: Int = 0
     private var isHovered = false
     private var trackingAreaValue: NSTrackingArea?
@@ -39,17 +40,17 @@ final class NotificationBellButton: NSButton {
         layer?.masksToBounds = false
 
         let config = NSImage.SymbolConfiguration(pointSize: Self.iconSize, weight: .medium)
-        if let bellImage = NSImage(
-            systemSymbolName: "bell.fill",
-            accessibilityDescription: "Notifications"
+        if let trayImage = NSImage(
+            systemSymbolName: "tray.fill",
+            accessibilityDescription: "Inbox"
         )?.withSymbolConfiguration(config) {
-            bellImage.isTemplate = true
-            image = bellImage
+            trayImage.isTemplate = true
+            image = trayImage
         }
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyDown
-        setAccessibilityLabel("Notifications")
-        toolTip = "Notifications"
+        setAccessibilityLabel("Inbox")
+        toolTip = "Inbox"
 
         target = self
         action = #selector(handleClick)
@@ -66,30 +67,22 @@ final class NotificationBellButton: NSButton {
             width: size,
             height: size
         )
-        badgeLayer.backgroundColor = NSColor.systemRed.cgColor
         badgeLayer.cornerRadius = size / 2
         badgeLayer.isHidden = true
         badgeLayer.zPosition = 10
 
-        // Vertically center the text by offsetting the frame down by ~1pt.
-        // CATextLayer renders text from the top, so we shift the frame to
-        // visually center the font within the circle.
-        let textInset: CGFloat = 1
-        badgeTextLayer.frame = CGRect(x: 0, y: -textInset, width: size, height: size)
-        badgeTextLayer.font = NSFont.systemFont(ofSize: Self.badgeFontSize, weight: .bold) as CTFont
-        badgeTextLayer.fontSize = Self.badgeFontSize
-        badgeTextLayer.foregroundColor = NSColor.white.cgColor
-        badgeTextLayer.alignmentMode = .center
-        badgeTextLayer.truncationMode = .end
+        badgeCountLayer.frame = CGRect(x: 0, y: 0, width: size, height: size)
+        badgeCountLayer.fontSize = Self.badgeFontSize
 
-        badgeLayer.addSublayer(badgeTextLayer)
+        badgeLayer.addSublayer(badgeCountLayer)
         layer?.addSublayer(badgeLayer)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        badgeTextLayer.contentsScale = scale
+        badgeCountLayer.contentsScale = scale
+        badgeCountLayer.setNeedsDisplay()
     }
 
     // MARK: - Hover Tracking
@@ -145,7 +138,7 @@ final class NotificationBellButton: NSButton {
     func update(count: Int, theme: ZenttyTheme) {
         currentCount = count
         badgeLayer.isHidden = count == 0
-        badgeTextLayer.string = count <= 99 ? "\(count)" : "99+"
+        badgeCountLayer.text = count <= 99 ? "\(count)" : "99+"
         alphaValue = count == 0 ? 0.4 : 1.0
 
         configure(theme: theme, animated: false)
@@ -155,6 +148,7 @@ final class NotificationBellButton: NSButton {
         currentTheme = theme
         let enabledAlpha: CGFloat = isHovered ? 1.0 : (currentCount > 0 ? 0.96 : 0.82)
         contentTintColor = theme.primaryText.withAlphaComponent(enabledAlpha)
+        badgeCountLayer.textColor = theme.notificationBadgeText
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = ChromeGeometry.iconButtonHoverBackground(
@@ -166,6 +160,91 @@ final class NotificationBellButton: NSButton {
             self.layer?.shadowOpacity = 0.10
             self.layer?.shadowRadius = 5
             self.layer?.shadowOffset = CGSize(width: 0, height: -1)
+            self.badgeLayer.backgroundColor = theme.notificationBadgeBackground.cgColor
         }
+    }
+}
+
+/// Draws a short numeric badge string centered on the layer's cap-height
+/// midline rather than on the font's full ascender/descender bounds, so the
+/// digits sit visually centered inside a circular badge regardless of font.
+private final class BadgeCountLayer: CALayer {
+    var text: String = "" {
+        didSet {
+            guard text != oldValue else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    var fontSize: CGFloat = 8 {
+        didSet {
+            guard fontSize != oldValue else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    var textColor: NSColor = .white {
+        didSet {
+            setNeedsDisplay()
+        }
+    }
+
+    override init() {
+        super.init()
+        commonInit()
+    }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+        commonInit()
+        if let other = layer as? BadgeCountLayer {
+            text = other.text
+            fontSize = other.fontSize
+            textColor = other.textColor
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func commonInit() {
+        isOpaque = false
+        needsDisplayOnBoundsChange = true
+        actions = ["contents": NSNull()]
+    }
+
+    override func draw(in ctx: CGContext) {
+        guard !text.isEmpty else { return }
+
+        let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
+        // CoreText reads color from the CoreText foreground attribute, not the
+        // AppKit `.foregroundColor` key — and not always from the context's
+        // fill color when the attributed string has none. Bake the colour in
+        // explicitly, in sRGB, so it always renders.
+        let resolvedColor = (textColor.usingColorSpace(.sRGB) ?? textColor).cgColor
+        let attributed = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: font,
+                kCTForegroundColorAttributeName as NSAttributedString.Key: resolvedColor,
+            ]
+        )
+        let line = CTLineCreateWithAttributedString(attributed)
+        let typographicWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+
+        // CALayer's CGContext is top-down (y grows downward). Pre-flip the
+        // text matrix so glyph paths (defined y-up in font space) render
+        // right-side-up, then place the baseline measured from the top such
+        // that the cap-height block sits centered in the badge.
+        let x = (bounds.width - typographicWidth) / 2
+        let baselineFromTop = (bounds.height + font.capHeight) / 2
+
+        ctx.saveGState()
+        ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+        ctx.textPosition = CGPoint(x: x, y: baselineFromTop)
+        CTLineDraw(line, ctx)
+        ctx.restoreGState()
     }
 }

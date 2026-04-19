@@ -74,6 +74,78 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(AgentTool.resolveKnown(named: "Gemini"), .gemini)
     }
 
+    func test_agent_tool_recognizes_cursor() {
+        XCTAssertEqual(AgentTool.resolve(named: "cursor"), .cursor)
+        XCTAssertEqual(AgentTool.resolve(named: "Cursor Agent"), .cursor)
+    }
+
+    func test_agent_tool_recognizes_pi_and_its_titlebar_variants() {
+        XCTAssertEqual(AgentTool.resolve(named: "pi"), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: "Pi"), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: "π"), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: "π - myproject"), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: "⠋ π - myproject"), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: "pi - myproject"), .pi)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "Pi"), .pi)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "⠋ π - myproject"), .pi)
+    }
+
+    func test_agent_tool_does_not_confuse_pi_with_unrelated_words() {
+        // Must not swallow strings that merely start with the letters "pi".
+        XCTAssertEqual(AgentTool.resolve(named: "pip"), .custom("pip"))
+        XCTAssertEqual(AgentTool.resolve(named: "pizza"), .custom("pizza"))
+        XCTAssertEqual(AgentTool.resolve(named: "apipie"), .custom("apipie"))
+        XCTAssertNil(AgentTool.resolveKnown(named: "pip"))
+        XCTAssertNil(AgentTool.resolveKnown(named: "pizza"))
+    }
+
+    func test_agent_tool_does_not_match_pi_inside_dotted_tokens() {
+        // Tokens like "pi.py" share a prefix with "pi" but aren't pi. The
+        // matcher splits on whitespace and compares tokens exactly, so
+        // "python pi.py" stays as a custom title.
+        XCTAssertEqual(
+            AgentTool.resolve(named: "python pi.py"),
+            .custom("python pi.py")
+        )
+        XCTAssertNil(AgentTool.resolveKnown(named: "python pi.py"))
+    }
+
+    func test_agent_tool_prefers_copilot_and_opencode_over_pi_substring_match() {
+        XCTAssertEqual(AgentTool.resolve(named: "copilot"), .copilot)
+        XCTAssertEqual(AgentTool.resolve(named: "opencode"), .openCode)
+    }
+
+    func test_pi_passthrough_list_matches_pi_mono_subcommands_snapshot() throws {
+        // Snapshot of `pi --help` verified 2026-04-19 against pi-mono's
+        // packages/coding-agent/src/cli.ts. Purpose: make intentional drift
+        // deliberate — if a maintainer adds/removes an item on one side,
+        // this test nudges them to update the other.
+        //
+        // AgentToolLauncher lives in the ZenttyCLI target which tests don't
+        // import, so we read the source file directly (same pattern as
+        // test_pi_wrapper_delegates_via_zentty_launch).
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        for subcommand in ["install", "remove", "uninstall", "update", "list", "config"] {
+            XCTAssertTrue(
+                source.contains("\"\(subcommand)\""),
+                "piPassthroughSubcommands should contain \(subcommand)"
+            )
+        }
+        for flag in ["--help", "-h", "--version", "-v", "--list-models", "--export"] {
+            XCTAssertTrue(
+                source.contains("\"\(flag)\""),
+                "piEarlyExitFlags should contain \(flag)"
+            )
+        }
+    }
+
     func test_agent_status_helper_returns_nil_when_resource_directories_are_missing() throws {
         let bundle = try makeTemporaryBundle(named: "MissingResources")
 
@@ -90,10 +162,10 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
-            let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
+        for (dirName, fileName) in wrapperLayoutPairs {
+            let wrapperDirectoryURL = binURL.appendingPathComponent(dirName, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
-            let fileURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
+            let fileURL = wrapperDirectoryURL.appendingPathComponent(fileName, isDirectory: false)
             FileManager.default.createFile(atPath: fileURL.path, contents: Data("#!/bin/sh\n".utf8))
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
         }
@@ -116,7 +188,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["claude", "codex", "copilot", "gemini", "opencode"].map {
+            ["claude", "codex", "copilot", "cursor", "gemini", "opencode", "pi"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -132,10 +204,10 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
-            let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
+        for (dirName, fileName) in wrapperLayoutPairs {
+            let wrapperDirectoryURL = binURL.appendingPathComponent(dirName, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
-            let fileURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
+            let fileURL = wrapperDirectoryURL.appendingPathComponent(fileName, isDirectory: false)
             try "#!/bin/sh\n".write(to: fileURL, atomically: true, encoding: .utf8)
         }
         let sharedURL = binURL.appendingPathComponent("shared", isDirectory: true)
@@ -167,10 +239,10 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
-            let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
+        for (dirName, fileName) in wrapperLayoutPairs {
+            let wrapperDirectoryURL = binURL.appendingPathComponent(dirName, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
-            let wrapperURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
+            let wrapperURL = wrapperDirectoryURL.appendingPathComponent(fileName, isDirectory: false)
             try "#!/bin/sh\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
         }
@@ -201,10 +273,10 @@ final class AgentStatusSupportTests: XCTestCase {
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
 
-        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
-            let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
+        for (dirName, fileName) in wrapperLayoutPairs {
+            let wrapperDirectoryURL = binURL.appendingPathComponent(dirName, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
-            let wrapperURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
+            let wrapperURL = wrapperDirectoryURL.appendingPathComponent(fileName, isDirectory: false)
             try "#!/bin/sh\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
         }
@@ -218,7 +290,9 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         let realBinURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
-        for name in ["claude", "gemini", "opencode"] {
+        // Real binaries Zentty's wrappers expect on PATH. Note cursor resolves to `cursor-agent`,
+        // not `cursor` (which is the Cursor IDE launcher).
+        for name in ["claude", "cursor-agent", "gemini", "opencode"] {
             let fileURL = realBinURL.appendingPathComponent(name, isDirectory: false)
             try "#!/bin/sh\n".write(to: fileURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
@@ -229,8 +303,10 @@ final class AgentStatusSupportTests: XCTestCase {
                 binURL.appendingPathComponent("claude", isDirectory: true).path,
                 binURL.appendingPathComponent("codex", isDirectory: true).path,
                 binURL.appendingPathComponent("copilot", isDirectory: true).path,
+                binURL.appendingPathComponent("cursor", isDirectory: true).path,
                 binURL.appendingPathComponent("gemini", isDirectory: true).path,
                 binURL.appendingPathComponent("opencode", isDirectory: true).path,
+                binURL.appendingPathComponent("pi", isDirectory: true).path,
                 sharedURL.path,
                 realBinURL.path,
                 "/usr/bin",
@@ -242,9 +318,50 @@ final class AgentStatusSupportTests: XCTestCase {
             AgentStatusHelper.enabledWrapperDirectoryPaths(in: bundle, processEnvironment: environment),
             [
                 binURL.appendingPathComponent("claude", isDirectory: true).path,
+                binURL.appendingPathComponent("cursor", isDirectory: true).path,
                 binURL.appendingPathComponent("gemini", isDirectory: true).path,
                 binURL.appendingPathComponent("opencode", isDirectory: true).path,
             ]
+        )
+    }
+
+    func test_agent_status_helper_skips_cursor_wrapper_when_only_cursor_ide_launcher_is_on_path() throws {
+        let bundleRoot = try makeTemporaryBundleRoot(named: "CursorIDEOnlyPath")
+        let resourcesURL = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+        let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
+
+        for (dirName, fileName) in wrapperLayoutPairs {
+            let wrapperDirectoryURL = binURL.appendingPathComponent(dirName, isDirectory: true)
+            try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
+            let wrapperURL = wrapperDirectoryURL.appendingPathComponent(fileName, isDirectory: false)
+            try "#!/bin/sh\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+        }
+        let sharedURL = binURL.appendingPathComponent("shared", isDirectory: true)
+        try FileManager.default.createDirectory(at: sharedURL, withIntermediateDirectories: true)
+        let sharedWrapperURL = sharedURL.appendingPathComponent("zentty-agent-wrapper", isDirectory: false)
+        try "#!/bin/sh\n".write(to: sharedWrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapperURL.path)
+
+        let realBinURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
+        // Only `cursor` (the IDE launcher) exists — `cursor-agent` (the CLI) is absent.
+        let cursorIDE = realBinURL.appendingPathComponent("cursor", isDirectory: false)
+        try "#!/bin/sh\n".write(to: cursorIDE, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cursorIDE.path)
+
+        let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
+        let environment = [
+            "PATH": [realBinURL.path, "/usr/bin", "/bin"].joined(separator: ":"),
+        ]
+
+        XCTAssertFalse(
+            AgentStatusHelper.enabledWrapperDirectoryPaths(in: bundle, processEnvironment: environment)
+                .contains(binURL.appendingPathComponent("cursor", isDirectory: true).path),
+            "cursor wrapper should only activate when cursor-agent is on PATH, not the Cursor IDE launcher"
         )
     }
 
@@ -483,6 +600,25 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertFalse(geminiWrapper.contains("ZENTTY_AGENT_BIN"))
     }
 
+    func test_repository_cursor_wrapper_exposes_cursor_agent_and_agent() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let cursorDir = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("cursor", isDirectory: true)
+
+        let cursorAgentScript = cursorDir.appendingPathComponent("cursor-agent", isDirectory: false)
+        let wrapper = try String(contentsOf: cursorAgentScript, encoding: .utf8)
+        XCTAssertTrue(wrapper.contains("ZENTTY_AGENT_TOOL=\"cursor\""))
+        XCTAssertTrue(wrapper.contains("zentty-agent-wrapper"))
+
+        let agentLink = cursorDir.appendingPathComponent("agent", isDirectory: false)
+        let resolved = try FileManager.default.destinationOfSymbolicLink(atPath: agentLink.path)
+        XCTAssertEqual(resolved, "cursor-agent", "agent should be a symlink to cursor-agent in the same dir")
+    }
+
     func test_copy_agent_resources_build_script_marks_gemini_wrapper_executable() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -491,6 +627,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let project = try String(contentsOf: projectURL, encoding: .utf8)
 
         XCTAssertTrue(project.contains("-o -path \"*/gemini/gemini\""))
+        XCTAssertTrue(project.contains("-o -path \"*/cursor/cursor-agent\""))
     }
 
     func test_agent_ipc_bridge_converts_agent_signal_message_to_payload() throws {
@@ -888,6 +1025,389 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(overlayConfig.contains("session-start"))
         XCTAssertTrue(overlayConfig.contains("pre-tool-use"))
         XCTAssertTrue(overlayConfig.contains("echo existing"))
+    }
+
+    func test_agent_launch_bootstrap_sets_cursor_agent_tool_and_passthrough_arguments() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-cursor-runtime")
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["agent", "hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/cursor",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ],
+            expectsResponse: true,
+            tool: .cursor
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/cursor")
+        XCTAssertEqual(plan.arguments, ["agent", "hello"])
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "cursor")
+    }
+
+    func test_agent_launch_bootstrap_cursor_respects_hooks_disabled() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-cursor-disabled-runtime")
+        let cursorHome = try makeTemporaryDirectory(named: "agent-launch-cursor-disabled-home")
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["agent", "hello"],
+            standardInput: nil,
+            environment: [
+                "HOME": cursorHome.path,
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/cursor",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "ZENTTY_CURSOR_HOOKS_DISABLED": "1",
+            ],
+            expectsResponse: true,
+            tool: .cursor
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/cursor")
+        XCTAssertEqual(plan.arguments, ["agent", "hello"])
+        XCTAssertTrue(plan.setEnvironment.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: cursorHome.appendingPathComponent(".cursor/hooks.json").path
+        ))
+    }
+
+    func test_agent_launch_bootstrap_cursor_installs_user_hooks_when_absent() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-cursor-install-runtime")
+        let cursorHome = try makeTemporaryDirectory(named: "agent-launch-cursor-install-home")
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["agent", "hello"],
+            standardInput: nil,
+            environment: [
+                "HOME": cursorHome.path,
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/cursor",
+                "ZENTTY_CLI_BIN": "/opt/zentty/bin/zentty",
+            ],
+            expectsResponse: true,
+            tool: .cursor
+        )
+
+        _ = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        let hooksURL = cursorHome
+            .appendingPathComponent(".cursor", isDirectory: true)
+            .appendingPathComponent("hooks.json", isDirectory: false)
+        let data = try Data(contentsOf: hooksURL)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["version"] as? Int, 1)
+
+        let hooks = try XCTUnwrap(object["hooks"] as? [String: Any])
+        for event in ["sessionStart", "sessionEnd", "beforeSubmitPrompt", "stop"] {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]])
+            XCTAssertEqual(entries.count, 1, "\(event) should have one managed entry")
+            let command = try XCTUnwrap(entries.first?["command"] as? String)
+            XCTAssertTrue(command.contains("/opt/zentty/bin/zentty"))
+            XCTAssertTrue(command.contains("ipc agent-event --adapter=cursor"))
+            XCTAssertTrue(command.hasSuffix("--adapter=cursor"),
+                          "hook command must end cleanly so Cursor's heredoc binds to zentty (not a trailing || clause)")
+        }
+    }
+
+    func test_agent_launch_bootstrap_cursor_preserves_existing_user_hooks() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-cursor-merge-runtime")
+        let cursorHome = try makeTemporaryDirectory(named: "agent-launch-cursor-merge-home")
+        let cursorDir = cursorHome.appendingPathComponent(".cursor", isDirectory: true)
+        try FileManager.default.createDirectory(at: cursorDir, withIntermediateDirectories: true)
+        try #"""
+        {
+          "version": 1,
+          "hooks": {
+            "sessionStart": [
+              { "command": "/Users/peter/.superset/hooks/cursor-hook.sh Start" }
+            ],
+            "beforeShellExecution": [
+              { "command": "/Users/peter/.superset/hooks/cursor-hook.sh PermissionRequest" }
+            ]
+          }
+        }
+        """#.write(
+            to: cursorDir.appendingPathComponent("hooks.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["agent", "hello"],
+            standardInput: nil,
+            environment: [
+                "HOME": cursorHome.path,
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/cursor",
+                "ZENTTY_CLI_BIN": "/opt/zentty/bin/zentty",
+            ],
+            expectsResponse: true,
+            tool: .cursor
+        )
+
+        _ = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        let data = try Data(contentsOf: cursorDir.appendingPathComponent("hooks.json", isDirectory: false))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let hooks = try XCTUnwrap(object["hooks"] as? [String: Any])
+
+        let sessionStart = try XCTUnwrap(hooks["sessionStart"] as? [[String: Any]])
+        XCTAssertEqual(sessionStart.count, 2, "original sessionStart entry kept, Zentty entry appended")
+        XCTAssertEqual(sessionStart.first?["command"] as? String, "/Users/peter/.superset/hooks/cursor-hook.sh Start")
+        XCTAssertTrue((sessionStart.last?["command"] as? String ?? "").contains("/opt/zentty/bin/zentty"))
+
+        let beforeShell = try XCTUnwrap(hooks["beforeShellExecution"] as? [[String: Any]])
+        XCTAssertEqual(beforeShell.count, 1, "unmanaged event passed through untouched")
+        XCTAssertEqual(beforeShell.first?["command"] as? String, "/Users/peter/.superset/hooks/cursor-hook.sh PermissionRequest")
+    }
+
+    func test_agent_launch_bootstrap_cursor_install_is_idempotent_and_refreshes_cli_path() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-cursor-idempotent-runtime")
+        let cursorHome = try makeTemporaryDirectory(named: "agent-launch-cursor-idempotent-home")
+
+        func runPlan(cliPath: String) throws {
+            let request = AgentIPCRequest(
+                kind: .bootstrap,
+                arguments: ["agent", "hello"],
+                standardInput: nil,
+                environment: [
+                    "HOME": cursorHome.path,
+                    "ZENTTY_REAL_BINARY": "/usr/local/bin/cursor",
+                    "ZENTTY_CLI_BIN": cliPath,
+                ],
+                expectsResponse: true,
+                tool: .cursor
+            )
+            _ = try AgentLaunchBootstrap.makePlan(
+                request: request,
+                target: AgentIPCTarget(
+                    windowID: WindowID("window-main"),
+                    worklaneID: WorklaneID("worklane-main"),
+                    paneID: PaneID("pane-main")
+                ),
+                runtimeDirectoryURL: runtimeDirectory
+            )
+        }
+
+        try runPlan(cliPath: "/opt/old/zentty")
+        try runPlan(cliPath: "/opt/old/zentty")
+        try runPlan(cliPath: "/opt/new/zentty")
+
+        let hooksURL = cursorHome
+            .appendingPathComponent(".cursor", isDirectory: true)
+            .appendingPathComponent("hooks.json", isDirectory: false)
+        let data = try Data(contentsOf: hooksURL)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let hooks = try XCTUnwrap(object["hooks"] as? [String: Any])
+
+        for event in ["sessionStart", "sessionEnd", "stop"] {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]])
+            XCTAssertEqual(entries.count, 1, "\(event) should have exactly one managed entry after three installs")
+            let command = try XCTUnwrap(entries.first?["command"] as? String)
+            XCTAssertTrue(command.contains("/opt/new/zentty"), "stale cliPath should have been replaced")
+            XCTAssertFalse(command.contains("/opt/old/zentty"))
+        }
+    }
+
+    // MARK: - CursorHooksInstaller
+
+    func test_cursor_hooks_installer_tolerates_jsonc_comments_and_trailing_commas() throws {
+        let directory = try makeTemporaryDirectory(named: "cursor-hooks-installer-jsonc")
+        let hooksURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+        try #"""
+        {
+          // a comment — strict JSON would reject this
+          "version": 1,
+          "hooks": {
+            "sessionStart": [
+              { "command": "/custom/user-hook.sh", },
+            ],
+          },
+        }
+        """#.write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        try CursorHooksInstaller.install(at: hooksURL, cliPath: "/opt/zentty/bin/zentty")
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hooksURL)) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(object["hooks"] as? [String: Any])
+        let sessionStart = try XCTUnwrap(hooks["sessionStart"] as? [[String: Any]])
+        XCTAssertEqual(sessionStart.count, 2, "user entry preserved plus Zentty entry appended")
+        XCTAssertEqual(sessionStart.first?["command"] as? String, "/custom/user-hook.sh")
+        XCTAssertTrue((sessionStart.last?["command"] as? String ?? "").contains("/opt/zentty/bin/zentty"))
+    }
+
+    func test_cursor_hooks_installer_throws_on_unrecoverable_malformed_json() throws {
+        let directory = try makeTemporaryDirectory(named: "cursor-hooks-installer-malformed")
+        let hooksURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+        try "{ this is not json at all }".write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(
+            try CursorHooksInstaller.install(at: hooksURL, cliPath: "/opt/zentty/bin/zentty")
+        )
+
+        let unchanged = try String(contentsOf: hooksURL, encoding: .utf8)
+        XCTAssertEqual(unchanged, "{ this is not json at all }", "user file is never rewritten when unrecoverable")
+    }
+
+    func test_cursor_hooks_installer_skips_write_when_content_unchanged() throws {
+        let directory = try makeTemporaryDirectory(named: "cursor-hooks-installer-skip")
+        let hooksURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+
+        try CursorHooksInstaller.install(at: hooksURL, cliPath: "/opt/zentty/bin/zentty")
+        let attributesBefore = try FileManager.default.attributesOfItem(atPath: hooksURL.path)
+        let mtimeBefore = try XCTUnwrap(attributesBefore[.modificationDate] as? Date)
+
+        // Ensure any mtime bump would be observable.
+        Thread.sleep(forTimeInterval: 1.1)
+        try CursorHooksInstaller.install(at: hooksURL, cliPath: "/opt/zentty/bin/zentty")
+
+        let attributesAfter = try FileManager.default.attributesOfItem(atPath: hooksURL.path)
+        let mtimeAfter = try XCTUnwrap(attributesAfter[.modificationDate] as? Date)
+        XCTAssertEqual(mtimeBefore, mtimeAfter, "identical re-install should not touch the file")
+    }
+
+    func test_cursor_hooks_installer_uninstall_preserves_user_entries_and_removes_managed_events() throws {
+        let directory = try makeTemporaryDirectory(named: "cursor-hooks-installer-uninstall")
+        let hooksURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+        try #"""
+        {
+          "version": 1,
+          "hooks": {
+            "sessionStart": [
+              { "command": "/custom/start.sh" }
+            ],
+            "beforeShellExecution": [
+              { "command": "/custom/permission.sh" }
+            ]
+          }
+        }
+        """#.write(to: hooksURL, atomically: true, encoding: .utf8)
+        try CursorHooksInstaller.install(at: hooksURL, cliPath: "/opt/zentty/bin/zentty")
+
+        try CursorHooksInstaller.uninstall(at: hooksURL)
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hooksURL)) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(object["hooks"] as? [String: Any])
+        let sessionStart = try XCTUnwrap(hooks["sessionStart"] as? [[String: Any]])
+        XCTAssertEqual(sessionStart.count, 1)
+        XCTAssertEqual(sessionStart.first?["command"] as? String, "/custom/start.sh")
+        XCTAssertNotNil(hooks["beforeShellExecution"], "unmanaged events passed through untouched")
+        XCTAssertNil(hooks["sessionEnd"], "managed event with no user entries should be removed")
+        XCTAssertNil(hooks["beforeSubmitPrompt"])
+        XCTAssertNil(hooks["stop"])
+    }
+
+    func test_cursor_hooks_installer_uninstall_deletes_file_when_nothing_user_owned_remains() throws {
+        let directory = try makeTemporaryDirectory(named: "cursor-hooks-installer-uninstall-empty")
+        let hooksURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+        try CursorHooksInstaller.install(at: hooksURL, cliPath: "/opt/zentty/bin/zentty")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: hooksURL.path))
+
+        try CursorHooksInstaller.uninstall(at: hooksURL)
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: hooksURL.path),
+            "file should be deleted when only Zentty-managed entries were present"
+        )
+    }
+
+    func test_cursor_hooks_installer_uninstall_on_missing_file_is_noop() throws {
+        let directory = try makeTemporaryDirectory(named: "cursor-hooks-installer-uninstall-missing")
+        let hooksURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+
+        XCTAssertNoThrow(try CursorHooksInstaller.uninstall(at: hooksURL))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hooksURL.path))
+    }
+
+    func test_cursor_hooks_installer_uninstall_leaves_unrelated_jsonc_content_unchanged() throws {
+        let directory = try makeTemporaryDirectory(named: "cursor-hooks-installer-uninstall-jsonc")
+        let hooksURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+        // JSONC with comments + trailing commas — Zentty never installed anything.
+        let original = #"""
+        {
+          // user-managed hooks, no Zentty entries
+          "version": 1,
+          "hooks": {
+            "beforeShellExecution": [
+              { "command": "/custom/permission.sh", },
+            ],
+          },
+        }
+        """#
+        try original.write(to: hooksURL, atomically: true, encoding: .utf8)
+        let mtimeBefore = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: hooksURL.path)[.modificationDate] as? Date
+        )
+
+        Thread.sleep(forTimeInterval: 1.1)
+        try CursorHooksInstaller.uninstall(at: hooksURL)
+
+        let after = try String(contentsOf: hooksURL, encoding: .utf8)
+        XCTAssertEqual(after, original, "uninstall must not rewrite files it has no entries to remove from")
+        let mtimeAfter = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: hooksURL.path)[.modificationDate] as? Date
+        )
+        XCTAssertEqual(mtimeBefore, mtimeAfter, "mtime should be preserved when there is nothing to remove")
+    }
+
+    func test_cursor_hooks_installer_install_if_possible_treats_whitespace_env_as_blank() throws {
+        let directory = try makeTemporaryDirectory(named: "cursor-hooks-installer-blank-env")
+        let hooksURL = directory
+            .appendingPathComponent(".cursor", isDirectory: true)
+            .appendingPathComponent("hooks.json", isDirectory: false)
+
+        // Whitespace-only HOME / cli path should be ignored — no file should be created.
+        CursorHooksInstaller.installIfPossible(environment: [
+            "HOME": "   ",
+            "ZENTTY_CLI_BIN": "\t",
+        ])
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: hooksURL.path),
+            "installIfPossible must reject whitespace-only env values"
+        )
     }
 
     func test_agent_launch_bootstrap_builds_gemini_system_settings_overlay_and_forces_notifications() throws {
@@ -4264,6 +4784,22 @@ final class AgentStatusSupportTests: XCTestCase {
             stderr: stderrText,
             logPath: logURL.path
         )
+    }
+
+    /// Wrapper dirs and the canonical binary filename each must contain so that
+    /// AgentStatusHelper accepts the bundle layout. For most tools dir == file name;
+    /// cursor wraps the Cursor CLI binary `cursor-agent` (the `cursor` name belongs to
+    /// the Cursor IDE launcher, which we do not want to intercept).
+    private var wrapperLayoutPairs: [(dirName: String, fileName: String)] {
+        [
+            ("claude", "claude"),
+            ("codex", "codex"),
+            ("copilot", "copilot"),
+            ("cursor", "cursor-agent"),
+            ("gemini", "gemini"),
+            ("opencode", "opencode"),
+            ("pi", "pi"),
+        ]
     }
 
     private func makeTemporaryDirectory(named name: String) throws -> URL {
