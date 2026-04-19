@@ -7,8 +7,18 @@ final class OpenWithCatalogTests: XCTestCase {
 
         XCTAssertFalse(targets.isEmpty)
         XCTAssertFalse(targets.contains { $0.kind == .terminal }, "built-in catalog should exclude terminal apps")
+        XCTAssertTrue(
+            targets.contains { $0.displayName == "Codex" && $0.kind == .editor },
+            "Codex should be in the catalog"
+        )
+        XCTAssertTrue(
+            targets.contains { $0.displayName == "Claude" && $0.kind == .editor },
+            "Claude should be in the catalog"
+        )
 
         let ids = Set(targets.map(\.id))
+        XCTAssertTrue(ids.contains(.codex), "Codex should be in the catalog")
+        XCTAssertTrue(ids.contains(.claude), "Claude should be in the catalog")
         XCTAssertTrue(ids.contains(.vscode), "VS Code should be in the catalog")
         XCTAssertTrue(ids.contains(.cursor), "Cursor should be in the catalog")
         XCTAssertTrue(ids.contains(.finder), "Finder should be in the catalog")

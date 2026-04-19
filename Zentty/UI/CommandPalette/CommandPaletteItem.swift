@@ -131,6 +131,10 @@ private extension OpenWithResolvedTarget {
             ["codeium", "ai editor"]
         case .antigravity?:
             ["ai editor"]
+        case .codex?:
+            ["openai", "ai editor", "coding agent"]
+        case .claude?:
+            ["anthropic", "ai editor", "coding agent"]
         case .finder?:
             ["files", "file manager"]
         case .xcode?:

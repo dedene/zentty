@@ -222,6 +222,16 @@ final class OpenWithService: OpenWithServing {
                 bundleIdentifiers: [],
                 exactNames: ["Antigravity.app"]
             )
+        case .codex:
+            return applicationURL(
+                bundleIdentifiers: ["com.openai.codex"],
+                exactNames: ["Codex.app"]
+            )
+        case .claude:
+            return applicationURL(
+                bundleIdentifiers: ["com.anthropic.claudefordesktop"],
+                exactNames: ["Claude.app"]
+            )
         case .xcode:
             return applicationURL(
                 bundleIdentifiers: ["com.apple.dt.Xcode"],
