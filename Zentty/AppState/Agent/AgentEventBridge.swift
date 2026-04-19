@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let agentEventBridgeLogger = Logger(subsystem: "be.zenjoy.zentty", category: "AgentEventBridge")
 
 struct AgentEventInput {
     let event: String
@@ -45,6 +48,8 @@ enum AgentEventBridge {
         let remaining = Array(arguments.dropFirst(2))
         let adapter = parseAdapterFlag(remaining)
         let positionalArgs = remaining.filter { !$0.hasPrefix("--adapter=") }
+        let adapterLabel = adapter ?? "(default)"
+        agentEventBridgeLogger.debug("run adapter=\(adapterLabel, privacy: .public) bytes=\(inputData.count)")
         do {
             let payloads: [AgentStatusPayload]
             switch adapter {
@@ -60,17 +65,21 @@ enum AgentEventBridge {
                 payloads = try codexNotifyAdapter(data: inputData, environment: environment)
             case "gemini":
                 payloads = try geminiAdapter(data: inputData, environment: environment)
+            case "cursor":
+                payloads = try cursorAdapter(data: inputData, environment: environment)
             case .none:
                 let input = try parseInput(inputData)
                 payloads = try makePayloads(from: input, environment: environment)
             case let name?:
                 throw AgentStatusPayloadError.invalidArguments("Unknown adapter: \(name)")
             }
+            agentEventBridgeLogger.debug("run adapter=\(adapterLabel, privacy: .public) produced \(payloads.count) payload(s)")
             for payload in payloads {
                 post(payload)
             }
             return EXIT_SUCCESS
         } catch {
+            agentEventBridgeLogger.error("run adapter=\(adapterLabel, privacy: .public) threw: \(error.localizedDescription, privacy: .public)")
             if adapter == "claude" {
                 return EXIT_SUCCESS
             }

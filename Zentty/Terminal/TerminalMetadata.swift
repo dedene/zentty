@@ -937,6 +937,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "codex"
         case .copilot:
             return "copilot"
+        case .cursor:
+            return "cursor"
         case .gemini:
             return "gemini"
         case .openCode:
