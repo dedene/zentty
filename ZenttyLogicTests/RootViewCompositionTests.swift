@@ -119,7 +119,11 @@ final class RootViewCompositionTests: AppKitTestCase {
 
         XCTAssertTrue(rootSubviews.contains { $0 is SidebarView })
         XCTAssertFalse(appCanvasView.containsDescendant(ofType: WindowChromeView.self))
-        XCTAssertEqual(windowChromeView.frame.minY, appCanvasView.frame.maxY, accuracy: 0.5)
+        XCTAssertEqual(
+            windowChromeView.frame.minY - appCanvasView.frame.maxY,
+            ShellMetrics.headerOuterPadding,
+            accuracy: 0.5
+        )
     }
 
     func test_copy_path_toast_mounts_inside_canvas_view() throws {
