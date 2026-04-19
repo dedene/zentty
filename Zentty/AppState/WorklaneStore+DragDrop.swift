@@ -580,6 +580,7 @@ extension WorklaneStore {
             case .copilot: return "gh copilot"
             case .gemini: return "gemini"
             case .openCode: return "opencode"
+            case .pi: return "pi"
             case .custom(let name): return name
             }
         }

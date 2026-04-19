@@ -51,6 +51,25 @@ struct AgentToolLauncher {
             return !passthroughSubcommands.contains(arguments.first ?? "")
         case .copilot:
             return environment["ZENTTY_COPILOT_HOOKS_DISABLED"] != "1"
+        case .pi:
+            // Pi has management subcommands (install/remove/update/list/…)
+            // and early-exit flags (--help, --version, --list-models, …).
+            // Injecting our bridge extension via -e at position 0 turns the
+            // subcommand into a chat message, so pass these through without
+            // any Zentty rewriting.
+            let passthroughSubcommands: Set<String> = [
+                "install", "remove", "uninstall", "update", "list", "config",
+            ]
+            let earlyExitFlags: Set<String> = [
+                "--help", "-h", "--version", "-v", "--list-models", "--export",
+            ]
+            if passthroughSubcommands.contains(arguments.first ?? "") {
+                return false
+            }
+            if arguments.contains(where: { earlyExitFlags.contains($0) }) {
+                return false
+            }
+            return true
         case .codex, .gemini, .opencode:
             return true
         }
@@ -117,7 +136,7 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .codex, .copilot, .gemini, .opencode:
+        case .codex, .copilot, .gemini, .opencode, .pi:
             return EnvironmentPatch()
         }
     }
@@ -137,7 +156,7 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_COPILOT_PID"] = "\(getpid())"
         case .gemini:
             environmentPatch.set["ZENTTY_GEMINI_PID"] = "\(getpid())"
-        case .opencode:
+        case .opencode, .pi:
             break
         }
 

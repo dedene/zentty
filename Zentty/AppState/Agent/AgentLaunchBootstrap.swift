@@ -70,7 +70,55 @@ enum AgentLaunchBootstrap {
                 fileManager: fileManager,
                 appConfigProvider: appConfigProvider
             )
+        case .pi:
+            return piPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                bundle: bundle,
+                fileManager: fileManager
+            )
         }
+    }
+
+    private static func piPlan(
+        executablePath: String,
+        arguments: [String],
+        bundle: Bundle,
+        fileManager: FileManager
+    ) -> AgentLaunchPlan {
+        // Pi itself sets PI_CODING_AGENT=true at startup (src/cli.ts),
+        // so we only need ZENTTY_AGENT_TOOL for Zentty's own recognition.
+        let setEnvironment = ["ZENTTY_AGENT_TOOL": "pi"]
+
+        var plannedArguments = arguments
+        if let extensionURL = bundle.resourceURL?
+            .appendingPathComponent("pi", isDirectory: true)
+            .appendingPathComponent("extensions", isDirectory: true)
+            .appendingPathComponent("zentty-pi-zentty.js", isDirectory: false),
+           fileManager.isReadableFile(atPath: extensionURL.path) {
+            // Stack the bridge on top of the user's own pi extensions:
+            // with `-e <path>` alone (no `--no-extensions`), pi merges CLI
+            // extensions with globals — see pi-mono
+            // packages/coding-agent/src/core/resource-loader.ts.
+            plannedArguments.insert(contentsOf: ["-e", extensionURL.path], at: 0)
+        }
+
+        let sessionStartJSON = """
+        {"version":1,"event":"session.start","agent":{"name":"Pi","pid":\(AgentIPCProtocol.selfPIDPlaceholder)}}
+        """
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: plannedArguments,
+            setEnvironment: setEnvironment,
+            unsetEnvironment: [],
+            preLaunchActions: [
+                AgentLaunchAction(
+                    subcommand: "agent-event",
+                    arguments: [],
+                    standardInput: sessionStartJSON
+                ),
+            ]
+        )
     }
 
     private static func claudePlan(

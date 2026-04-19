@@ -941,6 +941,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "gemini"
         case .openCode:
             return "opencode"
+        case .pi:
+            return "pi"
         case .custom(let name):
             return name
         case nil:

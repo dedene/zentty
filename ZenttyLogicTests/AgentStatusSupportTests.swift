@@ -74,6 +74,31 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(AgentTool.resolveKnown(named: "Gemini"), .gemini)
     }
 
+    func test_agent_tool_recognizes_pi_and_its_titlebar_variants() {
+        XCTAssertEqual(AgentTool.resolve(named: "pi"), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: "Pi"), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: "π"), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: "π - myproject"), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: "⠋ π - myproject"), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: "pi - myproject"), .pi)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "Pi"), .pi)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "⠋ π - myproject"), .pi)
+    }
+
+    func test_agent_tool_does_not_confuse_pi_with_unrelated_words() {
+        // Must not swallow strings that merely start with the letters "pi".
+        XCTAssertEqual(AgentTool.resolve(named: "pip"), .custom("pip"))
+        XCTAssertEqual(AgentTool.resolve(named: "pizza"), .custom("pizza"))
+        XCTAssertEqual(AgentTool.resolve(named: "apipie"), .custom("apipie"))
+        XCTAssertNil(AgentTool.resolveKnown(named: "pip"))
+        XCTAssertNil(AgentTool.resolveKnown(named: "pizza"))
+    }
+
+    func test_agent_tool_prefers_copilot_and_opencode_over_pi_substring_match() {
+        XCTAssertEqual(AgentTool.resolve(named: "copilot"), .copilot)
+        XCTAssertEqual(AgentTool.resolve(named: "opencode"), .openCode)
+    }
+
     func test_agent_status_helper_returns_nil_when_resource_directories_are_missing() throws {
         let bundle = try makeTemporaryBundle(named: "MissingResources")
 
@@ -90,7 +115,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
+        for name in ["claude", "codex", "copilot", "gemini", "opencode", "pi"] {
             let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
             let fileURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
@@ -116,7 +141,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["claude", "codex", "copilot", "gemini", "opencode"].map {
+            ["claude", "codex", "copilot", "gemini", "opencode", "pi"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -132,7 +157,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
+        for name in ["claude", "codex", "copilot", "gemini", "opencode", "pi"] {
             let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
             let fileURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
@@ -167,7 +192,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
+        for name in ["claude", "codex", "copilot", "gemini", "opencode", "pi"] {
             let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
             let wrapperURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
@@ -201,7 +226,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
 
-        for name in ["claude", "codex", "copilot", "gemini", "opencode"] {
+        for name in ["claude", "codex", "copilot", "gemini", "opencode", "pi"] {
             let wrapperDirectoryURL = binURL.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
             let wrapperURL = wrapperDirectoryURL.appendingPathComponent(name, isDirectory: false)
@@ -231,6 +256,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 binURL.appendingPathComponent("copilot", isDirectory: true).path,
                 binURL.appendingPathComponent("gemini", isDirectory: true).path,
                 binURL.appendingPathComponent("opencode", isDirectory: true).path,
+                binURL.appendingPathComponent("pi", isDirectory: true).path,
                 sharedURL.path,
                 realBinURL.path,
                 "/usr/bin",
