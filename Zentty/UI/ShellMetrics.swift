@@ -15,11 +15,11 @@ enum ChromeGeometry {
     /// of the dark zone framing them.
     static let headerOuterPadding: CGFloat = 4
 
-    static let trafficLightOpticalLeadingOffset: CGFloat = 12
-    static let trafficLightOpticalTopOffset: CGFloat = 12
+    static let trafficLightOpticalLeadingOffset: CGFloat = 11
+    static let trafficLightOpticalTopOffset: CGFloat = 11
     static let trafficLightLeadingInset: CGFloat = shellInset + trafficLightOpticalLeadingOffset
     static let trafficLightTopInset: CGFloat = shellInset + trafficLightOpticalTopOffset
-    static let trafficLightSpacing: CGFloat = 6
+    static let trafficLightSpacing: CGFloat = 8
 
     static func innerRadius(outerRadius: CGFloat, inset: CGFloat) -> CGFloat {
         max(0, outerRadius - inset)
@@ -146,7 +146,7 @@ enum ShellMetrics {
     static let contentPadding: CGFloat = 8
 
     static let sidebarContentInset: CGFloat = 8
-    static let sidebarHeaderHeight: CGFloat = 58
+    static let sidebarHeaderHeight: CGFloat = 40
     static let sidebarTopInset: CGFloat = sidebarHeaderHeight
     static let sidebarBottomInset: CGFloat = 18
     static let sidebarRowHorizontalInset: CGFloat = 12
@@ -175,7 +175,7 @@ enum ShellMetrics {
     static let sidebarCreateWorklaneHorizontalInset: CGFloat = 8
     static let sidebarCreateWorklaneIconSpacing: CGFloat = 10
     static let sidebarCreateWorklaneButtonHeight: CGFloat = 24
-    static let sidebarCreateWorklanePinnedVerticalOffset: CGFloat = -10
+    static let sidebarCreateWorklanePinnedVerticalOffset: CGFloat = -2
     static let sidebarHeaderPeekTopInset: CGFloat = 24
     static let sidebarCreateWorklanePeekVerticalOffset: CGFloat = 10
     static let sidebarCreateWorklanePinnedLeadingPad: CGFloat = 4

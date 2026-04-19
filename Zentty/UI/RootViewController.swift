@@ -86,7 +86,6 @@ final class RootViewController: NSViewController {
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
     private var toggleLeadingConstraint: NSLayoutConstraint?
-    private var toggleTopConstraint: NSLayoutConstraint?
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
     private var pathCopiedToastView: PathCopiedToastView?
     private let paneNavigationButtons = PaneNavigationButtons()
@@ -339,18 +338,9 @@ final class RootViewController: NSViewController {
         )
         self.toggleLeadingConstraint = toggleLeadingConstraint
 
-        let toggleVerticalConstraint: NSLayoutConstraint
-        if trafficLightAnchor.y > 0 {
-            toggleVerticalConstraint = sidebarToggleButton.centerYAnchor.constraint(
-                equalTo: view.bottomAnchor,
-                constant: -trafficLightAnchor.y
-            )
-        } else {
-            toggleVerticalConstraint = sidebarToggleButton.centerYAnchor.constraint(
-                equalTo: windowChromeView.centerYAnchor
-            )
-        }
-        self.toggleTopConstraint = toggleVerticalConstraint
+        let toggleVerticalConstraint = sidebarToggleButton.centerYAnchor.constraint(
+            equalTo: windowChromeView.centerYAnchor
+        )
 
         NSLayoutConstraint.activate([
             sidebarView.topAnchor.constraint(
@@ -924,14 +914,6 @@ final class RootViewController: NSViewController {
             animated: false,
             forceLayout: false
         )
-        if trafficLightAnchor.y > 0 {
-            toggleTopConstraint?.isActive = false
-            toggleTopConstraint = sidebarToggleButton.centerYAnchor.constraint(
-                equalTo: view.bottomAnchor,
-                constant: -trafficLightAnchor.y
-            )
-            toggleTopConstraint?.isActive = true
-        }
     }
 
     @objc
