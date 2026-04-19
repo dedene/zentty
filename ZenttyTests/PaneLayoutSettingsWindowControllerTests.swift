@@ -117,6 +117,93 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(shortcutsController.displayString(for: .copyFocusedPanePath), "Unassigned")
     }
 
+    func test_settings_window_first_switch_to_appearance_shows_theme_browser_content() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let tabController = try XCTUnwrap(
+            controller.window?.contentViewController as? NSTabViewController
+        )
+
+        tabController.tabView.selectTabViewItem(at: 1)
+        waitForLayout("appearance selected", delay: 0.2)
+
+        XCTAssertEqual(contentController.selectedSection, .appearance)
+
+        let visibleContentView = try XCTUnwrap(controller.window?.contentView)
+        XCTAssertNotNil(visibleContentView.firstDescendant(ofType: NSSearchField.self))
+        XCTAssertNotNil(visibleContentView.firstDescendant(ofType: NSTableView.self))
+        XCTAssertTrue(visibleContentView.containsDescendant(named: "ThemePreviewPanel"))
+    }
+
+    func test_settings_window_switch_from_general_to_appearance_shows_theme_browser_content() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let tabController = try XCTUnwrap(
+            controller.window?.contentViewController as? NSTabViewController
+        )
+
+        tabController.tabView.selectTabViewItem(at: 1)
+        waitForLayout("appearance selected from general", delay: 0.2)
+
+        XCTAssertEqual(contentController.selectedSection, .appearance)
+
+        let visibleContentView = try XCTUnwrap(controller.window?.contentView)
+        XCTAssertNotNil(visibleContentView.firstDescendant(ofType: NSSearchField.self))
+        XCTAssertNotNil(visibleContentView.firstDescendant(ofType: NSTableView.self))
+        XCTAssertTrue(visibleContentView.containsDescendant(named: "ThemePreviewPanel"))
+    }
+
+    func test_settings_window_initial_appearance_section_shows_theme_browser_content() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .appearance
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+
+        XCTAssertEqual(contentController.selectedSection, .appearance)
+
+        let visibleContentView = try XCTUnwrap(controller.window?.contentView)
+        XCTAssertNotNil(visibleContentView.firstDescendant(ofType: NSSearchField.self))
+        XCTAssertNotNil(visibleContentView.firstDescendant(ofType: NSTableView.self))
+        XCTAssertTrue(visibleContentView.containsDescendant(named: "ThemePreviewPanel"))
+    }
+
     func test_settings_window_toolbar_icons_include_bottom_padding_for_label_spacing() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
@@ -1351,6 +1438,19 @@ private extension SettingsWindowControllerTests {
 }
 
 private extension NSView {
+    func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+        for subview in subviews {
+            if let match = subview as? T {
+                return match
+            }
+            if let match = subview.firstDescendant(ofType: type) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
     func firstDescendantScrollView() -> NSScrollView? {
         if let scrollView = self as? NSScrollView {
             return scrollView
@@ -1363,6 +1463,12 @@ private extension NSView {
         }
 
         return nil
+    }
+
+    func containsDescendant(named className: String) -> Bool {
+        subviews.contains { subview in
+            String(describing: type(of: subview)) == className || subview.containsDescendant(named: className)
+        }
     }
 }
 

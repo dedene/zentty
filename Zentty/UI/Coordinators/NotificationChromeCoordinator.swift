@@ -3,7 +3,7 @@ import AppKit
 @MainActor
 final class NotificationChromeCoordinator {
     let store: NotificationStore
-    let bellButton: NotificationBellButton
+    let inboxButton: NotificationInboxButton
     private var panelView: NotificationPanelView?
     private weak var parentView: NSView?
     private var currentTheme: ZenttyTheme?
@@ -11,9 +11,9 @@ final class NotificationChromeCoordinator {
 
     var onNavigateToNotification: ((AppNotification) -> Void)?
 
-    init(store: NotificationStore = NotificationStore(), bellButton: NotificationBellButton = NotificationBellButton()) {
+    init(store: NotificationStore = NotificationStore(), inboxButton: NotificationInboxButton = NotificationInboxButton()) {
         self.store = store
-        self.bellButton = bellButton
+        self.inboxButton = inboxButton
     }
 
     deinit {
@@ -28,11 +28,11 @@ final class NotificationChromeCoordinator {
         self.parentView = parentView
         self.currentTheme = theme
 
-        bellButton.onClick = { [weak self] in
+        inboxButton.onClick = { [weak self] in
             self?.togglePanel()
         }
-        bellButton.update(count: store.unresolvedCount, theme: theme)
-        bellButton.configure(theme: theme, animated: false)
+        inboxButton.update(count: store.unresolvedCount, theme: theme)
+        inboxButton.configure(theme: theme, animated: false)
 
         if let storeObserverID {
             store.removeObserver(storeObserverID)
@@ -45,8 +45,8 @@ final class NotificationChromeCoordinator {
 
     func applyTheme(_ theme: ZenttyTheme, animated: Bool) {
         currentTheme = theme
-        bellButton.configure(theme: theme, animated: animated)
-        bellButton.update(count: store.unresolvedCount, theme: theme)
+        inboxButton.configure(theme: theme, animated: animated)
+        inboxButton.update(count: store.unresolvedCount, theme: theme)
     }
 
     func closePanel() {
@@ -58,7 +58,7 @@ final class NotificationChromeCoordinator {
 
     private func handleStoreChange() {
         guard let theme = currentTheme else { return }
-        bellButton.update(count: store.unresolvedCount, theme: theme)
+        inboxButton.update(count: store.unresolvedCount, theme: theme)
         panelView?.update(notifications: store.notifications, theme: theme)
         let count = store.unresolvedCount
         NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
@@ -93,7 +93,7 @@ final class NotificationChromeCoordinator {
             self?.closePanel()
         }
         panelView = panel
-        panel.show(below: bellButton, in: parentView, theme: theme)
+        panel.show(below: inboxButton, in: parentView, theme: theme)
         panel.update(notifications: store.notifications, theme: theme)
     }
 

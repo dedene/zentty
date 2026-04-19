@@ -378,13 +378,13 @@ final class RootViewCompositionTests: AppKitTestCase {
         let controller = makeControllerWithCrowdedHeader(width: 1280)
         let rootSubviews = controller.view.subviews
         let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView } as? WindowChromeView)
-        let bellButton = try XCTUnwrap(rootSubviews.first { $0 is NotificationBellButton } as? NotificationBellButton)
+        let inboxButton = try XCTUnwrap(rootSubviews.first { $0 is NotificationInboxButton } as? NotificationInboxButton)
 
-        let bellMaxXInChrome = bellButton.frame.maxX - windowChromeView.frame.minX
+        let inboxMaxXInChrome = inboxButton.frame.maxX - windowChromeView.frame.minX
 
         XCTAssertEqual(
             windowChromeView.visibleLaneFrame.minX,
-            bellMaxXInChrome,
+            inboxMaxXInChrome,
             accuracy: 0.5
         )
     }

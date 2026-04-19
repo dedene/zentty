@@ -1,5 +1,11 @@
 import AppKit
 import Foundation
+import os
+
+private let agentLaunchLogger = Logger(
+    subsystem: "be.zenjoy.zentty",
+    category: "AgentLaunchBootstrap"
+)
 
 enum AgentLaunchBootstrap {
     static func makePlan(
@@ -77,6 +83,13 @@ enum AgentLaunchBootstrap {
                 fileManager: fileManager,
                 appConfigProvider: appConfigProvider
             )
+        case .pi:
+            return piPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                bundle: bundle,
+                fileManager: fileManager
+            )
         }
     }
 
@@ -100,6 +113,54 @@ enum AgentLaunchBootstrap {
             ],
             unsetEnvironment: [],
             preLaunchActions: []
+        )
+    }
+
+    private static func piPlan(
+        executablePath: String,
+        arguments: [String],
+        bundle: Bundle,
+        fileManager: FileManager
+    ) -> AgentLaunchPlan {
+        // Pi itself sets PI_CODING_AGENT=true at startup (src/cli.ts),
+        // so we only need ZENTTY_AGENT_TOOL for Zentty's own recognition.
+        let setEnvironment = ["ZENTTY_AGENT_TOOL": "pi"]
+
+        var plannedArguments = arguments
+        let extensionURL = bundle.resourceURL?
+            .appendingPathComponent("pi", isDirectory: true)
+            .appendingPathComponent("extensions", isDirectory: true)
+            .appendingPathComponent("zentty-pi-zentty.js", isDirectory: false)
+        if let extensionURL, fileManager.isReadableFile(atPath: extensionURL.path) {
+            // Stack the bridge on top of the user's own pi extensions:
+            // with `-e <path>` alone (no `--no-extensions`), pi merges CLI
+            // extensions with globals — see pi-mono
+            // packages/coding-agent/src/core/resource-loader.ts.
+            plannedArguments.insert(contentsOf: ["-e", extensionURL.path], at: 0)
+        } else {
+            // Silent miss here leaves the sidebar stuck on "Starting" with
+            // no breadcrumb. Warn so bundle misconfigurations are traceable
+            // via `log stream --predicate 'category == "AgentLaunchBootstrap"'`.
+            agentLaunchLogger.warning(
+                "Pi bridge extension missing from bundle (path=\(extensionURL?.path ?? "<nil>", privacy: .public)); agent status will not be tracked"
+            )
+        }
+
+        let sessionStartJSON = """
+        {"version":1,"event":"session.start","agent":{"name":"Pi","pid":\(AgentIPCProtocol.selfPIDPlaceholder)}}
+        """
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: plannedArguments,
+            setEnvironment: setEnvironment,
+            unsetEnvironment: [],
+            preLaunchActions: [
+                AgentLaunchAction(
+                    subcommand: "agent-event",
+                    arguments: [],
+                    standardInput: sessionStartJSON
+                ),
+            ]
         )
     }
 

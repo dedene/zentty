@@ -423,6 +423,61 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].taskProgress?.totalCount, 5)
     }
 
+    // MARK: - Pi bridge
+
+    func test_pi_needs_input_payload_resolves_to_pi_tool() throws {
+        let json = """
+        {
+          "version": 1,
+          "event": "agent.needs-input",
+          "agent": { "name": "Pi" },
+          "session": { "id": "pi-session-1" },
+          "context": { "workingDirectory": "/tmp/project" },
+          "state": { "interaction": { "kind": "approval", "text": "Allow write?" } }
+        }
+        """
+        let input = try AgentEventBridge.parseInput(json.data(using: .utf8)!)
+        let payloads = try AgentEventBridge.makePayloads(from: input, environment: defaultEnvironment)
+
+        XCTAssertEqual(payloads.first?.state, .needsInput)
+        XCTAssertEqual(payloads.first?.interactionKind, .approval)
+        XCTAssertEqual(AgentTool.resolve(named: payloads.first?.toolName), .pi)
+        XCTAssertEqual(payloads.first?.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_pi_running_idle_lifecycle() throws {
+        let running = try AgentEventBridge.makePayloads(
+            from: AgentEventBridge.parseInput(
+                #"{"version":1,"event":"agent.running","agent":{"name":"Pi"}}"#.data(using: .utf8)!
+            ),
+            environment: defaultEnvironment
+        )
+        let idle = try AgentEventBridge.makePayloads(
+            from: AgentEventBridge.parseInput(
+                #"{"version":1,"event":"agent.idle","agent":{"name":"Pi"}}"#.data(using: .utf8)!
+            ),
+            environment: defaultEnvironment
+        )
+
+        XCTAssertEqual(running.first?.state, .running)
+        XCTAssertEqual(idle.first?.state, .idle)
+        XCTAssertEqual(AgentTool.resolve(named: running.first?.toolName), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: idle.first?.toolName), .pi)
+    }
+
+    func test_pi_wrapper_delegates_via_zentty_launch() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperPath = repoRoot
+            .appendingPathComponent("ZenttyResources/bin/pi/pi")
+            .path
+        let script = try String(contentsOfFile: wrapperPath, encoding: .utf8)
+
+        XCTAssertTrue(script.contains("exec \"$cli_bin\" launch pi \"$@\""))
+        XCTAssertTrue(script.contains("find_real_pi"))
+    }
+
     // MARK: - Environment
 
     func test_missing_worklane_id_throws() throws {

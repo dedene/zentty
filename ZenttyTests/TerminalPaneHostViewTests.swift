@@ -374,8 +374,10 @@ final class TerminalPaneHostViewTests: XCTestCase {
         XCTAssertEqual(adapter.sentTexts, ["drift --showcase\n"])
     }
 
-    func test_pane_runtime_prefills_restore_draft_without_submitting() {
+    func test_pane_runtime_waits_for_shell_ready_before_prefilling_restore_draft() {
         let adapter = TerminalAdapterSpy()
+        let prematurePrefill = expectation(description: "restore draft should not prefill before shell ready")
+        prematurePrefill.isInverted = true
         let prefilled = expectation(description: "restore draft prefilled")
         let runtime = PaneRuntime(
             pane: PaneState(
@@ -389,13 +391,19 @@ final class TerminalPaneHostViewTests: XCTestCase {
             adapter: adapter,
             metadataSink: { _, _ in },
             eventSink: { _, _ in },
-            startupTextSettleDelay: 0.01
+            startupTextSettleDelay: 0.01,
+            restoreDraftSettleDelay: 0.01
         )
-        adapter.onSendText = { _ in prefilled.fulfill() }
+        adapter.onSendText = { _ in prematurePrefill.fulfill() }
 
         runtime.ensureStarted()
         adapter.metadataDidChange?(TerminalMetadata(title: "shell", currentWorkingDirectory: "/tmp/project"))
+
+        wait(for: [prematurePrefill], timeout: 0.03)
         XCTAssertEqual(adapter.sentTexts, [])
+
+        adapter.onSendText = { _ in prefilled.fulfill() }
+        adapter.eventDidOccur?(.shellReady)
 
         wait(for: [prefilled], timeout: 0.2)
         XCTAssertEqual(adapter.sentTexts, ["claude --resume session-123"])
@@ -416,7 +424,8 @@ final class TerminalPaneHostViewTests: XCTestCase {
             adapter: adapter,
             metadataSink: { _, _ in },
             eventSink: { _, _ in },
-            startupTextSettleDelay: 0.01
+            startupTextSettleDelay: 0.01,
+            restoreDraftSettleDelay: 0.01
         )
         adapter.onSendText = { _ in prefilled.fulfill() }
 
@@ -426,6 +435,78 @@ final class TerminalPaneHostViewTests: XCTestCase {
         XCTAssertEqual(adapter.sentTexts, [])
 
         wait(for: [prefilled], timeout: 0.2)
+        XCTAssertEqual(adapter.sentTexts, ["codex resume session-123"])
+    }
+
+    func test_pane_runtime_does_not_prefill_restore_draft_from_process_name_alone() {
+        let adapter = TerminalAdapterSpy()
+        let prematurePrefill = expectation(description: "restore draft should not prefill from process name alone")
+        prematurePrefill.isInverted = true
+        let runtime = PaneRuntime(
+            pane: PaneState(
+                id: PaneID("shell"),
+                title: "shell",
+                sessionRequest: TerminalSessionRequest(
+                    workingDirectory: "/tmp/project",
+                    prefillText: "codex resume session-123"
+                )
+            ),
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in },
+            startupTextSettleDelay: 0.01,
+            restoreDraftSettleDelay: 0.01
+        )
+        adapter.onSendText = { _ in prematurePrefill.fulfill() }
+
+        runtime.ensureStarted()
+        adapter.metadataDidChange?(TerminalMetadata(currentWorkingDirectory: "/tmp/project", processName: "zsh"))
+
+        wait(for: [prematurePrefill], timeout: 0.03)
+        XCTAssertEqual(adapter.sentTexts, [])
+    }
+
+    func test_pane_runtime_prefills_restore_draft_only_once_after_shell_ready() {
+        let adapter = TerminalAdapterSpy()
+        let sent = expectation(description: "restore draft sent once")
+        sent.expectedFulfillmentCount = 1
+        let duplicateSend = expectation(description: "restore draft should not send twice")
+        duplicateSend.isInverted = true
+        let runtime = PaneRuntime(
+            pane: PaneState(
+                id: PaneID("shell"),
+                title: "shell",
+                sessionRequest: TerminalSessionRequest(
+                    workingDirectory: "/tmp/project",
+                    prefillText: "codex resume session-123"
+                )
+            ),
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in },
+            startupTextSettleDelay: 0.01,
+            restoreDraftSettleDelay: 0.01
+        )
+        var sendCount = 0
+        adapter.onSendText = { _ in
+            sendCount += 1
+            if sendCount == 1 {
+                sent.fulfill()
+            } else {
+                duplicateSend.fulfill()
+            }
+        }
+
+        runtime.ensureStarted()
+        adapter.metadataDidChange?(TerminalMetadata(title: "shell", currentWorkingDirectory: "/tmp/project"))
+        XCTAssertEqual(adapter.sentTexts, [])
+
+        adapter.eventDidOccur?(.shellReady)
+        wait(for: [sent], timeout: 0.2)
+        XCTAssertEqual(adapter.sentTexts, ["codex resume session-123"])
+
+        adapter.metadataDidChange?(TerminalMetadata(title: "shell", currentWorkingDirectory: "/tmp/project", processName: "zsh"))
+        wait(for: [duplicateSend], timeout: 0.03)
         XCTAssertEqual(adapter.sentTexts, ["codex resume session-123"])
     }
 

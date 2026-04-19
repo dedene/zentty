@@ -134,8 +134,6 @@ final class SettingsWindowController: NSWindowController {
         }
         window.contentViewController = settingsViewController
         settingsViewController.attach(to: window)
-        settingsViewController.loadViewIfNeeded()
-        settingsViewController.select(section: initialSection, animated: false)
 
         self.settingsViewController = settingsViewController
         super.init(window: window)
@@ -217,6 +215,7 @@ final class SettingsViewController: NSTabViewController {
     private var pendingTransition: PendingTransition?
 
     private(set) var selectedSection: SettingsSection
+    var onPrepareSectionForPresentationForTesting: ((SettingsSection, SettingsSection) -> Void)?
 
     var currentSectionViewController: NSViewController? {
         entriesBySection[selectedSection]?.contentViewController
@@ -313,14 +312,6 @@ final class SettingsViewController: NSTabViewController {
 
         let isChangingSection = selectedSection != section
         let shouldAnimate = animated && isChangingSection
-        if
-            shouldAnimate,
-            let window = hostWindow ?? view.window,
-            let targetFrame = targetWindowFrame(for: section, window: window),
-            targetFrame.height > window.frame.height
-        {
-            window.setFrame(targetFrame, display: false)
-        }
         let transitionID = prepareTransition(to: section, animated: shouldAnimate)
 
         if tabView.selectedTabViewItem !== entry.tabViewItem {
@@ -462,10 +453,8 @@ final class SettingsViewController: NSTabViewController {
         pendingTransition = PendingTransition(id: transitionID, section: section, animated: animated)
         transitionOptions = []
         setScrollerSuppressed(true)
-
-        if let presentingSection = entriesBySection[section]?.contentViewController as? SettingsPresentingSection {
-            presentingSection.prepareForPresentation()
-        }
+        expandWindowBeforeTransitionIfNeeded(to: section, animated: animated)
+        prepareSectionForPresentation(section)
 
         return transitionID
     }
@@ -474,6 +463,27 @@ final class SettingsViewController: NSTabViewController {
         entriesBySection.values.forEach { entry in
             (entry.contentViewController as? SettingsScrollableSectionViewController)?
                 .setScrollerSuppressed(suppressed)
+        }
+    }
+
+    private func expandWindowBeforeTransitionIfNeeded(to section: SettingsSection, animated: Bool) {
+        guard
+            animated,
+            section != selectedSection,
+            let window = hostWindow ?? view.window,
+            let targetFrame = targetWindowFrame(for: section, window: window),
+            targetFrame.height > window.frame.height
+        else {
+            return
+        }
+
+        window.setFrame(targetFrame, display: false)
+    }
+
+    private func prepareSectionForPresentation(_ section: SettingsSection) {
+        onPrepareSectionForPresentationForTesting?(section, selectedSection)
+        if let presentingSection = entriesBySection[section]?.contentViewController as? SettingsPresentingSection {
+            presentingSection.prepareForPresentation()
         }
     }
 

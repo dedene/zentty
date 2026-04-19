@@ -47,7 +47,7 @@ extension WorklaneStore {
                     )
                 }
             }
-        case .userSubmittedInput, .userEditedInput:
+        case .userSubmittedInput:
             let now = Date()
             clearCodexTitleIdleSuppression(for: paneID, in: &worklane)
             clearReadyStatusIfNeeded(for: paneID, in: &worklane)
@@ -57,6 +57,22 @@ extension WorklaneStore {
                 in: &worklane
             )
             resumeBlockedAgentStateIfWorkResumed(
+                paneID: paneID,
+                now: now,
+                in: &worklane
+            )
+        case .userEditedInput:
+            // Typing alone (a letter, backspace, etc.) is not the same as
+            // submitting an answer. For TUI-native agents like pi the user
+            // is just composing their reply inside the app's input widget;
+            // flipping "Needs decision" → "Running" on the first keystroke
+            // loses the attention signal before they've actually replied.
+            // Keep the lightweight UI-cleanup bookkeeping but do NOT resume
+            // blocked state until the user submits.
+            let now = Date()
+            clearCodexTitleIdleSuppression(for: paneID, in: &worklane)
+            clearReadyStatusIfNeeded(for: paneID, in: &worklane)
+            promoteCodexAgentStateFromUserInput(
                 paneID: paneID,
                 now: now,
                 in: &worklane

@@ -546,7 +546,7 @@ struct LaunchCommand: ParsableCommand {
         shouldDisplay: false
     )
 
-    @Argument(help: "Supported values: claude, codex, copilot, cursor, gemini, opencode")
+    @Argument(help: "Supported values: claude, codex, copilot, cursor, gemini, opencode, pi")
     var tool: String
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments forwarded to the real tool.")

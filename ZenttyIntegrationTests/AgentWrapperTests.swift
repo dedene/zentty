@@ -354,7 +354,7 @@ final class AgentWrapperTests: XCTestCase {
     }
 
     func test_tool_wrappers_delegate_to_launch_command_when_cli_is_available() throws {
-        for tool in ["claude", "codex", "copilot", "cursor-agent", "gemini", "opencode"] {
+        for tool in ["claude", "codex", "copilot", "cursor-agent", "gemini", "opencode", "pi"] {
             let harness = try WrapperHarness(copyingScriptsNamed: [tool, "zentty-agent-wrapper"])
             try harness.installRealBinary(
                 named: tool,
@@ -733,7 +733,7 @@ private struct WrapperHarness {
     }
 
     private var publicWrapperDirectories: [URL] {
-        ["claude", "codex", "copilot", "cursor", "gemini", "opencode"]
+        ["claude", "codex", "copilot", "cursor", "gemini", "opencode", "pi"]
             .map { wrapperBinURL.appendingPathComponent($0, isDirectory: true) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
@@ -756,6 +756,8 @@ private struct WrapperHarness {
             return "gemini/gemini"
         case "opencode":
             return "opencode/opencode"
+        case "pi":
+            return "pi/pi"
         case "zentty-agent-wrapper":
             return "shared/zentty-agent-wrapper"
         default:
