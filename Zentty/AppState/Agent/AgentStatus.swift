@@ -4,6 +4,7 @@ enum AgentTool: Equatable, Sendable {
     case claudeCode
     case codex
     case copilot
+    case cursor
     case gemini
     case openCode
     case pi
@@ -17,6 +18,8 @@ enum AgentTool: Equatable, Sendable {
             return "Codex"
         case .copilot:
             return "Copilot"
+        case .cursor:
+            return "Cursor"
         case .gemini:
             return "Gemini"
         case .openCode:
@@ -41,6 +44,9 @@ enum AgentTool: Equatable, Sendable {
         }
         if normalized.contains("copilot") {
             return .copilot
+        }
+        if normalized.contains("cursor") {
+            return .cursor
         }
         if normalized.contains("gemini") {
             return .gemini

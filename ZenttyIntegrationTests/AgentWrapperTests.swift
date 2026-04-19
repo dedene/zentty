@@ -354,7 +354,7 @@ final class AgentWrapperTests: XCTestCase {
     }
 
     func test_tool_wrappers_delegate_to_launch_command_when_cli_is_available() throws {
-        for tool in ["claude", "codex", "copilot", "gemini", "opencode", "pi"] {
+        for tool in ["claude", "codex", "copilot", "cursor-agent", "gemini", "opencode", "pi"] {
             let harness = try WrapperHarness(copyingScriptsNamed: [tool, "zentty-agent-wrapper"])
             try harness.installRealBinary(
                 named: tool,
@@ -378,8 +378,11 @@ final class AgentWrapperTests: XCTestCase {
                 ]
             )
 
+            // cursor wrappers identify as the `cursor` tool regardless of which
+            // alias (`cursor-agent` or `agent`) the user invoked.
+            let expectedLaunchTool = tool == "cursor-agent" ? "cursor" : tool
             XCTAssertEqual(result.exitCode, 0, "\(tool): \(result.stderr)\n\(result.stdout)")
-            XCTAssertEqual(try harness.readArgumentCalls(named: "cli-args.log"), [["launch", tool, "hello"]], tool)
+            XCTAssertEqual(try harness.readArgumentCalls(named: "cli-args.log"), [["launch", expectedLaunchTool, "hello"]], tool)
             XCTAssertTrue(try harness.readLines(named: "real-args.log").isEmpty, tool)
         }
     }
@@ -730,7 +733,7 @@ private struct WrapperHarness {
     }
 
     private var publicWrapperDirectories: [URL] {
-        ["claude", "codex", "copilot", "gemini", "opencode", "pi"]
+        ["claude", "codex", "copilot", "cursor", "gemini", "opencode", "pi"]
             .map { wrapperBinURL.appendingPathComponent($0, isDirectory: true) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
@@ -747,6 +750,8 @@ private struct WrapperHarness {
             return "codex/codex"
         case "copilot":
             return "copilot/copilot"
+        case "cursor-agent":
+            return "cursor/cursor-agent"
         case "gemini":
             return "gemini/gemini"
         case "opencode":

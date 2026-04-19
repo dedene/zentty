@@ -1,6 +1,9 @@
 import ArgumentParser
 import Darwin
 import Foundation
+import os
+
+private let ipcCLILogger = Logger(subsystem: "be.zenjoy.zentty", category: "IPC")
 
 @main
 struct ZenttyCLI: ParsableCommand {
@@ -18,8 +21,86 @@ struct ZenttyCLI: ParsableCommand {
             GeminiHookCommand.self,
             IPCCommand.self,
             LaunchCommand.self,
+            InstallCommand.self,
+            UninstallCommand.self,
         ]
     )
+}
+
+// MARK: - install / uninstall
+
+private enum IntegrationTarget: String, CaseIterable {
+    case cursorHooks = "cursor-hooks"
+
+    static func resolve(_ raw: String) throws -> IntegrationTarget {
+        guard let target = IntegrationTarget(rawValue: raw) else {
+            let supported = IntegrationTarget.allCases.map(\.rawValue).joined(separator: ", ")
+            throw ValidationError("Unknown target '\(raw)'. Supported: \(supported)")
+        }
+        return target
+    }
+}
+
+private func resolveInvokingCLIPath() -> String {
+    var size: UInt32 = 0
+    _ = _NSGetExecutablePath(nil, &size)
+    guard size > 0 else {
+        return CommandLine.arguments[0]
+    }
+    var buffer = [CChar](repeating: 0, count: Int(size))
+    let result = buffer.withUnsafeMutableBufferPointer { pointer in
+        _NSGetExecutablePath(pointer.baseAddress, &size)
+    }
+    guard result == 0 else {
+        return CommandLine.arguments[0]
+    }
+    return URL(fileURLWithPath: String(cString: buffer))
+        .resolvingSymlinksInPath()
+        .standardizedFileURL
+        .path
+}
+
+struct InstallCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "install",
+        abstract: "Install a Zentty agent integration.",
+        discussion: "Supported targets: \(IntegrationTarget.allCases.map(\.rawValue).joined(separator: ", "))"
+    )
+
+    @Argument(help: "Target integration name (e.g. cursor-hooks).")
+    var target: String
+
+    mutating func run() throws {
+        switch try IntegrationTarget.resolve(target) {
+        case .cursorHooks:
+            let hooksURL = CursorHooksInstaller.defaultUserHooksURL()
+            try CursorHooksInstaller.install(
+                at: hooksURL,
+                cliPath: resolveInvokingCLIPath()
+            )
+            print("Installed Zentty cursor hooks at \(hooksURL.path).")
+        }
+    }
+}
+
+struct UninstallCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "uninstall",
+        abstract: "Remove a previously-installed Zentty agent integration.",
+        discussion: "Supported targets: \(IntegrationTarget.allCases.map(\.rawValue).joined(separator: ", "))"
+    )
+
+    @Argument(help: "Target integration name (e.g. cursor-hooks).")
+    var target: String
+
+    mutating func run() throws {
+        switch try IntegrationTarget.resolve(target) {
+        case .cursorHooks:
+            let hooksURL = CursorHooksInstaller.defaultUserHooksURL()
+            try CursorHooksInstaller.uninstall(at: hooksURL)
+            print("Removed Zentty cursor hook entries from \(hooksURL.path).")
+        }
+    }
 }
 
 struct VersionCommand: ParsableCommand {
@@ -375,6 +456,7 @@ struct IPCCommand: ParsableCommand {
         "ZENTTY_CODEX_PID",
         "ZENTTY_COPILOT_PID",
         "ZENTTY_GEMINI_PID",
+        "ZENTTY_CURSOR_PID",
     ]
 
     @Argument(help: "Supported values: agent-event, agent-signal, agent-status")
@@ -384,28 +466,42 @@ struct IPCCommand: ParsableCommand {
     var arguments: [String] = []
 
     mutating func run() throws {
-        guard Self.supportedSubcommands.contains(subcommand) else {
-            throw ValidationError("Unsupported ipc subcommand: \(subcommand)")
+        let localSubcommand = subcommand
+        let localArguments = arguments
+        guard Self.supportedSubcommands.contains(localSubcommand) else {
+            throw ValidationError("Unsupported ipc subcommand: \(localSubcommand)")
         }
-        guard let socketPath = ProcessInfo.processInfo.environment["ZENTTY_INSTANCE_SOCKET"],
-              !socketPath.isEmpty,
-              Self.hasRequiredRoutingEnvironment(ProcessInfo.processInfo.environment) else {
+        let environment = ProcessInfo.processInfo.environment
+        guard let socketPath = environment["ZENTTY_INSTANCE_SOCKET"], !socketPath.isEmpty else {
+            ipcCLILogger.info("ipc \(localSubcommand, privacy: .public): skipping — ZENTTY_INSTANCE_SOCKET is not set")
+            return
+        }
+        guard Self.hasRequiredRoutingEnvironment(environment) else {
+            let missing = Self.missingRoutingEnvironmentKeys(environment).joined(separator: ",")
+            ipcCLILogger.info("ipc \(localSubcommand, privacy: .public): skipping — missing \(missing, privacy: .public)")
             return
         }
 
+        let stdinPayload = standardInput()
+        let stdinLength = stdinPayload?.utf8.count ?? 0
+        let stdinAttached = isatty(STDIN_FILENO) == 0
+        ipcCLILogger.debug("ipc \(localSubcommand, privacy: .public) reading stdin: attached=\(stdinAttached, privacy: .public) bytes=\(stdinLength)")
+
         let request = AgentIPCRequest(
             kind: .ipc,
-            arguments: arguments,
-            standardInput: standardInput(),
-            environment: Self.forwardedEnvironment(from: ProcessInfo.processInfo.environment),
+            arguments: localArguments,
+            standardInput: stdinPayload,
+            environment: Self.forwardedEnvironment(from: environment),
             expectsResponse: false,
-            subcommand: subcommand
+            subcommand: localSubcommand
         )
 
         do {
             _ = try AgentIPCClient.send(request: request, socketPath: socketPath)
+            ipcCLILogger.debug("ipc \(localSubcommand, privacy: .public) sent (args: \(localArguments.joined(separator: " "), privacy: .private))")
         } catch {
-            guard ProcessInfo.processInfo.environment["ZENTTY_CLI_DEBUG"] == "1" else {
+            ipcCLILogger.error("ipc \(localSubcommand, privacy: .public) send failed: \(error.localizedDescription, privacy: .private)")
+            guard environment["ZENTTY_CLI_DEBUG"] == "1" else {
                 return
             }
             FileHandle.standardError.write(Data(("zentty ipc send failed: \(error.localizedDescription)\n").utf8))
@@ -424,12 +520,13 @@ struct IPCCommand: ParsableCommand {
     }
 
     static func hasRequiredRoutingEnvironment(_ environment: [String: String]) -> Bool {
-        for key in ["ZENTTY_PANE_TOKEN", "ZENTTY_WORKLANE_ID", "ZENTTY_PANE_ID"] {
-            guard let value = environment[key], !value.isEmpty else {
-                return false
-            }
+        missingRoutingEnvironmentKeys(environment).isEmpty
+    }
+
+    static func missingRoutingEnvironmentKeys(_ environment: [String: String]) -> [String] {
+        ["ZENTTY_PANE_TOKEN", "ZENTTY_WORKLANE_ID", "ZENTTY_PANE_ID"].filter { key in
+            (environment[key] ?? "").isEmpty
         }
-        return true
     }
 
     static func forwardedEnvironment(from environment: [String: String]) -> [String: String] {
@@ -449,7 +546,7 @@ struct LaunchCommand: ParsableCommand {
         shouldDisplay: false
     )
 
-    @Argument(help: "Supported values: claude, codex, copilot, gemini, opencode, pi")
+    @Argument(help: "Supported values: claude, codex, copilot, cursor, gemini, opencode, pi")
     var tool: String
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments forwarded to the real tool.")
