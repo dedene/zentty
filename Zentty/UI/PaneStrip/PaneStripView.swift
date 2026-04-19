@@ -1683,6 +1683,13 @@ final class PaneStripView: NSView {
         updateDividerHighlightStates()
     }
 
+    /// Current horizontal scroll offset in content-space. Positive values
+    /// mean the content is scrolled leftward (panes live further right in
+    /// content space than their on-screen position).
+    var currentScrollOffset: CGFloat {
+        currentOffset
+    }
+
     #if DEBUG
     func dividerTranslationForTesting(
         _ translation: CGPoint,
@@ -1758,13 +1765,6 @@ final class PaneStripView: NSView {
     #endif
 
     var currentOffsetForTesting: CGFloat {
-        currentOffset
-    }
-
-    /// Current horizontal scroll offset in content-space. Positive values
-    /// mean the content is scrolled leftward (panes live further right in
-    /// content space than their on-screen position).
-    var currentScrollOffset: CGFloat {
         currentOffset
     }
 
