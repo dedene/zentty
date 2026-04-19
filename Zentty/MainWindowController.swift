@@ -139,6 +139,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private let configStore: AppConfigStore
     private let openWithService: OpenWithServing
     private var settingsWindowController: SettingsWindowController?
+    private let windowedToolbar: NSToolbar
     private let closeTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.close")
     private let miniTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.mini")
     private let zoomTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.zoom")
@@ -201,10 +202,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // Attaching an empty toolbar bumps the native window corner radius on macOS Tahoe
         // from the titlebar-only ~16pt up to the toolbar-window 26pt, which matches our
         // ChromeGeometry.outerWindowRadius exactly. No visible toolbar chrome (empty + transparent).
+        // Detached in fullscreen so the auto-hiding reveal band stays titlebar-sized.
         let toolbar = NSToolbar(identifier: "be.zenjoy.Zentty.MainToolbar")
         toolbar.showsBaselineSeparator = false
         window.toolbar = toolbar
         window.toolbarStyle = .unifiedCompact
+        self.windowedToolbar = toolbar
         window.isOpaque = false
         // Starts transparent; RootViewController.apply(theme:) syncs the real theme color
         // into window.backgroundColor so the rounded-corner shadow halo composites against
@@ -341,6 +344,40 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) {
         isWindowKey = false
         refreshTrafficLightAppearanceAfterFocusChange()
+    }
+
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        rootViewController.setFullScreenLayout(true, animated: false)
+        // Drop the toolbar so the auto-hiding reveal band is titlebar-only
+        // instead of the merged unified-compact titlebar+toolbar height.
+        window.toolbar = nil
+    }
+
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        layoutTrafficLights()
+    }
+
+    func windowWillExitFullScreen(_ notification: Notification) {
+        rootViewController.setFullScreenLayout(false, animated: false)
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        window.toolbar = windowedToolbar
+        window.toolbarStyle = .unifiedCompact
+        layoutTrafficLights()
+    }
+
+    /// Tells macOS to auto-hide the titlebar+toolbar band (and menu bar, dock)
+    /// in native fullscreen. Without `.autoHideToolbar`, the `.unifiedCompact`
+    /// toolbar renders as a permanent opaque strip at the top of the screen
+    /// even when empty. With it, the system slides the strip out of view and
+    /// reveals it on top-edge hover — restoring traffic lights at the same
+    /// time.
+    func window(
+        _ window: NSWindow,
+        willUseFullScreenPresentationOptions proposedOptions: NSApplication.PresentationOptions
+    ) -> NSApplication.PresentationOptions {
+        proposedOptions.union([.autoHideMenuBar, .autoHideToolbar, .autoHideDock])
     }
 
     func showSettingsWindow(_ sender: Any?) {
@@ -871,6 +908,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     private func layoutTrafficLights() {
+        // In native fullscreen the system re-hosts the traffic lights in the
+        // auto-hiding titlebar overlay. Forcing them back to our custom frame
+        // lands them outside the revealed strip, so the user never sees them
+        // on hover. Let AppKit place them natively in fullscreen.
+        if window.styleMask.contains(.fullScreen) {
+            return
+        }
+
         guard
             let closeButton = window.standardWindowButton(.closeButton),
             let miniButton = window.standardWindowButton(.miniaturizeButton),

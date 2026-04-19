@@ -86,6 +86,7 @@ final class RootViewController: NSViewController {
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
     private var toggleLeadingConstraint: NSLayoutConstraint?
+    private var isFullScreen = false
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
     private var pathCopiedToastView: PathCopiedToastView?
     private let paneNavigationButtons = PaneNavigationButtons()
@@ -875,6 +876,16 @@ final class RootViewController: NSViewController {
     func updateTrafficLightAnchor(_ anchor: NSPoint) {
         trafficLightAnchor = anchor
         updateToggleButtonConstraints()
+    }
+
+    /// Flatten the rounded shell to match the rectangular fullscreen frame.
+    /// The titlebar+toolbar band itself is auto-hidden via
+    /// `willUseFullScreenPresentationOptions` on the window delegate, so chrome
+    /// constraints stay at their windowed-mode positions.
+    func setFullScreenLayout(_ fullScreen: Bool, animated: Bool) {
+        guard isFullScreen != fullScreen else { return }
+        isFullScreen = fullScreen
+        view.layer?.cornerRadius = fullScreen ? 0 : ChromeGeometry.outerWindowRadius
     }
 
     private func updateToggleButtonConstraints() {
