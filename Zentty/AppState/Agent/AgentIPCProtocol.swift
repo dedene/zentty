@@ -9,6 +9,7 @@ enum AgentIPCRequestKind: String, Codable, Equatable {
     case ipc
     case bootstrap
     case pane
+    case discover
 }
 
 enum AgentBootstrapTool: String, Codable, Equatable {
@@ -79,13 +80,58 @@ struct PaneListEntry: Codable, Equatable {
     let agentStatus: String?
 }
 
+struct DiscoveredWindow: Codable, Equatable {
+    let id: String
+    let order: Int
+    let isFocused: Bool
+    let worklaneCount: Int
+    let paneCount: Int
+}
+
+struct DiscoveredWorklane: Codable, Equatable {
+    let id: String
+    let windowID: String
+    let order: Int
+    let title: String?
+    let isFocused: Bool
+    let paneCount: Int
+    let columnCount: Int
+    let focusedPaneID: String?
+}
+
+struct DiscoveredPane: Codable, Equatable {
+    let id: String
+    let windowID: String
+    let worklaneID: String
+    let index: Int
+    let column: Int
+    let title: String
+    let workingDirectory: String?
+    let isFocused: Bool
+    let agentTool: String?
+    let agentStatus: String?
+    let controlToken: String?
+}
+
 struct AgentIPCResponseResult: Codable, Equatable {
     let launchPlan: AgentLaunchPlan?
     let paneList: [PaneListEntry]?
+    let discoveredWindows: [DiscoveredWindow]?
+    let discoveredWorklanes: [DiscoveredWorklane]?
+    let discoveredPanes: [DiscoveredPane]?
 
-    init(launchPlan: AgentLaunchPlan? = nil, paneList: [PaneListEntry]? = nil) {
+    init(
+        launchPlan: AgentLaunchPlan? = nil,
+        paneList: [PaneListEntry]? = nil,
+        discoveredWindows: [DiscoveredWindow]? = nil,
+        discoveredWorklanes: [DiscoveredWorklane]? = nil,
+        discoveredPanes: [DiscoveredPane]? = nil
+    ) {
         self.launchPlan = launchPlan
         self.paneList = paneList
+        self.discoveredWindows = discoveredWindows
+        self.discoveredWorklanes = discoveredWorklanes
+        self.discoveredPanes = discoveredPanes
     }
 }
 

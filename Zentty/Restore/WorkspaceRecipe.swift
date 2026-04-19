@@ -26,7 +26,7 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
 
     struct Worklane: Codable, Equatable, Sendable {
         var id: String
-        var title: String
+        var title: String?
         var nextPaneNumber: Int
         var focusedColumnID: String?
         var columns: [Column]
@@ -64,7 +64,7 @@ enum WorkspaceRecipeExporter {
     private static func makeWorklane(_ worklane: WorklaneState) -> WorkspaceRecipe.Worklane {
         WorkspaceRecipe.Worklane(
             id: worklane.id.rawValue,
-            title: worklane.title,
+            title: worklane.meaningfulTitle,
             nextPaneNumber: worklane.nextPaneNumber,
             focusedColumnID: worklane.paneStripState.focusedColumnID?.rawValue,
             columns: worklane.paneStripState.columns.map { makeColumn($0, worklane: worklane) }
@@ -245,7 +245,7 @@ enum WorkspaceRecipeImporter {
 
         return WorklaneState(
             id: worklaneID,
-            title: recipe.title,
+            title: WorklaneState.meaningfulTitle(from: recipe.title) ?? "",
             paneStripState: PaneStripState(
                 columns: columns,
                 focusedColumnID: recipe.focusedColumnID.map(PaneColumnID.init),
@@ -437,7 +437,7 @@ enum WorkspaceRecipeMeaningfulness {
             return true
         }
 
-        if worklane.title != "MAIN" {
+        if WorklaneState.meaningfulTitle(from: worklane.title) != nil {
             return true
         }
 

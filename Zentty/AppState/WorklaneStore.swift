@@ -51,8 +51,6 @@ struct WorklaneState: Equatable, Sendable {
         self.nextPaneNumber = nextPaneNumber
         self.auxiliaryStateByPaneID = auxiliaryStateByPaneID
     }
-
-
 }
 
 struct WorklanePaneContext: Equatable, Sendable {
@@ -89,6 +87,27 @@ struct WorklaneAuxiliaryInvalidation: OptionSet, Equatable, Sendable {
 }
 
 extension WorklaneState {
+    static func meaningfulTitle(from rawTitle: String?) -> String? {
+        guard let title = rawTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return nil
+        }
+
+        if title.caseInsensitiveCompare("MAIN") == .orderedSame {
+            return nil
+        }
+
+        if title.hasPrefix("WS "), let value = Int(title.dropFirst(3)), value >= 1 {
+            return nil
+        }
+
+        return title
+    }
+
+    var meaningfulTitle: String? {
+        Self.meaningfulTitle(from: title)
+    }
+
     var focusedPaneContext: WorklanePaneContext? {
         paneContext(for: paneStripState.focusedPaneID)
     }
@@ -982,8 +1001,6 @@ final class WorklaneStore {
 
     func createWorklane() {
         let previousPaneRef = currentPaneReference
-        let newIndex = nextWorklaneNumber()
-        let title = "WS \(newIndex)"
         let id = runtimeIdentity.makeWorklaneID()
         let workingDirectory = resolveWorkingDirectoryForNewWorklane()
         let configInheritanceSourcePaneID = resolveConfigInheritanceSourcePaneIDForNewWorklane()
@@ -991,7 +1008,7 @@ final class WorklaneStore {
         worklanes.append(
             Self.makeDefaultWorklane(
                 id: id,
-                title: title,
+                title: "",
                 windowID: windowID,
                 layoutContext: layoutContext,
                 workingDirectory: workingDirectory,
@@ -1323,7 +1340,7 @@ final class WorklaneStore {
         [
             makeDefaultWorklane(
                 id: runtimeIdentity.makeWorklaneID(),
-                title: "MAIN",
+                title: "",
                 windowID: windowID,
                 layoutContext: layoutContext,
                 workingDirectory: Self.defaultWorkingDirectory(),
@@ -1799,16 +1816,6 @@ final class WorklaneStore {
         }
 
         return nextReadableWidth / previousReadableWidth
-    }
-
-    func nextWorklaneNumber() -> Int {
-        let maxExisting = worklanes.compactMap { worklane -> Int? in
-            let normalizedTitle = worklane.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard normalizedTitle.hasPrefix("WS "),
-                  let n = Int(normalizedTitle.dropFirst(3)) else { return nil }
-            return n
-        }.max() ?? 0
-        return maxExisting + 1
     }
 
     @discardableResult

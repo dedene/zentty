@@ -315,7 +315,6 @@ final class AppCanvasView: NSView {
     }
 
     func render(
-        worklaneName: String,
         state: PaneStripState,
         metadataByPaneID: [PaneID: TerminalMetadata] = [:],
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
