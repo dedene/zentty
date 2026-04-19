@@ -13,6 +13,8 @@ enum OpenWithBuiltInTargetID: String, CaseIterable, Equatable, Sendable {
     case zed = "zed"
     case windsurf = "windsurf"
     case antigravity = "antigravity"
+    case codex = "codex"
+    case claude = "claude"
     case finder = "finder"
     case xcode = "xcode"
     case androidStudio = "android-studio"
@@ -59,6 +61,8 @@ enum OpenWithCatalog {
         .init(id: .zed, displayName: "Zed", kind: .editor),
         .init(id: .windsurf, displayName: "Windsurf", kind: .editor),
         .init(id: .antigravity, displayName: "Antigravity", kind: .editor),
+        .init(id: .codex, displayName: "Codex", kind: .editor),
+        .init(id: .claude, displayName: "Claude", kind: .editor),
         .init(id: .finder, displayName: "Finder", kind: .fileManager),
         .init(id: .xcode, displayName: "Xcode", kind: .editor),
         .init(id: .androidStudio, displayName: "Android Studio", kind: .editor),
