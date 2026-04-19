@@ -17,6 +17,7 @@ enum AgentBootstrapTool: String, Codable, Equatable {
     case copilot
     case gemini
     case opencode
+    case pi
 }
 
 struct AgentIPCRequest: Codable, Equatable {
