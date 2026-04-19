@@ -121,14 +121,14 @@ final class PaneStripStoreTests: XCTestCase {
         let store = WorklaneStore()
         store.createWorklane()
 
-        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 1" })?.id)
-        let mainID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "MAIN" })?.id)
+        let worklane2ID = try XCTUnwrap(store.worklanes.last?.id)
+        let mainID = try XCTUnwrap(store.worklanes.first?.id)
         store.selectWorklane(id: worklane2ID)
         store.send(.splitAfterFocusedPane)
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell", "pane 1"])
 
         store.selectWorklane(id: mainID)
-        XCTAssertEqual(store.activeWorklane?.title, "MAIN")
+        XCTAssertEqual(store.activeWorklane?.title, "")
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
 
         store.selectWorklane(id: worklane2ID)
@@ -140,8 +140,9 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.createWorklane()
 
-        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN", "WS 1"])
-        XCTAssertEqual(store.activeWorklane?.title, "WS 1")
+        XCTAssertEqual(store.worklanes.count, 2)
+        XCTAssertEqual(store.worklanes.map(\.title), ["", ""])
+        XCTAssertEqual(store.activeWorklane?.title, "")
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
         XCTAssertEqual(
             store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.surfaceContext,
@@ -454,7 +455,7 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.createWorklane()
 
-        XCTAssertEqual(store.activeWorklane?.title, "WS 1")
+        XCTAssertEqual(store.activeWorklane?.title, "")
         XCTAssertEqual(
             store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
             "/tmp/local-project"
@@ -1844,7 +1845,7 @@ final class PaneStripStoreTests: XCTestCase {
     func test_close_removes_focused_pane_inside_active_worklane_only() throws {
         let store = WorklaneStore()
         store.createWorklane()
-        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 1" })?.id)
+        let worklane2ID = try XCTUnwrap(store.worklanes.last?.id)
 
         store.selectWorklane(id: worklane2ID)
         store.send(.splitAfterFocusedPane)
@@ -1860,13 +1861,13 @@ final class PaneStripStoreTests: XCTestCase {
         let store = WorklaneStore()
         store.createWorklane()
 
-        let mainID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "MAIN" })?.id)
-        let worklane2ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 1" })?.id)
+        let mainID = try XCTUnwrap(store.worklanes.first?.id)
+        let worklane2ID = try XCTUnwrap(store.worklanes.last?.id)
 
         store.selectWorklane(id: worklane2ID)
         store.send(.closeFocusedPane)
 
-        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN"])
+        XCTAssertEqual(store.worklanes.map(\.title), [""])
         XCTAssertEqual(store.activeWorklaneID, mainID)
     }
 
@@ -1876,7 +1877,7 @@ final class PaneStripStoreTests: XCTestCase {
         let result = store.closeFocusedPane()
 
         XCTAssertEqual(result, .closeWindow)
-        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN"])
+        XCTAssertEqual(store.worklanes.map(\.title), [""])
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
     }
 
@@ -1887,7 +1888,7 @@ final class PaneStripStoreTests: XCTestCase {
         let result = store.closePane(id: paneID)
 
         XCTAssertEqual(result, .closeWindow)
-        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN"])
+        XCTAssertEqual(store.worklanes.map(\.title), [""])
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
     }
 

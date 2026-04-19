@@ -140,7 +140,7 @@ final class WorkspaceRecipeTests: XCTestCase {
             worklanes: [
                 WorkspaceRecipe.Worklane(
                     id: "main",
-                    title: "MAIN",
+                    title: nil,
                     nextPaneNumber: 2,
                     focusedColumnID: "column-main",
                     columns: [
@@ -259,7 +259,7 @@ final class WorkspaceRecipeTests: XCTestCase {
             worklanes: [
                 WorkspaceRecipe.Worklane(
                     id: "main",
-                    title: "MAIN",
+                    title: nil,
                     nextPaneNumber: 2,
                     focusedColumnID: "column-main",
                     columns: [
@@ -321,7 +321,7 @@ final class WorkspaceRecipeTests: XCTestCase {
             worklanes: [
                 WorkspaceRecipe.Worklane(
                     id: "main",
-                    title: "MAIN",
+                    title: nil,
                     nextPaneNumber: 2,
                     focusedColumnID: "column-main",
                     columns: [
@@ -383,7 +383,7 @@ final class WorkspaceRecipeTests: XCTestCase {
             worklanes: [
                 WorkspaceRecipe.Worklane(
                     id: "main",
-                    title: "MAIN",
+                    title: nil,
                     nextPaneNumber: 2,
                     focusedColumnID: "column-main",
                     columns: [

@@ -50,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if NSApp.delegate !== self {
+            NSApp.delegate = self
+        }
         appUpdateController.start()
         AppMenuBuilder.installIfNeeded(on: NSApp, config: configStore.current)
         NotificationCenter.default.addObserver(
@@ -496,6 +499,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowControllers.values.first { $0.containsWorklane(worklaneID) }
     }
 
+    func orderedWindowControllersForDiscovery() -> [MainWindowController] {
+        windowControllers.values.sorted { lhs, rhs in
+            lhs.windowOrder < rhs.windowOrder
+        }
+    }
+
     func navigateToNotification(windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID) {
         let target = windowID.flatMap(windowController(with:))
             .flatMap { controller in
@@ -508,7 +517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         target?.navigateToPane(worklaneID: worklaneID, paneID: paneID)
     }
 
-    private func windowController(with windowID: WindowID) -> MainWindowController? {
+    func windowController(with windowID: WindowID) -> MainWindowController? {
         windowControllers.values.first { $0.windowID == windowID }
     }
 

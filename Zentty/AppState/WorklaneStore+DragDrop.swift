@@ -283,11 +283,10 @@ extension WorklaneStore {
             return
         }
 
-        let n = nextWorklaneNumber()
         let newWorklaneID = runtimeIdentity.makeWorklaneID()
         let newWorklane = WorklaneState(
             id: newWorklaneID,
-            title: "WS \(n)",
+            title: "",
             paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
             nextPaneNumber: 1
         )
@@ -366,11 +365,10 @@ extension WorklaneStore {
         paneID: PaneID,
         singleColumnWidth: CGFloat
     ) {
-        let n = nextWorklaneNumber()
         let newWorklaneID = runtimeIdentity.makeWorklaneID()
         let newWorklane = WorklaneState(
             id: newWorklaneID,
-            title: "WS \(n)",
+            title: "",
             paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
             nextPaneNumber: 1
         )

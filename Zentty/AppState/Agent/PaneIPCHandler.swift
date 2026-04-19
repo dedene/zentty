@@ -37,8 +37,13 @@ enum PaneIPCHandler {
         target: AgentIPCTarget
     ) -> AgentIPCResponseResult {
         guard let appDelegate = NSApp.delegate as? AppDelegate,
-              let windowController = appDelegate.windowController(containingWorklane: target.worklaneID) else {
+              let windowController = target.windowID.flatMap(appDelegate.windowController(with:))
+                ?? appDelegate.windowController(containingWorklane: target.worklaneID) else {
             return AgentIPCResponseResult()
+        }
+
+        if subcommand != .list {
+            windowController.focusPane(id: target.paneID, in: target.worklaneID)
         }
 
         switch subcommand {
@@ -136,6 +141,7 @@ enum PaneIPCHandler {
         windowController: MainWindowController
     ) -> AgentIPCResponseResult {
         guard let focusTarget = arguments.first else {
+            windowController.focusPane(id: target.paneID, in: target.worklaneID)
             return AgentIPCResponseResult()
         }
 

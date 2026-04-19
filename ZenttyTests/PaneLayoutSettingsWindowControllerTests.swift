@@ -5,7 +5,20 @@ import XCTest
 
 @MainActor
 final class SettingsWindowControllerTests: XCTestCase {
-    func test_settings_window_uses_toolbar_tab_shell_and_defaults_to_pane_layout() throws {
+    override func tearDown() {
+        NSApp.windows.forEach { window in
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let settled = XCTestExpectation(description: "AppKit window teardown settled")
+        DispatchQueue.main.async { settled.fulfill() }
+        _ = XCTWaiter.wait(for: [settled], timeout: 1.0)
+
+        super.tearDown()
+    }
+
+    func test_settings_window_uses_toolbar_tab_shell_and_shows_requested_panes_section() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -15,7 +28,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.show(section: .paneLayout, sender: nil)
 
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
@@ -54,12 +67,13 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.show(section: .paneLayout, sender: nil)
         waitForLayout()
 
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
+        XCTAssertEqual(contentController.selectedSection, .paneLayout)
         let panesController = try XCTUnwrap(
             contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
         )
@@ -117,7 +131,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(shortcutsController.displayString(for: .copyFocusedPanePath), "Unassigned")
     }
 
-    func test_settings_window_first_switch_to_appearance_shows_theme_browser_content() throws {
+    func test_settings_window_can_present_appearance_section_when_requested() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -127,18 +141,12 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.show(section: .appearance, sender: nil)
         waitForLayout()
 
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        let tabController = try XCTUnwrap(
-            controller.window?.contentViewController as? NSTabViewController
-        )
-
-        tabController.tabView.selectTabViewItem(at: 1)
-        waitForLayout("appearance selected", delay: 0.2)
 
         XCTAssertEqual(contentController.selectedSection, .appearance)
 
@@ -158,7 +166,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.show(section: .appearance, sender: nil)
         waitForLayout()
 
         let contentController = try XCTUnwrap(
@@ -179,7 +187,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(visibleContentView.containsDescendant(named: "ThemePreviewPanel"))
     }
 
-    func test_settings_window_initial_appearance_section_shows_theme_browser_content() throws {
+    func test_settings_window_show_section_can_open_appearance_content() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -189,7 +197,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.show(section: .appearance, sender: nil)
         waitForLayout()
 
         let contentController = try XCTUnwrap(

@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import Darwin
 import Foundation
@@ -67,6 +68,35 @@ enum AgentIPCError: Error {
     case unsupportedSubcommand(String)
     case commandFailed(Int32)
     case requestTooLarge
+}
+
+enum PaneRoutingError: LocalizedError {
+    case missingValue(String)
+    case invalidPaneIndex(String)
+    case conflictingPaneSelectors
+    case missingTargetContext
+    case paneNotFound
+    case paneTargetAmbiguous
+    case invalidPaneToken
+
+    var errorDescription: String? {
+        switch self {
+        case .missingValue(let option):
+            "Missing value for \(option)."
+        case .invalidPaneIndex(let rawValue):
+            "Invalid pane index '\(rawValue)'."
+        case .conflictingPaneSelectors:
+            "Specify only one of --pane-id or --pane-index."
+        case .missingTargetContext:
+            "Missing pane target. Run inside a pane or pass explicit selectors."
+        case .paneNotFound:
+            "Could not resolve a pane for the requested target."
+        case .paneTargetAmbiguous:
+            "The requested target matches multiple panes. Narrow it with --window-id or --worklane-id."
+        case .invalidPaneToken:
+            "The provided pane token is invalid for the resolved pane target."
+        }
+    }
 }
 
 struct AgentIPCAuthentication {
@@ -161,6 +191,8 @@ enum AgentIPCBridge {
                 ok: true,
                 result: AgentIPCResponseResult(launchPlan: launchPlan)
             )
+        case .discover:
+            throw AgentIPCError.unsupportedSubcommand("discover (must be handled by server)")
         case .pane:
             throw AgentIPCError.unsupportedSubcommand("pane (must be handled by server)")
         }
@@ -270,6 +302,91 @@ struct AgentIPCTarget: Equatable {
     let paneID: PaneID
 }
 
+private struct ParsedPaneSelectors {
+    let windowID: WindowID?
+    let worklaneID: WorklaneID?
+    let paneID: PaneID?
+    let paneIndex: Int?
+    let paneToken: String?
+    let arguments: [String]
+
+    static func parse(arguments: [String]) throws -> ParsedPaneSelectors {
+        var sanitizedArguments: [String] = []
+        var windowID: WindowID?
+        var worklaneID: WorklaneID?
+        var paneID: PaneID?
+        var paneIndex: Int?
+        var paneToken: String?
+        var index = 0
+
+        while index < arguments.count {
+            let argument = arguments[index]
+            switch argument {
+            case "--window-id":
+                let valueIndex = index + 1
+                guard arguments.indices.contains(valueIndex) else {
+                    throw PaneRoutingError.missingValue(argument)
+                }
+                windowID = WindowID(arguments[valueIndex])
+                index += 2
+            case "--worklane-id":
+                let valueIndex = index + 1
+                guard arguments.indices.contains(valueIndex) else {
+                    throw PaneRoutingError.missingValue(argument)
+                }
+                worklaneID = WorklaneID(arguments[valueIndex])
+                index += 2
+            case "--pane-id":
+                let valueIndex = index + 1
+                guard arguments.indices.contains(valueIndex) else {
+                    throw PaneRoutingError.missingValue(argument)
+                }
+                paneID = PaneID(arguments[valueIndex])
+                index += 2
+            case "--pane-index":
+                let valueIndex = index + 1
+                guard arguments.indices.contains(valueIndex) else {
+                    throw PaneRoutingError.missingValue(argument)
+                }
+                let rawValue = arguments[valueIndex]
+                guard let parsed = Int(rawValue), parsed >= 1 else {
+                    throw PaneRoutingError.invalidPaneIndex(rawValue)
+                }
+                paneIndex = parsed
+                index += 2
+            case "--pane-token":
+                let valueIndex = index + 1
+                guard arguments.indices.contains(valueIndex) else {
+                    throw PaneRoutingError.missingValue(argument)
+                }
+                paneToken = arguments[valueIndex]
+                index += 2
+            default:
+                sanitizedArguments.append(argument)
+                index += 1
+            }
+        }
+
+        if paneID != nil, paneIndex != nil {
+            throw PaneRoutingError.conflictingPaneSelectors
+        }
+
+        return ParsedPaneSelectors(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            paneIndex: paneIndex,
+            paneToken: paneToken,
+            arguments: sanitizedArguments
+        )
+    }
+}
+
+private struct ResolvedPaneRequest {
+    let request: AgentIPCRequest
+    let target: AgentIPCTarget
+}
+
 final class AgentIPCServer: @unchecked Sendable {
     static let shared = AgentIPCServer()
 
@@ -320,6 +437,14 @@ final class AgentIPCServer: @unchecked Sendable {
             cliPath: cliPath,
             instanceID: instanceID
         )
+    }
+
+    func paneToken(
+        windowID: WindowID?,
+        worklaneID: WorklaneID,
+        paneID: PaneID
+    ) -> String {
+        authentication.token(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
     }
 
     @discardableResult
@@ -524,14 +649,38 @@ final class AgentIPCServer: @unchecked Sendable {
             let requestData = try readRequestData(from: fileDescriptor)
             let request = try JSONDecoder().decode(AgentIPCRequest.self, from: requestData)
             requestForErrorResponse = request
-            guard let target = validatedTarget(
-                for: request.environment,
-                authentication: authentication,
-                diagnosticsEnabled: diagnosticsEnabled
-            ) else {
+            if request.kind == .discover {
+                let result = try DiscoveryIPCHandler.handle(request: request)
+                if request.expectsResponse {
+                    try writeResponse(
+                        AgentIPCResponse(id: request.id, ok: true, result: result),
+                        to: fileDescriptor
+                    )
+                }
                 return
             }
-            let canonicalRequest = request.canonicalized(for: target)
+
+            let canonicalRequest: AgentIPCRequest
+            let target: AgentIPCTarget
+
+            if request.kind == .pane {
+                let resolved = try resolvedPaneRequest(
+                    from: request,
+                    authentication: authentication
+                )
+                canonicalRequest = resolved.request
+                target = resolved.target
+            } else {
+                guard let validatedTarget = validatedTarget(
+                    for: request.environment,
+                    authentication: authentication,
+                    diagnosticsEnabled: diagnosticsEnabled
+                ) else {
+                    return
+                }
+                target = validatedTarget
+                canonicalRequest = request.canonicalized(for: validatedTarget)
+            }
 
             if canonicalRequest.kind == .pane {
                 let result = try PaneIPCHandler.handle(request: canonicalRequest, target: target)
@@ -660,9 +809,226 @@ final class AgentIPCServer: @unchecked Sendable {
             return "command_failed"
         case AgentIPCError.requestTooLarge:
             return "request_too_large"
+        case PaneRoutingError.invalidPaneToken:
+            return "invalid_pane_token"
+        case PaneRoutingError.missingTargetContext:
+            return "missing_target_context"
+        case PaneRoutingError.paneNotFound:
+            return "pane_not_found"
+        case PaneRoutingError.paneTargetAmbiguous:
+            return "pane_target_ambiguous"
         default:
             return "internal_error"
         }
+    }
+
+    private static func resolvedPaneRequest(
+        from request: AgentIPCRequest,
+        authentication: AgentIPCAuthentication
+    ) throws -> ResolvedPaneRequest {
+        let selectors = try ParsedPaneSelectors.parse(arguments: request.arguments)
+
+        let target: AgentIPCTarget
+        let resolveTarget = {
+            try MainActor.assumeIsolated {
+                try resolvePaneTarget(
+                    selectors: selectors,
+                    environment: request.environment
+                )
+            }
+        }
+        if Thread.isMainThread {
+            target = try resolveTarget()
+        } else {
+            target = try DispatchQueue.main.sync(execute: resolveTarget)
+        }
+
+        let token = selectors.paneToken ?? request.environment["ZENTTY_PANE_TOKEN"] ?? ""
+        guard authentication.isValid(
+            token: token,
+            windowID: target.windowID,
+            worklaneID: target.worklaneID,
+            paneID: target.paneID
+        ) else {
+            throw PaneRoutingError.invalidPaneToken
+        }
+
+        var canonicalEnvironment = request.environment
+        if let windowID = target.windowID {
+            canonicalEnvironment["ZENTTY_WINDOW_ID"] = windowID.rawValue
+        } else {
+            canonicalEnvironment.removeValue(forKey: "ZENTTY_WINDOW_ID")
+        }
+        canonicalEnvironment["ZENTTY_WORKLANE_ID"] = target.worklaneID.rawValue
+        canonicalEnvironment["ZENTTY_PANE_ID"] = target.paneID.rawValue
+        canonicalEnvironment["ZENTTY_PANE_TOKEN"] = token
+
+        return ResolvedPaneRequest(
+            request: AgentIPCRequest(
+                version: request.version,
+                id: request.id,
+                kind: request.kind,
+                arguments: selectors.arguments,
+                standardInput: request.standardInput,
+                environment: canonicalEnvironment,
+                expectsResponse: request.expectsResponse,
+                subcommand: request.subcommand,
+                tool: request.tool
+            ),
+            target: target
+        )
+    }
+
+    @MainActor
+    private static func resolvePaneTarget(
+        selectors: ParsedPaneSelectors,
+        environment: [String: String]
+    ) throws -> AgentIPCTarget {
+        guard let appDelegate = NSApp.delegate as? AppDelegate else {
+            throw PaneRoutingError.paneNotFound
+        }
+
+        let windows = appDelegate.orderedWindowControllersForDiscovery()
+        let explicitWindowID = selectors.windowID
+        let explicitWorklaneID = selectors.worklaneID
+        let explicitPaneID = selectors.paneID
+        let explicitPaneIndex = selectors.paneIndex
+        let envWindowID = environment["ZENTTY_WINDOW_ID"].map(WindowID.init)
+        let envWorklaneID = environment["ZENTTY_WORKLANE_ID"].map(WorklaneID.init)
+        let envPaneID = environment["ZENTTY_PANE_ID"].map(PaneID.init)
+
+        struct Candidate {
+            let windowID: WindowID
+            let worklaneID: WorklaneID
+            let paneID: PaneID
+        }
+
+        func candidates(
+            filteredByWindow windowID: WindowID? = nil,
+            filteredByWorklane worklaneID: WorklaneID? = nil,
+            filteredByPane paneID: PaneID? = nil
+        ) -> [Candidate] {
+            windows.flatMap { controller -> [Candidate] in
+                if let windowID, controller.windowID != windowID {
+                    return []
+                }
+
+                return controller.discoveryWorkspaceState.worklanes.flatMap { worklane -> [Candidate] in
+                    if let worklaneID, worklane.id != worklaneID {
+                        return []
+                    }
+
+                    return worklane.paneStripState.panes.compactMap { pane in
+                        if let paneID, pane.id != paneID {
+                            return nil
+                        }
+                        return Candidate(
+                            windowID: controller.windowID,
+                            worklaneID: worklane.id,
+                            paneID: pane.id
+                        )
+                    }
+                }
+            }
+        }
+
+        func resolveSingle(_ matches: [Candidate]) throws -> Candidate {
+            guard !matches.isEmpty else {
+                throw PaneRoutingError.paneNotFound
+            }
+            guard matches.count == 1 else {
+                throw PaneRoutingError.paneTargetAmbiguous
+            }
+            return matches[0]
+        }
+
+        if let explicitPaneID {
+            let match = try resolveSingle(
+                candidates(
+                    filteredByWindow: explicitWindowID ?? envWindowID,
+                    filteredByWorklane: explicitWorklaneID,
+                    filteredByPane: explicitPaneID
+                )
+            )
+            return AgentIPCTarget(
+                windowID: match.windowID,
+                worklaneID: match.worklaneID,
+                paneID: match.paneID
+            )
+        }
+
+        if let explicitPaneIndex {
+            let targetWorklaneID = explicitWorklaneID ?? envWorklaneID
+            guard let targetWorklaneID else {
+                throw PaneRoutingError.missingTargetContext
+            }
+
+            let matchingWindows = windows.filter { controller in
+                (explicitWindowID ?? envWindowID).map { controller.windowID == $0 } ?? true
+                    && controller.discoveryWorkspaceState.worklanes.contains(where: { $0.id == targetWorklaneID })
+            }
+            guard matchingWindows.count == 1 else {
+                throw PaneRoutingError.paneTargetAmbiguous
+            }
+            let controller = matchingWindows[0]
+            guard let paneID = controller.resolvePaneID(String(explicitPaneIndex), in: targetWorklaneID) else {
+                throw PaneRoutingError.paneNotFound
+            }
+            return AgentIPCTarget(
+                windowID: controller.windowID,
+                worklaneID: targetWorklaneID,
+                paneID: paneID
+            )
+        }
+
+        if let explicitWorklaneID {
+            let matches = windows.compactMap { controller -> Candidate? in
+                if let explicitWindowID, controller.windowID != explicitWindowID {
+                    return nil
+                }
+                guard let worklane = controller.discoveryWorkspaceState.worklanes.first(where: { $0.id == explicitWorklaneID }),
+                      let paneID = worklane.paneStripState.focusedPaneID else {
+                    return nil
+                }
+                return Candidate(
+                    windowID: controller.windowID,
+                    worklaneID: explicitWorklaneID,
+                    paneID: paneID
+                )
+            }
+            let match = try resolveSingle(matches)
+            return AgentIPCTarget(
+                windowID: match.windowID,
+                worklaneID: match.worklaneID,
+                paneID: match.paneID
+            )
+        }
+
+        if let explicitWindowID {
+            guard let controller = windows.first(where: { $0.windowID == explicitWindowID }) else {
+                throw PaneRoutingError.paneNotFound
+            }
+            guard let activeWorklaneID = controller.discoveryWorkspaceState.activeWorklaneID,
+                  let worklane = controller.discoveryWorkspaceState.worklanes.first(where: { $0.id == activeWorklaneID }),
+                  let paneID = worklane.paneStripState.focusedPaneID else {
+                throw PaneRoutingError.paneNotFound
+            }
+            return AgentIPCTarget(
+                windowID: controller.windowID,
+                worklaneID: activeWorklaneID,
+                paneID: paneID
+            )
+        }
+
+        if let envWorklaneID, let envPaneID {
+            return AgentIPCTarget(
+                windowID: envWindowID,
+                worklaneID: envWorklaneID,
+                paneID: envPaneID
+            )
+        }
+
+        throw PaneRoutingError.missingTargetContext
     }
 
     private static func validatedTarget(

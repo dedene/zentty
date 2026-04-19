@@ -117,8 +117,8 @@ final class WorklaneStoreShellExitTests: XCTestCase {
     func test_shell_exit_closes_worklane_when_last_pane_and_other_worklanes_exist() throws {
         let store = WorklaneStore()
         store.createWorklane()
-        let ws1ID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "WS 1" })?.id)
-        let mainID = try XCTUnwrap(store.worklanes.first(where: { $0.title == "MAIN" })?.id)
+        let ws1ID = try XCTUnwrap(store.worklanes.last?.id)
+        let mainID = try XCTUnwrap(store.worklanes.first?.id)
 
         store.selectWorklane(id: ws1ID)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -126,7 +126,7 @@ final class WorklaneStoreShellExitTests: XCTestCase {
         let result = store.closePaneFromShellExit(id: paneID)
 
         XCTAssertEqual(result, .closed)
-        XCTAssertEqual(store.worklanes.map(\.title), ["MAIN"])
+        XCTAssertEqual(store.worklanes.map(\.title), [""])
         XCTAssertEqual(store.activeWorklaneID, mainID)
     }
 
