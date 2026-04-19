@@ -51,10 +51,38 @@ struct AgentToolLauncher {
             return !passthroughSubcommands.contains(arguments.first ?? "")
         case .copilot:
             return environment["ZENTTY_COPILOT_HOOKS_DISABLED"] != "1"
+        case .pi:
+            // Pi has management subcommands (install/remove/update/list/…)
+            // and early-exit flags (--help, --version, --list-models, …).
+            // Injecting our bridge extension via -e at position 0 turns the
+            // subcommand into a chat message, so pass these through without
+            // any Zentty rewriting.
+            //
+            // Source of truth: `pi --help`, i.e. pi-mono's
+            // packages/coding-agent/src/cli.ts. Bump the sets below if pi
+            // core adds a new subcommand or early-exit flag. Pi extensions
+            // cannot add shell subcommands, only slash commands / CLI flags
+            // parsed after the extension loads, so only pi-core drift can
+            // invalidate this list.
+            if Self.piPassthroughSubcommands.contains(arguments.first ?? "") {
+                return false
+            }
+            if arguments.contains(where: { Self.piEarlyExitFlags.contains($0) }) {
+                return false
+            }
+            return true
         case .codex, .gemini, .opencode:
             return true
         }
     }
+
+    static let piPassthroughSubcommands: Set<String> = [
+        "install", "remove", "uninstall", "update", "list", "config",
+    ]
+
+    static let piEarlyExitFlags: Set<String> = [
+        "--help", "-h", "--version", "-v", "--list-models", "--export",
+    ]
 
     private func findRealBinary() throws -> String {
         let wrappedToolName = tool.rawValue
@@ -118,7 +146,7 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .codex, .copilot, .gemini, .opencode:
+        case .codex, .copilot, .gemini, .opencode, .pi:
             return EnvironmentPatch()
         }
     }
@@ -138,7 +166,7 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_COPILOT_PID"] = "\(getpid())"
         case .gemini:
             environmentPatch.set["ZENTTY_GEMINI_PID"] = "\(getpid())"
-        case .opencode:
+        case .opencode, .pi:
             break
         }
 
