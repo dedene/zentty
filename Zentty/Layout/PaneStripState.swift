@@ -1120,6 +1120,24 @@ struct PaneStripState: Equatable, Sendable {
         return true
     }
 
+    /// Content-space X of the column that contains `paneID`. Mirrors the
+    /// cursor walk in `PaneStripMotionController.presentation` so callers can
+    /// reason about a pane's horizontal position without building a full
+    /// presentation.
+    func columnContentMinX(forPaneID paneID: PaneID) -> CGFloat? {
+        guard let columnIndex = columns.firstIndex(where: { column in
+            column.panes.contains(where: { $0.id == paneID })
+        }) else {
+            return nil
+        }
+
+        var x = layoutSizing.horizontalInset
+        for index in 0..<columnIndex {
+            x += max(1, columns[index].width) + layoutSizing.interPaneSpacing
+        }
+        return x
+    }
+
     func arrangedColumnWidth(
         for visibleColumnCount: Int,
         availableWidth: CGFloat,
