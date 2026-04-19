@@ -126,6 +126,29 @@ final class RootViewCompositionTests: AppKitTestCase {
         )
     }
 
+    func test_fullscreen_layout_flattens_shell_corner_radius() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            controller.view.layer?.cornerRadius ?? -1,
+            ChromeGeometry.outerWindowRadius,
+            accuracy: 0.001
+        )
+
+        controller.setFullScreenLayout(true, animated: false)
+        XCTAssertEqual(controller.view.layer?.cornerRadius ?? -1, 0, accuracy: 0.001)
+
+        controller.setFullScreenLayout(false, animated: false)
+        XCTAssertEqual(
+            controller.view.layer?.cornerRadius ?? -1,
+            ChromeGeometry.outerWindowRadius,
+            accuracy: 0.001
+        )
+    }
+
     func test_copy_path_toast_mounts_inside_canvas_view() throws {
         let controller = makeController()
         let paneID = PaneID("pane-editor")
@@ -1978,6 +2001,61 @@ final class RootViewCompositionTests: AppKitTestCase {
         ) / 2
 
         XCTAssertEqual(middleVisibleFrame.midX, visibleLaneMidX, accuracy: 0.001)
+    }
+
+    func test_sidebar_toggle_keeps_focused_middle_pane_anchored_to_visible_lane() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusLeft))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(
+            controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView
+        )
+        let focusedPaneID = try XCTUnwrap(controller.paneStripStateForTesting.focusedPaneID)
+
+        func focusedPaneMinXInCanvas() throws -> CGFloat {
+            let paneView = try XCTUnwrap(
+                appCanvasView.descendantPaneViews().first { $0.paneID == focusedPaneID }
+            )
+            return paneView.convert(paneView.bounds, to: appCanvasView).minX
+        }
+
+        let sortedBefore = appCanvasView.descendantPaneViews().sorted {
+            $0.frame.minX < $1.frame.minX
+        }
+        XCTAssertEqual(sortedBefore.count, 3)
+        XCTAssertEqual(sortedBefore[1].paneID, focusedPaneID)
+
+        // Default sidebar is pinned open, so the focused middle pane sits
+        // flush against its right edge.
+        let leadingInsetWhenShown = appCanvasView.leadingVisibleInset
+        let minXBeforeHide = try focusedPaneMinXInCanvas()
+        XCTAssertEqual(minXBeforeHide, leadingInsetWhenShown, accuracy: 1.0)
+
+        controller.handleSidebarVisibilityEvent(.togglePressed)
+        controller.settleSidebarTransitionForTesting()
+
+        // After hiding, the focused pane should re-anchor to the *new*
+        // visible lane (= viewport left edge), not stay at the old screen X.
+        let leadingInsetWhenHidden = appCanvasView.leadingVisibleInset
+        XCTAssertEqual(leadingInsetWhenHidden, 0, accuracy: 0.001)
+        let minXAfterHide = try focusedPaneMinXInCanvas()
+        XCTAssertEqual(minXAfterHide, leadingInsetWhenHidden, accuracy: 1.0)
+
+        controller.handleSidebarVisibilityEvent(.togglePressed)
+        controller.settleSidebarTransitionForTesting()
+
+        let leadingInsetAfterShow = appCanvasView.leadingVisibleInset
+        let minXAfterShow = try focusedPaneMinXInCanvas()
+        XCTAssertEqual(minXAfterShow, leadingInsetAfterShow, accuracy: 1.0)
     }
 
     func test_vertical_keyboard_resize_up_shrinks_top_pane_when_top_pane_is_focused() throws {
