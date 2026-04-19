@@ -37,7 +37,11 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
         scrollView.drawsBackground = false
         scrollView.autohidesScrollers = true
         scrollView.hasVerticalScroller = true
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        // Keep translatesAutoresizingMaskIntoConstraints = true (default) so
+        // NSTabView can size us when the selected tab changes. With =false and
+        // no ancestor constraints pinning the scrollView, a post-switch tab
+        // ends up at 0×0 (the blank-pane bug).
+        scrollView.autoresizingMask = [.width, .height]
 
         documentView.frame = NSRect(
             x: 0,
@@ -74,18 +78,27 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
         scrollView.documentView = documentView
         updateDocumentLayout(
             viewportWidth: SettingsViewController.preferredContentWidth,
-            viewportHeight: 1
+            viewportHeight: 1,
+            laysOutContent: false
         )
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        updateDocumentLayout(viewportWidth: view.bounds.width, viewportHeight: view.bounds.height)
+        updateDocumentLayout(
+            viewportWidth: view.bounds.width,
+            viewportHeight: view.bounds.height,
+            laysOutContent: false
+        )
     }
 
     func preferredViewportHeight(for width: CGFloat) -> CGFloat {
         loadViewIfNeeded()
-        updateDocumentLayout(viewportWidth: width, viewportHeight: 0)
+        updateDocumentLayout(
+            viewportWidth: width,
+            viewportHeight: 0,
+            laysOutContent: true
+        )
         return documentView.frame.height
     }
 
@@ -93,10 +106,9 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
         loadViewIfNeeded()
         updateDocumentLayout(
             viewportWidth: max(view.bounds.width, SettingsViewController.preferredContentWidth),
-            viewportHeight: max(view.bounds.height, 1)
+            viewportHeight: max(view.bounds.height, 1),
+            laysOutContent: true
         )
-        // Force immediate layout before resetting scroll position
-        view.layoutSubtreeIfNeeded()
         scrollToTop()
     }
 
@@ -125,22 +137,28 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
         loadViewIfNeeded()
         updateDocumentLayout(
             viewportWidth: max(view.bounds.width, SettingsViewController.preferredContentWidth),
-            viewportHeight: max(view.bounds.height, 1)
+            viewportHeight: max(view.bounds.height, 1),
+            laysOutContent: true
         )
-        view.layoutSubtreeIfNeeded()
     }
 
     var isScrollerSuppressedForTesting: Bool {
         isScrollerSuppressed
     }
 
-    private func updateDocumentLayout(viewportWidth: CGFloat, viewportHeight: CGFloat) {
+    private func updateDocumentLayout(
+        viewportWidth: CGFloat,
+        viewportHeight: CGFloat,
+        laysOutContent: Bool
+    ) {
         let contentWidth = max(
             viewportWidth - (Layout.horizontalInset * 2) - Layout.scrollerAllowance,
             Layout.minimumContentWidth
         )
         contentWidthConstraint?.constant = contentWidth
-        contentView.layoutSubtreeIfNeeded()
+        if laysOutContent {
+            contentView.layoutSubtreeIfNeeded()
+        }
 
         let contentHeight = measuredContentHeight() + Layout.topInset + Layout.bottomInset
         documentView.frame = NSRect(

@@ -477,6 +477,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         allThemes = await catalogProvider.loadThemes()
         applyFilter()
         updatePreviewForCurrentSelection()
+        refreshScrollableContentLayout()
     }
 
     @MainActor
