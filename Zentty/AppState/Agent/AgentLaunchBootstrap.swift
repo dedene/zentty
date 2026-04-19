@@ -1,5 +1,11 @@
 import AppKit
 import Foundation
+import os
+
+private let agentLaunchLogger = Logger(
+    subsystem: "be.zenjoy.zentty",
+    category: "AgentLaunchBootstrap"
+)
 
 enum AgentLaunchBootstrap {
     static func makePlan(
@@ -47,6 +53,13 @@ enum AgentLaunchBootstrap {
                 runtimeDirectoryURL: runtimeDirectoryURL,
                 fileManager: fileManager
             )
+        case .cursor:
+            return try cursorPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
+                fileManager: fileManager
+            )
         case .gemini:
             return try geminiPlan(
                 executablePath: executablePath,
@@ -70,7 +83,85 @@ enum AgentLaunchBootstrap {
                 fileManager: fileManager,
                 appConfigProvider: appConfigProvider
             )
+        case .pi:
+            return piPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                bundle: bundle,
+                fileManager: fileManager
+            )
         }
+    }
+
+    private static func cursorPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        fileManager: FileManager
+    ) throws -> AgentLaunchPlan {
+        if environment["ZENTTY_CURSOR_HOOKS_DISABLED"] == "1" {
+            return directPlan(executablePath: executablePath, arguments: arguments)
+        }
+
+        CursorHooksInstaller.installIfPossible(environment: environment, fileManager: fileManager)
+
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: [
+                "ZENTTY_AGENT_TOOL": "cursor",
+            ],
+            unsetEnvironment: [],
+            preLaunchActions: []
+        )
+    }
+
+    private static func piPlan(
+        executablePath: String,
+        arguments: [String],
+        bundle: Bundle,
+        fileManager: FileManager
+    ) -> AgentLaunchPlan {
+        // Pi itself sets PI_CODING_AGENT=true at startup (src/cli.ts),
+        // so we only need ZENTTY_AGENT_TOOL for Zentty's own recognition.
+        let setEnvironment = ["ZENTTY_AGENT_TOOL": "pi"]
+
+        var plannedArguments = arguments
+        let extensionURL = bundle.resourceURL?
+            .appendingPathComponent("pi", isDirectory: true)
+            .appendingPathComponent("extensions", isDirectory: true)
+            .appendingPathComponent("zentty-pi-zentty.js", isDirectory: false)
+        if let extensionURL, fileManager.isReadableFile(atPath: extensionURL.path) {
+            // Stack the bridge on top of the user's own pi extensions:
+            // with `-e <path>` alone (no `--no-extensions`), pi merges CLI
+            // extensions with globals — see pi-mono
+            // packages/coding-agent/src/core/resource-loader.ts.
+            plannedArguments.insert(contentsOf: ["-e", extensionURL.path], at: 0)
+        } else {
+            // Silent miss here leaves the sidebar stuck on "Starting" with
+            // no breadcrumb. Warn so bundle misconfigurations are traceable
+            // via `log stream --predicate 'category == "AgentLaunchBootstrap"'`.
+            agentLaunchLogger.warning(
+                "Pi bridge extension missing from bundle (path=\(extensionURL?.path ?? "<nil>", privacy: .public)); agent status will not be tracked"
+            )
+        }
+
+        let sessionStartJSON = """
+        {"version":1,"event":"session.start","agent":{"name":"Pi","pid":\(AgentIPCProtocol.selfPIDPlaceholder)}}
+        """
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: plannedArguments,
+            setEnvironment: setEnvironment,
+            unsetEnvironment: [],
+            preLaunchActions: [
+                AgentLaunchAction(
+                    subcommand: "agent-event",
+                    arguments: [],
+                    standardInput: sessionStartJSON
+                ),
+            ]
+        )
     }
 
     private static func claudePlan(
@@ -617,8 +708,8 @@ enum AgentLaunchBootstrap {
     }
 
     private static func copilotMergedConfigJSON(existingData: Data, cliPath: String) throws -> Data? {
-        guard let uncommentedData = stripJSONCComments(in: existingData),
-              let cleanedData = stripTrailingCommas(in: uncommentedData),
+        guard let uncommentedData = JSONCRelaxedParse.stripComments(in: existingData),
+              let cleanedData = JSONCRelaxedParse.stripTrailingCommas(in: uncommentedData),
               var jsonObject = try JSONSerialization.jsonObject(with: cleanedData) as? [String: Any] else {
             return nil
         }
@@ -916,129 +1007,6 @@ enum AgentLaunchBootstrap {
     ) throws {
         try? fileManager.removeItem(at: destinationURL)
         try fileManager.copyItem(at: sourceURL, to: destinationURL)
-    }
-
-    private static func stripJSONCComments(in data: Data) -> Data? {
-        guard let text = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        var output = ""
-        var iterator = text.makeIterator()
-        var pending = iterator.next()
-        var inString = false
-        var escaping = false
-        var lookahead: Character?
-
-        func advance() {
-            pending = lookahead ?? iterator.next()
-            lookahead = nil
-        }
-
-        while let character = pending {
-            if inString {
-                output.append(character)
-                if escaping {
-                    escaping = false
-                } else if character == "\\" {
-                    escaping = true
-                } else if character == "\"" {
-                    inString = false
-                }
-                advance()
-                continue
-            }
-
-            if character == "\"" {
-                inString = true
-                output.append(character)
-                advance()
-                continue
-            }
-
-            if character == "/" {
-                lookahead = iterator.next()
-                if lookahead == "/" {
-                    advance()
-                    while let next = pending, next != "\n", next != "\r" {
-                        advance()
-                    }
-                    continue
-                }
-                if lookahead == "*" {
-                    advance()
-                    while let next = pending {
-                        if next == "*" {
-                            lookahead = iterator.next()
-                            if lookahead == "/" {
-                                advance()
-                                advance()
-                                break
-                            }
-                        }
-                        advance()
-                    }
-                    continue
-                }
-                output.append(character)
-                advance()
-                continue
-            }
-
-            output.append(character)
-            advance()
-        }
-
-        return output.data(using: .utf8)
-    }
-
-    private static func stripTrailingCommas(in data: Data) -> Data? {
-        guard let text = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        let characters = Array(text)
-        var output = ""
-        var inString = false
-        var escaping = false
-        var index = 0
-
-        while index < characters.count {
-            let character = characters[index]
-            if inString {
-                output.append(character)
-                if escaping {
-                    escaping = false
-                } else if character == "\\" {
-                    escaping = true
-                } else if character == "\"" {
-                    inString = false
-                }
-                index += 1
-                continue
-            }
-
-            if character == "\"" {
-                inString = true
-                output.append(character)
-                index += 1
-                continue
-            }
-
-            if character == "," {
-                var lookahead = index + 1
-                while lookahead < characters.count, characters[lookahead].isWhitespace {
-                    lookahead += 1
-                }
-                if lookahead < characters.count, characters[lookahead] == "}" || characters[lookahead] == "]" {
-                    index += 1
-                    continue
-                }
-            }
-
-            output.append(character)
-            index += 1
-        }
-
-        return output.data(using: .utf8)
     }
 
     private static func loadAppConfig() -> AppConfig {

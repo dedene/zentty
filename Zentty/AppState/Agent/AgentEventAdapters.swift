@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let cursorAdapterLogger = Logger(subsystem: "be.zenjoy.zentty", category: "CursorAdapter")
 
 // MARK: - Gemini Adapter
 
@@ -123,6 +126,144 @@ extension AgentEventBridge {
         case (nil, nil):
             return nil
         }
+    }
+}
+
+// MARK: - Cursor Adapter
+
+extension AgentEventBridge {
+    static func cursorAdapter(
+        data: Data,
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
+        guard let hookEventName = firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"]) else {
+            throw AgentStatusPayloadError.invalidHookPayload
+        }
+
+        guard currentTargetIfAvailable(from: environment) != nil else {
+            return []
+        }
+
+        let target = try currentTarget(from: environment)
+        let toolName = AgentTool.cursor.displayName
+        let sessionID = firstString(in: jsonObject, keys: ["conversation_id", "conversationId"])
+        let cwd = cursorWorkspaceRoot(from: jsonObject)
+        let pid = parseAgentPID(from: environment, key: "ZENTTY_CURSOR_PID")
+
+        let normalized = hookEventName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        switch normalized {
+        case "sessionstart":
+            var payloads: [AgentStatusPayload] = []
+            if let pid {
+                payloads.append(pidPayload(target: target, toolName: toolName, pid: pid, event: .attach, sessionID: sessionID))
+            }
+            payloads.append(lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .starting,
+                sessionID: sessionID,
+                cwd: cwd
+            ))
+            return payloads
+
+        case "beforesubmitprompt":
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                sessionID: sessionID,
+                cwd: cwd
+            )]
+
+        case "sessionend":
+            return [
+                AgentStatusPayload(
+                    windowID: target.windowID,
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    signalKind: .lifecycle,
+                    state: nil,
+                    origin: .explicitHook,
+                    toolName: toolName,
+                    text: nil,
+                    sessionID: sessionID,
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil
+                ),
+                pidPayload(target: target, toolName: toolName, pid: nil, event: .clear, sessionID: sessionID),
+            ]
+
+        case "stop":
+            let status = firstString(in: jsonObject, keys: ["status"])?.lowercased()
+            switch status {
+            case "error":
+                return [lifecyclePayload(
+                    target: target,
+                    toolName: toolName,
+                    state: .unresolvedStop,
+                    lifecycleEvent: .update,
+                    sessionID: sessionID,
+                    cwd: cwd
+                )]
+            case "aborted":
+                return [lifecyclePayload(
+                    target: target,
+                    toolName: toolName,
+                    state: .idle,
+                    lifecycleEvent: .stopCandidate,
+                    sessionID: sessionID,
+                    cwd: cwd
+                )]
+            case "completed", nil:
+                return [lifecyclePayload(
+                    target: target,
+                    toolName: toolName,
+                    state: .idle,
+                    lifecycleEvent: .update,
+                    sessionID: sessionID,
+                    cwd: cwd
+                )]
+            default:
+                return [lifecyclePayload(
+                    target: target,
+                    toolName: toolName,
+                    state: .idle,
+                    lifecycleEvent: .update,
+                    sessionID: sessionID,
+                    cwd: cwd
+                )]
+            }
+
+        case "subagentstart", "subagentstop":
+            return []
+
+        case "pretooluse", "posttooluse", "posttoolusefailure":
+            guard environment["ZENTTY_CURSOR_VERBOSE_HOOKS"] == "1" else {
+                return []
+            }
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                sessionID: sessionID,
+                cwd: cwd
+            )]
+
+        default:
+            cursorAdapterLogger.debug("Unhandled cursor hook event: \(normalized, privacy: .public)")
+            return []
+        }
+    }
+
+    private static func cursorWorkspaceRoot(from jsonObject: [String: Any]) -> String? {
+        let roots = (jsonObject["workspace_roots"] as? [String]) ?? (jsonObject["workspaceRoots"] as? [String])
+        guard let first = roots?.first?.trimmingCharacters(in: .whitespacesAndNewlines), !first.isEmpty else {
+            return nil
+        }
+        return first
     }
 }
 

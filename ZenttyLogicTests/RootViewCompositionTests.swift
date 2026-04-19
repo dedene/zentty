@@ -119,7 +119,11 @@ final class RootViewCompositionTests: AppKitTestCase {
 
         XCTAssertTrue(rootSubviews.contains { $0 is SidebarView })
         XCTAssertFalse(appCanvasView.containsDescendant(ofType: WindowChromeView.self))
-        XCTAssertEqual(windowChromeView.frame.minY, appCanvasView.frame.maxY, accuracy: 0.5)
+        XCTAssertEqual(
+            windowChromeView.frame.minY - appCanvasView.frame.maxY,
+            ShellMetrics.headerOuterPadding,
+            accuracy: 0.5
+        )
     }
 
     func test_copy_path_toast_mounts_inside_canvas_view() throws {
@@ -378,13 +382,13 @@ final class RootViewCompositionTests: AppKitTestCase {
         let controller = makeControllerWithCrowdedHeader(width: 1280)
         let rootSubviews = controller.view.subviews
         let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView } as? WindowChromeView)
-        let bellButton = try XCTUnwrap(rootSubviews.first { $0 is NotificationBellButton } as? NotificationBellButton)
+        let inboxButton = try XCTUnwrap(rootSubviews.first { $0 is NotificationInboxButton } as? NotificationInboxButton)
 
-        let bellMaxXInChrome = bellButton.frame.maxX - windowChromeView.frame.minX
+        let inboxMaxXInChrome = inboxButton.frame.maxX - windowChromeView.frame.minX
 
         XCTAssertEqual(
             windowChromeView.visibleLaneFrame.minX,
-            bellMaxXInChrome,
+            inboxMaxXInChrome,
             accuracy: 0.5
         )
     }

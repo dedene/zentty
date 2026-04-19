@@ -937,10 +937,14 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "codex"
         case .copilot:
             return "copilot"
+        case .cursor:
+            return "cursor"
         case .gemini:
             return "gemini"
         case .openCode:
             return "opencode"
+        case .pi:
+            return "pi"
         case .custom(let name):
             return name
         case nil:

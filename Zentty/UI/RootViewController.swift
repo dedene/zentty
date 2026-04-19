@@ -86,7 +86,6 @@ final class RootViewController: NSViewController {
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
     private var toggleLeadingConstraint: NSLayoutConstraint?
-    private var toggleTopConstraint: NSLayoutConstraint?
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
     private var pathCopiedToastView: PathCopiedToastView?
     private let paneNavigationButtons = PaneNavigationButtons()
@@ -305,7 +304,7 @@ final class RootViewController: NSViewController {
         sidebarToggleButton.translatesAutoresizingMaskIntoConstraints = false
         paneNavigationButtons.translatesAutoresizingMaskIntoConstraints = false
         paneLayoutMenuCoordinator.menuButton.translatesAutoresizingMaskIntoConstraints = false
-        notificationCoordinator.bellButton.translatesAutoresizingMaskIntoConstraints = false
+        notificationCoordinator.inboxButton.translatesAutoresizingMaskIntoConstraints = false
         globalSearchHUDView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appCanvasView)
         view.addSubview(globalSearchHUDView)
@@ -316,7 +315,7 @@ final class RootViewController: NSViewController {
         view.addSubview(sidebarToggleButton)
         view.addSubview(paneLayoutMenuCoordinator.menuButton)
         view.addSubview(paneNavigationButtons)
-        view.addSubview(notificationCoordinator.bellButton)
+        view.addSubview(notificationCoordinator.inboxButton)
         sidebarView.setUpdateAvailable(isUpdateAvailable)
     }
 
@@ -339,18 +338,9 @@ final class RootViewController: NSViewController {
         )
         self.toggleLeadingConstraint = toggleLeadingConstraint
 
-        let toggleVerticalConstraint: NSLayoutConstraint
-        if trafficLightAnchor.y > 0 {
-            toggleVerticalConstraint = sidebarToggleButton.centerYAnchor.constraint(
-                equalTo: view.bottomAnchor,
-                constant: -trafficLightAnchor.y
-            )
-        } else {
-            toggleVerticalConstraint = sidebarToggleButton.centerYAnchor.constraint(
-                equalTo: windowChromeView.centerYAnchor
-            )
-        }
-        self.toggleTopConstraint = toggleVerticalConstraint
+        let toggleVerticalConstraint = sidebarToggleButton.centerYAnchor.constraint(
+            equalTo: windowChromeView.centerYAnchor
+        )
 
         NSLayoutConstraint.activate([
             sidebarView.topAnchor.constraint(
@@ -360,7 +350,10 @@ final class RootViewController: NSViewController {
                 equalTo: view.bottomAnchor, constant: -ShellMetrics.outerInset),
             sidebarWidthConstraint,
 
-            appCanvasView.topAnchor.constraint(equalTo: windowChromeView.bottomAnchor),
+            appCanvasView.topAnchor.constraint(
+                equalTo: windowChromeView.bottomAnchor,
+                constant: ShellMetrics.headerOuterPadding
+            ),
             appCanvasView.leadingAnchor.constraint(
                 equalTo: view.leadingAnchor, constant: ShellMetrics.outerInset),
             appCanvasView.trailingAnchor.constraint(
@@ -380,7 +373,7 @@ final class RootViewController: NSViewController {
             dragOverlayView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
 
             windowChromeView.topAnchor.constraint(
-                equalTo: view.topAnchor, constant: ShellMetrics.outerInset),
+                equalTo: view.topAnchor, constant: ShellMetrics.headerOuterPadding),
             windowChromeView.leadingAnchor.constraint(
                 equalTo: view.leadingAnchor, constant: ShellMetrics.outerInset),
             windowChromeView.trailingAnchor.constraint(
@@ -424,14 +417,14 @@ final class RootViewController: NSViewController {
             paneNavigationButtons.heightAnchor.constraint(
                 equalToConstant: PaneNavigationButtons.buttonSize),
 
-            notificationCoordinator.bellButton.leadingAnchor.constraint(
+            notificationCoordinator.inboxButton.leadingAnchor.constraint(
                 equalTo: paneNavigationButtons.trailingAnchor, constant: 8),
-            notificationCoordinator.bellButton.centerYAnchor.constraint(
+            notificationCoordinator.inboxButton.centerYAnchor.constraint(
                 equalTo: sidebarToggleButton.centerYAnchor),
-            notificationCoordinator.bellButton.widthAnchor.constraint(
-                equalToConstant: NotificationBellButton.buttonSize),
-            notificationCoordinator.bellButton.heightAnchor.constraint(
-                equalToConstant: NotificationBellButton.buttonSize),
+            notificationCoordinator.inboxButton.widthAnchor.constraint(
+                equalToConstant: NotificationInboxButton.buttonSize),
+            notificationCoordinator.inboxButton.heightAnchor.constraint(
+                equalToConstant: NotificationInboxButton.buttonSize),
         ])
     }
 
@@ -921,14 +914,6 @@ final class RootViewController: NSViewController {
             animated: false,
             forceLayout: false
         )
-        if trafficLightAnchor.y > 0 {
-            toggleTopConstraint?.isActive = false
-            toggleTopConstraint = sidebarToggleButton.centerYAnchor.constraint(
-                equalTo: view.bottomAnchor,
-                constant: -trafficLightAnchor.y
-            )
-            toggleTopConstraint?.isActive = true
-        }
     }
 
     @objc
@@ -1661,7 +1646,7 @@ final class RootViewController: NSViewController {
         SidebarToggleButton.buttonSize + 4
         + PaneLayoutMenuButton.buttonSize + 4
         + PaneNavigationButtons.totalWidth + 8
-        + NotificationBellButton.buttonSize
+        + NotificationInboxButton.buttonSize
 
     private func applySidebarMotionState(
         _ motionState: SidebarMotionState,
@@ -2144,12 +2129,12 @@ final class RootViewController: NSViewController {
             return
         }
 
-        let bellMaxXInRoot = notificationCoordinator.bellButton.frame.maxX
-        let bellMaxXInChrome = windowChromeView.convert(
-            NSPoint(x: bellMaxXInRoot, y: 0),
+        let inboxMaxXInRoot = notificationCoordinator.inboxButton.frame.maxX
+        let inboxMaxXInChrome = windowChromeView.convert(
+            NSPoint(x: inboxMaxXInRoot, y: 0),
             from: view
         ).x
-        windowChromeView.leadingControlsInset = bellMaxXInChrome
+        windowChromeView.leadingControlsInset = inboxMaxXInChrome
     }
 
     func updatePaneLayoutPreferences(_ preferences: PaneLayoutPreferences) {

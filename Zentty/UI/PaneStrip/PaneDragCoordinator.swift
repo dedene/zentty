@@ -337,7 +337,8 @@ final class PaneDragCoordinator {
         // Sample before hiding the pane, then keep the original pane invisible
         // in the hierarchy for the duration of the drag.
         let resolvedPreviewBackgroundColor = sampledPreviewBackgroundColor(
-            for: paneView,
+            paneSnapshot: snapshot,
+            paneView: paneView,
             in: paneStripView,
             fallback: previewBackgroundColor
         ) ?? previewBackgroundColor
@@ -420,38 +421,28 @@ final class PaneDragCoordinator {
     }
 
     private func sampledPreviewBackgroundColor(
-        for paneView: PaneContainerView,
+        paneSnapshot: NSImage,
+        paneView: PaneContainerView,
         in paneStripView: PaneStripView,
         fallback: NSColor
     ) -> NSColor? {
-        paneView.layoutSubtreeIfNeeded()
-        paneStripView.layoutSubtreeIfNeeded()
-        paneView.displayIfNeeded()
-        paneStripView.displayIfNeeded()
-
-        let paneBounds = paneView.bounds.integral
-        let paneFrameInStrip = paneView.convert(paneBounds, to: paneStripView).integral
-        let fallbackColor = fallback.srgbClamped.withAlphaComponent(1)
-
-        guard paneBounds.width >= 1,
-              paneBounds.height >= 1,
-              paneFrameInStrip.width >= 1,
-              paneFrameInStrip.height >= 1,
-              let paneBitmap = paneView.bitmapImageRepForCachingDisplay(in: paneBounds),
-              let stripBitmap = paneStripView.bitmapImageRepForCachingDisplay(in: paneFrameInStrip) else {
+        // Reuse the bitmap from the already-taken drag snapshot instead of
+        // re-rendering the pane — saves a full-hierarchy bitmap pass.
+        guard let paneBitmap = paneSnapshot.representations.first as? NSBitmapImageRep else {
             return nil
         }
 
-        paneBitmap.size = paneBounds.size
-        stripBitmap.size = paneFrameInStrip.size
-        paneView.cacheDisplay(in: paneBounds, to: paneBitmap)
-        paneStripView.cacheDisplay(in: paneFrameInStrip, to: stripBitmap)
+        let fallbackColor = fallback.srgbClamped.withAlphaComponent(1)
 
-        var redTotal: CGFloat = 0
-        var greenTotal: CGFloat = 0
-        var blueTotal: CGFloat = 0
-        var sampleCount: CGFloat = 0
-
+        // First pass: find sample points where the pane is transparent.
+        // Two cases:
+        //   - Some transparent: pane has genuine see-through regions; sample the
+        //     strip underneath to composite those pixels correctly.
+        //   - All transparent: cacheDisplay did not capture the pane's Metal layer
+        //     (libghostty renders via GPU). The bitmap is hollow; strip sampling
+        //     would just return whatever is under the pane, which an opaque
+        //     terminal would normally hide. Fall back to theme color.
+        var transparentPoints: [CGPoint] = []
         for point in sampleGridPoints {
             let paneX = sampleCoordinate(normalized: point.x, maxValue: paneBitmap.pixelsWide)
             let paneY = sampleCoordinate(normalized: point.y, maxValue: paneBitmap.pixelsHigh)
@@ -459,7 +450,35 @@ final class PaneDragCoordinator {
                   paneColor.alphaComponent <= 0.05 else {
                 continue
             }
+            transparentPoints.append(point)
+        }
 
+        // Opaque everywhere OR capture missed the GPU layer — either way, skip
+        // the strip render and let the caller use the fallback color.
+        if transparentPoints.isEmpty || transparentPoints.count == sampleGridPoints.count {
+            return nil
+        }
+
+        // Partial transparency — render the strip once to sample show-through.
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.displayIfNeeded()
+
+        let paneFrameInStrip = paneView.convert(paneView.bounds.integral, to: paneStripView).integral
+        guard paneFrameInStrip.width >= 1,
+              paneFrameInStrip.height >= 1,
+              let stripBitmap = paneStripView.bitmapImageRepForCachingDisplay(in: paneFrameInStrip) else {
+            return nil
+        }
+
+        stripBitmap.size = paneFrameInStrip.size
+        paneStripView.cacheDisplay(in: paneFrameInStrip, to: stripBitmap)
+
+        var redTotal: CGFloat = 0
+        var greenTotal: CGFloat = 0
+        var blueTotal: CGFloat = 0
+        var sampleCount: CGFloat = 0
+
+        for point in transparentPoints {
             let stripX = sampleCoordinate(normalized: point.x, maxValue: stripBitmap.pixelsWide)
             let stripY = sampleCoordinate(normalized: point.y, maxValue: stripBitmap.pixelsHigh)
             guard let stripColor = stripBitmap.colorAt(x: stripX, y: stripY)?.srgbClamped else {

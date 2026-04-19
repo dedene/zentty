@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+set -u
+
+find_real_pi() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local path_entry
+    local IFS=:
+    for path_entry in $PATH; do
+        [[ -n "$path_entry" ]] || continue
+        [[ "$path_entry" == "$self_dir" ]] && continue
+        [[ -x "$path_entry/pi" ]] || continue
+        printf '%s\n' "$path_entry/pi"
+        return 0
+    done
+    return 1
+}
+
+zentty_cli_bin() {
+    if [[ -n "${ZENTTY_CLI_BIN:-}" && -x "${ZENTTY_CLI_BIN}" ]]; then
+        printf '%s\n' "$ZENTTY_CLI_BIN"
+        return 0
+    fi
+
+    command -v zentty >/dev/null 2>&1 || return 1
+    command -v zentty
+}
+
+if cli_bin="$(zentty_cli_bin 2>/dev/null)"; then
+    exec "$cli_bin" launch pi "$@"
+fi
+
+real_pi="$(find_real_pi)" || {
+    echo "Error: pi not found in PATH" >&2
+    exit 127
+}
+
+exec "$real_pi" "$@"

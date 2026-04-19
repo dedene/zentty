@@ -2318,6 +2318,7 @@ final class PaneStripStoreTests: XCTestCase {
         if let allWrapperDirs = request.environmentVariables["ZENTTY_ALL_WRAPPER_BIN_DIRS"] {
             XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/claude"))
             XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/codex"))
+            XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/cursor"))
             XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/opencode"))
         }
         let path = try XCTUnwrap(request.environmentVariables["PATH"])
@@ -2847,6 +2848,72 @@ final class PaneStripStoreTests: XCTestCase {
             .some(.genericInput)
         )
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.sessionID, "session-1")
+    }
+
+    func test_user_edited_input_does_not_resume_blocked_needs_input_state() throws {
+        // Regression: typing a letter inside a TUI-native agent like pi
+        // must NOT flip a "Needs decision"/"Needs input" status to Running.
+        // Only an actual submit (Enter) should resume the blocked state.
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Pi",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "pi",
+                gitBranch: "main"
+            )
+        )
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(title: "Pi", body: "Waiting for your input")
+            )
+        )
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+
+        store.handleTerminalEvent(paneID: paneID, event: .userEditedInput)
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .needsInput,
+            "Typing alone must not clear the needsInput state."
+        )
+    }
+
+    func test_user_submitted_input_resumes_blocked_needs_input_state() throws {
+        // Companion to the edited-input test: Enter/submit IS the correct
+        // signal to flip needsInput → running, so the existing resume path
+        // must keep working.
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Pi",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "pi",
+                gitBranch: "main"
+            )
+        )
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(title: "Pi", body: "Waiting for your input")
+            )
+        )
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+
+        store.handleTerminalEvent(paneID: paneID, event: .userSubmittedInput)
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .running,
+            "Submitting input must resume the blocked agent state."
+        )
     }
 
     func test_ready_codex_title_clears_desktop_notification_generic_needs_input_in_sidebar() throws {

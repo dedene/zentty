@@ -7,14 +7,19 @@ enum ChromeGeometry {
     static let rowInset: CGFloat = 4
     static let pillInset: CGFloat = 2
 
-    static let headerHeight: CGFloat = 44
-    static let headerHorizontalInset: CGFloat = 16
+    static let headerHeight: CGFloat = 40
+    static let headerHorizontalInset: CGFloat = 12
+    /// Vertical inset between the window's top edge and the chrome row, also
+    /// used as the gap between the chrome's bottom and the canvas top. Half
+    /// the side `shellInset` so the chrome icons land in the optical center
+    /// of the dark zone framing them.
+    static let headerOuterPadding: CGFloat = 4
 
-    static let trafficLightOpticalLeadingOffset: CGFloat = 12
-    static let trafficLightOpticalTopOffset: CGFloat = 12
+    static let trafficLightOpticalLeadingOffset: CGFloat = 11
+    static let trafficLightOpticalTopOffset: CGFloat = 11
     static let trafficLightLeadingInset: CGFloat = shellInset + trafficLightOpticalLeadingOffset
     static let trafficLightTopInset: CGFloat = shellInset + trafficLightOpticalTopOffset
-    static let trafficLightSpacing: CGFloat = 6
+    static let trafficLightSpacing: CGFloat = 8
 
     static func innerRadius(outerRadius: CGFloat, inset: CGFloat) -> CGFloat {
         max(0, outerRadius - inset)
@@ -137,10 +142,11 @@ enum ShellMetrics {
 
     static let headerHeight: CGFloat = ChromeGeometry.headerHeight
     static let headerHorizontalInset: CGFloat = ChromeGeometry.headerHorizontalInset
+    static let headerOuterPadding: CGFloat = ChromeGeometry.headerOuterPadding
     static let contentPadding: CGFloat = 8
 
     static let sidebarContentInset: CGFloat = 8
-    static let sidebarHeaderHeight: CGFloat = 58
+    static let sidebarHeaderHeight: CGFloat = 40
     static let sidebarTopInset: CGFloat = sidebarHeaderHeight
     static let sidebarBottomInset: CGFloat = 18
     static let sidebarRowHorizontalInset: CGFloat = 12
@@ -169,7 +175,7 @@ enum ShellMetrics {
     static let sidebarCreateWorklaneHorizontalInset: CGFloat = 8
     static let sidebarCreateWorklaneIconSpacing: CGFloat = 10
     static let sidebarCreateWorklaneButtonHeight: CGFloat = 24
-    static let sidebarCreateWorklanePinnedVerticalOffset: CGFloat = -10
+    static let sidebarCreateWorklanePinnedVerticalOffset: CGFloat = -2
     static let sidebarHeaderPeekTopInset: CGFloat = 24
     static let sidebarCreateWorklanePeekVerticalOffset: CGFloat = 10
     static let sidebarCreateWorklanePinnedLeadingPad: CGFloat = 4

@@ -122,6 +122,101 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(loggedErrors.count, 1)
     }
 
+    func test_run_cursor_adapter_invalid_payload_still_fails_closed() throws {
+        var postedPayloads: [AgentStatusPayload] = []
+        var loggedErrors: [String] = []
+
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=cursor"],
+            environment: defaultEnvironment,
+            inputData: Data(),
+            post: { postedPayloads.append($0) },
+            writeError: { loggedErrors.append(String(describing: $0)) }
+        )
+
+        XCTAssertEqual(result, EXIT_FAILURE)
+        XCTAssertTrue(postedPayloads.isEmpty)
+        XCTAssertEqual(loggedErrors.count, 1)
+    }
+
+    func test_cursor_adapter_session_start_includes_pid_when_env_set() throws {
+        var postedPayloads: [AgentStatusPayload] = []
+        let json = """
+        {"hook_event_name":"sessionStart","conversation_id":"c1","workspace_roots":["/tmp/ws"]}
+        """
+        let env = defaultEnvironment.merging(["ZENTTY_CURSOR_PID": "9999"]) { _, new in new }
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=cursor"],
+            environment: env,
+            inputData: Data(json.utf8),
+            post: { postedPayloads.append($0) },
+            writeError: { XCTFail("unexpected error: \($0)") }
+        )
+
+        XCTAssertEqual(result, EXIT_SUCCESS)
+        XCTAssertEqual(postedPayloads.count, 2)
+        XCTAssertEqual(postedPayloads[0].signalKind, .pid)
+        XCTAssertEqual(postedPayloads[0].pid, 9999)
+        XCTAssertEqual(postedPayloads[0].toolName, "Cursor")
+        XCTAssertEqual(postedPayloads[1].state, .starting)
+        XCTAssertEqual(postedPayloads[1].toolName, "Cursor")
+        XCTAssertEqual(postedPayloads[1].sessionID, "c1")
+        XCTAssertEqual(postedPayloads[1].agentWorkingDirectory, "/tmp/ws")
+    }
+
+    func test_cursor_adapter_before_submit_prompt_maps_to_running() throws {
+        var postedPayloads: [AgentStatusPayload] = []
+        let json = #"{"hook_event_name":"beforeSubmitPrompt","conversation_id":"c-run"}"#
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=cursor"],
+            environment: defaultEnvironment,
+            inputData: Data(json.utf8),
+            post: { postedPayloads.append($0) },
+            writeError: { XCTFail("unexpected error: \($0)") }
+        )
+
+        XCTAssertEqual(result, EXIT_SUCCESS)
+        XCTAssertEqual(postedPayloads.count, 1)
+        XCTAssertEqual(postedPayloads[0].state, .running)
+        XCTAssertEqual(postedPayloads[0].toolName, "Cursor")
+        XCTAssertEqual(postedPayloads[0].sessionID, "c-run")
+    }
+
+    func test_cursor_adapter_stop_completed_maps_to_idle() throws {
+        var postedPayloads: [AgentStatusPayload] = []
+        let json = #"{"hook_event_name":"stop","conversation_id":"c2","status":"completed"}"#
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=cursor"],
+            environment: defaultEnvironment,
+            inputData: Data(json.utf8),
+            post: { postedPayloads.append($0) },
+            writeError: { XCTFail("unexpected error: \($0)") }
+        )
+
+        XCTAssertEqual(result, EXIT_SUCCESS)
+        XCTAssertEqual(postedPayloads.count, 1)
+        XCTAssertEqual(postedPayloads[0].state, .idle)
+        XCTAssertEqual(postedPayloads[0].lifecycleEvent, .update)
+        XCTAssertEqual(postedPayloads[0].toolName, "Cursor")
+    }
+
+    func test_cursor_adapter_stop_error_maps_to_unresolved_stop() throws {
+        var postedPayloads: [AgentStatusPayload] = []
+        let json = #"{"hook_event_name":"stop","conversation_id":"c3","status":"error"}"#
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=cursor"],
+            environment: defaultEnvironment,
+            inputData: Data(json.utf8),
+            post: { postedPayloads.append($0) },
+            writeError: { XCTFail("unexpected error: \($0)") }
+        )
+
+        XCTAssertEqual(result, EXIT_SUCCESS)
+        XCTAssertEqual(postedPayloads.count, 1)
+        XCTAssertEqual(postedPayloads[0].state, .unresolvedStop)
+        XCTAssertEqual(postedPayloads[0].toolName, "Cursor")
+    }
+
     // MARK: - session.start
 
     func test_session_start_produces_pid_and_lifecycle_payloads() throws {
@@ -326,6 +421,61 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].state, .running)
         XCTAssertEqual(payloads[0].taskProgress?.doneCount, 2)
         XCTAssertEqual(payloads[0].taskProgress?.totalCount, 5)
+    }
+
+    // MARK: - Pi bridge
+
+    func test_pi_needs_input_payload_resolves_to_pi_tool() throws {
+        let json = """
+        {
+          "version": 1,
+          "event": "agent.needs-input",
+          "agent": { "name": "Pi" },
+          "session": { "id": "pi-session-1" },
+          "context": { "workingDirectory": "/tmp/project" },
+          "state": { "interaction": { "kind": "approval", "text": "Allow write?" } }
+        }
+        """
+        let input = try AgentEventBridge.parseInput(json.data(using: .utf8)!)
+        let payloads = try AgentEventBridge.makePayloads(from: input, environment: defaultEnvironment)
+
+        XCTAssertEqual(payloads.first?.state, .needsInput)
+        XCTAssertEqual(payloads.first?.interactionKind, .approval)
+        XCTAssertEqual(AgentTool.resolve(named: payloads.first?.toolName), .pi)
+        XCTAssertEqual(payloads.first?.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_pi_running_idle_lifecycle() throws {
+        let running = try AgentEventBridge.makePayloads(
+            from: AgentEventBridge.parseInput(
+                #"{"version":1,"event":"agent.running","agent":{"name":"Pi"}}"#.data(using: .utf8)!
+            ),
+            environment: defaultEnvironment
+        )
+        let idle = try AgentEventBridge.makePayloads(
+            from: AgentEventBridge.parseInput(
+                #"{"version":1,"event":"agent.idle","agent":{"name":"Pi"}}"#.data(using: .utf8)!
+            ),
+            environment: defaultEnvironment
+        )
+
+        XCTAssertEqual(running.first?.state, .running)
+        XCTAssertEqual(idle.first?.state, .idle)
+        XCTAssertEqual(AgentTool.resolve(named: running.first?.toolName), .pi)
+        XCTAssertEqual(AgentTool.resolve(named: idle.first?.toolName), .pi)
+    }
+
+    func test_pi_wrapper_delegates_via_zentty_launch() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperPath = repoRoot
+            .appendingPathComponent("ZenttyResources/bin/pi/pi")
+            .path
+        let script = try String(contentsOfFile: wrapperPath, encoding: .utf8)
+
+        XCTAssertTrue(script.contains("exec \"$cli_bin\" launch pi \"$@\""))
+        XCTAssertTrue(script.contains("find_real_pi"))
     }
 
     // MARK: - Environment
