@@ -108,7 +108,11 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertEqual(paneView.frame.minX, 0, accuracy: 0.001)
         XCTAssertEqual(paneView.frame.maxX, paneStripView.bounds.width, accuracy: 0.001)
         XCTAssertEqual(paneView.frame.minY, PaneLayoutSizing.balanced.bottomInset, accuracy: 0.001)
-        XCTAssertEqual(paneView.frame.maxY, paneStripView.bounds.height, accuracy: 0.001)
+        XCTAssertEqual(
+            paneView.frame.maxY,
+            paneStripView.bounds.height - PaneLayoutSizing.balanced.topInset,
+            accuracy: 0.001
+        )
     }
 
     @MainActor

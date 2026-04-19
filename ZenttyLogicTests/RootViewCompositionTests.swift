@@ -189,11 +189,13 @@ final class RootViewCompositionTests: AppKitTestCase {
         let appCanvasIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is AppCanvasView })
         let chromeIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is WindowChromeView })
         let sidebarIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is SidebarView })
-        let toggleIndex = try XCTUnwrap(rootSubviews.firstIndex { $0 is SidebarToggleButton })
+        let leadingControlsIndex = try XCTUnwrap(
+            rootSubviews.firstIndex { $0 is LeadingChromeControlsBar }
+        )
 
         XCTAssertGreaterThan(chromeIndex, appCanvasIndex)
         XCTAssertGreaterThan(sidebarIndex, chromeIndex)
-        XCTAssertGreaterThan(toggleIndex, sidebarIndex)
+        XCTAssertGreaterThan(leadingControlsIndex, sidebarIndex)
     }
 
     func test_root_controller_binds_sidebar_update_row_visibility_to_app_update_state() throws {
@@ -219,10 +221,15 @@ final class RootViewCompositionTests: AppKitTestCase {
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
-        let rootSubviews = controller.view.subviews
-        let sidebarToggleButton = try XCTUnwrap(rootSubviews.first { $0 is SidebarToggleButton } as? SidebarToggleButton)
-        let paneLayoutMenuButton = try XCTUnwrap(rootSubviews.first { $0 is PaneLayoutMenuButton } as? PaneLayoutMenuButton)
-        let paneNavigationButtons = try XCTUnwrap(rootSubviews.first { $0 is PaneNavigationButtons } as? PaneNavigationButtons)
+        let sidebarToggleButton = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: SidebarToggleButton.self)
+        )
+        let paneLayoutMenuButton = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: PaneLayoutMenuButton.self)
+        )
+        let paneNavigationButtons = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: PaneNavigationButtons.self)
+        )
 
         XCTAssertEqual(paneLayoutMenuButton.frame.minX, sidebarToggleButton.frame.maxX + 4, accuracy: 0.5)
         XCTAssertEqual(paneNavigationButtons.frame.minX, paneLayoutMenuButton.frame.maxX + 4, accuracy: 0.5)
@@ -382,13 +389,15 @@ final class RootViewCompositionTests: AppKitTestCase {
         let controller = makeControllerWithCrowdedHeader(width: 1280)
         let rootSubviews = controller.view.subviews
         let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView } as? WindowChromeView)
-        let inboxButton = try XCTUnwrap(rootSubviews.first { $0 is NotificationInboxButton } as? NotificationInboxButton)
+        let leadingControlsBar = try XCTUnwrap(
+            rootSubviews.first { $0 is LeadingChromeControlsBar } as? LeadingChromeControlsBar
+        )
 
-        let inboxMaxXInChrome = inboxButton.frame.maxX - windowChromeView.frame.minX
+        let barMaxXInChrome = leadingControlsBar.frame.maxX - windowChromeView.frame.minX
 
         XCTAssertEqual(
             windowChromeView.visibleLaneFrame.minX,
-            inboxMaxXInChrome,
+            barMaxXInChrome,
             accuracy: 0.5
         )
     }
@@ -574,7 +583,11 @@ final class RootViewCompositionTests: AppKitTestCase {
         let leftGapToSidebar = borderFrameInRoot.minX - sidebarView.frame.maxX
         let rightGap = controller.view.bounds.maxX - borderFrameInRoot.maxX
 
-        XCTAssertEqual(paneView.frame.maxY, appCanvasView.bounds.maxY, accuracy: 0.001)
+        XCTAssertEqual(
+            paneView.frame.maxY,
+            appCanvasView.bounds.maxY - PaneLayoutSizing.edgeAligned.topInset,
+            accuracy: 0.001
+        )
         XCTAssertEqual(leftGapToSidebar, borderFrameInRoot.minY, accuracy: 0.001)
         XCTAssertEqual(rightGap, leftGapToSidebar, accuracy: 0.001)
         XCTAssertLessThan(borderFrameInRoot.maxX, controller.view.bounds.maxX)

@@ -973,10 +973,14 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         store.markDividerInteraction(.pane(columnID: PaneColumnID("stack"), afterPaneID: PaneID("middle")))
+        let resizeLayoutSizing = store.activeWorklane?.paneStripState.layoutSizing ?? .edgeAligned
         store.resizeFocusedPane(
             in: .vertical,
             delta: -50,
-            availableSize: CGSize(width: 1200, height: 920),
+            availableSize: CGSize(
+                width: 1200,
+                height: 920 + resizeLayoutSizing.topInset + resizeLayoutSizing.bottomInset
+            ),
             minimumSizeByPaneID: [
                 PaneID("top"): PaneMinimumSize(width: 320, height: 160),
                 PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
