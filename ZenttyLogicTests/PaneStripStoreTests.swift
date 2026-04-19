@@ -2317,6 +2317,7 @@ final class PaneStripStoreTests: XCTestCase {
         if let allWrapperDirs = request.environmentVariables["ZENTTY_ALL_WRAPPER_BIN_DIRS"] {
             XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/claude"))
             XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/codex"))
+            XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/cursor"))
             XCTAssertTrue(allWrapperDirs.contains("/Contents/Resources/bin/opencode"))
         }
         let path = try XCTUnwrap(request.environmentVariables["PATH"])

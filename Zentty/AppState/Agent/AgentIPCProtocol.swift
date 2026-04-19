@@ -15,8 +15,21 @@ enum AgentBootstrapTool: String, Codable, Equatable {
     case claude
     case codex
     case copilot
+    case cursor
     case gemini
     case opencode
+
+    /// Names of the real CLI binary (or binaries) this wrapped tool resolves to on PATH.
+    /// For most tools this matches `rawValue`, but cursor's CLI is shipped as `cursor-agent`
+    /// (with `agent` as a user-facing alias) while `cursor` itself is the IDE launcher.
+    var realBinaryNames: [String] {
+        switch self {
+        case .cursor:
+            return ["cursor-agent"]
+        case .claude, .codex, .copilot, .gemini, .opencode:
+            return [rawValue]
+        }
+    }
 }
 
 struct AgentIPCRequest: Codable, Equatable {

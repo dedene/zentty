@@ -369,6 +369,8 @@ enum AgentResumeCommandBuilder {
             return "copilot --resume=\(sessionID)"
         case .gemini:
             return "gemini --resume"
+        case .cursor:
+            return nil
         default:
             return nil
         }

@@ -4,8 +4,17 @@ set -euo pipefail
 
 tool_basename="${ZENTTY_AGENT_TOOL:-$(basename "$0")}"
 
+# Tools whose wrapper directory name differs from the real CLI binary name.
+# cursor's CLI ships as `cursor-agent` (`cursor` itself is the IDE launcher).
+real_binary_candidates() {
+    case "$tool_basename" in
+        cursor) printf '%s\n' cursor-agent ;;
+        *)      printf '%s\n' "$tool_basename" ;;
+    esac
+}
+
 find_real_binary() {
-    local self_dir wrapper_root path_entry
+    local self_dir wrapper_root path_entry candidate
     self_dir="$(cd "$(dirname "$0")" && pwd)"
     wrapper_root="$(cd "${self_dir}/.." && pwd)"
     local IFS=:
@@ -14,9 +23,11 @@ find_real_binary() {
         [[ "$path_entry" == "$self_dir" ]] && continue
         [[ "$path_entry" == "$wrapper_root" ]] && continue
         [[ "$path_entry" == "${wrapper_root}/${tool_basename}" ]] && continue
-        [[ -x "$path_entry/$tool_basename" ]] || continue
-        printf '%s\n' "$path_entry/$tool_basename"
-        return 0
+        while IFS= read -r candidate; do
+            [[ -x "$path_entry/$candidate" ]] || continue
+            printf '%s\n' "$path_entry/$candidate"
+            return 0
+        done < <(real_binary_candidates)
     done
     return 1
 }
@@ -31,13 +42,13 @@ zentty_cli_bin() {
     command -v zentty
 }
 
+if cli_bin="$(zentty_cli_bin 2>/dev/null)"; then
+    exec "$cli_bin" launch "$tool_basename" "$@"
+fi
+
 real_binary="$(find_real_binary)" || {
     echo "Error: $tool_basename not found in PATH" >&2
     exit 127
 }
-
-if cli_bin="$(zentty_cli_bin 2>/dev/null)"; then
-    exec "$cli_bin" launch "$tool_basename" "$@"
-fi
 
 exec "$real_binary" "$@"
