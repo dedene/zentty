@@ -51,13 +51,15 @@ struct AgentToolLauncher {
             return !passthroughSubcommands.contains(arguments.first ?? "")
         case .copilot:
             return environment["ZENTTY_COPILOT_HOOKS_DISABLED"] != "1"
+        case .cursor:
+            return environment["ZENTTY_CURSOR_HOOKS_DISABLED"] != "1"
         case .codex, .gemini, .opencode:
             return true
         }
     }
 
     private func findRealBinary() throws -> String {
-        let wrappedToolName = tool.rawValue
+        let wrappedToolNames = tool.realBinaryNames
         let wrapperDirectories = environmentPathEntries(forKeys: [
             "ZENTTY_ALL_WRAPPER_BIN_DIRS",
             "ZENTTY_WRAPPER_BIN_DIRS",
@@ -72,11 +74,13 @@ struct AgentToolLauncher {
             guard !excludedDirectories.contains(entry) else {
                 continue
             }
-            let candidate = URL(fileURLWithPath: entry, isDirectory: true)
-                .appendingPathComponent(wrappedToolName, isDirectory: false)
-                .path
-            if FileManager.default.isExecutableFile(atPath: candidate) {
-                return candidate
+            for wrappedToolName in wrappedToolNames {
+                let candidate = URL(fileURLWithPath: entry, isDirectory: true)
+                    .appendingPathComponent(wrappedToolName, isDirectory: false)
+                    .path
+                if FileManager.default.isExecutableFile(atPath: candidate) {
+                    return candidate
+                }
             }
         }
 
@@ -96,6 +100,8 @@ struct AgentToolLauncher {
             "ZENTTY_INSTANCE_ID",
             "ZENTTY_CLAUDE_HOOKS_DISABLED",
             "ZENTTY_COPILOT_HOOKS_DISABLED",
+            "ZENTTY_CURSOR_HOOKS_DISABLED",
+            "ZENTTY_CURSOR_VERBOSE_HOOKS",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
             "CODEX_HOME",
@@ -118,7 +124,7 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .codex, .copilot, .gemini, .opencode:
+        case .codex, .copilot, .gemini, .opencode, .cursor:
             return EnvironmentPatch()
         }
     }
@@ -138,6 +144,8 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_COPILOT_PID"] = "\(getpid())"
         case .gemini:
             environmentPatch.set["ZENTTY_GEMINI_PID"] = "\(getpid())"
+        case .cursor:
+            environmentPatch.set["ZENTTY_CURSOR_PID"] = "\(getpid())"
         case .opencode:
             break
         }
@@ -182,6 +190,7 @@ struct AgentToolLauncher {
             "ZENTTY_CODEX_PID",
             "ZENTTY_COPILOT_PID",
             "ZENTTY_GEMINI_PID",
+            "ZENTTY_CURSOR_PID",
         ]
         return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
             guard let value = environment[key], !value.isEmpty else {

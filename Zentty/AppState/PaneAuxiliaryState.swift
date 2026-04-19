@@ -752,6 +752,8 @@ enum PanePresentationNormalizer {
             return ["codex"].contains(normalized)
         case .copilot:
             return ["copilot"].contains(normalized)
+        case .cursor:
+            return ["cursor"].contains(normalized)
         case .gemini:
             return ["gemini", "gemini cli"].contains(normalized)
         case .openCode:
