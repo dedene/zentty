@@ -413,6 +413,10 @@ final class AppCanvasView: NSView {
         paneStripView.leadingVisibleInsetForTesting
     }
 
+    var currentPaneStripScrollOffset: CGFloat {
+        paneStripView.currentScrollOffset
+    }
+
     func apply(theme: ZenttyTheme, animated: Bool) {
         let didChange = theme != currentTheme
         currentTheme = theme

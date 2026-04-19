@@ -1642,6 +1642,7 @@ final class RootViewController: NSViewController {
         let previousLeadingInset = appCanvasView.leadingVisibleInset
         let previousWorklaneState = worklaneStore.state
         let previousLayoutContext = currentPaneLayoutContext
+        let previousFocusedColumnContentMinX = focusedPaneColumnContentMinX()
         worklaneStore.batchUpdate { [self] in
             updatePaneLayoutContextIfNeeded(force: true, leadingVisibleInsetOverride: reservedInset)
         }
@@ -1650,6 +1651,38 @@ final class RootViewController: NSViewController {
             || previousWorklaneState != worklaneStore.state
             || previousLayoutContext != currentPaneLayoutContext
         windowChromeView.leadingVisibleInset = reservedInset
+        // When the leading inset changes, every column is proportionally
+        // rescaled (see `WorklaneStore.readableWidthScaleFactor`) so the
+        // focused column's content X shifts. Without compensation the
+        // sidebar slide drags middle panes left/right under the user.
+        //
+        // Preserve the focused column's *proportional* position within the
+        // visible lane (distance from lane left ÷ lane width). That keeps a
+        // flush-left pane flush-left and a flush-right pane flush-right
+        // after the transition, regardless of which column is focused.
+        //
+        // Skip when the canvas hasn't been sized yet (the first call lands
+        // during `viewDidLoad`, before `viewDidLayout` gives us a real
+        // viewport — running the formula then would produce a garbage
+        // shift that the first real render would then apply).
+        let viewportWidth = appCanvasView.bounds.width
+        if viewportWidth > 0.001,
+            abs(previousLeadingInset - reservedInset) > 0.001,
+            let previousMinX = previousFocusedColumnContentMinX,
+            let nextMinX = focusedPaneColumnContentMinX()
+        {
+            let previousLaneWidth = max(1, viewportWidth - previousLeadingInset)
+            let nextLaneWidth = max(1, viewportWidth - reservedInset)
+            let previousOffset = appCanvasView.currentPaneStripScrollOffset
+            let previousScreenLeft = previousMinX - previousOffset
+            let relativeInLane = (previousScreenLeft - previousLeadingInset) / previousLaneWidth
+            let nextScreenLeft = reservedInset + relativeInLane * nextLaneWidth
+            let nextOffset = nextMinX - nextScreenLeft
+            let offsetShift = nextOffset - previousOffset
+            if abs(offsetShift) > 0.001 {
+                appCanvasView.shiftPaneStripTargetOffsetOnNextRender(by: offsetShift)
+            }
+        }
         if needsCanvasTransition {
             renderCoordinator.renderCanvas(
                 leadingVisibleInsetOverride: reservedInset,
@@ -2197,6 +2230,15 @@ final class RootViewController: NSViewController {
             notifyLayoutResize: notifyLayoutResize
         )
         return true
+    }
+
+    private func focusedPaneColumnContentMinX() -> CGFloat? {
+        guard let worklane = worklaneStore.activeWorklane,
+            let focusedPaneID = worklane.paneStripState.focusedPaneID
+        else {
+            return nil
+        }
+        return worklane.paneStripState.columnContentMinX(forPaneID: focusedPaneID)
     }
 
     private func resolveCurrentPaneLayoutContext(

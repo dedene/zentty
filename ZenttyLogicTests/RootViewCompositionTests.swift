@@ -2058,6 +2058,63 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(minXAfterShow, leadingInsetAfterShow, accuracy: 1.0)
     }
 
+    func test_sidebar_toggle_preserves_relative_lane_position_for_right_aligned_focus() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        // Build 4 panes in a 50/50 (halfWidth) arrangement.
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.splitAfterFocusedPane))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.arrangeHorizontally(.halfWidth)))
+        controller.view.layoutSubtreeIfNeeded()
+
+        // Focus pane 3 (the right pane of the visible 50/50 pair).
+        controller.handle(.pane(.focusFirstColumn))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusRight))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusRight))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let appCanvasView = try XCTUnwrap(
+            controller.view.subviews.first { $0 is AppCanvasView } as? AppCanvasView
+        )
+        let focusedPaneID = try XCTUnwrap(controller.paneStripStateForTesting.focusedPaneID)
+
+        func focusedPaneMaxXInCanvas() throws -> CGFloat {
+            let paneView = try XCTUnwrap(
+                appCanvasView.descendantPaneViews().first { $0.paneID == focusedPaneID }
+            )
+            return paneView.convert(paneView.bounds, to: appCanvasView).maxX
+        }
+
+        // Sidebar shown: focused pane right edge sits flush at viewport right.
+        let viewportRight = appCanvasView.bounds.width
+        let maxXBeforeHide = try focusedPaneMaxXInCanvas()
+        XCTAssertEqual(maxXBeforeHide, viewportRight, accuracy: 2.0)
+
+        controller.handleSidebarVisibilityEvent(.togglePressed)
+        controller.settleSidebarTransitionForTesting()
+        XCTAssertEqual(appCanvasView.leadingVisibleInset, 0, accuracy: 0.001)
+
+        // Sidebar hidden: pane width grew, but the right edge should stay
+        // flush at the (unchanged) viewport right edge.
+        let maxXAfterHide = try focusedPaneMaxXInCanvas()
+        XCTAssertEqual(maxXAfterHide, viewportRight, accuracy: 2.0)
+
+        controller.handleSidebarVisibilityEvent(.togglePressed)
+        controller.settleSidebarTransitionForTesting()
+
+        let maxXAfterShow = try focusedPaneMaxXInCanvas()
+        XCTAssertEqual(maxXAfterShow, viewportRight, accuracy: 2.0)
+    }
+
     func test_vertical_keyboard_resize_up_shrinks_top_pane_when_top_pane_is_focused() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()

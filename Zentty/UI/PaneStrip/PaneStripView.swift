@@ -1761,6 +1761,13 @@ final class PaneStripView: NSView {
         currentOffset
     }
 
+    /// Current horizontal scroll offset in content-space. Positive values
+    /// mean the content is scrolled leftward (panes live further right in
+    /// content space than their on-screen position).
+    var currentScrollOffset: CGFloat {
+        currentOffset
+    }
+
     func beginPaneDragForTesting(
         paneID: PaneID,
         cursorInStrip: CGPoint
