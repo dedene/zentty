@@ -218,6 +218,41 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
         XCTAssertEqual(fallbackTheme.foreground.themeHexString, "#F0F3F6")
     }
 
+    func testAsyncLoadThemesYieldsMainActorWhileDiscovering() {
+        let finished = expectation(description: "Async theme load finished")
+
+        Task { @MainActor in
+            let themeContent = """
+            background = #101418
+            foreground = #e6edf3
+            palette = 0=#111111
+            palette = 1=#222222
+            palette = 2=#333333
+            palette = 3=#444444
+            """
+            for index in 0..<4_000 {
+                writeThemeFile(named: "Theme-\(index)", content: themeContent)
+            }
+
+            let service = ThemeCatalogService(themeDirectories: [tempDirectory])
+            var mainQueueHeartbeatRan = false
+            DispatchQueue.main.async {
+                mainQueueHeartbeatRan = true
+            }
+
+            let themes = await service.loadThemes()
+
+            XCTAssertEqual(themes.count, 4_001)
+            XCTAssertTrue(
+                mainQueueHeartbeatRan,
+                "Expected async theme discovery to yield the main actor so the Appearance pane can paint its first frame."
+            )
+            finished.fulfill()
+        }
+
+        wait(for: [finished], timeout: 10)
+    }
+
     private func writeThemeFile(named name: String, content: String) {
         let url = tempDirectory.appendingPathComponent(name)
         try? content.write(to: url, atomically: true, encoding: .utf8)

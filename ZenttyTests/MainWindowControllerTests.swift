@@ -422,6 +422,110 @@ final class MainWindowControllerTests: XCTestCase {
         )
     }
 
+    func test_show_settings_window_can_open_directly_to_appearance() throws {
+        let controller = makeController()
+
+        controller.showSettingsWindow(section: .appearance, sender: nil)
+
+        let settingsWindow = try XCTUnwrap(controller.settingsWindow)
+        let settingsViewController = try XCTUnwrap(
+            settingsWindow.contentViewController as? SettingsViewController
+        )
+        settingsViewController.loadViewIfNeeded()
+        waitForLayout("appearance settings settled", delay: 0.2)
+
+        XCTAssertEqual(settingsViewController.selectedSection, .appearance)
+
+        XCTAssertTrue(settingsWindow.isVisible)
+        let visibleContentView = try XCTUnwrap(settingsWindow.contentView)
+        let searchField = try XCTUnwrap(visibleContentView.descendantThemeSearchField())
+        let tableView = try XCTUnwrap(visibleContentView.descendantThemeTableView())
+        XCTAssertTrue(visibleContentView.containsVisibleDescendant(searchField))
+        XCTAssertTrue(visibleContentView.containsVisibleDescendant(tableView))
+    }
+
+    func test_show_settings_window_can_switch_from_general_to_appearance() throws {
+        let controller = makeController()
+
+        controller.showSettingsWindow(nil)
+
+        let settingsWindow = try XCTUnwrap(controller.settingsWindow)
+        let settingsViewController = try XCTUnwrap(
+            settingsWindow.contentViewController as? SettingsViewController
+        )
+        let tabController = try XCTUnwrap(
+            settingsWindow.contentViewController as? NSTabViewController
+        )
+        settingsViewController.loadViewIfNeeded()
+
+        tabController.tabView.selectTabViewItem(at: 1)
+        waitForLayout("appearance settings switched", delay: 0.2)
+
+        XCTAssertEqual(settingsViewController.selectedSection, .appearance)
+
+        let visibleContentView = try XCTUnwrap(settingsWindow.contentView)
+        let searchField = try XCTUnwrap(visibleContentView.descendantThemeSearchField())
+        let tableView = try XCTUnwrap(visibleContentView.descendantThemeTableView())
+        XCTAssertTrue(visibleContentView.containsVisibleDescendant(searchField))
+        XCTAssertTrue(visibleContentView.containsVisibleDescendant(tableView))
+    }
+
+    func test_show_settings_window_switch_from_general_to_appearance_renders_nonblank_content() throws {
+        let controller = makeController()
+
+        controller.showSettingsWindow(nil)
+
+        let settingsWindow = try XCTUnwrap(controller.settingsWindow)
+        let tabController = try XCTUnwrap(
+            settingsWindow.contentViewController as? NSTabViewController
+        )
+
+        tabController.tabView.selectTabViewItem(at: 1)
+        // Wait long enough for the 0.3s window-transition animation plus the
+        // async theme catalog load to finish rendering into the pane.
+        waitForLayout("appearance rendered", delay: 0.6)
+
+        let contentView = try XCTUnwrap(settingsWindow.contentView)
+        settingsWindow.displayIfNeeded()
+        contentView.displayIfNeeded()
+        let bitmap = try XCTUnwrap(contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds))
+        contentView.cacheDisplay(in: contentView.bounds, to: bitmap)
+
+        XCTAssertGreaterThan(
+            bitmap.sampledDistinctOpaqueColorCount(),
+            12,
+            "Appearance settings should render visible controls instead of a nearly flat blank surface."
+        )
+    }
+
+    func test_settings_window_prepares_appearance_during_toolbar_selection_phase() throws {
+        let controller = makeController()
+
+        controller.showSettingsWindow(nil)
+
+        let settingsWindow = try XCTUnwrap(controller.settingsWindow)
+        let settingsViewController = try XCTUnwrap(
+            settingsWindow.contentViewController as? SettingsViewController
+        )
+        settingsViewController.loadViewIfNeeded()
+        waitForLayout("general settings settled", delay: 0.1)
+
+        var preparedTransitions: [(target: SettingsSection, selected: SettingsSection)] = []
+        settingsViewController.onPrepareSectionForPresentationForTesting = { target, selected in
+            preparedTransitions.append((target, selected))
+        }
+
+        let appearanceItem = try XCTUnwrap(
+            settingsViewController.tabViewItems.first { $0.identifier as? String == SettingsSection.appearance.rawValue }
+        )
+
+        XCTAssertTrue(settingsViewController.tabView(settingsViewController.tabView, shouldSelect: appearanceItem))
+        XCTAssertTrue(
+            preparedTransitions.contains { $0.target == .appearance && $0.selected == .general },
+            "Toolbar selection should prepare the target pane during the selection phase, before AppKit changes the selected tab."
+        )
+    }
+
     func test_window_resign_key_shows_non_black_inactive_traffic_light_overlay_when_sidebar_is_pinned_open() throws {
         let controller = makeController(sidebarVisibilityMode: .pinnedOpen)
         controller.showWindow(nil)
@@ -1673,5 +1777,52 @@ private extension NSView {
 
         walk(self)
         return paneViews
+    }
+
+    func descendantThemeSearchField() -> NSSearchField? {
+        firstDescendant(ofType: NSSearchField.self)
+    }
+
+    func descendantThemeTableView() -> NSTableView? {
+        firstDescendant(ofType: NSTableView.self)
+    }
+
+    func containsVisibleDescendant(_ descendant: NSView) -> Bool {
+        guard descendant.window === window else {
+            return false
+        }
+
+        let rectInSelf = convert(descendant.bounds, from: descendant)
+        return rectInSelf.isEmpty == false
+            && rectInSelf.intersects(bounds)
+            && descendant.isHiddenOrHasHiddenAncestor == false
+            && descendant.alphaValue > 0
+    }
+}
+
+private extension NSBitmapImageRep {
+    func sampledDistinctOpaqueColorCount(step: Int = 24) -> Int {
+        guard pixelsWide > 0, pixelsHigh > 0 else {
+            return 0
+        }
+
+        var colors = Set<UInt32>()
+        let xStep = max(1, step)
+        let yStep = max(1, step)
+
+        for y in stride(from: 0, to: pixelsHigh, by: yStep) {
+            for x in stride(from: 0, to: pixelsWide, by: xStep) {
+                guard let color = colorAt(x: x, y: y), color.alphaComponent > 0.5 else {
+                    continue
+                }
+
+                let red = UInt32((color.redComponent * 255).rounded())
+                let green = UInt32((color.greenComponent * 255).rounded())
+                let blue = UInt32((color.blueComponent * 255).rounded())
+                colors.insert((red << 16) | (green << 8) | blue)
+            }
+        }
+
+        return colors.count
     }
 }

@@ -314,14 +314,16 @@ private enum PaneRestoreDraftLifecycleState: Equatable {
 @MainActor
 final class PaneRuntime {
     static let startupFailureMessage = "GhosttyKit could not start this pane. Check your shell environment and retry."
-    private static let defaultStartupTextSettleDelay: TimeInterval = 0.12
+    private static let defaultStartupCommandSettleDelay: TimeInterval = 0.12
+    private static let defaultRestoreDraftSettleDelay: TimeInterval = 0.25
 
     private let paneIDValue: PaneID
     private let adapterValue: any TerminalAdapter
     private let hostViewValue: TerminalPaneHostView
     private let metadataSink: (PaneID, TerminalMetadata) -> Void
     private let eventSink: (PaneID, TerminalEvent) -> Void
-    private let startupTextSettleDelay: TimeInterval
+    private let startupCommandSettleDelay: TimeInterval
+    private let restoreDraftSettleDelay: TimeInterval
     private var sessionRequest: TerminalSessionRequest
     private var hasAttemptedStart = false
     private var hasReceivedMetadata = false
@@ -368,7 +370,8 @@ final class PaneRuntime {
         adapter: any TerminalAdapter,
         metadataSink: @escaping (PaneID, TerminalMetadata) -> Void,
         eventSink: @escaping (PaneID, TerminalEvent) -> Void,
-        startupTextSettleDelay: TimeInterval = PaneRuntime.defaultStartupTextSettleDelay
+        startupTextSettleDelay: TimeInterval = PaneRuntime.defaultStartupCommandSettleDelay,
+        restoreDraftSettleDelay: TimeInterval = PaneRuntime.defaultRestoreDraftSettleDelay
     ) {
         paneIDValue = pane.id
         sessionRequest = pane.sessionRequest
@@ -377,7 +380,8 @@ final class PaneRuntime {
         hostViewValue = TerminalPaneHostView(adapter: adapter)
         self.metadataSink = metadataSink
         self.eventSink = eventSink
-        self.startupTextSettleDelay = startupTextSettleDelay
+        startupCommandSettleDelay = startupTextSettleDelay
+        self.restoreDraftSettleDelay = restoreDraftSettleDelay
         hostViewValue.onMetadataDidChange = { [weak self] metadata in
             self?.handleMetadataDidChange(metadata)
         }
@@ -400,7 +404,8 @@ final class PaneRuntime {
             adapter: adapter,
             metadataSink: metadataSink,
             eventSink: eventSink,
-            startupTextSettleDelay: Self.defaultStartupTextSettleDelay
+            startupTextSettleDelay: Self.defaultStartupCommandSettleDelay,
+            restoreDraftSettleDelay: Self.defaultRestoreDraftSettleDelay
         )
     }
 
@@ -702,7 +707,7 @@ final class PaneRuntime {
     }
 
     private func scheduleStartupTextIfNeeded(using metadata: TerminalMetadata) {
-        guard shouldScheduleStartupText(using: metadata) else {
+        guard let settleDelay = startupTextSettleDelayIfNeeded(using: metadata) else {
             return
         }
 
@@ -711,7 +716,7 @@ final class PaneRuntime {
             self?.flushStartupTextIfNeeded()
         }
         pendingStartupTextWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + startupTextSettleDelay, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + settleDelay, execute: workItem)
     }
 
     private func flushStartupTextIfNeeded() {
@@ -724,8 +729,16 @@ final class PaneRuntime {
         _ = sendRestoreDraftIfNeeded(using: metadata)
     }
 
-    private func shouldScheduleStartupText(using metadata: TerminalMetadata) -> Bool {
-        canSendInitialCommand(using: metadata) || canSendRestoreDraft(using: metadata)
+    private func startupTextSettleDelayIfNeeded(using metadata: TerminalMetadata) -> TimeInterval? {
+        if canSendInitialCommand(using: metadata) {
+            return startupCommandSettleDelay
+        }
+
+        if canSendRestoreDraft(using: metadata) {
+            return restoreDraftSettleDelay
+        }
+
+        return nil
     }
 
     private func sendInitialCommandIfNeeded(using metadata: TerminalMetadata) -> Bool {
@@ -765,12 +778,10 @@ final class PaneRuntime {
     }
 
     private func canSendRestoreDraft(using metadata: TerminalMetadata) -> Bool {
-        let normalizedInitialCommand = sessionRequest.command?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard case .pending(let draftText) = restoreDraftLifecycleState,
               hasSentInitialCommand == false,
-              normalizedInitialCommand?.isEmpty != false,
-              isReadyForStartupText(metadata) else {
+              normalizedInitialCommand == nil,
+              hasObservedShellReady else {
             return false
         }
 

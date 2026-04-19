@@ -371,6 +371,11 @@ enum AgentResumeCommandBuilder {
             return "gemini --resume"
         case .cursor:
             return nil
+        case .pi:
+            // Pi resumes per-project via `-c` (continue last session). Since pi stores
+            // sessions under ~/.pi/agent/sessions/<project>/, we don't need to pass a
+            // specific session ID — pi looks up the latest one for this cwd.
+            return "pi -c"
         default:
             return nil
         }
