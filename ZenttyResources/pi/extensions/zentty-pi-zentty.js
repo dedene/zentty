@@ -26,21 +26,43 @@ function describeSession(event) {
   }
 }
 
+// Each forward() spawns an independent `zentty ipc agent-event` child.
+// On pi's /reload, session_shutdown + session_start fire back-to-back, so
+// without ordering we can't guarantee session.end arrives before the
+// following session.start — Zentty would clear state AFTER the restart.
+// Chain spawns on a single promise tail so each child's exit is awaited
+// before the next one starts. Handlers are still fire-and-forget from
+// pi's perspective; we never block pi's event loop on Zentty I/O.
+let pendingTail = Promise.resolve()
+
 function forward(canonical) {
   if (!hasZenttyIntegration || !canonical) return
-  try {
-    const child = spawn(resolvedCliBin, ["ipc", "agent-event"], {
-      stdio: ["pipe", "ignore", "ignore"],
-      env: process.env,
-    })
-    child.on("error", () => {})
-    // Swallow EPIPE etc. if the CLI exits before we finish writing — pi
-    // must keep running even when the Zentty IPC path is broken.
-    child.stdin.on("error", () => {})
-    child.stdin.end(`${JSON.stringify(canonical)}\n`)
-  } catch {
-    // Never crash pi because of Zentty integration.
-  }
+  const payload = `${JSON.stringify(canonical)}\n`
+  pendingTail = pendingTail
+    .then(() => new Promise((resolve) => {
+      try {
+        const child = spawn(resolvedCliBin, ["ipc", "agent-event"], {
+          stdio: ["pipe", "ignore", "ignore"],
+          env: process.env,
+        })
+        let done = false
+        const finish = () => {
+          if (done) return
+          done = true
+          resolve()
+        }
+        child.on("error", finish)
+        child.on("exit", finish)
+        // Swallow EPIPE etc. if the CLI exits before we finish writing —
+        // pi must keep running even when the Zentty IPC path is broken.
+        child.stdin.on("error", () => {})
+        child.stdin.end(payload)
+      } catch {
+        // Never crash pi because of Zentty integration.
+        resolve()
+      }
+    }))
+    .catch(() => {}) // Never let the chain reject and leak.
 }
 
 function baseEnvelope(event) {

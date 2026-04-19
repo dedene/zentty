@@ -88,13 +88,11 @@ enum AgentTool: Equatable, Sendable {
     private static func matchesPi(_ normalized: String) -> Bool {
         // Pi's binary name is short ("pi") and its titlebar extension uses
         // the Greek letter π, sometimes prefixed with a braille spinner
-        // frame (e.g. "⠋ π - cwd"). Match at word boundaries so "pip",
-        // "pizza", "api" don't get caught.
-        for token in ["pi", "π"] {
-            if normalized == token { return true }
-            if normalized.hasPrefix("\(token) ") { return true }
-            if normalized.hasSuffix(" \(token)") { return true }
-            if normalized.contains(" \(token) ") { return true }
+        // frame (e.g. "⠋ π - cwd"). Split on whitespace and require an
+        // exact token match so "pip", "pizza", "apipie", "pi.py" etc.
+        // don't get caught.
+        for token in normalized.split(separator: " ") {
+            if token == "pi" || token == "π" { return true }
         }
         return false
     }

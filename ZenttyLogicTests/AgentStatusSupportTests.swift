@@ -94,9 +94,51 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNil(AgentTool.resolveKnown(named: "pizza"))
     }
 
+    func test_agent_tool_does_not_match_pi_inside_dotted_tokens() {
+        // Tokens like "pi.py" share a prefix with "pi" but aren't pi. The
+        // matcher splits on whitespace and compares tokens exactly, so
+        // "python pi.py" stays as a custom title.
+        XCTAssertEqual(
+            AgentTool.resolve(named: "python pi.py"),
+            .custom("python pi.py")
+        )
+        XCTAssertNil(AgentTool.resolveKnown(named: "python pi.py"))
+    }
+
     func test_agent_tool_prefers_copilot_and_opencode_over_pi_substring_match() {
         XCTAssertEqual(AgentTool.resolve(named: "copilot"), .copilot)
         XCTAssertEqual(AgentTool.resolve(named: "opencode"), .openCode)
+    }
+
+    func test_pi_passthrough_list_matches_pi_mono_subcommands_snapshot() throws {
+        // Snapshot of `pi --help` verified 2026-04-19 against pi-mono's
+        // packages/coding-agent/src/cli.ts. Purpose: make intentional drift
+        // deliberate — if a maintainer adds/removes an item on one side,
+        // this test nudges them to update the other.
+        //
+        // AgentToolLauncher lives in the ZenttyCLI target which tests don't
+        // import, so we read the source file directly (same pattern as
+        // test_pi_wrapper_delegates_via_zentty_launch).
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        for subcommand in ["install", "remove", "uninstall", "update", "list", "config"] {
+            XCTAssertTrue(
+                source.contains("\"\(subcommand)\""),
+                "piPassthroughSubcommands should contain \(subcommand)"
+            )
+        }
+        for flag in ["--help", "-h", "--version", "-v", "--list-models", "--export"] {
+            XCTAssertTrue(
+                source.contains("\"\(flag)\""),
+                "piEarlyExitFlags should contain \(flag)"
+            )
+        }
     }
 
     func test_agent_status_helper_returns_nil_when_resource_directories_are_missing() throws {
