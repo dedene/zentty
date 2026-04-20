@@ -124,6 +124,106 @@ final class WorklaneStoreGitContextTests: XCTestCase {
         XCTAssertEqual(presentation.contextText, "main · /tmp/project")
     }
 
+    func test_known_non_repository_path_retries_after_negative_cache_expiry_without_branch_hint() async throws {
+        let now = LockedDate(Date(timeIntervalSince1970: 1_000))
+        let resolver = SequencedPaneGitContextResolver(
+            resultsByWorkingDirectory: [
+                "/tmp/project": [
+                    PaneGitContext(
+                        workingDirectory: "/tmp/project",
+                        repositoryRoot: nil,
+                        reference: nil
+                    ),
+                    PaneGitContext(
+                        workingDirectory: "/tmp/project",
+                        repositoryRoot: "/tmp/project",
+                        reference: .branch("main")
+                    ),
+                ]
+            ]
+        )
+        let store = WorklaneStore(
+            gitContextResolver: resolver,
+            nonRepositoryRetryInterval: 5,
+            currentDateProvider: { now.value }
+        )
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklaneID,
+                paneID: paneID,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/project",
+                    home: NSHomeDirectory(),
+                    user: NSUserName(),
+                    host: nil
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "zsh",
+                gitBranch: nil
+            )
+        )
+
+        let cacheDeadline = Date().addingTimeInterval(1.0)
+        while !store.knownNonRepositoryPaths.contains("/tmp/project"), Date() < cacheDeadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(store.knownNonRepositoryPaths.contains("/tmp/project"))
+        let initialResolveCount = await resolver.resolveCallCount(for: "/tmp/project")
+        XCTAssertEqual(initialResolveCount, 1)
+
+        store.refreshGitContextIfNeeded(
+            for: WorklaneStore.PaneReference(
+                worklaneID: try XCTUnwrap(store.activeWorklane?.id),
+                paneID: paneID
+            )
+        )
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let cachedResolveCount = await resolver.resolveCallCount(for: "/tmp/project")
+        XCTAssertEqual(cachedResolveCount, 1)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.gitContext?.repoRoot)
+
+        now.value = now.value.addingTimeInterval(6)
+        let updated = expectation(description: "git context recovered after retry expiry")
+        let subscription = store.subscribe { change in
+            guard case .auxiliaryStateUpdated(_, let changedPaneID, _) = change, changedPaneID == paneID else {
+                return
+            }
+            if store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.gitContext?.repoRoot == "/tmp/project" {
+                updated.fulfill()
+            }
+        }
+        defer { store.unsubscribe(subscription) }
+
+        store.refreshGitContextIfNeeded(
+            for: WorklaneStore.PaneReference(
+                worklaneID: try XCTUnwrap(store.activeWorklane?.id),
+                paneID: paneID
+            )
+        )
+
+        await fulfillment(of: [updated], timeout: 1.0)
+        let recoveredResolveCount = await resolver.resolveCallCount(for: "/tmp/project")
+        XCTAssertEqual(recoveredResolveCount, 2)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.branch, "main")
+    }
+
     func test_local_pane_context_repo_change_clears_stale_git_and_review_state_immediately() throws {
         let resolver = StubPaneGitContextResolver(
             resultByWorkingDirectory: [
@@ -486,16 +586,22 @@ private struct SequencedPaneGitContextResolver: PaneGitContextResolving {
     func resolve(for workingDirectory: String) async -> PaneGitContext {
         await state.resolve(for: workingDirectory)
     }
+
+    func resolveCallCount(for workingDirectory: String) async -> Int {
+        await state.resolveCallCount(for: workingDirectory)
+    }
 }
 
 private actor SequencedPaneGitContextResolverState {
     private var remainingResultsByWorkingDirectory: [String: [PaneGitContext]]
+    private var resolveCallCounts: [String: Int] = [:]
 
     init(resultsByWorkingDirectory: [String: [PaneGitContext]]) {
         self.remainingResultsByWorkingDirectory = resultsByWorkingDirectory
     }
 
     func resolve(for workingDirectory: String) -> PaneGitContext {
+        resolveCallCounts[workingDirectory, default: 0] += 1
         guard var remainingResults = remainingResultsByWorkingDirectory[workingDirectory], !remainingResults.isEmpty else {
             return PaneGitContext(
                 workingDirectory: workingDirectory,
@@ -511,5 +617,18 @@ private actor SequencedPaneGitContextResolverState {
             remainingResultsByWorkingDirectory[workingDirectory] = remainingResults
         }
         return next
+    }
+
+    func resolveCallCount(for workingDirectory: String) -> Int {
+        resolveCallCounts[workingDirectory, default: 0]
+    }
+}
+
+@MainActor
+private final class LockedDate {
+    var value: Date
+
+    init(_ value: Date) {
+        self.value = value
     }
 }

@@ -400,6 +400,89 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_zoom_animation_stops_when_view_detaches_from_window() {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        let state = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.toggleZoom(animated: true)
+
+        XCTAssertTrue(paneStripView.isZoomAnimating)
+
+        window.contentView = NSView()
+
+        XCTAssertFalse(paneStripView.isZoomAnimating)
+        XCTAssertFalse(paneStripView.isZoomedOut)
+        XCTAssertEqual(paneStripView.currentZoomScale(), 1, accuracy: 0.001)
+        XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, 0, accuracy: 0.001)
+        XCTAssertTrue(paneStripView.descendantPaneViews().allSatisfy { !$0.isTerminalAnimationFrozenForTesting })
+    }
+
+    @MainActor
+    func test_divider_drag_escape_monitor_is_removed_when_view_detaches_from_window() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        let divider = PaneDivider.column(afterColumnID: PaneColumnID("left"))
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 420),
+                makeColumn("right", paneIDs: ["right"], width: 420),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+        XCTAssertNotNil(
+            paneStripView.beginDividerDragForTesting(
+                divider,
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+        XCTAssertTrue(paneStripView.hasDividerDragEscapeMonitorForTesting)
+
+        window.contentView = NSView()
+
+        XCTAssertFalse(paneStripView.hasDividerDragEscapeMonitorForTesting)
+    }
+
+    @MainActor
+    func test_detach_cancels_queued_host_driven_resize_render_request() {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        let state = PaneStripState(
+            panes: [
+                makePane("logs"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("editor")
+        )
+        let resizeRenderExpectation = expectation(description: "host-driven resize render request")
+        resizeRenderExpectation.isInverted = true
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.prefersHostDrivenResizeRendering = true
+        paneStripView.onHostDrivenResizeRenderRequested = {
+            resizeRenderExpectation.fulfill()
+        }
+
+        paneStripView.frame.size = NSSize(width: 1320, height: 720)
+        paneStripView.layoutSubtreeIfNeeded()
+        window.contentView = NSView()
+
+        wait(for: [resizeRenderExpectation], timeout: 0.1)
+    }
+
+    @MainActor
     func test_pane_drag_preview_uses_opaque_window_background_while_dragging() throws {
         let theme = ZenttyTheme.fallback(for: nil)
         let paneStripView = makePaneStripView(width: 980)
@@ -2233,6 +2316,9 @@ final class PaneStripViewTests: AppKitTestCase {
         paneStripView.render(singlePane)
 
         paneStripView.settlePresentationNow()
+        let redrawSettled = expectation(description: "terminal redraw settled after pane close")
+        DispatchQueue.main.async { redrawSettled.fulfill() }
+        wait(for: [redrawSettled], timeout: 1)
 
         XCTAssertGreaterThan(
             shellAdapter.terminalView.displayIfNeededCallCount,
@@ -2295,6 +2381,9 @@ final class PaneStripViewTests: AppKitTestCase {
         let initialDisplayCallCount = shellAdapter.terminalView.displayIfNeededCallCount
 
         paneStripView.render(resizedState, animated: false)
+        let redrawSettled = expectation(description: "terminal redraw settled after nonanimated resize")
+        DispatchQueue.main.async { redrawSettled.fulfill() }
+        wait(for: [redrawSettled], timeout: 1)
 
         XCTAssertGreaterThan(
             shellAdapter.terminalView.displayIfNeededCallCount,

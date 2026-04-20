@@ -522,20 +522,19 @@ final class PaneContainerView: NSView {
 
     func activateSessionIfNeeded() {
         ZenttyPerformanceSignposts.interval("PaneContainerActivateSession") {
-            layoutSubtreeIfNeeded()
             runtime.ensureStarted()
         }
     }
 
     func setTerminalViewportSyncSuspended(_ suspended: Bool) {
         needsLayout = true
-        layoutSubtreeIfNeeded()
+        syncFramesForCurrentBounds()
         terminalHostView.setViewportSyncSuspended(suspended)
     }
 
     func forceTerminalViewportSync() {
         needsLayout = true
-        layoutSubtreeIfNeeded()
+        syncFramesForCurrentBounds()
         terminalHostView.forceViewportSync()
     }
 
@@ -559,7 +558,6 @@ final class PaneContainerView: NSView {
         terminalAnchorView.gravity = gravity
         terminalHostView.autoresizingMask = [.width]
         needsLayout = true
-        layoutSubtreeIfNeeded()
     }
 
     func endVerticalFreeze() {
@@ -570,7 +568,6 @@ final class PaneContainerView: NSView {
         isTerminalAnimationFrozen = false
         terminalHostView.autoresizingMask = [.width, .height]
         needsLayout = true
-        layoutSubtreeIfNeeded()
     }
 
     func animateInsetBorder(to targetSize: CGSize) {
@@ -592,16 +589,7 @@ final class PaneContainerView: NSView {
 
     override func layout() {
         super.layout()
-        contentClipView.frame = bounds
-        terminalAnchorView.frame = contentClipView.bounds
-        if !isTerminalAnimationFrozen {
-            let anchorBounds = terminalAnchorView.bounds
-            terminalHostView.frame = CGRect(
-                x: 0, y: 0,
-                width: anchorBounds.width,
-                height: anchorBounds.height
-            )
-        }
+        syncFramesForCurrentBounds()
         if !isInsetBorderAnimationManaged {
             updateInsetBorderLayer()
         }
@@ -1016,8 +1004,12 @@ final class PaneContainerView: NSView {
 
         return max(1, backingScaleFactorProvider())
     }
-    private func updateTerminalHostFrame() {
-        terminalHostView.frame = terminalAnchorView.bounds
+    private func syncFramesForCurrentBounds() {
+        contentClipView.frame = bounds
+        terminalAnchorView.frame = contentClipView.bounds
+        if !isTerminalAnimationFrozen {
+            terminalHostView.frame = terminalAnchorView.bounds
+        }
     }
 
     private func setupStatusOverlay() {

@@ -970,9 +970,14 @@ extension WorklaneStore {
         if knownNonRepositoryPaths.contains(workingDirectory) {
             if shellBranchHint != nil {
                 knownNonRepositoryPaths.remove(workingDirectory)
+                nonRepositoryRetryDeadlineByPath.removeValue(forKey: workingDirectory)
+            } else if let retryDeadline = nonRepositoryRetryDeadlineByPath[workingDirectory],
+                      retryDeadline > currentDateProvider() {
+                updateGitContext(paneID: paneReference.paneID, gitContext: nil)
+                return
             } else {
-            updateGitContext(paneID: paneReference.paneID, gitContext: nil)
-            return
+                knownNonRepositoryPaths.remove(workingDirectory)
+                nonRepositoryRetryDeadlineByPath.removeValue(forKey: workingDirectory)
             }
         }
 
@@ -1003,9 +1008,12 @@ extension WorklaneStore {
         if let gitContext {
             cachedGitContextByPath[workingDirectory] = gitContext
             knownNonRepositoryPaths.remove(workingDirectory)
+            nonRepositoryRetryDeadlineByPath.removeValue(forKey: workingDirectory)
         } else {
             cachedGitContextByPath.removeValue(forKey: workingDirectory)
             knownNonRepositoryPaths.insert(workingDirectory)
+            nonRepositoryRetryDeadlineByPath[workingDirectory] = currentDateProvider()
+                .addingTimeInterval(nonRepositoryRetryInterval)
         }
 
         for paneReference in paneReferences {

@@ -222,11 +222,14 @@ final class WorklaneStore {
     private var lastFocusedLocalWorkingDirectory: String?
     var cachedGitContextByPath: [String: PaneGitContext] = [:]
     var knownNonRepositoryPaths: Set<String> = []
+    var nonRepositoryRetryDeadlineByPath: [String: Date] = [:]
     var pendingGitContextPaths: Set<String> = []
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     private var pendingReadyStatusTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
     private let processEnvironment: [String: String]
     private let readyStatusDebounceInterval: TimeInterval
+    let nonRepositoryRetryInterval: TimeInterval
+    let currentDateProvider: @MainActor () -> Date
     private let scheduleReadyStatusTask: ReadyStatusScheduler
     let windowID: WindowID
     let runtimeIdentity: WorklaneRuntimeIdentity
@@ -260,6 +263,12 @@ final class WorklaneStore {
         }
     }
 
+    #if DEBUG
+    var subscriberCountForTesting: Int {
+        subscribers.count
+    }
+    #endif
+
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         worklanes: [WorklaneState] = [],
@@ -268,6 +277,8 @@ final class WorklaneStore {
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         readyStatusDebounceInterval: TimeInterval = 0.25,
+        nonRepositoryRetryInterval: TimeInterval = 5,
+        currentDateProvider: @escaping @MainActor () -> Date = Date.init,
         readyStatusScheduler: @escaping ReadyStatusScheduler = WorklaneStore.defaultReadyStatusScheduler,
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
         terminalDiagnostics: TerminalDiagnostics = .shared
@@ -278,6 +289,8 @@ final class WorklaneStore {
         self.layoutContext = layoutContext
         self.processEnvironment = processEnvironment
         self.readyStatusDebounceInterval = readyStatusDebounceInterval
+        self.nonRepositoryRetryInterval = nonRepositoryRetryInterval
+        self.currentDateProvider = currentDateProvider
         self.scheduleReadyStatusTask = readyStatusScheduler
         self.runtimeIdentity = runtimeIdentity
         let initialWorklanes = worklanes.isEmpty

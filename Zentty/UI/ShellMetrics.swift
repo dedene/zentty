@@ -177,7 +177,7 @@ enum ShellMetrics {
     static let sidebarCreateWorklaneButtonHeight: CGFloat = 24
     static let sidebarCreateWorklanePinnedVerticalOffset: CGFloat = -2
     static let sidebarHeaderPeekTopInset: CGFloat = 24
-    static let sidebarCreateWorklanePeekVerticalOffset: CGFloat = 10
+    static let sidebarCreateWorklanePeekVerticalOffset: CGFloat = 8
     static let sidebarCreateWorklanePinnedLeadingPad: CGFloat = 4
     static let footerHeight: CGFloat = sidebarCreateWorklaneButtonHeight
     static let sidebarPaneRowHorizontalInset: CGFloat = 6

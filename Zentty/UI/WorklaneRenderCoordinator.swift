@@ -11,10 +11,34 @@ protocol RenderEnvironmentProviding: AnyObject {
 }
 
 @MainActor
+protocol WorklaneRenderCoordinatorScheduledHandle: AnyObject {
+    func cancel()
+}
+
+@MainActor
+private final class TimerWorklaneRenderCoordinatorScheduledHandle: WorklaneRenderCoordinatorScheduledHandle {
+    private var timer: Timer?
+
+    init(timer: Timer) {
+        self.timer = timer
+    }
+
+    func cancel() {
+        timer?.invalidate()
+        timer = nil
+    }
+}
+
+@MainActor
 final class WorklaneRenderCoordinator {
     private enum ReviewPolling {
         static let interval: TimeInterval = 30
     }
+
+    typealias ReviewPollingScheduler = @MainActor (
+        _ interval: TimeInterval,
+        _ operation: @escaping @MainActor () -> Void
+    ) -> any WorklaneRenderCoordinatorScheduledHandle
 
     struct ViewBindings {
         let sidebarView: SidebarView
@@ -32,10 +56,12 @@ final class WorklaneRenderCoordinator {
     private let attentionNotificationCoordinator: WorklaneAttentionNotificationCoordinator
 
     private var views: ViewBindings?
-    private var reviewPollingTimer: Timer?
+    private var reviewPollingHandle: (any WorklaneRenderCoordinatorScheduledHandle)?
     private var reviewPollingTarget: (worklaneID: WorklaneID, paneID: PaneID, repoRoot: String, branch: String)?
     private var hasBootstrappedReviewState = false
     private var needsRuntimeSynchronization = true
+    private var worklaneStoreSubscription: WorklaneChangeSubscription?
+    private let reviewPollingScheduler: ReviewPollingScheduler
 
     weak var environment: RenderEnvironmentProviding?
 
@@ -46,12 +72,14 @@ final class WorklaneRenderCoordinator {
         notificationStore: NotificationStore,
         configStore: AppConfigStore? = nil,
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
+        reviewPollingScheduler: @escaping ReviewPollingScheduler = WorklaneRenderCoordinator.defaultReviewPollingScheduler,
         terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
         self.windowID = windowID
         self.worklaneStore = worklaneStore
         self.runtimeRegistry = runtimeRegistry
         self.reviewStateResolver = reviewStateResolver
+        self.reviewPollingScheduler = reviewPollingScheduler
         self.terminalDiagnostics = terminalDiagnostics
         self.configStore = configStore
         self.attentionNotificationCoordinator = WorklaneAttentionNotificationCoordinator(
@@ -60,12 +88,25 @@ final class WorklaneRenderCoordinator {
         )
     }
 
+    deinit {
+        MainActor.assumeIsolated {
+            cancelReviewPolling()
+            if let worklaneStoreSubscription {
+                worklaneStore.unsubscribe(worklaneStoreSubscription)
+            }
+        }
+    }
+
     func bind(to views: ViewBindings) {
         self.views = views
     }
 
     func startObserving() {
-        worklaneStore.subscribe { [weak self] change in
+        guard worklaneStoreSubscription == nil else {
+            return
+        }
+
+        worklaneStoreSubscription = worklaneStore.subscribe { [weak self] change in
             self?.handleWorklaneChange(change)
         }
     }
@@ -279,8 +320,7 @@ final class WorklaneRenderCoordinator {
     private func updateReviewPolling() {
         guard let target = makeReviewPollingTarget() else {
             reviewPollingTarget = nil
-            reviewPollingTimer?.invalidate()
-            reviewPollingTimer = nil
+            cancelReviewPolling()
             return
         }
 
@@ -290,17 +330,29 @@ final class WorklaneRenderCoordinator {
             || reviewPollingTarget?.branch != target.branch
 
         reviewPollingTarget = target
-        if reviewPollingTimer == nil || targetChanged {
-            reviewPollingTimer?.invalidate()
-            reviewPollingTimer = Timer.scheduledTimer(
-                withTimeInterval: ReviewPolling.interval,
-                repeats: true
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshReviewPollingTarget(forceReload: true)
-                }
+        if reviewPollingHandle == nil || targetChanged {
+            cancelReviewPolling()
+            reviewPollingHandle = reviewPollingScheduler(ReviewPolling.interval) { [weak self] in
+                self?.refreshReviewPollingTarget(forceReload: true)
             }
         }
+    }
+
+    private func cancelReviewPolling() {
+        reviewPollingHandle?.cancel()
+        reviewPollingHandle = nil
+    }
+
+    private static func defaultReviewPollingScheduler(
+        interval: TimeInterval,
+        operation: @escaping @MainActor () -> Void
+    ) -> any WorklaneRenderCoordinatorScheduledHandle {
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            Task { @MainActor in
+                operation()
+            }
+        }
+        return TimerWorklaneRenderCoordinatorScheduledHandle(timer: timer)
     }
 
     private func makeReviewPollingTarget() -> (worklaneID: WorklaneID, paneID: PaneID, repoRoot: String, branch: String)? {

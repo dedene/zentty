@@ -6039,6 +6039,69 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(aux.agentReducerState.sessionsByID.keys.sorted(), ["session-running"])
     }
 
+    func test_clear_stale_agent_sessions_emits_auxiliary_update_not_worklane_list_changed() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 0.1"]
+        try process.run()
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                state: .running,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .pid,
+                state: nil,
+                pid: process.processIdentifier,
+                pidEvent: .attach,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        var received: [WorklaneChange] = []
+        let subscription = store.subscribe { change in
+            received.append(change)
+        }
+        defer { store.unsubscribe(subscription) }
+
+        process.waitUntilExit()
+        store.clearStaleAgentSessions()
+
+        XCTAssertFalse(
+            received.contains(where: {
+                if case .worklaneListChanged = $0 { return true }
+                return false
+            })
+        )
+        XCTAssertTrue(
+            received.contains(where: {
+                if case .auxiliaryStateUpdated(_, let changedPaneID, _) = $0 {
+                    return changedPaneID == paneID
+                }
+                return false
+            })
+        )
+    }
+
     func test_pane_context_signal_stores_local_context_and_formats_home_relative_display() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
