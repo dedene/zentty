@@ -77,6 +77,9 @@ final class SidebarWorklaneRowButton: NSButton {
     var onClosePaneRequested: ((PaneID) -> Void)?
     var onSplitHorizontalRequested: ((PaneID) -> Void)?
     var onSplitVerticalRequested: ((PaneID) -> Void)?
+    var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
+
+    private var activeContextPicker: WorklaneColorMenuItemView?
 
     init(
         worklaneID: WorklaneID?,
@@ -281,6 +284,27 @@ final class SidebarWorklaneRowButton: NSButton {
             statusTextHeightConstraint,
             statusContentHeightConstraint,
         ])
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let worklaneID else { return nil }
+        let menu = NSMenu()
+        let parent = NSMenuItem(
+            title: NSLocalizedString("Worklane color", comment: "Worklane row context menu item"),
+            action: nil,
+            keyEquivalent: ""
+        )
+        let submenu = NSMenu()
+        let pickerItem = NSMenuItem()
+        let picker = WorklaneColorMenuItemView(current: currentSummary?.color) { [weak self] picked in
+            self?.onWorklaneColorChanged?(worklaneID, picked)
+        }
+        pickerItem.view = picker
+        submenu.addItem(pickerItem)
+        parent.submenu = submenu
+        menu.addItem(parent)
+        activeContextPicker = picker
+        return menu
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

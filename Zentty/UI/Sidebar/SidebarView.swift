@@ -19,6 +19,7 @@ final class SidebarView: NSView {
     var onClosePaneRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitHorizontalRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitVerticalRequested: ((WorklaneID, PaneID) -> Void)?
+    var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onNewWorklaneRequested: (() -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onResized: ((CGFloat) -> Void)?
@@ -488,6 +489,9 @@ final class SidebarView: NSView {
         }
         button.onSplitVerticalRequested = { [weak self] paneID in
             self?.onSplitVerticalRequested?(worklaneID, paneID)
+        }
+        button.onWorklaneColorChanged = { [weak self] id, color in
+            self?.onWorklaneColorChanged?(id, color)
         }
 
         button.setShimmerCoordinator(shimmerCoordinator)
