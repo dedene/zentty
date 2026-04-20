@@ -84,6 +84,7 @@ final class SidebarPaneRowButton: NSButton {
     private var isHovered = false
     private var trackingArea: NSTrackingArea?
     private var hoverBackgroundColor: NSColor = .clear
+    private var pressedBackgroundColor: NSColor = .clear
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -147,8 +148,9 @@ final class SidebarPaneRowButton: NSButton {
         contentStack.setViews(views, in: .top)
     }
 
-    func updateTheme(hoverColor: NSColor) {
+    func updateTheme(hoverColor: NSColor, pressedColor: NSColor) {
         hoverBackgroundColor = hoverColor
+        pressedBackgroundColor = pressedColor
         updateHoverAppearance()
     }
 
@@ -216,7 +218,7 @@ final class SidebarPaneRowButton: NSButton {
     private func updateHoverAppearance() {
         let color: NSColor
         if isHighlighted {
-            color = hoverBackgroundColor.withAlphaComponent(0.7)
+            color = pressedBackgroundColor
         } else if isHovered {
             color = hoverBackgroundColor
         } else {

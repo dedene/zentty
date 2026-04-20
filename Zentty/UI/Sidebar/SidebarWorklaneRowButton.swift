@@ -786,13 +786,16 @@ final class SidebarWorklaneRowButton: NSButton {
         }
 
         let paneRowHoverColor: NSColor
+        let paneRowPressedColor: NSColor
         if let color = summary.color {
             paneRowHoverColor = color.tint(alpha: WorklaneColor.Alpha.paneRowHover)
+            paneRowPressedColor = color.tint(alpha: WorklaneColor.Alpha.paneRowPressed)
         } else {
             paneRowHoverColor = currentTheme.sidebarButtonHoverBackground.withAlphaComponent(0.5)
+            paneRowPressedColor = currentTheme.sidebarButtonHoverBackground.withAlphaComponent(0.7)
         }
         for button in paneRowButtons {
-            button.updateTheme(hoverColor: paneRowHoverColor)
+            button.updateTheme(hoverColor: paneRowHoverColor, pressedColor: paneRowPressedColor)
         }
 
         let activeBackground = currentTheme.sidebarButtonActiveBackground
