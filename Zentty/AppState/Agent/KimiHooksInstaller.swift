@@ -156,8 +156,14 @@ enum KimiHooksInstaller {
     }
 
     private static func managedBlockRange(in source: String) throws -> Range<String.Index>? {
-        let beginRange = source.range(of: beginMarker)
-        let endRange = source.range(of: endMarker)
+        let beginRange = source.range(
+            of: #"(?m)^### BEGIN ZENTTY KIMI HOOKS[ \t]*$"#,
+            options: .regularExpression
+        )
+        let endRange = source.range(
+            of: #"(?m)^### END ZENTTY KIMI HOOKS[ \t]*$"#,
+            options: .regularExpression
+        )
 
         switch (beginRange, endRange) {
         case (nil, nil):

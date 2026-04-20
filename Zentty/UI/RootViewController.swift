@@ -8,7 +8,9 @@ enum FocusedTerminalInterruptBridge {
         activeWorklane: WorklaneState?,
         isFocusedPaneTerminalFocused: Bool
     ) -> PaneID? {
-        guard TerminalInterruptKeyRecognizer.matchesUserInterrupt(event),
+        let matchesInterrupt = TerminalInterruptKeyRecognizer.matchesUserInterrupt(event)
+            || TerminalInterruptKeyRecognizer.matchesKimiInterruptEscape(event)
+        guard matchesInterrupt,
               isFocusedPaneTerminalFocused,
               let activeWorklane,
               let paneID = activeWorklane.paneStripState.focusedPaneID,
