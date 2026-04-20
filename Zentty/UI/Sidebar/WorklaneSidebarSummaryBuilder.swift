@@ -145,7 +145,8 @@ enum WorklaneSidebarSummaryBuilder {
             interactionLabel: statusPresentation.interactionLabel,
             interactionSymbolName: statusPresentation.interactionSymbolName,
             isWorking: isWorking,
-            isActive: isActive
+            isActive: isActive,
+            color: worklane.color
         )
     }
 
@@ -948,7 +949,8 @@ enum WorklaneSidebarSummaryBuilder {
                 interactionLabel: summary.interactionLabel,
                 interactionSymbolName: summary.interactionSymbolName,
                 isWorking: summary.isWorking,
-                isActive: summary.isActive
+                isActive: summary.isActive,
+                color: summary.color
             )
         }
     }

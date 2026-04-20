@@ -71,6 +71,7 @@ struct WorklaneSidebarSummary: Equatable {
     let interactionSymbolName: String?
     let isWorking: Bool
     let isActive: Bool
+    let color: WorklaneColor?
 
     var title: String { topLabel ?? "" }
     var contextText: String {
@@ -101,7 +102,8 @@ struct WorklaneSidebarSummary: Equatable {
         interactionLabel: String? = nil,
         interactionSymbolName: String? = nil,
         isWorking: Bool = false,
-        isActive: Bool
+        isActive: Bool,
+        color: WorklaneColor? = nil
     ) {
         self.worklaneID = worklaneID
         self.badgeText = badgeText
@@ -120,5 +122,6 @@ struct WorklaneSidebarSummary: Equatable {
         self.interactionSymbolName = interactionSymbolName
         self.isWorking = isWorking
         self.isActive = isActive
+        self.color = color
     }
 }

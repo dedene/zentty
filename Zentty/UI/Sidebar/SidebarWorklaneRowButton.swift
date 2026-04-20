@@ -51,6 +51,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private var paneStatusRows: [SidebarPaneTextRowView] = []
     private var paneRowButtons: [SidebarPaneRowButton] = []
     private var paneRowContainers: [SidebarInsetContainerView] = []
+    private let tintLayer = CALayer()
     private var currentSummary: WorklaneSidebarSummary?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var lastAppliedBoundsWidth: CGFloat = -1
@@ -123,6 +124,11 @@ final class SidebarWorklaneRowButton: NSButton {
             return
         }
 
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        tintLayer.frame = bounds
+        CATransaction.commit()
+
         applyResolvedSummary(animated: false)
     }
 
@@ -139,6 +145,12 @@ final class SidebarWorklaneRowButton: NSButton {
         layer?.masksToBounds = false
         translatesAutoresizingMaskIntoConstraints = false
         setButtonType(.momentaryChange)
+
+        tintLayer.cornerRadius = ChromeGeometry.rowRadius
+        tintLayer.cornerCurve = .continuous
+        tintLayer.backgroundColor = NSColor.clear.cgColor
+        tintLayer.zPosition = -1
+        layer?.insertSublayer(tintLayer, at: 0)
 
         configureLabel(
             topLabel,
@@ -772,7 +784,25 @@ final class SidebarWorklaneRowButton: NSButton {
             self.layer?.shadowOpacity = 1
             self.layer?.shadowRadius = summary.isActive ? 12 : 4
             self.layer?.shadowOffset = CGSize(width: 0, height: -1)
+            self.tintLayer.backgroundColor = self.resolvedTintColor(for: summary)
         }
+    }
+
+    private func resolvedTintColor(for summary: WorklaneSidebarSummary) -> CGColor {
+        guard let color = summary.color else {
+            return NSColor.clear.cgColor
+        }
+
+        let alpha: CGFloat
+        if summary.isActive {
+            alpha = WorklaneColor.Alpha.active
+        } else if isHovered && !isPaneRowHovered {
+            alpha = WorklaneColor.Alpha.hover
+        } else {
+            alpha = WorklaneColor.Alpha.inactive
+        }
+
+        return color.tint(alpha: alpha).cgColor
     }
 
     private func backgroundColor(
@@ -1257,6 +1287,15 @@ final class SidebarWorklaneRowButton: NSButton {
 
     var topLabelColorForTesting: NSColor {
         topLabel.textColor ?? .clear
+    }
+
+    var tintLayerBackgroundColorForTesting: CGColor? {
+        tintLayer.backgroundColor
+    }
+
+    func setHoveredForTesting(_ hovered: Bool) {
+        isHovered = hovered
+        applyCurrentAppearance(animated: false)
     }
 
     var isWorkingForTesting: Bool {
