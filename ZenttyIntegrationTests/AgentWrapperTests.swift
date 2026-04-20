@@ -354,7 +354,7 @@ final class AgentWrapperTests: XCTestCase {
     }
 
     func test_tool_wrappers_delegate_to_launch_command_when_cli_is_available() throws {
-        for tool in ["claude", "codex", "copilot", "cursor-agent", "gemini", "opencode", "pi"] {
+        for tool in ["claude", "codex", "copilot", "cursor-agent", "gemini", "kimi", "opencode", "pi"] {
             let harness = try WrapperHarness(copyingScriptsNamed: [tool, "zentty-agent-wrapper"])
             try harness.installRealBinary(
                 named: tool,
@@ -385,6 +385,37 @@ final class AgentWrapperTests: XCTestCase {
             XCTAssertEqual(try harness.readArgumentCalls(named: "cli-args.log"), [["launch", expectedLaunchTool, "hello"]], tool)
             XCTAssertTrue(try harness.readLines(named: "real-args.log").isEmpty, tool)
         }
+    }
+
+    func test_kimi_wrapper_passthroughs_login_to_real_binary_even_when_cli_is_available() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["kimi", "zentty-agent-wrapper"])
+        try harness.installRealBinary(
+            named: "kimi",
+            script: """
+            #!/bin/bash
+            set -euo pipefail
+            for arg in "$@"; do
+              printf '%s\n' "$arg" >> "$REAL_ARGS_LOG"
+            done
+            """
+        )
+        try harness.installCliStub()
+
+        let result = try harness.run(
+            tool: "kimi",
+            arguments: ["login"],
+            extraEnvironment: [
+                "ZENTTY_CLI_BIN": harness.cliPath,
+                "ZENTTY_INSTANCE_SOCKET": harness.socketPath,
+                "ZENTTY_PANE_TOKEN": harness.paneToken,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        XCTAssertEqual(try harness.readLines(named: "real-args.log"), ["login"])
+        XCTAssertTrue(try harness.readArgumentCalls(named: "cli-args.log").isEmpty)
     }
 
     func test_generic_wrapper_delegates_selected_tool_to_launch_command() throws {
@@ -733,7 +764,7 @@ private struct WrapperHarness {
     }
 
     private var publicWrapperDirectories: [URL] {
-        ["claude", "codex", "copilot", "cursor", "gemini", "opencode", "pi"]
+        ["claude", "codex", "copilot", "cursor", "gemini", "kimi", "opencode", "pi"]
             .map { wrapperBinURL.appendingPathComponent($0, isDirectory: true) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
@@ -754,6 +785,8 @@ private struct WrapperHarness {
             return "cursor/cursor-agent"
         case "gemini":
             return "gemini/gemini"
+        case "kimi":
+            return "kimi/kimi"
         case "opencode":
             return "opencode/opencode"
         case "pi":

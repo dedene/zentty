@@ -941,6 +941,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "cursor"
         case .gemini:
             return "gemini"
+        case .kimi:
+            return "kimi"
         case .openCode:
             return "opencode"
         case .pi:

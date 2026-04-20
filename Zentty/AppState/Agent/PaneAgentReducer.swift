@@ -263,6 +263,36 @@ struct PaneAgentReducerState: Equatable, Sendable {
         return true
     }
 
+    @discardableResult
+    mutating func markExplicitKimiSessionIdleFromUserInterrupt(now: Date = Date()) -> Bool {
+        let candidateSessions = sessionsByID.values.filter { session in
+            session.tool == .kimi
+                && session.source == .explicit
+                && session.origin != .shell
+                && (
+                    session.state == .running
+                        || (session.state == .starting && !session.interactionKind.requiresHumanAttention)
+                )
+        }
+        guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
+              var session = sessionsByID[sessionID]
+        else {
+            return false
+        }
+        let previousState = session.state
+
+        session.state = .idle
+        session.text = nil
+        session.interactionKind = .none
+        session.completionCandidateDeadline = nil
+        session.idleVisibleUntil = now.addingTimeInterval(Self.idleVisibilityWindow)
+        session.unresolvedStopVisibleUntil = nil
+        session.updatedAt = now
+        session.hasObservedRunning = session.hasObservedRunning || previousState == .running
+        sessionsByID[sessionID] = session
+        return true
+    }
+
     func reducedStatus(now: Date = Date()) -> PaneAgentStatus? {
         let sessions = sessionsByID.values.filter { session in
             if session.state == .idle,

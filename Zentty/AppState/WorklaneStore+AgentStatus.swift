@@ -16,6 +16,7 @@ extension WorklaneStore {
 
         var worklane = worklanes[worklaneIndex]
         let previousWorklane = worklane
+        var suppressReadyAfterRecompute = false
         switch event {
         case .shellReady:
             break
@@ -77,6 +78,23 @@ extension WorklaneStore {
                 now: now,
                 in: &worklane
             )
+        case .userInterrupted:
+            let now = Date()
+            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
+            auxiliaryState.terminalProgress = nil
+            auxiliaryState.agentReducerState = Self.seededReducerState(
+                auxiliaryState.agentReducerState,
+                from: auxiliaryState.agentStatus
+            )
+            if auxiliaryState.agentReducerState.markExplicitKimiSessionIdleFromUserInterrupt(now: now) {
+                auxiliaryState.agentStatus = Self.hydratedStatus(
+                    auxiliaryState.agentReducerState.reducedStatus(),
+                    existingStatus: auxiliaryState.agentStatus,
+                    payloadWorkingDirectory: nil
+                )
+                worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+                suppressReadyAfterRecompute = true
+            }
         case .commandFinished:
             worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
             let existingStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
@@ -147,6 +165,9 @@ extension WorklaneStore {
         }
 
         recomputePresentation(for: paneID, in: &worklane)
+        if suppressReadyAfterRecompute {
+            clearReadyStatusIfNeeded(for: paneID, in: &worklane)
+        }
         worklanes[worklaneIndex] = worklane
         let impacts = auxiliaryInvalidation(for: paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
         if !impacts.isEmpty {

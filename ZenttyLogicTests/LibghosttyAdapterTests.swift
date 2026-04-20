@@ -328,6 +328,55 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertFalse(receivedEvents.contains(.userSubmittedInput))
     }
 
+    func test_control_c_emits_user_interrupt_event() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var receivedEvents: [TerminalEvent] = []
+
+        adapter.eventDidOccur = { receivedEvents.append($0) }
+
+        _ = adapter.makeTerminalView()
+        try adapter.startSession(using: TerminalSessionRequest())
+
+        let hostView = try XCTUnwrap(runtime.lastHostView)
+        hostView.keyDown(
+            with: try makeKeyEvent(
+                characters: "\u{3}",
+                charactersIgnoringModifiers: "c",
+                keyCode: UInt16(kVK_ANSI_C),
+                modifierFlags: [.control]
+            )
+        )
+
+        XCTAssertTrue(receivedEvents.contains(.userInterrupted))
+        XCTAssertFalse(receivedEvents.contains(.userSubmittedInput))
+    }
+
+    func test_escape_does_not_emit_user_interrupt_through_generic_terminal_path() throws {
+        // Escape is too broadly used in TUIs (vim, fzf, lazygit, …) to classify
+        // as a universal interrupt. The Kimi-scoped path handles Escape via
+        // FocusedTerminalInterruptBridge; the generic terminal stream stays quiet.
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var receivedEvents: [TerminalEvent] = []
+
+        adapter.eventDidOccur = { receivedEvents.append($0) }
+
+        _ = adapter.makeTerminalView()
+        try adapter.startSession(using: TerminalSessionRequest())
+
+        let hostView = try XCTUnwrap(runtime.lastHostView)
+        hostView.keyDown(
+            with: try makeKeyEvent(
+                characters: "\u{1B}",
+                keyCode: UInt16(kVK_Escape)
+            )
+        )
+
+        XCTAssertFalse(receivedEvents.contains(.userInterrupted))
+        XCTAssertFalse(receivedEvents.contains(.userSubmittedInput))
+    }
+
     func test_fn_control_left_arrow_bypasses_terminal_surface_input() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)
@@ -868,6 +917,7 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
 
 private func makeKeyEvent(
     characters: String,
+    charactersIgnoringModifiers: String? = nil,
     keyCode: UInt16,
     modifierFlags: NSEvent.ModifierFlags = []
 ) throws -> NSEvent {
@@ -880,7 +930,7 @@ private func makeKeyEvent(
             windowNumber: 0,
             context: nil,
             characters: characters,
-            charactersIgnoringModifiers: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers ?? characters,
             isARepeat: false,
             keyCode: keyCode
         )
