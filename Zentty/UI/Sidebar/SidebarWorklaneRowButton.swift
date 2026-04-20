@@ -698,6 +698,7 @@ final class SidebarWorklaneRowButton: NSButton {
             let button = paneRowButtons[index]
             button.paneID = paneRow.paneID
             button.isLastPaneInWorklane = paneRows.count == 1
+            button.currentWorklaneColor = currentSummary?.color
             button.setAccessibilityLabel(paneRow.primaryText)
             button.onPaneClicked = { [weak self] paneID in
                 self?.onPaneSelected?(paneID)
@@ -713,6 +714,10 @@ final class SidebarWorklaneRowButton: NSButton {
             }
             button.onSplitVertical = { [weak self] paneID in
                 self?.onSplitVerticalRequested?(paneID)
+            }
+            button.onPickWorklaneColor = { [weak self] _, color in
+                guard let self, let worklaneID = self.worklaneID else { return }
+                self.onWorklaneColorChanged?(worklaneID, color)
             }
             button.onHoverChanged = { [weak self] isHovered in
                 self?.paneRowHoverChanged(isHovered: isHovered)
