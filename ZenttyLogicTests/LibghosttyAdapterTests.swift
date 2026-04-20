@@ -352,7 +352,10 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertFalse(receivedEvents.contains(.userSubmittedInput))
     }
 
-    func test_escape_emits_user_interrupt_event() throws {
+    func test_escape_does_not_emit_user_interrupt_through_generic_terminal_path() throws {
+        // Escape is too broadly used in TUIs (vim, fzf, lazygit, …) to classify
+        // as a universal interrupt. The Kimi-scoped path handles Escape via
+        // FocusedTerminalInterruptBridge; the generic terminal stream stays quiet.
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)
         var receivedEvents: [TerminalEvent] = []
@@ -370,7 +373,7 @@ final class LibghosttyAdapterTests: AppKitTestCase {
             )
         )
 
-        XCTAssertTrue(receivedEvents.contains(.userInterrupted))
+        XCTAssertFalse(receivedEvents.contains(.userInterrupted))
         XCTAssertFalse(receivedEvents.contains(.userSubmittedInput))
     }
 

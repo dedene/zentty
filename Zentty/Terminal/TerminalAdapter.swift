@@ -100,21 +100,29 @@ enum TerminalInterruptKeyRecognizer {
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags == [.control] {
-            let observedCharacters = [event.characters, event.charactersIgnoringModifiers]
-                .compactMap { $0 }
-            if observedCharacters.contains("\u{3}") {
-                return true
-            }
-
-            return event.keyCode == UInt16(kVK_ANSI_C)
+        guard flags == [.control] else {
+            return false
         }
 
-        if flags.isEmpty, event.keyCode == UInt16(kVK_Escape) {
+        let observedCharacters = [event.characters, event.charactersIgnoringModifiers]
+            .compactMap { $0 }
+        if observedCharacters.contains("\u{3}") {
             return true
         }
 
-        return false
+        return event.keyCode == UInt16(kVK_ANSI_C)
+    }
+
+    // Bare Escape is only meaningful as an interrupt inside a Kimi session —
+    // most other TUIs (vim, fzf, lazygit, …) use Escape for navigation. Callers
+    // MUST gate this recognizer on Kimi context before emitting `.userInterrupted`.
+    static func matchesKimiInterruptEscape(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, !event.isARepeat else {
+            return false
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return flags.isEmpty && event.keyCode == UInt16(kVK_Escape)
     }
 }
 

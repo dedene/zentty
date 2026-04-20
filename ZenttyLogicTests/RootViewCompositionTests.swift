@@ -173,6 +173,23 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(bridgedPaneID, paneID)
     }
 
+    func test_focused_terminal_interrupt_bridge_matches_escape_for_running_kimi_session() throws {
+        let (worklane, paneID) = makeInterruptBridgeWorklane()
+        let event = makeKeyEvent(
+            keyCode: 53,
+            characters: String(UnicodeScalar(0x1B)!),
+            charactersIgnoringModifiers: String(UnicodeScalar(0x1B)!)
+        )
+
+        let bridgedPaneID = FocusedTerminalInterruptBridge.paneIDForUserInterrupt(
+            event: event,
+            activeWorklane: worklane,
+            isFocusedPaneTerminalFocused: true
+        )
+
+        XCTAssertEqual(bridgedPaneID, paneID)
+    }
+
     func test_focused_terminal_interrupt_bridge_ignores_non_terminal_focus_and_non_kimi_sessions() throws {
         let (worklane, _) = makeInterruptBridgeWorklane(tool: .codex)
         let event = makeKeyEvent(

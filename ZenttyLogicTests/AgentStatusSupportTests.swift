@@ -1605,6 +1605,34 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(uninstalled, original)
     }
 
+    func test_kimi_hooks_installer_ignores_markers_embedded_in_toml_string_values() throws {
+        // Regression guard: marker detection is line-anchored. A BEGIN/END
+        // marker smuggled into a TOML string value on a line with other content
+        // must not be treated as a managed block; install should append a fresh
+        // block, and uninstall should leave the string value intact.
+        let directory = try makeTemporaryDirectory(named: "kimi-hooks-installer-embedded-marker")
+        let configURL = directory.appendingPathComponent("config.toml", isDirectory: false)
+        let original = """
+        default_model = "kimi-k2"
+        quirky = "prefix ### BEGIN ZENTTY KIMI HOOKS suffix ### END ZENTTY KIMI HOOKS tail"
+        """
+        try original.write(to: configURL, atomically: true, encoding: .utf8)
+
+        try KimiHooksInstaller.install(at: configURL, cliPath: "/opt/zentty/bin/zentty")
+
+        let installed = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertTrue(installed.contains(original), "embedded-marker line should be preserved verbatim")
+        XCTAssertEqual(
+            installed.components(separatedBy: "\n### BEGIN ZENTTY KIMI HOOKS\n").count, 2,
+            "install should add exactly one managed block"
+        )
+
+        try KimiHooksInstaller.uninstall(at: configURL)
+
+        let uninstalled = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertEqual(uninstalled, original)
+    }
+
     func test_agent_launch_bootstrap_builds_kimi_overlay_from_default_user_config() throws {
         let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-kimi-runtime")
         let homeDirectory = try makeTemporaryDirectory(named: "agent-launch-kimi-home")
