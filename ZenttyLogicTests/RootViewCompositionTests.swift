@@ -3,6 +3,54 @@ import XCTest
 
 @MainActor
 final class RootViewCompositionTests: AppKitTestCase {
+    private func makeInterruptBridgeWorklane(
+        tool: AgentTool = .kimi,
+        state: PaneAgentState = .running,
+        source: PaneAgentStatusSource = .explicit
+    ) -> (worklane: WorklaneState, paneID: PaneID) {
+        let paneID = PaneID("pn-kimi")
+        let pane = PaneState(id: paneID, title: "pane")
+        let status = PaneAgentStatus(
+            tool: tool,
+            state: state,
+            text: "Running",
+            artifactLink: nil,
+            updatedAt: Date(),
+            source: source,
+            origin: .explicitHook
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("wl-kimi"),
+            title: "",
+            paneStripState: PaneStripState(panes: [pane], focusedPaneID: paneID),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(agentStatus: status)
+            ]
+        )
+
+        return (worklane, paneID)
+    }
+
+    private func makeKeyEvent(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = [],
+        characters: String,
+        charactersIgnoringModifiers: String? = nil
+    ) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers ?? characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
+    }
+
     override func tearDown() {
         SidebarWidthPreference.reset()
         SidebarVisibilityPreference.reset()
@@ -104,6 +152,48 @@ final class RootViewCompositionTests: AppKitTestCase {
             appCanvasView.frame.minX,
             ShellMetrics.outerInset,
             accuracy: 0.5
+        )
+    }
+
+    func test_focused_terminal_interrupt_bridge_matches_running_kimi_session() throws {
+        let (worklane, paneID) = makeInterruptBridgeWorklane()
+        let event = makeKeyEvent(
+            keyCode: 8,
+            modifierFlags: [.control],
+            characters: "\u{3}",
+            charactersIgnoringModifiers: "c"
+        )
+
+        let bridgedPaneID = FocusedTerminalInterruptBridge.paneIDForUserInterrupt(
+            event: event,
+            activeWorklane: worklane,
+            isFocusedPaneTerminalFocused: true
+        )
+
+        XCTAssertEqual(bridgedPaneID, paneID)
+    }
+
+    func test_focused_terminal_interrupt_bridge_ignores_non_terminal_focus_and_non_kimi_sessions() throws {
+        let (worklane, _) = makeInterruptBridgeWorklane(tool: .codex)
+        let event = makeKeyEvent(
+            keyCode: 53,
+            characters: String(UnicodeScalar(0x1B)!),
+            charactersIgnoringModifiers: String(UnicodeScalar(0x1B)!)
+        )
+
+        XCTAssertNil(
+            FocusedTerminalInterruptBridge.paneIDForUserInterrupt(
+                event: event,
+                activeWorklane: worklane,
+                isFocusedPaneTerminalFocused: false
+            )
+        )
+        XCTAssertNil(
+            FocusedTerminalInterruptBridge.paneIDForUserInterrupt(
+                event: event,
+                activeWorklane: worklane,
+                isFocusedPaneTerminalFocused: true
+            )
         )
     }
 

@@ -67,6 +67,8 @@ enum AgentEventBridge {
                 payloads = try geminiAdapter(data: inputData, environment: environment)
             case "cursor":
                 payloads = try cursorAdapter(data: inputData, environment: environment)
+            case "kimi":
+                payloads = try kimiAdapter(data: inputData, environment: environment)
             case .none:
                 let input = try parseInput(inputData)
                 payloads = try makePayloads(from: input, environment: environment)

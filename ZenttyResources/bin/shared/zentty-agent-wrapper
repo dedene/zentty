@@ -4,6 +4,43 @@ set -euo pipefail
 
 tool_basename="${ZENTTY_AGENT_TOOL:-$(basename "$0")}"
 
+kimi_passthrough_subcommand() {
+    case "${1:-}" in
+        login|logout|term|acp|info|export|mcp|plugin|vis|web)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+kimi_early_exit_flag_present() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --help|-h|--version|-V)
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+should_passthrough_to_real_binary() {
+    case "$tool_basename" in
+        kimi)
+            [[ "${ZENTTY_KIMI_HOOKS_DISABLED:-}" == "1" ]] && return 0
+            kimi_passthrough_subcommand "${1:-}" && return 0
+            kimi_early_exit_flag_present "$@" && return 0
+            return 1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 # Tools whose wrapper directory name differs from the real CLI binary name.
 # cursor's CLI ships as `cursor-agent` (`cursor` itself is the IDE launcher).
 real_binary_candidates() {
@@ -43,6 +80,13 @@ zentty_cli_bin() {
 }
 
 if cli_bin="$(zentty_cli_bin 2>/dev/null)"; then
+    if should_passthrough_to_real_binary "$@"; then
+        real_binary="$(find_real_binary)" || {
+            echo "Error: $tool_basename not found in PATH" >&2
+            exit 127
+        }
+        exec "$real_binary" "$@"
+    fi
     exec "$cli_bin" launch "$tool_basename" "$@"
 fi
 
