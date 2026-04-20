@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 enum TerminalSurfaceContext: Equatable, Sendable {
     case window
@@ -86,9 +87,35 @@ enum TerminalEvent: Equatable, Sendable {
     case progressReport(TerminalProgressReport)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)
     case desktopNotification(TerminalDesktopNotification)
+    case userInterrupted
     case userEditedInput
     case userSubmittedInput
     case surfaceClosed
+}
+
+enum TerminalInterruptKeyRecognizer {
+    static func matchesUserInterrupt(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, !event.isARepeat else {
+            return false
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == [.control] {
+            let observedCharacters = [event.characters, event.charactersIgnoringModifiers]
+                .compactMap { $0 }
+            if observedCharacters.contains("\u{3}") {
+                return true
+            }
+
+            return event.keyCode == UInt16(kVK_ANSI_C)
+        }
+
+        if flags.isEmpty, event.keyCode == UInt16(kVK_Escape) {
+            return true
+        }
+
+        return false
+    }
 }
 
 enum PaneSearchHUDCorner: String, CaseIterable, Equatable, Sendable {

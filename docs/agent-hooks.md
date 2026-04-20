@@ -225,6 +225,51 @@ Gemini's built-in terminal notifications still matter for wrapped sessions. Zent
 
 This gives Gemini first-class sidebar and notification behavior even when the hook payload is minimal.
 
+## Kimi CLI
+
+Wrapped `kimi` launches use a per-launch overlay config under Zentty's runtime directory. Zentty reads the active Kimi config source, merges in its hook block for that session, and launches Kimi with `--config-file <overlay>`. The user's `~/.kimi/config.toml` is left untouched during normal wrapped launches.
+
+Kimi's own setup commands are stricter than normal chat turns:
+
+- `kimi login` must run against Kimi's default config location. Zentty now passthroughs `kimi login` and the other Kimi management commands directly to the real Kimi binary so they keep using the default config.
+- `/login` and `/model` inside a wrapped `kimi` session are not reliable because Kimi rejects those flows when launched with `--config` or `--config-file`.
+- For model selection in wrapped sessions, prefer `kimi --model <model-id>` or update `~/.kimi/config.toml` directly.
+
+Manual fallback commands:
+
+```sh
+zentty install kimi-hooks
+zentty uninstall kimi-hooks
+```
+
+`zentty install kimi-hooks` remains available if you explicitly want a persistent global hook install for debugging or recovery. Set `ZENTTY_KIMI_HOOKS_DISABLED=1` to bypass Zentty's Kimi hook overlay and launch Kimi directly.
+
+Zentty registers these Kimi hooks:
+
+- `SessionStart`
+- `SessionEnd`
+- `UserPromptSubmit`
+- `Stop`
+- `Notification` with `matcher = "permission_prompt"`
+- `PreToolUse` with `matcher = "AskUserQuestion"`
+- `PostToolUse` with `matcher = "AskUserQuestion"`
+
+Each hook calls:
+
+```sh
+"$ZENTTY_CLI_BIN" ipc agent-event --adapter=kimi
+```
+
+### Current mapping
+
+- `SessionStart` -> PID attach + `starting`
+- `UserPromptSubmit` -> `running`
+- `Stop` -> `idle`
+- `SessionEnd` -> clear session + PID mapping
+- `Notification(permission_prompt)` -> `needs-input` with `approval`
+- `PreToolUse(AskUserQuestion)` -> `needs-input` with `question`
+- `PostToolUse(AskUserQuestion)` -> `running`
+
 ## OpenCode
 
 Zentty injects a local OpenCode plugin overlay via the shared agent wrapper. The plugin forwards `session.status`, `session.idle`, permission/question events, and `todo.updated`.

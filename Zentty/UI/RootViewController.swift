@@ -2,6 +2,28 @@ import AppKit
 import QuartzCore
 import os
 
+enum FocusedTerminalInterruptBridge {
+    static func paneIDForUserInterrupt(
+        event: NSEvent,
+        activeWorklane: WorklaneState?,
+        isFocusedPaneTerminalFocused: Bool
+    ) -> PaneID? {
+        guard TerminalInterruptKeyRecognizer.matchesUserInterrupt(event),
+              isFocusedPaneTerminalFocused,
+              let activeWorklane,
+              let paneID = activeWorklane.paneStripState.focusedPaneID,
+              let status = activeWorklane.auxiliaryStateByPaneID[paneID]?.agentStatus,
+              status.tool == .kimi,
+              status.source == .explicit,
+              status.state == .running || status.state == .starting
+        else {
+            return nil
+        }
+
+        return paneID
+    }
+}
+
 @MainActor
 final class RootViewController: NSViewController {
     private final class LocalEventMonitor {
@@ -928,6 +950,14 @@ final class RootViewController: NSViewController {
 
             guard self.view.window?.isKeyWindow == true else {
                 return event
+            }
+
+            if let paneID = FocusedTerminalInterruptBridge.paneIDForUserInterrupt(
+                event: event,
+                activeWorklane: self.worklaneStore.activeWorklane,
+                isFocusedPaneTerminalFocused: self.focusedPaneRuntime()?.hostView.isTerminalFocused == true
+            ) {
+                self.handleTerminalEvent(paneID: paneID, event: .userInterrupted)
             }
 
             guard let shortcut = KeyboardShortcut(event: event),

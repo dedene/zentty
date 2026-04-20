@@ -135,4 +135,33 @@ final class AgentResumeCommandBuilderTests: XCTestCase {
 
         XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
     }
+
+    func test_builder_returns_kimi_resume_command_for_uuid_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-kimi",
+            kind: .agentResume,
+            toolName: "Kimi",
+            sessionID: "0cb916db-26aa-40f2-86b5-1ba81b225fd2",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "kimi -r 0cb916db-26aa-40f2-86b5-1ba81b225fd2"
+        )
+    }
+
+    func test_builder_returns_nil_for_kimi_non_uuid_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-kimi",
+            kind: .agentResume,
+            toolName: "Kimi",
+            sessionID: "resume-this-session",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
 }
