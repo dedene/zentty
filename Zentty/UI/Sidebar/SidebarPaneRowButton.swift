@@ -69,12 +69,16 @@ final class SidebarInsetContainerView: NSView {
 final class SidebarPaneRowButton: NSButton {
     var paneID = PaneID("")
     var isLastPaneInWorklane = false
+    var currentWorklaneColor: WorklaneColor?
     var onPaneClicked: ((PaneID) -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
     var onCloseWorklane: ((PaneID) -> Void)?
     var onClosePane: ((PaneID) -> Void)?
     var onSplitHorizontal: ((PaneID) -> Void)?
     var onSplitVertical: ((PaneID) -> Void)?
+    var onPickWorklaneColor: ((PaneID, WorklaneColor?) -> Void)?
+
+    private var activeContextPicker: WorklaneColorMenuItemView?
 
     private let contentStack = NSStackView()
     private var isHovered = false
@@ -243,6 +247,25 @@ final class SidebarPaneRowButton: NSButton {
             closePaneItem.target = self
             menu.addItem(closePaneItem)
         }
+
+        menu.addItem(NSMenuItem.separator())
+
+        let worklaneColorItem = NSMenuItem(
+            title: "Worklane Color",
+            action: nil,
+            keyEquivalent: ""
+        )
+        let worklaneColorSubmenu = NSMenu()
+        let pickerItem = NSMenuItem()
+        let picker = WorklaneColorMenuItemView(current: currentWorklaneColor) { [weak self] color in
+            guard let self else { return }
+            self.onPickWorklaneColor?(self.paneID, color)
+        }
+        pickerItem.view = picker
+        worklaneColorSubmenu.addItem(pickerItem)
+        worklaneColorItem.submenu = worklaneColorSubmenu
+        menu.addItem(worklaneColorItem)
+        activeContextPicker = picker
 
         menu.addItem(NSMenuItem.separator())
 
