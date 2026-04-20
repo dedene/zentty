@@ -1489,8 +1489,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let after = try String(contentsOf: configURL, encoding: .utf8)
         XCTAssertTrue(after.hasPrefix(original))
         XCTAssertTrue(after.contains("### BEGIN ZENTTY KIMI HOOKS"))
-        XCTAssertTrue(after.contains(#"matcher = "permission_prompt""#))
-        XCTAssertTrue(after.contains(#"matcher = "AskUserQuestion""#))
+        XCTAssertFalse(after.contains(#"matcher = "permission_prompt""#))
+        XCTAssertFalse(after.contains(#"matcher = "AskUserQuestion""#))
         XCTAssertTrue(after.contains(#"event = "SessionStart""#))
         XCTAssertTrue(after.contains(#"event = "SessionEnd""#))
         XCTAssertTrue(after.contains(#"event = "UserPromptSubmit""#))
@@ -1573,7 +1573,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let installed = try String(contentsOf: configURL, encoding: .utf8)
         XCTAssertFalse(installed.contains("\nhooks = []\n"))
         XCTAssertTrue(installed.contains(#"hooks = ["#))
-        XCTAssertTrue(installed.contains(#"{ event = "Notification", matcher = "permission_prompt""#))
+        XCTAssertTrue(installed.contains(#"{ event = "Notification", command = "\"/opt/zentty/bin/zentty\" ipc agent-event --adapter=kimi""#))
         XCTAssertFalse(installed.contains(#"[[hooks]]"#))
 
         try KimiHooksInstaller.uninstall(at: configURL)
@@ -1596,7 +1596,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let installed = try String(contentsOf: configURL, encoding: .utf8)
         XCTAssertEqual(installed.components(separatedBy: "hooks = [").count, 2)
         XCTAssertTrue(installed.contains(#"command = "echo user""#))
-        XCTAssertTrue(installed.contains(#"{ event = "Notification", matcher = "permission_prompt""#))
+        XCTAssertTrue(installed.contains(#"{ event = "Notification", command = "\"/opt/zentty/bin/zentty\" ipc agent-event --adapter=kimi""#))
         XCTAssertFalse(installed.contains("[[hooks]]"))
 
         try KimiHooksInstaller.uninstall(at: configURL)
@@ -1687,7 +1687,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(overlayConfig.contains(#"default_model = "kimi-code/kimi-for-coding""#))
         XCTAssertTrue(overlayConfig.contains(#"hooks = ["#))
         XCTAssertTrue(overlayConfig.contains(#"command = "\"/tmp/zentty\" ipc agent-event --adapter=kimi""#))
-        XCTAssertTrue(overlayConfig.contains(#"{ event = "Notification", matcher = "permission_prompt""#))
+        XCTAssertTrue(overlayConfig.contains(#"{ event = "Notification", command = "\"/tmp/zentty\" ipc agent-event --adapter=kimi""#))
         XCTAssertFalse(overlayConfig.contains(#"command = ""/tmp/zentty""#))
 
         let sourceConfig = try String(contentsOf: userConfigURL, encoding: .utf8)

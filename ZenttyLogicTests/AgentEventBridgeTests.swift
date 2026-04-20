@@ -650,6 +650,16 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].text, "Which file?")
     }
 
+    func test_kimi_adapter_pre_tool_use_str_replace_file_maps_to_approval_payload() throws {
+        let json = #"{"hook_event_name":"PreToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"StrReplaceFile","tool_input":{"path":"README.md"}}"#
+        let payloads = try AgentEventBridge.kimiAdapter(data: json.data(using: .utf8)!, environment: kimiEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .approval)
+        XCTAssertEqual(payloads[0].text, "StrReplaceFile is requesting approval to edit file: README.md")
+    }
+
     func test_kimi_adapter_post_tool_use_ask_user_question_restores_running_payload() throws {
         let json = #"{"hook_event_name":"PostToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"AskUserQuestion"}"#
         let payloads = try AgentEventBridge.kimiAdapter(data: json.data(using: .utf8)!, environment: kimiEnvironment())
@@ -657,6 +667,22 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .running)
         XCTAssertEqual(payloads[0].interactionKind, .none)
+    }
+
+    func test_kimi_adapter_post_tool_use_str_replace_file_restores_running_payload() throws {
+        let json = #"{"hook_event_name":"PostToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"StrReplaceFile"}"#
+        let payloads = try AgentEventBridge.kimiAdapter(data: json.data(using: .utf8)!, environment: kimiEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].interactionKind, .none)
+    }
+
+    func test_kimi_adapter_pre_tool_use_read_file_is_noop() throws {
+        let json = #"{"hook_event_name":"PreToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"ReadFile","tool_input":{"path":"README.md"}}"#
+        let payloads = try AgentEventBridge.kimiAdapter(data: json.data(using: .utf8)!, environment: kimiEnvironment())
+
+        XCTAssertTrue(payloads.isEmpty)
     }
 
     // MARK: - Copilot Adapter
