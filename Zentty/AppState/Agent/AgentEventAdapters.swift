@@ -214,30 +214,52 @@ extension AgentEventBridge {
             )]
 
         case "PreToolUse":
-            guard payloadToolName == "AskUserQuestion" else {
-                return []
+            if payloadToolName == "AskUserQuestion" {
+                let question = kimiQuestionText(from: toolInput) ?? "Kimi is waiting for your input"
+                return [AgentStatusPayload(
+                    windowID: target.windowID,
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: .needsInput,
+                    origin: .explicitHook,
+                    toolName: toolName,
+                    text: question,
+                    lifecycleEvent: .update,
+                    interactionKind: .question,
+                    confidence: .explicit,
+                    sessionID: sessionID,
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil,
+                    agentWorkingDirectory: cwd
+                )]
             }
-            let question = kimiQuestionText(from: toolInput) ?? "Kimi is waiting for your input"
-            return [AgentStatusPayload(
-                windowID: target.windowID,
-                worklaneID: target.worklaneID,
-                paneID: target.paneID,
-                state: .needsInput,
-                origin: .explicitHook,
-                toolName: toolName,
-                text: question,
-                lifecycleEvent: .update,
-                interactionKind: .question,
-                confidence: .explicit,
-                sessionID: sessionID,
-                artifactKind: nil,
-                artifactLabel: nil,
-                artifactURL: nil,
-                agentWorkingDirectory: cwd
-            )]
+
+            if kimiToolRequiresApproval(payloadToolName) {
+                let message = kimiApprovalText(toolName: payloadToolName, toolInput: toolInput)
+                    ?? "Kimi needs your approval"
+                return [AgentStatusPayload(
+                    windowID: target.windowID,
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: .needsInput,
+                    origin: .explicitHook,
+                    toolName: toolName,
+                    text: message,
+                    lifecycleEvent: .update,
+                    interactionKind: .approval,
+                    confidence: .explicit,
+                    sessionID: sessionID,
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil,
+                    agentWorkingDirectory: cwd
+                )]
+            }
+            return []
 
         case "PostToolUse":
-            guard payloadToolName == "AskUserQuestion" else {
+            guard payloadToolName == "AskUserQuestion" || kimiToolRequiresApproval(payloadToolName) else {
                 return []
             }
             return [AgentStatusPayload(
@@ -257,7 +279,6 @@ extension AgentEventBridge {
                 artifactURL: nil,
                 agentWorkingDirectory: cwd
             )]
-
         default:
             return []
         }
@@ -268,6 +289,44 @@ extension AgentEventBridge {
             return nil
         }
         return firstString(in: toolInput, keys: ["question", "prompt", "message", "title"])
+    }
+
+    private static func kimiToolRequiresApproval(_ toolName: String?) -> Bool {
+        guard let normalized = AgentInteractionClassifier.trimmed(toolName)?.lowercased() else {
+            return false
+        }
+
+        return [
+            "shell",
+            "writefile",
+            "strreplacefile",
+        ].contains(normalized)
+    }
+
+    private static func kimiApprovalText(toolName: String?, toolInput: [String: Any]?) -> String? {
+        guard let normalized = AgentInteractionClassifier.trimmed(toolName)?.lowercased() else {
+            return nil
+        }
+
+        switch normalized {
+        case "strreplacefile":
+            if let path = firstString(in: toolInput ?? [:], keys: ["path", "file_path", "filePath"]) {
+                return "StrReplaceFile is requesting approval to edit file: \(path)"
+            }
+            return "StrReplaceFile is requesting approval to edit a file"
+        case "writefile":
+            if let path = firstString(in: toolInput ?? [:], keys: ["path", "file_path", "filePath"]) {
+                return "WriteFile is requesting approval to write file: \(path)"
+            }
+            return "WriteFile is requesting approval to write a file"
+        case "shell":
+            if let command = firstString(in: toolInput ?? [:], keys: ["command", "cmd"]) {
+                return "Shell is requesting approval to run command: \(command)"
+            }
+            return "Shell is requesting approval to run a command"
+        default:
+            return nil
+        }
     }
 }
 

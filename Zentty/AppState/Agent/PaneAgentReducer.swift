@@ -152,6 +152,37 @@ struct PaneAgentReducerState: Equatable, Sendable {
     @discardableResult
     mutating func resumeBlockedSessionFromActivity(now: Date = Date()) -> Bool {
         let blockedSessions = sessionsByID.values.filter { session in
+            // Kimi keeps emitting shell/progress activity while its inline
+            // approval panel is visible. Treating that passive activity as a
+            // resume signal clears "Requires approval" before the user has
+            // actually confirmed anything.
+            if session.tool == .kimi, session.interactionKind == .approval {
+                return false
+            }
+
+            return session.state == .needsInput || session.interactionKind.requiresHumanAttention
+        }
+        guard let sessionID = blockedSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
+              var session = sessionsByID[sessionID]
+        else {
+            return false
+        }
+
+        session.state = .running
+        session.text = nil
+        session.interactionKind = .none
+        session.completionCandidateDeadline = nil
+        session.idleVisibleUntil = nil
+        session.unresolvedStopVisibleUntil = nil
+        session.hasObservedRunning = true
+        session.updatedAt = now
+        sessionsByID[sessionID] = session
+        return true
+    }
+
+    @discardableResult
+    mutating func resumeBlockedSessionFromUserInput(now: Date = Date()) -> Bool {
+        let blockedSessions = sessionsByID.values.filter { session in
             session.state == .needsInput || session.interactionKind.requiresHumanAttention
         }
         guard let sessionID = blockedSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
