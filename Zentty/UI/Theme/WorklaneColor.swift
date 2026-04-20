@@ -19,6 +19,7 @@ enum WorklaneColor: String, CaseIterable, Codable, Sendable {
         static let inactive: CGFloat = 0.12
         static let hover: CGFloat = 0.18
         static let active: CGFloat = 0.22
+        static let paneRowHover: CGFloat = 0.30
     }
 
     var localizedName: String {
