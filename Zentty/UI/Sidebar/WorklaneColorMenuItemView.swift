@@ -23,6 +23,7 @@ final class WorklaneColorMenuItemView: NSView {
     private let resetRow = WorklaneColorResetRowView()
     private var focusedIndex: Int = 0
     private var hasFocusedOnReset: Bool = false
+    private var userHasNavigated: Bool = false
 
     init(current: WorklaneColor?, onPick: @escaping (WorklaneColor?) -> Void) {
         self.currentColor = current
@@ -61,6 +62,7 @@ final class WorklaneColorMenuItemView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         hasFocusedOnReset = false
+        userHasNavigated = false
         for swatch in swatches {
             swatch.isFocused = false
         }
@@ -126,17 +128,23 @@ final class WorklaneColorMenuItemView: NSView {
     override func keyDown(with event: NSEvent) {
         switch event.specialKey {
         case .leftArrow:
+            userHasNavigated = true
             moveFocus(deltaColumn: -1, deltaRow: 0)
         case .rightArrow:
+            userHasNavigated = true
             moveFocus(deltaColumn: 1, deltaRow: 0)
         case .upArrow:
+            userHasNavigated = true
             moveFocus(deltaColumn: 0, deltaRow: -1)
         case .downArrow:
+            userHasNavigated = true
             moveFocus(deltaColumn: 0, deltaRow: 1)
         case .tab:
+            userHasNavigated = true
             hasFocusedOnReset.toggle()
             refreshFocusIndicator()
         case .backTab:
+            userHasNavigated = true
             hasFocusedOnReset.toggle()
             refreshFocusIndicator()
         case .carriageReturn, .enter:
@@ -192,9 +200,9 @@ final class WorklaneColorMenuItemView: NSView {
 
     private func refreshFocusIndicator() {
         for (index, swatch) in swatches.enumerated() {
-            swatch.isFocused = !hasFocusedOnReset && index == focusedIndex
+            swatch.isFocused = userHasNavigated && !hasFocusedOnReset && index == focusedIndex
         }
-        resetRow.isFocused = hasFocusedOnReset
+        resetRow.isFocused = userHasNavigated && hasFocusedOnReset
     }
 
     // MARK: - Accessibility
@@ -270,9 +278,7 @@ final class WorklaneColorSwatchView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let displayAlpha: CGFloat = 1.0
-        let fillColor = color.tint(alpha: displayAlpha)
-
+        let fillColor = color.tint(alpha: 1.0)
         let highlighted = isHovered || isFocused
         let scale: CGFloat = highlighted ? 1.08 : 1.0
         let radius = (bounds.width / 2) * scale
@@ -285,21 +291,15 @@ final class WorklaneColorSwatchView: NSView {
         )
         let path = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
 
-        if isCurrent {
-            fillColor.setStroke()
-            path.lineWidth = 2
-            path.stroke()
-        } else {
-            fillColor.setFill()
-            path.fill()
-        }
+        fillColor.setFill()
+        path.fill()
 
-        if isFocused {
-            let focusRing = NSBezierPath(ovalIn: rect.insetBy(dx: -2, dy: -2))
+        if isCurrent {
+            let halo = NSBezierPath(ovalIn: rect.insetBy(dx: -2, dy: -2))
             NSColor.keyboardFocusIndicatorColor.setStroke()
-            focusRing.lineWidth = 1.5
-            focusRing.stroke()
-        } else if isHovered {
+            halo.lineWidth = 1.5
+            halo.stroke()
+        } else if isHovered || isFocused {
             let glow = NSBezierPath(ovalIn: rect.insetBy(dx: -1.5, dy: -1.5))
             fillColor.withAlphaComponent(0.35).setStroke()
             glow.lineWidth = 1.5
