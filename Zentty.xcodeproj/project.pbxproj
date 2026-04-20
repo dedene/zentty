@@ -102,6 +102,7 @@
 		6407E321D23E068FFB2B995B /* PaneLayoutPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC71C4EF3052C39DDD2F1F57 /* PaneLayoutPreferences.swift */; };
 		641B941C78BEF72E157B5364 /* AgentEventBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F564EFD678FB31CE540FBDEE /* AgentEventBridgeTests.swift */; };
 		6511CF33CD9B8F480EDB6926 /* AppUpdateStateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BBC344380B6DDA89645BBDD /* AppUpdateStateStoreTests.swift */; };
+		6525C49A76A7DA0C41364EDE /* WorklaneColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBB77B77BCACDE8C2DDA5E0E /* WorklaneColor.swift */; };
 		655A01CFDA23B38776180998 /* WorklaneContextFormatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E58967CFFAB97F7D24A62733 /* WorklaneContextFormatterTests.swift */; };
 		6582FD0B7BCB91F3713E13CD /* WorklaneReviewStateResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330B23C2AB3C9333615FF1F1 /* WorklaneReviewStateResolverTests.swift */; };
 		65ADCFA85CAA56E91E14C014 /* PaneDragEdgeScrollDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC113A53E86E67BCA330D9A /* PaneDragEdgeScrollDriver.swift */; };
@@ -1689,6 +1690,7 @@
 				BF98C820ECF82C8A5810259F /* CursorHooksInstaller.swift in Sources */,
 				99451BC2B09FAA072A3B3A88 /* JSONCRelaxedParse.swift in Sources */,
 				0353FE3D437A0B9370A6261B /* TopologyCLI.swift in Sources */,
+				6525C49A76A7DA0C41364EDE /* WorklaneColor.swift in Sources */,
 				C4F35E741F4A20FEA6E0B5C4 /* ZenttyCLI.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

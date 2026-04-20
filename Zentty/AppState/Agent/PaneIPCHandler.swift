@@ -9,6 +9,7 @@ enum PaneIPCSubcommand: String {
     case zoom
     case resize
     case layout
+    case worklaneColor = "worklane-color"
 }
 
 enum PaneIPCHandler {
@@ -42,7 +43,7 @@ enum PaneIPCHandler {
             return AgentIPCResponseResult()
         }
 
-        if subcommand != .list {
+        if subcommand != .list && subcommand != .worklaneColor {
             windowController.focusPane(id: target.paneID, in: target.worklaneID)
         }
 
@@ -61,7 +62,44 @@ enum PaneIPCHandler {
             return handleResize(arguments: request.arguments, windowController: windowController)
         case .layout:
             return handleLayout(arguments: request.arguments, windowController: windowController)
+        case .worklaneColor:
+            return handleWorklaneColor(arguments: request.arguments, target: target, windowController: windowController)
         }
+    }
+
+    // MARK: - Worklane color
+
+    @MainActor
+    private static func handleWorklaneColor(
+        arguments: [String],
+        target: AgentIPCTarget,
+        windowController: MainWindowController
+    ) -> AgentIPCResponseResult {
+        guard let colorIndex = arguments.firstIndex(of: "--color"),
+              colorIndex + 1 < arguments.count else {
+            return AgentIPCResponseResult()
+        }
+        let rawColor = arguments[colorIndex + 1]
+
+        let resolvedColor: WorklaneColor?
+        if rawColor == "reset" || rawColor == "default" {
+            resolvedColor = nil
+        } else if let color = WorklaneColor(rawValue: rawColor) {
+            resolvedColor = color
+        } else {
+            return AgentIPCResponseResult()
+        }
+
+        let worklaneID: WorklaneID
+        if let overrideIndex = arguments.firstIndex(of: "--id"),
+           overrideIndex + 1 < arguments.count {
+            worklaneID = WorklaneID(arguments[overrideIndex + 1])
+        } else {
+            worklaneID = target.worklaneID
+        }
+
+        _ = windowController.setWorklaneColor(resolvedColor, on: worklaneID)
+        return AgentIPCResponseResult()
     }
 
     // MARK: - Split

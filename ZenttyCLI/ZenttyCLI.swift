@@ -307,6 +307,49 @@ struct PaneCloseCommand: ParsableCommand {
     }
 }
 
+struct WorklaneColorCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "color",
+        abstract: "Set or reset the sidebar color of a worklane.",
+        discussion: "Colors: \(WorklaneColor.allCases.map(\.rawValue).joined(separator: ", ")). Use 'reset' or 'default' to clear."
+    )
+
+    @Argument(help: "Color name, 'reset', or 'default'. Omit when using --list.")
+    var value: String?
+
+    @Option(help: "Target a specific worklane (defaults to the calling pane's worklane).")
+    var id: String?
+
+    @Flag(help: "List all available color names and exit.")
+    var list: Bool = false
+
+    mutating func run() throws {
+        if list {
+            for color in WorklaneColor.allCases {
+                print(color.rawValue)
+            }
+            return
+        }
+        guard let raw = value else {
+            throw ValidationError("Missing color. Provide a color name, 'reset', or use --list.")
+        }
+        let payload: String
+        if raw == "reset" || raw == "default" {
+            payload = "reset"
+        } else if WorklaneColor(rawValue: raw) != nil {
+            payload = raw
+        } else {
+            let supported = WorklaneColor.allCases.map(\.rawValue).joined(separator: ", ")
+            throw ValidationError("Unknown color '\(raw)'. Supported: \(supported), reset, default.")
+        }
+        var arguments = ["--color", payload]
+        if let id {
+            arguments.append(contentsOf: ["--id", id])
+        }
+        _ = try PaneIPC.send(subcommand: "worklane-color", arguments: arguments)
+    }
+}
+
 struct PaneZoomCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "zoom",

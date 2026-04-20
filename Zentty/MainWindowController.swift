@@ -723,6 +723,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.closePaneByID(id)
     }
 
+    @discardableResult
+    func setWorklaneColor(_ color: WorklaneColor?, on id: WorklaneID) -> Bool {
+        rootViewController.setWorklaneColor(color, on: id)
+    }
+
     func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
         rootViewController.resizeFocusedColumnToFraction(fraction)
     }

@@ -53,6 +53,7 @@ targets:
       - path: Zentty/AppState/Agent/AgentIPCProtocol.swift
       - path: Zentty/AppState/Agent/CursorHooksInstaller.swift
       - path: Zentty/AppState/Agent/JSONCRelaxedParse.swift
+      - path: Zentty/UI/Theme/WorklaneColor.swift
     dependencies:
       - package: ArgumentParser
         product: ArgumentParser

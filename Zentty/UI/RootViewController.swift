@@ -1835,6 +1835,11 @@ final class RootViewController: NSViewController {
         handlePaneCloseResult(worklaneStore.closePane(id: paneID))
     }
 
+    @discardableResult
+    func setWorklaneColor(_ color: WorklaneColor?, on id: WorklaneID) -> Bool {
+        worklaneStore.setColor(color, on: id)
+    }
+
     func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
         appCanvasView.settlePaneStripPresentationNow()
         worklaneStore.resizeFocusedColumnToFraction(

@@ -145,7 +145,7 @@ struct WorklaneCommandGroup: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "worklane",
         abstract: "Read worklane resources.",
-        subcommands: [WorklaneListCommand.self]
+        subcommands: [WorklaneListCommand.self, WorklaneColorCommand.self]
     )
 }
 
