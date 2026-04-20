@@ -805,7 +805,11 @@ final class RootViewController: NSViewController {
     private func applyInitialState() {
         updateToggleButtonConstraints()
         syncSidebarVisibilityControls(animated: false)
-        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        applySidebarMotionState(
+            sidebarMotionCoordinator.currentMotionState,
+            animated: false,
+            forceLayout: false
+        )
         updatePaneLayoutContextIfNeeded(force: true)
         updatePaneViewportHeight()
         installStaleAgentSweepTimer()
@@ -822,7 +826,7 @@ final class RootViewController: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        syncSidebarWidthToAvailableWidth(persist: false)
+        syncSidebarWidthToAvailableWidth(persist: false, forceLayout: false)
         _ = updatePaneLayoutContextIfNeeded()
         updatePaneViewportHeight()
         updateWindowChromeLeadingControlsInset()
@@ -839,7 +843,7 @@ final class RootViewController: NSViewController {
                 self?.openWithFromPalette(stableID: stableID, workingDirectory: workingDirectory)
             }
         }
-        syncSidebarWidthToAvailableWidth(persist: false)
+        syncSidebarWidthToAvailableWidth(persist: false, forceLayout: false)
         renderCoordinator.updateSurfaceActivities()
         appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
         if globalSearchCoordinator.state.isHUDVisible {
@@ -1536,7 +1540,7 @@ final class RootViewController: NSViewController {
     @objc
     private func handleWindowStateDidChange() {
         appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
-        syncSidebarWidthToAvailableWidth(persist: false)
+        syncSidebarWidthToAvailableWidth(persist: false, forceLayout: false)
         updatePaneLayoutContextIfNeeded(force: true)
         renderCoordinator.updateSurfaceActivities()
     }
@@ -1585,7 +1589,11 @@ final class RootViewController: NSViewController {
         updatePaneNavigationButtonState()
         windowChromeView.apply(theme: theme, animated: animated)
         appCanvasView.apply(theme: theme, animated: animated)
-        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        applySidebarMotionState(
+            sidebarMotionCoordinator.currentMotionState,
+            animated: false,
+            forceLayout: false
+        )
         onWindowChromeNeedsUpdate?()
     }
 
@@ -2094,7 +2102,10 @@ final class RootViewController: NSViewController {
         view.bounds.width > 0 ? view.bounds.width : view.window?.screen?.visibleFrame.width
     }
 
-    private func syncSidebarWidthToAvailableWidth(persist: Bool) {
+    private func syncSidebarWidthToAvailableWidth(
+        persist: Bool,
+        forceLayout: Bool = true
+    ) {
         let previousWidth = sidebarMotionCoordinator.currentSidebarWidth
         sidebarMotionCoordinator.setSidebarWidth(
             previousWidth,
@@ -2106,7 +2117,11 @@ final class RootViewController: NSViewController {
         }
 
         sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
-        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        applySidebarMotionState(
+            sidebarMotionCoordinator.currentMotionState,
+            animated: false,
+            forceLayout: forceLayout
+        )
     }
 
     private func updateSidebarWidth(_ width: CGFloat, persist: Bool) {
@@ -2121,7 +2136,11 @@ final class RootViewController: NSViewController {
         }
 
         sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
-        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        applySidebarMotionState(
+            sidebarMotionCoordinator.currentMotionState,
+            animated: false,
+            forceLayout: false
+        )
     }
 
     private func updateCanvasLeadingInset(_ leadingVisibleInset: CGFloat? = nil) {
@@ -2177,7 +2196,11 @@ final class RootViewController: NSViewController {
         )
         sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
         syncSidebarVisibilityControls(animated: false)
-        applySidebarMotionState(sidebarMotionCoordinator.currentMotionState, animated: false)
+        applySidebarMotionState(
+            sidebarMotionCoordinator.currentMotionState,
+            animated: false,
+            forceLayout: false
+        )
         updatePaneLayoutContextIfNeeded(force: true)
         renderCoordinator.render()
         updateOpenWithChromeState()

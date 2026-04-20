@@ -99,6 +99,7 @@ final class TerminalPaneHostView: NSView {
     }
 
     func setViewportSyncSuspended(_ suspended: Bool) {
+        syncTerminalViewFrameIfNeeded()
         (terminalView as? any TerminalViewportSyncControlling)?
             .setViewportSyncSuspended(suspended)
     }
@@ -109,8 +110,8 @@ final class TerminalPaneHostView: NSView {
     }
 
     func forceViewportSync() {
+        syncTerminalViewFrameIfNeeded()
         needsLayout = true
-        layoutSubtreeIfNeeded()
         (terminalView as? any TerminalViewportSyncControlling)?.forceViewportSync()
     }
 
@@ -190,13 +191,20 @@ final class TerminalPaneHostView: NSView {
 
     override func layout() {
         super.layout()
-        terminalView.frame = bounds
+        syncTerminalViewFrameIfNeeded()
         if !searchHUDView.preservesInteractiveFrame {
             searchHUDView.frame = searchHUDView.frame(
                 for: lastRenderedSearchState.hudCorner,
                 in: searchHUDContainerView.bounds
             )
         }
+    }
+
+    private func syncTerminalViewFrameIfNeeded() {
+        guard terminalView.frame != bounds else {
+            return
+        }
+        terminalView.frame = bounds
     }
 
     var terminalViewForTesting: NSView {

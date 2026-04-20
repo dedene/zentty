@@ -624,6 +624,109 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         XCTAssertEqual(adapter.eventLog, ["prepare"])
     }
 
+    func test_render_coordinator_deinit_cancels_review_polling_and_unsubscribes() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "zsh",
+                gitBranch: "main"
+            )
+        )
+        store.updateGitContext(
+            paneID: paneID,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() })
+        let renderEnvironment = StubRenderEnvironment()
+        let reviewPollingScheduler = ReviewPollingSchedulerSpy()
+        let baselineSubscriberCount = store.subscriberCountForTesting
+        weak var weakCoordinator: WorklaneRenderCoordinator?
+
+        autoreleasepool {
+            let coordinator = WorklaneRenderCoordinator(
+                worklaneStore: store,
+                runtimeRegistry: runtimeRegistry,
+                notificationStore: NotificationStore(),
+                reviewPollingScheduler: reviewPollingScheduler.schedule
+            )
+            weakCoordinator = coordinator
+            coordinator.environment = renderEnvironment
+            coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
+                sidebarView: SidebarView(),
+                windowChromeView: WindowChromeView(),
+                appCanvasView: AppCanvasView(runtimeRegistry: runtimeRegistry)
+            ))
+            coordinator.startObserving()
+            coordinator.render()
+
+            XCTAssertEqual(store.subscriberCountForTesting, baselineSubscriberCount + 1)
+            XCTAssertEqual(reviewPollingScheduler.handles.count, 1)
+            XCTAssertFalse(reviewPollingScheduler.handles[0].isCancelled)
+        }
+
+        XCTAssertNil(weakCoordinator)
+        XCTAssertEqual(store.subscriberCountForTesting, baselineSubscriberCount)
+        XCTAssertEqual(reviewPollingScheduler.handles.count, 1)
+        XCTAssertTrue(reviewPollingScheduler.handles[0].isCancelled)
+    }
+
+    func test_render_coordinator_cancels_review_polling_when_target_disappears() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "zsh",
+                gitBranch: "main"
+            )
+        )
+        store.updateGitContext(
+            paneID: paneID,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() })
+        let renderEnvironment = StubRenderEnvironment()
+        let reviewPollingScheduler = ReviewPollingSchedulerSpy()
+        let coordinator = WorklaneRenderCoordinator(
+            worklaneStore: store,
+            runtimeRegistry: runtimeRegistry,
+            notificationStore: NotificationStore(),
+            reviewPollingScheduler: reviewPollingScheduler.schedule
+        )
+        coordinator.environment = renderEnvironment
+        coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
+            sidebarView: SidebarView(),
+            windowChromeView: WindowChromeView(),
+            appCanvasView: AppCanvasView(runtimeRegistry: runtimeRegistry)
+        ))
+        coordinator.startObserving()
+        coordinator.render()
+
+        XCTAssertEqual(reviewPollingScheduler.handles.count, 1)
+        XCTAssertFalse(reviewPollingScheduler.handles[0].isCancelled)
+
+        store.updateGitContext(paneID: paneID, gitContext: nil)
+
+        XCTAssertTrue(reviewPollingScheduler.handles[0].isCancelled)
+        XCTAssertNil(coordinator.reviewPollingTargetForTesting)
+    }
+
     func test_render_coordinator_applies_updated_pane_display_settings_from_config_store() throws {
         let logsPaneID = PaneID("logs")
         let editorPaneID = PaneID("editor")
@@ -831,6 +934,28 @@ private struct StubPaneGitContextResolver: PaneGitContextResolving {
                 repositoryRoot: nil,
                 reference: nil
             )
+    }
+}
+
+@MainActor
+private final class ReviewPollingSchedulerSpy {
+    final class Handle: WorklaneRenderCoordinatorScheduledHandle {
+        private(set) var isCancelled = false
+
+        func cancel() {
+            isCancelled = true
+        }
+    }
+
+    private(set) var handles: [Handle] = []
+
+    func schedule(
+        interval _: TimeInterval,
+        operation _: @escaping @MainActor () -> Void
+    ) -> any WorklaneRenderCoordinatorScheduledHandle {
+        let handle = Handle()
+        handles.append(handle)
+        return handle
     }
 }
 

@@ -301,9 +301,20 @@ final class SidebarView: NSView {
 
         let newActiveID = summaries.first(where: \.isActive)?.worklaneID
         if newActiveID != previousActiveID, let newActiveID {
-            listStack.layoutSubtreeIfNeeded()
-            if !isWorklaneVisible(id: newActiveID) {
-                scrollToWorklane(id: newActiveID)
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      self.worklaneSummaries.first(where: \.isActive)?.worklaneID == newActiveID else {
+                    return
+                }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          self.worklaneSummaries.first(where: \.isActive)?.worklaneID == newActiveID else {
+                        return
+                    }
+                    if !self.isWorklaneVisible(id: newActiveID) {
+                        self.scrollToWorklane(id: newActiveID)
+                    }
+                }
             }
         }
     }

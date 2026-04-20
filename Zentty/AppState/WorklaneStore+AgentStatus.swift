@@ -639,13 +639,14 @@ extension WorklaneStore {
 
         cachedGitContextByPath.removeValue(forKey: path)
         knownNonRepositoryPaths.remove(path)
+        nonRepositoryRetryDeadlineByPath.removeValue(forKey: path)
     }
 
     func clearStaleAgentSessions() {
-        var didChange = false
-
         for worklaneIndex in worklanes.indices {
             var worklane = worklanes[worklaneIndex]
+            let previousWorklane = worklane
+            var changedPaneIDs = Set<PaneID>()
 
             for (paneID, aux) in worklane.auxiliaryStateByPaneID {
                 if !aux.agentReducerState.sessionsByID.isEmpty {
@@ -663,7 +664,7 @@ extension WorklaneStore {
                         reducedStatus?.workingDirectory = processCwd
                     }
                     if reducerState != aux.agentReducerState || reducedStatus != aux.agentStatus {
-                        didChange = true
+                        changedPaneIDs.insert(paneID)
                         worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState = reducerState
                         worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = reducedStatus
                         if reducedStatus == nil {
@@ -682,7 +683,7 @@ extension WorklaneStore {
                     continue
                 }
 
-                didChange = true
+                changedPaneIDs.insert(paneID)
                 if status.state == .starting || status.state == .running || status.requiresHumanAttention {
                     worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
                     worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
@@ -695,10 +696,16 @@ extension WorklaneStore {
             }
 
             worklanes[worklaneIndex] = worklane
-        }
-
-        if didChange {
-            notify(.worklaneListChanged)
+            for paneID in changedPaneIDs {
+                let impacts = auxiliaryInvalidation(
+                    for: paneID,
+                    previousWorklane: previousWorklane,
+                    nextWorklane: worklane
+                )
+                if !impacts.isEmpty {
+                    notify(.auxiliaryStateUpdated(worklane.id, paneID, impacts))
+                }
+            }
         }
     }
 

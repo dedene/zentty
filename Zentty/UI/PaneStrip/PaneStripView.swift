@@ -100,6 +100,10 @@ final class PaneStripView: NSView {
     private var pendingAnimatedSettleAction: (() -> Void)?
     private var renderGuard = RenderGuard()
     private var suppressDiffBasedTransitionsOnNextRender = false
+    private var isDetachingFromWindow = false
+    private var isRenderingLayoutPass = false
+    private var needsTerminalRedrawAfterLayout = false
+    private var isTerminalRedrawScheduled = false
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resolvedLeadingVisibleInset: CGFloat = 0
     private var hoveredDivider: PaneDivider?
@@ -227,7 +231,7 @@ final class PaneStripView: NSView {
         dragCoordinator.onDragActiveChanged = { [weak self] active in
             guard let self else { return }
             self.isDragActive = active
-            if !active {
+            if !active, !self.isDetachingFromWindow {
                 if let state = self.currentState {
                     self.renderCurrentState(state, animated: false)
                 }
@@ -270,7 +274,15 @@ final class PaneStripView: NSView {
     }
 
     override func layout() {
+        isRenderingLayoutPass = true
         super.layout()
+        defer {
+            isRenderingLayoutPass = false
+            if needsTerminalRedrawAfterLayout {
+                needsTerminalRedrawAfterLayout = false
+                scheduleTerminalRedraw()
+            }
+        }
         viewportView.frame = bounds
         if isZoomedOut && !isZoomAnimating {
             if isDragActive {
@@ -291,8 +303,9 @@ final class PaneStripView: NSView {
                 return
             }
             hostDrivenResizeRenderRequestPending = true
+            let deferredWorkGeneration = self.deferredWorkGeneration
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, deferredWorkGeneration == self.deferredWorkGeneration else { return }
                 self.hostDrivenResizeRenderRequestPending = false
                 self.onHostDrivenResizeRenderRequested?()
             }
@@ -402,7 +415,11 @@ final class PaneStripView: NSView {
             return
         }
 
-        renderCurrentState(currentState, animated: false)
+        renderCurrentState(
+            currentState,
+            animated: false,
+            forceViewportLayoutBeforeViewportSync: true
+        )
     }
 
     func setLeadingVisibleInset(
@@ -484,6 +501,7 @@ final class PaneStripView: NSView {
     private func renderCurrentState(
         _ state: PaneStripState,
         animated: Bool,
+        forceViewportLayoutBeforeViewportSync: Bool = false,
         animationDuration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         animationTimingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
@@ -612,12 +630,15 @@ final class PaneStripView: NSView {
             if !isZoomedOut {
                 applyTerminalAnimationFreeze(to: [])
             }
-            viewportView.layoutSubtreeIfNeeded()
+            flushViewportLayoutIfNeeded()
+            if forceViewportLayoutBeforeViewportSync {
+                viewportView.layoutSubtreeIfNeeded()
+            }
             if !isZoomedOut {
                 applyViewportSyncSuspension(to: [])
             }
             if needsTerminalRedrawAfterRender {
-                refreshTerminalDisplays()
+                refreshTerminalDisplaysIfNeeded()
             }
         }
 
@@ -693,11 +714,36 @@ final class PaneStripView: NSView {
     private func refreshTerminalDisplays() {
         for paneView in paneViews.values {
             paneView.needsLayout = true
-            paneView.layoutSubtreeIfNeeded()
             refreshDisplayRecursively(in: paneView)
         }
 
         refreshDisplayRecursively(in: viewportView)
+    }
+
+    private func refreshTerminalDisplaysIfNeeded() {
+        guard !isRenderingLayoutPass else {
+            needsTerminalRedrawAfterLayout = true
+            return
+        }
+        scheduleTerminalRedraw()
+    }
+
+    private func scheduleTerminalRedraw() {
+        guard !isTerminalRedrawScheduled else {
+            return
+        }
+
+        isTerminalRedrawScheduled = true
+        let deferredWorkGeneration = self.deferredWorkGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, deferredWorkGeneration == self.deferredWorkGeneration else { return }
+            self.isTerminalRedrawScheduled = false
+            self.refreshTerminalDisplays()
+        }
+    }
+
+    private func flushViewportLayoutIfNeeded() {
+        viewportView.needsLayout = true
     }
 
     private func refreshDisplayRecursively(in view: NSView) {
@@ -731,12 +777,13 @@ final class PaneStripView: NSView {
         if !isZoomedOut {
             applyTerminalAnimationFreeze(to: [])
         }
+        flushViewportLayoutIfNeeded()
         viewportView.layoutSubtreeIfNeeded()
         if !isZoomedOut {
             applyViewportSyncSuspension(to: [])
         }
         if needsTerminalRedrawAfterRender {
-            refreshTerminalDisplays()
+            refreshTerminalDisplaysIfNeeded()
             for paneView in paneViews.values {
                 paneView.forceTerminalViewportSync()
             }
@@ -804,7 +851,11 @@ final class PaneStripView: NSView {
                     paneView.alphaValue = targetAlpha
                 }
             } else {
+                let frameChanged = paneView.frame != targetFrame
                 paneView.frame = targetFrame
+                if frameChanged {
+                    paneView.needsLayout = true
+                }
                 paneView.alphaValue = targetAlpha
             }
         }
@@ -1037,21 +1088,39 @@ final class PaneStripView: NSView {
     }
 
     func prepareForTestingTearDown() {
-        deferredWorkGeneration &+= 1
-        focusGeneration &+= 1
-        pendingProgrammaticFocusPaneID = nil
-        lastFocusedPaneID = nil
-        stopZoomAnimation()
-        pendingAnimatedSettleAction = nil
-        endDropSettle()
-        dragCoordinator.prepareForTestingTearDown()
-        cancelDividerDrag()
-        removeDividerDragEscapeMonitor()
+        cleanupTransientStateForWindowDetachment()
         afterNextRenderCallback = nil
         viewportView.layer?.removeAllAnimations()
         dividerViews.values.forEach { $0.layer?.removeAllAnimations() }
         layer?.removeAllAnimations()
         settlePresentationNow()
+    }
+
+    private func cleanupTransientStateForWindowDetachment() {
+        focusGeneration &+= 1
+        pendingProgrammaticFocusPaneID = nil
+        lastFocusedPaneID = nil
+        deferredWorkGeneration &+= 1
+        hostDrivenResizeRenderRequestPending = false
+        needsTerminalRedrawAfterLayout = false
+        isTerminalRedrawScheduled = false
+        stopZoomAnimation()
+        isZoomedOut = false
+        dragScrollOffsetX = 0
+        viewportView.autoresizingMask = [.width, .height]
+        applyZoomScale(1)
+        for (_, paneView) in paneViews {
+            paneView.endVerticalFreeze()
+            paneView.setTerminalViewportSyncSuspended(false)
+        }
+        pendingAnimatedSettleAction = nil
+        endDropSettle()
+        dragCoordinator.prepareForTestingTearDown()
+        cancelDividerDrag()
+        removeDividerDragEscapeMonitor()
+        activeDivider = nil
+        hoveredDivider = nil
+        updateDividerHighlightStates()
     }
 
     var leadingMaskMinX: CGFloat {
@@ -1758,6 +1827,10 @@ final class PaneStripView: NSView {
         dragScrollOffsetX
     }
 
+    var hasDividerDragEscapeMonitorForTesting: Bool {
+        dividerDragEscapeMonitor != nil
+    }
+
     #if DEBUG
         var zoomAnchorForTesting: CGPoint {
             zoomAnchor
@@ -2002,6 +2075,16 @@ final class PaneStripView: NSView {
     ) -> Bool {
         insertionTransition?.paneID == panePresentation.paneID
             || abs(currentAlpha - targetAlpha) > 0.001
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil {
+            isDetachingFromWindow = true
+            cleanupTransientStateForWindowDetachment()
+        } else {
+            isDetachingFromWindow = false
+        }
+        super.viewWillMove(toWindow: newWindow)
     }
 }
 
