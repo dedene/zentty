@@ -478,6 +478,19 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertTrue(script.contains("find_real_pi"))
     }
 
+    func test_kimi_wrapper_delegates_to_shared_agent_wrapper() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperPath = repoRoot
+            .appendingPathComponent("ZenttyResources/bin/kimi/kimi")
+            .path
+        let script = try String(contentsOfFile: wrapperPath, encoding: .utf8)
+
+        XCTAssertTrue(script.contains("ZENTTY_AGENT_TOOL=\"kimi\""))
+        XCTAssertTrue(script.contains("zentty-agent-wrapper"))
+    }
+
     // MARK: - Environment
 
     func test_missing_worklane_id_throws() throws {
@@ -568,6 +581,82 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .idle)
         XCTAssertEqual(payloads[0].lifecycleEvent, .update)
+    }
+
+    // MARK: - Kimi Adapter
+
+    func test_kimi_adapter_session_start_with_pid() throws {
+        let json = #"{"hook_event_name": "SessionStart", "session_id": "s1", "cwd": "/tmp"}"#
+        let env = kimiEnvironment(pid: "42")
+        let payloads = try AgentEventBridge.kimiAdapter(data: json.data(using: .utf8)!, environment: env)
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads[0].signalKind, .pid)
+        XCTAssertEqual(payloads[0].pid, 42)
+        XCTAssertEqual(payloads[0].pidEvent, .attach)
+        XCTAssertEqual(payloads[1].state, .starting)
+        XCTAssertEqual(payloads[1].toolName, "Kimi")
+    }
+
+    func test_kimi_adapter_user_prompt_submit() throws {
+        let json = #"{"hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "/tmp/project"}"#
+        let payloads = try AgentEventBridge.kimiAdapter(data: json.data(using: .utf8)!, environment: kimiEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].sessionID, "s1")
+        XCTAssertEqual(payloads[0].agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_kimi_adapter_stop() throws {
+        let json = #"{"hook_event_name": "Stop", "session_id": "s1"}"#
+        let payloads = try AgentEventBridge.kimiAdapter(data: json.data(using: .utf8)!, environment: kimiEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .idle)
+        XCTAssertEqual(payloads[0].lifecycleEvent, .update)
+    }
+
+    func test_kimi_adapter_session_end_clears_status_and_pid_mapping() throws {
+        let json = #"{"hook_event_name": "SessionEnd", "session_id": "s1"}"#
+        let payloads = try AgentEventBridge.kimiAdapter(data: json.data(using: .utf8)!, environment: kimiEnvironment())
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads[0].signalKind, .lifecycle)
+        XCTAssertNil(payloads[0].state)
+        XCTAssertEqual(payloads[1].signalKind, .pid)
+        XCTAssertNil(payloads[1].pid)
+        XCTAssertEqual(payloads[1].pidEvent, .clear)
+    }
+
+    func test_kimi_adapter_permission_prompt_notification_maps_to_needs_input_payload() throws {
+        let json = #"{"hook_event_name": "Notification", "session_id": "s1", "cwd": "/tmp/project", "notification_type": "permission_prompt", "title": "Allow edit", "body": "project.yml"}"#
+        let payloads = try AgentEventBridge.kimiAdapter(data: json.data(using: .utf8)!, environment: kimiEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .approval)
+        XCTAssertEqual(payloads[0].text, "Allow edit")
+        XCTAssertEqual(payloads[0].agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_kimi_adapter_pre_tool_use_ask_user_question_maps_to_question_payload() throws {
+        let json = #"{"hook_event_name":"PreToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"AskUserQuestion","tool_input":{"question":"Which file?"}}"#
+        let payloads = try AgentEventBridge.kimiAdapter(data: json.data(using: .utf8)!, environment: kimiEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .question)
+        XCTAssertEqual(payloads[0].text, "Which file?")
+    }
+
+    func test_kimi_adapter_post_tool_use_ask_user_question_restores_running_payload() throws {
+        let json = #"{"hook_event_name":"PostToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"AskUserQuestion"}"#
+        let payloads = try AgentEventBridge.kimiAdapter(data: json.data(using: .utf8)!, environment: kimiEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].interactionKind, .none)
     }
 
     // MARK: - Copilot Adapter
@@ -736,6 +825,12 @@ final class AgentEventBridgeTests: XCTestCase {
     private func codexEnvironment(pid: String? = nil) -> [String: String] {
         var env = defaultEnvironment
         if let pid { env["ZENTTY_CODEX_PID"] = pid }
+        return env
+    }
+
+    private func kimiEnvironment(pid: String? = nil) -> [String: String] {
+        var env = defaultEnvironment
+        if let pid { env["ZENTTY_KIMI_PID"] = pid }
         return env
     }
 

@@ -32,7 +32,7 @@
 - **Resume your workspace** Zentty restores your worklanes on relaunch and can reopen agent sessions that were closed without finishing.
 - **Command palette** A fuzzy-searchable list of every action in the app, with your recent commands on top.
 - **Global search** Search inside the current pane or across every worklane with a single shortcut. Search without losing flow.
-- **Agent-aware.** Claude Code, Codex, Copilot CLI, Gemini CLI, and OpenCode report their status into the sidebar, so you see what they're doing, what they're asking, and when they need you, without switching panes.
+- **Agent-aware.** Claude Code, Codex, Copilot CLI, Gemini CLI, Kimi CLI, and OpenCode report their status into the sidebar, so you see what they're doing, what they're asking, and when they need you, without switching panes.
 - **Native Ghostty themes.** Zentty reads Ghostty themes directly, with a built-in picker, live preview, opacity, and blur. And if you've never installed
    Ghostty, the default experience is polished out of the box.
 - **Scriptable control** Interaction with worklanes or panes is scriptable via the embedded zentty CLI.
@@ -94,6 +94,8 @@ xcodebuild test -scheme Zentty -destination 'platform=macOS'
 Zentty bundles helper commands and environment variables for agent-aware workflows inside terminal panes.
 
 Hook configuration details are documented in [`docs/agent-hooks.md`](docs/agent-hooks.md).
+
+For Kimi specifically: do first-time auth with `kimi login` before using wrapped `kimi` inside Zentty. Zentty passthroughs Kimi's management commands directly to the real Kimi binary so login/logout keep using the default Kimi config. If you want a specific model, prefer `kimi --model <model-id>` or set `default_model` in `~/.kimi/config.toml`.
 
 ## Contributing
 

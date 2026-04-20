@@ -69,6 +69,15 @@ enum AgentLaunchBootstrap {
                 runtimeDirectoryURL: runtimeDirectoryURL,
                 fileManager: fileManager
             )
+        case .kimi:
+            return try kimiPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
+                target: target,
+                runtimeDirectoryURL: runtimeDirectoryURL,
+                fileManager: fileManager
+            )
         case .opencode:
             return try opencodePlan(
                 executablePath: resolvedOpenCodeExecutablePath(
@@ -161,6 +170,53 @@ enum AgentLaunchBootstrap {
                     standardInput: sessionStartJSON
                 ),
             ]
+        )
+    }
+
+    private static func kimiPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        target: AgentIPCTarget,
+        runtimeDirectoryURL: URL,
+        fileManager: FileManager
+    ) throws -> AgentLaunchPlan {
+        if environment["ZENTTY_KIMI_HOOKS_DISABLED"] == "1" {
+            return directPlan(executablePath: executablePath, arguments: arguments)
+        }
+
+        guard let cliPath = environment["ZENTTY_CLI_BIN"]?.nilIfBlank else {
+            return AgentLaunchPlan(
+                executablePath: executablePath,
+                arguments: arguments,
+                setEnvironment: [
+                    "ZENTTY_AGENT_TOOL": "kimi",
+                ],
+                unsetEnvironment: [],
+                preLaunchActions: []
+            )
+        }
+
+        let (forwardedArguments, configSource) = parseKimiConfig(arguments: arguments, environment: environment)
+        let overlayDirectoryURL = try prepareToolDirectory(
+            tool: .kimi,
+            target: target,
+            runtimeDirectoryURL: runtimeDirectoryURL,
+            fileManager: fileManager
+        )
+        let overlayConfigURL = overlayDirectoryURL.appendingPathComponent("config.toml", isDirectory: false)
+        let existingConfig = try kimiConfigContents(from: configSource, fileManager: fileManager)
+        let mergedConfig = try KimiHooksInstaller.mergedConfigText(existingConfig: existingConfig, cliPath: cliPath)
+        try mergedConfig.write(to: overlayConfigURL, atomically: true, encoding: .utf8)
+
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: ["--config-file", overlayConfigURL.path] + forwardedArguments,
+            setEnvironment: [
+                "ZENTTY_AGENT_TOOL": "kimi",
+            ],
+            unsetEnvironment: [],
+            preLaunchActions: []
         )
     }
 
@@ -567,6 +623,32 @@ enum AgentLaunchBootstrap {
         return overlaySettingsURL.path
     }
 
+    private static func kimiConfigContents(
+        from source: KimiConfigSource,
+        fileManager: FileManager
+    ) throws -> String {
+        switch source {
+        case let .inline(configText):
+            return configText
+        case let .defaultFile(url):
+            guard fileManager.fileExists(atPath: url.path) else {
+                return ""
+            }
+            return try String(contentsOf: url, encoding: .utf8)
+        case let .explicitFile(url):
+            guard fileManager.fileExists(atPath: url.path) else {
+                throw CocoaError(
+                    .fileNoSuchFile,
+                    userInfo: [
+                        NSFilePathErrorKey: url.path,
+                        NSLocalizedDescriptionKey: "Kimi config file not found at \(url.path)",
+                    ]
+                )
+            }
+            return try String(contentsOf: url, encoding: .utf8)
+        }
+    }
+
     private static func prepareToolDirectory(
         tool: AgentBootstrapTool,
         target: AgentIPCTarget,
@@ -850,6 +932,47 @@ enum AgentLaunchBootstrap {
         return false
     }
 
+    private static func parseKimiConfig(
+        arguments: [String],
+        environment: [String: String]
+    ) -> (forwardedArguments: [String], source: KimiConfigSource) {
+        var forwarded = [String]()
+        var iterator = arguments.makeIterator()
+        var source: KimiConfigSource = .defaultFile(KimiHooksInstaller.defaultUserConfigURL(
+            home: environment["HOME"]?.nilIfBlank ?? NSHomeDirectory()
+        ))
+
+        while let argument = iterator.next() {
+            switch argument {
+            case "--config-file":
+                if let value = iterator.next() {
+                    source = .explicitFile(URL(fileURLWithPath: value, isDirectory: false))
+                } else {
+                    forwarded.append(argument)
+                }
+            case let value where value.hasPrefix("--config-file="):
+                source = .explicitFile(
+                    URL(
+                        fileURLWithPath: String(value.dropFirst("--config-file=".count)),
+                        isDirectory: false
+                    )
+                )
+            case "--config":
+                if let value = iterator.next() {
+                    source = .inline(value)
+                } else {
+                    forwarded.append(argument)
+                }
+            case let value where value.hasPrefix("--config="):
+                source = .inline(String(value.dropFirst("--config=".count)))
+            default:
+                forwarded.append(argument)
+            }
+        }
+
+        return (forwarded, source)
+    }
+
     private static func directPlan(
         executablePath: String,
         arguments: [String],
@@ -1020,6 +1143,12 @@ enum AgentLaunchBootstrap {
 
         return config
     }
+}
+
+private enum KimiConfigSource {
+    case defaultFile(URL)
+    case explicitFile(URL)
+    case inline(String)
 }
 
 private extension String {

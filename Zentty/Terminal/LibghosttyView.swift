@@ -853,6 +853,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let shouldEmitUserSubmittedInput = Self.shouldEmitUserSubmittedInput(for: event)
         let shouldEmitUserEditedInput = Self.shouldEmitUserEditedInput(for: event)
+        let shouldEmitUserInterrupted = Self.shouldEmitUserInterrupted(for: event)
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
             let controlText = event.charactersIgnoringModifiers ?? event.characters
             let handled = surfaceController.sendKey(
@@ -867,6 +868,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
                 }
                 if shouldEmitUserEditedInput {
                     onLocalEventDidOccur?(.userEditedInput)
+                }
+                if shouldEmitUserInterrupted {
+                    onLocalEventDidOccur?(.userInterrupted)
                 }
                 return
             }
@@ -886,6 +890,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         }
         if shouldEmitUserEditedInput {
             onLocalEventDidOccur?(.userEditedInput)
+        }
+        if shouldEmitUserInterrupted {
+            onLocalEventDidOccur?(.userInterrupted)
         }
         keyTextAccumulator = ""
     }
@@ -1018,6 +1025,10 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         }
 
         return sanitizedInputText(characters) != nil
+    }
+
+    private static func shouldEmitUserInterrupted(for event: NSEvent) -> Bool {
+        TerminalInterruptKeyRecognizer.matchesUserInterrupt(event)
     }
 
     private static func shouldDeferToSystemWindowTiling(for event: NSEvent) -> Bool {

@@ -4583,6 +4583,40 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_kimi_control_c_interrupt_transitions_running_session_to_idle_without_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Kimi",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "kimi-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .userInterrupted
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Idle")
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
     func test_waiting_codex_title_preserves_specific_blocked_prompt_copy() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
