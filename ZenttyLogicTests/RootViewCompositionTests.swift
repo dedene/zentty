@@ -446,11 +446,11 @@ final class RootViewCompositionTests: AppKitTestCase {
             outerRadius: ChromeGeometry.outerWindowRadius,
             inset: ChromeGeometry.shellInset
         ))
-        XCTAssertEqual(ChromeGeometry.sidebarRadius, ChromeGeometry.contentShellRadius)
         XCTAssertEqual(ChromeGeometry.paneRadius, ChromeGeometry.innerRadius(
             outerRadius: ChromeGeometry.contentShellRadius,
             inset: ChromeGeometry.paneInset
         ))
+        XCTAssertEqual(ChromeGeometry.sidebarRadius, ChromeGeometry.paneRadius)
         XCTAssertEqual(ChromeGeometry.rowRadius, ChromeGeometry.innerRadius(
             outerRadius: ChromeGeometry.sidebarRadius,
             inset: ChromeGeometry.rowInset
