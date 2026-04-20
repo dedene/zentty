@@ -84,6 +84,7 @@ final class PaneStripView: NSView {
     private var currentPaneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:]
     private var currentShowsPaneLabels = AppConfig.Panes.default.showLabels
     private var currentInactivePaneOpacity = AppConfig.Panes.default.inactiveOpacity
+    private var currentWorklaneColor: WorklaneColor?
     private var currentPresentation: StripPresentation?
     private var paneViews: [PaneID: PaneContainerView] = [:]
     private var dragZoneViews: [PaneID: PaneDragZoneView] = [:]
@@ -320,6 +321,7 @@ final class PaneStripView: NSView {
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
+        worklaneColor: WorklaneColor? = nil,
         leadingVisibleInset: CGFloat? = nil,
         animated: Bool = true,
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
@@ -332,6 +334,7 @@ final class PaneStripView: NSView {
             AppConfig.Panes.minimumInactiveOpacity,
             min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
         )
+        currentWorklaneColor = worklaneColor
         let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
         resetScrollSwitchGestureIfFocusChanged(from: previousFocusedPaneID, to: state.focusedPaneID)
@@ -358,6 +361,7 @@ final class PaneStripView: NSView {
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
+        worklaneColor: WorklaneColor? = nil,
         leadingVisibleInset: CGFloat,
         animated: Bool,
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
@@ -370,6 +374,7 @@ final class PaneStripView: NSView {
             AppConfig.Panes.minimumInactiveOpacity,
             min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
         )
+        currentWorklaneColor = worklaneColor
         let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
         resetScrollSwitchGestureIfFocusChanged(from: previousFocusedPaneID, to: state.focusedPaneID)
@@ -812,6 +817,7 @@ final class PaneStripView: NSView {
                 borderContext: currentShowsPaneLabels
                     ? currentPaneBorderContextByPaneID[panePresentation.paneID]
                     : nil,
+                worklaneColor: currentWorklaneColor,
                 animated: animated,
                 useNeutralBackground: useNeutralBackground
             )

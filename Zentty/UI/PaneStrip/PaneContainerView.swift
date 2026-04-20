@@ -152,6 +152,130 @@ private final class PaneInsetBorderLayer: CALayer {
     }
 }
 
+/// Paints a soft colored halo on the interior of the inset border stroke.
+///
+/// Rendering recipe: concentric rounded strokes centred on the inset border
+/// path, widest+faintest first, each subsequent stroke narrower and more
+/// saturated. The overlap approximates a gaussian falloff without relying on
+/// CAShapeLayer's path (which doesn't follow bounds animations). By deriving
+/// the stroke rect from `bounds` inside `draw(in:)` and enabling
+/// `needsDisplayOnBoundsChange`, the halo re-renders every animation frame
+/// and tracks pane resizes cleanly.
+private final class PaneFocusGlowLayer: CALayer {
+    var glowColorValue: CGColor? {
+        didSet {
+            guard oldValue != glowColorValue else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    var glowBlurRadius: CGFloat = 6 {
+        didSet {
+            guard oldValue != glowBlurRadius else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    var strokeInset: CGFloat = 0 {
+        didSet {
+            guard oldValue != strokeInset else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    var strokeCornerRadius: CGFloat = 0 {
+        didSet {
+            guard oldValue != strokeCornerRadius else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    /// Rectangle (in layer-local coords) to punch out of the halo — matches
+    /// the border-context label's frame so the glow doesn't bleed through its
+    /// transparent background. `.zero` disables.
+    var labelGapRect: CGRect = .zero {
+        didSet {
+            guard oldValue != labelGapRect else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    override init() {
+        super.init()
+        backgroundColor = NSColor.clear.cgColor
+        needsDisplayOnBoundsChange = true
+        zPosition = 9
+        contentsGravity = .resize
+        isOpaque = false
+        autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+    }
+
+    override init(layer: Any) {
+        if let layer = layer as? PaneFocusGlowLayer {
+            glowColorValue = layer.glowColorValue
+            glowBlurRadius = layer.glowBlurRadius
+            strokeInset = layer.strokeInset
+            strokeCornerRadius = layer.strokeCornerRadius
+            labelGapRect = layer.labelGapRect
+        }
+        super.init(layer: layer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(in context: CGContext) {
+        guard let cgColor = glowColorValue, glowBlurRadius > 0 else { return }
+        guard let baseColor = NSColor(cgColor: cgColor), baseColor.alphaComponent > 0 else {
+            return
+        }
+
+        let innerRect = bounds.insetBy(dx: strokeInset, dy: strokeInset)
+        guard innerRect.width > 0, innerRect.height > 0 else { return }
+
+        let radius = max(0, strokeCornerRadius)
+        let path = CGPath(
+            roundedRect: innerRect,
+            cornerWidth: radius,
+            cornerHeight: radius,
+            transform: nil
+        )
+
+        // `baseColor.alphaComponent` is the focusedGlow intensity knob. Each
+        // band's alpha is a fraction of that. Widths scale off the "blur
+        // radius equivalent" — wider bands extend inward (and outward, but the
+        // outward portion is invisible behind the inset border stroke).
+        let intensity = baseColor.alphaComponent
+        let bands: [(width: CGFloat, alphaFraction: CGFloat)] = [
+            (width: glowBlurRadius * 3.0, alphaFraction: 0.10),
+            (width: glowBlurRadius * 2.0, alphaFraction: 0.22),
+            (width: glowBlurRadius * 1.2, alphaFraction: 0.40),
+            (width: glowBlurRadius * 0.6, alphaFraction: 0.65),
+        ]
+
+        context.saveGState()
+        if labelGapRect.width > 0, labelGapRect.height > 0 {
+            let cutout = CGMutablePath()
+            // Pad the clip region to comfortably cover every concentric stroke.
+            cutout.addRect(bounds.insetBy(dx: -(glowBlurRadius * 4), dy: -(glowBlurRadius * 4)))
+            cutout.addRect(labelGapRect)
+            context.addPath(cutout)
+            context.clip(using: .evenOdd)
+        }
+        for band in bands where band.width > 0 {
+            let alpha = min(1, intensity * band.alphaFraction)
+            guard alpha > 0 else { continue }
+            context.setStrokeColor(baseColor.withAlphaComponent(alpha).cgColor)
+            context.setLineWidth(band.width)
+            context.addPath(path)
+            context.strokePath()
+        }
+        context.restoreGState()
+    }
+}
+
 @MainActor
 final class PaneContainerView: NSView {
     enum Layout {
@@ -174,6 +298,7 @@ final class PaneContainerView: NSView {
     private let borderContextView = PaneBorderContextInsetView()
     private let backingScaleFactorProvider: () -> CGFloat
     private let insetBorderLayer = PaneInsetBorderLayer()
+    private let focusGlowLayer = PaneFocusGlowLayer()
     private let statusOverlayView = NSView()
     private let statusTitleLabel = NSTextField(labelWithString: "")
     private let statusMessageLabel = NSTextField(wrappingLabelWithString: "")
@@ -191,6 +316,7 @@ final class PaneContainerView: NSView {
     private var currentBorderGapWidth: CGFloat = 0
     private var currentBorderContext: PaneBorderContextDisplayModel?
     private var currentIsFocused: Bool
+    private var currentWorklaneColor: WorklaneColor?
     private var lastRenderedSearchState = PaneSearchState()
     private var suppressSelectionOnNextProgrammaticFocus = false
     var onSelected: (() -> Void)?
@@ -394,6 +520,7 @@ final class PaneContainerView: NSView {
         emphasis: CGFloat,
         isFocused: Bool,
         borderContext: PaneBorderContextDisplayModel? = nil,
+        worklaneColor: WorklaneColor? = nil,
         animated: Bool
     ) {
         render(
@@ -401,6 +528,7 @@ final class PaneContainerView: NSView {
             emphasis: emphasis,
             isFocused: isFocused,
             borderContext: borderContext,
+            worklaneColor: worklaneColor,
             animated: animated,
             useNeutralBackground: false
         )
@@ -411,6 +539,7 @@ final class PaneContainerView: NSView {
         emphasis: CGFloat,
         isFocused: Bool,
         borderContext: PaneBorderContextDisplayModel? = nil,
+        worklaneColor: WorklaneColor? = nil,
         animated: Bool,
         useNeutralBackground: Bool = false
     ) {
@@ -419,6 +548,7 @@ final class PaneContainerView: NSView {
             emphasis: emphasis,
             isFocused: isFocused,
             borderContext: borderContext,
+            worklaneColor: worklaneColor,
             animatedVisualState: animated,
             useNeutralBackground: useNeutralBackground
         )
@@ -428,13 +558,15 @@ final class PaneContainerView: NSView {
         pane: PaneState,
         emphasis: CGFloat,
         isFocused: Bool,
-        borderContext: PaneBorderContextDisplayModel? = nil
+        borderContext: PaneBorderContextDisplayModel? = nil,
+        worklaneColor: WorklaneColor? = nil
     ) {
         render(
             pane: pane,
             emphasis: emphasis,
             isFocused: isFocused,
             borderContext: borderContext,
+            worklaneColor: worklaneColor,
             animatedVisualState: false,
             useNeutralBackground: false
         )
@@ -445,6 +577,7 @@ final class PaneContainerView: NSView {
         emphasis: CGFloat,
         isFocused: Bool,
         borderContext: PaneBorderContextDisplayModel?,
+        worklaneColor: WorklaneColor?,
         animatedVisualState: Bool,
         useNeutralBackground: Bool
     ) {
@@ -453,6 +586,7 @@ final class PaneContainerView: NSView {
         currentEmphasis = emphasis
         currentIsFocused = isFocused
         currentBorderContext = borderContext
+        currentWorklaneColor = worklaneColor
         runtime.update(pane: pane)
         updateInsetBorderLayer()
         updateBorderContextView()
@@ -723,6 +857,23 @@ final class PaneContainerView: NSView {
         layer?.shadowRadius ?? 0
     }
 
+    var focusGlowColorTokenForTesting: String? {
+        guard let cgColor = focusGlowLayer.glowColorValue,
+              let color = NSColor(cgColor: cgColor)
+        else {
+            return nil
+        }
+        return color.themeToken
+    }
+
+    var focusGlowBlurRadiusForTesting: CGFloat {
+        focusGlowLayer.glowBlurRadius
+    }
+
+    var focusGlowFrameForTesting: CGRect {
+        focusGlowLayer.frame
+    }
+
     var hasPaneContextChrome: Bool {
         !borderContextView.isHidden
     }
@@ -821,6 +972,7 @@ final class PaneContainerView: NSView {
     private func setupInsetBorderLayer() {
         insetBorderLayer.strokeWidth = Layout.borderWidth
         insetBorderLayer.cornerCurve = .continuous
+        layer?.addSublayer(focusGlowLayer)
         layer?.addSublayer(insetBorderLayer)
         updateInsetBorderLayer()
     }
@@ -856,6 +1008,7 @@ final class PaneContainerView: NSView {
     private func updateInsetBorderLayer() {
         guard !bounds.isEmpty else {
             insetBorderLayer.frame = .zero
+            focusGlowLayer.frame = .zero
             return
         }
 
@@ -871,6 +1024,10 @@ final class PaneContainerView: NSView {
         insetBorderLayer.visibleCornerRadius = cornerRadius
         insetBorderLayer.gapMinX =
             PaneBorderContextInsetView.Layout.paneContextLeadingInset - inset
+        focusGlowLayer.contentsScale = backingScaleFactor
+        focusGlowLayer.frame = bounds
+        focusGlowLayer.strokeInset = inset
+        focusGlowLayer.strokeCornerRadius = cornerRadius
         CATransaction.commit()
 
         updateBorderGapMask()
@@ -887,12 +1044,14 @@ final class PaneContainerView: NSView {
         guard !bounds.isEmpty else {
             borderContextView.isHidden = true
             setBorderLabelGap(width: 0)
+            focusGlowLayer.labelGapRect = .zero
             return
         }
 
         guard let borderContext = currentBorderContext, !borderContext.text.isEmpty else {
             borderContextView.isHidden = true
             setBorderLabelGap(width: 0)
+            focusGlowLayer.labelGapRect = .zero
             return
         }
 
@@ -905,6 +1064,7 @@ final class PaneContainerView: NSView {
         guard maxWidth > 24 else {
             borderContextView.isHidden = true
             setBorderLabelGap(width: 0)
+            focusGlowLayer.labelGapRect = .zero
             return
         }
 
@@ -926,6 +1086,7 @@ final class PaneContainerView: NSView {
             backingScaleFactor: resolvedBackingScaleFactor
         )
         setBorderLabelGap(width: size.width)
+        focusGlowLayer.labelGapRect = targetFrame
         if borderContextView.onClick != nil {
             window?.invalidateCursorRects(for: borderContextView)
         }
@@ -1160,18 +1321,35 @@ final class PaneContainerView: NSView {
         let theme = currentTheme
         let emphasis = currentEmphasis
         let isFocused = currentIsFocused
+        let worklaneColor = currentWorklaneColor
         let paneFillColor =
             useNeutralBackground
             ? theme.startupSurface
             : (isFocused ? theme.paneFillFocused : theme.paneFillUnfocused)
         let shadowOpacity = Float(max(0, emphasis - 0.88) * 2.2)
         let shadowRadius = 6 + max(0, emphasis - 0.92) * 24
+
+        let focusedStroke: NSColor
+        if let worklaneColor {
+            focusedStroke = worklaneColor.tint(alpha: WorklaneColor.Alpha.focusedBorder)
+        } else {
+            focusedStroke = theme.paneBorderFocused
+        }
+
+        let glowColor: CGColor?
+        if isFocused, let worklaneColor {
+            glowColor = worklaneColor.tint(alpha: WorklaneColor.Alpha.focusedGlow).cgColor
+        } else {
+            glowColor = nil
+        }
+
         performThemeAnimation(animated: animated) {
             let borderColor =
                 (isFocused
-                ? theme.paneBorderFocused
+                ? focusedStroke
                 : theme.paneBorderUnfocused).cgColor
             self.insetBorderLayer.strokeColorValue = borderColor
+            self.focusGlowLayer.glowColorValue = glowColor
             self.layer?.shadowColor = theme.paneShadow.cgColor
             self.layer?.shadowOpacity = shadowOpacity
             self.layer?.shadowRadius = shadowRadius
