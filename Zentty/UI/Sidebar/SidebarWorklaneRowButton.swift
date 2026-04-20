@@ -785,7 +785,12 @@ final class SidebarWorklaneRowButton: NSButton {
             )
         }
 
-        let paneRowHoverColor = currentTheme.sidebarButtonHoverBackground.withAlphaComponent(0.5)
+        let paneRowHoverColor: NSColor
+        if let color = summary.color {
+            paneRowHoverColor = color.tint(alpha: WorklaneColor.Alpha.paneRowHover)
+        } else {
+            paneRowHoverColor = currentTheme.sidebarButtonHoverBackground.withAlphaComponent(0.5)
+        }
         for button in paneRowButtons {
             button.updateTheme(hoverColor: paneRowHoverColor)
         }
