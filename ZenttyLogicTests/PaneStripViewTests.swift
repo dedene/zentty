@@ -2615,6 +2615,9 @@ final class PaneStripViewTests: AppKitTestCase {
 
     @MainActor
     func test_left_edge_drag_compensates_scroll_by_applied_width_delta() throws {
+        // Content fits in the viewport — `preferredTargetOffset` doesn't
+        // shift `currentOffset`, so `dragScrollOffsetX` must pick up the
+        // full anchoring shift for the divider to follow the cursor.
         let paneStripView = makePaneStripView(width: 1400, height: 720)
         let state = PaneStripState(
             columns: [
@@ -2658,6 +2661,71 @@ final class PaneStripViewTests: AppKitTestCase {
         paneStripView.handleDividerDragDeltaForTesting(-60)
 
         XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting - initialScroll, 60, accuracy: 0.001)
+        paneStripView.endDividerDragForTesting()
+    }
+
+    @MainActor
+    func test_left_edge_drag_does_not_double_compensate_when_preferred_offset_tracks_focus() throws {
+        // Three panes each 50% of the viewport — content is wider than the
+        // viewport and the focused middle pane sits with its right edge at
+        // the viewport's right edge. Growing the middle pane pushes its
+        // right edge past the viewport, so `preferredTargetOffset` already
+        // shifts `currentOffset` to keep it visible. The drag-time
+        // compensation must NOT also advance `dragScrollOffsetX` —
+        // otherwise the visual shift doubles, the divider lags the cursor,
+        // and the leftmost pane slides off under the sidebar / window edge.
+        let paneStripView = makePaneStripView(width: 900, height: 720)
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 450),
+                makeColumn("middle", paneIDs: ["middle"], width: 450),
+                makeColumn("right", paneIDs: ["right"], width: 450),
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+
+        var stateProxy = state
+        // Simulate the real app's notify → coordinator → render chain so
+        // that `currentOffset` updates via `preferredTargetOffset` before
+        // `applyDividerDragScrollCompensation` reads it.
+        paneStripView.onDividerResizeRequested = { target, delta in
+            let applied = stateProxy.resize(
+                target,
+                delta: delta,
+                availableSize: CGSize(width: 900, height: 720),
+                minimumSizeByPaneID: [
+                    PaneID("left"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("middle"): PaneMinimumSize(width: 320, height: 160),
+                    PaneID("right"): PaneMinimumSize(width: 320, height: 160),
+                ]
+            )
+            paneStripView.render(stateProxy, animated: false)
+            return applied
+        }
+
+        paneStripView.render(state, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        _ = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("left")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+
+        let initialScroll = paneStripView.dragScrollOffsetXForTesting
+        let initialLayoutOffset = paneStripView.currentOffsetForTesting
+        paneStripView.handleDividerDragDeltaForTesting(-60)
+
+        // `currentOffset` picked up the 60pt shift to follow the focused pane.
+        XCTAssertEqual(
+            paneStripView.currentOffsetForTesting - initialLayoutOffset,
+            60,
+            accuracy: 0.001
+        )
+        // `dragScrollOffsetX` stays put — the anchoring shift is already applied
+        // via `currentOffset`, and doubling it would pull the strip off-axis.
+        XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, initialScroll, accuracy: 0.001)
         paneStripView.endDividerDragForTesting()
     }
 

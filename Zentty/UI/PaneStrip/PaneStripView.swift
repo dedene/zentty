@@ -124,8 +124,11 @@ final class PaneStripView: NSView {
         let target: PaneResizeTarget
         let initialState: PaneStripState
         let initialScrollOffsetX: CGFloat
+        let initialCurrentOffset: CGFloat
         var lastTranslation: CGFloat
     }
+
+    private var dividerDragCumulativeAppliedWidthDelta: CGFloat = 0
 
     private enum PendingTargetOffsetOverride: Equatable {
         case usePresentationTargetOffset
@@ -1294,8 +1297,10 @@ final class PaneStripView: NSView {
             target: target,
             initialState: state,
             initialScrollOffsetX: dragScrollOffsetX,
+            initialCurrentOffset: currentOffset,
             lastTranslation: 0
         )
+        dividerDragCumulativeAppliedWidthDelta = 0
         activeDivider = resolvedActiveDivider(for: target)
         hoveredDivider = resolvedActiveDivider(for: target)
         if notifyInteraction, let activeDivider {
@@ -1655,7 +1660,23 @@ final class PaneStripView: NSView {
     }
 
     private func endDividerDrag() {
+        // Absorb any phantom `dragScrollOffsetX` into `currentOffset` via a
+        // next-render `.shiftBy` override so the visual state matches the
+        // logical state after the drag ends. Without this, a non-zero
+        // `dragScrollOffsetX` would survive drag-end (and worklane switches),
+        // making the first pane drift off the viewport edge or leaving an
+        // empty gap after a shrink.
+        if abs(dragScrollOffsetX) > 0.001 {
+            let phantom = dragScrollOffsetX
+            dragScrollOffsetX = 0
+            applyCurrentZoom()
+            pendingTargetOffsetOverride = .shiftBy(phantom)
+            if let state = currentState {
+                renderCurrentState(state, animated: false)
+            }
+        }
         dividerDragSession = nil
+        dividerDragCumulativeAppliedWidthDelta = 0
         dividerDragSuspendedPaneIDs = []
         removeDividerDragEscapeMonitor()
         activeDivider = nil
@@ -1687,7 +1708,27 @@ final class PaneStripView: NSView {
             return
         }
 
-        dragScrollOffsetX += appliedWidthDelta
+        guard let session = dividerDragSession else { return }
+        dividerDragCumulativeAppliedWidthDelta += appliedWidthDelta
+
+        // The focused column's right edge moves right by
+        // `dividerDragCumulativeAppliedWidthDelta` as the column grows. To
+        // anchor that edge visually, the total content → viewport shift must
+        // grow by the same amount. That shift is split between `currentOffset`
+        // (which `preferredTargetOffset` advances whenever the focused pane
+        // would otherwise leave the viewport) and `dragScrollOffsetX` (this
+        // layer). Assign only the slack `preferredTargetOffset` hasn't already
+        // absorbed — otherwise both shift by the full delta and the divider
+        // lags the cursor, pulling the leftmost pane off-screen.
+        let layoutOffsetDelta = currentOffset - session.initialCurrentOffset
+        let targetDragScrollOffsetX = session.initialScrollOffsetX
+            + dividerDragCumulativeAppliedWidthDelta
+            - layoutOffsetDelta
+
+        guard abs(targetDragScrollOffsetX - dragScrollOffsetX) > 0.001 else {
+            return
+        }
+        dragScrollOffsetX = targetDragScrollOffsetX
         applyCurrentZoom()
     }
 
