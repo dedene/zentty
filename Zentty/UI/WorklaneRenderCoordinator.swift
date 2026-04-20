@@ -292,6 +292,7 @@ final class WorklaneRenderCoordinator {
                 paneBorderContextByPaneID: worklane.paneBorderContextDisplayByPaneID,
                 showsPaneLabels: paneSettings.showLabels,
                 inactivePaneOpacity: paneSettings.inactiveOpacity,
+                worklaneColor: worklane.color,
                 theme: currentTheme,
                 leadingVisibleInset: effectiveInset,
                 animated: animated,
