@@ -702,6 +702,9 @@ final class RootViewController: NSViewController {
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
             self?.worklaneStore.send(.splitVertically)
         }
+        sidebarView.onWorklaneColorChanged = { [weak self] worklaneID, color in
+            self?.worklaneStore.setColor(color, on: worklaneID)
+        }
         sidebarView.onNewWorklaneRequested = { [weak self] in
             self?.handle(.newWorklane)
         }
