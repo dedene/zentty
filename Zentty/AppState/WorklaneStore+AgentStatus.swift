@@ -57,7 +57,7 @@ extension WorklaneStore {
                 now: now,
                 in: &worklane
             )
-            resumeBlockedAgentStateIfWorkResumed(
+            resumeBlockedAgentStateFromUserInput(
                 paneID: paneID,
                 now: now,
                 in: &worklane
@@ -879,6 +879,29 @@ extension WorklaneStore {
             from: auxiliaryState.agentStatus
         )
         guard auxiliaryState.agentReducerState.resumeBlockedSessionFromActivity(now: now) else {
+            return
+        }
+
+        auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus(now: now)
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+    }
+
+    private func resumeBlockedAgentStateFromUserInput(
+        paneID: PaneID,
+        now: Date,
+        in worklane: inout WorklaneState
+    ) {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+              auxiliaryState.agentStatus?.state == .needsInput
+        else {
+            return
+        }
+
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            auxiliaryState.agentReducerState,
+            from: auxiliaryState.agentStatus
+        )
+        guard auxiliaryState.agentReducerState.resumeBlockedSessionFromUserInput(now: now) else {
             return
         }
 

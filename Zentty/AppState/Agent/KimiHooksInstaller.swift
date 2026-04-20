@@ -223,17 +223,14 @@ enum KimiHooksInstaller {
 
             [[hooks]]
             event = "Notification"
-            matcher = "permission_prompt"
             command = "\(command)"
 
             [[hooks]]
             event = "PreToolUse"
-            matcher = "AskUserQuestion"
             command = "\(command)"
 
             [[hooks]]
             event = "PostToolUse"
-            matcher = "AskUserQuestion"
             command = "\(command)"
             \(endMarker)
             """
@@ -278,9 +275,9 @@ enum KimiHooksInstaller {
           { event = "SessionEnd", command = "\(command)" },
           { event = "UserPromptSubmit", command = "\(command)" },
           { event = "Stop", command = "\(command)" },
-          { event = "Notification", matcher = "permission_prompt", command = "\(command)" },
-          { event = "PreToolUse", matcher = "AskUserQuestion", command = "\(command)" },
-          { event = "PostToolUse", matcher = "AskUserQuestion", command = "\(command)" }\(trailingCommaSuffix)
+          { event = "Notification", command = "\(command)" },
+          { event = "PreToolUse", command = "\(command)" },
+          { event = "PostToolUse", command = "\(command)" }\(trailingCommaSuffix)
         """
     }
 
