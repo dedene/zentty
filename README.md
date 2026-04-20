@@ -32,7 +32,7 @@
 - **Resume your workspace** Zentty restores your worklanes on relaunch and can reopen agent sessions that were closed without finishing.
 - **Command palette** A fuzzy-searchable list of every action in the app, with your recent commands on top.
 - **Global search** Search inside the current pane or across every worklane with a single shortcut. Search without losing flow.
-- **Agent-aware.** Claude Code, Codex, Copilot CLI, Gemini CLI, Kimi CLI, and OpenCode report their status into the sidebar, so you see what they're doing, what they're asking, and when they need you, without switching panes.
+- **Agent-aware.** Claude Code, Codex, Copilot CLI, Cursor, Gemini CLI, Kimi CLI, OpenCode, and Pi report their status into the sidebar, so you see what they're doing, what they're asking, and when they need you, without switching panes.
 - **Native Ghostty themes.** Zentty reads Ghostty themes directly, with a built-in picker, live preview, opacity, and blur. And if you've never installed
    Ghostty, the default experience is polished out of the box.
 - **Scriptable control** Interaction with worklanes or panes is scriptable via the embedded zentty CLI.
