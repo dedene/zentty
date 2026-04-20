@@ -221,12 +221,14 @@ enum CommandPaletteResultsResolver {
 }
 
 private extension CommandPaletteItemFamily {
-    static let allCases: [CommandPaletteItemFamily] = [.openWith]
+    static let allCases: [CommandPaletteItemFamily] = [.openWith, .worklaneColor]
 
     var scopeTitle: String {
         switch self {
         case .openWith:
             "Open With"
+        case .worklaneColor:
+            "Worklane color"
         }
     }
 
@@ -234,6 +236,8 @@ private extension CommandPaletteItemFamily {
         switch self {
         case .openWith:
             return remainder(in: query, matching: "open with")
+        case .worklaneColor:
+            return remainder(in: query, matching: "worklane color")
         }
     }
 
@@ -241,6 +245,8 @@ private extension CommandPaletteItemFamily {
         switch self {
         case .openWith:
             return remainder(in: query, matching: "open")
+        case .worklaneColor:
+            return remainder(in: query, matching: "worklane")
         }
     }
 

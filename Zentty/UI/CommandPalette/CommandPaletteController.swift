@@ -12,6 +12,7 @@ final class CommandPaletteController {
     private var lastFocusedPanePath: String?
     var onExecute: ((AppAction) -> Void)?
     var onOpenWith: ((_ stableID: String, _ workingDirectory: String) -> Void)?
+    var onSetWorklaneColor: ((WorklaneColor?) -> Void)?
 
     var isShown: Bool { panel != nil }
 
@@ -43,7 +44,8 @@ final class CommandPaletteController {
             targets: openWithTargets,
             focusedPanePath: focusedPanePath
         )
-        let allItems = commandItems + openWithItems
+        let worklaneColorItems = CommandPaletteItemBuilder.buildWorklaneColorItems()
+        let allItems = commandItems + openWithItems + worklaneColorItems
 
         let recentItems = recentCommands.recentItemIDs.compactMap { itemID in
             allItems.first { $0.id == itemID }
@@ -174,6 +176,8 @@ final class CommandPaletteController {
         case .openWith(let stableID):
             guard let path = lastFocusedPanePath else { return }
             onOpenWith?(stableID, path)
+        case .worklaneColor(let color):
+            onSetWorklaneColor?(color)
         }
     }
 

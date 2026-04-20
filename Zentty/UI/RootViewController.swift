@@ -841,6 +841,10 @@ final class RootViewController: NSViewController {
             commandPaletteController.onOpenWith = { [weak self] stableID, workingDirectory in
                 self?.openWithFromPalette(stableID: stableID, workingDirectory: workingDirectory)
             }
+            commandPaletteController.onSetWorklaneColor = { [weak self] color in
+                guard let self else { return }
+                self.worklaneStore.setColor(color, on: self.worklaneStore.activeWorklaneID)
+            }
         }
         syncSidebarWidthToAvailableWidth(persist: false)
         renderCoordinator.updateSurfaceActivities()

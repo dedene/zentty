@@ -3,10 +3,12 @@ import Foundation
 enum CommandPaletteItemID: Hashable {
     case command(AppCommandID)
     case openWith(stableID: String)
+    case worklaneColor(WorklaneColor?)
 }
 
 enum CommandPaletteItemFamily: Hashable {
     case openWith
+    case worklaneColor
 }
 
 struct CommandPaletteItem: Identifiable, Equatable {
@@ -52,6 +54,41 @@ enum CommandPaletteItemBuilder {
                 familyOrder: nil
             )
         }
+    }
+
+    static func buildWorklaneColorItems() -> [CommandPaletteItem] {
+        var items: [CommandPaletteItem] = []
+        for (index, color) in WorklaneColor.allCases.enumerated() {
+            let name = color.localizedName
+            items.append(
+                CommandPaletteItem(
+                    id: .worklaneColor(color),
+                    title: name,
+                    subtitle: NSLocalizedString("Set the focused worklane's sidebar color.", comment: "Palette subtitle"),
+                    shortcutDisplay: nil,
+                    category: "Worklane color",
+                    searchText: "worklane color \(name)".lowercased(),
+                    family: .worklaneColor,
+                    familySearchText: name.lowercased(),
+                    familyOrder: index
+                )
+            )
+        }
+        let resetTitle = NSLocalizedString("Reset to Default", comment: "Palette reset entry")
+        items.append(
+            CommandPaletteItem(
+                id: .worklaneColor(nil),
+                title: resetTitle,
+                subtitle: NSLocalizedString("Clear the focused worklane's sidebar color.", comment: "Palette reset subtitle"),
+                shortcutDisplay: nil,
+                category: "Worklane color",
+                searchText: "worklane color reset default clear".lowercased(),
+                family: .worklaneColor,
+                familySearchText: "reset default clear",
+                familyOrder: WorklaneColor.allCases.count
+            )
+        )
+        return items
     }
 
     static func buildOpenWithItems(
