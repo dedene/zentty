@@ -55,11 +55,11 @@ enum ChromeGeometry {
         outerRadius: outerWindowRadius,
         inset: shellInset
     )
-    static let sidebarRadius: CGFloat = contentShellRadius
     static let paneRadius: CGFloat = innerRadius(
         outerRadius: contentShellRadius,
         inset: paneInset
     )
+    static let sidebarRadius: CGFloat = paneRadius
     static let rowRadius: CGFloat = innerRadius(
         outerRadius: sidebarRadius,
         inset: rowInset
