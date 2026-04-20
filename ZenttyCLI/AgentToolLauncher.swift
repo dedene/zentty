@@ -53,6 +53,17 @@ struct AgentToolLauncher {
             return environment["ZENTTY_COPILOT_HOOKS_DISABLED"] != "1"
         case .cursor:
             return environment["ZENTTY_CURSOR_HOOKS_DISABLED"] != "1"
+        case .kimi:
+            if environment["ZENTTY_KIMI_HOOKS_DISABLED"] == "1" {
+                return false
+            }
+            if Self.kimiPassthroughSubcommands.contains(arguments.first ?? "") {
+                return false
+            }
+            if arguments.contains(where: { Self.kimiEarlyExitFlags.contains($0) }) {
+                return false
+            }
+            return true
         case .pi:
             // Pi has management subcommands (install/remove/update/list/…)
             // and early-exit flags (--help, --version, --list-models, …).
@@ -84,6 +95,14 @@ struct AgentToolLauncher {
 
     static let piEarlyExitFlags: Set<String> = [
         "--help", "-h", "--version", "-v", "--list-models", "--export",
+    ]
+
+    static let kimiPassthroughSubcommands: Set<String> = [
+        "login", "logout", "term", "acp", "info", "export", "mcp", "plugin", "vis", "web",
+    ]
+
+    static let kimiEarlyExitFlags: Set<String> = [
+        "--help", "-h", "--version", "-V",
     ]
 
     private func findRealBinary() throws -> String {
@@ -130,6 +149,7 @@ struct AgentToolLauncher {
             "ZENTTY_COPILOT_HOOKS_DISABLED",
             "ZENTTY_CURSOR_HOOKS_DISABLED",
             "ZENTTY_CURSOR_VERBOSE_HOOKS",
+            "ZENTTY_KIMI_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
             "CODEX_HOME",
@@ -152,7 +172,7 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .codex, .copilot, .cursor, .gemini, .opencode, .pi:
+        case .codex, .copilot, .cursor, .gemini, .kimi, .opencode, .pi:
             return EnvironmentPatch()
         }
     }
@@ -174,6 +194,8 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_GEMINI_PID"] = "\(getpid())"
         case .cursor:
             environmentPatch.set["ZENTTY_CURSOR_PID"] = "\(getpid())"
+        case .kimi:
+            environmentPatch.set["ZENTTY_KIMI_PID"] = "\(getpid())"
         case .opencode, .pi:
             break
         }
@@ -219,6 +241,7 @@ struct AgentToolLauncher {
             "ZENTTY_COPILOT_PID",
             "ZENTTY_GEMINI_PID",
             "ZENTTY_CURSOR_PID",
+            "ZENTTY_KIMI_PID",
         ]
         return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
             guard let value = environment[key], !value.isEmpty else {

@@ -35,6 +35,7 @@ struct ZenttyCLI: ParsableCommand {
 
 private enum IntegrationTarget: String, CaseIterable {
     case cursorHooks = "cursor-hooks"
+    case kimiHooks = "kimi-hooks"
 
     static func resolve(_ raw: String) throws -> IntegrationTarget {
         guard let target = IntegrationTarget(rawValue: raw) else {
@@ -71,7 +72,7 @@ struct InstallCommand: ParsableCommand {
         discussion: "Supported targets: \(IntegrationTarget.allCases.map(\.rawValue).joined(separator: ", "))"
     )
 
-    @Argument(help: "Target integration name (e.g. cursor-hooks).")
+    @Argument(help: "Target integration name (e.g. cursor-hooks, kimi-hooks).")
     var target: String
 
     mutating func run() throws {
@@ -83,6 +84,13 @@ struct InstallCommand: ParsableCommand {
                 cliPath: resolveInvokingCLIPath()
             )
             print("Installed Zentty cursor hooks at \(hooksURL.path).")
+        case .kimiHooks:
+            let configURL = KimiHooksInstaller.defaultUserConfigURL()
+            try KimiHooksInstaller.install(
+                at: configURL,
+                cliPath: resolveInvokingCLIPath()
+            )
+            print("Installed Zentty Kimi hooks at \(configURL.path).")
         }
     }
 }
@@ -94,7 +102,7 @@ struct UninstallCommand: ParsableCommand {
         discussion: "Supported targets: \(IntegrationTarget.allCases.map(\.rawValue).joined(separator: ", "))"
     )
 
-    @Argument(help: "Target integration name (e.g. cursor-hooks).")
+    @Argument(help: "Target integration name (e.g. cursor-hooks, kimi-hooks).")
     var target: String
 
     mutating func run() throws {
@@ -103,6 +111,10 @@ struct UninstallCommand: ParsableCommand {
             let hooksURL = CursorHooksInstaller.defaultUserHooksURL()
             try CursorHooksInstaller.uninstall(at: hooksURL)
             print("Removed Zentty cursor hook entries from \(hooksURL.path).")
+        case .kimiHooks:
+            let configURL = KimiHooksInstaller.defaultUserConfigURL()
+            try KimiHooksInstaller.uninstall(at: configURL)
+            print("Removed Zentty Kimi hook entries from \(configURL.path).")
         }
     }
 }
@@ -517,6 +529,7 @@ struct IPCCommand: ParsableCommand {
         "ZENTTY_COPILOT_PID",
         "ZENTTY_GEMINI_PID",
         "ZENTTY_CURSOR_PID",
+        "ZENTTY_KIMI_PID",
     ]
 
     @Argument(help: "Supported values: agent-event, agent-signal, agent-status")
@@ -606,7 +619,7 @@ struct LaunchCommand: ParsableCommand {
         shouldDisplay: false
     )
 
-    @Argument(help: "Supported values: claude, codex, copilot, cursor, gemini, opencode, pi")
+    @Argument(help: "Supported values: claude, codex, copilot, cursor, gemini, kimi, opencode, pi")
     var tool: String
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments forwarded to the real tool.")

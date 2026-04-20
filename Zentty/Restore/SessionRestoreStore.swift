@@ -369,6 +369,12 @@ enum AgentResumeCommandBuilder {
             return "copilot --resume=\(sessionID)"
         case .gemini:
             return "gemini --resume"
+        case .kimi:
+            guard let sessionID = validatedKimiSessionID(from: draft.sessionID) else {
+                logRejectedSessionID(for: draft)
+                return nil
+            }
+            return "kimi -r \(sessionID)"
         case .cursor:
             return nil
         case .pi:
@@ -411,6 +417,13 @@ enum AgentResumeCommandBuilder {
     }
 
     private static func validatedCopilotSessionID(from sessionID: String) -> String? {
+        guard let uuid = UUID(uuidString: sessionID) else {
+            return nil
+        }
+        return uuid.uuidString.lowercased()
+    }
+
+    private static func validatedKimiSessionID(from sessionID: String) -> String? {
         guard let uuid = UUID(uuidString: sessionID) else {
             return nil
         }

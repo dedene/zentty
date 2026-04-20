@@ -6,6 +6,7 @@ enum AgentTool: Equatable, Sendable {
     case copilot
     case cursor
     case gemini
+    case kimi
     case openCode
     case pi
     case custom(String)
@@ -22,6 +23,8 @@ enum AgentTool: Equatable, Sendable {
             return "Cursor"
         case .gemini:
             return "Gemini"
+        case .kimi:
+            return "Kimi"
         case .openCode:
             return "OpenCode"
         case .pi:
@@ -51,6 +54,9 @@ enum AgentTool: Equatable, Sendable {
         if normalized.contains("gemini") {
             return .gemini
         }
+        if normalized.contains("kimi") {
+            return .kimi
+        }
         if normalized.contains("opencode") || normalized.contains("open code") {
             return .openCode
         }
@@ -78,6 +84,9 @@ enum AgentTool: Equatable, Sendable {
         }
         if normalized.contains("gemini") {
             return .gemini
+        }
+        if normalized.contains("kimi") {
+            return .kimi
         }
         if normalized.contains("opencode") || normalized.contains("open code") {
             return .openCode
