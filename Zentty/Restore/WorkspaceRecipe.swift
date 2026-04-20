@@ -30,6 +30,7 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
         var nextPaneNumber: Int
         var focusedColumnID: String?
         var columns: [Column]
+        var color: String?
     }
 
     struct Column: Codable, Equatable, Sendable {
@@ -67,7 +68,8 @@ enum WorkspaceRecipeExporter {
             title: worklane.meaningfulTitle,
             nextPaneNumber: worklane.nextPaneNumber,
             focusedColumnID: worklane.paneStripState.focusedColumnID?.rawValue,
-            columns: worklane.paneStripState.columns.map { makeColumn($0, worklane: worklane) }
+            columns: worklane.paneStripState.columns.map { makeColumn($0, worklane: worklane) },
+            color: worklane.color?.rawValue
         )
     }
 
@@ -252,7 +254,8 @@ enum WorkspaceRecipeImporter {
                 layoutSizing: layoutContext.sizing
             ),
             nextPaneNumber: max(recipe.nextPaneNumber, 1),
-            auxiliaryStateByPaneID: auxiliaryStateByPaneID
+            auxiliaryStateByPaneID: auxiliaryStateByPaneID,
+            color: recipe.color.flatMap(WorklaneColor.init(rawValue:))
         )
     }
 

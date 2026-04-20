@@ -37,19 +37,22 @@ struct WorklaneState: Equatable, Sendable {
     var paneStripState: PaneStripState
     var nextPaneNumber: Int
     var auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState]
+    var color: WorklaneColor?
 
     init(
         id: WorklaneID,
         title: String,
         paneStripState: PaneStripState,
         nextPaneNumber: Int = 1,
-        auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:]
+        auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:],
+        color: WorklaneColor? = nil
     ) {
         self.id = id
         self.title = title
         self.paneStripState = paneStripState
         self.nextPaneNumber = nextPaneNumber
         self.auxiliaryStateByPaneID = auxiliaryStateByPaneID
+        self.color = color
     }
 }
 
