@@ -8,6 +8,7 @@ enum WorklaneSidebarSummaryBuilder {
         let interactionKind: PaneInteractionKind?
         let interactionLabel: String?
         let interactionSymbolName: String?
+        let taskProgress: PaneAgentTaskProgress?
     }
 
     private struct PaneSidebarStatusPresentation {
@@ -17,6 +18,7 @@ enum WorklaneSidebarSummaryBuilder {
         let interactionKind: PaneInteractionKind?
         let interactionLabel: String?
         let interactionSymbolName: String?
+        let taskProgress: PaneAgentTaskProgress?
         let isWorking: Bool
     }
 
@@ -126,7 +128,8 @@ enum WorklaneSidebarSummaryBuilder {
                 attentionState: nil,
                 interactionKind: nil,
                 interactionLabel: nil,
-                interactionSymbolName: nil
+                interactionSymbolName: nil,
+                taskProgress: nil
             )
 
         return WorklaneSidebarSummary(
@@ -144,6 +147,7 @@ enum WorklaneSidebarSummaryBuilder {
             interactionKind: statusPresentation.interactionKind,
             interactionLabel: statusPresentation.interactionLabel,
             interactionSymbolName: statusPresentation.interactionSymbolName,
+            taskProgress: statusPresentation.taskProgress,
             isWorking: isWorking,
             isActive: isActive,
             color: worklane.color
@@ -156,19 +160,25 @@ enum WorklaneSidebarSummaryBuilder {
         isWorking: Bool
     ) -> SidebarStatusPresentation {
         if let attention {
-            return SidebarStatusPresentation(
+            let progressPresentation = taskProgressPresentation(
                 statusText: statusText(
                     for: attention.state,
                     interactionLabel: attention.interactionLabel,
-                    interactionKind: attention.interactionKind
+                    interactionKind: attention.interactionKind,
+                    fallback: attention.statusText
                 ),
+                taskProgress: attention.taskProgress
+            )
+            return SidebarStatusPresentation(
+                statusText: progressPresentation.statusText,
                 statusSymbolName: nil,
                 attentionState: attention.state,
                 interactionKind: attention.interactionKind,
                 interactionLabel: attention.interactionLabel ?? attention.interactionKind?.defaultLabel,
                 interactionSymbolName: attention.interactionSymbolName
                     ?? attention.interactionKind?.defaultSymbolName
-                    ?? defaultSymbolName(for: attention.state)
+                    ?? defaultSymbolName(for: attention.state),
+                taskProgress: progressPresentation.taskProgress
             )
         }
 
@@ -179,7 +189,8 @@ enum WorklaneSidebarSummaryBuilder {
                 attentionState: .running,
                 interactionKind: nil,
                 interactionLabel: nil,
-                interactionSymbolName: defaultSymbolName(for: .running)
+                interactionSymbolName: defaultSymbolName(for: .running),
+                taskProgress: nil
             )
         }
 
@@ -190,7 +201,8 @@ enum WorklaneSidebarSummaryBuilder {
                 attentionState: nil,
                 interactionKind: nil,
                 interactionLabel: nil,
-                interactionSymbolName: nil
+                interactionSymbolName: nil,
+                taskProgress: nil
             )
         }
 
@@ -200,7 +212,8 @@ enum WorklaneSidebarSummaryBuilder {
             attentionState: nil,
             interactionKind: nil,
             interactionLabel: nil,
-            interactionSymbolName: nil
+            interactionSymbolName: nil,
+            taskProgress: nil
         )
     }
 
@@ -233,7 +246,8 @@ enum WorklaneSidebarSummaryBuilder {
                 interactionLabel: statusPresentation.interactionLabel,
                 interactionSymbolName: statusPresentation.interactionSymbolName,
                 isFocused: isFocused,
-                isWorking: statusPresentation.isWorking
+                isWorking: statusPresentation.isWorking,
+                taskProgress: statusPresentation.taskProgress
             )
         }
     }
@@ -592,12 +606,17 @@ enum WorklaneSidebarSummaryBuilder {
                 interactionKind: nil,
                 interactionLabel: nil,
                 interactionSymbolName: nil,
+                taskProgress: nil,
                 isWorking: false
             )
         }
+        let progressPresentation = taskProgressPresentation(
+            statusText: statusText,
+            taskProgress: presentation.taskProgress
+        )
 
         return PaneSidebarStatusPresentation(
-            statusText: statusText,
+            statusText: progressPresentation.statusText,
             statusSymbolName: presentation.statusSymbolName,
             attentionState: attentionState,
             interactionKind: presentation.interactionKind,
@@ -605,6 +624,7 @@ enum WorklaneSidebarSummaryBuilder {
             interactionSymbolName: presentation.interactionSymbolName
                 ?? presentation.interactionKind?.defaultSymbolName
                 ?? attentionState.map(defaultSymbolName(for:)),
+            taskProgress: progressPresentation.taskProgress,
             isWorking: presentation.isWorking
         )
     }
@@ -948,6 +968,7 @@ enum WorklaneSidebarSummaryBuilder {
                 interactionKind: summary.interactionKind,
                 interactionLabel: summary.interactionLabel,
                 interactionSymbolName: summary.interactionSymbolName,
+                taskProgress: summary.taskProgress,
                 isWorking: summary.isWorking,
                 isActive: summary.isActive,
                 color: summary.color
@@ -996,6 +1017,26 @@ enum WorklaneSidebarSummaryBuilder {
         case .running:
             return "Running"
         }
+    }
+
+    private static func taskProgressPresentation(
+        statusText: String?,
+        taskProgress: PaneAgentTaskProgress?
+    ) -> (statusText: String?, taskProgress: PaneAgentTaskProgress?) {
+        guard
+            let taskProgress,
+            taskProgress.doneCount < taskProgress.totalCount,
+            let statusText
+        else {
+            return (statusText, nil)
+        }
+
+        let suffix = " (\(taskProgress.doneCount)/\(taskProgress.totalCount))"
+        guard statusText.hasSuffix(suffix) else {
+            return (statusText, nil)
+        }
+
+        return (String(statusText.dropLast(suffix.count)), taskProgress)
     }
 
     private static func disambiguatedPrimaryText(

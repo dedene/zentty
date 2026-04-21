@@ -372,7 +372,8 @@ struct SidebarWorklaneRowLayout: Equatable {
                     attentionState: summary.attentionState,
                     interactionKind: summary.interactionKind,
                     interactionSymbolName: summary.interactionSymbolName
-                ).isEmpty == false
+                ).isEmpty == false,
+                hasProgress: summary.taskProgress != nil
             ),
             maxLineCount: 2
         )
@@ -429,7 +430,8 @@ struct SidebarWorklaneRowLayout: Equatable {
                     attentionState: paneRow.attentionState,
                     interactionKind: paneRow.interactionKind,
                     interactionSymbolName: paneRow.interactionSymbolName
-                ).isEmpty == false
+                ).isEmpty == false,
+                hasProgress: paneRow.taskProgress != nil
             ),
             maxLineCount: 2
         )
@@ -480,7 +482,10 @@ struct SidebarWorklaneRowLayout: Equatable {
             interactionKind: paneRow.interactionKind,
             interactionSymbolName: paneRow.interactionSymbolName
         ).isEmpty == false
-        let iconWidth: CGFloat = hasIcon ? 11 + 4 : 0
+        let progressWidth: CGFloat = paneRow.taskProgress == nil
+            ? 0
+            : SidebarTaskProgressIndicatorMetrics.reservedWidth
+        let iconWidth: CGFloat = (hasIcon ? 11 + 4 : 0) + progressWidth
         let maximumStatusTextWidth = max(1, contentWidth - iconWidth)
         let preferredStatusTextWidth = measuredWidth(
             for: statusText,
@@ -520,7 +525,8 @@ struct SidebarWorklaneRowLayout: Equatable {
         let finalStatusTextWidth = paneStatusTextContentWidth(
             for: availableWidth,
             trailingWidth: resolvedTrailingWidth,
-            hasIcon: hasIcon
+            hasIcon: hasIcon,
+            hasProgress: paneRow.taskProgress != nil
         )
         guard
             preferredStatusTextWidth <= finalStatusTextWidth + 0.5,
@@ -552,20 +558,26 @@ struct SidebarWorklaneRowLayout: Equatable {
 
     private static func worklaneStatusTextContentWidth(
         for availableWidth: CGFloat,
-        hasIcon: Bool
+        hasIcon: Bool,
+        hasProgress: Bool
     ) -> CGFloat {
         let iconWidth = hasIcon ? (11 + 4) : 0
-        return max(0, worklaneTextContentWidth(for: availableWidth) - CGFloat(iconWidth))
+        let progressWidth = hasProgress ? SidebarTaskProgressIndicatorMetrics.reservedWidth : 0
+        return max(0, worklaneTextContentWidth(for: availableWidth) - CGFloat(iconWidth) - progressWidth)
     }
 
     private static func paneStatusTextContentWidth(
         for availableWidth: CGFloat,
         trailingWidth: CGFloat,
-        hasIcon: Bool
+        hasIcon: Bool,
+        hasProgress: Bool
     ) -> CGFloat {
         var width = paneRowContentWidth(for: availableWidth)
         if hasIcon {
             width -= 11 + 4
+        }
+        if hasProgress {
+            width -= SidebarTaskProgressIndicatorMetrics.reservedWidth
         }
         if trailingWidth > 0 {
             width -= trailingWidth + 4

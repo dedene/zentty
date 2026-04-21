@@ -38,10 +38,12 @@ final class SidebarWorklaneRowButton: NSButton {
     private let primaryLabel = SidebarShimmerTextView()
     private let contextPrefixLabel = SidebarStaticLabel()
     private let statusIconView = NSImageView()
+    private let statusProgressIndicator = SidebarTaskProgressIndicatorView()
+    private let statusProgressRevealView = SidebarTaskProgressRevealView()
     private let statusTextContainer = SidebarPrimaryTextContainerView()
     private let statusBaseLabel = SidebarStaticLabel()
     private let statusLabel = SidebarShimmerTextView()
-    private let statusContentStack = NSStackView()
+    private let statusContentStack = SidebarTaskProgressRevealLineStackView()
     private let overflowLabel = SidebarStaticLabel()
     private let textStack = NSStackView()
 
@@ -203,7 +205,17 @@ final class SidebarWorklaneRowButton: NSButton {
         statusContentStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
         statusContentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         statusContentStack.addArrangedSubview(statusIconView)
+        statusContentStack.addArrangedSubview(statusProgressIndicator)
+        statusContentStack.addArrangedSubview(statusProgressRevealView)
         statusContentStack.addArrangedSubview(statusTextContainer)
+        statusContentStack.setCustomSpacing(0, after: statusProgressIndicator)
+        statusContentStack.setCustomSpacing(4, after: statusProgressRevealView)
+        statusProgressIndicator.onHoverEntered = { [weak self] in
+            self?.setStatusProgressRevealVisible(true, animated: true)
+        }
+        statusContentStack.onMouseExitedLine = { [weak self] in
+            self?.setStatusProgressRevealVisible(false, animated: true)
+        }
         configureLabel(
             overflowLabel,
             font: ShellMetrics.sidebarOverflowFont(),
@@ -515,6 +527,11 @@ final class SidebarWorklaneRowButton: NSButton {
             )
             statusBaseLabel.stringValue = statusCopy
             statusLabel.stringValue = statusCopy
+            statusProgressRevealView.configure(
+                taskProgress: summary.taskProgress,
+                color: currentTheme.statusRunning,
+                font: statusBaseLabel.font ?? ShellMetrics.sidebarStatusFont()
+            )
             currentStatusSymbolName = SidebarStatusResolver.resolveStatusSymbolName(
                 statusSymbolName: summary.statusSymbolName,
                 attentionState: summary.attentionState,
@@ -539,10 +556,15 @@ final class SidebarWorklaneRowButton: NSButton {
             primaryLabel.stringValue = ""
             statusBaseLabel.stringValue = ""
             statusLabel.stringValue = ""
+            statusProgressRevealView.configure(
+                taskProgress: nil,
+                color: currentTheme.statusRunning,
+                font: statusBaseLabel.font ?? ShellMetrics.sidebarStatusFont()
+            )
             currentStatusSymbolName = ""
             statusIconView.image = nil
             statusIconView.isHidden = true
-            configurePaneRows(for: summary.paneRows)
+            configurePaneRows(for: summary.paneRows, animated: animated)
         }
 
         textStack.setViews(
@@ -591,12 +613,35 @@ final class SidebarWorklaneRowButton: NSButton {
         statusBaseLabel.cell?.usesSingleLineMode = wraps == false
         statusLabel.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
         statusLabel.isHidden = wraps
+        statusProgressIndicator.isHidden = wraps || currentSummary?.taskProgress == nil
+        if wraps || currentSummary?.taskProgress == nil {
+            setStatusProgressRevealVisible(false, animated: false)
+        }
         statusContentStack.alignment = wraps ? .top : .centerY
         let statusHeight = ShellMetrics.sidebarStatusLineHeight * CGFloat(clampedLineCount)
         statusTextHeightConstraint?.constant = statusHeight
         statusContentHeightConstraint?.constant = statusHeight
         statusTextContainer.invalidateIntrinsicContentSize()
         statusContentStack.invalidateIntrinsicContentSize()
+    }
+
+    private func setStatusProgressRevealVisible(_ isVisible: Bool, animated: Bool) {
+        let summary = currentSummary
+        let canReveal =
+            isVisible
+            && (summary?.paneRows.isEmpty ?? false)
+            && summary?.taskProgress != nil
+            && statusProgressIndicator.isHidden == false
+        statusProgressRevealView.setRevealed(
+            canReveal,
+            animated: animated,
+            reducedMotion: reducedMotionProvider()
+        )
+        if canReveal {
+            statusContentStack.startHoverReconciliation()
+        } else {
+            statusContentStack.stopHoverReconciliation()
+        }
     }
 
     private func configureDetailLabels(for detailLines: [WorklaneSidebarDetailLine]) {
@@ -615,7 +660,7 @@ final class SidebarWorklaneRowButton: NSButton {
         }
     }
 
-    private func configurePaneRows(for paneRows: [WorklaneSidebarPaneRow]) {
+    private func configurePaneRows(for paneRows: [WorklaneSidebarPaneRow], animated: Bool) {
         while panePrimaryRows.count < paneRows.count {
             panePrimaryRows.append(SidebarPanePrimaryRowView())
         }
@@ -686,12 +731,14 @@ final class SidebarWorklaneRowButton: NSButton {
                     interactionKind: paneRow.interactionKind,
                     interactionSymbolName: paneRow.interactionSymbolName
                 ),
+                taskProgress: paneRow.taskProgress,
                 trailingText: statusTrailingLayout.isVisible ? paneRow.trailingText : nil,
                 trailingWidth: statusTrailingLayout.width,
                 lineCount: SidebarWorklaneRowLayout.paneRowStatusLineCount(
                     for: paneRow,
                     availableWidth: bounds.width
-                )
+                ),
+                animated: animated
             )
             paneStatusRows[index].setShimmerPhaseOffset(panePhaseOffset)
 
@@ -762,6 +809,24 @@ final class SidebarWorklaneRowButton: NSButton {
             statusBaseLabel.textColor = statusTextColor(for: summary)
             statusIconView.contentTintColor =
                 statusBaseLabel.textColor ?? currentTheme.secondaryText
+            let statusWraps = SidebarWorklaneRowLayout.worklaneStatusLineCount(
+                for: summary,
+                availableWidth: bounds.width
+            ) > 1
+            statusProgressIndicator.configure(
+                taskProgress: statusWraps ? nil : summary.taskProgress,
+                color: currentTheme.statusRunning,
+                animated: animated,
+                reducedMotion: reducedMotionProvider()
+            )
+            statusProgressRevealView.configure(
+                taskProgress: statusWraps ? nil : summary.taskProgress,
+                color: currentTheme.statusRunning,
+                font: statusBaseLabel.font ?? ShellMetrics.sidebarStatusFont()
+            )
+            if statusWraps || summary.taskProgress == nil {
+                setStatusProgressRevealVisible(false, animated: false)
+            }
             contextPrefixLabel.textColor = detailTextColor(
                 for: .secondary,
                 summary: summary
@@ -973,6 +1038,7 @@ final class SidebarWorklaneRowButton: NSButton {
                     inactiveTextColor: inactiveTextColor
                 ),
                 trailingTextColor: presentationMode == .adaptive ? trailingColor : nil,
+                progressColor: currentTheme.statusRunning,
                 isShimmering: paneRow.isWorking && paneRow.attentionState == .running,
                 shimmerColor: shimmerColor(
                     for: statusShimmerBaseColor(for: currentTheme.statusRunning),
@@ -1377,6 +1443,58 @@ final class SidebarWorklaneRowButton: NSButton {
         statusLabel.shimmerColor
     }
 
+    var statusProgressIndicatorIsVisibleForTesting: Bool {
+        statusProgressIndicator.isHidden == false
+    }
+
+    var statusProgressFractionForTesting: CGFloat {
+        statusProgressIndicator.fraction
+    }
+
+    var statusProgressToolTipForTesting: String {
+        statusProgressIndicator.tooltipText
+    }
+
+    var statusProgressRevealTextForTesting: String {
+        statusProgressRevealView.revealText
+    }
+
+    var statusProgressRevealIsExpandedForTesting: Bool {
+        statusProgressRevealView.isRevealed
+    }
+
+    var statusProgressRevealLastUpdateWasAnimatedForTesting: Bool {
+        statusProgressRevealView.lastUpdateWasAnimated
+    }
+
+    var statusProgressRevealLastAnimationDurationForTesting: TimeInterval? {
+        statusProgressRevealView.lastAnimationDuration
+    }
+
+    var statusProgressColorForTesting: NSColor {
+        statusProgressIndicator.progressColor
+    }
+
+    var statusProgressLastUpdateWasAnimatedForTesting: Bool {
+        statusProgressIndicator.lastUpdateWasAnimated
+    }
+
+    func simulateStatusProgressIconHoverForTesting() {
+        setStatusProgressRevealVisible(true, animated: true)
+    }
+
+    func simulateStatusLineExitForTesting() {
+        setStatusProgressRevealVisible(false, animated: true)
+    }
+
+    func simulateStatusLineExitForTesting(pointerStillInsideLine: Bool) {
+        statusContentStack.simulateMouseExitedForTesting(pointerStillInsideLine: pointerStillInsideLine)
+    }
+
+    func simulateStatusLineHoverReconciliationForTesting(pointerInsideLine: Bool) {
+        statusContentStack.simulateHoverReconciliationForTesting(pointerInsideLine: pointerInsideLine)
+    }
+
     var shimmerPhaseOffsetForTesting: CGFloat {
         primaryLabel.shimmerPhaseOffsetForTesting
     }
@@ -1457,6 +1575,62 @@ final class SidebarWorklaneRowButton: NSButton {
 
     var firstPaneStatusTextColorForTesting: NSColor? {
         paneStatusRows.first?.textColor
+    }
+
+    var firstPaneStatusProgressIndicatorIsVisibleForTesting: Bool {
+        paneStatusRows.first?.progressIndicatorIsVisibleForTesting ?? false
+    }
+
+    var firstPaneStatusProgressFractionForTesting: CGFloat {
+        paneStatusRows.first?.progressFractionForTesting ?? 0
+    }
+
+    var firstPaneStatusProgressToolTipForTesting: String {
+        paneStatusRows.first?.progressToolTipForTesting ?? ""
+    }
+
+    var firstPaneStatusProgressRevealTextForTesting: String {
+        paneStatusRows.first?.progressRevealTextForTesting ?? ""
+    }
+
+    var firstPaneStatusProgressRevealIsExpandedForTesting: Bool {
+        paneStatusRows.first?.progressRevealIsExpandedForTesting ?? false
+    }
+
+    var firstPaneStatusProgressRevealLastUpdateWasAnimatedForTesting: Bool {
+        paneStatusRows.first?.progressRevealLastUpdateWasAnimatedForTesting ?? false
+    }
+
+    var firstPaneStatusProgressRevealLastAnimationDurationForTesting: TimeInterval? {
+        paneStatusRows.first?.progressRevealLastAnimationDurationForTesting
+    }
+
+    var firstPaneStatusProgressRevealLastConfigureSyncedPresentationForTesting: Bool {
+        paneStatusRows.first?.progressRevealLastConfigureSyncedPresentationForTesting ?? false
+    }
+
+    var firstPaneStatusProgressColorForTesting: NSColor? {
+        paneStatusRows.first?.progressColorForTesting
+    }
+
+    func simulateFirstPaneStatusProgressIconHoverForTesting() {
+        paneStatusRows.first?.simulateProgressIconHoverForTesting()
+    }
+
+    func simulateFirstPaneStatusLineExitForTesting() {
+        paneStatusRows.first?.simulateProgressLineExitForTesting()
+    }
+
+    func simulateFirstPaneStatusLineExitForTesting(pointerStillInsideLine: Bool) {
+        paneStatusRows.first?.simulateProgressLineExitForTesting(
+            pointerStillInsideLine: pointerStillInsideLine
+        )
+    }
+
+    func simulateFirstPaneStatusLineHoverReconciliationForTesting(pointerInsideLine: Bool) {
+        paneStatusRows.first?.simulateProgressLineHoverReconciliationForTesting(
+            pointerInsideLine: pointerInsideLine
+        )
     }
 
     var paneRowWidthConstraintCountForTesting: Int {

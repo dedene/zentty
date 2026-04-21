@@ -1,5 +1,11 @@
 import AppKit
 
+enum SidebarTaskProgressIndicatorMetrics {
+    static let sideLength: CGFloat = 11
+    static let spacing: CGFloat = 4
+    static let reservedWidth = sideLength + spacing
+}
+
 // MARK: - Leaf Components
 
 final class SidebarStaticLabel: NSTextField {
@@ -26,6 +32,414 @@ final class SidebarStaticLabel: NSTextField {
 final class SidebarPrimaryTextContainerView: NSView {
     override var allowsVibrancy: Bool {
         false
+    }
+}
+
+@MainActor
+final class SidebarTaskProgressIndicatorView: NSView {
+    private static let sideLength = SidebarTaskProgressIndicatorMetrics.sideLength
+
+    private enum Animation {
+        static let key = "taskProgressStrokeEnd"
+        static let duration: CFTimeInterval = 0.18
+    }
+
+    private enum Arc {
+        static let startAngle: CGFloat = .pi / 2
+        static let endAngle: CGFloat = -(3 * .pi) / 2
+        static let clockwise = true
+    }
+
+    private let trackLayer = CAShapeLayer()
+    private let progressLayer = CAShapeLayer()
+    private var trackingAreaValue: NSTrackingArea?
+    private var hasConfiguredProgress = false
+
+    private(set) var fraction: CGFloat = 0
+    private(set) var progressColor: NSColor = .controlAccentColor
+    private(set) var tooltipText = ""
+    private(set) var lastUpdateWasAnimated = false
+    var onHoverEntered: (() -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: Self.sideLength, height: Self.sideLength)
+    }
+
+    override func layout() {
+        super.layout()
+        updateLayerPaths()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingAreaValue {
+            removeTrackingArea(trackingAreaValue)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        trackingAreaValue = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverEntered?()
+    }
+
+    var progressArcConfigurationForTesting: (startAngle: CGFloat, endAngle: CGFloat, clockwise: Bool) {
+        (Arc.startAngle, Arc.endAngle, Arc.clockwise)
+    }
+
+    func configure(
+        taskProgress: PaneAgentTaskProgress?,
+        color: NSColor,
+        animated: Bool,
+        reducedMotion: Bool
+    ) {
+        guard let taskProgress else {
+            isHidden = true
+            toolTip = nil
+            tooltipText = ""
+            hasConfiguredProgress = false
+            lastUpdateWasAnimated = false
+            return
+        }
+
+        isHidden = false
+        progressColor = color
+        let progressText = "\(taskProgress.doneCount)/\(taskProgress.totalCount) tasks"
+        tooltipText = ""
+        toolTip = nil
+        setAccessibilityLabel("Task progress")
+        setAccessibilityValue(progressText)
+
+        trackLayer.strokeColor = color.withAlphaComponent(0.22).cgColor
+        progressLayer.strokeColor = color.cgColor
+
+        let nextFraction = CGFloat(taskProgress.doneCount) / CGFloat(taskProgress.totalCount)
+        applyFraction(
+            max(0, min(1, nextFraction)),
+            animated: animated && reducedMotion == false
+        )
+    }
+
+    private func setup() {
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        wantsLayer = true
+        layer?.masksToBounds = false
+
+        [trackLayer, progressLayer].forEach { shapeLayer in
+            shapeLayer.fillColor = NSColor.clear.cgColor
+            shapeLayer.lineWidth = 2
+            shapeLayer.lineCap = .round
+            shapeLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
+            layer?.addSublayer(shapeLayer)
+        }
+        progressLayer.strokeEnd = 0
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: Self.sideLength),
+            heightAnchor.constraint(equalToConstant: Self.sideLength),
+        ])
+    }
+
+    private func applyFraction(_ nextFraction: CGFloat, animated: Bool) {
+        let previousFraction = fraction
+        fraction = nextFraction
+
+        let shouldAnimate =
+            hasConfiguredProgress
+            && animated
+            && abs(previousFraction - nextFraction) > 0.001
+            && isHidden == false
+        lastUpdateWasAnimated = shouldAnimate
+        hasConfiguredProgress = true
+
+        progressLayer.removeAnimation(forKey: Animation.key)
+        if shouldAnimate {
+            let animation = CABasicAnimation(keyPath: "strokeEnd")
+            animation.fromValue = progressLayer.presentation()?.strokeEnd ?? previousFraction
+            animation.toValue = nextFraction
+            animation.duration = Animation.duration
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            progressLayer.add(animation, forKey: Animation.key)
+        }
+        progressLayer.strokeEnd = nextFraction
+    }
+
+    private func updateLayerPaths() {
+        let side = min(bounds.width, bounds.height)
+        let inset = max(1, trackLayer.lineWidth / 2)
+        let radius = max(0, (side / 2) - inset)
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let path = CGMutablePath()
+        path.addArc(
+            center: center,
+            radius: radius,
+            startAngle: Arc.startAngle,
+            endAngle: Arc.endAngle,
+            clockwise: Arc.clockwise
+        )
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        trackLayer.frame = bounds
+        progressLayer.frame = bounds
+        trackLayer.path = path
+        progressLayer.path = path
+        trackLayer.strokeEnd = 1
+        CATransaction.commit()
+    }
+}
+
+@MainActor
+final class SidebarTaskProgressRevealView: NSView {
+    private enum Layout {
+        static let leadingPadding: CGFloat = 4
+        static let hiddenLeadingOffset: CGFloat = -5
+    }
+
+    private enum Animation {
+        static let transitionDuration: TimeInterval = 0.24
+
+        static func transitionTimingFunction() -> CAMediaTimingFunction {
+            CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.25, 1.0)
+        }
+    }
+
+    private let label = SidebarStaticLabel()
+    private var widthConstraint: NSLayoutConstraint?
+    private var labelLeadingConstraint: NSLayoutConstraint?
+    private var measuredExpandedWidth: CGFloat = 0
+
+    private(set) var revealText = ""
+    private(set) var isRevealed = false
+    private(set) var lastUpdateWasAnimated = false
+    private(set) var lastAnimationDuration: TimeInterval?
+    private(set) var lastConfigureSyncedPresentationForTesting = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: widthConstraint?.constant ?? 0, height: NSView.noIntrinsicMetric)
+    }
+
+    func configure(taskProgress: PaneAgentTaskProgress?, color: NSColor, font: NSFont) {
+        label.font = font
+        label.textColor = color
+
+        guard let taskProgress else {
+            revealText = ""
+            label.stringValue = ""
+            measuredExpandedWidth = 0
+            lastConfigureSyncedPresentationForTesting = true
+            setRevealed(false, animated: false, reducedMotion: true)
+            isHidden = true
+            return
+        }
+
+        let nextRevealText = "\(taskProgress.doneCount)/\(taskProgress.totalCount) tasks ・"
+        let nextMeasuredExpandedWidth = Self.measuredWidth(for: nextRevealText, font: font) + Layout.leadingPadding
+        let shouldSyncPresentation =
+            isHidden
+            || revealText != nextRevealText
+            || abs(measuredExpandedWidth - nextMeasuredExpandedWidth) > 0.5
+
+        revealText = nextRevealText
+        label.stringValue = revealText
+        measuredExpandedWidth = nextMeasuredExpandedWidth
+        isHidden = false
+        lastConfigureSyncedPresentationForTesting = shouldSyncPresentation
+        if shouldSyncPresentation {
+            widthConstraint?.constant = isRevealed ? measuredExpandedWidth : 0
+            labelLeadingConstraint?.constant = isRevealed ? Layout.leadingPadding : Layout.hiddenLeadingOffset
+            label.alphaValue = isRevealed ? 1 : 0
+        }
+        invalidateIntrinsicContentSize()
+    }
+
+    func setRevealed(_ revealed: Bool, animated: Bool, reducedMotion: Bool) {
+        guard revealText.isEmpty == false || revealed == false else {
+            lastUpdateWasAnimated = false
+            return
+        }
+
+        isRevealed = revealed
+        let targetWidth = revealed ? measuredExpandedWidth : 0
+        let targetAlpha: CGFloat = revealed ? 1 : 0
+        let targetLeading = revealed ? Layout.leadingPadding : Layout.hiddenLeadingOffset
+        let shouldAnimate = animated && reducedMotion == false
+        lastUpdateWasAnimated = shouldAnimate
+        lastAnimationDuration = shouldAnimate ? Animation.transitionDuration : nil
+
+        guard shouldAnimate else {
+            widthConstraint?.constant = targetWidth
+            labelLeadingConstraint?.constant = targetLeading
+            label.alphaValue = targetAlpha
+            superview?.layoutSubtreeIfNeeded()
+            invalidateIntrinsicContentSize()
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Animation.transitionDuration
+            context.timingFunction = Animation.transitionTimingFunction()
+            widthConstraint?.animator().constant = targetWidth
+            labelLeadingConstraint?.animator().constant = targetLeading
+            label.animator().alphaValue = targetAlpha
+            superview?.animator().layoutSubtreeIfNeeded()
+        }
+        invalidateIntrinsicContentSize()
+    }
+
+    private func setup() {
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        isHidden = true
+
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.lineBreakMode = .byClipping
+        label.maximumNumberOfLines = 1
+        label.cell?.wraps = false
+        label.cell?.usesSingleLineMode = true
+        label.alphaValue = 0
+        addSubview(label)
+
+        let widthConstraint = widthAnchor.constraint(equalToConstant: 0)
+        widthConstraint.priority = .required
+        let labelLeadingConstraint = label.leadingAnchor.constraint(
+            equalTo: leadingAnchor,
+            constant: Layout.hiddenLeadingOffset
+        )
+        self.widthConstraint = widthConstraint
+        self.labelLeadingConstraint = labelLeadingConstraint
+
+        NSLayoutConstraint.activate([
+            widthConstraint,
+            labelLeadingConstraint,
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+        ])
+    }
+
+    private static func measuredWidth(for text: String, font: NSFont) -> CGFloat {
+        SidebarTextMetrics.measuredWidth(for: text, font: font)
+    }
+}
+
+@MainActor
+final class SidebarTaskProgressRevealLineStackView: NSStackView {
+    private enum HoverReconciliation {
+        static let interval: TimeInterval = 0.05
+    }
+
+    private var trackingAreaValue: NSTrackingArea?
+    private var hoverReconciliationTimer: Timer?
+    var onMouseExitedLine: (() -> Void)?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingAreaValue {
+            removeTrackingArea(trackingAreaValue)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        trackingAreaValue = trackingArea
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil {
+            stopHoverReconciliation()
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        handleMouseExited(pointerIsInsideCurrentBounds: pointerIsInsideCurrentBounds(for: event))
+    }
+
+    func startHoverReconciliation() {
+        guard hoverReconciliationTimer == nil else { return }
+        guard window != nil else { return }
+
+        let timer = Timer(timeInterval: HoverReconciliation.interval, repeats: true) { [weak self] _ in
+            self?.reconcilePointerHoverUsingCurrentLocation()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        hoverReconciliationTimer = timer
+    }
+
+    func stopHoverReconciliation() {
+        hoverReconciliationTimer?.invalidate()
+        hoverReconciliationTimer = nil
+    }
+
+    func simulateMouseExitedForTesting(pointerStillInsideLine: Bool) {
+        handleMouseExited(pointerIsInsideCurrentBounds: pointerStillInsideLine)
+    }
+
+    func simulateHoverReconciliationForTesting(pointerInsideLine: Bool) {
+        handleMouseExited(pointerIsInsideCurrentBounds: pointerInsideLine)
+    }
+
+    private func handleMouseExited(pointerIsInsideCurrentBounds: Bool) {
+        guard pointerIsInsideCurrentBounds == false else {
+            return
+        }
+
+        stopHoverReconciliation()
+        onMouseExitedLine?()
+    }
+
+    private func pointerIsInsideCurrentBounds(for event: NSEvent) -> Bool {
+        let pointInBounds = convert(event.locationInWindow, from: nil)
+        return bounds.insetBy(dx: -1, dy: -1).contains(pointInBounds)
+    }
+
+    private func reconcilePointerHoverUsingCurrentLocation() {
+        guard let window, window.isVisible, isHidden == false else {
+            handleMouseExited(pointerIsInsideCurrentBounds: false)
+            return
+        }
+
+        let pointInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        let pointInBounds = convert(pointInWindow, from: nil)
+        handleMouseExited(pointerIsInsideCurrentBounds: bounds.insetBy(dx: -1, dy: -1).contains(pointInBounds))
     }
 }
 
@@ -236,21 +650,26 @@ final class SidebarPaneTextRowView: NSView {
     private static let symbolPointSize: CGFloat = 11
 
     private let iconView = NSImageView()
+    private let progressIndicator = SidebarTaskProgressIndicatorView()
+    private let progressRevealView = SidebarTaskProgressRevealView()
     private let textContainer = SidebarPrimaryTextContainerView()
     private let baseLabel = SidebarStaticLabel()
     private let shimmerLabel = SidebarShimmerTextView()
     private let trailingLabelView = SidebarStaticLabel()
-    private let contentStack = NSStackView()
+    private let contentStack = SidebarTaskProgressRevealLineStackView()
 
     private(set) var text: String = ""
     private(set) var symbolName: String = ""
     private(set) var textColor: NSColor = .secondaryLabelColor
     private(set) var trailingText: String?
     private(set) var trailingTextColor: NSColor = .secondaryLabelColor
+    private(set) var taskProgress: PaneAgentTaskProgress?
     private var rowLineHeight: CGFloat = ShellMetrics.sidebarStatusLineHeight
     private var heightConstraint: NSLayoutConstraint?
     private var trailingWidthConstraint: NSLayoutConstraint?
     private var lineCount = 1
+    private var animatesProgressUpdates = false
+    private var reducedMotion = false
 
     init(font: NSFont, lineHeight: CGFloat) {
         super.init(frame: .zero)
@@ -281,7 +700,17 @@ final class SidebarPaneTextRowView: NSView {
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         contentStack.addArrangedSubview(iconView)
+        contentStack.addArrangedSubview(progressIndicator)
+        contentStack.addArrangedSubview(progressRevealView)
         contentStack.addArrangedSubview(textContainer)
+        contentStack.setCustomSpacing(0, after: progressIndicator)
+        contentStack.setCustomSpacing(4, after: progressRevealView)
+        progressIndicator.onHoverEntered = { [weak self] in
+            self?.setProgressRevealVisible(true, animated: true)
+        }
+        contentStack.onMouseExitedLine = { [weak self] in
+            self?.setProgressRevealVisible(false, animated: true)
+        }
         trailingLabelView.font = ShellMetrics.sidebarDetailFont()
         trailingLabelView.alignment = .right
         trailingLabelView.lineBreakMode = .byTruncatingMiddle
@@ -344,13 +773,17 @@ final class SidebarPaneTextRowView: NSView {
     func configure(
         text: String,
         symbolName: String?,
+        taskProgress: PaneAgentTaskProgress?,
         trailingText: String?,
         trailingWidth: CGFloat,
-        lineCount: Int
+        lineCount: Int,
+        animated: Bool
     ) {
         self.text = text
         self.symbolName = symbolName ?? ""
         self.trailingText = trailingText
+        self.taskProgress = taskProgress
+        animatesProgressUpdates = animated
         let showsTrailingTextInLeadingSlot = rendersTrailingTextInLeadingSlot
         let leadingText = showsTrailingTextInLeadingSlot ? (trailingText ?? "") : text
 
@@ -361,6 +794,15 @@ final class SidebarPaneTextRowView: NSView {
                 .withSymbolConfiguration(.init(pointSize: Self.symbolPointSize, weight: .semibold))
         }
         iconView.isHidden = showsTrailingTextInLeadingSlot || iconView.image == nil
+        progressIndicator.isHidden = taskProgress == nil || showsTrailingTextInLeadingSlot
+        progressRevealView.configure(
+            taskProgress: taskProgress,
+            color: .secondaryLabelColor,
+            font: baseLabel.font ?? ShellMetrics.sidebarStatusFont()
+        )
+        if taskProgress == nil || showsTrailingTextInLeadingSlot {
+            setProgressRevealVisible(false, animated: false)
+        }
         trailingLabelView.stringValue = showsTrailingTextInLeadingSlot ? "" : (trailingText ?? "")
         trailingLabelView.isHidden = showsTrailingTextInLeadingSlot || (trailingText?.isEmpty ?? true)
         trailingWidthConstraint?.constant = showsTrailingTextInLeadingSlot || trailingText == nil ? 0 : trailingWidth
@@ -370,12 +812,14 @@ final class SidebarPaneTextRowView: NSView {
     func applyColors(
         textColor: NSColor,
         trailingTextColor: NSColor?,
+        progressColor: NSColor,
         isShimmering: Bool,
         shimmerColor: NSColor,
         reducedMotion: Bool
     ) {
         self.textColor = textColor
         self.trailingTextColor = trailingTextColor ?? .clear
+        self.reducedMotion = reducedMotion
         let dimmedColor = isShimmering
             ? textColor.withAlphaComponent(textColor.alphaComponent * 0.90)
             : textColor
@@ -385,6 +829,24 @@ final class SidebarPaneTextRowView: NSView {
         baseLabel.textColor = leadingTextColor
         iconView.contentTintColor = dimmedColor
         trailingLabelView.textColor = trailingTextColor
+        let visibleTaskProgress =
+            lineCount == 1 && rendersTrailingTextInLeadingSlot == false
+            ? taskProgress
+            : nil
+        progressIndicator.configure(
+            taskProgress: visibleTaskProgress,
+            color: progressColor,
+            animated: animatesProgressUpdates,
+            reducedMotion: reducedMotion
+        )
+        progressRevealView.configure(
+            taskProgress: visibleTaskProgress,
+            color: progressColor,
+            font: baseLabel.font ?? ShellMetrics.sidebarStatusFont()
+        )
+        if visibleTaskProgress == nil {
+            setProgressRevealVisible(false, animated: false)
+        }
         shimmerLabel.isShimmering = isShimmering && lineCount == 1 && rendersTrailingTextInLeadingSlot == false
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor
@@ -410,6 +872,58 @@ final class SidebarPaneTextRowView: NSView {
         trailingLabelView.isHidden == false
     }
 
+    var progressIndicatorIsVisibleForTesting: Bool {
+        progressIndicator.isHidden == false
+    }
+
+    var progressFractionForTesting: CGFloat {
+        progressIndicator.fraction
+    }
+
+    var progressToolTipForTesting: String {
+        progressIndicator.tooltipText
+    }
+
+    var progressRevealTextForTesting: String {
+        progressRevealView.revealText
+    }
+
+    var progressRevealIsExpandedForTesting: Bool {
+        progressRevealView.isRevealed
+    }
+
+    var progressRevealLastUpdateWasAnimatedForTesting: Bool {
+        progressRevealView.lastUpdateWasAnimated
+    }
+
+    var progressRevealLastAnimationDurationForTesting: TimeInterval? {
+        progressRevealView.lastAnimationDuration
+    }
+
+    var progressRevealLastConfigureSyncedPresentationForTesting: Bool {
+        progressRevealView.lastConfigureSyncedPresentationForTesting
+    }
+
+    var progressColorForTesting: NSColor {
+        progressIndicator.progressColor
+    }
+
+    func simulateProgressIconHoverForTesting() {
+        setProgressRevealVisible(true, animated: true)
+    }
+
+    func simulateProgressLineExitForTesting() {
+        setProgressRevealVisible(false, animated: true)
+    }
+
+    func simulateProgressLineExitForTesting(pointerStillInsideLine: Bool) {
+        contentStack.simulateMouseExitedForTesting(pointerStillInsideLine: pointerStillInsideLine)
+    }
+
+    func simulateProgressLineHoverReconciliationForTesting(pointerInsideLine: Bool) {
+        contentStack.simulateHoverReconciliationForTesting(pointerInsideLine: pointerInsideLine)
+    }
+
     private func applyPresentation(lineCount: Int) {
         let clampedLineCount = max(1, min(2, lineCount))
         let wraps = clampedLineCount > 1
@@ -421,9 +935,32 @@ final class SidebarPaneTextRowView: NSView {
         baseLabel.cell?.usesSingleLineMode = wraps == false
         shimmerLabel.isHidden = wraps
         contentStack.alignment = wraps ? .top : .centerY
+        progressIndicator.isHidden = wraps || rendersTrailingTextInLeadingSlot || taskProgress == nil
+        if wraps || rendersTrailingTextInLeadingSlot || taskProgress == nil {
+            setProgressRevealVisible(false, animated: false)
+        }
         trailingLabelView.isHidden = wraps || rendersTrailingTextInLeadingSlot || (trailingText?.isEmpty ?? true)
         heightConstraint?.constant = rowLineHeight * CGFloat(clampedLineCount)
         invalidateIntrinsicContentSize()
+    }
+
+    private func setProgressRevealVisible(_ isVisible: Bool, animated: Bool) {
+        let canReveal =
+            isVisible
+            && lineCount == 1
+            && rendersTrailingTextInLeadingSlot == false
+            && taskProgress != nil
+            && progressIndicator.isHidden == false
+        progressRevealView.setRevealed(
+            canReveal,
+            animated: animated,
+            reducedMotion: reducedMotion
+        )
+        if canReveal {
+            contentStack.startHoverReconciliation()
+        } else {
+            contentStack.stopHoverReconciliation()
+        }
     }
 
     private func updateResolvedTrailingVisibility() {

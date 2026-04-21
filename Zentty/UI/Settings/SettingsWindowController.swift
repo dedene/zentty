@@ -519,10 +519,18 @@ final class SettingsViewController: NSTabViewController {
         let targetFrame = targetWindowFrame(for: targetContentSize, window: window)
 
         if animated {
+            guard window.frame.integral != targetFrame.integral else {
+                completeTransitionIfCurrent(transitionID)
+                return
+            }
+
             let reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             let duration = SettingsTransitionProfile.resolvedDuration(reducedMotion: reducedMotion)
             let timingFunction = SettingsTransitionProfile.resolvedTimingFunction(reducedMotion: reducedMotion)
 
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+                self?.completeTransitionIfCurrent(transitionID)
+            }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
                 context.timingFunction = timingFunction

@@ -23,6 +23,7 @@ struct WorklaneSidebarPaneRow: Equatable {
     let interactionSymbolName: String?
     let isFocused: Bool
     let isWorking: Bool
+    let taskProgress: PaneAgentTaskProgress?
 
     init(
         paneID: PaneID,
@@ -36,7 +37,8 @@ struct WorklaneSidebarPaneRow: Equatable {
         interactionLabel: String? = nil,
         interactionSymbolName: String? = nil,
         isFocused: Bool,
-        isWorking: Bool
+        isWorking: Bool,
+        taskProgress: PaneAgentTaskProgress? = nil
     ) {
         self.paneID = paneID
         self.primaryText = primaryText
@@ -50,6 +52,7 @@ struct WorklaneSidebarPaneRow: Equatable {
         self.interactionSymbolName = interactionSymbolName
         self.isFocused = isFocused
         self.isWorking = isWorking
+        self.taskProgress = taskProgress
     }
 }
 
@@ -69,6 +72,7 @@ struct WorklaneSidebarSummary: Equatable {
     let interactionKind: PaneInteractionKind?
     let interactionLabel: String?
     let interactionSymbolName: String?
+    let taskProgress: PaneAgentTaskProgress?
     let isWorking: Bool
     let isActive: Bool
     let color: WorklaneColor?
@@ -101,6 +105,7 @@ struct WorklaneSidebarSummary: Equatable {
         interactionKind: PaneInteractionKind? = nil,
         interactionLabel: String? = nil,
         interactionSymbolName: String? = nil,
+        taskProgress: PaneAgentTaskProgress? = nil,
         isWorking: Bool = false,
         isActive: Bool,
         color: WorklaneColor? = nil
@@ -120,6 +125,7 @@ struct WorklaneSidebarSummary: Equatable {
         self.interactionKind = interactionKind
         self.interactionLabel = interactionLabel
         self.interactionSymbolName = interactionSymbolName
+        self.taskProgress = taskProgress
         self.isWorking = isWorking
         self.isActive = isActive
         self.color = color

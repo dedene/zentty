@@ -40,6 +40,7 @@ enum WorklaneAttentionSummaryBuilder {
             contextText: contextText(for: presentation),
             artifactLink: presentation.attentionArtifactLink,
             interactionSymbolName: presentation.interactionSymbolName ?? presentation.interactionKind?.defaultSymbolName,
+            taskProgress: presentation.taskProgress,
             updatedAt: presentation.updatedAt
         )
     }

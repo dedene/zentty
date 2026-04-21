@@ -1561,7 +1561,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertFalse(paneRow.isWorking)
     }
 
-    func test_builder_formats_running_status_with_task_progress_suffix() {
+    func test_builder_surfaces_running_task_progress_as_structured_sidebar_progress() {
         let paneID = PaneID("worklane-main-agent-running-progress")
         var auxiliaryState = PaneAuxiliaryState(
             metadata: TerminalMetadata(
@@ -1599,10 +1599,11 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
         XCTAssertNil(summary.statusText)
-        XCTAssertEqual(paneRow.statusText, "Running (2/5)")
+        XCTAssertEqual(paneRow.statusText, "Running")
+        XCTAssertEqual(paneRow.taskProgress, PaneAgentTaskProgress(doneCount: 2, totalCount: 5))
     }
 
-    func test_builder_formats_idle_status_with_task_progress_suffix_until_complete() {
+    func test_builder_surfaces_idle_task_progress_as_structured_sidebar_progress_until_complete() {
         let paneID = PaneID("worklane-main-agent-idle-progress")
         var auxiliaryState = PaneAuxiliaryState(
             metadata: TerminalMetadata(
@@ -1642,7 +1643,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneRow = try! XCTUnwrap(summary.paneRows.first(where: { _ in true }))
 
         XCTAssertNil(summary.statusText)
-        XCTAssertEqual(paneRow.statusText, "Idle (0/3)")
+        XCTAssertEqual(paneRow.statusText, "Idle")
+        XCTAssertEqual(paneRow.taskProgress, PaneAgentTaskProgress(doneCount: 0, totalCount: 3))
         XCTAssertNil(paneRow.attentionState)
         XCTAssertFalse(paneRow.isWorking)
     }

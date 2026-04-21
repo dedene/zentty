@@ -483,6 +483,7 @@ struct WorklaneAttentionSummary: Equatable, Sendable {
     let contextText: String
     let artifactLink: WorklaneArtifactLink?
     let interactionSymbolName: String?
+    let taskProgress: PaneAgentTaskProgress?
     let updatedAt: Date
 
     init(
@@ -496,6 +497,7 @@ struct WorklaneAttentionSummary: Equatable, Sendable {
         contextText: String,
         artifactLink: WorklaneArtifactLink?,
         interactionSymbolName: String? = nil,
+        taskProgress: PaneAgentTaskProgress? = nil,
         updatedAt: Date
     ) {
         self.paneID = paneID
@@ -508,6 +510,7 @@ struct WorklaneAttentionSummary: Equatable, Sendable {
         self.contextText = contextText
         self.artifactLink = artifactLink
         self.interactionSymbolName = interactionSymbolName
+        self.taskProgress = taskProgress
         self.updatedAt = updatedAt
     }
 
