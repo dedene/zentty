@@ -377,6 +377,12 @@ enum AgentResumeCommandBuilder {
             return "kimi -r \(sessionID)"
         case .cursor:
             return nil
+        case .droid:
+            guard let sessionID = validatedDroidSessionID(from: draft.sessionID) else {
+                logRejectedSessionID(for: draft)
+                return nil
+            }
+            return "droid exec -s \(sessionID)"
         case .pi:
             // Pi resumes per-project via `-c` (continue last session). Since pi stores
             // sessions under ~/.pi/agent/sessions/<project>/, we don't need to pass a
@@ -428,6 +434,17 @@ enum AgentResumeCommandBuilder {
             return nil
         }
         return uuid.uuidString.lowercased()
+    }
+
+    private static func validatedDroidSessionID(from sessionID: String) -> String? {
+        // Droid session IDs are opaque strings; validate only that they are
+        // non-empty and contain no shell metacharacters or whitespace so the
+        // restore command remains a single safe argument.
+        let pattern = "^[A-Za-z0-9_.:-]+$"
+        guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
+            return nil
+        }
+        return sessionID
     }
 
     private static func logRejectedSessionID(for draft: PaneRestoreDraft) {

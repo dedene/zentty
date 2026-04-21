@@ -529,6 +529,7 @@ struct IPCCommand: ParsableCommand {
         "ZENTTY_COPILOT_PID",
         "ZENTTY_GEMINI_PID",
         "ZENTTY_CURSOR_PID",
+        "ZENTTY_DROID_PID",
         "ZENTTY_KIMI_PID",
     ]
 

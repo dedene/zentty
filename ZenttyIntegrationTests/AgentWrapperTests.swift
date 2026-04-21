@@ -198,6 +198,40 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertEqual(request.environment["ZENTTY_PANE_ID"], "pane-main")
     }
 
+    func test_real_cli_ipc_forwards_droid_pid_to_adapter() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let payload = #"{"hook_event_name":"SessionStart","session_id":"session-droid"}"#
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["ipc", "agent-event", "--adapter=droid"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment["ZENTTY_DROID_PID"] = "4242"
+        process.environment = environment
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+        let stdinPipe = Pipe()
+        process.standardInput = stdinPipe
+
+        try process.run()
+        stdinPipe.fileHandleForWriting.write(Data(payload.utf8))
+        try? stdinPipe.fileHandleForWriting.close()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.subcommand, "agent-event")
+        XCTAssertEqual(request.arguments, ["--adapter=droid"])
+        XCTAssertEqual(request.standardInput, payload)
+        XCTAssertEqual(request.environment["ZENTTY_DROID_PID"], "4242")
+    }
+
     func test_real_cli_codex_notify_reads_payload_from_standard_input_when_argument_is_omitted() throws {
         let server = try IPCRequestCaptureServer()
         defer { server.invalidate() }
@@ -354,7 +388,7 @@ final class AgentWrapperTests: XCTestCase {
     }
 
     func test_tool_wrappers_delegate_to_launch_command_when_cli_is_available() throws {
-        for tool in ["claude", "codex", "copilot", "cursor-agent", "gemini", "kimi", "opencode", "pi"] {
+        for tool in ["claude", "codex", "copilot", "cursor-agent", "droid", "gemini", "kimi", "opencode", "pi"] {
             let harness = try WrapperHarness(copyingScriptsNamed: [tool, "zentty-agent-wrapper"])
             try harness.installRealBinary(
                 named: tool,
@@ -764,7 +798,7 @@ private struct WrapperHarness {
     }
 
     private var publicWrapperDirectories: [URL] {
-        ["claude", "codex", "copilot", "cursor", "gemini", "kimi", "opencode", "pi"]
+        ["claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"]
             .map { wrapperBinURL.appendingPathComponent($0, isDirectory: true) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
@@ -783,6 +817,8 @@ private struct WrapperHarness {
             return "copilot/copilot"
         case "cursor-agent":
             return "cursor/cursor-agent"
+        case "droid":
+            return "droid/droid"
         case "gemini":
             return "gemini/gemini"
         case "kimi":

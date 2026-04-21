@@ -577,6 +577,7 @@ extension WorklaneStore {
             case .codex: return "codex"
             case .copilot: return "gh copilot"
             case .cursor: return "cursor"
+            case .droid: return "droid"
             case .gemini: return "gemini"
             case .kimi: return "kimi"
             case .openCode: return "opencode"
