@@ -871,4 +871,246 @@ final class AgentEventBridgeTests: XCTestCase {
         if let pid { env["ZENTTY_CLAUDE_PID"] = pid }
         return env
     }
+
+    private func droidEnvironment(pid: String? = nil) -> [String: String] {
+        var env = defaultEnvironment
+        if let pid { env["ZENTTY_DROID_PID"] = pid }
+        return env
+    }
+
+    private func makeDroidTaskStore() throws -> DroidTaskStore {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
+        return DroidTaskStore(stateURL: directoryURL.appendingPathComponent("droid-task-sessions.json"))
+    }
+
+    // MARK: - Droid Task Progress
+
+    func test_droid_preToolUse_Task_increments_total() throws {
+        let store = try makeDroidTaskStore()
+        let json = #"{"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"Task","cwd":"/tmp"}"#
+        let payloads = try AgentEventBridge.droidAdapter(data: json.data(using: .utf8)!, environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 0, totalCount: 1))
+    }
+
+    func test_droid_preToolUse_nonTask_preserves_progress() throws {
+        let store = try makeDroidTaskStore()
+        _ = try store.taskCreated(sessionID: "sess-1")
+        let json = #"{"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"Edit","cwd":"/tmp"}"#
+        let payloads = try AgentEventBridge.droidAdapter(data: json.data(using: .utf8)!, environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 0, totalCount: 1))
+    }
+
+    func test_droid_preToolUse_todoWrite_string_reports_exact_progress() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"TodoWrite","cwd":"/tmp","tool_input":{"todos":"1. [completed] Review logs\\n2. [in_progress] Patch adapter\\n3. [pending] Run tests"}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+    }
+
+    func test_droid_preToolUse_todoWrite_array_reports_exact_progress() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"TodoWrite","cwd":"/tmp","tool_input":{"todos":[{"content":"Review logs","status":"completed"},{"content":"Patch adapter","status":"in_progress"},{"content":"Run tests","status":"pending"}]}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+    }
+
+    func test_droid_preToolUse_todoWrite_accepts_camel_case_tool_input() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"TodoWrite","cwd":"/tmp","toolInput":{"todos":"- [x] Review logs\\n- [ ] Run tests"}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 2))
+    }
+
+    func test_droid_preToolUse_todoWrite_unrecognized_string_preserves_existing_progress() throws {
+        let store = try makeDroidTaskStore()
+        _ = try store.taskCreated(sessionID: "sess-1")
+        let json = """
+        {"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"TodoWrite","cwd":"/tmp","tool_input":{"todos":"Review logs\\nRun tests"}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 0, totalCount: 1))
+    }
+
+    func test_droid_preToolUse_todoWrite_empty_list_hides_stale_progress() throws {
+        let store = try makeDroidTaskStore()
+        _ = try store.updateProgress(sessionID: "sess-1", doneCount: 1, totalCount: 3)
+        let json = """
+        {"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"TodoWrite","cwd":"/tmp","tool_input":{"todos":[]}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 1))
+        XCTAssertNil(try store.taskProgress(sessionID: "sess-1"))
+    }
+
+    func test_droid_subagent_events_do_not_mutate_todo_progress() throws {
+        let store = try makeDroidTaskStore()
+        _ = try store.updateProgress(sessionID: "sess-1", doneCount: 1, totalCount: 3)
+
+        let taskJSON = #"{"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"Task","cwd":"/tmp"}"#
+        let taskPayloads = try AgentEventBridge.droidAdapter(data: Data(taskJSON.utf8), environment: droidEnvironment(), taskStore: store)
+        XCTAssertEqual(try XCTUnwrap(taskPayloads.first).taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+
+        let stopJSON = #"{"hook_event_name":"SubagentStop","session_id":"sess-1","cwd":"/tmp"}"#
+        let stopPayloads = try AgentEventBridge.droidAdapter(data: Data(stopJSON.utf8), environment: droidEnvironment(), taskStore: store)
+        XCTAssertEqual(try XCTUnwrap(stopPayloads.first).taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+    }
+
+    func test_droid_preToolUse_askUser_reports_question() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"AskUser","cwd":"/tmp","tool_input":{"question":"Choose a target?","options":["Staging","Production"]}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .decision)
+        XCTAssertEqual(payload.text, "Choose a target?\n- Staging\n- Production")
+    }
+
+    func test_droid_preToolUse_manual_execute_reports_approval() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"Execute","permission_mode":"off","cwd":"/tmp","tool_input":{"command":"xcodebuild test"}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .approval)
+        XCTAssertEqual(payload.text, "Allow Execute: xcodebuild test")
+    }
+
+    func test_droid_preToolUse_auto_execute_stays_running() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"Execute","permission_mode":"auto-low","cwd":"/tmp","tool_input":{"command":"ls"}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertNil(payload.interactionKind)
+    }
+
+    func test_droid_subagentStop_increments_done() throws {
+        let store = try makeDroidTaskStore()
+        _ = try store.taskCreated(sessionID: "sess-1")
+        _ = try store.taskCreated(sessionID: "sess-1")
+        let json = #"{"hook_event_name":"SubagentStop","session_id":"sess-1","cwd":"/tmp"}"#
+        let payloads = try AgentEventBridge.droidAdapter(data: json.data(using: .utf8)!, environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 2))
+    }
+
+    func test_droid_task_full_lifecycle() throws {
+        let store = try makeDroidTaskStore()
+        let env = droidEnvironment()
+
+        // Create 3 tasks
+        for _ in 1...3 {
+            let json = #"{"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"Task","cwd":"/tmp"}"#
+            _ = try AgentEventBridge.droidAdapter(data: json.data(using: .utf8)!, environment: env, taskStore: store)
+        }
+
+        let progress1 = try store.taskProgress(sessionID: "sess-1")
+        XCTAssertEqual(progress1, PaneAgentTaskProgress(doneCount: 0, totalCount: 3))
+
+        // Complete 2 tasks
+        for _ in 1...2 {
+            let json = #"{"hook_event_name":"SubagentStop","session_id":"sess-1","cwd":"/tmp"}"#
+            _ = try AgentEventBridge.droidAdapter(data: json.data(using: .utf8)!, environment: env, taskStore: store)
+        }
+
+        let progress2 = try store.taskProgress(sessionID: "sess-1")
+        XCTAssertEqual(progress2, PaneAgentTaskProgress(doneCount: 2, totalCount: 3))
+
+        // Complete last task
+        let json = #"{"hook_event_name":"SubagentStop","session_id":"sess-1","cwd":"/tmp"}"#
+        _ = try AgentEventBridge.droidAdapter(data: json.data(using: .utf8)!, environment: env, taskStore: store)
+
+        let progress3 = try store.taskProgress(sessionID: "sess-1")
+        XCTAssertEqual(progress3, PaneAgentTaskProgress(doneCount: 3, totalCount: 3))
+    }
+
+    func test_droid_sessionEnd_clears_task_progress() throws {
+        let store = try makeDroidTaskStore()
+        let env = droidEnvironment()
+
+        _ = try store.taskCreated(sessionID: "sess-1")
+        _ = try store.taskCreated(sessionID: "sess-1")
+
+        let json = #"{"hook_event_name":"SessionEnd","session_id":"sess-1"}"#
+        _ = try AgentEventBridge.droidAdapter(data: json.data(using: .utf8)!, environment: env, taskStore: store)
+
+        let progress = try store.taskProgress(sessionID: "sess-1")
+        XCTAssertNil(progress)
+    }
+
+    func test_droid_task_store_reads_entries_without_source() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let stateURL = directoryURL.appendingPathComponent("droid-task-sessions.json")
+        let stateJSON = #"{"sessions":{"sess-1":{"doneCount":1,"totalCount":3,"updatedAt":123}}}"#
+        try Data(stateJSON.utf8).write(to: stateURL)
+
+        let store = DroidTaskStore(stateURL: stateURL)
+        XCTAssertEqual(try store.taskProgress(sessionID: "sess-1"), PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+    }
+
+    func test_droid_stop_carries_progress() throws {
+        let store = try makeDroidTaskStore()
+        _ = try store.taskCreated(sessionID: "sess-1")
+        let json = #"{"hook_event_name":"Stop","session_id":"sess-1","cwd":"/tmp"}"#
+        let payloads = try AgentEventBridge.droidAdapter(data: json.data(using: .utf8)!, environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .idle)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 0, totalCount: 1))
+    }
+
+    func test_droid_notification_carries_progress() throws {
+        let store = try makeDroidTaskStore()
+        _ = try store.taskCreated(sessionID: "sess-1")
+        _ = try store.taskCompleted(sessionID: "sess-1")
+        _ = try store.taskCreated(sessionID: "sess-1")
+        let json = #"{"hook_event_name":"Notification","session_id":"sess-1","message":"Droid needs permission","cwd":"/tmp"}"#
+        let payloads = try AgentEventBridge.droidAdapter(data: json.data(using: .utf8)!, environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 2))
+    }
+
+    func test_droid_doneCount_clamps_to_totalCount() throws {
+        let store = try makeDroidTaskStore()
+        _ = try store.taskCreated(sessionID: "sess-1")
+        _ = try store.taskCompleted(sessionID: "sess-1")
+        // Extra SubagentStop beyond total should not exceed totalCount
+        _ = try store.taskCompleted(sessionID: "sess-1")
+        let progress = try store.taskProgress(sessionID: "sess-1")
+        XCTAssertEqual(progress, PaneAgentTaskProgress(doneCount: 1, totalCount: 1))
+    }
 }

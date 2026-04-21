@@ -83,6 +83,13 @@ final class AgentStatusSupportTests: XCTestCase {
     func test_agent_tool_recognizes_cursor() {
         XCTAssertEqual(AgentTool.resolve(named: "cursor"), .cursor)
         XCTAssertEqual(AgentTool.resolve(named: "Cursor Agent"), .cursor)
+        XCTAssertNil(AgentTool.resolveKnown(named: "Cursor Agent"))
+    }
+
+    func test_agent_tool_recognizes_droid_for_explicit_and_known_tool_resolution() {
+        XCTAssertEqual(AgentTool.resolve(named: "droid"), .droid)
+        XCTAssertEqual(AgentTool.resolve(named: "Droid CLI"), .droid)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "Droid"), .droid)
     }
 
     func test_agent_tool_recognizes_pi_and_its_titlebar_variants() {
@@ -220,7 +227,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["claude", "codex", "copilot", "cursor", "gemini", "kimi", "opencode", "pi"].map {
+            ["claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -1468,6 +1475,68 @@ final class AgentStatusSupportTests: XCTestCase {
             FileManager.default.fileExists(atPath: hooksURL.path),
             "installIfPossible must reject whitespace-only env values"
         )
+    }
+
+    // MARK: - DroidHooksInstaller — suppressHookOutput
+
+    func test_droid_suppress_hook_output_sets_false_on_fresh_file() throws {
+        let directory = try makeTemporaryDirectory(named: "droid-suppress-fresh")
+        let hooksConfigURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+
+        try DroidHooksInstaller.suppressHookOutput(at: hooksConfigURL)
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hooksConfigURL)) as? [String: Any]
+        )
+        XCTAssertEqual(object["showHookOutput"] as? Bool, false)
+    }
+
+    func test_droid_suppress_hook_output_preserves_existing_entries() throws {
+        let directory = try makeTemporaryDirectory(named: "droid-suppress-existing")
+        let hooksConfigURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+        try #"{"Stop":[{"hooks":[{"type":"command","command":"echo hi"}]}]}"#
+            .write(to: hooksConfigURL, atomically: true, encoding: .utf8)
+
+        try DroidHooksInstaller.suppressHookOutput(at: hooksConfigURL)
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hooksConfigURL)) as? [String: Any]
+        )
+        XCTAssertEqual(object["showHookOutput"] as? Bool, false)
+        XCTAssertNotNil(object["Stop"], "existing hook entries must be preserved")
+    }
+
+    func test_droid_suppress_hook_output_respects_user_true() throws {
+        let directory = try makeTemporaryDirectory(named: "droid-suppress-user-true")
+        let hooksConfigURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+        try #"{"showHookOutput":true}"#
+            .write(to: hooksConfigURL, atomically: true, encoding: .utf8)
+
+        try DroidHooksInstaller.suppressHookOutput(at: hooksConfigURL)
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hooksConfigURL)) as? [String: Any]
+        )
+        XCTAssertEqual(object["showHookOutput"] as? Bool, true, "user's explicit true must not be overwritten")
+    }
+
+    func test_droid_suppress_hook_output_respects_user_false() throws {
+        let directory = try makeTemporaryDirectory(named: "droid-suppress-user-false")
+        let hooksConfigURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+        try #"{"showHookOutput":false}"#
+            .write(to: hooksConfigURL, atomically: true, encoding: .utf8)
+
+        let mtimeBefore = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: hooksConfigURL.path)[.modificationDate] as? Date
+        )
+        Thread.sleep(forTimeInterval: 1.1)
+
+        try DroidHooksInstaller.suppressHookOutput(at: hooksConfigURL)
+
+        let mtimeAfter = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: hooksConfigURL.path)[.modificationDate] as? Date
+        )
+        XCTAssertEqual(mtimeBefore, mtimeAfter, "file should not be rewritten when key already exists")
     }
 
     // MARK: - KimiHooksInstaller
@@ -5248,6 +5317,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ("codex", "codex"),
             ("copilot", "copilot"),
             ("cursor", "cursor-agent"),
+            ("droid", "droid"),
             ("gemini", "gemini"),
             ("kimi", "kimi"),
             ("opencode", "opencode"),

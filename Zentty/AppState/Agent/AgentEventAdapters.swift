@@ -2,6 +2,328 @@ import Foundation
 import os
 
 private let cursorAdapterLogger = Logger(subsystem: "be.zenjoy.zentty", category: "CursorAdapter")
+private let droidAdapterLogger = Logger(subsystem: "be.zenjoy.zentty", category: "DroidAdapter")
+
+// MARK: - Droid Adapter
+
+extension AgentEventBridge {
+    static func droidAdapter(
+        data: Data,
+        environment: [String: String],
+        taskStore: DroidTaskStore = DroidTaskStore()
+    ) throws -> [AgentStatusPayload] {
+        let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
+        guard let hookEventName = firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"]) else {
+            throw AgentStatusPayloadError.invalidHookPayload
+        }
+
+        guard currentTargetIfAvailable(from: environment) != nil else {
+            return []
+        }
+
+        let target = try currentTarget(from: environment)
+        let toolName = AgentTool.droid.displayName
+        let sessionID = firstString(in: jsonObject, keys: ["session_id", "sessionId"])
+        let cwd = firstString(in: jsonObject, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"])
+        let message = firstString(in: jsonObject, keys: ["message", "body", "text", "prompt", "description"])
+        let hookToolName = firstString(in: jsonObject, keys: ["tool_name", "toolName"])
+        let permissionMode = firstString(in: jsonObject, keys: ["permission_mode", "permissionMode"])
+        let toolInput = (jsonObject["tool_input"] as? [String: Any])
+            ?? (jsonObject["toolInput"] as? [String: Any])
+        let pid = parseAgentPID(from: environment, key: "ZENTTY_DROID_PID")
+
+        switch hookEventName {
+        case "SessionStart":
+            var payloads: [AgentStatusPayload] = []
+            if let pid {
+                payloads.append(pidPayload(target: target, toolName: toolName, pid: pid, event: .attach, sessionID: sessionID))
+            }
+            payloads.append(lifecyclePayload(target: target, toolName: toolName, state: .starting, sessionID: sessionID, cwd: cwd))
+            return payloads
+
+        case "PreToolUse":
+            if hookToolName == "TodoWrite",
+               let sessionID,
+               let todoProgress = droidTodoProgress(toolInput: toolInput) {
+                let taskProgress = try taskStore.updateProgress(
+                    sessionID: sessionID,
+                    doneCount: todoProgress.doneCount,
+                    totalCount: todoProgress.totalCount
+                )
+                return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd, taskProgress: taskProgress)]
+            }
+            if hookToolName == "Task", let sessionID {
+                let taskProgress = try taskStore.taskCreated(sessionID: sessionID)
+                return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd, taskProgress: taskProgress)]
+            }
+            if hookToolName == "AskUser" {
+                let askUserInteraction = droidAskUserInteraction(toolInput: toolInput)
+                let interactionText = askUserInteraction.text ?? message ?? "Droid needs your input"
+                let interactionKind = askUserInteraction.kind
+                    ?? AgentInteractionClassifier.interactionKind(forWaitingMessage: interactionText)
+                    ?? .question
+                return [AgentStatusPayload(
+                    windowID: target.windowID,
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: .needsInput,
+                    origin: .explicitHook,
+                    toolName: toolName,
+                    text: interactionText,
+                    lifecycleEvent: .update,
+                    interactionKind: interactionKind,
+                    confidence: .explicit,
+                    sessionID: sessionID,
+                    taskProgress: try taskStore.taskProgress(sessionID: sessionID),
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil,
+                    agentWorkingDirectory: cwd
+                )]
+            }
+            if droidManualModeRequiresApproval(permissionMode: permissionMode, toolName: hookToolName) {
+                let interactionText = droidApprovalText(toolName: hookToolName, toolInput: toolInput)
+                return [AgentStatusPayload(
+                    windowID: target.windowID,
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: .needsInput,
+                    origin: .explicitHook,
+                    toolName: toolName,
+                    text: interactionText,
+                    lifecycleEvent: .update,
+                    interactionKind: .approval,
+                    confidence: .explicit,
+                    sessionID: sessionID,
+                    taskProgress: try taskStore.taskProgress(sessionID: sessionID),
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil,
+                    agentWorkingDirectory: cwd
+                )]
+            }
+            let taskProgress = try taskStore.taskProgress(sessionID: sessionID)
+            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd, taskProgress: taskProgress)]
+
+        case "PostToolUse":
+            if hookToolName == "TodoWrite",
+               let sessionID,
+               let todoProgress = droidTodoProgress(toolInput: toolInput) {
+                let taskProgress = try taskStore.updateProgress(
+                    sessionID: sessionID,
+                    doneCount: todoProgress.doneCount,
+                    totalCount: todoProgress.totalCount
+                )
+                return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd, taskProgress: taskProgress)]
+            }
+            let taskProgress = try taskStore.taskProgress(sessionID: sessionID)
+            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd, taskProgress: taskProgress)]
+
+        case "UserPromptSubmit":
+            let taskProgress = try taskStore.taskProgress(sessionID: sessionID)
+            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd, taskProgress: taskProgress)]
+
+        case "Notification":
+            let interactionText = message ?? "Droid needs your input"
+            let interactionKind: PaneAgentInteractionKind
+            let normalized = interactionText.lowercased()
+            if normalized.contains("permission") || normalized.contains("approval") || normalized.contains("approve") {
+                interactionKind = .approval
+            } else if normalized.contains("?") {
+                interactionKind = .question
+            } else {
+                interactionKind = .genericInput
+            }
+            return [AgentStatusPayload(
+                windowID: target.windowID,
+                worklaneID: target.worklaneID,
+                paneID: target.paneID,
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: toolName,
+                text: interactionText,
+                lifecycleEvent: .update,
+                interactionKind: interactionKind,
+                confidence: .explicit,
+                sessionID: sessionID,
+                taskProgress: try taskStore.taskProgress(sessionID: sessionID),
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentWorkingDirectory: cwd
+            )]
+
+        case "SubagentStop":
+            if let sessionID {
+                let taskProgress = try taskStore.taskCompleted(sessionID: sessionID)
+                return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd, taskProgress: taskProgress)]
+            }
+            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
+
+        case "Stop":
+            let taskProgress = try taskStore.taskProgress(sessionID: sessionID)
+            return [lifecyclePayload(target: target, toolName: toolName, state: .idle, sessionID: sessionID, cwd: cwd, taskProgress: taskProgress)]
+
+        case "SessionEnd":
+            try taskStore.clearSession(sessionID: sessionID)
+            return [
+                AgentStatusPayload(
+                    windowID: target.windowID,
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    signalKind: .lifecycle,
+                    state: nil,
+                    origin: .explicitHook,
+                    toolName: toolName,
+                    text: nil,
+                    sessionID: sessionID,
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil
+                ),
+                pidPayload(target: target, toolName: toolName, pid: nil, event: .clear, sessionID: sessionID),
+            ]
+
+        default:
+            droidAdapterLogger.debug("Unhandled droid hook event: \(hookEventName, privacy: .public)")
+            return []
+        }
+    }
+
+    private static func droidManualModeRequiresApproval(permissionMode: String?, toolName: String?) -> Bool {
+        guard permissionMode?.caseInsensitiveCompare("off") == .orderedSame,
+              let toolName else {
+            return false
+        }
+
+        let approvalTools: Set<String> = [
+            "Create",
+            "Edit",
+            "Execute",
+            "MultiEdit",
+            "NotebookEdit",
+            "Write",
+        ]
+        return approvalTools.contains(toolName)
+    }
+
+    private static func droidAskUserInteraction(toolInput: [String: Any]?) -> (
+        text: String?,
+        kind: PaneAgentInteractionKind?
+    ) {
+        let text = firstString(in: toolInput, keys: ["question", "prompt", "message", "text"])
+        let options = droidStringArray(in: toolInput, keys: ["options", "choices"])
+        guard let text, !options.isEmpty else {
+            return (text, nil)
+        }
+
+        return (([text] + options.map { "- \($0)" }).joined(separator: "\n"), .decision)
+    }
+
+    private static func droidApprovalText(toolName: String?, toolInput: [String: Any]?) -> String {
+        let tool = toolName ?? "tool"
+        if let command = firstString(in: toolInput, keys: ["command"]) {
+            return "Allow \(tool): \(command)"
+        }
+        if let path = firstString(in: toolInput, keys: ["file_path", "filePath", "path"]) {
+            return "Allow \(tool) on \(path)?"
+        }
+        return "Droid needs your permission to use \(tool)"
+    }
+
+    private static func droidStringArray(in object: [String: Any]?, keys: [String]) -> [String] {
+        guard let object else { return [] }
+        for key in keys {
+            if let values = object[key] as? [String] {
+                return values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            }
+            if let values = object[key] as? [[String: Any]] {
+                return values.compactMap { firstString(in: $0, keys: ["label", "text", "value", "name"]) }
+            }
+        }
+        return []
+    }
+
+    private struct DroidTodoProgressSnapshot {
+        let doneCount: Int
+        let totalCount: Int
+    }
+
+    private static func droidTodoProgress(toolInput: [String: Any]?) -> DroidTodoProgressSnapshot? {
+        guard let toolInput, let todos = toolInput["todos"] else {
+            return nil
+        }
+
+        if let todoObjects = todos as? [[String: Any]] {
+            return droidTodoProgress(todoObjects: todoObjects)
+        }
+
+        if let todoLines = todos as? [String] {
+            return droidTodoProgress(todoText: todoLines.joined(separator: "\n"))
+        }
+
+        if let todoText = todos as? String {
+            return droidTodoProgress(todoText: todoText)
+        }
+
+        return nil
+    }
+
+    private static func droidTodoProgress(todoObjects: [[String: Any]]) -> DroidTodoProgressSnapshot? {
+        guard !todoObjects.isEmpty else {
+            return DroidTodoProgressSnapshot(doneCount: 0, totalCount: 0)
+        }
+
+        let statuses = todoObjects.compactMap { todo in
+            firstString(in: todo, keys: ["status", "state"])
+        }
+        guard !statuses.isEmpty else { return nil }
+
+        let doneCount = statuses.filter { droidTodoStatusIsComplete($0) }.count
+        return DroidTodoProgressSnapshot(doneCount: doneCount, totalCount: statuses.count)
+    }
+
+    private static func droidTodoProgress(todoText: String) -> DroidTodoProgressSnapshot? {
+        var totalCount = 0
+        var doneCount = 0
+        var sawTodoLine = false
+
+        for rawLine in todoText.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !line.isEmpty else { continue }
+            sawTodoLine = true
+
+            if line.contains("[completed]") || line.contains("[done]") {
+                totalCount += 1
+                doneCount += 1
+            } else if line.contains("[in_progress]")
+                || line.contains("[in-progress]")
+                || line.contains("[pending]") {
+                totalCount += 1
+            } else if line.contains("[x]") {
+                totalCount += 1
+                doneCount += 1
+            } else if line.contains("[ ]") {
+                totalCount += 1
+            }
+        }
+
+        guard totalCount > 0 || !sawTodoLine else {
+            return nil
+        }
+        return DroidTodoProgressSnapshot(doneCount: doneCount, totalCount: totalCount)
+    }
+
+    private static func droidTodoStatusIsComplete(_ status: String) -> Bool {
+        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "completed", "complete", "done":
+            return true
+        default:
+            return false
+        }
+    }
+}
 
 // MARK: - Gemini Adapter
 
@@ -1212,7 +1534,8 @@ extension AgentEventBridge {
         state: PaneAgentState,
         lifecycleEvent: AgentLifecycleEvent = .update,
         sessionID: String? = nil,
-        cwd: String? = nil
+        cwd: String? = nil,
+        taskProgress: PaneAgentTaskProgress? = nil
     ) -> AgentStatusPayload {
         AgentStatusPayload(
             windowID: target.windowID,
@@ -1225,6 +1548,7 @@ extension AgentEventBridge {
             lifecycleEvent: lifecycleEvent,
             confidence: .explicit,
             sessionID: sessionID,
+            taskProgress: taskProgress,
             artifactKind: nil,
             artifactLabel: nil,
             artifactURL: nil,

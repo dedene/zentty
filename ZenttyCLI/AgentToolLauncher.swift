@@ -53,6 +53,8 @@ struct AgentToolLauncher {
             return environment["ZENTTY_COPILOT_HOOKS_DISABLED"] != "1"
         case .cursor:
             return environment["ZENTTY_CURSOR_HOOKS_DISABLED"] != "1"
+        case .droid:
+            return environment["ZENTTY_DROID_HOOKS_DISABLED"] != "1"
         case .kimi:
             if environment["ZENTTY_KIMI_HOOKS_DISABLED"] == "1" {
                 return false
@@ -149,6 +151,7 @@ struct AgentToolLauncher {
             "ZENTTY_COPILOT_HOOKS_DISABLED",
             "ZENTTY_CURSOR_HOOKS_DISABLED",
             "ZENTTY_CURSOR_VERBOSE_HOOKS",
+            "ZENTTY_DROID_HOOKS_DISABLED",
             "ZENTTY_KIMI_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
@@ -172,7 +175,7 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .codex, .copilot, .cursor, .gemini, .kimi, .opencode, .pi:
+        case .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi:
             return EnvironmentPatch()
         }
     }
@@ -194,6 +197,8 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_GEMINI_PID"] = "\(getpid())"
         case .cursor:
             environmentPatch.set["ZENTTY_CURSOR_PID"] = "\(getpid())"
+        case .droid:
+            environmentPatch.set["ZENTTY_DROID_PID"] = "\(getpid())"
         case .kimi:
             environmentPatch.set["ZENTTY_KIMI_PID"] = "\(getpid())"
         case .opencode, .pi:
@@ -241,6 +246,7 @@ struct AgentToolLauncher {
             "ZENTTY_COPILOT_PID",
             "ZENTTY_GEMINI_PID",
             "ZENTTY_CURSOR_PID",
+            "ZENTTY_DROID_PID",
             "ZENTTY_KIMI_PID",
         ]
         return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
