@@ -17,6 +17,7 @@ enum AgentBootstrapTool: String, Codable, Equatable {
     case codex
     case copilot
     case cursor
+    case droid
     case gemini
     case kimi
     case opencode
@@ -29,7 +30,7 @@ enum AgentBootstrapTool: String, Codable, Equatable {
         switch self {
         case .cursor:
             return ["cursor-agent"]
-        case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi:
+        case .claude, .codex, .copilot, .droid, .gemini, .kimi, .opencode, .pi:
             return [rawValue]
         }
     }

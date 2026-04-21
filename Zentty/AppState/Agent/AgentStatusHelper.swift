@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 enum AgentStatusHelper {
-    private static let wrappedToolNames = ["claude", "codex", "copilot", "cursor", "gemini", "kimi", "opencode", "pi"]
+    private static let wrappedToolNames = ["claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"]
     private static let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     static func runIfNeeded(arguments: [String], environment: [String: String]) -> Int32? {
@@ -55,6 +55,7 @@ enum AgentStatusHelper {
                     "codex/codex",
                     "copilot/copilot",
                     "cursor/cursor-agent",
+                    "droid/droid",
                     "gemini/gemini",
                     "kimi/kimi",
                     "opencode/opencode",
@@ -66,6 +67,7 @@ enum AgentStatusHelper {
                     "codex/codex",
                     "copilot/copilot",
                     "cursor/cursor-agent",
+                    "droid/droid",
                     "gemini/gemini",
                     "kimi/kimi",
                     "opencode/opencode",

@@ -5,6 +5,7 @@ enum AgentTool: Equatable, Sendable {
     case codex
     case copilot
     case cursor
+    case droid
     case gemini
     case kimi
     case openCode
@@ -21,6 +22,8 @@ enum AgentTool: Equatable, Sendable {
             return "Copilot"
         case .cursor:
             return "Cursor"
+        case .droid:
+            return "Droid"
         case .gemini:
             return "Gemini"
         case .kimi:
@@ -50,6 +53,9 @@ enum AgentTool: Equatable, Sendable {
         }
         if normalized.contains("cursor") {
             return .cursor
+        }
+        if normalized.contains("droid") {
+            return .droid
         }
         if normalized.contains("gemini") {
             return .gemini
@@ -81,6 +87,9 @@ enum AgentTool: Equatable, Sendable {
         }
         if normalized.contains("codex") {
             return .codex
+        }
+        if normalized.contains("droid") {
+            return .droid
         }
         if normalized.contains("gemini") {
             return .gemini

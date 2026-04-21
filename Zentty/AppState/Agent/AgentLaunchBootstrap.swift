@@ -60,6 +60,13 @@ enum AgentLaunchBootstrap {
                 environment: environment,
                 fileManager: fileManager
             )
+        case .droid:
+            return try droidPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
+                fileManager: fileManager
+            )
         case .gemini:
             return try geminiPlan(
                 executablePath: executablePath,
@@ -119,6 +126,29 @@ enum AgentLaunchBootstrap {
             arguments: arguments,
             setEnvironment: [
                 "ZENTTY_AGENT_TOOL": "cursor",
+            ],
+            unsetEnvironment: [],
+            preLaunchActions: []
+        )
+    }
+
+    private static func droidPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        fileManager: FileManager
+    ) throws -> AgentLaunchPlan {
+        if environment["ZENTTY_DROID_HOOKS_DISABLED"] == "1" {
+            return directPlan(executablePath: executablePath, arguments: arguments)
+        }
+
+        DroidHooksInstaller.installIfPossible(environment: environment, fileManager: fileManager)
+
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: [
+                "ZENTTY_AGENT_TOOL": "droid",
             ],
             unsetEnvironment: [],
             preLaunchActions: []
