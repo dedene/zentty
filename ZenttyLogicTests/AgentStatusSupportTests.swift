@@ -83,6 +83,13 @@ final class AgentStatusSupportTests: XCTestCase {
     func test_agent_tool_recognizes_cursor() {
         XCTAssertEqual(AgentTool.resolve(named: "cursor"), .cursor)
         XCTAssertEqual(AgentTool.resolve(named: "Cursor Agent"), .cursor)
+        XCTAssertNil(AgentTool.resolveKnown(named: "Cursor Agent"))
+    }
+
+    func test_agent_tool_recognizes_droid_for_explicit_and_known_tool_resolution() {
+        XCTAssertEqual(AgentTool.resolve(named: "droid"), .droid)
+        XCTAssertEqual(AgentTool.resolve(named: "Droid CLI"), .droid)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "Droid"), .droid)
     }
 
     func test_agent_tool_recognizes_pi_and_its_titlebar_variants() {

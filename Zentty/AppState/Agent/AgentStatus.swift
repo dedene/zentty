@@ -42,32 +42,8 @@ enum AgentTool: Equatable, Sendable {
             return nil
         }
 
-        if normalized.contains("claude") {
-            return .claudeCode
-        }
-        if normalized.contains("codex") {
-            return .codex
-        }
-        if normalized.contains("copilot") {
-            return .copilot
-        }
-        if normalized.contains("cursor") {
-            return .cursor
-        }
-        if normalized.contains("droid") {
-            return .droid
-        }
-        if normalized.contains("gemini") {
-            return .gemini
-        }
-        if normalized.contains("kimi") {
-            return .kimi
-        }
-        if normalized.contains("opencode") || normalized.contains("open code") {
-            return .openCode
-        }
-        if matchesPi(normalized) {
-            return .pi
+        if let tool = resolveKnownTool(named: normalized, includeHookDrivenOnly: true) {
+            return tool
         }
 
         guard let rawName = rawName?.trimmingCharacters(in: .whitespacesAndNewlines), !rawName.isEmpty else {
@@ -82,32 +58,55 @@ enum AgentTool: Equatable, Sendable {
             return nil
         }
 
-        if normalized.contains("claude") {
-            return .claudeCode
-        }
-        if normalized.contains("codex") {
-            return .codex
-        }
-        if normalized.contains("droid") {
-            return .droid
-        }
-        if normalized.contains("gemini") {
-            return .gemini
-        }
-        if normalized.contains("kimi") {
-            return .kimi
-        }
-        if normalized.contains("opencode") || normalized.contains("open code") {
-            return .openCode
-        }
-        if matchesPi(normalized) {
-            return .pi
-        }
+        return resolveKnownTool(named: normalized, includeHookDrivenOnly: false)
+    }
 
-        // Keep Copilot hook-driven only for metadata recognition so generic
-        // terminal-progress fallback still shows Running when hooks are absent.
+    private static func resolveKnownTool(named normalized: String, includeHookDrivenOnly: Bool) -> AgentTool? {
+        for matcher in knownToolMatchers {
+            guard includeHookDrivenOnly || !matcher.isHookDrivenOnly else { continue }
+            if matcher.matches(normalized) {
+                return matcher.tool
+            }
+        }
         return nil
     }
+
+    private struct ToolNameMatcher: Sendable {
+        let tool: AgentTool
+        let isHookDrivenOnly: Bool
+        let match: Match
+
+        func matches(_ normalized: String) -> Bool {
+            switch match {
+            case .contains(let needle):
+                return normalized.contains(needle)
+            case .containsAny(let needles):
+                return needles.contains { normalized.contains($0) }
+            case .pi:
+                return matchesPi(normalized)
+            }
+        }
+    }
+
+    private enum Match: Sendable {
+        case contains(String)
+        case containsAny([String])
+        case pi
+    }
+
+    private static let knownToolMatchers: [ToolNameMatcher] = [
+        ToolNameMatcher(tool: .claudeCode, isHookDrivenOnly: false, match: .contains("claude")),
+        ToolNameMatcher(tool: .codex, isHookDrivenOnly: false, match: .contains("codex")),
+        // Keep hook-driven-only tools out of metadata recognition so generic
+        // terminal-progress fallback still shows Running when hooks are absent.
+        ToolNameMatcher(tool: .copilot, isHookDrivenOnly: true, match: .contains("copilot")),
+        ToolNameMatcher(tool: .cursor, isHookDrivenOnly: true, match: .contains("cursor")),
+        ToolNameMatcher(tool: .droid, isHookDrivenOnly: false, match: .contains("droid")),
+        ToolNameMatcher(tool: .gemini, isHookDrivenOnly: false, match: .contains("gemini")),
+        ToolNameMatcher(tool: .kimi, isHookDrivenOnly: false, match: .contains("kimi")),
+        ToolNameMatcher(tool: .openCode, isHookDrivenOnly: false, match: .containsAny(["opencode", "open code"])),
+        ToolNameMatcher(tool: .pi, isHookDrivenOnly: false, match: .pi),
+    ]
 
     private static func matchesPi(_ normalized: String) -> Bool {
         // Pi's binary name is short ("pi") and its titlebar extension uses
