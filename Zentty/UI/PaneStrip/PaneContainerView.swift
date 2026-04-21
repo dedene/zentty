@@ -169,7 +169,7 @@ private final class PaneFocusGlowLayer: CALayer {
         }
     }
 
-    var glowBlurRadius: CGFloat = 6 {
+    var glowBlurRadius: CGFloat = 2 {
         didSet {
             guard oldValue != glowBlurRadius else { return }
             setNeedsDisplay()
