@@ -1251,11 +1251,7 @@ final class PaneStripView: NSView {
             )
             let delta = resolvedTranslation - dividerDragSession.lastTranslation
             if abs(delta) > 0.001 {
-                let appliedWidthDelta = onDividerResizeRequested?(dividerDragSession.target, delta) ?? 0
-                applyDividerDragScrollCompensation(
-                    target: dividerDragSession.target,
-                    appliedWidthDelta: appliedWidthDelta
-                )
+                performDividerResize(target: dividerDragSession.target, delta: delta)
                 dividerDragSession.lastTranslation = resolvedTranslation
                 self.dividerDragSession = dividerDragSession
             }
@@ -1695,6 +1691,65 @@ final class PaneStripView: NSView {
         endDividerDrag()
     }
 
+    /// Runs one pointer-delta step of a divider drag. The "anchor opposite
+    /// edge" scroll compensation (see `applyDividerDragScrollCompensation`)
+    /// can push `dragScrollOffsetX` negative far enough to separate the
+    /// leftmost pane from the viewport's left edge. When continuing to shrink
+    /// would cross that floor, this issues a second opposing resize so the
+    /// net column-width change stalls at the limit — the divider "sticks"
+    /// like hitting a min-width, and no visible overshoot appears.
+    private func performDividerResize(target: PaneResizeTarget, delta: CGFloat) {
+        let appliedWidthDelta = onDividerResizeRequested?(target, delta) ?? 0
+        let netAppliedWidthDelta = appliedWidthDelta
+            + counterResizeForOvershoot(
+                target: target,
+                appliedWidthDelta: appliedWidthDelta
+            )
+        applyDividerDragScrollCompensation(
+            target: target,
+            appliedWidthDelta: netAppliedWidthDelta
+        )
+    }
+
+    /// Returns the width delta of a corrective resize that should be applied
+    /// in the same frame to keep `dragScrollOffsetX + currentOffset >= 0`
+    /// (i.e. the leftmost pane stays flush with the viewport's left edge).
+    /// Returns 0 when no correction is needed or when the target isn't a
+    /// left-edge compensation candidate.
+    private func counterResizeForOvershoot(
+        target: PaneResizeTarget,
+        appliedWidthDelta: CGFloat
+    ) -> CGFloat {
+        guard case .horizontalEdge(let horizontalTarget) = target,
+              horizontalTarget.edge == .left,
+              let session = dividerDragSession,
+              let currentState,
+              let columnIndex = currentState.columns.firstIndex(where: { $0.id == horizontalTarget.columnID }),
+              columnIndex + 1 < currentState.columns.count
+        else {
+            return 0
+        }
+
+        let projectedCumulative = dividerDragCumulativeAppliedWidthDelta + appliedWidthDelta
+        // Floor derived from `visible_first_pane_left_edge <= leadingVisibleInset`
+        // (the sidebar's right edge is where the first pane should stay
+        // flush, not x=0). Substituting the slack formula, `currentOffset`
+        // cancels and the remaining terms are all frozen at drag start.
+        let cumulativeFloor = -resolvedLeadingVisibleInset
+            - session.initialScrollOffsetX
+            - session.initialCurrentOffset
+
+        guard projectedCumulative < cumulativeFloor else {
+            return 0
+        }
+
+        // `.horizontalEdge(.left)` negates the raw delta before applying
+        // (PaneStripState: `widthDelta = target.edge == .right ? delta : -delta`).
+        // To grow the column back by `revert`, pass raw delta `-revert`.
+        let revert = cumulativeFloor - projectedCumulative
+        return onDividerResizeRequested?(target, -revert) ?? 0
+    }
+
     private func applyDividerDragScrollCompensation(
         target: PaneResizeTarget,
         appliedWidthDelta: CGFloat
@@ -1861,11 +1916,7 @@ final class PaneStripView: NSView {
         guard var session = dividerDragSession, abs(delta) > 0.001 else {
             return
         }
-        let appliedWidthDelta = onDividerResizeRequested?(session.target, delta) ?? 0
-        applyDividerDragScrollCompensation(
-            target: session.target,
-            appliedWidthDelta: appliedWidthDelta
-        )
+        performDividerResize(target: session.target, delta: delta)
         session.lastTranslation += delta
         dividerDragSession = session
     }
