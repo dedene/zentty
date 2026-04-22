@@ -1114,8 +1114,112 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertTrue(row.statusProgressRevealLastUpdateWasAnimatedForTesting)
         XCTAssertEqual(
             try XCTUnwrap(row.statusProgressRevealLastAnimationDurationForTesting),
-            0.24,
+            0.12,
             accuracy: 0.001
+        )
+    }
+
+    func test_worklane_status_task_progress_reveals_count_from_status_line_hover() {
+        let row = makeRow()
+        let theme = darkTheme(foreground: "#F0F3F6")
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Running",
+                attentionState: .running,
+                taskProgress: PaneAgentTaskProgress(doneCount: 2, totalCount: 5),
+                isWorking: true
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        row.simulateStatusLineHoverForTesting()
+
+        XCTAssertTrue(row.statusProgressRevealIsExpandedForTesting)
+        XCTAssertEqual(row.statusProgressRevealTextForTesting, "2/5 tasks ・")
+        XCTAssertTrue(row.statusProgressRevealLastUpdateWasAnimatedForTesting)
+        XCTAssertEqual(
+            try XCTUnwrap(row.statusProgressRevealLastAnimationDurationForTesting),
+            0.16,
+            accuracy: 0.001
+        )
+    }
+
+    func test_worklane_status_task_progress_reveal_keeps_running_status_visible_when_space_is_tight() {
+        let row = makeRow(width: 170, reducedMotion: true)
+        let window = makeVisibleWindow(containing: row)
+        addTeardownBlock { @MainActor in
+            window.orderOut(nil)
+            window.close()
+        }
+        let theme = darkTheme(foreground: "#F0F3F6")
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Running",
+                attentionState: .running,
+                taskProgress: PaneAgentTaskProgress(doneCount: 2, totalCount: 10),
+                isWorking: true
+            ),
+            theme: theme,
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        row.simulateStatusProgressIconHoverForTesting(animated: false)
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(row.statusProgressRevealIsExpandedForTesting)
+        XCTAssertFalse(row.statusProgressRevealIsHiddenForTesting)
+        XCTAssertEqual(row.statusTextForTesting, "Running")
+        XCTAssertGreaterThanOrEqual(
+            row.statusTextContainerWidthForTesting,
+            SidebarTextMetrics.measuredWidth(for: "Running", font: ShellMetrics.sidebarStatusFont()) - 1
+        )
+        XCTAssertGreaterThanOrEqual(
+            row.statusProgressRevealWidthForTesting,
+            SidebarTextMetrics.measuredWidth(for: "2/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
+        )
+    }
+
+    func test_worklane_status_task_progress_value_change_while_hovered_keeps_count_revealed() {
+        let row = makeRow(width: 190, reducedMotion: true)
+        let theme = darkTheme(foreground: "#F0F3F6")
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Running",
+                attentionState: .running,
+                taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 10),
+                isWorking: true
+            ),
+            theme: theme,
+            animated: false
+        )
+        row.simulateStatusProgressIconHoverForTesting(animated: false)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                statusText: "Running",
+                attentionState: .running,
+                taskProgress: PaneAgentTaskProgress(doneCount: 2, totalCount: 10),
+                isWorking: true
+            ),
+            theme: theme,
+            animated: true
+        )
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(row.statusProgressRevealIsExpandedForTesting)
+        XCTAssertEqual(row.statusProgressRevealTextForTesting, "2/10 tasks ・")
+        XCTAssertGreaterThanOrEqual(
+            row.statusProgressRevealWidthForTesting,
+            SidebarTextMetrics.measuredWidth(for: "2/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
         )
     }
 
@@ -1296,8 +1400,149 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertTrue(row.firstPaneStatusProgressRevealLastUpdateWasAnimatedForTesting)
         XCTAssertEqual(
             try XCTUnwrap(row.firstPaneStatusProgressRevealLastAnimationDurationForTesting),
-            0.24,
+            0.12,
             accuracy: 0.001
+        )
+    }
+
+    func test_pane_status_task_progress_reveals_count_from_status_line_hover() {
+        let row = makeRow(width: 320, height: 110)
+        let theme = darkTheme(foreground: "#F0F3F6")
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Claude Code",
+                        trailingText: "main",
+                        detailText: ".../zentty",
+                        statusText: "Idle",
+                        attentionState: nil,
+                        isFocused: true,
+                        isWorking: false,
+                        taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 4)
+                    ),
+                ]
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        row.simulateFirstPaneStatusLineHoverForTesting()
+
+        XCTAssertTrue(row.firstPaneStatusProgressRevealIsExpandedForTesting)
+        XCTAssertEqual(row.firstPaneStatusProgressRevealTextForTesting, "1/4 tasks ・")
+        XCTAssertTrue(row.firstPaneStatusProgressRevealLastUpdateWasAnimatedForTesting)
+        XCTAssertEqual(
+            try XCTUnwrap(row.firstPaneStatusProgressRevealLastAnimationDurationForTesting),
+            0.16,
+            accuracy: 0.001
+        )
+    }
+
+    func test_pane_status_task_progress_reveal_keeps_count_and_running_visible_by_shrinking_trailing_text() {
+        let row = makeRow(width: 200, height: 110, reducedMotion: true)
+        let window = makeVisibleWindow(containing: row)
+        addTeardownBlock { @MainActor in
+            window.orderOut(nil)
+            window.close()
+        }
+        let theme = darkTheme(foreground: "#F0F3F6")
+        let trailingText = "feature/reorder-worklanes"
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Claude Code",
+                        trailingText: trailingText,
+                        detailText: ".../zentty",
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true,
+                        taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 10)
+                    ),
+                ]
+            ),
+            theme: theme,
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        row.simulateFirstPaneStatusProgressIconHoverForTesting(animated: false)
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(row.firstPaneStatusProgressRevealIsExpandedForTesting)
+        XCTAssertFalse(try XCTUnwrap(row.firstPaneStatusProgressRevealIsHiddenForTesting))
+        XCTAssertEqual(row.paneStatusTextsForTesting, ["Running"])
+        XCTAssertGreaterThanOrEqual(
+            try XCTUnwrap(row.firstPaneStatusTextContainerWidthForTesting),
+            SidebarTextMetrics.measuredWidth(for: "Running", font: ShellMetrics.sidebarStatusFont()) - 1
+        )
+        XCTAssertGreaterThanOrEqual(
+            try XCTUnwrap(row.firstPaneStatusProgressRevealWidthForTesting),
+            SidebarTextMetrics.measuredWidth(for: "1/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(row.firstPaneStatusTrailingLabelWidthForTesting),
+            SidebarTextMetrics.measuredWidth(for: trailingText, font: ShellMetrics.sidebarDetailFont())
+        )
+    }
+
+    func test_pane_status_task_progress_reveal_keeps_count_and_idle_visible_by_shrinking_trailing_text() {
+        let row = makeRow(width: 170, height: 110, reducedMotion: true)
+        let window = makeVisibleWindow(containing: row)
+        addTeardownBlock { @MainActor in
+            window.orderOut(nil)
+            window.close()
+        }
+        let theme = darkTheme(foreground: "#F0F3F6")
+        let trailingText = "feature/reorder-worklanes"
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-agent"),
+                        primaryText: "Claude Code",
+                        trailingText: trailingText,
+                        detailText: ".../zentty",
+                        statusText: "Idle",
+                        attentionState: nil,
+                        isFocused: true,
+                        isWorking: false,
+                        taskProgress: PaneAgentTaskProgress(doneCount: 2, totalCount: 8)
+                    ),
+                ]
+            ),
+            theme: theme,
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        row.simulateFirstPaneStatusProgressIconHoverForTesting(animated: false)
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(row.firstPaneStatusProgressRevealIsExpandedForTesting)
+        XCTAssertFalse(try XCTUnwrap(row.firstPaneStatusProgressRevealIsHiddenForTesting))
+        XCTAssertEqual(row.paneStatusTextsForTesting, ["Idle"])
+        XCTAssertGreaterThanOrEqual(
+            try XCTUnwrap(row.firstPaneStatusTextContainerWidthForTesting),
+            SidebarTextMetrics.measuredWidth(for: "Idle", font: ShellMetrics.sidebarStatusFont()) - 1
+        )
+        XCTAssertGreaterThanOrEqual(
+            try XCTUnwrap(row.firstPaneStatusProgressRevealWidthForTesting),
+            SidebarTextMetrics.measuredWidth(for: "2/8 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(row.firstPaneStatusTrailingLabelWidthForTesting),
+            SidebarTextMetrics.measuredWidth(for: trailingText, font: ShellMetrics.sidebarDetailFont())
         )
     }
 
@@ -2008,6 +2253,18 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             defer: false
         ).prepareForAppKitTesting()
         window.contentView = sidebarView
+        window.orderFrontRegardless()
+        return window
+    }
+
+    private func makeVisibleWindow(containing view: NSView) -> NSWindow {
+        let window = NSWindow(
+            contentRect: view.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        ).prepareForAppKitTesting()
+        window.contentView = view
         window.orderFrontRegardless()
         return window
     }
