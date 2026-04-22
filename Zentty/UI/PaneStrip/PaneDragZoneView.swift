@@ -4,6 +4,7 @@ import AppKit
 final class PaneDragZoneView: NSView {
     static let height: CGFloat = 15
     private static let activationDistance: CGFloat = 6
+    private static let highlightInset: CGFloat = 2
 
     var paneID: PaneID
 
@@ -19,7 +20,7 @@ final class PaneDragZoneView: NSView {
     private var isDragActive = false
     private var dragStartPointInWindow: CGPoint?
 
-    private let highlightLayer = CALayer()
+    private let highlightLayer = CAShapeLayer()
     private let gripImageView = NSImageView()
 
     init(paneID: PaneID) {
@@ -28,9 +29,8 @@ final class PaneDragZoneView: NSView {
         wantsLayer = true
 
         // Subtle highlight background — fades in on hover
-        highlightLayer.backgroundColor = NSColor.white.withAlphaComponent(0.06).cgColor
+        highlightLayer.fillColor = NSColor.white.withAlphaComponent(0.06).cgColor
         highlightLayer.opacity = 0
-        highlightLayer.cornerRadius = 3
         layer?.addSublayer(highlightLayer)
 
         // Ellipsis icon via SF Symbols
@@ -59,8 +59,12 @@ final class PaneDragZoneView: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let inset: CGFloat = 2
-        highlightLayer.frame = bounds.insetBy(dx: inset, dy: inset)
+        highlightLayer.frame = bounds
+        highlightLayer.path = Self.highlightPath(
+            in: bounds.insetBy(dx: Self.highlightInset, dy: Self.highlightInset),
+            clippedToTopRoundedBounds: bounds,
+            radius: ChromeGeometry.paneRadius
+        )
         CATransaction.commit()
 
         let imageSize = gripImageView.intrinsicContentSize
@@ -70,6 +74,63 @@ final class PaneDragZoneView: NSView {
             width: imageSize.width,
             height: imageSize.height
         )
+    }
+
+    private static func highlightPath(
+        in rect: CGRect,
+        clippedToTopRoundedBounds bounds: CGRect,
+        radius: CGFloat
+    ) -> CGPath {
+        guard rect.width > 0, rect.height > 0, bounds.width > 0, bounds.height > 0 else {
+            return CGPath(rect: .zero, transform: nil)
+        }
+
+        let radius = min(max(0, radius), bounds.width / 2)
+        let topY = bounds.maxY
+        let centerY = topY - radius
+        guard radius > 0, rect.maxY > centerY else {
+            return CGPath(rect: rect, transform: nil)
+        }
+
+        let leftCenter = CGPoint(x: bounds.minX + radius, y: centerY)
+        let rightCenter = CGPoint(x: bounds.maxX - radius, y: centerY)
+        let maxY = min(rect.maxY, topY)
+        let yOffset = maxY - centerY
+        let topInsetX = sqrt(max(0, (radius * radius) - (yOffset * yOffset)))
+        let leftTopX = max(rect.minX, leftCenter.x - topInsetX)
+        let rightTopX = min(rect.maxX, rightCenter.x + topInsetX)
+
+        let leftSideYOffset = sqrt(max(0, (radius * radius) - pow(leftCenter.x - rect.minX, 2)))
+        let rightSideYOffset = sqrt(max(0, (radius * radius) - pow(rect.maxX - rightCenter.x, 2)))
+        let leftSideY = min(maxY, centerY + leftSideYOffset)
+        let rightSideY = min(maxY, centerY + rightSideYOffset)
+
+        let rightSideAngle = atan2(rightSideY - rightCenter.y, rect.maxX - rightCenter.x)
+        let rightTopAngle = atan2(maxY - rightCenter.y, rightTopX - rightCenter.x)
+        let leftTopAngle = atan2(maxY - leftCenter.y, leftTopX - leftCenter.x)
+        let leftSideAngle = atan2(leftSideY - leftCenter.y, rect.minX - leftCenter.x)
+
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rightSideY))
+        path.addArc(
+            center: rightCenter,
+            radius: radius,
+            startAngle: rightSideAngle,
+            endAngle: rightTopAngle,
+            clockwise: false
+        )
+        path.addLine(to: CGPoint(x: leftTopX, y: maxY))
+        path.addArc(
+            center: leftCenter,
+            radius: radius,
+            startAngle: leftTopAngle,
+            endAngle: leftSideAngle,
+            clockwise: false
+        )
+        path.closeSubpath()
+        return path
     }
 
     // MARK: - Tracking Area
