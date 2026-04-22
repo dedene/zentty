@@ -1,8 +1,11 @@
 import XCTest
+
 @testable import Zentty
 
 final class WorklaneSidebarSummaryTests: XCTestCase {
-    func test_builder_uses_branch_prefixed_cwd_for_focused_primary_text_when_identity_is_path_derived() {
+    func
+        test_builder_uses_branch_prefixed_cwd_for_focused_primary_text_when_identity_is_path_derived()
+    {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
@@ -14,7 +17,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
             metadataByPaneID: [
                 paneID: TerminalMetadata(
                     title: "zsh",
-                    currentWorkingDirectory: "/Users/peter/Development/Personal/worktrees/feature/sidebar",
+                    currentWorkingDirectory:
+                        "/Users/peter/Development/Personal/worktrees/feature/sidebar",
                     processName: "zsh",
                     gitBranch: "fix-pane-border-text-visibility"
                 )
@@ -220,7 +224,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
             metadataByPaneID: [
                 paneID: TerminalMetadata(
                     title: "zsh",
-                    currentWorkingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
+                    currentWorkingDirectory:
+                        "/Users/peter/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
                     processName: "zsh",
                     gitBranch: "main"
                 )
@@ -688,7 +693,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
             metadataByPaneID: [
                 paneID: TerminalMetadata(
                     title: "zsh",
-                    currentWorkingDirectory: "/Users/peter/Development/Personal/worktrees/feature/sidebar",
+                    currentWorkingDirectory:
+                        "/Users/peter/Development/Personal/worktrees/feature/sidebar",
                     processName: "zsh",
                     gitBranch: nil
                 )
@@ -713,7 +719,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
             metadataByPaneID: [
                 paneID: TerminalMetadata(
                     title: "zsh",
-                    currentWorkingDirectory: "/Users/peter/Development/Personal/worktrees/feature/sidebar",
+                    currentWorkingDirectory:
+                        "/Users/peter/Development/Personal/worktrees/feature/sidebar",
                     processName: "zsh",
                     gitBranch: "fix-pane-border-text-visibility"
                 )
@@ -783,7 +790,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
             metadataByPaneID: [
                 shellPaneID: TerminalMetadata(
                     title: "zsh",
-                    currentWorkingDirectory: "/Users/peter/Development/Personal/worktrees/feature/sidebar",
+                    currentWorkingDirectory:
+                        "/Users/peter/Development/Personal/worktrees/feature/sidebar",
                     processName: "zsh",
                     gitBranch: "fix-pane-border-text-visibility"
                 ),
@@ -827,7 +835,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
             metadataByPaneID: [
                 shellPaneID: TerminalMetadata(
                     title: "zsh",
-                    currentWorkingDirectory: "/Users/peter/Development/Personal/worktrees/feature/sidebar",
+                    currentWorkingDirectory:
+                        "/Users/peter/Development/Personal/worktrees/feature/sidebar",
                     processName: "zsh",
                     gitBranch: "fix-pane-border-text-visibility"
                 ),
@@ -848,11 +857,15 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
-        XCTAssertEqual(summary.detailLines.map(\.text), ["fix-pane-border-text-visibility • …/sidebar", "main • …/git"])
+        XCTAssertEqual(
+            summary.detailLines.map(\.text),
+            ["fix-pane-border-text-visibility • …/sidebar", "main • …/git"])
         XCTAssertEqual(summary.focusedPaneLineIndex, 2)
     }
 
-    func test_builder_shows_all_non_focused_pane_detail_lines_without_overflow_for_four_pane_worklanes() {
+    func
+        test_builder_shows_all_non_focused_pane_detail_lines_without_overflow_for_four_pane_worklanes()
+    {
         let firstPaneID = PaneID("worklane-main-shell")
         let secondPaneID = PaneID("worklane-main-pane-1")
         let thirdPaneID = PaneID("worklane-main-pane-2")
@@ -872,7 +885,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
             metadataByPaneID: [
                 firstPaneID: TerminalMetadata(
                     title: "zsh",
-                    currentWorkingDirectory: "/Users/peter/Development/Personal/worktrees/feature/sidebar",
+                    currentWorkingDirectory:
+                        "/Users/peter/Development/Personal/worktrees/feature/sidebar",
                     processName: "zsh",
                     gitBranch: "fix-pane-border-text-visibility"
                 ),
@@ -899,11 +913,14 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
-        XCTAssertEqual(summary.detailLines.map(\.text), ["fix-pane-border-text-visibility • …/sidebar", "main • …/git", "notes • /tmp/copy"])
+        XCTAssertEqual(
+            summary.detailLines.map(\.text),
+            ["fix-pane-border-text-visibility • …/sidebar", "main • …/git", "notes • /tmp/copy"])
         XCTAssertNil(summary.overflowText)
     }
 
-    func test_builder_expands_branchless_pane_paths_instead_of_dropping_lines_that_repeat_primary() {
+    func test_builder_expands_branchless_pane_paths_instead_of_dropping_lines_that_repeat_primary()
+    {
         let primaryPaneID = PaneID("worklane-main-pane-1")
         let secondaryPaneID = PaneID("worklane-main-pane-2")
         let worklane = WorklaneState(
@@ -938,7 +955,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(
             summary.detailLines.map(\.text),
             [
-                "\(NSHomeDirectory())/src/api",
+                "\(NSHomeDirectory())/src/api"
             ]
         )
     }
@@ -1122,7 +1139,9 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertNil(summary.attentionState)
     }
 
-    func test_builder_keeps_terminal_derived_primary_text_for_recognized_agent_before_meaningful_work() {
+    func
+        test_builder_keeps_terminal_derived_primary_text_for_recognized_agent_before_meaningful_work()
+    {
         let paneID = PaneID("worklane-main-agent")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
@@ -1148,7 +1167,9 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertFalse(summary.isWorking)
     }
 
-    func test_builder_does_not_mark_recognized_agent_worklane_as_running_from_terminal_progress_alone() {
+    func
+        test_builder_does_not_mark_recognized_agent_worklane_as_running_from_terminal_progress_alone()
+    {
         let paneID = PaneID("worklane-main-agent")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
@@ -1474,7 +1495,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.trailingText, "main")
         XCTAssertEqual(paneRow.detailText, "…/nimbu")
         XCTAssertEqual(paneRow.statusText, "Idle")
-        XCTAssertEqual(paneRow.statusSymbolName, "moon.zzz")
+        XCTAssertEqual(paneRow.statusSymbolName, "moon.fill")
         XCTAssertNil(paneRow.attentionState)
         XCTAssertFalse(paneRow.isWorking)
     }

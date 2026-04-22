@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+
 @testable import Zentty
 
 @MainActor
@@ -14,7 +15,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                 primaryText: "Claude Code",
                 statusText: "Running",
                 detailLines: [
-                    WorklaneSidebarDetailLine(text: "feature/sidebar • project", emphasis: .primary),
+                    WorklaneSidebarDetailLine(text: "feature/sidebar • project", emphasis: .primary)
                 ],
                 attentionState: .running,
                 isWorking: true
@@ -28,7 +29,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertFalse(row.statusShimmerIsAnimatingForTesting)
     }
 
-    func test_working_worklane_row_keeps_primary_single_line_and_exposes_context_prefix_row() throws {
+    func test_working_worklane_row_keeps_primary_single_line_and_exposes_context_prefix_row() throws
+    {
         // Regression: commit 191703a added wrap support for the primary text
         // and hid `primaryLabel` (the shimmer overlay) when the text wrapped,
         // which killed the shimmer animation on running agents. We instead
@@ -46,7 +48,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                     attentionState: .running,
                     isWorking: true,
                     isActive: true
-                ),
+                )
             ],
             theme: ZenttyTheme.fallback(for: nil)
         )
@@ -109,7 +111,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: theme,
             animated: false
         )
-        let idleBackground = try! XCTUnwrap(row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
+        let idleBackground = try! XCTUnwrap(
+            row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
 
         row.configure(
             with: makeSummary(
@@ -122,10 +125,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: theme,
             animated: false
         )
-        let workingBackground = try! XCTUnwrap(row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
+        let workingBackground = try! XCTUnwrap(
+            row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
 
-        XCTAssertGreaterThan(abs(idleBackground.redComponent - workingBackground.redComponent), 0.001)
-        XCTAssertGreaterThan(abs(idleBackground.greenComponent - workingBackground.greenComponent), 0.001)
+        XCTAssertGreaterThan(
+            abs(idleBackground.redComponent - workingBackground.redComponent), 0.001)
+        XCTAssertGreaterThan(
+            abs(idleBackground.greenComponent - workingBackground.greenComponent), 0.001)
         XCTAssertFalse(row.shimmerIsAnimatingForTesting)
     }
 
@@ -138,7 +144,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: theme,
             animated: false
         )
-        let idleBackground = try! XCTUnwrap(row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
+        let idleBackground = try! XCTUnwrap(
+            row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
 
         row.configure(
             with: makeSummary(
@@ -151,12 +158,16 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: theme,
             animated: false
         )
-        let workingBackground = try! XCTUnwrap(row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
+        let workingBackground = try! XCTUnwrap(
+            row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
 
         XCTAssertEqual(idleBackground.redComponent, workingBackground.redComponent, accuracy: 0.001)
-        XCTAssertEqual(idleBackground.greenComponent, workingBackground.greenComponent, accuracy: 0.001)
-        XCTAssertEqual(idleBackground.blueComponent, workingBackground.blueComponent, accuracy: 0.001)
-        XCTAssertEqual(idleBackground.alphaComponent, workingBackground.alphaComponent, accuracy: 0.001)
+        XCTAssertEqual(
+            idleBackground.greenComponent, workingBackground.greenComponent, accuracy: 0.001)
+        XCTAssertEqual(
+            idleBackground.blueComponent, workingBackground.blueComponent, accuracy: 0.001)
+        XCTAssertEqual(
+            idleBackground.alphaComponent, workingBackground.alphaComponent, accuracy: 0.001)
     }
 
     func test_worklane_row_exposes_plain_status_copy() {
@@ -167,7 +178,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                 primaryText: "Claude Code",
                 statusText: "Needs input",
                 detailLines: [
-                    WorklaneSidebarDetailLine(text: "feature/sidebar • project", emphasis: .primary),
+                    WorklaneSidebarDetailLine(text: "feature/sidebar • project", emphasis: .primary)
                 ],
                 attentionState: .needsInput
             ),
@@ -220,7 +231,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: nil,
                         isFocused: true,
                         isWorking: false
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -309,7 +320,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                 primaryText: "Claude Code",
                 statusText: "Running",
                 detailLines: [
-                    WorklaneSidebarDetailLine(text: "feature/sidebar", emphasis: .primary),
+                    WorklaneSidebarDetailLine(text: "feature/sidebar", emphasis: .primary)
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -345,7 +356,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                     attentionState: nil,
                     isFocused: true,
                     isWorking: false
-                ),
+                )
             ]
         )
 
@@ -382,7 +393,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         interactionSymbolName: "list.bullet",
                         isFocused: true,
                         isWorking: false
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -481,7 +492,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertEqual(row.paneStatusTextsForTesting, ["Idle"])
-        XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["moon.zzz"])
+        XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["moon.fill"])
     }
 
     func test_worklane_row_keeps_short_branch_trailing_for_single_pane_agent_rows() {
@@ -500,7 +511,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -528,7 +539,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: nil,
                         isFocused: true,
                         isWorking: false
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -561,7 +572,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .ready,
                         isFocused: true,
                         isWorking: false
-                    ),
+                    )
                 ]
             ),
             theme: theme,
@@ -581,16 +592,20 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .unresolvedStop,
                         isFocused: true,
                         isWorking: false
-                    ),
+                    )
                 ]
             ),
             theme: theme,
             animated: false
         )
 
-        XCTAssertEqual(readyRow.statusTextColorForTesting.srgbClamped, theme.statusReady.srgbClamped)
-        XCTAssertEqual(stoppedRow.statusTextColorForTesting.srgbClamped, theme.statusStopped.srgbClamped)
-        XCTAssertNotEqual(readyRow.statusTextColorForTesting.srgbClamped, stoppedRow.statusTextColorForTesting.srgbClamped)
+        XCTAssertEqual(
+            readyRow.statusTextColorForTesting.srgbClamped, theme.statusReady.srgbClamped)
+        XCTAssertEqual(
+            stoppedRow.statusTextColorForTesting.srgbClamped, theme.statusStopped.srgbClamped)
+        XCTAssertNotEqual(
+            readyRow.statusTextColorForTesting.srgbClamped,
+            stoppedRow.statusTextColorForTesting.srgbClamped)
     }
 
     func test_worklane_row_moves_long_branch_to_lower_metadata_row_when_width_is_tight() throws {
@@ -611,7 +626,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -648,7 +663,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -677,7 +692,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -715,7 +730,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -732,7 +747,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(row.paneStatusTextsForTesting, [status])
     }
 
-    func test_worklane_row_moves_long_branch_to_lower_metadata_row_when_detail_is_already_present() throws {
+    func test_worklane_row_moves_long_branch_to_lower_metadata_row_when_detail_is_already_present()
+        throws
+    {
         let row = makeRow(width: 220, height: 150)
         let branch = "feature/autoresearch/zsh-startup-2026-03-22"
         let status = "Agent ready"
@@ -750,7 +767,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .ready,
                         isFocused: true,
                         isWorking: false
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -779,14 +796,15 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                 paneRows: [
                     WorklaneSidebarPaneRow(
                         paneID: PaneID("worklane-main-agent"),
-                        primaryText: "Ready | automatic-api-docs · Verify the adaptive sidebar branch row",
+                        primaryText:
+                            "Ready | automatic-api-docs · Verify the adaptive sidebar branch row",
                         trailingText: branch,
                         detailText: nil,
                         statusText: nil,
                         attentionState: nil,
                         isFocused: true,
                         isWorking: false
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -823,7 +841,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -837,7 +855,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(branchLabel.lineBreakMode, .byTruncatingMiddle)
     }
 
-    func test_sidebar_view_grows_worklane_row_to_keep_wrapped_worklane_labels_inside_bounds() throws {
+    func test_sidebar_view_grows_worklane_row_to_keep_wrapped_worklane_labels_inside_bounds() throws
+    {
         let primaryText =
             "Requires approval for a longer sidebar copy check that should wrap to a second line in tight widths"
         let statusText =
@@ -853,13 +872,14 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                     statusText: statusText,
                     attentionState: .needsInput,
                     isActive: true
-                ),
+                )
             ],
             theme: ZenttyTheme.fallback(for: nil)
         )
         sidebarView.layoutSubtreeIfNeeded()
 
-        let row = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton)
+        let row = try XCTUnwrap(
+            sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton)
         let primaryLabel = try XCTUnwrap(findLabel(withText: primaryText, in: row))
         let statusLabel = try XCTUnwrap(findLabel(withText: statusText, in: row))
         let primaryFrame = row.convert(primaryLabel.bounds, from: primaryLabel)
@@ -892,17 +912,18 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                             attentionState: .needsInput,
                             isFocused: true,
                             isWorking: false
-                        ),
+                        )
                     ],
                     attentionState: .needsInput,
                     isActive: true
-                ),
+                )
             ],
             theme: ZenttyTheme.fallback(for: nil)
         )
         sidebarView.layoutSubtreeIfNeeded()
 
-        let row = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton)
+        let row = try XCTUnwrap(
+            sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton)
         let statusLabel = try XCTUnwrap(findLabel(withText: statusText, in: row))
         let statusFrame = row.convert(statusLabel.bounds, from: statusLabel)
 
@@ -926,7 +947,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -944,7 +965,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
     }
 
-    func test_worklane_row_deactivates_pane_width_constraints_when_switching_to_single_summary_layout() {
+    func
+        test_worklane_row_deactivates_pane_width_constraints_when_switching_to_single_summary_layout()
+    {
         let row = makeRow(width: 220, height: 110)
 
         row.configure(
@@ -960,7 +983,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
-                    ),
+                    )
                 ]
             ),
             theme: ZenttyTheme.fallback(for: nil),
@@ -991,7 +1014,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                 primaryText: "k8s-zenjoy",
                 focusedPaneLineIndex: 1,
                 detailLines: [
-                    WorklaneSidebarDetailLine(text: "feature/scaleway-transactional-mails", emphasis: .secondary),
+                    WorklaneSidebarDetailLine(
+                        text: "feature/scaleway-transactional-mails", emphasis: .secondary),
                     WorklaneSidebarDetailLine(text: "Personal", emphasis: .secondary),
                 ]
             ),
@@ -1000,7 +1024,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertEqual(row.primaryRowIndexForTesting, 1)
-        XCTAssertEqual(row.detailTextsForTesting, ["feature/scaleway-transactional-mails", "Personal"])
+        XCTAssertEqual(
+            row.detailTextsForTesting, ["feature/scaleway-transactional-mails", "Personal"])
     }
 
     func test_working_worklane_row_uses_bright_title_shimmer_overlay() {
@@ -1069,13 +1094,17 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertTrue(row.statusProgressIndicatorIsVisibleForTesting)
         XCTAssertEqual(row.statusProgressFractionForTesting, 0.4, accuracy: 0.001)
         XCTAssertEqual(row.statusProgressToolTipForTesting, "")
-        XCTAssertEqual(row.statusProgressColorForTesting.srgbClamped, theme.statusRunning.srgbClamped)
+        XCTAssertEqual(
+            row.statusProgressColorForTesting.srgbClamped, theme.statusRunning.srgbClamped)
         XCTAssertEqual(row.statusProgressRevealTextForTesting, "2/5 tasks ・")
         XCTAssertFalse(row.statusProgressRevealIsExpandedForTesting)
     }
 
-    func test_task_progress_indicator_starts_fill_at_top_and_advances_clockwise_through_right_side() throws {
-        let indicator = SidebarTaskProgressIndicatorView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
+    func test_task_progress_indicator_starts_fill_at_top_and_advances_clockwise_through_right_side()
+        throws
+    {
+        let indicator = SidebarTaskProgressIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 22, height: 22))
         let arc = indicator.progressArcConfigurationForTesting
 
         XCTAssertEqual(arc.startAngle, .pi / 2, accuracy: 0.001)
@@ -1147,7 +1176,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
     }
 
-    func test_worklane_status_task_progress_reveal_keeps_running_status_visible_when_space_is_tight() {
+    func
+        test_worklane_status_task_progress_reveal_keeps_running_status_visible_when_space_is_tight()
+    {
         let row = makeRow(width: 170, reducedMotion: true)
         let window = makeVisibleWindow(containing: row)
         addTeardownBlock { @MainActor in
@@ -1177,11 +1208,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(row.statusTextForTesting, "Running")
         XCTAssertGreaterThanOrEqual(
             row.statusTextContainerWidthForTesting,
-            SidebarTextMetrics.measuredWidth(for: "Running", font: ShellMetrics.sidebarStatusFont()) - 1
+            SidebarTextMetrics.measuredWidth(for: "Running", font: ShellMetrics.sidebarStatusFont())
+                - 1
         )
         XCTAssertGreaterThanOrEqual(
             row.statusProgressRevealWidthForTesting,
-            SidebarTextMetrics.measuredWidth(for: "2/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
+            SidebarTextMetrics.measuredWidth(
+                for: "2/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
         )
     }
 
@@ -1219,11 +1252,14 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(row.statusProgressRevealTextForTesting, "2/10 tasks ・")
         XCTAssertGreaterThanOrEqual(
             row.statusProgressRevealWidthForTesting,
-            SidebarTextMetrics.measuredWidth(for: "2/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
+            SidebarTextMetrics.measuredWidth(
+                for: "2/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
         )
     }
 
-    func test_worklane_status_task_progress_ignores_layout_exit_while_pointer_remains_on_status_line() {
+    func
+        test_worklane_status_task_progress_ignores_layout_exit_while_pointer_remains_on_status_line()
+    {
         let row = makeRow()
         let theme = darkTheme(foreground: "#F0F3F6")
 
@@ -1344,7 +1380,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         isFocused: true,
                         isWorking: false,
                         taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 4)
-                    ),
+                    )
                 ]
             ),
             theme: theme,
@@ -1355,7 +1391,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertTrue(row.firstPaneStatusProgressIndicatorIsVisibleForTesting)
         XCTAssertEqual(row.firstPaneStatusProgressFractionForTesting, 0.25, accuracy: 0.001)
         XCTAssertEqual(row.firstPaneStatusProgressToolTipForTesting, "")
-        XCTAssertEqual(row.firstPaneStatusProgressColorForTesting?.srgbClamped, theme.statusRunning.srgbClamped)
+        XCTAssertEqual(
+            row.firstPaneStatusProgressColorForTesting?.srgbClamped, theme.statusRunning.srgbClamped
+        )
         XCTAssertEqual(row.firstPaneStatusProgressRevealTextForTesting, "1/4 tasks ・")
         XCTAssertFalse(row.firstPaneStatusProgressRevealIsExpandedForTesting)
     }
@@ -1378,7 +1416,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         isFocused: true,
                         isWorking: false,
                         taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 4)
-                    ),
+                    )
                 ]
             ),
             theme: theme,
@@ -1423,7 +1461,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         isFocused: true,
                         isWorking: false,
                         taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 4)
-                    ),
+                    )
                 ]
             ),
             theme: theme,
@@ -1442,7 +1480,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
     }
 
-    func test_pane_status_task_progress_reveal_keeps_count_and_running_visible_by_shrinking_trailing_text() {
+    func
+        test_pane_status_task_progress_reveal_keeps_count_and_running_visible_by_shrinking_trailing_text()
+    {
         let row = makeRow(width: 200, height: 110, reducedMotion: true)
         let window = makeVisibleWindow(containing: row)
         addTeardownBlock { @MainActor in
@@ -1466,7 +1506,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         isFocused: true,
                         isWorking: true,
                         taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 10)
-                    ),
+                    )
                 ]
             ),
             theme: theme,
@@ -1482,19 +1522,24 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(row.paneStatusTextsForTesting, ["Running"])
         XCTAssertGreaterThanOrEqual(
             try XCTUnwrap(row.firstPaneStatusTextContainerWidthForTesting),
-            SidebarTextMetrics.measuredWidth(for: "Running", font: ShellMetrics.sidebarStatusFont()) - 1
+            SidebarTextMetrics.measuredWidth(for: "Running", font: ShellMetrics.sidebarStatusFont())
+                - 1
         )
         XCTAssertGreaterThanOrEqual(
             try XCTUnwrap(row.firstPaneStatusProgressRevealWidthForTesting),
-            SidebarTextMetrics.measuredWidth(for: "1/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
+            SidebarTextMetrics.measuredWidth(
+                for: "1/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
         )
         XCTAssertLessThan(
             try XCTUnwrap(row.firstPaneStatusTrailingLabelWidthForTesting),
-            SidebarTextMetrics.measuredWidth(for: trailingText, font: ShellMetrics.sidebarDetailFont())
+            SidebarTextMetrics.measuredWidth(
+                for: trailingText, font: ShellMetrics.sidebarDetailFont())
         )
     }
 
-    func test_pane_status_task_progress_reveal_keeps_count_and_idle_visible_by_shrinking_trailing_text() {
+    func
+        test_pane_status_task_progress_reveal_keeps_count_and_idle_visible_by_shrinking_trailing_text()
+    {
         let row = makeRow(width: 170, height: 110, reducedMotion: true)
         let window = makeVisibleWindow(containing: row)
         addTeardownBlock { @MainActor in
@@ -1518,7 +1563,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         isFocused: true,
                         isWorking: false,
                         taskProgress: PaneAgentTaskProgress(doneCount: 2, totalCount: 8)
-                    ),
+                    )
                 ]
             ),
             theme: theme,
@@ -1534,15 +1579,18 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(row.paneStatusTextsForTesting, ["Idle"])
         XCTAssertGreaterThanOrEqual(
             try XCTUnwrap(row.firstPaneStatusTextContainerWidthForTesting),
-            SidebarTextMetrics.measuredWidth(for: "Idle", font: ShellMetrics.sidebarStatusFont()) - 1
+            SidebarTextMetrics.measuredWidth(for: "Idle", font: ShellMetrics.sidebarStatusFont())
+                - 1
         )
         XCTAssertGreaterThanOrEqual(
             try XCTUnwrap(row.firstPaneStatusProgressRevealWidthForTesting),
-            SidebarTextMetrics.measuredWidth(for: "2/8 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
+            SidebarTextMetrics.measuredWidth(
+                for: "2/8 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
         )
         XCTAssertLessThan(
             try XCTUnwrap(row.firstPaneStatusTrailingLabelWidthForTesting),
-            SidebarTextMetrics.measuredWidth(for: trailingText, font: ShellMetrics.sidebarDetailFont())
+            SidebarTextMetrics.measuredWidth(
+                for: trailingText, font: ShellMetrics.sidebarDetailFont())
         )
     }
 
@@ -1564,7 +1612,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         isFocused: true,
                         isWorking: false,
                         taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 4)
-                    ),
+                    )
                 ]
             ),
             theme: theme,
@@ -1599,7 +1647,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         isFocused: true,
                         isWorking: false,
                         taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 4)
-                    ),
+                    )
                 ]
             ),
             theme: theme,
@@ -1630,7 +1678,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         isFocused: true,
                         isWorking: false,
                         taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 4)
-                    ),
+                    )
                 ]
             ),
             theme: theme,
@@ -1685,7 +1733,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
-                    ),
+                    )
                 ],
                 isWorking: true
             ),
@@ -1746,7 +1794,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
-                    ),
+                    )
                 ],
                 isWorking: true,
                 isActive: true
@@ -1800,9 +1848,14 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertGreaterThan(row.primaryTextColorForTesting.perceivedLuminance, theme.sidebarBackground.perceivedLuminance)
-        XCTAssertGreaterThan(row.topLabelColorForTesting.perceivedLuminance, theme.sidebarBackground.perceivedLuminance)
-        XCTAssertGreaterThan(row.primaryTextColorForTesting.contrastRatio(against: theme.sidebarBackground), 4.5)
+        XCTAssertGreaterThan(
+            row.primaryTextColorForTesting.perceivedLuminance,
+            theme.sidebarBackground.perceivedLuminance)
+        XCTAssertGreaterThan(
+            row.topLabelColorForTesting.perceivedLuminance,
+            theme.sidebarBackground.perceivedLuminance)
+        XCTAssertGreaterThan(
+            row.primaryTextColorForTesting.contrastRatio(against: theme.sidebarBackground), 4.5)
     }
 
     func test_dark_sidebar_theme_forces_dark_row_appearance() {
@@ -1834,7 +1887,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                 primaryText: "Claude Code",
                 statusText: "Needs input",
                 detailLines: [
-                    WorklaneSidebarDetailLine(text: "main • …/project", emphasis: .primary),
+                    WorklaneSidebarDetailLine(text: "main • …/project", emphasis: .primary)
                 ],
                 attentionState: .needsInput
             ),
@@ -1933,7 +1986,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                         attentionState: .running,
                         isFocused: true,
                         isWorking: true
-                    ),
+                    )
                 ],
                 isWorking: true
             ),
@@ -2051,7 +2104,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
 
         sidebarView.render(
             summaries: [
-                makeSidebarSummary(worklaneID: WorklaneID("worklane-api"), primaryText: "API"),
+                makeSidebarSummary(worklaneID: WorklaneID("worklane-api"), primaryText: "API")
             ],
             theme: ZenttyTheme.fallback(for: nil)
         )
@@ -2093,7 +2146,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(row.frame.size.height, originalFrame.size.height, accuracy: 0.001)
     }
 
-    func test_clearing_drop_target_highlight_restores_visual_state_without_moving_layer_geometry() throws {
+    func test_clearing_drop_target_highlight_restores_visual_state_without_moving_layer_geometry()
+        throws
+    {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
         let row = makeRow(width: 280, height: 72)
         row.frame.origin = CGPoint(x: 20, y: 44)
@@ -2269,7 +2324,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         return window
     }
 
-    private func sidebarWorklaneButtons(in sidebarView: SidebarView) throws -> [SidebarWorklaneRowButton] {
+    private func sidebarWorklaneButtons(in sidebarView: SidebarView) throws
+        -> [SidebarWorklaneRowButton]
+    {
         try sidebarView.worklaneButtonsForTesting.map { button in
             try XCTUnwrap(button as? SidebarWorklaneRowButton)
         }
@@ -2299,7 +2356,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         return sqrt((red * red) + (green * green) + (blue * blue))
     }
 
-    private func hsbComponents(_ color: NSColor) -> (hue: CGFloat, saturation: CGFloat, brightness: CGFloat)? {
+    private func hsbComponents(_ color: NSColor) -> (
+        hue: CGFloat, saturation: CGFloat, brightness: CGFloat
+    )? {
         guard let converted = color.usingColorSpace(.deviceRGB) else {
             return nil
         }
