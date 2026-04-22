@@ -597,7 +597,11 @@ struct SidebarWorklaneRowLayout: Equatable {
         width: CGFloat,
         maxLineCount: Int
     ) -> Int {
-        max(
+        guard width > 0 else {
+            return maxLineCount
+        }
+
+        return max(
             1,
             min(
                 maxLineCount,

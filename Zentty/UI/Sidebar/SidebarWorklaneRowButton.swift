@@ -6,6 +6,172 @@ private enum SidebarShimmerTreatment {
     case shadow
 }
 
+private enum SidebarColoredShimmerEmphasis {
+    case full
+    case focusedPane
+    case unfocusedPane
+}
+
+private enum SidebarShimmerColorResolver {
+    static func shimmerColor(
+        baseTextColor: NSColor,
+        worklaneColor: WorklaneColor?,
+        coloredEmphasis: SidebarColoredShimmerEmphasis,
+        treatment: SidebarShimmerTreatment,
+        isActive: Bool,
+        theme: ZenttyTheme
+    ) -> NSColor {
+        guard let worklaneColor else {
+            return legacyShimmerColor(
+                baseTextColor: baseTextColor,
+                treatment: treatment,
+                isActive: isActive,
+                theme: theme
+            )
+        }
+
+        let baseColor = worklaneColor.tint(alpha: 1)
+        let resolved: NSColor
+        let alpha: CGFloat
+        switch treatment {
+        case .highlight:
+            resolved = hsbAdjusted(
+                baseColor,
+                saturationMultiplier: 1.08,
+                brightnessMultiplier: theme.sidebarGlassAppearance == .dark ? 1.12 : 0.86
+            )
+            alpha = highlightAlpha(isActive: isActive, theme: theme)
+
+        case .shadow:
+            resolved = hsbAdjusted(
+                baseColor,
+                saturationMultiplier: 1.12,
+                brightnessMultiplier: theme.sidebarGlassAppearance == .dark ? 0.56 : 0.62
+            )
+            alpha = shadowAlpha(isActive: isActive, theme: theme)
+        }
+
+        let toned = tonedColoredShimmer(
+            resolved,
+            emphasis: coloredEmphasis,
+            theme: theme
+        )
+        return toned.withAlphaComponent(alpha * alphaMultiplier(for: coloredEmphasis))
+    }
+
+    private static func legacyShimmerColor(
+        baseTextColor: NSColor,
+        treatment: SidebarShimmerTreatment,
+        isActive: Bool,
+        theme: ZenttyTheme
+    ) -> NSColor {
+        switch treatment {
+        case .highlight:
+            return baseTextColor.withAlphaComponent(highlightAlpha(isActive: isActive, theme: theme))
+        case .shadow:
+            let shadowTarget = theme.sidebarGlassAppearance == .dark
+                ? NSColor.black
+                : theme.sidebarBackground
+            return baseTextColor
+                .mixed(towards: shadowTarget, amount: theme.sidebarGlassAppearance == .dark ? 0.82 : 0.74)
+                .withAlphaComponent(shadowAlpha(isActive: isActive, theme: theme))
+        }
+    }
+
+    private static func highlightAlpha(isActive: Bool, theme: ZenttyTheme) -> CGFloat {
+        if theme.reducedTransparency {
+            return isActive ? 1.0 : 0.72
+        }
+
+        return isActive ? 1.0 : 0.86
+    }
+
+    private static func shadowAlpha(isActive: Bool, theme: ZenttyTheme) -> CGFloat {
+        if theme.reducedTransparency {
+            return isActive ? 0.64 : 0.54
+        }
+
+        return isActive ? 0.72 : 0.60
+    }
+
+    private static func hsbAdjusted(
+        _ color: NSColor,
+        saturationMultiplier: CGFloat,
+        brightnessMultiplier: CGFloat
+    ) -> NSColor {
+        let source = color.srgbClamped
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        source.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+
+        return NSColor(
+            deviceHue: hue,
+            saturation: clamp(saturation * saturationMultiplier),
+            brightness: clamp(brightness * brightnessMultiplier),
+            alpha: alpha
+        )
+    }
+
+    private static func tonedColoredShimmer(
+        _ color: NSColor,
+        emphasis: SidebarColoredShimmerEmphasis,
+        theme: ZenttyTheme
+    ) -> NSColor {
+        switch emphasis {
+        case .full:
+            return color
+        case .focusedPane:
+            return desaturated(color, saturationMultiplier: 0.68)
+                .mixed(towards: neutralTarget(for: theme), amount: theme.sidebarGlassAppearance == .dark ? 0.16 : 0.10)
+        case .unfocusedPane:
+            return desaturated(color, saturationMultiplier: 0.24)
+                .mixed(towards: neutralTarget(for: theme), amount: theme.sidebarGlassAppearance == .dark ? 0.48 : 0.34)
+        }
+    }
+
+    private static func desaturated(
+        _ color: NSColor,
+        saturationMultiplier: CGFloat
+    ) -> NSColor {
+        let source = color.srgbClamped
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        source.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+
+        return NSColor(
+            deviceHue: hue,
+            saturation: clamp(saturation * saturationMultiplier),
+            brightness: brightness,
+            alpha: alpha
+        )
+    }
+
+    private static func neutralTarget(for theme: ZenttyTheme) -> NSColor {
+        theme.sidebarGlassAppearance == .dark
+            ? NSColor.black
+            : theme.sidebarBackground.mixed(towards: NSColor.black, amount: 0.18)
+    }
+
+    private static func alphaMultiplier(for emphasis: SidebarColoredShimmerEmphasis) -> CGFloat {
+        switch emphasis {
+        case .full:
+            return 1
+        case .focusedPane:
+            return 0.88
+        case .unfocusedPane:
+            return 0.62
+        }
+    }
+
+    private static func clamp(_ value: CGFloat) -> CGFloat {
+        min(max(value, 0), 1)
+    }
+}
+
 @MainActor
 final class SidebarWorklaneRowButton: NSButton {
     private enum DropTargetHighlightAnimation {
@@ -43,7 +209,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private let statusTextContainer = SidebarPrimaryTextContainerView()
     private let statusBaseLabel = SidebarStaticLabel()
     private let statusLabel = SidebarShimmerTextView()
-    private let statusContentStack = SidebarTaskProgressRevealLineStackView()
+    private let statusContentStack = SidebarTaskProgressRevealLineView()
     private let overflowLabel = SidebarStaticLabel()
     private let textStack = NSStackView()
 
@@ -185,32 +351,24 @@ final class SidebarWorklaneRowButton: NSButton {
         )
         statusIconView.translatesAutoresizingMaskIntoConstraints = false
         statusIconView.imageScaling = .scaleProportionallyDown
-        statusIconView.setContentHuggingPriority(.required, for: .horizontal)
-        statusIconView.setContentCompressionResistancePriority(.required, for: .horizontal)
         statusLabel.font = ShellMetrics.sidebarStatusFont()
         statusLabel.lineHeight = ShellMetrics.sidebarStatusLineHeight
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         statusTextContainer.translatesAutoresizingMaskIntoConstraints = false
-        statusTextContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        statusTextContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         statusTextContainer.addSubview(statusBaseLabel)
         statusTextContainer.addSubview(statusLabel)
-        statusContentStack.orientation = .horizontal
-        statusContentStack.alignment = .centerY
-        statusContentStack.spacing = 4
         statusContentStack.translatesAutoresizingMaskIntoConstraints = false
-        statusContentStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        statusContentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        statusContentStack.addArrangedSubview(statusIconView)
-        statusContentStack.addArrangedSubview(statusProgressIndicator)
-        statusContentStack.addArrangedSubview(statusProgressRevealView)
-        statusContentStack.addArrangedSubview(statusTextContainer)
-        statusContentStack.setCustomSpacing(0, after: statusProgressIndicator)
-        statusContentStack.setCustomSpacing(4, after: statusProgressRevealView)
+        statusContentStack.configureSubviews(
+            iconView: statusIconView,
+            progressIndicator: statusProgressIndicator,
+            progressRevealView: statusProgressRevealView,
+            textContainer: statusTextContainer
+        )
         statusProgressIndicator.onHoverEntered = { [weak self] in
+            self?.setStatusProgressRevealVisible(true, animated: true)
+        }
+        statusContentStack.onMouseEnteredLine = { [weak self] in
             self?.setStatusProgressRevealVisible(true, animated: true)
         }
         statusContentStack.onMouseExitedLine = { [weak self] in
@@ -247,8 +405,6 @@ final class SidebarWorklaneRowButton: NSButton {
             statusLabel.leadingAnchor.constraint(equalTo: statusTextContainer.leadingAnchor),
             statusLabel.trailingAnchor.constraint(equalTo: statusTextContainer.trailingAnchor),
             statusLabel.bottomAnchor.constraint(equalTo: statusTextContainer.bottomAnchor),
-            statusIconView.widthAnchor.constraint(equalToConstant: 11),
-            statusIconView.heightAnchor.constraint(equalToConstant: 11),
         ])
 
         textStack.orientation = .vertical
@@ -617,12 +773,10 @@ final class SidebarWorklaneRowButton: NSButton {
         if wraps || currentSummary?.taskProgress == nil {
             setStatusProgressRevealVisible(false, animated: false)
         }
-        statusContentStack.alignment = wraps ? .top : .centerY
         let statusHeight = ShellMetrics.sidebarStatusLineHeight * CGFloat(clampedLineCount)
         statusTextHeightConstraint?.constant = statusHeight
         statusContentHeightConstraint?.constant = statusHeight
-        statusTextContainer.invalidateIntrinsicContentSize()
-        statusContentStack.invalidateIntrinsicContentSize()
+        configureStatusContentLine(taskProgressVisible: statusProgressIndicator.isHidden == false)
     }
 
     private func setStatusProgressRevealVisible(_ isVisible: Bool, animated: Bool) {
@@ -635,13 +789,14 @@ final class SidebarWorklaneRowButton: NSButton {
         statusProgressRevealView.setRevealed(
             canReveal,
             animated: animated,
+            reducedMotion: reducedMotionProvider(),
+            appliesAlpha: false
+        )
+        statusContentStack.setProgressRevealVisible(
+            canReveal,
+            animated: animated,
             reducedMotion: reducedMotionProvider()
         )
-        if canReveal {
-            statusContentStack.startHoverReconciliation()
-        } else {
-            statusContentStack.stopHoverReconciliation()
-        }
     }
 
     private func configureDetailLabels(for detailLines: [WorklaneSidebarDetailLine]) {
@@ -827,6 +982,7 @@ final class SidebarWorklaneRowButton: NSButton {
             if statusWraps || summary.taskProgress == nil {
                 setStatusProgressRevealVisible(false, animated: false)
             }
+            configureStatusContentLine(taskProgressVisible: statusWraps == false && summary.taskProgress != nil)
             contextPrefixLabel.textColor = detailTextColor(
                 for: .secondary,
                 summary: summary
@@ -958,6 +1114,8 @@ final class SidebarWorklaneRowButton: NSButton {
         let primaryShimmerTreatment: SidebarShimmerTreatment = isActive ? .shadow : .highlight
         primaryLabel.shimmerColor = shimmerColor(
             for: primaryColor,
+            worklaneColor: summary.color,
+            coloredEmphasis: .full,
             treatment: primaryShimmerTreatment,
             isActive: isActive
         )
@@ -973,6 +1131,8 @@ final class SidebarWorklaneRowButton: NSButton {
         let shimmerBase = statusShimmerBaseColor(for: currentTheme.statusRunning)
         statusLabel.shimmerColor = shimmerColor(
             for: shimmerBase,
+            worklaneColor: nil,
+            coloredEmphasis: .full,
             treatment: .highlight,
             isActive: isActive
         )
@@ -1021,6 +1181,8 @@ final class SidebarWorklaneRowButton: NSButton {
                 isShimmering: paneRow.isWorking,
                 shimmerColor: shimmerColor(
                     for: primaryColor,
+                    worklaneColor: currentSummary?.color,
+                    coloredEmphasis: paneRow.isFocused ? .focusedPane : .unfocusedPane,
                     treatment: paneShimmerTreatment,
                     isActive: isActive
                 ),
@@ -1042,6 +1204,8 @@ final class SidebarWorklaneRowButton: NSButton {
                 isShimmering: paneRow.isWorking && paneRow.attentionState == .running,
                 shimmerColor: shimmerColor(
                     for: statusShimmerBaseColor(for: currentTheme.statusRunning),
+                    worklaneColor: nil,
+                    coloredEmphasis: .full,
                     treatment: .highlight,
                     isActive: currentSummary?.isActive ?? false
                 ),
@@ -1123,22 +1287,6 @@ final class SidebarWorklaneRowButton: NSButton {
         return inactiveTextColor.mixed(towards: .white, amount: 0.72)
     }
 
-    private func shimmerHighlightAlpha(isActive: Bool) -> CGFloat {
-        if currentTheme.reducedTransparency {
-            return isActive ? 1.0 : 0.72
-        }
-
-        return isActive ? 1.0 : 0.86
-    }
-
-    private func shadowShimmerAlpha(isActive: Bool) -> CGFloat {
-        if currentTheme.reducedTransparency {
-            return isActive ? 0.64 : 0.54
-        }
-
-        return isActive ? 0.72 : 0.60
-    }
-
     private func statusShimmerBaseColor(for statusColor: NSColor) -> NSColor {
         if currentTheme.sidebarGlassAppearance == .dark {
             return statusColor.adjustedHSB(
@@ -1155,20 +1303,30 @@ final class SidebarWorklaneRowButton: NSButton {
 
     private func shimmerColor(
         for baseTextColor: NSColor,
+        worklaneColor: WorklaneColor?,
+        coloredEmphasis: SidebarColoredShimmerEmphasis,
         treatment: SidebarShimmerTreatment,
         isActive: Bool
     ) -> NSColor {
-        switch treatment {
-        case .highlight:
-            return baseTextColor.withAlphaComponent(shimmerHighlightAlpha(isActive: isActive))
-        case .shadow:
-            let shadowTarget = currentTheme.sidebarGlassAppearance == .dark
-                ? NSColor.black
-                : currentTheme.sidebarBackground
-            return baseTextColor
-                .mixed(towards: shadowTarget, amount: currentTheme.sidebarGlassAppearance == .dark ? 0.82 : 0.74)
-                .withAlphaComponent(shadowShimmerAlpha(isActive: isActive))
-        }
+        SidebarShimmerColorResolver.shimmerColor(
+            baseTextColor: baseTextColor,
+            worklaneColor: worklaneColor,
+            coloredEmphasis: coloredEmphasis,
+            treatment: treatment,
+            isActive: isActive,
+            theme: currentTheme
+        )
+    }
+
+    private func configureStatusContentLine(taskProgressVisible: Bool) {
+        statusContentStack.configureLayout(
+            statusText: statusBaseLabel.stringValue,
+            statusFont: statusBaseLabel.font ?? ShellMetrics.sidebarStatusFont(),
+            trailingPreferredWidth: 0,
+            lineHeight: ShellMetrics.sidebarStatusLineHeight,
+            wraps: statusLabel.isHidden,
+            taskProgressVisible: taskProgressVisible
+        )
     }
 
     private func renderedBaseTextColor(
@@ -1479,8 +1637,28 @@ final class SidebarWorklaneRowButton: NSButton {
         statusProgressIndicator.lastUpdateWasAnimated
     }
 
+    var statusTextContainerWidthForTesting: CGFloat {
+        statusContentStack.textContainerWidthForTesting
+    }
+
+    var statusProgressRevealWidthForTesting: CGFloat {
+        statusContentStack.progressRevealWidthForTesting
+    }
+
+    var statusProgressRevealIsHiddenForTesting: Bool {
+        statusProgressRevealView.isHidden
+    }
+
     func simulateStatusProgressIconHoverForTesting() {
-        setStatusProgressRevealVisible(true, animated: true)
+        simulateStatusProgressIconHoverForTesting(animated: true)
+    }
+
+    func simulateStatusProgressIconHoverForTesting(animated: Bool) {
+        setStatusProgressRevealVisible(true, animated: animated)
+    }
+
+    func simulateStatusLineHoverForTesting() {
+        statusContentStack.simulateMouseEnteredForTesting()
     }
 
     func simulateStatusLineExitForTesting() {
@@ -1531,6 +1709,10 @@ final class SidebarWorklaneRowButton: NSButton {
 
     var firstPanePrimaryShimmerColorForTesting: NSColor? {
         panePrimaryRows.first?.shimmerColorForTesting
+    }
+
+    var firstPaneStatusShimmerColorForTesting: NSColor? {
+        paneStatusRows.first?.shimmerColorForTesting
     }
 
     var firstPanePrimaryHeightForTesting: CGFloat? {
@@ -1613,8 +1795,32 @@ final class SidebarWorklaneRowButton: NSButton {
         paneStatusRows.first?.progressColorForTesting
     }
 
+    var firstPaneStatusTextContainerWidthForTesting: CGFloat? {
+        paneStatusRows.first?.textContainerWidthForTesting
+    }
+
+    var firstPaneStatusProgressRevealWidthForTesting: CGFloat? {
+        paneStatusRows.first?.progressRevealWidthForTesting
+    }
+
+    var firstPaneStatusProgressRevealIsHiddenForTesting: Bool? {
+        paneStatusRows.first?.progressRevealIsHiddenForTesting
+    }
+
+    var firstPaneStatusTrailingLabelWidthForTesting: CGFloat? {
+        paneStatusRows.first?.trailingLabelWidthForTesting
+    }
+
     func simulateFirstPaneStatusProgressIconHoverForTesting() {
-        paneStatusRows.first?.simulateProgressIconHoverForTesting()
+        simulateFirstPaneStatusProgressIconHoverForTesting(animated: true)
+    }
+
+    func simulateFirstPaneStatusProgressIconHoverForTesting(animated: Bool) {
+        paneStatusRows.first?.simulateProgressIconHoverForTesting(animated: animated)
+    }
+
+    func simulateFirstPaneStatusLineHoverForTesting() {
+        paneStatusRows.first?.simulateProgressLineHoverForTesting()
     }
 
     func simulateFirstPaneStatusLineExitForTesting() {
