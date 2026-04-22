@@ -5,7 +5,7 @@
   <br>Zentty
 </h1>
   <p align="center">
-    A native macOS terminal for agent-native development, built on Ghostty.
+    A native macOS terminal for agent-driven development, built on Ghostty.
     <br />
     Zentty gets out of the way. Minimal friction, maximum focus.
     <br />
