@@ -375,7 +375,7 @@ struct SidebarWorklaneRowLayout: Equatable {
                 ).isEmpty == false,
                 hasProgress: summary.taskProgress != nil
             ),
-            maxLineCount: 2
+            maxLineCount: 1
         )
     }
 
@@ -433,7 +433,7 @@ struct SidebarWorklaneRowLayout: Equatable {
                 ).isEmpty == false,
                 hasProgress: paneRow.taskProgress != nil
             ),
-            maxLineCount: 2
+            maxLineCount: 1
         )
     }
 
@@ -597,11 +597,7 @@ struct SidebarWorklaneRowLayout: Equatable {
         width: CGFloat,
         maxLineCount: Int
     ) -> Int {
-        guard width > 0 else {
-            return maxLineCount
-        }
-
-        return max(
+        max(
             1,
             min(
                 maxLineCount,

@@ -870,7 +870,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertLessThanOrEqual(statusFrame.maxY, row.bounds.maxY + 0.5)
     }
 
-    func test_sidebar_view_grows_pane_row_to_keep_wrapped_status_inside_bounds() throws {
+    func test_sidebar_view_keeps_long_pane_status_inside_single_line_bounds() throws {
         let primaryText = "Ready | zentty"
         let statusText =
             "Needs approval from Peter before continuing with the longer follow-up action in this pane row"

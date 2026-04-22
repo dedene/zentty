@@ -378,7 +378,7 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
         XCTAssertEqual(layout.visibleTextRows, [.primary, .contextPrefix])
     }
 
-    func test_sidebar_row_height_grows_for_tight_worklane_rows_when_status_wraps() {
+    func test_sidebar_row_height_keeps_worklane_status_single_line_across_widths() {
         let summary = makeSummary(
             primaryText: "Claude Code",
             statusText: "Needs approval from Peter before continuing with the longer follow-up action in this row"
@@ -387,10 +387,10 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
         let wideLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 900)
         let narrowLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 220)
 
-        XCTAssertGreaterThan(narrowLayout.rowHeight, wideLayout.rowHeight + 0.5)
+        XCTAssertEqual(narrowLayout.rowHeight, wideLayout.rowHeight, accuracy: 0.5)
     }
 
-    func test_sidebar_row_height_grows_for_tight_pane_rows_when_status_wraps() {
+    func test_sidebar_row_height_keeps_pane_status_single_line_across_widths() {
         let summary = makeSummary(
             primaryText: "General coding assistance session",
             paneRows: [
@@ -410,7 +410,7 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
         let wideLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 900)
         let narrowLayout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 220)
 
-        XCTAssertGreaterThan(narrowLayout.rowHeight, wideLayout.rowHeight + 0.5)
+        XCTAssertEqual(narrowLayout.rowHeight, wideLayout.rowHeight, accuracy: 0.5)
     }
 
     func test_sidebar_row_hides_long_branch_in_status_measurement_when_status_needs_the_width() {
