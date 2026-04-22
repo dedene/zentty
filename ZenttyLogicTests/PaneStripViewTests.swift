@@ -258,6 +258,20 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_drag_zone_clips_hover_affordance_to_pane_top_corners() throws {
+        let dragZone = PaneDragZoneView(paneID: PaneID("shell"))
+        dragZone.frame = CGRect(x: 0, y: 0, width: 120, height: PaneDragZoneView.height)
+        dragZone.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(dragZone.layer?.masksToBounds == true)
+        let highlightLayer = try XCTUnwrap(dragZone.layer?.sublayers?.first as? CAShapeLayer)
+        let path = try XCTUnwrap(highlightLayer.path)
+        XCTAssertFalse(path.contains(CGPoint(x: 3, y: 13), using: .winding, transform: .identity))
+        XCTAssertFalse(path.contains(CGPoint(x: 117, y: 13), using: .winding, transform: .identity))
+        XCTAssertTrue(path.contains(CGPoint(x: 60, y: 8), using: .winding, transform: .identity))
+    }
+
+    @MainActor
     func test_drag_zone_click_does_not_activate_drag() throws {
         let paneID = PaneID("shell")
         let dragZone = PaneDragZoneView(paneID: paneID)
