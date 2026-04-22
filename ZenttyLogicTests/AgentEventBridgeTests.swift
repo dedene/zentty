@@ -990,6 +990,30 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payload.text, "Choose a target?\n- Staging\n- Production")
     }
 
+    func test_droid_preToolUse_exitSpecMode_reports_approval() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"ExitSpecMode","cwd":"/tmp","tool_input":{"plan":"Add Droid CLI to the agent-aware feature list\\n\\nDetails follow..."}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .approval)
+        XCTAssertEqual(payload.text, "Droid proposed a spec: Add Droid CLI to the agent-aware feature list")
+    }
+
+    func test_droid_preToolUse_exitSpecMode_without_plan_falls_back() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PreToolUse","session_id":"sess-1","tool_name":"ExitSpecMode","cwd":"/tmp","tool_input":{}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .approval)
+        XCTAssertEqual(payload.text, "Droid drafted a specification for your approval")
+    }
+
     func test_droid_preToolUse_manual_execute_reports_approval() throws {
         let store = try makeDroidTaskStore()
         let json = """

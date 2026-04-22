@@ -81,6 +81,29 @@ extension AgentEventBridge {
                     agentWorkingDirectory: cwd
                 )]
             }
+            if hookToolName == "ExitSpecMode" {
+                let specText = droidSpecProposalText(toolInput: toolInput)
+                    ?? message
+                    ?? "Droid drafted a specification for your approval"
+                return [AgentStatusPayload(
+                    windowID: target.windowID,
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: .needsInput,
+                    origin: .explicitHook,
+                    toolName: toolName,
+                    text: specText,
+                    lifecycleEvent: .update,
+                    interactionKind: .approval,
+                    confidence: .explicit,
+                    sessionID: sessionID,
+                    taskProgress: try taskStore.taskProgress(sessionID: sessionID),
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil,
+                    agentWorkingDirectory: cwd
+                )]
+            }
             if droidManualModeRequiresApproval(permissionMode: permissionMode, toolName: hookToolName) {
                 let interactionText = droidApprovalText(toolName: hookToolName, toolInput: toolInput)
                 return [AgentStatusPayload(
@@ -229,6 +252,18 @@ extension AgentEventBridge {
             return "Allow \(tool) on \(path)?"
         }
         return "Droid needs your permission to use \(tool)"
+    }
+
+    private static func droidSpecProposalText(toolInput: [String: Any]?) -> String? {
+        guard let plan = firstString(in: toolInput, keys: ["plan", "spec", "proposal"]) else {
+            return nil
+        }
+        let firstLine = plan
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+        guard !firstLine.isEmpty else { return nil }
+        return "Droid proposed a spec: \(firstLine)"
     }
 
     private static func droidStringArray(in object: [String: Any]?, keys: [String]) -> [String] {
