@@ -564,7 +564,13 @@ final class SidebarTaskProgressRevealLineView: NSView {
             trailingWidth = 0
             trailingSpacing = 0
         }
-        let textWidth = max(0, remainingWidth - trailingWidth - trailingSpacing)
+        // Cap the status text slot at its natural width so the trailing label
+        // sits directly next to the status instead of being pushed to the far
+        // right edge with a wide gap.
+        let availableTextWidth = max(0, remainingWidth - trailingWidth - trailingSpacing)
+        let textWidth = trailingCanShow
+            ? min(availableTextWidth, measuredStatusWidth)
+            : availableTextWidth
         setFrame(
             NSRect(x: x, y: originY, width: textWidth, height: contentHeight),
             for: textContainer,
