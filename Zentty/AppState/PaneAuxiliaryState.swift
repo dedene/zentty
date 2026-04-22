@@ -139,7 +139,8 @@ struct PanePresentationState: Equatable, Sendable {
     var taskProgress: PaneAgentTaskProgress? = nil
 
     var hasResolvedIdentity: Bool {
-        identityText != nil || contextText != nil || rememberedTitle != nil || sshConnectionLabel != nil || branch != nil || cwd != nil
+        identityText != nil || contextText != nil || rememberedTitle != nil
+            || sshConnectionLabel != nil || branch != nil || cwd != nil
     }
 
     var visibleIdentityText: String? {
@@ -188,7 +189,8 @@ enum PaneTerminalLocationResolver {
         shellContext: PaneShellContext?,
         requestWorkingDirectory: String? = nil
     ) -> PaneTerminalLocationSnapshot {
-        let metadataWorkingDirectory = WorklaneContextFormatter.trimmed(metadata?.currentWorkingDirectory)
+        let metadataWorkingDirectory = WorklaneContextFormatter.trimmed(
+            metadata?.currentWorkingDirectory)
         let contextWorkingDirectory = WorklaneContextFormatter.trimmed(shellContext?.path)
         let bootstrapWorkingDirectory = WorklaneContextFormatter.trimmed(requestWorkingDirectory)
 
@@ -240,7 +242,8 @@ enum PaneTerminalLocationResolver {
         }
 
         if let bootstrapWorkingDirectory,
-           standardizedPath(contextWorkingDirectory) == standardizedPath(bootstrapWorkingDirectory) {
+            standardizedPath(contextWorkingDirectory) == standardizedPath(bootstrapWorkingDirectory)
+        {
             return metadataWorkingDirectory
         }
 
@@ -261,10 +264,13 @@ enum PanePresentationNormalizer {
         )
         let gitContext = normalizedGitContext(raw.gitContext, fallbackWorkingDirectory: cwd)
         let repoRoot = gitContext?.repoRoot
-        let branchDisplayText = WorklaneContextFormatter.trimmed(gitContext?.branchDisplayText)
+        let branchDisplayText =
+            WorklaneContextFormatter.trimmed(gitContext?.branchDisplayText)
             ?? provisionalShellBranchDisplayText(from: raw.shellContext)
         let lookupBranch = gitContext?.lookupBranch
-        let cwdLabel = cwd.flatMap { WorklaneContextFormatter.formattedWorkingDirectory($0, branch: nil) }
+        let cwdLabel = cwd.flatMap {
+            WorklaneContextFormatter.formattedWorkingDirectory($0, branch: nil)
+        }
         let remoteHostLabel = raw.shellContext?.remoteHostLabel
         let remotePathLabel = raw.shellContext?.remotePathLabel
         let remoteLocationLabel = raw.shellContext?.remoteLocationLabel
@@ -272,7 +278,8 @@ enum PanePresentationNormalizer {
             .compactMap(WorklaneContextFormatter.trimmed)
             .joined(separator: " · ")
             .nilIfEmpty
-        let recognizedTool = raw.agentStatus?.tool ?? AgentToolRecognizer.recognize(metadata: raw.metadata)
+        let recognizedTool =
+            raw.agentStatus?.tool ?? AgentToolRecognizer.recognize(metadata: raw.metadata)
         let sshConnectionLabel = inferredSSHConnectionLabel(
             metadata: raw.metadata,
             shellContext: raw.shellContext,
@@ -302,20 +309,23 @@ enum PanePresentationNormalizer {
             titlePhase: titlePhase,
             copilotTitleNeedsInput: copilotTitleNeedsInput
         )
-        let agentInteractionKind: PaneAgentInteractionKind = copilotTitleNeedsInput
+        let agentInteractionKind: PaneAgentInteractionKind =
+            copilotTitleNeedsInput
             ? .question
             : (raw.agentStatus?.interactionKind ?? .none)
-        let codexBackgroundWait = recognizedTool == .codex
-            && TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: raw.metadata?.title) == .backgroundWait
+        let codexBackgroundWait =
+            recognizedTool == .codex
+            && TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: raw.metadata?.title)
+                == .backgroundWait
         let showsReadyStatus = raw.showsReadyStatus && !codexBackgroundWait
-        let hasObservedRunning = raw.agentStatus?.hasObservedRunning == true
+        let hasObservedRunning =
+            raw.agentStatus?.hasObservedRunning == true
             || titlePhase == .running
             || previous?.runtimePhase == .running
-        let taskProgress = (
-            recognizedTool == .codex
+        let taskProgress =
+            (recognizedTool == .codex
                 ? TerminalMetadataChangeClassifier.codexTaskProgress(for: raw.metadata?.title)
-                : nil
-        ) ?? raw.agentStatus?.taskProgress
+                : nil) ?? raw.agentStatus?.taskProgress
         let statusText = visibleStatusText(
             for: runtimePhase,
             interactionKind: agentInteractionKind,
@@ -338,7 +348,8 @@ enum PanePresentationNormalizer {
             interactionSymbolName = agentInteractionKind.symbolName
         } else {
             interactionLabel = runtimePhase == .needsInput ? raw.agentStatus?.statusLabel : nil
-            interactionSymbolName = runtimePhase == .needsInput ? raw.agentStatus?.statusSymbolName : nil
+            interactionSymbolName =
+                runtimePhase == .needsInput ? raw.agentStatus?.statusSymbolName : nil
         }
         let statusSymbolName = statusSymbolName(
             for: runtimePhase,
@@ -357,11 +368,13 @@ enum PanePresentationNormalizer {
             repoRoot: repoRoot,
             lookupBranch: lookupBranch
         )
-        let terminalFallback = WorklaneContextFormatter.displayTerminalIdentity(
-            for: raw.metadata,
-            fallbackTitle: paneTitle
-        ) ?? WorklaneContextFormatter.trimmed(paneTitle)
-        let identityText = WorklaneContextFormatter.trimmed(sshConnectionLabel)
+        let terminalFallback =
+            WorklaneContextFormatter.displayTerminalIdentity(
+                for: raw.metadata,
+                fallbackTitle: paneTitle
+            ) ?? WorklaneContextFormatter.trimmed(paneTitle)
+        let identityText =
+            WorklaneContextFormatter.trimmed(sshConnectionLabel)
             ?? WorklaneContextFormatter.trimmed(rememberedTitle)
             ?? contextText
             ?? terminalFallback
@@ -369,7 +382,8 @@ enum PanePresentationNormalizer {
         let attentionArtifactLink = deriveAttentionArtifact(from: raw.agentStatus?.artifactLink)
         let updatedAt = raw.agentStatus?.updatedAt ?? .distantPast
         let branchURL = deriveBranchURL(from: raw, repoRoot: repoRoot, lookupBranch: lookupBranch)
-        let isReady = runtimePhase == .idle
+        let isReady =
+            runtimePhase == .idle
             && showsReadyStatus
             && incompleteTaskProgress(taskProgress) == nil
 
@@ -405,7 +419,9 @@ enum PanePresentationNormalizer {
         )
     }
 
-    private static func provisionalShellBranchDisplayText(from shellContext: PaneShellContext?) -> String? {
+    private static func provisionalShellBranchDisplayText(from shellContext: PaneShellContext?)
+        -> String?
+    {
         guard shellContext?.scope == .local else {
             return nil
         }
@@ -459,7 +475,8 @@ enum PanePresentationNormalizer {
             )
         }
 
-        let workingDirectory = WorklaneContextFormatter.trimmed(gitContext.workingDirectory)
+        let workingDirectory =
+            WorklaneContextFormatter.trimmed(gitContext.workingDirectory)
             ?? fallbackWorkingDirectory
         guard let workingDirectory else {
             return nil
@@ -503,7 +520,8 @@ enum PanePresentationNormalizer {
         metadata: TerminalMetadata?
     ) -> Bool {
         guard AgentTool.resolve(named: metadata?.processName) == .copilot,
-              let rawTitle = WorklaneContextFormatter.trimmed(metadata?.title) else {
+            let rawTitle = WorklaneContextFormatter.trimmed(metadata?.title)
+        else {
             return false
         }
         let normalized = rawTitle.lowercased()
@@ -545,10 +563,11 @@ enum PanePresentationNormalizer {
         }
 
         if recognizedTool == .claudeCode,
-           let signature = TerminalMetadataChangeClassifier.diagnosticAgentStatusTitleSignature(
-               metadata?.title,
-               recognizedTool: .claudeCode
-           ) {
+            let signature = TerminalMetadataChangeClassifier.diagnosticAgentStatusTitleSignature(
+                metadata?.title,
+                recognizedTool: .claudeCode
+            )
+        {
             switch signature.phase {
             case .running:
                 return .running
@@ -570,13 +589,16 @@ enum PanePresentationNormalizer {
         _ notificationText: String?,
         recognizedTool: AgentTool? = nil
     ) -> Bool {
-        guard let notificationText = WorklaneContextFormatter.trimmed(notificationText)?.lowercased() else {
+        guard
+            let notificationText = WorklaneContextFormatter.trimmed(notificationText)?.lowercased()
+        else {
             return false
         }
 
         if notificationText.contains("agent run complete")
             || notificationText.contains("agent ready")
-            || notificationText.contains("agent turn complete") {
+            || notificationText.contains("agent turn complete")
+        {
             return true
         }
 
@@ -604,7 +626,8 @@ enum PanePresentationNormalizer {
             if hasObservedRunning { return "Idle" }
             // Show fresh notification text as informational status when no agent state is active.
             if let notificationText, let notificationDate,
-               now.timeIntervalSince(notificationDate) < notificationVisibilityWindow {
+                now.timeIntervalSince(notificationDate) < notificationVisibilityWindow
+            {
                 return notificationText
             }
             return nil
@@ -631,7 +654,9 @@ enum PanePresentationNormalizer {
         "Idle (\(taskProgress.doneCount)/\(taskProgress.totalCount))"
     }
 
-    private static func incompleteTaskProgress(_ taskProgress: PaneAgentTaskProgress?) -> PaneAgentTaskProgress? {
+    private static func incompleteTaskProgress(_ taskProgress: PaneAgentTaskProgress?)
+        -> PaneAgentTaskProgress?
+    {
         guard let taskProgress, taskProgress.doneCount < taskProgress.totalCount else {
             return nil
         }
@@ -656,7 +681,7 @@ enum PanePresentationNormalizer {
         }
 
         if statusText?.hasPrefix("Idle") == true {
-            return "moon.zzz"
+            return "moon.fill"
         }
 
         return nil
@@ -686,16 +711,20 @@ enum PanePresentationNormalizer {
                 continue
             }
             let resolvedCandidate: String
-            if let displaySubject = TerminalMetadataChangeClassifier.volatileAgentStatusDisplaySubject(
-                candidate,
-                recognizedTool: recognizedTool
-            ) {
-                resolvedCandidate = displaySubject
-            } else {
-                guard TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+            if let displaySubject =
+                TerminalMetadataChangeClassifier.volatileAgentStatusDisplaySubject(
                     candidate,
                     recognizedTool: recognizedTool
-                ) == false else {
+                )
+            {
+                resolvedCandidate = displaySubject
+            } else {
+                guard
+                    TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+                        candidate,
+                        recognizedTool: recognizedTool
+                    ) == false
+                else {
                     continue
                 }
                 resolvedCandidate = candidate
@@ -703,14 +732,16 @@ enum PanePresentationNormalizer {
             guard rawShellLabelLooksMeaningful(resolvedCandidate) else {
                 continue
             }
-            guard let displayIdentity = WorklaneContextFormatter.displayMeaningfulTerminalIdentity(
-                for: TerminalMetadata(
-                    title: resolvedCandidate,
-                    currentWorkingDirectory: nil,
-                    processName: nil,
-                    gitBranch: nil
+            guard
+                let displayIdentity = WorklaneContextFormatter.displayMeaningfulTerminalIdentity(
+                    for: TerminalMetadata(
+                        title: resolvedCandidate,
+                        currentWorkingDirectory: nil,
+                        processName: nil,
+                        gitBranch: nil
+                    )
                 )
-            ) else {
+            else {
                 continue
             }
             if matchesRecognizedTool(resolvedCandidate, tool: recognizedTool) {
@@ -719,10 +750,12 @@ enum PanePresentationNormalizer {
             return displayIdentity
         }
 
-        let normalizedFallbackTitle = WorklaneContextFormatter.normalizeDisplayIdentity(fallbackTitle)
+        let normalizedFallbackTitle = WorklaneContextFormatter.normalizeDisplayIdentity(
+            fallbackTitle)
         if let normalizedFallbackTitle,
-           rawShellLabelLooksMeaningful(normalizedFallbackTitle),
-           matchesRecognizedTool(normalizedFallbackTitle, tool: recognizedTool) == false {
+            rawShellLabelLooksMeaningful(normalizedFallbackTitle),
+            matchesRecognizedTool(normalizedFallbackTitle, tool: recognizedTool) == false
+        {
             return normalizedFallbackTitle
         }
 
@@ -826,7 +859,9 @@ enum PanePresentationNormalizer {
         }
     }
 
-    private static func deriveAttentionArtifact(from artifact: WorklaneArtifactLink?) -> WorklaneArtifactLink? {
+    private static func deriveAttentionArtifact(from artifact: WorklaneArtifactLink?)
+        -> WorklaneArtifactLink?
+    {
         guard artifact?.kind != .pullRequest else {
             return nil
         }
@@ -972,10 +1007,12 @@ struct WorklaneGitContextResolver: PaneGitContextResolving {
             )
         }
 
-        guard let rawRepositoryRoot = await gitOutput(
-            ["rev-parse", "--show-toplevel"],
-            currentDirectoryPath: workingDirectory
-        ) else {
+        guard
+            let rawRepositoryRoot = await gitOutput(
+                ["rev-parse", "--show-toplevel"],
+                currentDirectoryPath: workingDirectory
+            )
+        else {
             return PaneGitContext(
                 workingDirectory: workingDirectory,
                 repositoryRoot: nil,
@@ -1018,7 +1055,8 @@ struct WorklaneGitContextResolver: PaneGitContextResolving {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
                 process.arguments = ["git"] + arguments
-                process.currentDirectoryURL = URL(fileURLWithPath: currentDirectoryPath, isDirectory: true)
+                process.currentDirectoryURL = URL(
+                    fileURLWithPath: currentDirectoryPath, isDirectory: true)
 
                 let stdout = Pipe()
                 process.standardOutput = stdout
@@ -1032,7 +1070,8 @@ struct WorklaneGitContextResolver: PaneGitContextResolving {
                         return
                     }
 
-                    let output = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                    let output = String(
+                        decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
                     continuation.resume(returning: WorklaneContextFormatter.trimmed(output))
                 } catch {
                     continuation.resume(returning: nil)
@@ -1049,8 +1088,8 @@ struct WorklaneGitContextResolver: PaneGitContextResolving {
     }
 }
 
-private extension String {
-    var nilIfEmpty: String? {
+extension String {
+    fileprivate var nilIfEmpty: String? {
         isEmpty ? nil : self
     }
 }

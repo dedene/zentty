@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Zentty
 
 final class PanePresentationStateTests: XCTestCase {
@@ -92,7 +93,7 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.contextText, "main · …/nimbu")
         XCTAssertEqual(presentation.runtimePhase, PanePresentationPhase.idle)
         XCTAssertEqual(presentation.statusText, "Idle")
-        XCTAssertEqual(presentation.statusSymbolName, "moon.zzz")
+        XCTAssertEqual(presentation.statusSymbolName, "moon.fill")
         XCTAssertFalse(presentation.isWorking)
     }
 
@@ -205,7 +206,7 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.runtimePhase, .idle)
         XCTAssertEqual(presentation.statusText, "Idle (0/3)")
         XCTAssertFalse(presentation.isReady)
-        XCTAssertEqual(presentation.statusSymbolName, "moon.zzz")
+        XCTAssertEqual(presentation.statusSymbolName, "moon.fill")
     }
 
     func test_normalize_suppresses_ready_label_while_task_progress_is_incomplete() {
@@ -247,7 +248,7 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.runtimePhase, .idle)
         XCTAssertEqual(presentation.statusText, "Idle (1/3)")
         XCTAssertFalse(presentation.isReady)
-        XCTAssertEqual(presentation.statusSymbolName, "moon.zzz")
+        XCTAssertEqual(presentation.statusSymbolName, "moon.fill")
     }
 
     func test_normalize_restores_ready_label_once_task_progress_is_complete() {
