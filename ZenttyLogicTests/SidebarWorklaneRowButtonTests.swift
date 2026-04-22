@@ -445,6 +445,45 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["checkmark.circle.fill"])
     }
 
+    func test_worklane_row_renders_idle_with_sleep_icon_from_sidebar_summary() {
+        let row = makeRow(width: 320, height: 110)
+        let paneID = PaneID("worklane-main-agent-idle")
+        let auxiliaryState = PaneAuxiliaryState(
+            metadata: TerminalMetadata(
+                title: "General coding assistance session",
+                currentWorkingDirectory: "/Users/peter/Development/Zenjoy/Internal/nimbu",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true
+            )
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        row.configure(
+            with: WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertEqual(row.paneStatusTextsForTesting, ["Idle"])
+        XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["moon.zzz"])
+    }
+
     func test_worklane_row_keeps_short_branch_trailing_for_single_pane_agent_rows() {
         let row = makeRow(width: 320, height: 110)
 

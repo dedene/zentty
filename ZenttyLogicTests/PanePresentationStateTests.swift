@@ -92,6 +92,7 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.contextText, "main · …/nimbu")
         XCTAssertEqual(presentation.runtimePhase, PanePresentationPhase.idle)
         XCTAssertEqual(presentation.statusText, "Idle")
+        XCTAssertEqual(presentation.statusSymbolName, "moon.zzz")
         XCTAssertFalse(presentation.isWorking)
     }
 
@@ -204,7 +205,7 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.runtimePhase, .idle)
         XCTAssertEqual(presentation.statusText, "Idle (0/3)")
         XCTAssertFalse(presentation.isReady)
-        XCTAssertNil(presentation.statusSymbolName)
+        XCTAssertEqual(presentation.statusSymbolName, "moon.zzz")
     }
 
     func test_normalize_suppresses_ready_label_while_task_progress_is_incomplete() {
@@ -246,7 +247,7 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.runtimePhase, .idle)
         XCTAssertEqual(presentation.statusText, "Idle (1/3)")
         XCTAssertFalse(presentation.isReady)
-        XCTAssertNil(presentation.statusSymbolName)
+        XCTAssertEqual(presentation.statusSymbolName, "moon.zzz")
     }
 
     func test_normalize_restores_ready_label_once_task_progress_is_complete() {

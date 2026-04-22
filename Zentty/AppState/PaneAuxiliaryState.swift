@@ -342,6 +342,7 @@ enum PanePresentationNormalizer {
         }
         let statusSymbolName = statusSymbolName(
             for: runtimePhase,
+            statusText: statusText,
             showsReadyStatus: showsReadyStatus,
             taskProgress: taskProgress
         )
@@ -640,18 +641,25 @@ enum PanePresentationNormalizer {
 
     private static func statusSymbolName(
         for phase: PanePresentationPhase,
+        statusText: String?,
         showsReadyStatus: Bool,
         taskProgress: PaneAgentTaskProgress?
     ) -> String? {
         guard
-            phase == .idle,
-            showsReadyStatus,
-            incompleteTaskProgress(taskProgress) == nil
+            phase == .idle
         else {
             return nil
         }
 
-        return "checkmark.circle.fill"
+        if showsReadyStatus, incompleteTaskProgress(taskProgress) == nil {
+            return "checkmark.circle.fill"
+        }
+
+        if statusText?.hasPrefix("Idle") == true {
+            return "moon.zzz"
+        }
+
+        return nil
     }
 
     private static func meaningfulTitle(

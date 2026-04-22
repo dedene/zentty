@@ -1474,6 +1474,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.trailingText, "main")
         XCTAssertEqual(paneRow.detailText, "…/nimbu")
         XCTAssertEqual(paneRow.statusText, "Idle")
+        XCTAssertEqual(paneRow.statusSymbolName, "moon.zzz")
         XCTAssertNil(paneRow.attentionState)
         XCTAssertFalse(paneRow.isWorking)
     }
