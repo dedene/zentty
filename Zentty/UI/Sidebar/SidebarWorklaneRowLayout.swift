@@ -449,7 +449,7 @@ struct SidebarWorklaneRowLayout: Equatable {
             return .hidden
         }
 
-        let intrinsicTrailingWidth = measuredWidth(
+        let intrinsicTrailingWidth = SidebarTextMetrics.labelFittingWidth(
             for: paneRow.trailingText,
             font: ShellMetrics.sidebarDetailFont()
         )
@@ -612,7 +612,7 @@ struct SidebarWorklaneRowLayout: Equatable {
     }
 
     private static func paneStatusTrailingMinimumVisibleWidth() -> CGFloat {
-        max(44, measuredWidth(for: "…/tmp", font: ShellMetrics.sidebarDetailFont()))
+        max(44, SidebarTextMetrics.labelFittingWidth(for: "…/tmp", font: ShellMetrics.sidebarDetailFont()))
     }
 
     private static func paneStatusTrailingVisibilityBuffer() -> CGFloat {

@@ -15,6 +15,22 @@ enum SidebarTextMetrics {
         return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
     }
 
+    /// NSTextFieldCell adds a fixed horizontal padding around its contents on
+    /// top of the typographic advances reported by CoreText. Constraining a
+    /// label to `measuredWidth(...)` clips the glyphs and middle-truncates
+    /// short strings like `"main"` to `"m…n"`; callers sizing a label frame
+    /// must add this padding.
+    static let labelHorizontalPadding: CGFloat = 4
+
+    /// Width an `NSTextField` needs to render `text` without truncation. Use
+    /// this when sizing a label frame or width constraint.
+    static func labelFittingWidth(for text: String?, font: NSFont) -> CGFloat {
+        guard let text, text.isEmpty == false else {
+            return 0
+        }
+        return measuredWidth(for: text, font: font) + labelHorizontalPadding
+    }
+
     /// Measures how many lines `text` would occupy at the given `width` and `lineHeight`.
     /// Returns 1 for empty strings or zero-width containers.
     static func measuredLineCount(
