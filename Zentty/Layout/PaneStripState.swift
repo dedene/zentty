@@ -952,38 +952,22 @@ struct PaneStripState: Equatable, Sendable {
             return false
         }
 
-        guard
-            let targetIndex = columns[columnIndex].panes.firstIndex(where: { $0.id == targetPaneID }
-            )
-        else {
+        guard columns[columnIndex].panes.contains(where: { $0.id == targetPaneID }) else {
             return false
         }
 
-        // Resolve actual pixel heights to check minimum constraint
-        let column = columns[columnIndex]
-        let resolvedHeights = column.resolvedPaneHeights(
+        let nextPaneCount = columns[columnIndex].panes.count + 1
+        let equalizedHeight = resolvedPaneHeight(
             totalHeight: availableHeight,
-            spacing: layoutSizing.interPaneSpacing
+            paneCount: nextPaneCount
         )
-        let targetPixelHeight =
-            resolvedHeights.indices.contains(targetIndex)
-            ? resolvedHeights[targetIndex] : availableHeight
-        guard targetPixelHeight / 2 >= minimumPaneHeight else {
+        guard equalizedHeight >= minimumPaneHeight else {
             return false
         }
 
-        // Split the stored ratio in half
-        let targetRatio =
-            column.paneHeights.indices.contains(targetIndex)
-            ? column.paneHeights[targetIndex] : 1
-        let insertedHeight = max(1, targetRatio / 2)
-        let retainedHeight = max(1, targetRatio - insertedHeight)
-
-        columns[columnIndex].paneHeights[targetIndex] = retainedHeight
         let clampedPaneIndex = max(0, min(paneIndex, columns[columnIndex].panes.count))
-        columns[columnIndex].paneHeights.insert(insertedHeight, at: clampedPaneIndex)
         columns[columnIndex].panes.insert(pane, at: clampedPaneIndex)
-        columns[columnIndex].reconcilePaneHeights()
+        columns[columnIndex].equalizePaneHeights()
         columns[columnIndex].focusPane(id: pane.id)
         focusedColumnID = columns[columnIndex].id
         sanitizeLastInteractedDivider()
@@ -1036,8 +1020,7 @@ struct PaneStripState: Equatable, Sendable {
             insertExistingPaneIntoColumn(
                 removal.pane,
                 columnID: toColumnID,
-                atPaneIndex: paneIndex,
-                preferredHeight: removal.paneHeight
+                atPaneIndex: paneIndex
             )
         else {
             insertPaneAsColumn(
@@ -1052,8 +1035,7 @@ struct PaneStripState: Equatable, Sendable {
     mutating func insertExistingPaneIntoColumn(
         _ pane: PaneState,
         columnID: PaneColumnID,
-        atPaneIndex paneIndex: Int,
-        preferredHeight: CGFloat
+        atPaneIndex paneIndex: Int
     ) -> Bool {
         guard let columnIndex = columns.firstIndex(where: { $0.id == columnID }) else {
             return false
@@ -1061,8 +1043,7 @@ struct PaneStripState: Equatable, Sendable {
 
         let insertionIndex = max(0, min(paneIndex, columns[columnIndex].panes.count))
         columns[columnIndex].panes.insert(pane, at: insertionIndex)
-        columns[columnIndex].paneHeights.insert(max(1, preferredHeight), at: insertionIndex)
-        columns[columnIndex].reconcilePaneHeights()
+        columns[columnIndex].equalizePaneHeights()
         columns[columnIndex].focusPane(id: pane.id)
         focusedColumnID = columns[columnIndex].id
         sanitizeLastInteractedDivider()

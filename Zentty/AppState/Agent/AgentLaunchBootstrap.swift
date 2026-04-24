@@ -276,7 +276,7 @@ enum AgentLaunchBootstrap {
         let hookCommand = "\"\(shellEscapedDoubleQuoted(cliPath))\" ipc agent-event --adapter=claude"
         let settingsJSON = try compactJSONString([
             "hooks": [
-                "SessionStart": claudeHookEntries(command: hookCommand, timeout: 10),
+                "SessionStart": claudeSessionStartHookEntries(command: hookCommand, timeout: 10),
                 "Stop": claudeHookEntries(command: hookCommand, timeout: 10),
                 "SessionEnd": claudeHookEntries(command: hookCommand, timeout: 1),
                 "Notification": claudeHookEntries(command: hookCommand, timeout: 10),
@@ -1015,6 +1015,19 @@ enum AgentLaunchBootstrap {
             unsetEnvironment: unsetEnvironment,
             preLaunchActions: []
         )
+    }
+
+    private static func claudeSessionStartHookEntries(command: String, timeout: Int) -> [[String: Any]] {
+        ["startup", "resume", "clear", "compact"].map { matcher in
+            [
+                "matcher": matcher,
+                "hooks": [[
+                    "type": "command",
+                    "command": command,
+                    "timeout": timeout,
+                ]],
+            ]
+        }
     }
 
     private static func claudeHookEntries(command: String, timeout: Int) -> [[String: Any]] {

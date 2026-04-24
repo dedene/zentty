@@ -1043,8 +1043,346 @@ final class PaneStripStoreTests: XCTestCase {
             store.activeWorklane?.paneStripState.columns[0].panes.map(\.id),
             [PaneID("top"), PaneID("dragged"), PaneID("bottom")]
         )
-        XCTAssertEqual(store.activeWorklane?.paneStripState.columns[0].paneHeights, [500, 280, 100])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns[0].paneHeights, [1, 1, 1])
         XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.id, PaneID("dragged"))
+    }
+
+    func test_movePane_from_full_height_column_equalizes_destination_stack() throws {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("source"),
+                                panes: [PaneState(id: PaneID("dragged"), title: "dragged")],
+                                width: 320,
+                                paneHeights: [280],
+                                focusedPaneID: PaneID("dragged"),
+                                lastFocusedPaneID: PaneID("dragged")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("stack"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 540,
+                                paneHeights: [2, 3],
+                                focusedPaneID: PaneID("top"),
+                                lastFocusedPaneID: PaneID("top")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("source")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.movePane(
+            paneID: PaneID("dragged"),
+            toColumnID: PaneColumnID("stack"),
+            toPaneIndex: 1
+        )
+
+        let columns = try XCTUnwrap(store.activeWorklane?.paneStripState.columns)
+        XCTAssertEqual(columns.count, 1)
+        XCTAssertEqual(columns[0].panes.map(\.id), [PaneID("top"), PaneID("dragged"), PaneID("bottom")])
+        XCTAssertEqual(columns[0].paneHeights, [1, 1, 1])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.id, PaneID("dragged"))
+    }
+
+    func test_splitDropPane_vertical_split_equalizes_destination_stack() throws {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("source"),
+                                panes: [PaneState(id: PaneID("dragged"), title: "dragged")],
+                                width: 320,
+                                paneHeights: [280],
+                                focusedPaneID: PaneID("dragged"),
+                                lastFocusedPaneID: PaneID("dragged")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("stack"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 540,
+                                paneHeights: [2, 3],
+                                focusedPaneID: PaneID("top"),
+                                lastFocusedPaneID: PaneID("top")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("source")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.splitDropPane(
+            paneID: PaneID("dragged"),
+            ontoTargetPaneID: PaneID("top"),
+            axis: .vertical,
+            leading: false,
+            availableHeight: 920,
+            singleColumnWidth: 900
+        )
+
+        let columns = try XCTUnwrap(store.activeWorklane?.paneStripState.columns)
+        XCTAssertEqual(columns.count, 1)
+        XCTAssertEqual(columns[0].panes.map(\.id), [PaneID("top"), PaneID("dragged"), PaneID("bottom")])
+        XCTAssertEqual(columns[0].paneHeights, [1, 1, 1])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.id, PaneID("dragged"))
+    }
+
+    func test_duplicatePaneSplitDrop_vertical_split_equalizes_destination_stack() throws {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("source"),
+                                panes: [PaneState(id: PaneID("sourcePane"), title: "source")],
+                                width: 320,
+                                focusedPaneID: PaneID("sourcePane"),
+                                lastFocusedPaneID: PaneID("sourcePane")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("stack"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 540,
+                                paneHeights: [2, 3],
+                                focusedPaneID: PaneID("top"),
+                                lastFocusedPaneID: PaneID("top")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("source")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.duplicatePaneSplitDrop(
+            paneID: PaneID("sourcePane"),
+            ontoTargetPaneID: PaneID("top"),
+            axis: .vertical,
+            leading: false,
+            availableHeight: 920,
+            singleColumnWidth: 900
+        )
+
+        let columns = try XCTUnwrap(store.activeWorklane?.paneStripState.columns)
+        XCTAssertEqual(columns.count, 2)
+        XCTAssertEqual(columns[1].panes.map(\.id).count, 3)
+        XCTAssertEqual(columns[1].paneHeights, [1, 1, 1])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedColumnID, PaneColumnID("stack"))
+    }
+
+    func test_splitDropPane_vertical_split_failure_keeps_original_layout() throws {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("source"),
+                                panes: [PaneState(id: PaneID("dragged"), title: "dragged")],
+                                width: 320,
+                                paneHeights: [280],
+                                focusedPaneID: PaneID("dragged"),
+                                lastFocusedPaneID: PaneID("dragged")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("stack"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 540,
+                                paneHeights: [2, 3],
+                                focusedPaneID: PaneID("top"),
+                                lastFocusedPaneID: PaneID("top")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("source")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+        let originalWorklane = try XCTUnwrap(store.activeWorklane)
+
+        store.splitDropPane(
+            paneID: PaneID("dragged"),
+            ontoTargetPaneID: PaneID("top"),
+            axis: .vertical,
+            leading: false,
+            availableHeight: 420,
+            singleColumnWidth: 900
+        )
+
+        XCTAssertEqual(store.activeWorklane, originalWorklane)
+    }
+
+    func test_duplicatePaneInColumn_vertical_split_failure_keeps_original_worklane() throws {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("source"),
+                                panes: [PaneState(id: PaneID("sourcePane"), title: "source")],
+                                width: 320,
+                                focusedPaneID: PaneID("sourcePane"),
+                                lastFocusedPaneID: PaneID("sourcePane")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("stack"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 540,
+                                paneHeights: [2, 3],
+                                focusedPaneID: PaneID("top"),
+                                lastFocusedPaneID: PaneID("top")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("source")
+                    ),
+                    nextPaneNumber: 7,
+                    auxiliaryStateByPaneID: [
+                        PaneID("sourcePane"): PaneAuxiliaryState()
+                    ]
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+        let originalWorklane = try XCTUnwrap(store.activeWorklane)
+
+        store.duplicatePaneInColumn(
+            paneID: PaneID("sourcePane"),
+            toColumnID: PaneColumnID("stack"),
+            atPaneIndex: 1,
+            availableHeight: 420,
+            singleColumnWidth: 900
+        )
+
+        XCTAssertEqual(store.activeWorklane, originalWorklane)
+    }
+
+    func test_duplicatePaneSplitDrop_vertical_split_failure_keeps_original_worklane() throws {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("source"),
+                                panes: [PaneState(id: PaneID("sourcePane"), title: "source")],
+                                width: 320,
+                                focusedPaneID: PaneID("sourcePane"),
+                                lastFocusedPaneID: PaneID("sourcePane")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("stack"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 540,
+                                paneHeights: [2, 3],
+                                focusedPaneID: PaneID("top"),
+                                lastFocusedPaneID: PaneID("top")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("source")
+                    ),
+                    nextPaneNumber: 7,
+                    auxiliaryStateByPaneID: [
+                        PaneID("sourcePane"): PaneAuxiliaryState()
+                    ]
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+        let originalWorklane = try XCTUnwrap(store.activeWorklane)
+
+        store.duplicatePaneSplitDrop(
+            paneID: PaneID("sourcePane"),
+            ontoTargetPaneID: PaneID("top"),
+            axis: .vertical,
+            leading: false,
+            availableHeight: 420,
+            singleColumnWidth: 900
+        )
+
+        XCTAssertEqual(store.activeWorklane, originalWorklane)
+    }
+
+    func test_duplicatePaneSplitDrop_horizontal_missing_target_keeps_original_worklane() throws {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("source"),
+                                panes: [PaneState(id: PaneID("sourcePane"), title: "source")],
+                                width: 320,
+                                focusedPaneID: PaneID("sourcePane"),
+                                lastFocusedPaneID: PaneID("sourcePane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("source")
+                    ),
+                    nextPaneNumber: 7,
+                    auxiliaryStateByPaneID: [
+                        PaneID("sourcePane"): PaneAuxiliaryState()
+                    ]
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+        let originalWorklane = try XCTUnwrap(store.activeWorklane)
+
+        store.duplicatePaneSplitDrop(
+            paneID: PaneID("sourcePane"),
+            ontoTargetPaneID: PaneID("missing"),
+            axis: .horizontal,
+            leading: false,
+            availableHeight: 920,
+            singleColumnWidth: 900
+        )
+
+        XCTAssertEqual(store.activeWorklane, originalWorklane)
     }
 
     func test_splitDropPane_rejects_horizontal_split_onto_multi_pane_stack() {
@@ -2085,7 +2423,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(columns.count, 1)
         XCTAssertEqual(columns[0].id, PaneColumnID("right"))
         XCTAssertEqual(columns[0].panes.map(\.id), [PaneID("top"), PaneID("left"), PaneID("bottom")])
-        XCTAssertEqual(columns[0].paneHeights, [4, 1, 6])
+        XCTAssertEqual(columns[0].paneHeights, [1, 1, 1])
         XCTAssertEqual(columns[0].width, layoutContext.singlePaneWidth, accuracy: 0.001)
         XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.id, PaneID("left"))
     }

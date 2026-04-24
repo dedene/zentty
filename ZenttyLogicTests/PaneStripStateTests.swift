@@ -158,7 +158,7 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.focusedPane?.id, PaneID("middle"))
     }
 
-    func test_movePane_into_existing_column_preserves_dragged_height_ratio() {
+    func test_movePane_into_existing_column_equalizes_destination_stack_heights() {
         var state = PaneStripState(
             columns: [
                 makeColumn(
@@ -191,7 +191,7 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("beta")])
         XCTAssertEqual(state.columns[0].paneHeights, [5])
         XCTAssertEqual(state.columns[1].panes.map(\.id), [PaneID("one"), PaneID("alpha"), PaneID("two")])
-        XCTAssertEqual(state.columns[1].paneHeights, [5, 2, 7])
+        XCTAssertEqual(state.columns[1].paneHeights, [1, 1, 1])
         XCTAssertEqual(state.focusedColumn?.id, PaneColumnID("target"))
         XCTAssertEqual(state.focusedPane?.id, PaneID("alpha"))
     }

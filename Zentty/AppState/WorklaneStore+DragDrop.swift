@@ -109,14 +109,6 @@ extension WorklaneStore {
             guard let targetColumnID = worklane.paneStripState.columns.first(where: { column in
                 column.panes.contains(where: { $0.id == ontoTargetPaneID })
             })?.id else {
-                worklane.paneStripState.insertPaneAsColumn(
-                    removal.pane,
-                    atColumnIndex: removal.columnIndex,
-                    width: removal.pane.width
-                )
-                activeWorklane = worklane
-                refreshLastFocusedLocalWorkingDirectory()
-                notify(.paneStructure(activeWorklaneID))
                 return
             }
 
@@ -132,14 +124,6 @@ extension WorklaneStore {
                 atPaneIndex: insertionIndex,
                 availableHeight: availableHeight
             ) {
-                worklane.paneStripState.insertPaneAsColumn(
-                    removal.pane,
-                    atColumnIndex: removal.columnIndex,
-                    width: removal.pane.width
-                )
-                activeWorklane = worklane
-                refreshLastFocusedLocalWorkingDirectory()
-                notify(.paneStructure(activeWorklaneID))
                 return
             }
 
@@ -147,26 +131,10 @@ extension WorklaneStore {
             guard let targetColumn = worklane.paneStripState.columns.first(where: { column in
                 column.panes.contains(where: { $0.id == ontoTargetPaneID })
             }) else {
-                worklane.paneStripState.insertPaneAsColumn(
-                    removal.pane,
-                    atColumnIndex: removal.columnIndex,
-                    width: removal.pane.width
-                )
-                activeWorklane = worklane
-                refreshLastFocusedLocalWorkingDirectory()
-                notify(.paneStructure(activeWorklaneID))
                 return
             }
 
             guard targetColumn.panes.count == 1 else {
-                worklane.paneStripState.insertPaneAsColumn(
-                    removal.pane,
-                    atColumnIndex: removal.columnIndex,
-                    width: removal.pane.width
-                )
-                activeWorklane = worklane
-                refreshLastFocusedLocalWorkingDirectory()
-                notify(.paneStructure(activeWorklaneID))
                 return
             }
 
@@ -449,13 +417,15 @@ extension WorklaneStore {
             command: source.command
         )
 
-        worklane.paneStripState.insertPaneIntoColumn(
+        guard worklane.paneStripState.insertPaneIntoColumn(
             newPane,
             columnID: toColumnID,
             targetPaneID: targetPaneID,
             atPaneIndex: paneIndex,
             availableHeight: availableHeight
-        )
+        ) else {
+            return
+        }
 
         applyColumnWidthNormalization(
             &worklane,
@@ -482,13 +452,6 @@ extension WorklaneStore {
         }
 
         let previousColumnCount = worklane.paneStripState.columns.count
-        let newPane = makePaneWithDirectory(
-            in: &worklane,
-            existingPaneCount: previousColumnCount,
-            workingDirectory: source.workingDirectory,
-            sourceShellContext: source.shellContext,
-            command: source.command
-        )
 
         switch axis {
         case .vertical:
@@ -503,15 +466,39 @@ extension WorklaneStore {
                 .panes.firstIndex(where: { $0.id == ontoTargetPaneID }) ?? 0
             let insertionIndex = leading ? targetPaneIndex : targetPaneIndex + 1
 
-            worklane.paneStripState.insertPaneIntoColumn(
+            let newPane = makePaneWithDirectory(
+                in: &worklane,
+                existingPaneCount: previousColumnCount,
+                workingDirectory: source.workingDirectory,
+                sourceShellContext: source.shellContext,
+                command: source.command
+            )
+
+            guard worklane.paneStripState.insertPaneIntoColumn(
                 newPane,
                 columnID: targetColumnID,
                 targetPaneID: ontoTargetPaneID,
                 atPaneIndex: insertionIndex,
                 availableHeight: availableHeight
-            )
+            ) else {
+                return
+            }
 
         case .horizontal:
+            guard worklane.paneStripState.columns.contains(where: { column in
+                column.panes.contains(where: { $0.id == ontoTargetPaneID })
+            }) else {
+                return
+            }
+
+            let newPane = makePaneWithDirectory(
+                in: &worklane,
+                existingPaneCount: previousColumnCount,
+                workingDirectory: source.workingDirectory,
+                sourceShellContext: source.shellContext,
+                command: source.command
+            )
+
             worklane.paneStripState.insertPaneAdjacentToColumn(
                 newPane,
                 containingPaneID: ontoTargetPaneID,

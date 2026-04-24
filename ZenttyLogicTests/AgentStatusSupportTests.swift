@@ -916,7 +916,11 @@ final class AgentStatusSupportTests: XCTestCase {
             try JSONSerialization.jsonObject(with: settingsData) as? [String: Any]
         )
         let hooks = try XCTUnwrap(settingsObject["hooks"] as? [String: Any])
-        XCTAssertNotNil(hooks["SessionStart"])
+        let sessionStartEntries = try XCTUnwrap(hooks["SessionStart"] as? [[String: Any]])
+        XCTAssertEqual(
+            Set(sessionStartEntries.compactMap { $0["matcher"] as? String }),
+            ["startup", "resume", "clear", "compact"]
+        )
         XCTAssertNotNil(hooks["TaskCompleted"])
     }
 
