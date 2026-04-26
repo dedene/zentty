@@ -171,8 +171,8 @@ enum SidebarTransitionProfile {
 }
 
 enum SidebarToggleVisuals {
-    static func contentTintColor(theme: ZenttyTheme, isActive: Bool, isHovered: Bool) -> NSColor {
-        let alpha: CGFloat = (isActive || isHovered) ? 0.96 : 0.82
+    static func contentTintColor(theme: ZenttyTheme, isHovered: Bool) -> NSColor {
+        let alpha: CGFloat = isHovered ? 0.96 : 0.82
         return theme.primaryText.withAlphaComponent(alpha)
     }
 }
@@ -255,6 +255,39 @@ final class SidebarToggleButton: NSButton {
         toolTip = "Toggle Sidebar"
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    // The toggle "slides" by animating its enclosing LeadingChromeControlsBar's
+    // leading constraint — the button's own frame (relative to its superview)
+    // never changes, so observing self's frame does nothing. NSTrackingArea
+    // also does not reliably synthesize mouseExited when the tracking rect
+    // moves under a stationary cursor. Watch the superview's frame and
+    // reconcile the cached hover flag against the real cursor position.
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        if let oldSuperview = superview {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSView.frameDidChangeNotification,
+                object: oldSuperview
+            )
+        }
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if let superview {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleFrameDidChange),
+                name: NSView.frameDidChangeNotification,
+                object: superview
+            )
+        }
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingAreaValue {
@@ -284,10 +317,39 @@ final class SidebarToggleButton: NSButton {
         updateHoverAppearance()
     }
 
+    @objc private func handleFrameDidChange() {
+        reconcileHoverWithCursor()
+    }
+
+    private func reconcileHoverWithCursor() {
+        let pointInLocal: NSPoint
+        #if DEBUG
+        if let provider = cursorLocationProvider {
+            pointInLocal = provider()
+        } else {
+            guard let window else { return }
+            pointInLocal = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        }
+        #else
+        guard let window else { return }
+        pointInLocal = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        #endif
+
+        let shouldBeHovered = bounds.contains(pointInLocal)
+        guard shouldBeHovered != isHovered else { return }
+        isHovered = shouldBeHovered
+        updateHoverAppearance()
+    }
+
+    #if DEBUG
+    /// Test-only override for the cursor location query. Returns view-local coordinates.
+    var cursorLocationProvider: (() -> NSPoint)?
+    #endif
+
     private func updateHoverAppearance() {
         guard let theme = currentTheme else { return }
         contentTintColor = SidebarToggleVisuals.contentTintColor(
-            theme: theme, isActive: isActive, isHovered: isHovered
+            theme: theme, isHovered: isHovered
         )
         performThemeAnimation(animated: true) {
             self.layer?.backgroundColor = ChromeGeometry.iconButtonHoverBackground(
@@ -300,7 +362,7 @@ final class SidebarToggleButton: NSButton {
         self.isActive = isActive
         self.currentTheme = theme
         contentTintColor = SidebarToggleVisuals.contentTintColor(
-            theme: theme, isActive: isActive, isHovered: isHovered
+            theme: theme, isHovered: isHovered
         )
 
         performThemeAnimation(animated: animated) {

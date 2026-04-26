@@ -78,6 +78,55 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
         )
     }
 
+    func test_codexTaskProgressChange_takesSlowPath_andUpdatesPresentationProgress() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty | Tasks 1/5",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        var received: [WorklaneChange] = []
+        let subscription = store.subscribe { change in
+            received.append(change)
+        }
+        defer { store.unsubscribe(subscription) }
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠙ zentty | Tasks 2/5",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let volatileUpdates = received.filter { change in
+            if case .volatileAgentTitleUpdated = change { return true }
+            return false
+        }
+        let sidebarAuxiliaryUpdates = received.filter { change in
+            if case .auxiliaryStateUpdated(_, _, let impacts) = change {
+                return impacts.contains(.sidebar)
+            }
+            return false
+        }
+        XCTAssertEqual(volatileUpdates.count, 0, "task-progress changes must not use the title-only fast path")
+        XCTAssertGreaterThan(sidebarAuxiliaryUpdates.count, 0, "task-progress changes must invalidate sidebar UI")
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.taskProgress,
+            PaneAgentTaskProgress(doneCount: 2, totalCount: 5)
+        )
+    }
+
     func test_meaningfulTitleChange_takes_slowPath() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         store.knownNonRepositoryPaths.insert("/tmp/project")

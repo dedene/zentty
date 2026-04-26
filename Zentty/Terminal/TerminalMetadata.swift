@@ -90,6 +90,11 @@ enum TerminalMetadataChangeClassifier {
             return .meaningful
         }
 
+        if previousTool == .codex,
+           codexTaskProgress(for: previous.title) != codexTaskProgress(for: next.title) {
+            return .meaningful
+        }
+
         if let previousSignature = realtimeAgentTitleSignature(
             previous.title,
             recognizedTool: previousTool
