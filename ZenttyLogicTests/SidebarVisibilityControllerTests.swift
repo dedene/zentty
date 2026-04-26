@@ -144,9 +144,33 @@ final class SidebarVisibilityControllerTests: XCTestCase {
             reduceTransparency: false
         )
 
-        let tint = SidebarToggleVisuals.contentTintColor(theme: theme, isActive: true, isHovered: false)
+        let tint = SidebarToggleVisuals.contentTintColor(theme: theme, isHovered: false)
 
         XCTAssertTrue(tint.isDarkThemeColor)
+    }
+
+    func test_sidebar_toggle_button_drops_hover_when_superview_moves_away_from_cursor() {
+        // Regression: clicking the toggle animates the enclosing
+        // LeadingChromeControlsBar's leading constraint — the button's own
+        // frame (relative to its superview) does not change. NSTrackingArea
+        // also does not synthesize mouseExited when the tracking rect moves
+        // under a stationary cursor. The button must reconcile its cached
+        // hover flag against the real cursor position when its *superview*
+        // moves.
+        let parent = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let button = SidebarToggleButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
+        parent.addSubview(button)
+
+        // Cursor inside bounds → superview frame change reconciles to hovered.
+        button.cursorLocationProvider = { NSPoint(x: 14, y: 14) }
+        parent.frame = NSRect(x: 100, y: 100, width: 200, height: 100)
+        XCTAssertTrue(button.isHovered)
+
+        // Cursor outside bounds → superview frame change reconciles to not
+        // hovered, without needing a real mouseExited event.
+        button.cursorLocationProvider = { NSPoint(x: -100, y: -100) }
+        parent.frame = NSRect(x: 300, y: 100, width: 200, height: 100)
+        XCTAssertFalse(button.isHovered)
     }
 
     func test_inactive_traffic_light_tint_uses_composited_sidebar_surface_when_sidebar_is_pinned_open() {
