@@ -282,14 +282,7 @@ enum AgentLaunchBootstrap {
                 "Notification": claudeHookEntries(command: hookCommand, timeout: 10),
                 "PermissionRequest": claudeHookEntries(command: hookCommand, timeout: 10),
                 "UserPromptSubmit": claudeHookEntries(command: hookCommand, timeout: 10),
-                "PreToolUse": [[
-                    "matcher": "AskUserQuestion",
-                    "hooks": [[
-                        "type": "command",
-                        "command": hookCommand,
-                        "timeout": 5,
-                    ]],
-                ]],
+                "PreToolUse": claudePreToolUseHookEntries(command: hookCommand, timeout: 5),
                 "TaskCreated": claudeHookEntries(command: hookCommand, timeout: 5),
                 "TaskCompleted": claudeHookEntries(command: hookCommand, timeout: 5),
             ],
@@ -827,9 +820,7 @@ enum AgentLaunchBootstrap {
         }
 
         jsonObject["version"] = 1
-        guard var hooks = jsonObject["hooks"] as? [String: Any] else {
-            return try compactJSONData(jsonObject)
-        }
+        var hooks = jsonObject["hooks"] as? [String: Any] ?? [:]
 
         let entries: [(String, String, Int)] = [
             ("sessionStart", "session-start", 10),
@@ -1039,6 +1030,19 @@ enum AgentLaunchBootstrap {
                 "timeout": timeout,
             ]],
         ]]
+    }
+
+    private static func claudePreToolUseHookEntries(command: String, timeout: Int) -> [[String: Any]] {
+        ["AskUserQuestion", "Bash|Write|Edit|MultiEdit|NotebookEdit"].map { matcher in
+            [
+                "matcher": matcher,
+                "hooks": [[
+                    "type": "command",
+                    "command": command,
+                    "timeout": timeout,
+                ]],
+            ]
+        }
     }
 
     private static func codexHookCommand(cliPath: String, event: String) -> String {

@@ -921,6 +921,11 @@ final class AgentStatusSupportTests: XCTestCase {
             Set(sessionStartEntries.compactMap { $0["matcher"] as? String }),
             ["startup", "resume", "clear", "compact"]
         )
+        let preToolUseEntries = try XCTUnwrap(hooks["PreToolUse"] as? [[String: Any]])
+        XCTAssertEqual(
+            preToolUseEntries.compactMap { $0["matcher"] as? String },
+            ["AskUserQuestion", "Bash|Write|Edit|MultiEdit|NotebookEdit"]
+        )
         XCTAssertNotNil(hooks["TaskCompleted"])
     }
 
@@ -1098,6 +1103,51 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(overlayConfig.contains("echo existing"))
     }
 
+    func test_agent_launch_bootstrap_adds_copilot_hooks_when_user_config_has_no_hooks() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-copilot-runtime-no-hooks")
+        let copilotHome = try makeTemporaryDirectory(named: "agent-launch-copilot-home-no-hooks")
+        try #"{"theme":"dark"}"#.write(
+            to: copilotHome.appendingPathComponent("config.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["--config-dir", copilotHome.path, "chat", "hello"],
+            standardInput: nil,
+            environment: [
+                "HOME": NSHomeDirectory(),
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/copilot",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ],
+            expectsResponse: true,
+            tool: .copilot
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        let overlayHome = try XCTUnwrap(plan.setEnvironment["COPILOT_HOME"])
+        let overlayConfigURL = URL(fileURLWithPath: overlayHome, isDirectory: true)
+            .appendingPathComponent("config.json", isDirectory: false)
+        let overlayData = try Data(contentsOf: overlayConfigURL)
+        let overlayConfig = try XCTUnwrap(JSONSerialization.jsonObject(with: overlayData) as? [String: Any])
+        let hooks = try XCTUnwrap(overlayConfig["hooks"] as? [String: Any])
+
+        XCTAssertEqual(overlayConfig["theme"] as? String, "dark")
+        for event in ["sessionStart", "sessionEnd", "userPromptSubmitted", "preToolUse", "postToolUse", "errorOccurred"] {
+            XCTAssertNotNil(hooks[event], "Expected Copilot hook for \(event)")
+        }
+    }
+
     func test_agent_launch_bootstrap_sets_cursor_agent_tool_and_passthrough_arguments() throws {
         let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-cursor-runtime")
 
@@ -1199,7 +1249,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(object["version"] as? Int, 1)
 
         let hooks = try XCTUnwrap(object["hooks"] as? [String: Any])
-        for event in ["sessionStart", "sessionEnd", "beforeSubmitPrompt", "stop"] {
+        for event in ["sessionStart", "sessionEnd", "beforeSubmitPrompt", "stop", "beforeShellExecution", "afterShellExecution"] {
             let entries = try XCTUnwrap(hooks[event] as? [[String: Any]])
             XCTAssertEqual(entries.count, 1, "\(event) should have one managed entry")
             let command = try XCTUnwrap(entries.first?["command"] as? String)

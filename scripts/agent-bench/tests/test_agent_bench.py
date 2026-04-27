@@ -1,0 +1,451 @@
+import importlib.util
+import json
+import os
+import pathlib
+import socket
+import sys
+import tempfile
+import unittest
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location("agent_bench", ROOT / "agent_bench.py")
+agent_bench = importlib.util.module_from_spec(SPEC)
+sys.modules["agent_bench"] = agent_bench
+SPEC.loader.exec_module(agent_bench)
+
+
+class RedactionTests(unittest.TestCase):
+    def test_redacts_secret_values_and_keeps_routing_context(self):
+        env = {
+            "ZENTTY_PANE_ID": "pane-1",
+            "ZENTTY_WORKLANE_ID": "worklane-1",
+            "ZENTTY_PANE_TOKEN": "pane-secret",
+            "OPENAI_API_KEY": "sk-secret",
+            "PATH": "/usr/bin",
+        }
+
+        redacted = agent_bench.redacted_environment(env)
+
+        self.assertEqual(redacted["ZENTTY_PANE_ID"], "pane-1")
+        self.assertEqual(redacted["ZENTTY_WORKLANE_ID"], "worklane-1")
+        self.assertEqual(redacted["ZENTTY_PANE_TOKEN"], "<redacted>")
+        self.assertEqual(redacted["OPENAI_API_KEY"], "<redacted>")
+        self.assertNotIn("PATH", redacted)
+
+
+class EventInferenceTests(unittest.TestCase):
+    def test_infers_adapter_and_event_from_ipc_arguments(self):
+        event = agent_bench.infer_hook_event(
+            subcommand="agent-event",
+            arguments=["--adapter=codex", "pre-tool-use"],
+            standard_input='{"hook_event_name":"Ignored"}',
+        )
+
+        self.assertEqual(event.adapter, "codex")
+        self.assertEqual(event.event_name, "pre-tool-use")
+
+    def test_infers_event_from_common_json_fields_when_no_positional_event_exists(self):
+        event = agent_bench.infer_hook_event(
+            subcommand="agent-event",
+            arguments=["--adapter=claude"],
+            standard_input='{"hook_event_name":"SessionStart","session_id":"abc"}',
+        )
+
+        self.assertEqual(event.adapter, "claude")
+        self.assertEqual(event.event_name, "SessionStart")
+
+    def test_infers_agent_from_canonical_payload_agent_name(self):
+        agent = agent_bench.agent_from_adapter(
+            adapter=None,
+            environment={},
+            standard_input='{"version":1,"event":"session.start","agent":{"name":"OpenCode"}}',
+        )
+
+        self.assertEqual(agent, "opencode")
+
+
+class ExpectationTests(unittest.TestCase):
+    def test_validation_reports_missing_required_events(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="smoke",
+            required_events=["SessionStart", "UserPromptSubmit", "Stop"],
+        )
+        observed = [
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="smoke", event_name="SessionStart"),
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="smoke", event_name="Stop"),
+        ]
+
+        result = agent_bench.validate_scenario("claude", scenario, observed)
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.missing_events, ["UserPromptSubmit"])
+
+
+class IPCServerTests(unittest.TestCase):
+    def test_capture_server_accepts_newline_delimited_requests_and_records_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = agent_bench.AgentProfile(
+                name="codex",
+                command="codex",
+                real_binary_names=["codex"],
+                version_args=["--version"],
+                launch_args_by_scenario={"smoke": []},
+                expectations={"smoke": agent_bench.ScenarioExpectation("smoke", ["pre-tool-use"])},
+            )
+            recorder = agent_bench.TraceRecorder(pathlib.Path(tmp))
+            server = agent_bench.CaptureServer(
+                pathlib.Path(tmp) / "bench.sock",
+                recorder=recorder,
+                profiles={"codex": profile},
+                scenario="smoke",
+            )
+            server.start()
+            try:
+                request = {
+                    "version": 1,
+                    "id": "req-1",
+                    "kind": "ipc",
+                    "arguments": ["--adapter=codex", "pre-tool-use"],
+                    "standardInput": '{"event":"x"}',
+                    "environment": {"ZENTTY_PANE_ID": "pane-1", "OPENAI_API_KEY": "secret"},
+                    "expectsResponse": False,
+                    "subcommand": "agent-event",
+                    "tool": None,
+                }
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.connect(str(server.socket_path))
+                    client.sendall(json.dumps(request).encode("utf-8") + b"\n")
+
+                records = recorder.wait_for_count(1)
+            finally:
+                server.stop()
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].agent, "codex")
+        self.assertEqual(records[0].event_name, "pre-tool-use")
+        self.assertEqual(records[0].environment["OPENAI_API_KEY"], "<redacted>")
+
+
+class ProfileTests(unittest.TestCase):
+    def test_loads_profiles_for_all_zentty_supported_agents(self):
+        profiles = agent_bench.load_profiles(ROOT / "profiles")
+
+        self.assertEqual(
+            sorted(profiles),
+            ["claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"],
+        )
+        for profile in profiles.values():
+            self.assertIn("smoke", profile.expectations)
+
+    def test_cursor_smoke_profile_uses_headless_hook_events(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["cursor"]
+
+        self.assertIn("--force", profile.launch_args_by_scenario["smoke"])
+        self.assertEqual(
+            profile.expectations["smoke"].required_events,
+            ["sessionStart", "sessionEnd"],
+        )
+
+    def test_cursor_approval_profile_bypasses_workspace_trust_for_permission_path(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["cursor"]
+
+        self.assertNotIn("--trust", profile.launch_args_by_scenario["approval"])
+        self.assertEqual(profile.input_by_scenario["approval"][0]["text"], "a")
+
+    def test_copilot_approval_profile_drives_interactive_prompt_like_a_person(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["copilot"]
+
+        self.assertEqual(profile.launch_args_by_scenario["approval"][:2], ["--prompt", "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"])
+        self.assertIn("--allow-all-paths", profile.launch_args_by_scenario["approval"])
+        self.assertNotIn("--allow-all-tools", profile.launch_args_by_scenario["approval"])
+
+    def test_claude_approval_profile_drives_permission_tool_hook(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["claude"]
+        approval_args = profile.launch_args_by_scenario["approval"]
+        prompt = approval_args[-1]
+
+        self.assertIn("--setting-sources", approval_args)
+        self.assertIn("project,local", approval_args)
+        self.assertIn("--permission-mode", approval_args)
+        self.assertIn("default", approval_args)
+        self.assertIn("integration hook regression test", prompt)
+        self.assertIn("printf ZENTTY_AGENT_BENCH_APPROVAL_OK", prompt)
+        self.assertNotIn("touch ZENTTY_AGENT_BENCH_APPROVAL_OK", prompt)
+        self.assertNotIn("Ask before running", prompt)
+        self.assertEqual(
+            profile.expectations["approval"].required_events,
+            ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop"],
+        )
+        self.assertEqual(
+            profile.input_by_scenario["approval"],
+            [
+                {
+                    "match": "Command to approve|Yes, allow|Do you want|Permission|allow",
+                    "text": "1\n",
+                }
+            ],
+        )
+
+    def test_gemini_smoke_profile_skips_trust_prompt_for_headless_runs(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["gemini"]
+
+        self.assertIn("--skip-trust", profile.launch_args_by_scenario["smoke"])
+
+    def test_droid_approval_profile_waits_for_real_permission_prompt(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["droid"]
+
+        self.assertEqual(profile.launch_args_by_scenario["approval"][0], "exec")
+        self.assertIn("touch ZENTTY_AGENT_BENCH_APPROVAL_OK", profile.launch_args_by_scenario["approval"][1])
+
+    def test_claude_plan_installs_tool_use_hooks_for_permission_sensitive_tools(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["claude"]
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="approval",
+                run_dir=pathlib.Path(tmp),
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": ["--print", "Run this exact shell command to print a harmless sentinel for an integration hook regression test: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/claude",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                    },
+                }
+            )
+
+        settings_index = plan["arguments"].index("--settings")
+        settings = json.loads(plan["arguments"][settings_index + 1])
+        pre_tool_use = settings["hooks"]["PreToolUse"]
+
+        self.assertEqual(
+            [entry["matcher"] for entry in pre_tool_use],
+            ["AskUserQuestion", "Bash|Write|Edit|MultiEdit|NotebookEdit"],
+        )
+
+
+class EnvironmentTests(unittest.TestCase):
+    def test_filters_inherited_zentty_wrapper_paths(self):
+        inherited = os.pathsep.join(
+            [
+                "/Applications/Zentty.app/Contents/Resources/bin/claude",
+                "/Users/tester/.local/bin",
+                "/tmp/Zentty.app/Contents/Resources/bin/shared",
+                "/usr/bin",
+            ]
+        )
+
+        filtered = agent_bench.filtered_inherited_path(inherited)
+
+        self.assertEqual(filtered, os.pathsep.join(["/Users/tester/.local/bin", "/usr/bin"]))
+
+    def test_config_source_dir_ignores_nested_zentty_cache_home(self):
+        source = agent_bench.config_source_dir(
+            {
+                "HOME": "/Users/tester",
+                "CODEX_HOME": "/Users/tester/Library/Caches/Zentty/ipc-1/launch/worklane/pane/codex/home",
+            },
+            "CODEX_HOME",
+            ".codex",
+        )
+
+        self.assertEqual(source, pathlib.Path("/Users/tester/.codex"))
+
+    def test_config_source_dir_respects_non_cache_override(self):
+        source = agent_bench.config_source_dir(
+            {
+                "HOME": "/Users/tester",
+                "CODEX_HOME": "/tmp/custom-codex-home",
+            },
+            "CODEX_HOME",
+            ".codex",
+        )
+
+        self.assertEqual(source, pathlib.Path("/tmp/custom-codex-home"))
+
+
+class LaunchPlannerTests(unittest.TestCase):
+    def test_cursor_plan_writes_overlay_hooks_without_mutating_real_hooks_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            real_home = root / "real-home"
+            real_hooks = real_home / ".cursor" / "hooks.json"
+            real_hooks.parent.mkdir(parents=True)
+            real_hooks.write_text('{"hooks":{"user":[{"command":"echo user"}]}}\n', encoding="utf-8")
+
+            profile = agent_bench.AgentProfile(
+                name="cursor",
+                command="cursor-agent",
+                real_binary_names=["cursor-agent"],
+                version_args=["--version"],
+                launch_args_by_scenario={"smoke": []},
+                expectations={"smoke": agent_bench.ScenarioExpectation("smoke", ["sessionStart"])},
+            )
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="smoke",
+                run_dir=root / "run",
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": [],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/cursor-agent",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                        "HOME": str(real_home),
+                    },
+                }
+            )
+
+            self.assertNotIn("HOME", plan["setEnvironment"])
+            overlay_config = pathlib.Path(plan["setEnvironment"]["CURSOR_CONFIG_DIR"])
+            overlay_hooks = overlay_config / "hooks.json"
+
+            self.assertTrue(overlay_hooks.exists())
+            self.assertFalse(overlay_hooks.is_symlink())
+            hooks = json.loads(overlay_hooks.read_text(encoding="utf-8"))["hooks"]
+            for event in ("sessionStart", "sessionEnd", "beforeSubmitPrompt", "stop", "beforeShellExecution", "afterShellExecution"):
+                self.assertIn(event, hooks)
+            self.assertEqual(real_hooks.read_text(encoding="utf-8"), '{"hooks":{"user":[{"command":"echo user"}]}}\n')
+
+    def test_copilot_plan_preserves_user_config_without_hooks_and_adds_managed_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            real_home = root / "real-home"
+            config = real_home / ".copilot" / "config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text('{"theme":"dark"}\n', encoding="utf-8")
+
+            profile = agent_bench.AgentProfile(
+                name="copilot",
+                command="copilot",
+                real_binary_names=["copilot"],
+                version_args=["--version"],
+                launch_args_by_scenario={"smoke": []},
+                expectations={"smoke": agent_bench.ScenarioExpectation("smoke", ["session-start"])},
+            )
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="smoke",
+                run_dir=root / "run",
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": [],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/copilot",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                        "HOME": str(real_home),
+                    },
+                }
+            )
+
+            overlay_config = pathlib.Path(plan["setEnvironment"]["COPILOT_HOME"]) / "config.json"
+            merged = json.loads(overlay_config.read_text(encoding="utf-8"))
+
+            self.assertEqual(merged["theme"], "dark")
+            for event in ("sessionStart", "sessionEnd", "userPromptSubmitted", "preToolUse", "postToolUse", "errorOccurred"):
+                self.assertIn(event, merged["hooks"])
+
+    def test_kimi_plan_preserves_user_model_config_when_overlaying_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            real_home = root / "real-home"
+            config = real_home / ".kimi" / "config.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text('default_model = "moonshot/kimi-k2"\nhooks = []\n', encoding="utf-8")
+
+            profile = agent_bench.AgentProfile(
+                name="kimi",
+                command="kimi",
+                real_binary_names=["kimi"],
+                version_args=["--version"],
+                launch_args_by_scenario={"smoke": []},
+                expectations={"smoke": agent_bench.ScenarioExpectation("smoke", ["SessionStart"])},
+            )
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="smoke",
+                run_dir=root / "run",
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": [],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/kimi",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                        "HOME": str(real_home),
+                    },
+                }
+            )
+
+            overlay_config = pathlib.Path(plan["arguments"][plan["arguments"].index("--config-file") + 1])
+            merged = overlay_config.read_text(encoding="utf-8")
+
+            self.assertIn('default_model = "moonshot/kimi-k2"', merged)
+            self.assertNotIn("hooks = []", merged)
+            self.assertIn('[[hooks]]', merged)
+
+    def test_opencode_approval_plan_forces_bash_permissions_to_ask(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            resources = root / "resources"
+            plugin = resources / "opencode" / "plugins" / "zentty-opencode-zentty.js"
+            plugin.parent.mkdir(parents=True)
+            plugin.write_text("// plugin\n", encoding="utf-8")
+
+            source = root / "source"
+            source.mkdir()
+            (source / "opencode.json").write_text('{"autoupdate":true}\n', encoding="utf-8")
+
+            profile = agent_bench.AgentProfile(
+                name="opencode",
+                command="opencode",
+                real_binary_names=["opencode"],
+                version_args=["--version"],
+                launch_args_by_scenario={"approval": []},
+                expectations={"approval": agent_bench.ScenarioExpectation("approval", ["agent.needs-input"])},
+            )
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="approval",
+                run_dir=root / "run",
+                resources_dir=resources,
+            ).plan(
+                {
+                    "arguments": [],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/opencode",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                        "OPENCODE_CONFIG_DIR": str(source),
+                    },
+                }
+            )
+
+            overlay = pathlib.Path(plan["setEnvironment"]["OPENCODE_CONFIG_DIR"])
+            merged = json.loads((overlay / "opencode.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(plan["setEnvironment"]["OPENCODE_CONFIG"], str(overlay / "opencode.json"))
+            self.assertTrue(merged["autoupdate"])
+            self.assertEqual(merged["permission"]["bash"], "ask")
+
+    def test_timeout_with_skip_pattern_is_classified_as_prerequisite_skip(self):
+        result = agent_bench.classify_timeout_result(
+            agent="gemini",
+            scenario="smoke",
+            expectation=agent_bench.ScenarioExpectation("smoke", ["SessionStart"]),
+            records=[],
+            output="Gemini CLI is not running in a trusted directory",
+            skip_patterns=["not running in a trusted directory"],
+            timeout=120,
+            strict=False,
+        )
+
+        self.assertEqual(result.status, "skip")
+        self.assertEqual(result.detail, "auth or provider prerequisite not available")
+
+
+if __name__ == "__main__":
+    unittest.main()

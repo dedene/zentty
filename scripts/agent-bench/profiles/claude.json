@@ -1,0 +1,51 @@
+{
+  "name": "claude",
+  "command": "claude",
+  "real_binary_names": ["claude"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "--setting-sources",
+      "project,local",
+      "--print",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--include-hook-events",
+      "--max-budget-usd",
+      "1.00",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "approval": [
+      "--setting-sources",
+      "project,local",
+      "--print",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--include-hook-events",
+      "--permission-mode",
+      "default",
+      "--max-budget-usd",
+      "1.00",
+      "Run this exact shell command to print a harmless sentinel for an integration hook regression test: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["SessionStart", "UserPromptSubmit", "Stop"]
+    },
+    "approval": {
+      "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop"]
+    }
+  },
+  "input_by_scenario": {
+    "approval": [
+      {
+        "match": "Command to approve|Yes, allow|Do you want|Permission|allow",
+        "text": "1\n"
+      }
+    ]
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "subscription", "maximum dollar amount"]
+}

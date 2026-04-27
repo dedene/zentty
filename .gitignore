@@ -9,6 +9,7 @@ FrameworksLocal
 tmp/
 .claude
 build/
+.agent-bench-runs/
 .factory
 .planning
 

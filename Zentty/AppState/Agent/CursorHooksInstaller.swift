@@ -6,8 +6,9 @@ private let installerLogger = Logger(subsystem: "be.zenjoy.zentty", category: "C
 /// Installs and removes Zentty hook entries in Cursor's user-level hooks file.
 ///
 /// Cursor (the Cursor CLI agent, `cursor-agent`) loads hooks from
-/// `~/.cursor/hooks.json`; there is no environment variable or CLI flag that
-/// redirects this path. The installer mutates that file in place: Zentty's
+/// `CURSOR_CONFIG_DIR/hooks.json` when that environment variable is set, and
+/// otherwise from `~/.cursor/hooks.json`. The installer mutates the target
+/// file in place: Zentty's
 /// managed entries are marked by the presence of `hookMarker` in the command
 /// string, so uninstall (and re-install) can find and rewrite them without
 /// touching entries owned by the user or other tools.
@@ -17,6 +18,8 @@ enum CursorHooksInstaller {
         "sessionEnd",
         "beforeSubmitPrompt",
         "stop",
+        "beforeShellExecution",
+        "afterShellExecution",
     ]
 
     /// Substring present in every Zentty-managed hook command. Used to locate
