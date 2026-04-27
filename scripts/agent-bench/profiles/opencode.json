@@ -1,0 +1,37 @@
+{
+  "name": "opencode",
+  "command": "opencode",
+  "real_binary_names": ["opencode"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "run",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "approval": [
+      "run",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["session.start", "agent.running", "agent.idle"]
+    },
+    "approval": {
+      "required_events": ["session.start", "agent.needs-input"]
+    }
+  },
+  "input_by_scenario": {
+    "approval": [
+      {
+        "after": 10,
+        "text": "y\n"
+      },
+      {
+        "after": 45,
+        "text": "\u0003"
+      }
+    ]
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in", "provider"]
+}

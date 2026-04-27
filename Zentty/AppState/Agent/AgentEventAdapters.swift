@@ -798,7 +798,8 @@ extension AgentEventBridge {
         case "subagentstart", "subagentstop":
             return []
 
-        case "pretooluse", "posttooluse", "posttoolusefailure":
+        case "pretooluse", "posttooluse", "posttoolusefailure",
+             "beforeshellexecution", "aftershellexecution":
             guard environment["ZENTTY_CURSOR_VERBOSE_HOOKS"] == "1" else {
                 return []
             }

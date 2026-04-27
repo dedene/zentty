@@ -1,0 +1,42 @@
+{
+  "name": "cursor",
+  "command": "cursor-agent",
+  "real_binary_names": ["cursor-agent"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "--print",
+      "--trust",
+      "--force",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "approval": [
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["sessionStart", "sessionEnd"]
+    },
+    "approval": {
+      "required_events": ["sessionStart", "beforeSubmitPrompt"]
+    }
+  },
+  "input_by_scenario": {
+    "approval": [
+      {
+        "match": "Workspace Trust Required|Trust this workspace",
+        "text": "a"
+      },
+      {
+        "match": "Allow|Run command|approve|permission",
+        "text": "\n"
+      },
+      {
+        "after": 45,
+        "text": "\u0003"
+      }
+    ]
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in"]
+}
