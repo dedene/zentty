@@ -291,6 +291,70 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(shortcutsController.visibleCommandTitles.contains("Reset Pane Layout"))
     }
 
+    func test_shortcuts_pane_balances_horizontal_content_insets() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let windowContentView = try XCTUnwrap(controller.window?.contentView)
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+        shortcutsController.selectCommandForTesting(.navigateBack)
+        waitForLayout()
+
+        let browserCardView = try XCTUnwrap(
+            shortcutsController.view.firstDescendant(ofType: SettingsCardView.self)
+        )
+        let keyboardPreviewView = try XCTUnwrap(
+            shortcutsController.view.firstDescendant(ofType: KeyboardShortcutPreviewView.self)
+        )
+
+        let contentFrame = shortcutsController.contentView.convert(
+            shortcutsController.contentView.bounds,
+            to: windowContentView
+        )
+        let browserFrame = browserCardView.convert(browserCardView.bounds, to: windowContentView)
+        let selectedCommandTitle = try XCTUnwrap(shortcutsController.selectedCommandTitleForTesting)
+        let detailTitleLabel = try XCTUnwrap(
+            shortcutsController.view.firstDescendant { view in
+                guard let label = view as? NSTextField, label.stringValue == selectedCommandTitle else {
+                    return false
+                }
+
+                let labelFrame = label.convert(label.bounds, to: windowContentView)
+                return labelFrame.minX > browserFrame.maxX
+            } as? NSTextField
+        )
+        let detailTitleBounds = detailTitleLabel.cell?.drawingRect(forBounds: detailTitleLabel.bounds)
+            ?? detailTitleLabel.bounds
+        let detailTitleFrame = detailTitleLabel.convert(detailTitleBounds, to: windowContentView)
+        let keyboardKeyBounds = try XCTUnwrap(keyboardPreviewView.primaryRowKeyBoundsForTesting)
+        let keyboardKeyFrame = keyboardPreviewView.convert(keyboardKeyBounds, to: windowContentView)
+        let leadingInset = contentFrame.minX
+        let trailingInset = windowContentView.bounds.maxX - contentFrame.maxX
+        let detailTitleGap = detailTitleFrame.minX - browserFrame.maxX
+        let keyboardLeadingGap = keyboardKeyFrame.minX - browserFrame.maxX
+        let keyboardTrailingGap = windowContentView.bounds.maxX - keyboardKeyFrame.maxX
+
+        XCTAssertEqual(leadingInset, 28, accuracy: 1.0)
+        XCTAssertEqual(leadingInset, trailingInset, accuracy: 1.0)
+        XCTAssertEqual(detailTitleGap, 28, accuracy: 1.0)
+        XCTAssertEqual(keyboardLeadingGap, 28, accuracy: 1.0)
+        XCTAssertEqual(keyboardTrailingGap, 28, accuracy: 1.0)
+    }
+
     func test_shortcuts_pane_shows_detail_content_for_selected_command() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
@@ -1452,6 +1516,19 @@ private extension NSView {
                 return match
             }
             if let match = subview.firstDescendant(ofType: type) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
+    func firstDescendant(where predicate: (NSView) -> Bool) -> NSView? {
+        for subview in subviews {
+            if predicate(subview) {
+                return subview
+            }
+            if let match = subview.firstDescendant(where: predicate) {
                 return match
             }
         }

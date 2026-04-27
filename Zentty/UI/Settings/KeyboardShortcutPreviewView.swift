@@ -3,11 +3,17 @@ import AppKit
 @MainActor
 final class KeyboardShortcutPreviewView: NSView {
     private enum Layout {
-        static let horizontalPadding: CGFloat = 8
+        static let horizontalPadding: CGFloat = 0
         static let verticalPadding: CGFloat = 8
         static let rowSpacing: CGFloat = 6
         static let cornerRadius: CGFloat = 7
         static let keyHeightRatio: CGFloat = 0.92
+    }
+
+    private struct KeyLayoutItem {
+        let key: KeyboardPreviewKeySlot
+        let rowIndex: Int
+        let rect: CGRect
     }
 
     var model = KeyboardShortcutPreviewModel(
@@ -29,16 +35,35 @@ final class KeyboardShortcutPreviewView: NSView {
         NSSize(width: NSView.noIntrinsicMetric, height: 182)
     }
 
+    var primaryRowKeyBoundsForTesting: CGRect? {
+        keyBounds(forRowAt: 0, in: bounds)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
+        for item in keyLayoutItems(in: bounds) where item.key.isSpacer == false {
+            drawKey(item.key, in: item.rect)
+        }
+    }
+
+    private func keyBounds(forRowAt rowIndex: Int, in sourceBounds: CGRect) -> CGRect? {
+        keyLayoutItems(in: sourceBounds)
+            .filter { $0.rowIndex == rowIndex && $0.key.isSpacer == false }
+            .map(\.rect)
+            .reduce(nil) { accumulatedBounds, keyRect in
+                accumulatedBounds?.union(keyRect) ?? keyRect
+            }
+    }
+
+    private func keyLayoutItems(in sourceBounds: CGRect) -> [KeyLayoutItem] {
         guard model.rows.isEmpty == false else {
-            return
+            return []
         }
 
-        let bounds = self.bounds.insetBy(dx: Layout.horizontalPadding, dy: Layout.verticalPadding)
+        let bounds = sourceBounds.insetBy(dx: Layout.horizontalPadding, dy: Layout.verticalPadding)
         guard bounds.width > 0, bounds.height > 0 else {
-            return
+            return []
         }
 
         let rowCount = CGFloat(model.rows.count)
@@ -51,7 +76,7 @@ final class KeyboardShortcutPreviewView: NSView {
         let totalHeight = (rowHeight * rowCount) + (Layout.rowSpacing * (rowCount - 1))
         let startY = bounds.minY + max(0, (bounds.height - totalHeight) / 2)
 
-        for (rowIndex, row) in model.rows.enumerated() {
+        return model.rows.enumerated().flatMap { rowIndex, row in
             let rowWidth = rowSpanUnits(row.slots) * unitWidth
             let startX: CGFloat
             switch row.alignment {
@@ -63,15 +88,13 @@ final class KeyboardShortcutPreviewView: NSView {
             let rowY = startY + (CGFloat(rowIndex) * (rowHeight + Layout.rowSpacing))
 
             var cursorX = startX
-            for (index, key) in row.slots.enumerated() {
+            return row.slots.enumerated().map { index, key in
                 let keyRect = CGRect(x: cursorX, y: rowY, width: key.widthUnits * unitWidth, height: rowHeight)
-                if key.isSpacer == false {
-                    drawKey(key, in: keyRect)
-                }
                 cursorX += keyRect.width
                 if shouldInsertSpacing(after: index, in: row.slots) {
                     cursorX += KeyboardPreviewLayoutMetrics.interKeySpacingUnits * unitWidth
                 }
+                return KeyLayoutItem(key: key, rowIndex: rowIndex, rect: keyRect)
             }
         }
     }

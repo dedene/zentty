@@ -11,7 +11,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         static let browserBackgroundCornerRadius: CGFloat = 8
         static let topInset: CGFloat = 22
         static let bottomInset: CGFloat = 28
-        static let shellSpacing: CGFloat = 24
+        static let shellSpacing: CGFloat = 30
         static let searchHeight: CGFloat = 32
         static let headerActionSize: CGFloat = 30
         static let rowHeight: CGFloat = 34
@@ -24,6 +24,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         static let shortcutControlInset: CGFloat = 12
         static let conflictSpacing: CGFloat = 6
         static let previewHeight: CGFloat = 182
+        static let keyboardPreviewLeadingBleed: CGFloat = 2
         static let headerRowHeight: CGFloat = max(searchHeight, headerActionSize)
         static let layoutIndicatorSpacingAbove: CGFloat = 4
         static let layoutIndicatorHeight: CGFloat = 14
@@ -68,6 +69,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     private let conflictContainerView = NSStackView()
     private let conflictLabel = NSTextField(labelWithString: "This shortcut conflicts with another shortcut:")
     private let conflictTargetButton = NSButton(title: "", target: nil, action: nil)
+    private let keyboardPreviewContainerView = NSView()
     private let keyboardPreviewView = KeyboardShortcutPreviewView()
     private let layoutIndicatorLabel = NSTextField(labelWithString: "")
     private let emptyStateLabel = NSTextField(labelWithString: "No shortcuts match your search.")
@@ -168,6 +170,10 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
     override func preferredViewportHeight(for width: CGFloat) -> CGFloat {
         Layout.preferredViewportHeight
+    }
+
+    override var contentTrailingScrollerAllowance: CGFloat {
+        0
     }
 
     var visibleCategoryTitles: [String] {
@@ -585,10 +591,13 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         stackView.addArrangedSubview(conflictContainerView)
         conflictContainerView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
+        keyboardPreviewContainerView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.addArrangedSubview(keyboardPreviewContainerView)
+        keyboardPreviewContainerView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+        keyboardPreviewContainerView.heightAnchor.constraint(equalToConstant: Layout.previewHeight).isActive = true
+
         keyboardPreviewView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.addArrangedSubview(keyboardPreviewView)
-        keyboardPreviewView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
-        keyboardPreviewView.heightAnchor.constraint(equalToConstant: Layout.previewHeight).isActive = true
+        keyboardPreviewContainerView.addSubview(keyboardPreviewView)
 
         emptyStateLabel.font = .systemFont(ofSize: 12, weight: .regular)
         emptyStateLabel.textColor = .secondaryLabelColor
@@ -597,8 +606,16 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: detailContainerView.topAnchor, constant: 8),
-            stackView.leadingAnchor.constraint(equalTo: detailContainerView.leadingAnchor, constant: 8),
-            stackView.trailingAnchor.constraint(equalTo: detailContainerView.trailingAnchor, constant: -8),
+            stackView.leadingAnchor.constraint(equalTo: detailContainerView.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: detailContainerView.trailingAnchor),
+
+            keyboardPreviewView.topAnchor.constraint(equalTo: keyboardPreviewContainerView.topAnchor),
+            keyboardPreviewView.leadingAnchor.constraint(
+                equalTo: keyboardPreviewContainerView.leadingAnchor,
+                constant: -Layout.keyboardPreviewLeadingBleed
+            ),
+            keyboardPreviewView.trailingAnchor.constraint(equalTo: keyboardPreviewContainerView.trailingAnchor),
+            keyboardPreviewView.bottomAnchor.constraint(equalTo: keyboardPreviewContainerView.bottomAnchor),
 
             shortcutFieldButton.topAnchor.constraint(equalTo: shortcutControlView.topAnchor),
             shortcutFieldButton.leadingAnchor.constraint(equalTo: shortcutControlView.leadingAnchor),

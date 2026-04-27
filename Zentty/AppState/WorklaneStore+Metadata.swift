@@ -837,11 +837,32 @@ extension WorklaneStore {
             impacts.insert(.openWith)
         }
 
-        if previousAuxiliaryState.presentation.prLookupKey != nextAuxiliaryState.presentation.prLookupKey {
+        if previousAuxiliaryState.presentation.prLookupKey != nextAuxiliaryState.presentation.prLookupKey
+            || agentLifecycleRequiresReviewRefresh(
+                previousAuxiliaryState: previousAuxiliaryState,
+                nextAuxiliaryState: nextAuxiliaryState
+            ) {
             impacts.insert(.reviewRefresh)
         }
 
         return impacts
+    }
+
+    private func agentLifecycleRequiresReviewRefresh(
+        previousAuxiliaryState: PaneAuxiliaryState,
+        nextAuxiliaryState: PaneAuxiliaryState
+    ) -> Bool {
+        guard nextAuxiliaryState.presentation.prLookupKey != nil else {
+            return false
+        }
+
+        let previousPhase = previousAuxiliaryState.presentation.runtimePhase
+        let nextPhase = nextAuxiliaryState.presentation.runtimePhase
+        if previousPhase != .starting, nextPhase == .starting {
+            return true
+        }
+
+        return previousAuxiliaryState.presentation.isWorking != nextAuxiliaryState.presentation.isWorking
     }
 
     func auxiliaryUpdateRequiresGitContextRefresh(

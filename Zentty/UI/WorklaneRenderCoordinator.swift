@@ -432,7 +432,7 @@ final class WorklaneRenderCoordinator {
 
         if impacts.contains(.reviewRefresh) {
             updateReviewPolling()
-            refreshReviewState(for: worklaneID, paneID: paneID)
+            refreshReviewState(for: worklaneID, paneID: paneID, forceReload: true)
         }
 
         if impacts.contains(.surfaceActivities) {
@@ -477,7 +477,11 @@ final class WorklaneRenderCoordinator {
         }
     }
 
-    private func refreshReviewState(for worklaneID: WorklaneID, paneID: PaneID) {
+    private func refreshReviewState(
+        for worklaneID: WorklaneID,
+        paneID: PaneID,
+        forceReload: Bool = false
+    ) {
         guard
             let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }),
             let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
@@ -490,7 +494,8 @@ final class WorklaneRenderCoordinator {
         reviewStateResolver.refreshPane(
             repoRoot: repoRoot,
             branch: branch,
-            paneID: paneID
+            paneID: paneID,
+            forceReload: forceReload
         ) { [weak self] paneID, resolution in
             self?.worklaneStore.updateReviewResolution(paneID: paneID, resolution: resolution)
         }

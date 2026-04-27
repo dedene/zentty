@@ -6101,6 +6101,90 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertFalse(impacts.contains(.openWith))
     }
 
+    func test_agent_lifecycle_transition_notifies_review_refresh_for_existing_branch_context() throws {
+        let store = WorklaneStore()
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "claude",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: nil
+            )
+        )
+        store.updateGitContext(
+            paneID: paneID,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("feature/review-band")
+            )
+        )
+
+        var recordedImpacts: [WorklaneAuxiliaryInvalidation] = []
+        let subscription = store.subscribe { change in
+            guard case .auxiliaryStateUpdated(_, let changedPaneID, let impacts) = change,
+                  changedPaneID == paneID else {
+                return
+            }
+            recordedImpacts.append(impacts)
+        }
+        addTeardownBlock {
+            store.unsubscribe(subscription)
+        }
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .starting,
+                origin: .explicitHook,
+                toolName: "claude",
+                text: "Starting",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertTrue(recordedImpacts.contains { $0.contains(.reviewRefresh) })
+        recordedImpacts.removeAll()
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "claude",
+                text: "Working",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "claude",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertTrue(recordedImpacts.contains { $0.contains(.reviewRefresh) })
+    }
+
     func test_updating_non_focused_pane_metadata_notifies_sidebar_without_header_or_attention() throws {
         let store = WorklaneStore()
         store.send(.splitHorizontally)

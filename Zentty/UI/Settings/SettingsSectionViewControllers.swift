@@ -32,6 +32,10 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
     private var contentWidthConstraint: NSLayoutConstraint?
     private var isScrollerSuppressed = false
 
+    var contentTrailingScrollerAllowance: CGFloat {
+        Layout.scrollerAllowance
+    }
+
     final override func loadView() {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
@@ -54,7 +58,7 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
         contentWidthConstraint = contentView.widthAnchor.constraint(
             equalToConstant: SettingsViewController.preferredContentWidth
                 - (Layout.horizontalInset * 2)
-                - Layout.scrollerAllowance
+                - contentTrailingScrollerAllowance
         )
 
         NSLayoutConstraint.activate([
@@ -152,7 +156,7 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
         laysOutContent: Bool
     ) {
         let contentWidth = max(
-            viewportWidth - (Layout.horizontalInset * 2) - Layout.scrollerAllowance,
+            viewportWidth - (Layout.horizontalInset * 2) - contentTrailingScrollerAllowance,
             Layout.minimumContentWidth
         )
         contentWidthConstraint?.constant = contentWidth

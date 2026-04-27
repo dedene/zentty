@@ -595,6 +595,78 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         XCTAssertEqual(coordinator.reviewPollingTargetForTesting?.branch, "feature/review-band")
     }
 
+    func test_render_coordinator_force_refreshes_review_state_when_review_refresh_invalidates() async throws {
+        let store = WorklaneStore(
+            gitContextResolver: StubPaneGitContextResolver(
+                resultByWorkingDirectory: [
+                    "/tmp/render-refresh-project": PaneGitContext(
+                        workingDirectory: "/tmp/render-refresh-project",
+                        repositoryRoot: "/tmp/render-refresh-project",
+                        reference: .branch("feature/review-band")
+                    ),
+                ]
+            )
+        )
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "claude",
+                currentWorkingDirectory: "/tmp/render-refresh-project",
+                processName: "claude",
+                gitBranch: nil
+            )
+        )
+        store.updateGitContext(
+            paneID: paneID,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/render-refresh-project",
+                repositoryRoot: "/tmp/render-refresh-project",
+                reference: .branch("feature/review-band")
+            )
+        )
+
+        let runner = ReviewRefreshRunnerSpy()
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+        let initialResolution = await resolver.refreshPaneForTesting(
+            repoRoot: "/tmp/render-refresh-project",
+            branch: "feature/review-band",
+            paneID: paneID
+        )
+        XCTAssertEqual(initialResolution?.reviewState?.pullRequest?.number, 1588)
+        try await runner.waitForPullRequestViewCount(1)
+
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() })
+        let renderEnvironment = StubRenderEnvironment()
+        let coordinator = WorklaneRenderCoordinator(
+            worklaneStore: store,
+            runtimeRegistry: runtimeRegistry,
+            notificationStore: NotificationStore(),
+            reviewStateResolver: resolver
+        )
+        coordinator.environment = renderEnvironment
+        coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
+            sidebarView: SidebarView(),
+            windowChromeView: WindowChromeView(),
+            appCanvasView: AppCanvasView(runtimeRegistry: runtimeRegistry)
+        ))
+        coordinator.startObserving()
+        let lifetimeRetainer: [AnyObject] = [coordinator, resolver, renderEnvironment]
+        let auxiliaryState = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(auxiliaryState.presentation.repoRoot, "/tmp/render-refresh-project")
+        XCTAssertEqual(auxiliaryState.presentation.lookupBranch, "feature/review-band")
+        XCTAssertEqual(store.subscriberCountForTesting, 1)
+
+        coordinator.render()
+        XCTAssertEqual(coordinator.reviewPollingTargetForTesting?.branch, "feature/review-band")
+
+        store.notify(.auxiliaryStateUpdated(worklaneID, paneID, [.reviewRefresh]))
+        try await runner.waitForPullRequestViewCount(2)
+        XCTAssertEqual(coordinator.reviewPollingTargetForTesting?.branch, "feature/review-band")
+        withExtendedLifetime(lifetimeRetainer) {}
+    }
+
     func test_render_coordinator_does_not_resynchronize_runtimes_on_repeated_full_render() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -934,6 +1006,71 @@ private struct StubPaneGitContextResolver: PaneGitContextResolving {
                 repositoryRoot: nil,
                 reference: nil
             )
+    }
+}
+
+private actor ReviewRefreshRunnerSpy: WorklaneReviewCommandRunning {
+    private var calls: [[String]] = []
+
+    func run(arguments: [String], currentDirectoryPath _: String) async -> WorklaneReviewCommandResult {
+        calls.append(arguments)
+
+        if arguments.count == 4,
+           arguments[0] == "git",
+           arguments[1] == "config",
+           arguments[2] == "--get",
+           arguments[3].hasPrefix("branch.") {
+            return result(stdout: "origin\n")
+        }
+
+        if arguments == ["git", "remote", "get-url", "origin"] {
+            return result(stdout: "git@github.com:zenjoy/zentty.git\n")
+        }
+
+        if Array(arguments.prefix(3)) == ["gh", "pr", "view"] {
+            return result(stdout: #"{"number":1588,"url":"https://github.com/zenjoy/zentty/pull/1588","isDraft":false,"state":"OPEN"}"#)
+        }
+
+        if Array(arguments.prefix(3)) == ["gh", "pr", "checks"] {
+            return result(stdout: #"[]"#)
+        }
+
+        return WorklaneReviewCommandResult(
+            terminationStatus: 1,
+            stdout: Data(),
+            stderr: Data("unsupported command".utf8)
+        )
+    }
+
+    func waitForPullRequestViewCount(
+        _ expectedCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<50 {
+            if pullRequestViewCount >= expectedCount {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTFail(
+            "Expected at least \(expectedCount) gh pr view calls, got \(pullRequestViewCount)",
+            file: file,
+            line: line
+        )
+    }
+
+    private var pullRequestViewCount: Int {
+        calls.filter { Array($0.prefix(3)) == ["gh", "pr", "view"] }.count
+    }
+
+    private func result(stdout: String) -> WorklaneReviewCommandResult {
+        WorklaneReviewCommandResult(
+            terminationStatus: 0,
+            stdout: Data(stdout.utf8),
+            stderr: Data()
+        )
     }
 }
 

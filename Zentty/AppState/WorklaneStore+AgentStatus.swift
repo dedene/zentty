@@ -211,6 +211,11 @@ extension WorklaneStore {
 
         var worklane = worklanes[worklaneIndex]
         let previousWorklane = worklane
+        let forceReviewRefreshOnStart = agentStartRequiresReviewRefresh(
+            payload: payload,
+            previousWorklane: previousWorklane,
+            nextWorklane: worklane
+        )
 
         if payload.clearsStatus {
             var auxiliaryState = worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
@@ -271,6 +276,9 @@ extension WorklaneStore {
         switch payload.signalKind {
         case .lifecycle:
             guard payload.state != nil, let tool else {
+                if forceReviewRefreshOnStart {
+                    notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, [.reviewRefresh]))
+                }
                 return
             }
             auxiliaryState.agentReducerState.apply(
@@ -466,7 +474,10 @@ extension WorklaneStore {
         recomputePresentation(for: payload.paneID, in: &worklane)
         worklanes[worklaneIndex] = worklane
         refreshLastFocusedLocalWorkingDirectoryIfNeeded(worklane: worklane, paneID: payload.paneID)
-        let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+        var impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+        if forceReviewRefreshOnStart {
+            impacts.insert(.reviewRefresh)
+        }
         if !impacts.isEmpty {
             notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, impacts))
         }
@@ -507,6 +518,33 @@ extension WorklaneStore {
         let previousBranchDisplay = WorklaneContextFormatter.trimmed(previous?.presentation.branchDisplayText)
         let nextBranchDisplay = WorklaneContextFormatter.displayBranch(next.gitBranch)
         return previousBranchDisplay != nextBranchDisplay
+    }
+
+    private func agentStartRequiresReviewRefresh(
+        payload: AgentStatusPayload,
+        previousWorklane: WorklaneState,
+        nextWorklane: WorklaneState
+    ) -> Bool {
+        guard payload.signalKind == .lifecycle,
+              payload.state == .starting
+        else {
+            return false
+        }
+
+        return hasReviewLookupContext(previousWorklane.auxiliaryStateByPaneID[payload.paneID])
+            || hasReviewLookupContext(nextWorklane.auxiliaryStateByPaneID[payload.paneID])
+    }
+
+    private func hasReviewLookupContext(_ auxiliaryState: PaneAuxiliaryState?) -> Bool {
+        if auxiliaryState?.presentation.prLookupKey != nil {
+            return true
+        }
+
+        guard let gitContext = auxiliaryState?.gitContext else {
+            return false
+        }
+
+        return gitContext.repoRoot != nil && gitContext.lookupBranch != nil
     }
 
     private func reconcileReadyStatus(
