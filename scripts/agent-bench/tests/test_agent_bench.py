@@ -33,6 +33,20 @@ class RedactionTests(unittest.TestCase):
         self.assertEqual(redacted["OPENAI_API_KEY"], "<redacted>")
         self.assertNotIn("PATH", redacted)
 
+    def test_redacts_personal_fields_from_hook_standard_input(self):
+        payload = {
+            "hook_event_name": "sessionStart",
+            "user_email": "dev@example.invalid",
+            "workspace_roots": ["/Users/example/Development/project"],
+            "prompt": "run the smoke command",
+        }
+
+        redacted = agent_bench.redact_standard_input(json.dumps(payload))
+
+        self.assertIn('"user_email":"<redacted>"', redacted)
+        self.assertIn('"/Users/<user>/Development/project"', redacted)
+        self.assertIn('"prompt":"run the smoke command"', redacted)
+
 
 class EventInferenceTests(unittest.TestCase):
     def test_infers_adapter_and_event_from_ipc_arguments(self):
@@ -81,6 +95,258 @@ class ExpectationTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.missing_events, ["UserPromptSubmit"])
 
+    def test_validation_marks_complete_hooks_as_hook_pass(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="smoke",
+            required_events=["SessionStart", "Stop"],
+        )
+        observed = [
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="smoke", event_name="SessionStart"),
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="smoke", event_name="Stop"),
+        ]
+
+        result = agent_bench.validate_scenario("claude", scenario, observed)
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.result_kind, "hook-pass")
+
+    def test_timeout_without_required_hooks_is_classified_by_taxonomy(self):
+        result = agent_bench.classify_timeout_result(
+            agent="codex",
+            scenario="approval",
+            expectation=agent_bench.ScenarioExpectation("approval", ["permission-request"]),
+            records=[],
+            output="working for a while",
+            skip_patterns=[],
+            timeout=3,
+            strict=False,
+        )
+
+        self.assertEqual(result.status, "skip")
+        self.assertEqual(result.result_kind, "process-timeout")
+        self.assertIn("timed out", result.detail)
+
+    def test_completed_refusal_is_classified_separately_from_missing_hook(self):
+        result = agent_bench.classify_completed_result(
+            agent="claude",
+            scenario="approval",
+            expectation=agent_bench.ScenarioExpectation("approval", ["PreToolUse"]),
+            records=[],
+            output="I cannot run that command without more context.",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.result_kind, "agent-refusal")
+
+    def test_completed_missing_hook_uses_missing_hook_taxonomy(self):
+        result = agent_bench.classify_completed_result(
+            agent="opencode",
+            scenario="approval",
+            expectation=agent_bench.ScenarioExpectation("approval", ["agent.needs-input"]),
+            records=[
+                agent_bench.TraceRecord(kind="hook", agent="opencode", scenario="approval", event_name="session.start")
+            ],
+            output="done",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.result_kind, "missing-hook")
+
+    def test_completed_bench_marker_with_auth_text_still_fails_missing_hooks(self):
+        result = agent_bench.classify_completed_result(
+            agent="gemini",
+            scenario="approval",
+            expectation=agent_bench.ScenarioExpectation("approval", ["Notification"]),
+            records=[],
+            output="Waiting for authentication...\nZENTTY_AGENT_BENCH_APPROVAL_OK",
+            skip_patterns=["auth"],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.result_kind, "missing-hook")
+        self.assertIn("command completed", result.detail)
+
+    def test_timeout_bench_marker_with_auth_text_still_fails_missing_hooks(self):
+        result = agent_bench.classify_timeout_result(
+            agent="gemini",
+            scenario="approval",
+            expectation=agent_bench.ScenarioExpectation("approval", ["Notification"]),
+            records=[],
+            output="Waiting for authentication...\nZENTTY_AGENT_BENCH_APPROVAL_OK",
+            skip_patterns=["auth"],
+            timeout=30,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.result_kind, "missing-hook")
+
+
+class TimelineTests(unittest.TestCase):
+    def test_extracts_terminal_title_and_osc9_observations(self):
+        output = "\x1b]0;Codex Working 1/3\x07hello\x1b]9;Codex needs input\x1b\\"
+
+        observations = agent_bench.extract_terminal_observations(output)
+
+        self.assertEqual(
+            [(item.kind, item.text) for item in observations],
+            [("title", "Codex Working 1/3"), ("progress", "Codex Working 1/3"), ("osc9", "Codex needs input")],
+        )
+
+    def test_extracts_copilot_asking_question_title_as_progress_observation(self):
+        output = "\x1b]0;Asking question\x07"
+
+        observations = agent_bench.extract_terminal_observations(output)
+
+        self.assertEqual(
+            [(item.kind, item.text) for item in observations],
+            [("title", "Asking question"), ("progress", "Asking question")],
+        )
+
+    def test_builds_normalized_timeline_from_records_and_terminal_observations(self):
+        base = 1000.0
+        records = [
+            agent_bench.TraceRecord(kind="version", agent="codex", scenario="smoke", timestamp=base, extra={"version": "codex 1"}),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="smoke", event_name="session-start", timestamp=base + 0.25),
+        ]
+        observations = [
+            agent_bench.TerminalObservation(kind="title", text="Codex Working", offset=12),
+        ]
+
+        timeline = agent_bench.build_timeline("codex", "smoke", records, observations)
+
+        self.assertEqual([entry["source"] for entry in timeline], ["process", "hook", "terminal"])
+        self.assertEqual([entry["time_ms"] for entry in timeline], [0, 250, 250])
+        self.assertEqual(timeline[1]["event"], "session-start")
+        self.assertEqual(timeline[2]["event"], "title")
+
+    def test_report_writes_taxonomy_timeline_and_rerun_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = type(
+                "Args",
+                (),
+                {
+                    "run_dir": tmp,
+                    "app_path": "/tmp/Zentty.app",
+                    "no_build": True,
+                    "timeout": 30,
+                    "strict": False,
+                    "agents": "codex",
+                    "scenarios": "approval",
+                },
+            )()
+            runner = agent_bench.BenchRunner(args)
+            result = agent_bench.ScenarioResult(
+                agent="codex",
+                scenario="approval",
+                passed=False,
+                missing_events=["permission-request"],
+                observed_events=["session-start"],
+                status="fail",
+                detail="missing required hooks",
+                result_kind="missing-hook",
+                timeline=[{"time_ms": 0, "source": "hook", "event": "session-start"}],
+                rerun_command="python3 scripts/agent-bench/agent_bench.py run --agents codex --scenarios approval",
+            )
+
+            runner._write_report([result])
+
+            summary = json.loads((pathlib.Path(tmp) / "summary.json").read_text(encoding="utf-8"))
+            report = (pathlib.Path(tmp) / "report.md").read_text(encoding="utf-8")
+
+        self.assertEqual(summary[0]["result_kind"], "missing-hook")
+        self.assertEqual(summary[0]["timeline"][0]["event"], "session-start")
+        self.assertIn("Result kind: missing-hook", report)
+        self.assertIn("Rerun: python3 scripts/agent-bench/agent_bench.py run --agents codex --scenarios approval", report)
+
+    def test_self_test_rerun_command_uses_self_test_subcommand(self):
+        args = type(
+            "Args",
+            (),
+            {
+                "run_dir": None,
+                "app_path": "/tmp/Zentty.app",
+                "no_build": True,
+                "timeout": 30,
+                "strict": False,
+                "agents": "codex",
+                "scenarios": "smoke",
+            },
+        )()
+        runner = agent_bench.BenchRunner(args)
+
+        command = runner._rerun_command("codex", "self-test")
+
+        self.assertEqual(
+            command,
+            "python3 scripts/agent-bench/agent_bench.py self-test --timeout 30 --no-build --app-path /tmp/Zentty.app",
+        )
+
+
+class TaskObservationTests(unittest.TestCase):
+    def test_extracts_cursor_todo_write_progress_from_hook_payload(self):
+        records = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="cursor",
+                scenario="tasks",
+                event_name="preToolUse",
+                adapter="cursor",
+                standard_input=json.dumps(
+                    {
+                        "hook_event_name": "preToolUse",
+                        "tool_name": "TodoWrite",
+                        "tool_input": {
+                            "todos": [
+                                {"content": "Review logs", "status": "completed"},
+                                {"content": "Patch adapter", "status": "in_progress"},
+                                {"content": "Run tests", "status": "pending"},
+                            ]
+                        },
+                    }
+                ),
+            )
+        ]
+
+        observations = agent_bench.task_observations_for_records("cursor", "tasks", records)
+
+        self.assertEqual(observations, [{"event": "preToolUse", "tool": "TodoWrite", "done": 1, "total": 3}])
+
+    def test_completed_tasks_scenario_without_todo_write_is_missing_task_hook(self):
+        result = agent_bench.classify_completed_result(
+            agent="cursor",
+            scenario="tasks",
+            expectation=agent_bench.ScenarioExpectation("tasks", ["sessionStart", "sessionEnd"]),
+            records=[
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionStart"),
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionEnd"),
+            ],
+            output="ZENTTY_AGENT_BENCH_TASKS_OK",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.result_kind, "missing-task-hook")
+
 
 class IPCServerTests(unittest.TestCase):
     def test_capture_server_accepts_newline_delimited_requests_and_records_hooks(self):
@@ -125,6 +391,7 @@ class IPCServerTests(unittest.TestCase):
         self.assertEqual(records[0].agent, "codex")
         self.assertEqual(records[0].event_name, "pre-tool-use")
         self.assertEqual(records[0].environment["OPENAI_API_KEY"], "<redacted>")
+        self.assertEqual(records[0].standard_input, '{"event":"x"}')
 
 
 class ProfileTests(unittest.TestCase):
@@ -152,6 +419,16 @@ class ProfileTests(unittest.TestCase):
 
         self.assertNotIn("--trust", profile.launch_args_by_scenario["approval"])
         self.assertEqual(profile.input_by_scenario["approval"][0]["text"], "a")
+
+    def test_cursor_tasks_profile_drives_todo_write_scenario(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["cursor"]
+
+        self.assertIn("tasks", profile.launch_args_by_scenario)
+        self.assertIn("TodoWrite", profile.launch_args_by_scenario["tasks"][-1])
+        self.assertEqual(
+            profile.expectations["tasks"].required_events,
+            ["sessionStart", "preToolUse", "postToolUse", "sessionEnd"],
+        )
 
     def test_copilot_approval_profile_drives_interactive_prompt_like_a_person(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["copilot"]
@@ -227,6 +504,18 @@ class ProfileTests(unittest.TestCase):
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_parse_build_settings_ignores_malformed_assignment_lines(self):
+        values = agent_bench.parse_build_settings(
+            """
+                BUILT_PRODUCTS_DIR = /tmp/build
+                 = malformed
+                FULL_PRODUCT_NAME = Zentty.app
+            """
+        )
+
+        self.assertEqual(values["BUILT_PRODUCTS_DIR"], "/tmp/build")
+        self.assertEqual(values["FULL_PRODUCT_NAME"], "Zentty.app")
+
     def test_filters_inherited_zentty_wrapper_paths(self):
         inherited = os.pathsep.join(
             [

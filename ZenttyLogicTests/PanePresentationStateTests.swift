@@ -1230,6 +1230,39 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertFalse(presentation.isWorking)
     }
 
+    func test_normalize_copilot_asking_title_overrides_stale_unresolved_stop_after_process_name_changes() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "Asking question",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "zsh",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .copilot,
+                state: .unresolvedStop,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 100),
+                hasObservedRunning: true
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Copilot",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .question)
+        XCTAssertEqual(presentation.statusText, "Needs decision")
+    }
+
     func test_normalize_copilot_asking_title_beats_osc_activity() {
         let raw = PaneRawState(
             metadata: TerminalMetadata(
@@ -1657,5 +1690,79 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.runtimePhase, .idle)
         XCTAssertTrue(presentation.isReady)
         XCTAssertEqual(presentation.statusText, "Agent ready")
+    }
+
+    func test_normalize_promotes_running_codex_session_when_title_needs_input() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "main needs input",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .question)
+        XCTAssertEqual(presentation.statusText, "Needs decision")
+    }
+
+    func test_normalize_promotes_running_codex_session_when_title_needs_approval() {
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "main needs approval",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                hasObservedRunning: true
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .approval)
+        XCTAssertEqual(presentation.statusText, "Requires approval")
     }
 }

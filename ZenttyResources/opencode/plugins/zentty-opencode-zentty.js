@@ -7,6 +7,8 @@ const resolvedCliBin = process.env.ZENTTY_CLI_BIN || Bun.which("zentty") || ""
 const hasZenttyIntegration = Boolean(resolvedCliBin && socketPath && paneToken && worklaneID && paneID)
 const sessionWorkingDirectories = new Map()
 const sessionTaskProgress = new Map()
+const runningSessionStatuses = new Set(["active", "busy", "retry", "running"])
+const idleSessionStatuses = new Set(["complete", "completed", "done", "idle"])
 
 function firstString(...values) {
   for (const value of values) {
@@ -31,6 +33,10 @@ function firstNumber(...values) {
     }
   }
   return undefined
+}
+
+function normalizedStatus(value) {
+  return firstString(value)?.toLowerCase()
 }
 
 function normalizeTaskProgress(doneCount, totalCount) {
@@ -261,11 +267,11 @@ function toCanonicalEvent(envelope) {
 
   switch (envelope.eventType) {
     case "session.status": {
-      const status = firstString(envelope.status)
-      if (status === "busy" || status === "retry") {
+      const status = normalizedStatus(envelope.status)
+      if (runningSessionStatuses.has(status)) {
         return { ...base, event: "agent.running", progress }
       }
-      if (status === "idle") {
+      if (idleSessionStatuses.has(status)) {
         return { ...base, event: "agent.idle", progress }
       }
       return undefined

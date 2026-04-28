@@ -743,6 +743,7 @@ enum AgentLaunchBootstrap {
         let commands = [
             "SessionStart": codexHookCommand(cliPath: cliPath, event: "session-start"),
             "PreToolUse": codexHookCommand(cliPath: cliPath, event: "pre-tool-use"),
+            "PermissionRequest": codexHookCommand(cliPath: cliPath, event: "permission-request"),
             "PostToolUse": codexHookCommand(cliPath: cliPath, event: "post-tool-use"),
             "UserPromptSubmit": codexHookCommand(cliPath: cliPath, event: "prompt-submit"),
             "Stop": codexHookCommand(cliPath: cliPath, event: "stop"),
@@ -766,6 +767,7 @@ enum AgentLaunchBootstrap {
         let commands = [
             ("SessionStart", codexHookCommand(cliPath: cliPath, event: "session-start")),
             ("PreToolUse", codexHookCommand(cliPath: cliPath, event: "pre-tool-use")),
+            ("PermissionRequest", codexHookCommand(cliPath: cliPath, event: "permission-request")),
             ("PostToolUse", codexHookCommand(cliPath: cliPath, event: "post-tool-use")),
             ("UserPromptSubmit", codexHookCommand(cliPath: cliPath, event: "prompt-submit")),
             ("Stop", codexHookCommand(cliPath: cliPath, event: "stop")),

@@ -12,6 +12,12 @@
     ],
     "approval": [
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ],
+    "tasks": [
+      "--print",
+      "--trust",
+      "--force",
+      "Create a TodoWrite list with three tasks: Review logs, Patch adapter, Run tests. Mark Review logs complete, leave Patch adapter in progress, leave Run tests pending, then run this exact shell command: printf ZENTTY_AGENT_BENCH_TASKS_OK"
     ]
   },
   "expectations": {
@@ -20,6 +26,9 @@
     },
     "approval": {
       "required_events": ["sessionStart", "beforeSubmitPrompt"]
+    },
+    "tasks": {
+      "required_events": ["sessionStart", "preToolUse", "postToolUse", "sessionEnd"]
     }
   },
   "input_by_scenario": {

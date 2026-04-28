@@ -11,6 +11,7 @@ import plistlib
 import pty
 import re
 import select
+import shlex
 import struct
 import shutil
 import socket
@@ -51,6 +52,19 @@ ROUTING_ENV_KEYS = {
     "HOME",
 }
 SECRET_ENV_PATTERNS = re.compile(r"(TOKEN|SECRET|PASSWORD|API_KEY|AUTH|KEY|CREDENTIAL|COOKIE)", re.I)
+SENSITIVE_PAYLOAD_KEY_PATTERNS = re.compile(
+    r"(TOKEN|SECRET|PASSWORD|API_KEY|AUTH|KEY|CREDENTIAL|COOKIE|EMAIL|USER_ID|USERID|ACCOUNT|TENANT|ORG_ID|ORGANIZATION_ID)",
+    re.I,
+)
+EMAIL_PATTERN = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w.-])")
+USER_PATH_PATTERN = re.compile(r"/Users/[^/\\\s\"']+")
+REFUSAL_PATTERNS = [
+    r"\bI (?:can'?t|cannot|won'?t|am unable to)\b",
+    r"\bI need (?:more|additional) (?:context|information)\b",
+    r"\bwithout (?:more context|understanding|knowing)\b",
+    r"\bplease (?:confirm|clarify)\b",
+    r"\bcan you (?:confirm|clarify|tell me)\b",
+]
 
 
 @dataclasses.dataclass
@@ -97,6 +111,13 @@ class TraceRecord:
 
 
 @dataclasses.dataclass
+class TerminalObservation:
+    kind: str
+    text: str
+    offset: int
+
+
+@dataclasses.dataclass
 class ScenarioResult:
     agent: str
     scenario: str
@@ -105,6 +126,12 @@ class ScenarioResult:
     observed_events: list[str]
     status: str = "pass"
     detail: str = ""
+    result_kind: str = "hook-pass"
+    warnings: list[str] = dataclasses.field(default_factory=list)
+    terminal_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    task_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    timeline: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    rerun_command: str = ""
 
 
 def compact_json(obj: Any) -> str:
@@ -118,6 +145,31 @@ def redacted_environment(environment: dict[str, str]) -> dict[str, str]:
             continue
         redacted[key] = "<redacted>" if SECRET_ENV_PATTERNS.search(key) else value
     return redacted
+
+
+def redact_standard_input(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    payload = parse_json_object(raw)
+    if payload:
+        return compact_json(redact_payload(payload))
+    return redact_pii_text(raw)
+
+
+def redact_payload(value: Any, key: str | None = None) -> Any:
+    if key and SENSITIVE_PAYLOAD_KEY_PATTERNS.search(key):
+        return "<redacted>"
+    if isinstance(value, dict):
+        return {str(child_key): redact_payload(child_value, str(child_key)) for child_key, child_value in value.items()}
+    if isinstance(value, list):
+        return [redact_payload(item) for item in value]
+    if isinstance(value, str):
+        return redact_pii_text(value)
+    return value
+
+
+def redact_pii_text(text: str) -> str:
+    return USER_PATH_PATTERN.sub("/Users/<user>", EMAIL_PATTERN.sub("<redacted-email>", text))
 
 
 def infer_hook_event(subcommand: str | None, arguments: list[str], standard_input: str | None) -> HookEvent:
@@ -171,7 +223,60 @@ def validate_scenario(agent: str, expectation: ScenarioExpectation, records: lis
         missing_events=missing,
         observed_events=observed_values,
         status="pass" if not missing else "fail",
+        result_kind="hook-pass" if not missing else "missing-hook",
     )
+
+
+def classify_completed_result(
+    agent: str,
+    scenario: str,
+    expectation: ScenarioExpectation,
+    records: list[TraceRecord],
+    output: str,
+    skip_patterns: list[str],
+    exit_code: int,
+    completed_by_predicate: bool,
+    strict: bool,
+) -> ScenarioResult:
+    result = validate_scenario(agent, expectation, records)
+    if not result.passed:
+        if bench_marker_observed(output):
+            result.passed = False
+            result.status = "fail"
+            result.detail = "bench command completed but required hooks were missing"
+            result.result_kind = "missing-hook"
+        elif matches_any(output, skip_patterns):
+            result.passed = not strict
+            result.status = "fail" if strict else "skip"
+            result.detail = "auth or provider prerequisite not available"
+            result.result_kind = "auth-skip"
+        elif matches_any(output, REFUSAL_PATTERNS):
+            result.passed = False
+            result.status = "fail"
+            result.detail = "agent refused or asked for clarification before reaching required hooks"
+            result.result_kind = "agent-refusal"
+        else:
+            result.passed = False
+            result.status = "fail"
+            result.detail = "missing required hooks"
+            result.result_kind = "missing-hook"
+        return result
+    if scenario_requires_task_observation(scenario) and not task_observations_for_records(agent, scenario, records):
+        result.passed = False
+        result.status = "fail"
+        result.detail = "required lifecycle hooks observed but no TodoWrite task progress hook was captured"
+        result.result_kind = "missing-task-hook"
+        return result
+    if exit_code != 0 and not completed_by_predicate:
+        result.passed = False
+        result.status = "fail"
+        result.detail = f"process exited {exit_code}"
+        result.result_kind = "missing-hook"
+        return result
+    if completed_by_predicate:
+        result.detail = "required events observed"
+    result.result_kind = "hook-pass"
+    return result
 
 
 def classify_timeout_result(
@@ -186,18 +291,178 @@ def classify_timeout_result(
 ) -> ScenarioResult:
     partial = validate_scenario(agent, expectation, records)
     if not partial.missing_events:
-        partial.passed = True
-        partial.status = "pass"
-        partial.detail = f"required events observed before {timeout}s timeout"
+        if scenario_requires_task_observation(scenario) and not task_observations_for_records(agent, scenario, records):
+            partial.passed = False
+            partial.status = "fail"
+            partial.detail = "required lifecycle hooks observed but no TodoWrite task progress hook was captured"
+            partial.result_kind = "missing-task-hook"
+        else:
+            partial.passed = True
+            partial.status = "pass"
+            partial.detail = f"required events observed before {timeout}s timeout"
+            partial.result_kind = "hook-pass"
+            partial.warnings.append("process timed out after required hooks were observed")
+    elif bench_marker_observed(output):
+        partial.passed = False
+        partial.status = "fail"
+        partial.detail = "bench command completed but required hooks were missing"
+        partial.result_kind = "missing-hook"
     elif matches_any(output, skip_patterns):
         partial.passed = not strict
         partial.status = "fail" if strict else "skip"
         partial.detail = "auth or provider prerequisite not available"
+        partial.result_kind = "auth-skip"
     else:
         partial.passed = not strict
         partial.status = "fail" if strict else "skip"
         partial.detail = f"timed out after {timeout}s"
+        partial.result_kind = "process-timeout"
     return partial
+
+
+def extract_terminal_observations(output: str) -> list[TerminalObservation]:
+    observations: list[TerminalObservation] = []
+    osc_pattern = re.compile(r"\x1b\](?P<code>0|2|9);(?P<text>[^\x07\x1b]*)(?:\x07|\x1b\\)")
+    for match in osc_pattern.finditer(output):
+        code = match.group("code")
+        text = match.group("text").strip()
+        if not text:
+            continue
+        kind = "osc9" if code == "9" else "title"
+        observations.append(TerminalObservation(kind=kind, text=text, offset=match.start()))
+        if kind == "title" and is_progress_text(text):
+            observations.append(TerminalObservation(kind="progress", text=text, offset=match.start()))
+    return observations
+
+
+def is_progress_text(text: str) -> bool:
+    return bool(re.search(r"\b(running|working|thinking|waiting|asking|question|approval|needs? input)\b|\d+\s*/\s*\d+", text, flags=re.I))
+
+
+def build_timeline(
+    agent: str,
+    scenario: str,
+    records: list[TraceRecord],
+    observations: list[TerminalObservation],
+) -> list[dict[str, Any]]:
+    matching_records = [record for record in records if record.agent == agent and record.scenario == scenario]
+    base = min((record.timestamp for record in matching_records), default=time.time())
+    timeline: list[dict[str, Any]] = []
+    for record in matching_records:
+        source = "hook" if record.kind == "hook" else "process"
+        event = record.event_name or record.kind
+        entry: dict[str, Any] = {
+            "time_ms": max(0, int(round((record.timestamp - base) * 1000))),
+            "source": source,
+            "event": event,
+        }
+        if record.adapter:
+            entry["adapter"] = record.adapter
+        if record.extra:
+            entry["detail"] = record.extra
+        timeline.append(entry)
+    terminal_time_ms = max((entry["time_ms"] for entry in timeline), default=0)
+    for observation in observations:
+        timeline.append(
+            {
+                "time_ms": terminal_time_ms,
+                "source": "terminal",
+                "event": observation.kind,
+                "text": observation.text,
+                "offset": observation.offset,
+            }
+        )
+    return sorted(timeline, key=lambda entry: (entry["time_ms"], source_sort_key(str(entry["source"]))))
+
+
+def source_sort_key(source: str) -> int:
+    return {"process": 0, "hook": 1, "terminal": 2}.get(source, 3)
+
+
+def scenario_requires_task_observation(scenario: str) -> bool:
+    return scenario == "tasks"
+
+
+def task_observations_for_records(agent: str, scenario: str, records: list[TraceRecord]) -> list[dict[str, Any]]:
+    observations: list[dict[str, Any]] = []
+    for record in records:
+        if record.agent != agent or record.scenario != scenario or record.kind != "hook":
+            continue
+        payload = parse_json_object(record.standard_input)
+        tool_name = first_string(payload, ["tool_name", "toolName", "tool"])
+        if not tool_name or tool_name.lower() != "todowrite":
+            continue
+        tool_input = first_object(payload, ["tool_input", "toolInput", "input"])
+        progress = todo_progress(tool_input)
+        if not progress:
+            continue
+        observations.append(
+            {
+                "event": record.event_name or "",
+                "tool": tool_name,
+                "done": progress[0],
+                "total": progress[1],
+            }
+        )
+    return observations
+
+
+def todo_progress(tool_input: dict[str, Any] | None) -> tuple[int, int] | None:
+    if not tool_input:
+        return None
+    todos = tool_input.get("todos")
+    if isinstance(todos, list):
+        statuses: list[str] = []
+        for todo in todos:
+            if isinstance(todo, dict):
+                status = first_string(todo, ["status", "state"])
+                if status:
+                    statuses.append(status)
+        if statuses:
+            return (sum(1 for status in statuses if todo_status_is_complete(status)), len(statuses))
+        return None
+    if isinstance(todos, str):
+        return todo_progress_from_text(todos)
+    return None
+
+
+def todo_progress_from_text(text: str) -> tuple[int, int] | None:
+    total = 0
+    done = 0
+    saw_line = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip().lower()
+        if not line:
+            continue
+        saw_line = True
+        if "[completed]" in line or "[done]" in line or "[x]" in line:
+            total += 1
+            done += 1
+        elif "[in_progress]" in line or "[in-progress]" in line or "[pending]" in line or "[ ]" in line:
+            total += 1
+    if total == 0 and saw_line:
+        return None
+    return (done, total) if total > 0 else None
+
+
+def todo_status_is_complete(status: str) -> bool:
+    return status.strip().lower() in {"completed", "complete", "done"}
+
+
+def first_string(mapping: dict[str, Any], keys: list[str]) -> str | None:
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def first_object(mapping: dict[str, Any], keys: list[str]) -> dict[str, Any] | None:
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 class TraceRecorder:
@@ -390,7 +655,7 @@ class CaptureServer:
                 adapter=hook.adapter,
                 subcommand=subcommand,
                 arguments=[str(arg) for arg in args],
-                standard_input=stdin_payload if isinstance(stdin_payload, str) else None,
+                standard_input=redact_standard_input(stdin_payload if isinstance(stdin_payload, str) else None),
                 environment=redacted_environment({str(k): str(v) for k, v in environment.items()}),
             )
         )
@@ -497,6 +762,8 @@ class LaunchPlanner:
         command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=cursor'
         for event in ("sessionStart", "sessionEnd", "beforeSubmitPrompt", "stop", "beforeShellExecution", "afterShellExecution"):
             hooks["hooks"][event] = [{"command": command}]
+        for event in ("preToolUse", "postToolUse"):
+            hooks["hooks"][event] = [{"matcher": "TodoWrite", "command": command}]
         write_json(config_dir / "hooks.json", hooks)
         return self._launch_plan(executable, arguments, {"ZENTTY_AGENT_TOOL": "cursor", "CURSOR_CONFIG_DIR": str(config_dir)})
 
@@ -661,104 +928,123 @@ class BenchRunner:
         self.profiles = load_profiles(BENCH_ROOT / "profiles")
         self.run_dir = pathlib.Path(args.run_dir) if args.run_dir else DEFAULT_RUNS_DIR / time.strftime("%Y%m%d-%H%M%S")
         self.run_dir.mkdir(parents=True, exist_ok=True)
+        self.socket_dir = pathlib.Path(tempfile.mkdtemp(prefix="zentty-agent-bench-sock-"))
         self.recorder = TraceRecorder(self.run_dir)
 
     def run(self) -> int:
-        agents = self._selected_agents()
-        app_path = pathlib.Path(self.args.app_path).expanduser() if self.args.app_path else self._resolve_app_path()
-        resources_dir = app_path / "Contents" / "Resources"
-        env = self._base_environment(resources_dir)
-        results: list[ScenarioResult] = []
-        for scenario in self.args.scenarios.split(","):
-            scenario = scenario.strip()
-            if not scenario:
-                continue
+        try:
+            agents = self._selected_agents()
+            app_path = pathlib.Path(self.args.app_path).expanduser() if self.args.app_path else self._resolve_app_path()
+            self._resolved_app_path = app_path
+            resources_dir = app_path / "Contents" / "Resources"
+            env = self._base_environment(resources_dir)
+            results: list[ScenarioResult] = []
+            for scenario in self.args.scenarios.split(","):
+                scenario = scenario.strip()
+                if not scenario:
+                    continue
+                server = CaptureServer(
+                    self.socket_dir / f"{scenario}.sock",
+                    recorder=self.recorder,
+                    profiles=self.profiles,
+                    scenario=scenario,
+                    resources_dir=resources_dir,
+                    run_dir=self.run_dir,
+                )
+                server.start()
+                try:
+                    scenario_env = dict(env)
+                    scenario_env["ZENTTY_INSTANCE_SOCKET"] = str(server.socket_path)
+                    for agent in agents:
+                        results.append(self._run_agent_scenario(agent, scenario, scenario_env))
+                finally:
+                    server.stop()
+            self._write_report(results)
+            return 1 if any(result.status == "fail" for result in results) else 0
+        finally:
+            self._cleanup_socket_dir()
+
+    def self_test(self) -> int:
+        try:
+            app_path = pathlib.Path(self.args.app_path).expanduser() if self.args.app_path else self._resolve_app_path()
+            self._resolved_app_path = app_path
+            resources_dir = app_path / "Contents" / "Resources"
+            zentty = resources_dir / "bin" / "shared" / "zentty"
+            profile = self.profiles["codex"]
             server = CaptureServer(
-                self.run_dir / f"{scenario}.sock",
+                self.socket_dir / "self-test.sock",
                 recorder=self.recorder,
-                profiles=self.profiles,
-                scenario=scenario,
+                profiles={"codex": profile},
+                scenario="smoke",
                 resources_dir=resources_dir,
                 run_dir=self.run_dir,
             )
             server.start()
             try:
-                scenario_env = dict(env)
-                scenario_env["ZENTTY_INSTANCE_SOCKET"] = str(server.socket_path)
-                for agent in agents:
-                    results.append(self._run_agent_scenario(agent, scenario, scenario_env))
+                env = self._base_environment(resources_dir)
+                env["ZENTTY_INSTANCE_SOCKET"] = str(server.socket_path)
+                env["ZENTTY_REAL_BINARY"] = "/usr/bin/true"
+                request = {
+                    "version": 1,
+                    "id": "self-test-bootstrap",
+                    "kind": "bootstrap",
+                    "arguments": ["exec", "hello"],
+                    "standardInput": None,
+                    "environment": {
+                        "ZENTTY_CLI_BIN": str(zentty),
+                        "ZENTTY_REAL_BINARY": "/usr/bin/true",
+                        "HOME": env["HOME"],
+                    },
+                    "expectsResponse": True,
+                    "subcommand": None,
+                    "tool": "codex",
+                }
+                send_ipc(server.socket_path, request)
+                hook = {
+                    "version": 1,
+                    "id": "self-test-hook",
+                    "kind": "ipc",
+                    "arguments": ["--adapter=codex", "pre-tool-use"],
+                    "standardInput": "{}",
+                    "environment": {"ZENTTY_PANE_ID": "pane-self-test"},
+                    "expectsResponse": False,
+                    "subcommand": "agent-event",
+                    "tool": None,
+                }
+                send_ipc(server.socket_path, hook)
+                server.wait_for_idle()
             finally:
                 server.stop()
-        self._write_report(results)
-        return 1 if any(result.status == "fail" for result in results) else 0
-
-    def self_test(self) -> int:
-        app_path = pathlib.Path(self.args.app_path).expanduser() if self.args.app_path else self._resolve_app_path()
-        resources_dir = app_path / "Contents" / "Resources"
-        zentty = resources_dir / "bin" / "shared" / "zentty"
-        profile = self.profiles["codex"]
-        server = CaptureServer(
-            self.run_dir / "self-test.sock",
-            recorder=self.recorder,
-            profiles={"codex": profile},
-            scenario="smoke",
-            resources_dir=resources_dir,
-            run_dir=self.run_dir,
-        )
-        server.start()
-        try:
-            env = self._base_environment(resources_dir)
-            env["ZENTTY_INSTANCE_SOCKET"] = str(server.socket_path)
-            env["ZENTTY_REAL_BINARY"] = "/usr/bin/true"
-            request = {
-                "version": 1,
-                "id": "self-test-bootstrap",
-                "kind": "bootstrap",
-                "arguments": ["exec", "hello"],
-                "standardInput": None,
-                "environment": {
-                    "ZENTTY_CLI_BIN": str(zentty),
-                    "ZENTTY_REAL_BINARY": "/usr/bin/true",
-                    "HOME": env["HOME"],
-                },
-                "expectsResponse": True,
-                "subcommand": None,
-                "tool": "codex",
-            }
-            send_ipc(server.socket_path, request)
-            hook = {
-                "version": 1,
-                "id": "self-test-hook",
-                "kind": "ipc",
-                "arguments": ["--adapter=codex", "pre-tool-use"],
-                "standardInput": "{}",
-                "environment": {"ZENTTY_PANE_ID": "pane-self-test"},
-                "expectsResponse": False,
-                "subcommand": "agent-event",
-                "tool": None,
-            }
-            send_ipc(server.socket_path, hook)
-            server.wait_for_idle()
+            records = self.recorder.records()
+            if not any(record.kind == "bootstrap" for record in records):
+                print("self-test failed: bootstrap was not recorded", file=sys.stderr)
+                return 1
+            if not any(record.event_name == "pre-tool-use" for record in records):
+                print("self-test failed: hook was not recorded", file=sys.stderr)
+                return 1
+            self._write_report([self._finalize_result(ScenarioResult("codex", "self-test", True, [], ["pre-tool-use"]), [], [])])
+            print(f"self-test passed: {self.run_dir}")
+            return 0
         finally:
-            server.stop()
-        records = self.recorder.records()
-        if not any(record.kind == "bootstrap" for record in records):
-            print("self-test failed: bootstrap was not recorded", file=sys.stderr)
-            return 1
-        if not any(record.event_name == "pre-tool-use" for record in records):
-            print("self-test failed: hook was not recorded", file=sys.stderr)
-            return 1
-        self._write_report([ScenarioResult("codex", "self-test", True, [], ["pre-tool-use"])])
-        print(f"self-test passed: {self.run_dir}")
-        return 0
+            self._cleanup_socket_dir()
+
+    def _cleanup_socket_dir(self) -> None:
+        try:
+            self.socket_dir.rmdir()
+        except OSError:
+            pass
 
     def _run_agent_scenario(self, agent: str, scenario: str, env: dict[str, str]) -> ScenarioResult:
         profile = self.profiles[agent]
         if scenario not in profile.expectations:
-            return ScenarioResult(agent, scenario, True, [], [], status="skip", detail="scenario not defined")
+            return self._finalize_result(
+                ScenarioResult(agent, scenario, True, [], [], status="skip", detail="scenario not defined", result_kind="scenario-skip"),
+                [],
+                [],
+            )
         command = shutil.which(profile.command, path=env["PATH"])
         if not command:
-            return self._skip_or_fail(agent, scenario, f"{profile.command} not found")
+            return self._finalize_result(self._skip_or_fail(agent, scenario, f"{profile.command} not found", "binary-skip"), [], [])
         version = run_version(command, profile.version_args, env)
         self.recorder.append(TraceRecord(kind="version", agent=agent, scenario=scenario, extra={"version": version}))
         argv = [command] + profile.launch_args_by_scenario.get(scenario, [])
@@ -773,8 +1059,9 @@ class BenchRunner:
             transcript_path=transcript_path,
             completion_predicate=lambda: not validate_scenario(agent, expectation, self.recorder.records()).missing_events,
         )
+        observations = completed.terminal_observations
         if completed.timed_out:
-            return classify_timeout_result(
+            result = classify_timeout_result(
                 agent=agent,
                 scenario=scenario,
                 expectation=expectation,
@@ -784,23 +1071,79 @@ class BenchRunner:
                 timeout=self.args.timeout,
                 strict=self.args.strict,
             )
-        records = self.recorder.records()
-        result = validate_scenario(agent, expectation, records)
-        if completed.exit_code != 0 and matches_any(completed.output, profile.skip_patterns) and not result.passed:
-            result.passed = not self.args.strict
-            result.status = "fail" if self.args.strict else "skip"
-            result.detail = "auth or provider prerequisite not available"
-            return result
-        if completed.exit_code != 0 and result.passed and not completed.completed_by_predicate:
-            result.passed = False
-            result.status = "fail"
-            result.detail = f"process exited {completed.exit_code}"
-        if completed.completed_by_predicate and result.passed:
-            result.detail = "required events observed"
+            return self._finalize_result(result, self.recorder.records(), observations)
+        result = classify_completed_result(
+            agent=agent,
+            scenario=scenario,
+            expectation=expectation,
+            records=self.recorder.records(),
+            output=completed.output,
+            skip_patterns=profile.skip_patterns,
+            exit_code=completed.exit_code,
+            completed_by_predicate=completed.completed_by_predicate,
+            strict=self.args.strict,
+        )
+        return self._finalize_result(result, self.recorder.records(), observations)
+
+    def _skip_or_fail(self, agent: str, scenario: str, detail: str, result_kind: str = "scenario-skip") -> ScenarioResult:
+        return ScenarioResult(
+            agent,
+            scenario,
+            not self.args.strict,
+            [],
+            [],
+            status="fail" if self.args.strict else "skip",
+            detail=detail,
+            result_kind=result_kind,
+        )
+
+    def _finalize_result(
+        self,
+        result: ScenarioResult,
+        records: list[TraceRecord],
+        observations: list[TerminalObservation],
+    ) -> ScenarioResult:
+        result.terminal_observations = [dataclasses.asdict(observation) for observation in observations]
+        result.task_observations = task_observations_for_records(result.agent, result.scenario, records)
+        result.timeline = build_timeline(result.agent, result.scenario, records, observations)
+        result.rerun_command = self._rerun_command(result.agent, result.scenario)
+        if observations and not any(warning.startswith("terminal observations") for warning in result.warnings):
+            result.warnings.append(f"terminal observations captured: {len(observations)}")
+        if result.task_observations and not any(warning.startswith("task observations") for warning in result.warnings):
+            result.warnings.append(f"task observations captured: {len(result.task_observations)}")
         return result
 
-    def _skip_or_fail(self, agent: str, scenario: str, detail: str) -> ScenarioResult:
-        return ScenarioResult(agent, scenario, not self.args.strict, [], [], status="fail" if self.args.strict else "skip", detail=detail)
+    def _rerun_command(self, agent: str, scenario: str) -> str:
+        app_path = getattr(self, "_resolved_app_path", None) or self.args.app_path
+        if scenario == "self-test":
+            parts = [
+                "python3",
+                "scripts/agent-bench/agent_bench.py",
+                "self-test",
+                "--timeout",
+                str(self.args.timeout),
+                "--no-build",
+            ]
+            if app_path:
+                parts.extend(["--app-path", str(app_path)])
+            return " ".join(shlex.quote(part) for part in parts)
+        parts = [
+            "python3",
+            "scripts/agent-bench/agent_bench.py",
+            "run",
+            "--agents",
+            agent,
+            "--scenarios",
+            scenario,
+            "--timeout",
+            str(self.args.timeout),
+            "--no-build",
+        ]
+        if app_path:
+            parts.extend(["--app-path", str(app_path)])
+        if self.args.strict:
+            parts.append("--strict")
+        return " ".join(shlex.quote(part) for part in parts)
 
     def _make_repo(self, agent: str, scenario: str) -> pathlib.Path:
         repo = self.run_dir / "repos" / f"{agent}-{scenario}"
@@ -856,15 +1199,37 @@ class BenchRunner:
     def _write_report(self, results: list[ScenarioResult]) -> None:
         summary = [dataclasses.asdict(result) for result in results]
         write_json(self.run_dir / "summary.json", summary)
+        timeline = [
+            {"agent": result.agent, "scenario": result.scenario, **entry}
+            for result in results
+            for entry in result.timeline
+        ]
+        write_json(self.run_dir / "timeline.json", timeline)
         lines = ["# Agent Bench Report", ""]
         for result in results:
             marker = {"pass": "PASS", "fail": "FAIL", "skip": "SKIP"}[result.status]
             detail = f" - {result.detail}" if result.detail else ""
             lines.append(f"- {marker} {result.agent}/{result.scenario}{detail}")
+            lines.append(f"  Result kind: {result.result_kind}")
             if result.missing_events:
                 lines.append(f"  Missing: {', '.join(result.missing_events)}")
             if result.observed_events:
                 lines.append(f"  Observed: {', '.join(result.observed_events)}")
+            if result.warnings:
+                lines.append(f"  Warnings: {'; '.join(result.warnings)}")
+            if result.terminal_observations:
+                observations = ", ".join(f"{item['kind']}={item['text']}" for item in result.terminal_observations[:3])
+                suffix = "..." if len(result.terminal_observations) > 3 else ""
+                lines.append(f"  Terminal: {observations}{suffix}")
+            if result.task_observations:
+                tasks = ", ".join(
+                    f"{item['event']}:{item['done']}/{item['total']}"
+                    for item in result.task_observations[:3]
+                )
+                suffix = "..." if len(result.task_observations) > 3 else ""
+                lines.append(f"  Tasks: {tasks}{suffix}")
+            if result.rerun_command:
+                lines.append(f"  Rerun: {result.rerun_command}")
         (self.run_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
         print(f"report: {self.run_dir / 'report.md'}")
 
@@ -875,6 +1240,7 @@ class PtyResult:
     timed_out: bool
     output: str
     completed_by_predicate: bool = False
+    terminal_observations: list[TerminalObservation] = dataclasses.field(default_factory=list)
 
 
 def run_pty(
@@ -927,7 +1293,13 @@ def run_pty(
                     process.kill()
                 text = output.decode("utf-8", errors="replace")
                 transcript_path.write_text(text, encoding="utf-8")
-                return PtyResult(process.returncode or -1, False, text, completed_by_predicate=True)
+                return PtyResult(
+                    process.returncode or -1,
+                    False,
+                    text,
+                    completed_by_predicate=True,
+                    terminal_observations=extract_terminal_observations(text),
+                )
                 break
             if now - start > timeout:
                 process.terminate()
@@ -937,11 +1309,16 @@ def run_pty(
                     process.kill()
                 text = output.decode("utf-8", errors="replace")
                 transcript_path.write_text(text, encoding="utf-8")
-                return PtyResult(process.returncode or -1, True, text)
+                return PtyResult(
+                    process.returncode or -1,
+                    True,
+                    text,
+                    terminal_observations=extract_terminal_observations(text),
+                )
         exit_code = process.wait()
         text = output.decode("utf-8", errors="replace")
         transcript_path.write_text(text, encoding="utf-8")
-        return PtyResult(exit_code, False, text)
+        return PtyResult(exit_code, False, text, terminal_observations=extract_terminal_observations(text))
     finally:
         os.close(master)
 
@@ -980,15 +1357,26 @@ def run_version(command: str, args: list[str], env: dict[str, str]) -> str:
 def parse_build_settings(output: str) -> dict[str, str]:
     values: dict[str, str] = {}
     for line in output.splitlines():
-        if " = " not in line:
+        stripped = line.strip()
+        if " = " not in stripped:
             continue
-        key, value = line.strip().split(" = ", 1)
+        key, value = stripped.split(" = ", 1)
+        if not key:
+            continue
         values[key] = value
     return values
 
 
 def matches_any(text: str, patterns: list[str]) -> bool:
     return any(re.search(pattern, text, flags=re.I) for pattern in patterns)
+
+
+def bench_marker_observed(text: str) -> bool:
+    return (
+        "ZENTTY_AGENT_BENCH_OK" in text
+        or "ZENTTY_AGENT_BENCH_APPROVAL_OK" in text
+        or "ZENTTY_AGENT_BENCH_TASKS_OK" in text
+    )
 
 
 def filtered_inherited_path(path_value: str) -> str:

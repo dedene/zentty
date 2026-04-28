@@ -580,6 +580,133 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(plugin.contains("stdio: [\"pipe\", \"ignore\", \"ignore\"]"))
     }
 
+    func test_repository_opencode_plugin_maps_status_aliases_and_preserves_idle_progress() throws {
+        guard let bunPath = try resolvedExecutable(named: "bun") else {
+            throw XCTSkip("bun is not available")
+        }
+
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let pluginURL = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false)
+        let scratchDirectory = try makeTemporaryDirectory(named: "opencode-plugin-harness")
+        let fakeCLIURL = scratchDirectory.appendingPathComponent("zentty", isDirectory: false)
+        let captureURL = scratchDirectory.appendingPathComponent("canonical-events.jsonl", isDirectory: false)
+        let eventsURL = scratchDirectory.appendingPathComponent("events.json", isDirectory: false)
+        let harnessURL = scratchDirectory.appendingPathComponent("harness.mjs", isDirectory: false)
+
+        try """
+        #!/bin/sh
+        cat >> "$ZENTTY_CAPTURE_LOG"
+        printf '\\n' >> "$ZENTTY_CAPTURE_LOG"
+        """.write(to: fakeCLIURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLIURL.path)
+
+        let events: [[String: Any]] = [
+            [
+                "type": "session.status",
+                "properties": [
+                    "sessionID": "session-1",
+                    "cwd": "/tmp/project",
+                    "status": ["type": "active"],
+                ],
+            ],
+            [
+                "type": "session.status",
+                "properties": [
+                    "sessionID": "session-1",
+                    "cwd": "/tmp/project",
+                    "status": "running",
+                ],
+            ],
+            [
+                "type": "todo.updated",
+                "properties": [
+                    "sessionID": "session-1",
+                    "cwd": "/tmp/project",
+                    "todos": [
+                        ["content": "Inspect", "status": "completed"],
+                        ["content": "Patch", "status": "in_progress"],
+                        ["content": "Verify", "status": "pending"],
+                    ],
+                ],
+            ],
+            [
+                "type": "session.idle",
+                "properties": [
+                    "sessionID": "session-1",
+                    "cwd": "/tmp/project",
+                ],
+            ],
+            [
+                "type": "session.idle",
+                "properties": [
+                    "sessionID": "session-1",
+                    "cwd": "/tmp/project",
+                ],
+            ],
+        ]
+        let eventsData = try JSONSerialization.data(withJSONObject: events, options: [.prettyPrinted])
+        try eventsData.write(to: eventsURL)
+
+        try """
+        const { ZenttyOpenCodePlugin } = await import(process.env.ZENTTY_PLUGIN_URL)
+        const events = await Bun.file(process.env.ZENTTY_EVENTS_JSON).json()
+        const plugin = await ZenttyOpenCodePlugin({ directory: "/tmp/project" })
+        for (const event of events) {
+          await plugin.event({ event })
+        }
+        """.write(to: harnessURL, atomically: true, encoding: .utf8)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: bunPath)
+        process.arguments = [harnessURL.path]
+        process.environment = [
+            "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
+            "ZENTTY_CLI_BIN": fakeCLIURL.path,
+            "ZENTTY_CAPTURE_LOG": captureURL.path,
+            "ZENTTY_EVENTS_JSON": eventsURL.path,
+            "ZENTTY_INSTANCE_SOCKET": scratchDirectory.appendingPathComponent("zentty.sock").path,
+            "ZENTTY_PANE_ID": "pane-under-test",
+            "ZENTTY_PANE_TOKEN": "pane-token-under-test",
+            "ZENTTY_PLUGIN_URL": pluginURL.absoluteString,
+            "ZENTTY_WORKLANE_ID": "worklane-under-test",
+        ]
+
+        let stderr = Pipe()
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            XCTFail("OpenCode plugin harness failed: \(error)")
+            return
+        }
+
+        let canonicalEvents = try String(contentsOf: captureURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> [String: Any]? in
+                guard let data = String(line).data(using: .utf8) else { return nil }
+                return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            }
+
+        XCTAssertEqual(canonicalEvents.compactMap { $0["event"] as? String }, [
+            "agent.running",
+            "agent.running",
+            "task.progress",
+            "agent.idle",
+            "agent.idle",
+        ])
+        let idleWithProgress = try XCTUnwrap(canonicalEvents[3]["progress"] as? [String: Any])
+        XCTAssertEqual(idleWithProgress["done"] as? Int, 1)
+        XCTAssertEqual(idleWithProgress["total"] as? Int, 3)
+        XCTAssertNil(canonicalEvents[4]["progress"])
+    }
+
     func test_repository_claude_wrapper_delegates_to_launch_cli() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -973,6 +1100,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(overlayHooks.contains("session-start"))
         XCTAssertTrue(overlayHooks.contains("prompt-submit"))
         XCTAssertTrue(overlayHooks.contains("pre-tool-use"))
+        XCTAssertTrue(overlayHooks.contains("permission-request"))
         XCTAssertTrue(overlayHooks.contains("post-tool-use"))
         XCTAssertTrue(overlayHooks.contains("echo existing"))
         XCTAssertTrue(plan.arguments.contains("features.codex_hooks=true"))
@@ -1014,6 +1142,11 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertTrue(plan.arguments.contains(#"notify=["/tmp/zentty","codex-notify"]"#))
+        let overlayHome = try XCTUnwrap(plan.setEnvironment["CODEX_HOME"])
+        let overlayHooksURL = URL(fileURLWithPath: overlayHome, isDirectory: true)
+            .appendingPathComponent("hooks.json", isDirectory: false)
+        let overlayHooks = try String(contentsOf: overlayHooksURL, encoding: .utf8)
+        XCTAssertTrue(overlayHooks.contains("permission-request"))
     }
 
     func test_agent_launch_bootstrap_respects_explicit_codex_notify_override() throws {
@@ -1258,6 +1391,14 @@ final class AgentStatusSupportTests: XCTestCase {
             XCTAssertTrue(command.hasSuffix("--adapter=cursor"),
                           "hook command must end cleanly so Cursor's heredoc binds to zentty (not a trailing || clause)")
         }
+
+        for event in ["preToolUse", "postToolUse"] {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]])
+            XCTAssertEqual(entries.count, 1, "\(event) should have one managed TodoWrite entry")
+            XCTAssertEqual(entries.first?["matcher"] as? String, "TodoWrite")
+            let command = try XCTUnwrap(entries.first?["command"] as? String)
+            XCTAssertTrue(command.contains("ipc agent-event --adapter=cursor"))
+        }
     }
 
     func test_agent_launch_bootstrap_cursor_preserves_existing_user_hooks() throws {
@@ -1316,8 +1457,9 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue((sessionStart.last?["command"] as? String ?? "").contains("/opt/zentty/bin/zentty"))
 
         let beforeShell = try XCTUnwrap(hooks["beforeShellExecution"] as? [[String: Any]])
-        XCTAssertEqual(beforeShell.count, 1, "unmanaged event passed through untouched")
+        XCTAssertEqual(beforeShell.count, 2, "original beforeShellExecution entry kept, Zentty entry appended")
         XCTAssertEqual(beforeShell.first?["command"] as? String, "/Users/peter/.superset/hooks/cursor-hook.sh PermissionRequest")
+        XCTAssertTrue((beforeShell.last?["command"] as? String ?? "").contains("/opt/zentty/bin/zentty"))
     }
 
     func test_agent_launch_bootstrap_cursor_install_is_idempotent_and_refreshes_cli_path() throws {
@@ -5387,6 +5529,25 @@ final class AgentStatusSupportTests: XCTestCase {
             try? FileManager.default.removeItem(at: url)
         }
         return url
+    }
+
+    private func resolvedExecutable(named name: String) throws -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "command -v \(shellQuoted(name))"]
+        process.environment = [
+            "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+        ]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+        let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return output?.isEmpty == false ? output : nil
     }
 
     private func shellQuoted(_ value: String) -> String {

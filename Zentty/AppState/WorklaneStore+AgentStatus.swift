@@ -97,6 +97,25 @@ extension WorklaneStore {
             }
         case .commandFinished:
             worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
+            let preFinishStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
+            if preFinishStatus?.tool == .openCode,
+               preFinishStatus?.state == .idle,
+               var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] {
+                auxiliaryState.agentReducerState = Self.seededReducerState(
+                    auxiliaryState.agentReducerState,
+                    from: auxiliaryState.agentStatus
+                )
+                auxiliaryState.agentReducerState.sweep(now: Date(), isProcessAlive: Self.isProcessAlive(pid:))
+                auxiliaryState.agentStatus = Self.hydratedStatus(
+                    auxiliaryState.agentReducerState.reducedStatus(),
+                    existingStatus: auxiliaryState.agentStatus
+                )
+                if auxiliaryState.agentStatus == nil {
+                    auxiliaryState.terminalProgress = nil
+                }
+                worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+            }
+
             let existingStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
             if let trackedPID = existingStatus?.trackedPID,
                Self.isProcessAlive(pid: trackedPID) {
