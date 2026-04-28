@@ -186,6 +186,7 @@
 		A7D1705788C04A62E0EC684C /* PaneDragPreviewSizingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 286127859CC1D0E1D6E24ECE /* PaneDragPreviewSizingTests.swift */; };
 		A92728F291D5458A677DDD7B /* GlassSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B65FF8B847E8E743D485D4 /* GlassSurfaceView.swift */; };
 		A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B93F46C5542A31805301C02 /* RootViewController.swift */; };
+		A9EFD34E6CE20566793F25AC /* SidebarListRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6DA3C31A354A563A4D7D63 /* SidebarListRenderer.swift */; };
 		AA1411A91AE771850C12A19B /* OpenCodeLiveThemeSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 898B152AC508F23715DB2518 /* OpenCodeLiveThemeSync.swift */; };
 		AA417704363C7781CECDFEBF /* SidebarShimmerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 412AD6B9DF54B6BE50BCA504 /* SidebarShimmerTextView.swift */; };
 		AC60EE09544BBC10EFB386EA /* NotificationPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89AAE034094D87AF85EB6245 /* NotificationPanelView.swift */; };
@@ -234,6 +235,7 @@
 		D1911336945EA3268771D96A /* SidebarUpdateRowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2DAA76C6247F60AA55ACB5D /* SidebarUpdateRowTests.swift */; };
 		D30BFC88CE52F92960ADE15C /* WorklaneSidebarSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F486F3A22B74F1699C4D18B9 /* WorklaneSidebarSummary.swift */; };
 		D3152FCD6CDE3BD0FA49A39D /* WorklaneSessionEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6F07CFD4C44251C24400B38 /* WorklaneSessionEnvironment.swift */; };
+		D3987EA55548B9FB2FAF2535 /* SidebarDropHitTestingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C88D5D3BFE9433DCC2E7090 /* SidebarDropHitTestingTests.swift */; };
 		D3B45C25D1794724A766C6DA /* WorklaneStoreGitContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78A6A6B85882097AFFAE3EE /* WorklaneStoreGitContextTests.swift */; };
 		D58A19DD4038B6D8E127DA5D /* TerminalPaneHostViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE8E85EADB93A2FE0E71BEA6 /* TerminalPaneHostViewTests.swift */; };
 		D5977945BCFB04E468408EC3 /* OpenCodeThemeSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C675B0F7ABA617674B6D9A82 /* OpenCodeThemeSyncTests.swift */; };
@@ -257,10 +259,12 @@
 		E6CDB1F39004DBCC53C41BEC /* AboutWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA659CF430F18149B5025C7E /* AboutWindowControllerTests.swift */; };
 		E6D0CAB78E81B81367E2F583 /* AgentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAEEE6EDBC73B9A55E684093 /* AgentStatus.swift */; };
 		E6DB3D37929BDB0F6583E0E5 /* OpenWithCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19801FEA1E31AE1665776372 /* OpenWithCatalog.swift */; };
+		E94E1DACAFBCE24E8AA485C5 /* SidebarShimmerColorResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D7F2B3A458136A7651CA4BA /* SidebarShimmerColorResolver.swift */; };
 		E9BF42DC69D4CF63845BCBE2 /* SidebarWorklaneRowLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57BC50CDB5D0B82695D9A2D4 /* SidebarWorklaneRowLayoutTests.swift */; };
 		EA6847AAD0A938767899B578 /* VendoredGhosttyResourcesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E1E9FF5B98D7124B6E65AC /* VendoredGhosttyResourcesTests.swift */; };
 		EAC39845FAE3EF9784F2F17C /* DroidTaskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BCA77C435DCC7E4F338789C /* DroidTaskStore.swift */; };
 		EBA82B93B865F768A59C3FB5 /* CommandPaletteItemBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1927429EEB90A74961D30D /* CommandPaletteItemBuilderTests.swift */; };
+		EC0DFEE3FDB6728B8FB6E6B6 /* SidebarDropHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E587274DB966B186941A95A /* SidebarDropHitTesting.swift */; };
 		ED27476E195CD5905EA8FE99 /* CleanCopyPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9147BE310A4C4D3D61638835 /* CleanCopyPipeline.swift */; };
 		ED97F9FB42E05ECE3179E60D /* PaneStripState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D36706DB3DF677FA13DC722 /* PaneStripState.swift */; };
 		EDF799E6005B1597EEA1314D /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63590216920018B71F1ACB7A /* AppDelegateTests.swift */; };
@@ -375,6 +379,7 @@
 		2C966AC83B20D437AA8281B3 /* CommandPaletteController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteController.swift; sourceTree = "<group>"; };
 		2D33B3653DD17B96C1CA6222 /* AgentIPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIPC.swift; sourceTree = "<group>"; };
 		2DD8525BB06D45D74C9E00C0 /* AppearanceSettingsSectionViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsSectionViewControllerTests.swift; sourceTree = "<group>"; };
+		2E587274DB966B186941A95A /* SidebarDropHitTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarDropHitTesting.swift; sourceTree = "<group>"; };
 		312AF7E528937EA1BA1B5D84 /* BundledGhosttyThemeResourcesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledGhosttyThemeResourcesTests.swift; sourceTree = "<group>"; };
 		315E199A7E5DFC5BA83F6225 /* ThemeCatalogServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCatalogServiceTests.swift; sourceTree = "<group>"; };
 		330B23C2AB3C9333615FF1F1 /* WorklaneReviewStateResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneReviewStateResolverTests.swift; sourceTree = "<group>"; };
@@ -387,6 +392,7 @@
 		3B2B4CFEFDD5D5985609F1BA /* WorklaneAttentionSummaryBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneAttentionSummaryBuilderTests.swift; sourceTree = "<group>"; };
 		3BE9959CFC3168BC8324CC3C /* SessionRestoreStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoreStoreTests.swift; sourceTree = "<group>"; };
 		3D36706DB3DF677FA13DC722 /* PaneStripState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripState.swift; sourceTree = "<group>"; };
+		3D7F2B3A458136A7651CA4BA /* SidebarShimmerColorResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarShimmerColorResolver.swift; sourceTree = "<group>"; };
 		3DB6DE0A6A550780FF124F3D /* CommandPaletteWorklaneColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteWorklaneColorTests.swift; sourceTree = "<group>"; };
 		3E0AB398A3212751C553DAD6 /* WorklaneRenderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneRenderCoordinator.swift; sourceTree = "<group>"; };
 		3ED64DFEF411E6E11CC13775 /* WorklaneAttentionChipViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneAttentionChipViewTests.swift; sourceTree = "<group>"; };
@@ -411,6 +417,7 @@
 		48F435FA119C97C5F497FBD9 /* PaneLayoutSettingsWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutSettingsWindowControllerTests.swift; sourceTree = "<group>"; };
 		4AB3C0ACB087A96811645CE3 /* AppMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBuilder.swift; sourceTree = "<group>"; };
 		4C4740E3F7FBB64DB5815643 /* AppCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCanvasView.swift; sourceTree = "<group>"; };
+		4C88D5D3BFE9433DCC2E7090 /* SidebarDropHitTestingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarDropHitTestingTests.swift; sourceTree = "<group>"; };
 		4CA937E13903E6F4629AE7AA /* ThirdPartyLicenseCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThirdPartyLicenseCatalogTests.swift; sourceTree = "<group>"; };
 		4D4F4075E849631130D781E1 /* ZenttyCLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyCLI.swift; sourceTree = "<group>"; };
 		4EB1561FD9C602B6D306155C /* TerminalClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboard.swift; sourceTree = "<group>"; };
@@ -518,6 +525,7 @@
 		BA9DF527B186CAC92FE63473 /* AppUpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateController.swift; sourceTree = "<group>"; };
 		BC0EFB8B00D5CA9A67589A3A /* FuzzyMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyMatcher.swift; sourceTree = "<group>"; };
 		BC1927429EEB90A74961D30D /* CommandPaletteItemBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteItemBuilderTests.swift; sourceTree = "<group>"; };
+		BD6DA3C31A354A563A4D7D63 /* SidebarListRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarListRenderer.swift; sourceTree = "<group>"; };
 		BD913A7CC4DACE3AE5BF3685 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BDDCADD851AB62CAFFF43AF3 /* SettingsSectionViewControllers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSectionViewControllers.swift; sourceTree = "<group>"; };
 		BE256725D568E7583890592B /* SidebarShimmerCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarShimmerCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -1011,11 +1019,14 @@
 		D32CC59A6D1E3B98F23280A0 /* Sidebar */ = {
 			isa = PBXGroup;
 			children = (
+				2E587274DB966B186941A95A /* SidebarDropHitTesting.swift */,
 				1FF2752BE0368370555A776C /* SidebarDropPlaceholderView.swift */,
+				BD6DA3C31A354A563A4D7D63 /* SidebarListRenderer.swift */,
 				162C940D9CBDBBB47552AA86 /* SidebarMotionCoordinator.swift */,
 				DEC764BCDC589B75DA78F658 /* SidebarPaneRowButton.swift */,
 				C9407DEA6B0DE6363B46DE0A /* SidebarPaneRowViews.swift */,
 				11072AE049C3591BEAFABAE0 /* SidebarRowDiff.swift */,
+				3D7F2B3A458136A7651CA4BA /* SidebarShimmerColorResolver.swift */,
 				412AD6B9DF54B6BE50BCA504 /* SidebarShimmerTextView.swift */,
 				02126D22E8F87E9B608D3CB9 /* SidebarStatusResolver.swift */,
 				880AC8A873636B3675457AAD /* SidebarTextMetrics.swift */,
@@ -1139,6 +1150,7 @@
 				CA40FC14CFDB525CB2065ECC /* ScrollSwitchGestureHandlerTests.swift */,
 				3BE9959CFC3168BC8324CC3C /* SessionRestoreStoreTests.swift */,
 				EC6B0309F5F34D3C1D5AE4AB /* ShellEscapingTests.swift */,
+				4C88D5D3BFE9433DCC2E7090 /* SidebarDropHitTestingTests.swift */,
 				CA3810175E866C6CB11A8C87 /* SidebarMotionCoordinatorTests.swift */,
 				B308B03F54BFA5F3812B101D /* SidebarRowDiffTests.swift */,
 				BE256725D568E7583890592B /* SidebarShimmerCoordinatorTests.swift */,
@@ -1462,6 +1474,7 @@
 				13F377DF3A4216C68CAFA429 /* ScrollSwitchGestureHandlerTests.swift in Sources */,
 				3C27BE61B2B00785B0BC5BB7 /* SessionRestoreStoreTests.swift in Sources */,
 				92B757E3C3678473753A2A54 /* ShellEscapingTests.swift in Sources */,
+				D3987EA55548B9FB2FAF2535 /* SidebarDropHitTestingTests.swift in Sources */,
 				267DEF07DD871705091F0BC8 /* SidebarMotionCoordinatorTests.swift in Sources */,
 				996B3F52A55E43059D1727A6 /* SidebarRowDiffTests.swift in Sources */,
 				BE30B813EC32158B648F52B1 /* SidebarShimmerCoordinatorTests.swift in Sources */,
@@ -1622,11 +1635,14 @@
 				17245348FB36801D95C10395 /* ShellMetrics.swift in Sources */,
 				9AEA030AF6FDAF94B9D2C2F7 /* ShortcutPreset.swift in Sources */,
 				A4F9BA4052B89971F4897D09 /* ShortcutsSettingsSectionViewController.swift in Sources */,
+				EC0DFEE3FDB6728B8FB6E6B6 /* SidebarDropHitTesting.swift in Sources */,
 				CEDAF9621D24A72064947A90 /* SidebarDropPlaceholderView.swift in Sources */,
+				A9EFD34E6CE20566793F25AC /* SidebarListRenderer.swift in Sources */,
 				A31E0FD93C75D6B6059E3809 /* SidebarMotionCoordinator.swift in Sources */,
 				1B0F281C77EAD3FADCED1BED /* SidebarPaneRowButton.swift in Sources */,
 				CBA82B1C9557F98AD04A8672 /* SidebarPaneRowViews.swift in Sources */,
 				0889B047795F8D959B7EC555 /* SidebarRowDiff.swift in Sources */,
+				E94E1DACAFBCE24E8AA485C5 /* SidebarShimmerColorResolver.swift in Sources */,
 				AA417704363C7781CECDFEBF /* SidebarShimmerTextView.swift in Sources */,
 				A1D6E61EF7D669A5DAE672B0 /* SidebarStatusResolver.swift in Sources */,
 				2F66DA8093CA1E0590D3DD0F /* SidebarTextMetrics.swift in Sources */,
