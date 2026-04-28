@@ -67,6 +67,38 @@ final class CommandAvailabilityResolverTests: XCTestCase {
         XCTAssertFalse(available.contains(.arrangeHeightFourPerColumn))
     }
 
+    func testVerticalOnlyPaneStackHidesWidthPresetsButKeepsHeightPresets() {
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 4,
+            totalPaneCount: 4,
+            activeColumnCount: 1,
+            focusedColumnPaneCount: 4
+        )
+
+        XCTAssertFalse(available.contains(.arrangeWidthHalves))
+        XCTAssertFalse(available.contains(.arrangeWidthThirds))
+        XCTAssertFalse(available.contains(.arrangeWidthQuarters))
+        XCTAssertTrue(available.contains(.arrangeHeightTwoPerColumn))
+        XCTAssertTrue(available.contains(.arrangeHeightThreePerColumn))
+        XCTAssertTrue(available.contains(.arrangeHeightFourPerColumn))
+    }
+
+    func testMixedLayoutUsesColumnCountForWidthPresets() {
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 3,
+            totalPaneCount: 3,
+            activeColumnCount: 2,
+            focusedColumnPaneCount: 2
+        )
+
+        XCTAssertTrue(available.contains(.arrangeWidthHalves))
+        XCTAssertFalse(available.contains(.arrangeWidthThirds))
+        XCTAssertFalse(available.contains(.arrangeWidthQuarters))
+        XCTAssertTrue(available.contains(.arrangeHeightThreePerColumn))
+    }
+
     func testSingleWorklaneHidesWorklaneNavigation() {
         let available = CommandAvailabilityResolver.availableCommandIDs(
             worklaneCount: 1,

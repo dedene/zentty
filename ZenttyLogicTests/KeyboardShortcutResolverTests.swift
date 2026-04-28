@@ -148,7 +148,7 @@ final class KeyboardShortcutResolverTests: XCTestCase {
 
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
-                .init(key: .character("3"), modifiers: [.command, .shift]),
+                .init(key: .character("3"), modifiers: [.command, .option]),
                 shortcuts: .default
             ),
             .pane(.arrangeVertically(.threePerColumn))
