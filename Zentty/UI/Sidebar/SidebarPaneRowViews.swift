@@ -1195,15 +1195,6 @@ final class SidebarPaneTextRowView: NSView {
         )
     }
 
-    private static func measuredLineCount(
-        for text: String,
-        font: NSFont,
-        lineHeight: CGFloat,
-        width: CGFloat
-    ) -> Int {
-        SidebarTextMetrics.measuredLineCount(for: text, font: font, lineHeight: lineHeight, width: width)
-    }
-
     private var rendersTrailingTextInLeadingSlot: Bool {
         Self.hasVisibleText(text) == false && Self.hasVisibleText(trailingText)
     }

@@ -5,13 +5,12 @@ import Foundation
 ///
 /// The diff distinguishes four mutation categories:
 ///
-/// - **Removals** — IDs present in `old` but absent in `new`. Must be
-///   processed before insertions so the stack's index math stays stable.
+/// - **Removals** — IDs present in `old` but absent in `new`.
 /// - **Insertions** — IDs present in `new` but absent in `old`. Indices
 ///   refer to positions in the `new` array.
 /// - **Moves** — IDs present in both arrays but at different indices.
-///   After removals and insertions, `NSStackView.insertArrangedSubview(_:at:)`
-///   handles reorder inside an animation block.
+///   The sidebar renderer rebuilds the arranged subview order from the target
+///   summary order while preserving surviving button instances.
 /// - **Updates** — IDs present in both arrays at the same position (or
 ///   after a move) whose summary has changed. The existing button is reused
 ///   and re-configured in-place.

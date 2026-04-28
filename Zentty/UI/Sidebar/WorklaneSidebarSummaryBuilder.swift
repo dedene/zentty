@@ -671,38 +671,6 @@ enum WorklaneSidebarSummaryBuilder {
         }
     }
 
-    private static func focusedPrimaryText(
-        metadata: TerminalMetadata?,
-        fallbackTitle: String?,
-        workingDirectory: String?,
-        formattedWorkingDirectory: String?,
-        branch: String?
-    ) -> (label: String, isCwdDerived: Bool)? {
-        let stableIdentity = WorklaneContextFormatter.displayStablePaneIdentity(
-            for: metadata,
-            fallbackTitle: fallbackTitle,
-            workingDirectory: workingDirectory,
-            branch: branch
-        )
-
-        guard let stableIdentity else {
-            return nil
-        }
-
-        let isCwdDerived = stableIdentity == formattedWorkingDirectory
-        guard branch != nil, isCwdDerived else {
-            return (stableIdentity, isCwdDerived)
-        }
-
-        let branchPrefixedIdentity = WorklaneContextFormatter.paneDetailLine(
-            metadata: metadata,
-            fallbackTitle: fallbackTitle,
-            workingDirectory: workingDirectory,
-            fallbackToMetadataWorkingDirectory: false
-        ) ?? stableIdentity
-        return (branchPrefixedIdentity, true)
-    }
-
     private static func resolvedMultiPaneDetailTexts(
         _ candidates: [PaneDetailCandidate],
         primaryText: String
@@ -864,20 +832,6 @@ enum WorklaneSidebarSummaryBuilder {
         }
 
         return normalizedTitle
-    }
-
-    private static func detailText(
-        for primaryText: String,
-        formattedWorkingDirectory: String?
-    ) -> String? {
-        guard let formattedWorkingDirectory else {
-            return nil
-        }
-
-        return detailTextRepeatsPrimary(
-            formattedWorkingDirectory,
-            primaryText: primaryText
-        ) ? nil : formattedWorkingDirectory
     }
 
     private static func disambiguatedSummaries(

@@ -38,7 +38,7 @@ final class SidebarUpdateRowTests: AppKitTestCase {
 
     func test_sidebar_view_shows_update_row_when_update_is_available() throws {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
-        sidebarView.setUpdateAvailable(true, animated: false)
+        sidebarView.setUpdateAvailable(true)
         sidebarView.layoutSubtreeIfNeeded()
 
         let updateRow = try XCTUnwrap(sidebarView.firstDescendant(named: "SidebarUpdateAvailableRowView"))
@@ -51,7 +51,7 @@ final class SidebarUpdateRowTests: AppKitTestCase {
 
     func test_sidebar_view_update_row_uses_shell_derived_bottom_radius() throws {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
-        sidebarView.setUpdateAvailable(true, animated: false)
+        sidebarView.setUpdateAvailable(true)
         sidebarView.layoutSubtreeIfNeeded()
 
         let updateRow = try XCTUnwrap(sidebarView.firstDescendant(named: "SidebarUpdateAvailableRowView"))
@@ -65,7 +65,7 @@ final class SidebarUpdateRowTests: AppKitTestCase {
 
     func test_sidebar_view_update_row_uses_compact_height() throws {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
-        sidebarView.setUpdateAvailable(true, animated: false)
+        sidebarView.setUpdateAvailable(true)
         sidebarView.layoutSubtreeIfNeeded()
 
         let updateRow = try XCTUnwrap(sidebarView.firstDescendant(named: "SidebarUpdateAvailableRowView"))
@@ -75,7 +75,7 @@ final class SidebarUpdateRowTests: AppKitTestCase {
 
     func test_sidebar_view_update_row_centers_its_label() throws {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
-        sidebarView.setUpdateAvailable(true, animated: false)
+        sidebarView.setUpdateAvailable(true)
         sidebarView.layoutSubtreeIfNeeded()
 
         let updateRow = try XCTUnwrap(sidebarView.firstDescendant(named: "SidebarUpdateAvailableRowView"))
@@ -89,7 +89,7 @@ final class SidebarUpdateRowTests: AppKitTestCase {
 
     func test_sidebar_view_update_row_rounds_all_four_corners() throws {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
-        sidebarView.setUpdateAvailable(true, animated: false)
+        sidebarView.setUpdateAvailable(true)
         sidebarView.layoutSubtreeIfNeeded()
 
         let updateRow = try XCTUnwrap(sidebarView.firstDescendant(named: "SidebarUpdateAvailableRowView"))

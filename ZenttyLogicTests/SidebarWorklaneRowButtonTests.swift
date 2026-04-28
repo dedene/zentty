@@ -36,7 +36,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         // which killed the shimmer animation on running agents. We instead
         // keep the primary single-line with tail truncation and surface the
         // disambiguation delta on a dedicated small-font row.
-        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 240))
+        let sidebarView = makeRenderableSidebarView(width: 260, height: 240)
         sidebarView.render(
             summaries: [
                 WorklaneSidebarSummary(
@@ -1900,7 +1900,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
     }
 
     func test_sidebar_view_uses_a_single_shared_shimmer_driver_for_visible_working_rows() throws {
-        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 220))
+        let sidebarView = makeRenderableSidebarView(width: 280, height: 220)
         let window = makeVisibleWindow(containing: sidebarView)
 
         sidebarView.render(
@@ -1928,8 +1928,37 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertTrue(window.isVisible)
     }
 
+    func test_sidebar_view_uses_injected_window_renderability_policy_for_shimmer() throws {
+        var isRenderable = false
+        let sidebarView = SidebarView(
+            frame: NSRect(x: 0, y: 0, width: 280, height: 220),
+            windowRenderabilityResolver: { _ in isRenderable }
+        )
+        _ = makeVisibleWindow(containing: sidebarView)
+
+        sidebarView.render(
+            summaries: [
+                makeSidebarSummary(worklaneID: WorklaneID("worklane-api"), primaryText: "API")
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        sidebarView.layoutSubtreeIfNeeded()
+        sidebarView.updateShimmerVisibilityForTesting()
+
+        var buttons = try sidebarWorklaneButtons(in: sidebarView)
+        XCTAssertFalse(sidebarView.shimmerDriverIsRunningForTesting)
+        XCTAssertFalse(buttons.first?.shimmerIsAnimatingForTesting ?? true)
+
+        isRenderable = true
+        sidebarView.updateShimmerVisibilityForTesting()
+
+        buttons = try sidebarWorklaneButtons(in: sidebarView)
+        XCTAssertTrue(sidebarView.shimmerDriverIsRunningForTesting)
+        XCTAssertTrue(buttons.first?.shimmerIsAnimatingForTesting ?? false)
+    }
+
     func test_sidebar_view_assigns_distinct_phase_offsets_to_visible_working_rows() throws {
-        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 220))
+        let sidebarView = makeRenderableSidebarView(width: 280, height: 220)
         _ = makeVisibleWindow(containing: sidebarView)
 
         sidebarView.render(
@@ -2076,7 +2105,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
     }
 
     func test_sidebar_view_keeps_offscreen_working_rows_static() throws {
-        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 140))
+        let sidebarView = makeRenderableSidebarView(width: 280, height: 140)
         _ = makeVisibleWindow(containing: sidebarView)
 
         sidebarView.render(
@@ -2099,7 +2128,10 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
     }
 
     func test_sidebar_view_pauses_shared_shimmer_driver_when_window_is_hidden() throws {
-        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 220))
+        let sidebarView = SidebarView(
+            frame: NSRect(x: 0, y: 0, width: 280, height: 220),
+            windowRenderabilityResolver: { $0?.isVisible == true }
+        )
         let window = makeVisibleWindow(containing: sidebarView)
 
         sidebarView.render(
@@ -2297,6 +2329,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             attentionState: .running,
             isWorking: true,
             isActive: isActive
+        )
+    }
+
+    private func makeRenderableSidebarView(width: CGFloat, height: CGFloat) -> SidebarView {
+        SidebarView(
+            frame: NSRect(x: 0, y: 0, width: width, height: height),
+            windowRenderabilityResolver: SidebarWindowRenderability.alwaysRenderableWindow
         )
     }
 

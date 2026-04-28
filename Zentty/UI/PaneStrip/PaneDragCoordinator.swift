@@ -1589,7 +1589,7 @@ final class PaneDragCoordinator {
         let activeID = activeWorklaneIDProvider?()
         let sidebarBounds = sidebarBoundsProvider?() ?? .zero
 
-        let hit = PaneDragHitTest.sidebarRowHit(
+        let hit = SidebarDropHitTesting.target(
             cursorInStrip: cursorInStrip,
             worklaneFrames: worklaneFrames,
             activeWorklaneID: activeID,
@@ -1597,7 +1597,7 @@ final class PaneDragCoordinator {
         )
 
         switch hit {
-        case .worklane(let worklaneID):
+        case .row(let worklaneID):
             if currentSidebarTarget != worklaneID {
                 currentSidebarTarget = worklaneID
                 onHoveredSidebarWorklaneChanged?(worklaneID)
