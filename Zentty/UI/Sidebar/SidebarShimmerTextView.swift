@@ -38,9 +38,8 @@ enum SidebarShimmerPhaseOffset {
 /// instances share a single animation clock via `SidebarShimmerCoordinator`
 /// to avoid per-label timers.
 ///
-/// Previously lived inside `SidebarWorklaneRowButton.swift`. Extracted as
-/// part of the Phase 1 row-button split. The Row button, pane row views,
-/// and `SidebarView` all hold references to instances of this type.
+/// Previously lived inside `SidebarWorklaneRowButton.swift`. The row button,
+/// pane row views, and `SidebarView` all hold references to instances of this type.
 final class SidebarShimmerTextView: NSView {
     fileprivate enum Animation {
         static let velocity: CGFloat = 130      // pts/sec — constant across all widths

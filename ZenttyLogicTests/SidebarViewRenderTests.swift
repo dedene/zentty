@@ -57,13 +57,7 @@ final class SidebarViewRenderTests: XCTestCase {
         XCTAssertEqual(sidebar.renderInvocationCountForTesting, 2)
     }
 
-    // MARK: - Structural mutation sequence (Phase 0 baseline)
-    //
-    // Drives a sequence of add/remove mutations through SidebarView.render()
-    // and asserts button count + worklaneID order after each step. Locks the
-    // current structural behavior before Phase 2 rewrites render() to use a
-    // diff-based mutation path. Phase 2 will extend this test with identity
-    // preservation assertions (ObjectIdentifier stability for surviving IDs).
+    // MARK: - Structural Mutation
 
     func test_render_structural_mutation_sequence_maintains_expected_ids() {
         let sidebar = makeSidebar()
@@ -147,12 +141,100 @@ final class SidebarViewRenderTests: XCTestCase {
         )
     }
 
-    // MARK: - Identity preservation (Phase 2 baseline)
-    //
-    // These tests assert that surviving buttons are the SAME NSView instance
-    // (by ObjectIdentifier) across structural mutations. This proves the
-    // diff-based render path reuses buttons instead of destroying them,
-    // preserving hover, focus, tooltip, and shimmer state.
+    func test_render_pure_reorder_preserves_button_identity_and_target_order() {
+        let sidebar = makeSidebar()
+        let theme = ZenttyTheme.fallback(for: nil)
+
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "A", primaryText: "a"),
+                makeSummary(worklaneID: "B", primaryText: "b"),
+                makeSummary(worklaneID: "C", primaryText: "c"),
+            ],
+            theme: theme
+        )
+
+        let buttonA = worklaneButton(in: sidebar, id: "A")
+        let buttonB = worklaneButton(in: sidebar, id: "B")
+        let buttonC = worklaneButton(in: sidebar, id: "C")
+
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "C", primaryText: "c"),
+                makeSummary(worklaneID: "A", primaryText: "a"),
+                makeSummary(worklaneID: "B", primaryText: "b"),
+            ],
+            theme: theme
+        )
+
+        XCTAssertEqual(
+            worklaneIDs(in: sidebar),
+            [WorklaneID("C"), WorklaneID("A"), WorklaneID("B")]
+        )
+        XCTAssertTrue(buttonA === worklaneButton(in: sidebar, id: "A"))
+        XCTAssertTrue(buttonB === worklaneButton(in: sidebar, id: "B"))
+        XCTAssertTrue(buttonC === worklaneButton(in: sidebar, id: "C"))
+    }
+
+    func test_render_removes_deleted_buttons_from_view_hierarchy_immediately() {
+        let sidebar = makeSidebar()
+        let theme = ZenttyTheme.fallback(for: nil)
+
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "A", primaryText: "a"),
+                makeSummary(worklaneID: "B", primaryText: "b"),
+            ],
+            theme: theme
+        )
+
+        let removedButton = worklaneButton(in: sidebar, id: "B")
+        XCTAssertNotNil(removedButton?.superview)
+
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "A", primaryText: "a"),
+            ],
+            theme: theme
+        )
+
+        XCTAssertNil(removedButton?.superview)
+        if let removedButton {
+            XCTAssertFalse(sidebar.listStackHasConstraintsReferencingViewForTesting(removedButton))
+        }
+        XCTAssertEqual(worklaneIDs(in: sidebar), [WorklaneID("A")])
+    }
+
+    func test_render_reconfigures_surviving_buttons_when_theme_changes_during_structural_mutation() {
+        let sidebar = makeSidebar()
+        let initialTheme = ZenttyTheme.fallback(for: nil)
+        let nextTheme = makeDarkTheme(foreground: "#F0F3F6")
+        let summaryA = makeSummary(worklaneID: "A", primaryText: "a")
+
+        sidebar.render(
+            summaries: [
+                summaryA,
+                makeSummary(worklaneID: "B", primaryText: "b"),
+            ],
+            theme: initialTheme
+        )
+
+        let buttonA = worklaneButton(in: sidebar, id: "A")
+        XCTAssertNotNil(buttonA)
+
+        sidebar.render(
+            summaries: [summaryA],
+            theme: nextTheme
+        )
+
+        XCTAssertTrue(buttonA === worklaneButton(in: sidebar, id: "A"))
+        XCTAssertEqual(
+            buttonA?.primaryTextColorForTesting.srgbClamped,
+            nextTheme.sidebarButtonInactiveText.srgbClamped
+        )
+    }
+
+    // MARK: - Identity Preservation
 
     func test_render_preserves_button_identity_across_removal() {
         let sidebar = makeSidebar()
@@ -259,8 +341,7 @@ final class SidebarViewRenderTests: XCTestCase {
         XCTAssertEqual(
             sidebar.proposedResizeWidthForTesting(
                 startWidth: 280,
-                translation: 80,
-                availableWidth: 900
+                translation: 80
             ),
             360,
             accuracy: 0.001
@@ -285,6 +366,21 @@ final class SidebarViewRenderTests: XCTestCase {
     private func makeSidebar() -> SidebarView {
         let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
         return sidebar
+    }
+
+    private func makeDarkTheme(foreground: String) -> ZenttyTheme {
+        ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: foreground)!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            )
+        )
     }
 
     private func makeSummary(
