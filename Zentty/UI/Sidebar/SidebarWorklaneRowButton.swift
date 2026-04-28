@@ -43,16 +43,20 @@ final class SidebarWorklaneRowButton: NSButton {
     private let textStack = NSStackView()
 
     private var detailLabels: [SidebarStaticLabel] = []
-    private var panePrimaryRows: [SidebarPanePrimaryRowView] = []
-    private var paneDetailLabels: [SidebarStaticLabel] = []
-    private var paneStatusRows: [SidebarPaneTextRowView] = []
-    private var paneRowButtons: [SidebarPaneRowButton] = []
-    private var paneRowContainers: [SidebarInsetContainerView] = []
+    private let paneRowRenderer = SidebarPaneRowRenderer(paneWrapperInset: Layout.paneWrapperInset)
+    private var panePrimaryRows: [SidebarPanePrimaryRowView] { paneRowRenderer.panePrimaryRows }
+    private var paneDetailLabels: [SidebarStaticLabel] { paneRowRenderer.paneDetailLabels }
+    private var paneStatusRows: [SidebarPaneTextRowView] { paneRowRenderer.paneStatusRows }
+    private var paneRowButtons: [SidebarPaneRowButton] { paneRowRenderer.paneRowButtons }
+    private var paneRowContainers: [SidebarInsetContainerView] { paneRowRenderer.paneRowContainers }
     private let tintLayer = CALayer()
     private var currentSummary: WorklaneSidebarSummary?
+    private var currentPresentation: SidebarWorklaneRowPresentation?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var lastAppliedBoundsWidth: CGFloat = -1
+#if DEBUG
     private(set) var configureApplyCountForTesting: Int = 0
+#endif
     private var currentStatusSymbolName = ""
     private var isHovered = false
     private var isPaneRowHovered = false
@@ -333,15 +337,13 @@ final class SidebarWorklaneRowButton: NSButton {
         shimmerCoordinator = coordinator
         primaryLabel.shimmerCoordinator = coordinator
         statusLabel.shimmerCoordinator = coordinator
-        panePrimaryRows.forEach { $0.setShimmerCoordinator(coordinator) }
-        paneStatusRows.forEach { $0.setShimmerCoordinator(coordinator) }
+        paneRowRenderer.setShimmerCoordinator(coordinator)
     }
 
     func setShimmerVisibility(_ isVisible: Bool) {
         primaryLabel.isVisibleForSharedAnimation = isVisible
         statusLabel.isVisibleForSharedAnimation = isVisible
-        panePrimaryRows.forEach { $0.setShimmerVisibility(isVisible) }
-        paneStatusRows.forEach { $0.setShimmerVisibility(isVisible) }
+        paneRowRenderer.setShimmerVisibility(isVisible)
     }
 
     func setDropTargetHighlighted(_ highlighted: Bool) {
@@ -444,7 +446,9 @@ final class SidebarWorklaneRowButton: NSButton {
         primaryLabel.shimmerPhaseOffset = worklanePhaseOffset
         statusLabel.shimmerPhaseOffset = worklanePhaseOffset
         lastAppliedBoundsWidth = bounds.width
+#if DEBUG
         configureApplyCountForTesting &+= 1
+#endif
         applyResolvedSummary(animated: animated)
     }
 
@@ -474,12 +478,11 @@ final class SidebarWorklaneRowButton: NSButton {
             return
         }
 
-        guard let rowIndex = summary.paneRows.firstIndex(where: { $0.paneID == paneID }),
-              panePrimaryRows.indices.contains(rowIndex)
-        else {
-            return
-        }
-        panePrimaryRows[rowIndex].setPrimaryText(text)
+        paneRowRenderer.setVolatilePaneTitle(
+            paneID: paneID,
+            text: text,
+            paneRows: summary.paneRows
+        )
     }
 
     // MARK: - Rendering
@@ -492,7 +495,9 @@ final class SidebarWorklaneRowButton: NSButton {
         isApplyingResolvedSummary = true
         defer { isApplyingResolvedSummary = false }
 
-        let layout = SidebarWorklaneRowLayout(summary: summary, availableWidth: bounds.width)
+        let presentation = SidebarWorklaneRowPresentation(summary: summary, availableWidth: bounds.width)
+        currentPresentation = presentation
+        let layout = presentation.layout
         applyTextStackVerticalInsets(hasPaneRows: summary.paneRows.isEmpty == false)
 
         topLabel.stringValue = summary.topLabel ?? ""
@@ -502,25 +507,14 @@ final class SidebarWorklaneRowButton: NSButton {
             primaryBaseLabel.stringValue = summary.primaryText
             primaryLabel.stringValue = summary.primaryText
             applyWorklanePrimaryPresentation()
-            let statusCopy = SidebarStatusResolver.resolveDisplayStatusText(
-                statusText: summary.statusText,
-                attentionState: summary.attentionState,
-                interactionKind: summary.interactionKind,
-                interactionLabel: summary.interactionLabel
-            )
-            statusBaseLabel.stringValue = statusCopy
-            statusLabel.stringValue = statusCopy
+            statusBaseLabel.stringValue = presentation.statusDisplayText
+            statusLabel.stringValue = presentation.statusDisplayText
             statusProgressRevealView.configure(
                 taskProgress: summary.taskProgress,
                 color: currentTheme.statusRunning,
                 font: statusBaseLabel.font ?? ShellMetrics.sidebarStatusFont()
             )
-            currentStatusSymbolName = SidebarStatusResolver.resolveStatusSymbolName(
-                statusSymbolName: summary.statusSymbolName,
-                attentionState: summary.attentionState,
-                interactionKind: summary.interactionKind,
-                interactionSymbolName: summary.interactionSymbolName
-            )
+            currentStatusSymbolName = presentation.statusSymbolName
             statusIconView.image =
                 currentStatusSymbolName.isEmpty
                 ? nil
@@ -528,10 +522,7 @@ final class SidebarWorklaneRowButton: NSButton {
                     .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
             statusIconView.isHidden = statusIconView.image == nil
             applyWorklaneStatusPresentation(
-                lineCount: SidebarWorklaneRowLayout.worklaneStatusLineCount(
-                    for: summary,
-                    availableWidth: bounds.width
-                )
+                lineCount: presentation.statusLineCount
             )
             configureDetailLabels(for: summary.detailLines)
         } else {
@@ -547,7 +538,7 @@ final class SidebarWorklaneRowButton: NSButton {
             currentStatusSymbolName = ""
             statusIconView.image = nil
             statusIconView.isHidden = true
-            configurePaneRows(for: summary.paneRows, animated: animated)
+            configurePaneRows(for: presentation.paneRows, animated: animated)
         }
 
         textStack.setViews(
@@ -642,116 +633,40 @@ final class SidebarWorklaneRowButton: NSButton {
         }
     }
 
-    private func configurePaneRows(for paneRows: [WorklaneSidebarPaneRow], animated: Bool) {
-        while panePrimaryRows.count < paneRows.count {
-            panePrimaryRows.append(SidebarPanePrimaryRowView())
-        }
-
-        while paneDetailLabels.count < paneRows.count {
-            let label = SidebarStaticLabel()
-            configureLabel(
-                label,
-                font: ShellMetrics.sidebarDetailFont(),
-                lineBreakMode: .byTruncatingMiddle
+    private func configurePaneRows(
+        for panePresentations: [SidebarWorklaneRowPresentation.PaneRow],
+        animated: Bool
+    ) {
+        paneRowRenderer.configure(
+            panePresentations: panePresentations,
+            animated: animated,
+            worklaneColor: currentSummary?.color,
+            referenceWidthView: textStack,
+            callbacks: SidebarPaneRowRenderer.Callbacks(
+                onPaneSelected: { [weak self] paneID in
+                    self?.onPaneSelected?(paneID)
+                },
+                onCloseWorklaneRequested: { [weak self] paneID in
+                    self?.onCloseWorklaneRequested?(paneID)
+                },
+                onClosePaneRequested: { [weak self] paneID in
+                    self?.onClosePaneRequested?(paneID)
+                },
+                onSplitHorizontalRequested: { [weak self] paneID in
+                    self?.onSplitHorizontalRequested?(paneID)
+                },
+                onSplitVerticalRequested: { [weak self] paneID in
+                    self?.onSplitVerticalRequested?(paneID)
+                },
+                onWorklaneColorChanged: { [weak self] color in
+                    guard let self, let worklaneID = self.worklaneID else { return }
+                    self.onWorklaneColorChanged?(worklaneID, color)
+                },
+                onHoverChanged: { [weak self] isHovered in
+                    self?.paneRowHoverChanged(isHovered: isHovered)
+                }
             )
-            paneDetailLabels.append(label)
-        }
-
-        while paneStatusRows.count < paneRows.count {
-            paneStatusRows.append(
-                SidebarPaneTextRowView(
-                    font: ShellMetrics.sidebarStatusFont(),
-                    lineHeight: ShellMetrics.sidebarStatusLineHeight
-                )
-            )
-        }
-
-        while paneRowButtons.count < paneRows.count {
-            let button = SidebarPaneRowButton()
-            paneRowButtons.append(button)
-            paneRowContainers.append(
-                SidebarInsetContainerView(
-                    contentView: button,
-                    horizontalInset: Layout.paneWrapperInset,
-                    referenceWidthView: textStack
-                )
-            )
-        }
-
-        for (index, paneRow) in paneRows.enumerated() {
-            let panePhaseOffset = SidebarShimmerPhaseOffset.forIdentifier(paneRow.paneID.rawValue)
-            let presentationMode = SidebarWorklaneRowLayout.paneRowPresentationMode(
-                for: paneRow,
-                availableWidth: bounds.width
-            )
-            let statusTrailingLayout = presentationMode == .adaptive
-                ? SidebarWorklaneRowLayout.paneRowStatusTrailingLayout(
-                    for: paneRow,
-                    availableWidth: bounds.width
-                )
-                : .hidden
-            // Pane row primaries are always single-line so the shimmer
-            // overlay can animate (SidebarShimmerTextView is single-line CoreText).
-            panePrimaryRows[index].configure(
-                primaryText: paneRow.primaryText,
-                trailingText: presentationMode == .inline ? paneRow.trailingText : nil,
-                presentationMode: presentationMode,
-                lineCount: 1
-            )
-            panePrimaryRows[index].setShimmerPhaseOffset(panePhaseOffset)
-            paneDetailLabels[index].stringValue = paneRow.detailText ?? ""
-            paneStatusRows[index].configure(
-                text: SidebarStatusResolver.resolveDisplayStatusText(
-                    statusText: paneRow.statusText,
-                    attentionState: paneRow.attentionState,
-                    interactionKind: paneRow.interactionKind,
-                    interactionLabel: paneRow.interactionLabel
-                ),
-                symbolName: SidebarStatusResolver.resolveStatusSymbolName(
-                    statusSymbolName: paneRow.statusSymbolName,
-                    attentionState: paneRow.attentionState,
-                    interactionKind: paneRow.interactionKind,
-                    interactionSymbolName: paneRow.interactionSymbolName
-                ),
-                taskProgress: paneRow.taskProgress,
-                trailingText: statusTrailingLayout.isVisible ? paneRow.trailingText : nil,
-                trailingWidth: statusTrailingLayout.width,
-                lineCount: SidebarWorklaneRowLayout.paneRowStatusLineCount(
-                    for: paneRow,
-                    availableWidth: bounds.width
-                ),
-                animated: animated
-            )
-            paneStatusRows[index].setShimmerPhaseOffset(panePhaseOffset)
-
-            let button = paneRowButtons[index]
-            button.paneID = paneRow.paneID
-            button.isLastPaneInWorklane = paneRows.count == 1
-            button.currentWorklaneColor = currentSummary?.color
-            button.setAccessibilityLabel(paneRow.primaryText)
-            button.onPaneClicked = { [weak self] paneID in
-                self?.onPaneSelected?(paneID)
-            }
-            button.onCloseWorklane = { [weak self] paneID in
-                self?.onCloseWorklaneRequested?(paneID)
-            }
-            button.onClosePane = { [weak self] paneID in
-                self?.onClosePaneRequested?(paneID)
-            }
-            button.onSplitHorizontal = { [weak self] paneID in
-                self?.onSplitHorizontalRequested?(paneID)
-            }
-            button.onSplitVertical = { [weak self] paneID in
-                self?.onSplitVerticalRequested?(paneID)
-            }
-            button.onPickWorklaneColor = { [weak self] _, color in
-                guard let self, let worklaneID = self.worklaneID else { return }
-                self.onWorklaneColorChanged?(worklaneID, color)
-            }
-            button.onHoverChanged = { [weak self] isHovered in
-                self?.paneRowHoverChanged(isHovered: isHovered)
-            }
-        }
+        )
     }
 
     // MARK: - Appearance & Colors
@@ -791,10 +706,7 @@ final class SidebarWorklaneRowButton: NSButton {
             statusBaseLabel.textColor = statusTextColor(for: summary)
             statusIconView.contentTintColor =
                 statusBaseLabel.textColor ?? currentTheme.secondaryText
-            let statusWraps = SidebarWorklaneRowLayout.worklaneStatusLineCount(
-                for: summary,
-                availableWidth: bounds.width
-            ) > 1
+            let statusWraps = (currentPresentation?.statusLineCount ?? 1) > 1
             statusProgressIndicator.configure(
                 taskProgress: statusWraps ? nil : summary.taskProgress,
                 color: currentTheme.statusRunning,
@@ -946,10 +858,7 @@ final class SidebarWorklaneRowButton: NSButton {
             treatment: primaryShimmerTreatment,
             isActive: isActive
         )
-        let statusWraps = SidebarWorklaneRowLayout.worklaneStatusLineCount(
-            for: summary,
-            availableWidth: bounds.width
-        ) > 1
+        let statusWraps = (currentPresentation?.statusLineCount ?? 1) > 1
         let shimmersStatus =
             summary.attentionState == .running
             && statusWraps == false
@@ -996,10 +905,13 @@ final class SidebarWorklaneRowButton: NSButton {
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor
             )
-            let presentationMode = SidebarWorklaneRowLayout.paneRowPresentationMode(
-                for: paneRow,
-                availableWidth: bounds.width
-            )
+            let presentationMode: SidebarPaneRowPresentationMode
+            if let panePresentations = currentPresentation?.paneRows,
+               panePresentations.indices.contains(index) {
+                presentationMode = panePresentations[index].presentationMode
+            } else {
+                presentationMode = .inline
+            }
             let isActive = currentSummary?.isActive ?? false
             let paneShimmerTreatment: SidebarShimmerColorResolver.Treatment = isActive ? .shadow : .highlight
             panePrimaryRows[index].applyColors(

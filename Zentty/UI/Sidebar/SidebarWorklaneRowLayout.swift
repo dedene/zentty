@@ -326,24 +326,6 @@ struct SidebarWorklaneRowLayout: Equatable {
         return .inline
     }
 
-    static func worklanePrimaryLineCount(
-        for summary: WorklaneSidebarSummary,
-        availableWidth: CGFloat?,
-        metrics: WorklaneRowLayoutMetrics = .sidebar
-    ) -> Int {
-        guard let availableWidth else {
-            return 1
-        }
-
-        return lineCount(
-            for: summary.primaryText,
-            font: ShellMetrics.sidebarPrimaryFont(),
-            lineHeight: metrics.primaryLineHeight,
-            width: worklaneTextContentWidth(for: availableWidth),
-            maxLineCount: 2
-        )
-    }
-
     static func worklaneStatusLineCount(
         for summary: WorklaneSidebarSummary,
         availableWidth: CGFloat?,
