@@ -1594,6 +1594,54 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertFalse(controller.validateMenuItem(menuItem))
     }
 
+    func test_arrange_width_menu_items_are_disabled_for_vertical_only_pane_stack() {
+        let controller = makeController()
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-1"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                columns: [
+                    PaneColumnState(
+                        id: PaneColumnID("stack"),
+                        panes: [
+                            PaneState(id: PaneID("pane-1"), title: "top"),
+                            PaneState(id: PaneID("pane-2"), title: "middle"),
+                            PaneState(id: PaneID("pane-3"), title: "bottom"),
+                        ],
+                        width: 720,
+                        focusedPaneID: PaneID("pane-1"),
+                        lastFocusedPaneID: PaneID("pane-1")
+                    ),
+                ],
+                focusedColumnID: PaneColumnID("stack")
+            )
+        )
+
+        controller.rootViewControllerForTesting.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+
+        let widthMenuItems = [
+            NSMenuItem(
+                title: "Arrange Width: Half Width",
+                action: #selector(MainWindowController.arrangePaneWidthHalves(_:)),
+                keyEquivalent: "2"
+            ),
+            NSMenuItem(
+                title: "Arrange Width: Thirds",
+                action: #selector(MainWindowController.arrangePaneWidthThirds(_:)),
+                keyEquivalent: "3"
+            ),
+            NSMenuItem(
+                title: "Arrange Width: Quarters",
+                action: #selector(MainWindowController.arrangePaneWidthQuarters(_:)),
+                keyEquivalent: "4"
+            ),
+        ]
+
+        for item in widthMenuItems {
+            XCTAssertFalse(controller.validateMenuItem(item), "\(item.title) should be disabled")
+        }
+    }
+
     func test_invalid_arrange_width_quarters_command_is_ignored_when_active_worklane_has_two_panes() {
         let controller = makeController()
         let worklane = WorklaneState(

@@ -392,7 +392,7 @@ enum AppCommandRegistry {
             id: .arrangeHeightFull,
             title: "Arrange Height: Full Height",
             category: .panes,
-            defaultShortcut: .init(key: .character("1"), modifiers: [.command, .shift]),
+            defaultShortcut: .init(key: .character("1"), modifiers: [.command, .option]),
             action: .pane(.arrangeVertically(.fullHeight)),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -404,7 +404,7 @@ enum AppCommandRegistry {
             id: .arrangeHeightTwoPerColumn,
             title: "Arrange Height: 2 Per Column",
             category: .panes,
-            defaultShortcut: .init(key: .character("2"), modifiers: [.command, .shift]),
+            defaultShortcut: .init(key: .character("2"), modifiers: [.command, .option]),
             action: .pane(.arrangeVertically(.twoPerColumn)),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -416,7 +416,7 @@ enum AppCommandRegistry {
             id: .arrangeHeightThreePerColumn,
             title: "Arrange Height: 3 Per Column",
             category: .panes,
-            defaultShortcut: .init(key: .character("3"), modifiers: [.command, .shift]),
+            defaultShortcut: .init(key: .character("3"), modifiers: [.command, .option]),
             action: .pane(.arrangeVertically(.threePerColumn)),
             menuItem: AppCommandMenuItem(
                 section: .view,
@@ -428,7 +428,7 @@ enum AppCommandRegistry {
             id: .arrangeHeightFourPerColumn,
             title: "Arrange Height: 4 Per Column",
             category: .panes,
-            defaultShortcut: .init(key: .character("4"), modifiers: [.command, .shift]),
+            defaultShortcut: .init(key: .character("4"), modifiers: [.command, .option]),
             action: .pane(.arrangeVertically(.fourPerColumn)),
             menuItem: AppCommandMenuItem(
                 section: .view,

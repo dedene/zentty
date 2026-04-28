@@ -87,12 +87,14 @@ enum CommandAvailabilityResolver {
             return context.activePaneCount > 1
         case .focusUpInColumn, .focusDownInColumn:
             return context.activePaneCount > 1 || context.worklaneCount > 1
-        case .arrangeWidthFull, .arrangeWidthHalves:
+        case .arrangeWidthFull:
             return context.activePaneCount >= 2
+        case .arrangeWidthHalves:
+            return context.activeColumnCount >= 2
         case .arrangeWidthThirds:
-            return context.activePaneCount >= 3
+            return context.activeColumnCount >= 3
         case .arrangeWidthQuarters:
-            return context.activePaneCount >= 4
+            return context.activeColumnCount >= 4
         case .arrangeHeightFull, .arrangeHeightTwoPerColumn:
             return context.activePaneCount >= 2
         case .arrangeHeightThreePerColumn:
