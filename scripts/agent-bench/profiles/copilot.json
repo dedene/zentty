@@ -1,0 +1,44 @@
+{
+  "name": "copilot",
+  "command": "copilot",
+  "real_binary_names": ["copilot"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "--prompt",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK",
+      "--allow-all-tools",
+      "--allow-all-paths",
+      "--output-format",
+      "json"
+    ],
+    "approval": [
+      "--prompt",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK",
+      "--allow-all-paths",
+      "--output-format",
+      "json"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["session-start", "user-prompt-submitted", "pre-tool-use", "post-tool-use", "session-end"]
+    },
+    "approval": {
+      "required_events": ["session-start", "user-prompt-submitted", "pre-tool-use"]
+    }
+  },
+  "input_by_scenario": {
+    "approval": [
+      {
+        "match": "Do you want|Would you like|Allow|approve|permission",
+        "text": "1\n"
+      },
+      {
+        "after": 60,
+        "text": "\u0003"
+      }
+    ]
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "sign in", "device code"]
+}

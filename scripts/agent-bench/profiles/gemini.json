@@ -1,0 +1,48 @@
+{
+  "name": "gemini",
+  "command": "gemini",
+  "real_binary_names": ["gemini"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "--prompt",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK",
+      "--skip-trust",
+      "--approval-mode",
+      "yolo",
+      "--output-format",
+      "stream-json"
+    ],
+    "approval": [
+      "--prompt-interactive",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK",
+      "--approval-mode",
+      "default"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["SessionStart", "BeforeAgent", "BeforeTool", "AfterAgent", "SessionEnd"]
+    },
+    "approval": {
+      "required_events": ["SessionStart", "BeforeAgent", "Notification"]
+    }
+  },
+  "input_by_scenario": {
+    "approval": [
+      {
+        "match": "Do you trust the files in this folder",
+        "text": "1\n"
+      },
+      {
+        "match": "Allow execution|Action Required",
+        "text": "1\n"
+      },
+      {
+        "after": 45,
+        "text": "\u0003"
+      }
+    ]
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in", "not running in a trusted directory"]
+}

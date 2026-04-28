@@ -1,0 +1,26 @@
+{
+  "name": "droid",
+  "command": "droid",
+  "real_binary_names": ["droid"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "exec",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "approval": [
+      "exec",
+      "Run this exact shell command: touch ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["SessionStart", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"]
+    },
+    "approval": {
+      "required_events": ["SessionStart", "PreToolUse"]
+    }
+  },
+  "input_by_scenario": {},
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in"]
+}

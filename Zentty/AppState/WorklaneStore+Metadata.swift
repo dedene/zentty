@@ -245,12 +245,15 @@ extension WorklaneStore {
             return
         }
 
+        let codexTitleInteractionKind = TerminalMetadataChangeClassifier.codexTitleInteractionKind(
+            for: metadata.title
+        )
         let waitingTitleKind = TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: metadata.title)
         let titleNeedsInput = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
             metadata.title,
             recognizedTool: recognizedTool
         )?.phase == .needsInput
-        guard waitingTitleKind != nil || titleNeedsInput else {
+        guard codexTitleInteractionKind != nil || waitingTitleKind != nil || titleNeedsInput else {
             return
         }
 
@@ -264,9 +267,12 @@ extension WorklaneStore {
     ) {
         let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
             ?? AgentToolRecognizer.recognize(metadata: metadata)
+        let titleInteractionKind = TerminalMetadataChangeClassifier.codexTitleInteractionKind(
+            for: metadata.title
+        )
         guard
             recognizedTool == .codex,
-            TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: metadata.title) == .needsInput,
+            titleInteractionKind != nil,
             var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID]
         else {
             return
@@ -278,8 +284,7 @@ extension WorklaneStore {
 
         let existingStatus = auxiliaryState.agentStatus
         let titleText = AgentInteractionClassifier.trimmed(metadata.title)
-        let interactionKind = AgentInteractionClassifier.interactionKind(forWaitingMessage: titleText)
-            ?? .genericInput
+        let interactionKind = titleInteractionKind ?? .genericInput
         auxiliaryState.agentStatus = PaneAgentStatus(
             tool: .codex,
             state: .needsInput,

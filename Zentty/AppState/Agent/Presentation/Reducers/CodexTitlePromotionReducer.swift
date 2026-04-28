@@ -26,6 +26,13 @@ struct CodexTitlePromotionReducer: PresentationReducer {
             return draft
         }
 
+        if titlePhase == .needsInput,
+           agentState == .starting || agentState == .running || agentState == .idle {
+            var draft = draft
+            draft.runtimePhase = .needsInput
+            return draft
+        }
+
         if agentState == .starting {
             var draft = draft
             draft.runtimePhase = titlePhase

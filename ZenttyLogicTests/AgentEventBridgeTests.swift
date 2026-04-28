@@ -217,6 +217,136 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(postedPayloads[0].toolName, "Cursor")
     }
 
+    func test_cursor_adapter_shell_execution_hooks_are_ignored_by_default() throws {
+        for event in ["beforeShellExecution", "afterShellExecution"] {
+            var postedPayloads: [AgentStatusPayload] = []
+            let json = #"{"hook_event_name":"\#(event)","conversation_id":"c-shell"}"#
+            let result = AgentEventBridge.run(
+                arguments: ["zentty", "agent-event", "--adapter=cursor"],
+                environment: defaultEnvironment,
+                inputData: Data(json.utf8),
+                post: { postedPayloads.append($0) },
+                writeError: { XCTFail("unexpected error: \($0)") }
+            )
+
+            XCTAssertEqual(result, EXIT_SUCCESS)
+            XCTAssertTrue(postedPayloads.isEmpty, "Expected \(event) to stay quiet without verbose hooks")
+        }
+    }
+
+    func test_cursor_adapter_before_shell_execution_verbose_maps_to_running() throws {
+        var postedPayloads: [AgentStatusPayload] = []
+        let json = #"{"hook_event_name":"beforeShellExecution","conversation_id":"c-shell","workspace_roots":["/tmp/ws"]}"#
+        let env = defaultEnvironment.merging(["ZENTTY_CURSOR_VERBOSE_HOOKS": "1"]) { _, new in new }
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=cursor"],
+            environment: env,
+            inputData: Data(json.utf8),
+            post: { postedPayloads.append($0) },
+            writeError: { XCTFail("unexpected error: \($0)") }
+        )
+
+        XCTAssertEqual(result, EXIT_SUCCESS)
+        XCTAssertEqual(postedPayloads.count, 1)
+        XCTAssertEqual(postedPayloads[0].state, .running)
+        XCTAssertEqual(postedPayloads[0].toolName, "Cursor")
+        XCTAssertEqual(postedPayloads[0].sessionID, "c-shell")
+        XCTAssertEqual(postedPayloads[0].agentWorkingDirectory, "/tmp/ws")
+    }
+
+    func test_cursor_adapter_after_shell_execution_verbose_maps_to_running() throws {
+        var postedPayloads: [AgentStatusPayload] = []
+        let json = #"{"hook_event_name":"afterShellExecution","conversation_id":"c-shell"}"#
+        let env = defaultEnvironment.merging(["ZENTTY_CURSOR_VERBOSE_HOOKS": "1"]) { _, new in new }
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=cursor"],
+            environment: env,
+            inputData: Data(json.utf8),
+            post: { postedPayloads.append($0) },
+            writeError: { XCTFail("unexpected error: \($0)") }
+        )
+
+        XCTAssertEqual(result, EXIT_SUCCESS)
+        XCTAssertEqual(postedPayloads.count, 1)
+        XCTAssertEqual(postedPayloads[0].state, .running)
+        XCTAssertEqual(postedPayloads[0].toolName, "Cursor")
+    }
+
+    func test_cursor_adapter_pre_tool_use_todo_write_array_reports_progress() throws {
+        let store = try makeCursorTaskStore()
+        let payload = try XCTUnwrap(
+            AgentEventBridge.cursorAdapter(
+                data: Data("""
+                {"hook_event_name":"preToolUse","conversation_id":"cursor-session","tool_name":"TodoWrite","tool_input":{"todos":[{"content":"Review logs","status":"completed"},{"content":"Patch adapter","status":"in_progress"},{"content":"Run tests","status":"pending"}]}}
+                """.utf8),
+                environment: defaultEnvironment,
+                taskStore: store
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.toolName, "Cursor")
+        XCTAssertEqual(payload.sessionID, "cursor-session")
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+    }
+
+    func test_cursor_adapter_post_tool_use_todo_write_checklist_reports_progress() throws {
+        let store = try makeCursorTaskStore()
+        let payload = try XCTUnwrap(
+            AgentEventBridge.cursorAdapter(
+                data: Data("""
+                {"hook_event_name":"postToolUse","conversationId":"cursor-session","toolName":"TodoWrite","toolInput":{"todos":"- [x] Review logs\\n- [ ] Run tests"}}
+                """.utf8),
+                environment: defaultEnvironment,
+                taskStore: store
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 2))
+    }
+
+    func test_cursor_adapter_stop_carries_unfinished_todo_progress() throws {
+        let store = try makeCursorTaskStore()
+        _ = try AgentEventBridge.cursorAdapter(
+            data: Data("""
+            {"hook_event_name":"preToolUse","conversation_id":"cursor-session","tool_name":"TodoWrite","tool_input":{"todos":[{"content":"Review logs","status":"completed"},{"content":"Run tests","status":"pending"}]}}
+            """.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+
+        let payload = try XCTUnwrap(
+            AgentEventBridge.cursorAdapter(
+                data: Data(#"{"hook_event_name":"stop","conversation_id":"cursor-session","status":"completed"}"#.utf8),
+                environment: defaultEnvironment,
+                taskStore: store
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .idle)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 2))
+    }
+
+    func test_cursor_adapter_session_end_clears_task_progress() throws {
+        let store = try makeCursorTaskStore()
+        _ = try AgentEventBridge.cursorAdapter(
+            data: Data("""
+            {"hook_event_name":"preToolUse","conversation_id":"cursor-session","tool_name":"TodoWrite","tool_input":{"todos":[{"content":"Review logs","status":"pending"}]}}
+            """.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+
+        _ = try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"sessionEnd","conversation_id":"cursor-session"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+
+        XCTAssertNil(try store.taskProgress(sessionID: "cursor-session"))
+    }
+
     // MARK: - session.start
 
     func test_session_start_produces_pid_and_lifecycle_payloads() throws {
@@ -566,6 +696,16 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].state, .starting)
     }
 
+    func test_codex_hook_permission_request_default_event_maps_to_needs_input_approval() throws {
+        let payloads = try AgentEventBridge.codexAdapter(data: Data(), defaultEventName: "permission-request", environment: codexEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .approval)
+        XCTAssertEqual(payloads[0].toolName, "Codex")
+        XCTAssertEqual(payloads[0].text, "Codex needs your approval")
+    }
+
     func test_codex_adapter_prompt_submit() throws {
         let json = #"{"hook_event_name": "UserPromptSubmit"}"#
         let payloads = try AgentEventBridge.codexAdapter(data: json.data(using: .utf8)!, defaultEventName: nil, environment: codexEnvironment())
@@ -884,6 +1024,14 @@ final class AgentEventBridgeTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
         return DroidTaskStore(stateURL: directoryURL.appendingPathComponent("droid-task-sessions.json"))
+    }
+
+    private func makeCursorTaskStore() throws -> CursorTaskStore {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
+        return CursorTaskStore(stateURL: directoryURL.appendingPathComponent("cursor-task-sessions.json"))
     }
 
     // MARK: - Droid Task Progress

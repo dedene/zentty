@@ -692,7 +692,8 @@ extension AgentEventBridge {
 extension AgentEventBridge {
     static func cursorAdapter(
         data: Data,
-        environment: [String: String]
+        environment: [String: String],
+        taskStore: CursorTaskStore = CursorTaskStore()
     ) throws -> [AgentStatusPayload] {
         let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
         guard let hookEventName = firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"]) else {
@@ -707,6 +708,10 @@ extension AgentEventBridge {
         let toolName = AgentTool.cursor.displayName
         let sessionID = firstString(in: jsonObject, keys: ["conversation_id", "conversationId"])
         let cwd = cursorWorkspaceRoot(from: jsonObject)
+        let hookToolName = firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
+        let toolInput = (jsonObject["tool_input"] as? [String: Any])
+            ?? (jsonObject["toolInput"] as? [String: Any])
+            ?? (jsonObject["input"] as? [String: Any])
         let pid = parseAgentPID(from: environment, key: "ZENTTY_CURSOR_PID")
 
         let normalized = hookEventName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -736,6 +741,7 @@ extension AgentEventBridge {
             )]
 
         case "sessionend":
+            try taskStore.clearSession(sessionID: sessionID)
             return [
                 AgentStatusPayload(
                     windowID: target.windowID,
@@ -756,6 +762,7 @@ extension AgentEventBridge {
 
         case "stop":
             let status = firstString(in: jsonObject, keys: ["status"])?.lowercased()
+            let taskProgress = try taskStore.taskProgress(sessionID: sessionID)
             switch status {
             case "error":
                 return [lifecyclePayload(
@@ -764,7 +771,8 @@ extension AgentEventBridge {
                     state: .unresolvedStop,
                     lifecycleEvent: .update,
                     sessionID: sessionID,
-                    cwd: cwd
+                    cwd: cwd,
+                    taskProgress: taskProgress
                 )]
             case "aborted":
                 return [lifecyclePayload(
@@ -773,7 +781,8 @@ extension AgentEventBridge {
                     state: .idle,
                     lifecycleEvent: .stopCandidate,
                     sessionID: sessionID,
-                    cwd: cwd
+                    cwd: cwd,
+                    taskProgress: taskProgress
                 )]
             case "completed", nil:
                 return [lifecyclePayload(
@@ -782,7 +791,8 @@ extension AgentEventBridge {
                     state: .idle,
                     lifecycleEvent: .update,
                     sessionID: sessionID,
-                    cwd: cwd
+                    cwd: cwd,
+                    taskProgress: taskProgress
                 )]
             default:
                 return [lifecyclePayload(
@@ -791,14 +801,32 @@ extension AgentEventBridge {
                     state: .idle,
                     lifecycleEvent: .update,
                     sessionID: sessionID,
-                    cwd: cwd
+                    cwd: cwd,
+                    taskProgress: taskProgress
                 )]
             }
 
         case "subagentstart", "subagentstop":
             return []
 
-        case "pretooluse", "posttooluse", "posttoolusefailure":
+        case "pretooluse", "posttooluse":
+            if cursorToolNameIsTodoWrite(hookToolName),
+               let sessionID,
+               let todoProgress = droidTodoProgress(toolInput: toolInput) {
+                let taskProgress = try taskStore.updateProgress(
+                    sessionID: sessionID,
+                    doneCount: todoProgress.doneCount,
+                    totalCount: todoProgress.totalCount
+                )
+                return [lifecyclePayload(
+                    target: target,
+                    toolName: toolName,
+                    state: .running,
+                    sessionID: sessionID,
+                    cwd: cwd,
+                    taskProgress: taskProgress
+                )]
+            }
             guard environment["ZENTTY_CURSOR_VERBOSE_HOOKS"] == "1" else {
                 return []
             }
@@ -807,7 +835,21 @@ extension AgentEventBridge {
                 toolName: toolName,
                 state: .running,
                 sessionID: sessionID,
-                cwd: cwd
+                cwd: cwd,
+                taskProgress: try taskStore.taskProgress(sessionID: sessionID)
+            )]
+
+        case "posttoolusefailure", "beforeshellexecution", "aftershellexecution":
+            guard environment["ZENTTY_CURSOR_VERBOSE_HOOKS"] == "1" else {
+                return []
+            }
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                sessionID: sessionID,
+                cwd: cwd,
+                taskProgress: try taskStore.taskProgress(sessionID: sessionID)
             )]
 
         default:
@@ -822,6 +864,11 @@ extension AgentEventBridge {
             return nil
         }
         return first
+    }
+
+    private static func cursorToolNameIsTodoWrite(_ value: String?) -> Bool {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("TodoWrite") == .orderedSame
     }
 }
 
@@ -859,6 +906,23 @@ extension AgentEventBridge {
             }
             payloads.append(lifecyclePayload(target: target, toolName: toolName, state: .starting, sessionID: sessionID, cwd: cwd))
             return payloads
+        case "PermissionRequest":
+            return [AgentStatusPayload(
+                windowID: target.windowID,
+                worklaneID: target.worklaneID,
+                paneID: target.paneID,
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: toolName,
+                text: "Codex needs your approval",
+                lifecycleEvent: .update,
+                interactionKind: .approval,
+                confidence: .explicit,
+                sessionID: sessionID,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )]
         case "PreToolUse", "PostToolUse":
             return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
         case "UserPromptSubmit":
@@ -874,6 +938,7 @@ extension AgentEventBridge {
         switch raw?.lowercased() {
         case "session-start": return "SessionStart"
         case "pre-tool-use": return "PreToolUse"
+        case "permission-request": return "PermissionRequest"
         case "post-tool-use": return "PostToolUse"
         case "prompt-submit": return "UserPromptSubmit"
         case "stop": return "Stop"

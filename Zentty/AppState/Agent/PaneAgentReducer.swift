@@ -57,6 +57,13 @@ struct PaneAgentReducerState: Equatable, Sendable {
 
             if let trackedPID = session.trackedPID, !isProcessAlive(trackedPID) {
                 session.trackedPID = nil
+                if session.tool == .openCode,
+                   session.state == .idle,
+                   session.source == .explicit {
+                    sessionsByID.removeValue(forKey: sessionID)
+                    continue
+                }
+
                 let shouldSilenceEphemeralStart = session.state == .starting
                     && !session.interactionKind.requiresHumanAttention
                     && session.completionCandidateDeadline == nil
@@ -389,6 +396,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             return
         }
 
+        let payloadSessionID = normalized(payload.sessionID)
         let sessionID = resolvedSessionID(for: payload, tool: tool)
         var session = sessionsByID[sessionID] ?? PaneAgentSessionState(
             sessionID: sessionID,
@@ -413,6 +421,9 @@ struct PaneAgentReducerState: Equatable, Sendable {
 
         if payload.origin != .inferred {
             mergeInferredSessions(into: &session, for: tool, excluding: sessionID)
+        }
+        if payloadSessionID != nil {
+            mergeFallbackSession(into: &session, for: tool, excluding: sessionID)
         }
 
         if !shouldApplyLifecycle(payload, over: session) {
@@ -515,6 +526,30 @@ struct PaneAgentReducerState: Equatable, Sendable {
             }
             sessionsByID.removeValue(forKey: inferredSession.sessionID)
         }
+    }
+
+    private mutating func mergeFallbackSession(
+        into session: inout PaneAgentSessionState,
+        for tool: AgentTool,
+        excluding sessionID: String
+    ) {
+        let fallbackSessionID = fallbackSessionID(for: tool)
+        guard fallbackSessionID != sessionID,
+              let fallbackSession = sessionsByID[fallbackSessionID],
+              fallbackSession.tool == tool
+        else {
+            return
+        }
+
+        session.hasObservedRunning = session.hasObservedRunning || fallbackSession.hasObservedRunning
+        session.artifactLink = session.artifactLink ?? fallbackSession.artifactLink
+        session.text = session.text ?? fallbackSession.text
+        session.trackedPID = session.trackedPID ?? fallbackSession.trackedPID
+        session.taskProgress = session.taskProgress ?? fallbackSession.taskProgress
+        if session.shellActivityState == .unknown {
+            session.shellActivityState = fallbackSession.shellActivityState
+        }
+        sessionsByID.removeValue(forKey: fallbackSessionID)
     }
 
     private mutating func applyPID(_ payload: AgentStatusPayload, now: Date) {
@@ -732,7 +767,11 @@ struct PaneAgentReducerState: Equatable, Sendable {
             return sessionID
         }
 
-        return "pane-\(tool.displayName.lowercased())"
+        return fallbackSessionID(for: tool)
+    }
+
+    private func fallbackSessionID(for tool: AgentTool) -> String {
+        "pane-\(tool.displayName.lowercased())"
     }
 
     private func normalized(_ value: String?) -> String? {

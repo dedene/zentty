@@ -119,6 +119,13 @@ enum TerminalMetadataChangeClassifier {
             return nil
         }
         let normalized = stripTrailingCodexTaskProgress(from: rawNormalized)
+        if let threadStatus = parseCodexThreadStatusTitle(normalized) {
+            return VolatileAgentStatusTitleSignature(
+                phase: .needsInput,
+                subject: threadStatus.subject
+            )
+        }
+
         guard let parsed = parseAgentStatusTitle(
                   normalized,
                   runningWords: ["working", "thinking"],
@@ -281,6 +288,24 @@ enum TerminalMetadataChangeClassifier {
         return .backgroundWait
     }
 
+    static func codexTitleInteractionKind(for value: String?) -> PaneAgentInteractionKind? {
+        guard let rawNormalized = WorklaneContextFormatter.trimmed(value) else {
+            return nil
+        }
+        let normalized = stripTrailingCodexTaskProgress(from: rawNormalized)
+
+        if let threadStatus = parseCodexThreadStatusTitle(normalized) {
+            return threadStatus.interactionKind
+        }
+
+        guard codexWaitingTitleKind(for: rawNormalized) == .needsInput else {
+            return nil
+        }
+
+        return AgentInteractionClassifier.interactionKind(forWaitingMessage: normalized)
+            ?? .genericInput
+    }
+
     static func codexTaskProgress(for value: String?) -> PaneAgentTaskProgress? {
         guard let normalized = WorklaneContextFormatter.trimmed(value),
               let (_, progress) = splitTrailingCodexTaskProgress(from: normalized) else {
@@ -318,6 +343,32 @@ enum TerminalMetadataChangeClassifier {
             phase: phase,
             subject: remainder.lowercased()
         )
+    }
+
+    private static func parseCodexThreadStatusTitle(
+        _ normalized: String
+    ) -> (subject: String, interactionKind: PaneAgentInteractionKind)? {
+        let words = normalized
+            .split(whereSeparator: { !$0.isLetter })
+            .prefix(3)
+            .map { String($0).lowercased() }
+        guard words.count == 3,
+              ["main", "parent"].contains(words[0]),
+              words[1] == "needs" else {
+            return nil
+        }
+
+        let interactionKind: PaneAgentInteractionKind
+        switch words[2] {
+        case "approval":
+            interactionKind = .approval
+        case "input":
+            interactionKind = .question
+        default:
+            return nil
+        }
+
+        return (normalized.lowercased(), interactionKind)
     }
 
     private static func parseAgentStatusTitle(

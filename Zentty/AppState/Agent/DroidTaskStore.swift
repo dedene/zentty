@@ -198,3 +198,137 @@ final class DroidTaskStore {
         return value
     }
 }
+
+/// File-backed task counter for Cursor TodoWrite hook snapshots.
+final class CursorTaskStore {
+    private let stateURL: URL
+    private let lockURL: URL
+    private let fileManager: FileManager
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+
+    init(
+        stateURL: URL,
+        fileManager: FileManager = .default
+    ) {
+        self.stateURL = stateURL
+        self.lockURL = stateURL.appendingPathExtension("lock")
+        self.fileManager = fileManager
+        self.encoder.outputFormatting = [.sortedKeys]
+    }
+
+    convenience init(
+        processInfo: ProcessInfo = .processInfo,
+        fileManager: FileManager = .default
+    ) {
+        let env = processInfo.environment
+        if let overridePath = env["ZENTTY_CURSOR_TASK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridePath.isEmpty {
+            self.init(stateURL: URL(fileURLWithPath: NSString(string: overridePath).expandingTildeInPath), fileManager: fileManager)
+            return
+        }
+
+        let stateURL: URL
+        if let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            stateURL = appSupportDirectory
+                .appendingPathComponent("Zentty", isDirectory: true)
+                .appendingPathComponent("cursor-task-sessions.json", isDirectory: false)
+        } else {
+            stateURL = fileManager.temporaryDirectory.appendingPathComponent("zentty-cursor-task-sessions.json")
+        }
+        self.init(stateURL: stateURL, fileManager: fileManager)
+    }
+
+    func updateProgress(sessionID: String, doneCount: Int, totalCount: Int) throws -> PaneAgentTaskProgress? {
+        try withLockedState { state in
+            let key = normalized(sessionID)
+            guard !key.isEmpty else { return nil }
+            guard totalCount > 0 else {
+                state.sessions.removeValue(forKey: key)
+                return PaneAgentTaskProgress(doneCount: 1, totalCount: 1)
+            }
+
+            var entry = state.sessions[key] ?? SessionEntry()
+            entry.totalCount = totalCount
+            entry.doneCount = min(max(doneCount, 0), totalCount)
+            entry.updatedAt = Date().timeIntervalSince1970
+            state.sessions[key] = entry
+            return entry.progress
+        }
+    }
+
+    func taskProgress(sessionID: String?) throws -> PaneAgentTaskProgress? {
+        guard let key = normalizedOptional(sessionID) else { return nil }
+        return try withLockedState { state in
+            state.sessions[key]?.progress
+        }
+    }
+
+    func clearSession(sessionID: String?) throws {
+        guard let key = normalizedOptional(sessionID) else { return }
+        try withLockedState { state in
+            state.sessions.removeValue(forKey: key)
+        }
+    }
+
+    private struct StoreFile: Codable {
+        var sessions: [String: SessionEntry] = [:]
+    }
+
+    private struct SessionEntry: Codable {
+        var totalCount: Int = 0
+        var doneCount: Int = 0
+        var updatedAt: TimeInterval = 0
+
+        var progress: PaneAgentTaskProgress? {
+            PaneAgentTaskProgress(doneCount: doneCount, totalCount: totalCount)
+        }
+    }
+
+    @discardableResult
+    private func withLockedState<T>(_ body: (inout StoreFile) throws -> T) throws -> T {
+        try fileManager.createDirectory(at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !fileManager.fileExists(atPath: lockURL.path) {
+            fileManager.createFile(atPath: lockURL.path, contents: Data())
+        }
+
+        let descriptor = open(lockURL.path, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        guard descriptor >= 0 else {
+            throw AgentStatusPayloadError.invalidHookPayload
+        }
+        defer { close(descriptor) }
+
+        guard flock(descriptor, LOCK_EX) == 0 else {
+            throw AgentStatusPayloadError.invalidHookPayload
+        }
+        defer { flock(descriptor, LOCK_UN) }
+
+        var state = loadState()
+        let result = try body(&state)
+        try saveState(state)
+        return result
+    }
+
+    private func loadState() -> StoreFile {
+        guard let data = try? Data(contentsOf: stateURL) else {
+            return StoreFile()
+        }
+        return (try? decoder.decode(StoreFile.self, from: data)) ?? StoreFile()
+    }
+
+    private func saveState(_ state: StoreFile) throws {
+        let data = try encoder.encode(state)
+        try data.write(to: stateURL, options: .atomic)
+    }
+
+    private func normalizedOptional(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private func normalized(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}

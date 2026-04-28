@@ -734,6 +734,274 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertEqual(status?.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
     }
 
+    func test_real_opencode_session_idle_replaces_synthetic_prelaunch_session() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .starting,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                confidence: .explicit,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 3),
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(2)
+        )
+
+        let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(2))
+        XCTAssertEqual(status?.state, .idle)
+        XCTAssertEqual(status?.sessionID, "session-1")
+        XCTAssertEqual(status?.trackedPID, 4242)
+        XCTAssertEqual(status?.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+        XCTAssertNil(reducerState.sessionsByID["pane-opencode"])
+    }
+
+    func test_sweep_removes_exited_idle_opencode_session() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 3),
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(2)
+        )
+
+        reducerState.sweep(now: startedAt.addingTimeInterval(3), isProcessAlive: { _ in false })
+
+        XCTAssertNil(reducerState.reducedStatus(now: startedAt.addingTimeInterval(3)))
+        XCTAssertTrue(reducerState.sessionsByID.isEmpty)
+    }
+
+    func test_sweep_keeps_idle_opencode_session_when_process_is_alive() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 3),
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(2)
+        )
+
+        reducerState.sweep(now: startedAt.addingTimeInterval(3), isProcessAlive: { _ in true })
+
+        let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(3))
+        XCTAssertEqual(status?.state, .idle)
+        XCTAssertEqual(status?.tool, .openCode)
+        XCTAssertEqual(status?.trackedPID, 4242)
+        XCTAssertEqual(status?.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+    }
+
+    func test_sweep_preserves_non_opencode_idle_session_when_process_exits() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                taskProgress: PaneAgentTaskProgress(doneCount: 1, totalCount: 3),
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(2)
+        )
+
+        reducerState.sweep(now: startedAt.addingTimeInterval(3), isProcessAlive: { _ in false })
+
+        let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(3))
+        XCTAssertEqual(status?.state, .idle)
+        XCTAssertEqual(status?.tool, .codex)
+        XCTAssertNil(status?.trackedPID)
+        XCTAssertEqual(status?.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+    }
+
     func test_dead_pid_without_completion_becomes_unresolved_stop() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()
