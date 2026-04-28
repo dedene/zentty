@@ -20,6 +20,8 @@ enum CursorHooksInstaller {
         "stop",
         "beforeShellExecution",
         "afterShellExecution",
+        "preToolUse",
+        "postToolUse",
     ]
 
     /// Substring present in every Zentty-managed hook command. Used to locate
@@ -75,7 +77,7 @@ enum CursorHooksInstaller {
                 guard let existing = entry["command"] as? String else { return false }
                 return existing.contains(hookMarker)
             }
-            entries.append(["command": command])
+            entries.append(managedEntry(for: event, command: command))
             hooks[event] = entries
         }
         jsonObject["hooks"] = hooks
@@ -190,6 +192,15 @@ enum CursorHooksInstaller {
 
     static func hookCommand(cliPath: String) -> String {
         "\"\(shellEscapeDoubleQuoted(cliPath))\" ipc agent-event --adapter=cursor"
+    }
+
+    private static func managedEntry(for event: String, command: String) -> [String: Any] {
+        switch event {
+        case "preToolUse", "postToolUse":
+            return ["matcher": "TodoWrite", "command": command]
+        default:
+            return ["command": command]
+        }
     }
 
     /// Try strict JSON first; on failure, retry after stripping `//` / `/* */`

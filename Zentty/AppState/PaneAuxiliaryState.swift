@@ -301,8 +301,15 @@ enum PanePresentationNormalizer {
         }
         let titlePhase = codexTitlePhase(from: raw.metadata, recognizedTool: recognizedTool)
         let copilotTitleNeedsInput = copilotTitleIndicatesNeedsInput(
-            metadata: raw.metadata
+            metadata: raw.metadata,
+            recognizedTool: recognizedTool
         )
+        let codexTitleInteractionKind =
+            recognizedTool == .codex
+            ? TerminalMetadataChangeClassifier.codexTitleInteractionKind(
+                for: raw.metadata?.title
+            )
+            : nil
         let runtimePhase = normalizedRuntimePhase(
             from: raw,
             recognizedTool: recognizedTool,
@@ -312,7 +319,7 @@ enum PanePresentationNormalizer {
         let agentInteractionKind: PaneAgentInteractionKind =
             copilotTitleNeedsInput
             ? .question
-            : (raw.agentStatus?.interactionKind ?? .none)
+            : (codexTitleInteractionKind ?? raw.agentStatus?.interactionKind ?? .none)
         let codexBackgroundWait =
             recognizedTool == .codex
             && TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: raw.metadata?.title)
@@ -510,16 +517,17 @@ enum PanePresentationNormalizer {
     /// common question verbs as the first word OR the word "question"
     /// anywhere in the title.
     ///
-    /// Detection is driven off `metadata.processName` via the full
-    /// `AgentTool.resolve(named:)` — not `AgentToolRecognizer.recognize`,
-    /// which uses `resolveKnown` and deliberately excludes copilot so the
-    /// OSC fallback stays alive when hooks aren't firing. Without this we'd
-    /// only match copilot panes that already have an explicit hook-driven
-    /// `agentStatus`, defeating the point of the title-based heuristic.
+    /// Detection uses both the explicit session tool and
+    /// `metadata.processName` via the full `AgentTool.resolve(named:)`.
+    /// The process-name check keeps the heuristic working before hooks
+    /// arrive; the explicit session check keeps it working after process
+    /// metadata falls back to the shell while the terminal title is still
+    /// showing Copilot's question state.
     private static func copilotTitleIndicatesNeedsInput(
-        metadata: TerminalMetadata?
+        metadata: TerminalMetadata?,
+        recognizedTool: AgentTool?
     ) -> Bool {
-        guard AgentTool.resolve(named: metadata?.processName) == .copilot,
+        guard (recognizedTool == .copilot || AgentTool.resolve(named: metadata?.processName) == .copilot),
             let rawTitle = WorklaneContextFormatter.trimmed(metadata?.title)
         else {
             return false
