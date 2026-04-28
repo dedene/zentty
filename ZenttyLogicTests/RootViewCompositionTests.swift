@@ -700,6 +700,33 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(resizedPaneView.frame.width, resizedExpectedWidth, accuracy: 0.001)
     }
 
+    func test_screen_parameter_change_forces_visible_terminal_viewport_sync() {
+        let adapter = ViewportSyncTerminalAdapter()
+        let controller = RootViewController(
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in adapter })
+        )
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                controller.prepareForTestingTearDown()
+            }
+        }
+        _ = hostInVisibleWindow(controller)
+        controller.activateWindowBindingsIfNeeded()
+        let initialSyncCount = adapter.forceViewportSyncCallCount
+        let notificationHandled = expectation(description: "screen parameter notification handled")
+
+        NotificationCenter.default.post(
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            notificationHandled.fulfill()
+        }
+        wait(for: [notificationHandled], timeout: 1.0)
+
+        XCTAssertGreaterThan(adapter.forceViewportSyncCallCount, initialSyncCount)
+    }
+
     func test_root_controller_single_pane_preserves_readable_trailing_inset_and_bottom_spacing() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
@@ -2293,6 +2320,54 @@ final class RootViewCompositionTests: AppKitTestCase {
             totalHeight: paneStripState.layoutSizing.paneHeight(for: controller.view.bounds.height),
             spacing: paneStripState.layoutSizing.interPaneSpacing
         )
+    }
+}
+
+@MainActor
+private final class ViewportSyncTerminalAdapter: TerminalAdapter {
+    private let terminalView = ViewportSyncTerminalView()
+
+    var hasScrollback = false
+    var cellWidth: CGFloat = 0
+    var cellHeight: CGFloat = 0
+    var metadataDidChange: ((TerminalMetadata) -> Void)?
+    var eventDidOccur: ((TerminalEvent) -> Void)?
+
+    var forceViewportSyncCallCount: Int {
+        terminalView.forceViewportSyncCallCount
+    }
+
+    func makeTerminalView() -> NSView {
+        terminalView
+    }
+
+    func startSession(using request: TerminalSessionRequest) throws {
+        metadataDidChange?(TerminalMetadata(title: "shell"))
+    }
+
+    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {}
+
+    func sendText(_ text: String) {}
+
+    func close() {}
+}
+
+@MainActor
+private final class ViewportSyncTerminalView: NSView,
+    TerminalViewportSyncControlling,
+    TerminalFocusReporting,
+    TerminalScrollRouting,
+    TerminalContextMenuConfiguring
+{
+    private(set) var forceViewportSyncCallCount = 0
+    var onFocusDidChange: ((Bool) -> Void)?
+    var onScrollWheel: ((NSEvent) -> Bool)?
+    var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)?
+
+    func setViewportSyncSuspended(_ suspended: Bool) {}
+
+    func forceViewportSync() {
+        forceViewportSyncCallCount += 1
     }
 }
 

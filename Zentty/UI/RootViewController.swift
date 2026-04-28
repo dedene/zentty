@@ -1565,7 +1565,6 @@ final class RootViewController: NSViewController {
             NSWindow.didResignKeyNotification,
             NSWindow.didMiniaturizeNotification,
             NSWindow.didDeminiaturizeNotification,
-            NSWindow.didChangeScreenNotification,
         ].forEach { name in
             observerBag.addObserver(forName: name, object: window) { [weak self] _ in
                 Task { @MainActor [weak self] in
@@ -1573,15 +1572,50 @@ final class RootViewController: NSViewController {
                 }
             }
         }
+        observerBag.addObserver(forName: NSWindow.didChangeScreenNotification, object: window) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleWindowStateDidChange(forceViewportSync: true)
+            }
+        }
+        observerBag.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleWindowStateDidChange(forceViewportSync: true)
+            }
+        }
         windowObserverBag = observerBag
     }
 
-    @objc
-    private func handleWindowStateDidChange() {
+    private func handleWindowStateDidChange(forceViewportSync: Bool = false) {
+        if forceViewportSync {
+            view.needsLayout = true
+            view.layoutSubtreeIfNeeded()
+        }
         appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
         syncSidebarWidthToAvailableWidth(persist: false, forceLayout: false)
-        updatePaneLayoutContextIfNeeded(force: true)
+        _ = updatePaneLayoutContextIfNeeded(force: true)
+        if forceViewportSync {
+            updatePaneViewportHeight()
+            renderCoordinator.renderCanvas(animated: false)
+        }
         renderCoordinator.updateSurfaceActivities()
+        guard forceViewportSync else {
+            return
+        }
+        forceActiveWorklanePaneViewportSync()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.view.layoutSubtreeIfNeeded()
+            self.forceActiveWorklanePaneViewportSync()
+        }
+    }
+
+    private func forceActiveWorklanePaneViewportSync() {
+        guard let worklane = worklaneStore.activeWorklane else {
+            return
+        }
+        for pane in worklane.paneStripState.panes {
+            runtimeRegistry.runtime(for: pane.id)?.forceViewportSync()
+        }
     }
 
     private func cancelPendingPaneStripScrollSwitchGestureIfNeeded(for action: AppAction) {
