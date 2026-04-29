@@ -4517,8 +4517,15 @@ final class PaneStripStoreTests: XCTestCase {
         // fire a Stop hook. The only observable signal is the title flipping
         // from a spinner glyph ("⠂ subject") back to the idle indicator
         // ("✳ subject"). Zentty must drive the session from .running to .idle
-        // purely from that title change.
-        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        // purely from that title change, after a short grace window so a
+        // following PermissionRequest can win.
+        let scheduler = ManualReadyStatusScheduler()
+        var now = Date(timeIntervalSince1970: 100)
+        let store = WorklaneStore(
+            readyStatusDebounceInterval: 0,
+            currentDateProvider: { now },
+            readyStatusScheduler: scheduler.schedule
+        )
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.knownNonRepositoryPaths.insert("/tmp/project")
 
@@ -4563,6 +4570,18 @@ final class PaneStripStoreTests: XCTestCase {
                 gitBranch: "main"
             )
         )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .running
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.runtimePhase,
+            .running
+        )
+
+        now = now.addingTimeInterval(PaneAgentReducerState.stopGraceWindow + 0.1)
+        scheduler.runLatest()
 
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
@@ -6661,6 +6680,67 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.text, "Claude needs your approval")
+    }
+
+    func test_claude_idle_title_before_permission_request_does_not_flash_idle() throws {
+        let store = WorklaneStore()
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "✳ Create permission probe file",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.runtimePhase, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: "Claude needs your approval",
+                interactionKind: .approval,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
+            .some(.approval)
+        )
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Requires approval")
     }
 
     func test_claude_ask_user_question_sequence_stays_needs_decision() throws {

@@ -720,15 +720,23 @@ extension WorklaneStore {
             auxiliaryState.agentReducerState,
             from: existingStatus
         )
-        guard auxiliaryState.agentReducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: Date()) else {
+        let now = currentDateProvider()
+        guard auxiliaryState.agentReducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now) else {
             return false
         }
 
         auxiliaryState.agentStatus = Self.hydratedStatus(
-            auxiliaryState.agentReducerState.reducedStatus(),
+            auxiliaryState.agentReducerState.reducedStatus(now: now),
             existingStatus: existingStatus
         )
+        auxiliaryState.raw.codexTitleIdleSuppressionUntil = Date().addingTimeInterval(
+            PaneAgentReducerState.stopGraceWindow + Self.codexTitleIdleSuppressionWindow
+        )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        scheduleAgentStatusSweep(
+            for: PaneReference(worklaneID: worklane.id, paneID: paneID),
+            after: PaneAgentReducerState.stopGraceWindow
+        )
         return true
     }
 
