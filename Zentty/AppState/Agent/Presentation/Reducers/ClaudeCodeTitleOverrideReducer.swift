@@ -11,7 +11,10 @@ struct ClaudeCodeTitleOverrideReducer: PresentationReducer {
         guard
             context.recognizedTool == .claudeCode,
             context.raw.agentStatus?.state == .running,
-            context.titlePhase == .idle
+            context.titlePhase == .idle,
+            !context.raw.agentReducerState.sessionsByID.values.contains(where: { session in
+                session.tool == .claudeCode && session.completionCandidateDeadline != nil
+            })
         else {
             return draft
         }

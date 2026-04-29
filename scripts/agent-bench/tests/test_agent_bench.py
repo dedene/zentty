@@ -225,6 +225,23 @@ class TimelineTests(unittest.TestCase):
             agent_bench.TraceRecord(kind="hook", agent="codex", scenario="smoke", event_name="session-start", timestamp=base + 0.25),
         ]
         observations = [
+            agent_bench.TerminalObservation(kind="title", text="Codex Working", offset=12, timestamp=base + 0.1),
+        ]
+
+        timeline = agent_bench.build_timeline("codex", "smoke", records, observations)
+
+        self.assertEqual([entry["source"] for entry in timeline], ["process", "terminal", "hook"])
+        self.assertEqual([entry["time_ms"] for entry in timeline], [0, 100, 250])
+        self.assertEqual(timeline[1]["event"], "title")
+        self.assertEqual(timeline[2]["event"], "session-start")
+
+    def test_legacy_terminal_observations_without_timestamp_sort_after_records(self):
+        base = 1000.0
+        records = [
+            agent_bench.TraceRecord(kind="version", agent="codex", scenario="smoke", timestamp=base, extra={"version": "codex 1"}),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="smoke", event_name="session-start", timestamp=base + 0.25),
+        ]
+        observations = [
             agent_bench.TerminalObservation(kind="title", text="Codex Working", offset=12),
         ]
 
@@ -232,8 +249,6 @@ class TimelineTests(unittest.TestCase):
 
         self.assertEqual([entry["source"] for entry in timeline], ["process", "hook", "terminal"])
         self.assertEqual([entry["time_ms"] for entry in timeline], [0, 250, 250])
-        self.assertEqual(timeline[1]["event"], "session-start")
-        self.assertEqual(timeline[2]["event"], "title")
 
     def test_report_writes_taxonomy_timeline_and_rerun_command(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -446,13 +461,15 @@ class ProfileTests(unittest.TestCase):
         self.assertIn("project,local", approval_args)
         self.assertIn("--permission-mode", approval_args)
         self.assertIn("default", approval_args)
+        self.assertNotIn("--print", approval_args)
+        self.assertNotIn("--output-format", approval_args)
         self.assertIn("integration hook regression test", prompt)
-        self.assertIn("printf ZENTTY_AGENT_BENCH_APPROVAL_OK", prompt)
-        self.assertNotIn("touch ZENTTY_AGENT_BENCH_APPROVAL_OK", prompt)
+        self.assertIn("Write tool", prompt)
+        self.assertIn("ZENTTY_AGENT_BENCH_APPROVAL_OK", prompt)
         self.assertNotIn("Ask before running", prompt)
         self.assertEqual(
             profile.expectations["approval"].required_events,
-            ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop"],
+            ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest"],
         )
         self.assertEqual(
             profile.input_by_scenario["approval"],

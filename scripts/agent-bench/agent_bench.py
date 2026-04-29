@@ -65,6 +65,7 @@ REFUSAL_PATTERNS = [
     r"\bplease (?:confirm|clarify)\b",
     r"\bcan you (?:confirm|clarify|tell me)\b",
 ]
+OSC_TERMINAL_PATTERN = re.compile(r"\x1b\](?P<code>0|2|9);(?P<text>[^\x07\x1b]*)(?:\x07|\x1b\\)")
 
 
 @dataclasses.dataclass
@@ -115,6 +116,7 @@ class TerminalObservation:
     kind: str
     text: str
     offset: int
+    timestamp: float | None = None
 
 
 @dataclasses.dataclass
@@ -320,18 +322,17 @@ def classify_timeout_result(
     return partial
 
 
-def extract_terminal_observations(output: str) -> list[TerminalObservation]:
+def extract_terminal_observations(output: str, timestamp: float | None = None) -> list[TerminalObservation]:
     observations: list[TerminalObservation] = []
-    osc_pattern = re.compile(r"\x1b\](?P<code>0|2|9);(?P<text>[^\x07\x1b]*)(?:\x07|\x1b\\)")
-    for match in osc_pattern.finditer(output):
+    for match in OSC_TERMINAL_PATTERN.finditer(output):
         code = match.group("code")
         text = match.group("text").strip()
         if not text:
             continue
         kind = "osc9" if code == "9" else "title"
-        observations.append(TerminalObservation(kind=kind, text=text, offset=match.start()))
+        observations.append(TerminalObservation(kind=kind, text=text, offset=match.start(), timestamp=timestamp))
         if kind == "title" and is_progress_text(text):
-            observations.append(TerminalObservation(kind="progress", text=text, offset=match.start()))
+            observations.append(TerminalObservation(kind="progress", text=text, offset=match.start(), timestamp=timestamp))
     return observations
 
 
@@ -346,7 +347,11 @@ def build_timeline(
     observations: list[TerminalObservation],
 ) -> list[dict[str, Any]]:
     matching_records = [record for record in records if record.agent == agent and record.scenario == scenario]
-    base = min((record.timestamp for record in matching_records), default=time.time())
+    observation_timestamps = [observation.timestamp for observation in observations if observation.timestamp is not None]
+    base = min(
+        [record.timestamp for record in matching_records] + observation_timestamps,
+        default=time.time(),
+    )
     timeline: list[dict[str, Any]] = []
     for record in matching_records:
         source = "hook" if record.kind == "hook" else "process"
@@ -361,8 +366,13 @@ def build_timeline(
         if record.extra:
             entry["detail"] = record.extra
         timeline.append(entry)
-    terminal_time_ms = max((entry["time_ms"] for entry in timeline), default=0)
+    legacy_terminal_time_ms = max((entry["time_ms"] for entry in timeline), default=0)
     for observation in observations:
+        terminal_time_ms = (
+            max(0, int(round((observation.timestamp - base) * 1000)))
+            if observation.timestamp is not None
+            else legacy_terminal_time_ms
+        )
         timeline.append(
             {
                 "time_ms": terminal_time_ms,
@@ -1263,6 +1273,25 @@ def run_pty(
     start = time.monotonic()
     sent = [False] * len(inputs)
     output = bytearray()
+    terminal_observations: list[TerminalObservation] = []
+    seen_terminal_offsets: set[tuple[int, str]] = set()
+    scanned_length = 0
+
+    def collect_terminal_observations() -> str:
+        nonlocal scanned_length
+        text = output.decode("utf-8", errors="replace")
+        search_from = max(0, scanned_length - 512)
+        timestamp = time.time()
+        for observation in extract_terminal_observations(text[search_from:], timestamp=timestamp):
+            absolute_observation = dataclasses.replace(observation, offset=observation.offset + search_from)
+            key = (absolute_observation.offset, absolute_observation.kind)
+            if key in seen_terminal_offsets:
+                continue
+            seen_terminal_offsets.add(key)
+            terminal_observations.append(absolute_observation)
+        scanned_length = len(text)
+        return text
+
     try:
         while True:
             now = time.monotonic()
@@ -1281,6 +1310,7 @@ def run_pty(
             if ready:
                 try:
                     output.extend(os.read(master, 4096))
+                    collect_terminal_observations()
                 except OSError:
                     pass
             if process.poll() is not None:
@@ -1291,14 +1321,14 @@ def run_pty(
                     process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     process.kill()
-                text = output.decode("utf-8", errors="replace")
+                text = collect_terminal_observations()
                 transcript_path.write_text(text, encoding="utf-8")
                 return PtyResult(
                     process.returncode or -1,
                     False,
                     text,
                     completed_by_predicate=True,
-                    terminal_observations=extract_terminal_observations(text),
+                    terminal_observations=terminal_observations,
                 )
                 break
             if now - start > timeout:
@@ -1307,18 +1337,18 @@ def run_pty(
                     process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     process.kill()
-                text = output.decode("utf-8", errors="replace")
+                text = collect_terminal_observations()
                 transcript_path.write_text(text, encoding="utf-8")
                 return PtyResult(
                     process.returncode or -1,
                     True,
                     text,
-                    terminal_observations=extract_terminal_observations(text),
+                    terminal_observations=terminal_observations,
                 )
         exit_code = process.wait()
-        text = output.decode("utf-8", errors="replace")
+        text = collect_terminal_observations()
         transcript_path.write_text(text, encoding="utf-8")
-        return PtyResult(exit_code, False, text, terminal_observations=extract_terminal_observations(text))
+        return PtyResult(exit_code, False, text, terminal_observations=terminal_observations)
     finally:
         os.close(master)
 

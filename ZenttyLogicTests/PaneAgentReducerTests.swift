@@ -1155,7 +1155,7 @@ final class PaneAgentReducerTests: XCTestCase {
 
     // MARK: - markExplicitClaudeCodeSessionIdleFromIdleTitle
 
-    func test_mark_claude_code_idle_from_idle_title_transitions_running_to_idle() {
+    func test_mark_claude_code_idle_from_idle_title_keeps_running_until_grace_window_expires() {
         let now = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()
 
@@ -1182,10 +1182,26 @@ final class PaneAgentReducerTests: XCTestCase {
         let result = reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: idleNow)
 
         XCTAssertTrue(result)
-        XCTAssertEqual(reducerState.reducedStatus(now: idleNow)?.state, .idle)
+        XCTAssertEqual(reducerState.reducedStatus(now: idleNow)?.state, .running)
+        XCTAssertEqual(
+            reducerState.sessionsByID.values.first?.completionCandidateDeadline,
+            idleNow.addingTimeInterval(PaneAgentReducerState.stopGraceWindow)
+        )
+
+        reducerState.sweep(
+            now: idleNow.addingTimeInterval(PaneAgentReducerState.stopGraceWindow + 0.1),
+            isProcessAlive: { _ in true }
+        )
+
+        XCTAssertEqual(
+            reducerState.reducedStatus(
+                now: idleNow.addingTimeInterval(PaneAgentReducerState.stopGraceWindow + 0.1)
+            )?.state,
+            .idle
+        )
     }
 
-    func test_mark_claude_code_idle_from_idle_title_cancels_grace_window() {
+    func test_mark_claude_code_idle_from_idle_title_refreshes_grace_window() {
         let now = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()
 
@@ -1230,8 +1246,71 @@ final class PaneAgentReducerTests: XCTestCase {
         let result = reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: idleNow)
 
         XCTAssertTrue(result)
-        XCTAssertEqual(reducerState.reducedStatus(now: idleNow)?.state, .idle)
+        XCTAssertEqual(reducerState.reducedStatus(now: idleNow)?.state, .running)
+        XCTAssertEqual(
+            reducerState.sessionsByID.values.first?.completionCandidateDeadline,
+            idleNow.addingTimeInterval(PaneAgentReducerState.stopGraceWindow)
+        )
+    }
+
+    func test_claude_permission_request_cancels_idle_title_candidate() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                lifecycleEvent: .update,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: now
+        )
+
+        let idleNow = now.addingTimeInterval(5)
+        XCTAssertTrue(reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: idleNow))
+        XCTAssertNotNil(reducerState.sessionsByID.values.first?.completionCandidateDeadline)
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: "Claude needs your approval",
+                lifecycleEvent: .update,
+                interactionKind: .approval,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: idleNow.addingTimeInterval(0.01)
+        )
+
+        XCTAssertEqual(reducerState.reducedStatus(now: idleNow.addingTimeInterval(0.01))?.state, .needsInput)
+        XCTAssertEqual(reducerState.reducedStatus(now: idleNow.addingTimeInterval(0.01))?.interactionKind, .approval)
         XCTAssertNil(reducerState.sessionsByID.values.first?.completionCandidateDeadline)
+
+        reducerState.sweep(
+            now: idleNow.addingTimeInterval(PaneAgentReducerState.stopGraceWindow + 0.1),
+            isProcessAlive: { _ in true }
+        )
+
+        XCTAssertEqual(
+            reducerState.reducedStatus(
+                now: idleNow.addingTimeInterval(PaneAgentReducerState.stopGraceWindow + 0.1)
+            )?.state,
+            .needsInput
+        )
     }
 
     func test_mark_claude_code_idle_from_idle_title_ignores_codex_session() {

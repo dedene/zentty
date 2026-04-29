@@ -721,6 +721,7 @@ extension WorklaneStore {
     }
 
     func clearStaleAgentSessions() {
+        let now = currentDateProvider()
         for worklaneIndex in worklanes.indices {
             var worklane = worklanes[worklaneIndex]
             let previousWorklane = worklane
@@ -729,9 +730,9 @@ extension WorklaneStore {
             for (paneID, aux) in worklane.auxiliaryStateByPaneID {
                 if !aux.agentReducerState.sessionsByID.isEmpty {
                     var reducerState = aux.agentReducerState
-                    reducerState.sweep(now: Date(), isProcessAlive: Self.isProcessAlive(pid:))
+                    reducerState.sweep(now: now, isProcessAlive: Self.isProcessAlive(pid:))
                     var reducedStatus = Self.hydratedStatus(
-                        reducerState.reducedStatus(),
+                        reducerState.reducedStatus(now: now),
                         existingStatus: aux.agentStatus
                     )
                     if let trackedPID = reducedStatus?.trackedPID,

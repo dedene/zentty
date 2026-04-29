@@ -290,12 +290,13 @@ struct PaneAgentReducerState: Equatable, Sendable {
             return false
         }
 
-        session.state = .idle
+        session.state = .running
         session.text = nil
         session.interactionKind = .none
-        session.completionCandidateDeadline = nil
-        session.idleVisibleUntil = now.addingTimeInterval(Self.idleVisibilityWindow)
+        session.completionCandidateDeadline = now.addingTimeInterval(Self.stopGraceWindow)
+        session.idleVisibleUntil = nil
         session.unresolvedStopVisibleUntil = nil
+        session.hasObservedRunning = true
         session.updatedAt = now
         sessionsByID[sessionID] = session
         return true

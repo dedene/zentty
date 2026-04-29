@@ -226,6 +226,7 @@ final class WorklaneStore {
     var pendingGitContextPaths: Set<String> = []
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     private var pendingReadyStatusTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
+    private var pendingAgentStatusSweepTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
     private let processEnvironment: [String: String]
     private let readyStatusDebounceInterval: TimeInterval
     let nonRepositoryRetryInterval: TimeInterval
@@ -1672,6 +1673,14 @@ final class WorklaneStore {
     func cancelPendingReadyStatus(for paneReference: PaneReference) {
         pendingReadyStatusTasks[paneReference]?.cancel()
         pendingReadyStatusTasks[paneReference] = nil
+    }
+
+    func scheduleAgentStatusSweep(for paneReference: PaneReference, after interval: TimeInterval) {
+        pendingAgentStatusSweepTasks[paneReference]?.cancel()
+        pendingAgentStatusSweepTasks[paneReference] = scheduleReadyStatusTask(interval) { [weak self] in
+            self?.pendingAgentStatusSweepTasks[paneReference] = nil
+            self?.clearStaleAgentSessions()
+        }
     }
 
     private func scheduleReadyStatusReveal(for paneReference: PaneReference) {
