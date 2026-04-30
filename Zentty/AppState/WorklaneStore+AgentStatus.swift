@@ -491,6 +491,11 @@ extension WorklaneStore {
         )
 
         recomputePresentation(for: payload.paneID, in: &worklane)
+        let forceGitContextRefreshOnCompletion = agentCompletionRequiresGitContextRefresh(
+            previousWorklane: previousWorklane,
+            nextWorklane: worklane,
+            paneID: payload.paneID
+        )
         worklanes[worklaneIndex] = worklane
         refreshLastFocusedLocalWorkingDirectoryIfNeeded(worklane: worklane, paneID: payload.paneID)
         var impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
@@ -502,6 +507,11 @@ extension WorklaneStore {
         }
         if auxiliaryUpdateRequiresGitContextRefresh(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane) {
             refreshGitContextIfNeeded(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
+        } else if forceGitContextRefreshOnCompletion {
+            refreshGitContextIfNeeded(
+                for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID),
+                forceReload: true
+            )
         }
     }
 
@@ -564,6 +574,23 @@ extension WorklaneStore {
         }
 
         return gitContext.repoRoot != nil && gitContext.lookupBranch != nil
+    }
+
+    private func agentCompletionRequiresGitContextRefresh(
+        previousWorklane: WorklaneState,
+        nextWorklane: WorklaneState,
+        paneID: PaneID
+    ) -> Bool {
+        let previousAuxiliaryState = previousWorklane.auxiliaryStateByPaneID[paneID]
+        let nextAuxiliaryState = nextWorklane.auxiliaryStateByPaneID[paneID]
+
+        guard previousAuxiliaryState?.presentation.isWorking == true,
+              nextAuxiliaryState?.presentation.runtimePhase == .idle
+        else {
+            return false
+        }
+
+        return localReviewWorkingDirectory(for: paneID, in: nextWorklane) != nil
     }
 
     private func reconcileReadyStatus(

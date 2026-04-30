@@ -24,10 +24,9 @@ final class WorklaneContextFormatterTests: XCTestCase {
         )
     }
 
-    func test_compact_worklane_path_prefers_two_segment_worktree_label() {
-        let compact = WorklaneContextFormatter.compactSidebarPath(
-            "/Users/peter/Development/Personal/worktrees/feature/sidebar"
-        )
+    func test_compact_worklane_path_prefers_two_segment_worktree_label() throws {
+        let repositoryPath = try makeTemporaryRepository(named: "sidebar")
+        let compact = WorklaneContextFormatter.compactSidebarPath(repositoryPath)
 
         XCTAssertEqual(compact, "…/sidebar")
     }
@@ -194,5 +193,25 @@ final class WorklaneContextFormatterTests: XCTestCase {
         )
 
         XCTAssertEqual(label, "peter@203.0.113.10")
+    }
+
+    private func makeTemporaryRepository(named repositoryName: String) throws -> String {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repositoryURL = rootURL
+            .appendingPathComponent("worktrees", isDirectory: true)
+            .appendingPathComponent("feature", isDirectory: true)
+            .appendingPathComponent(repositoryName, isDirectory: true)
+        let gitMarkerURL = repositoryURL.appendingPathComponent(".git", isDirectory: true)
+
+        try FileManager.default.createDirectory(
+            at: gitMarkerURL,
+            withIntermediateDirectories: true
+        )
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        return repositoryURL.path
     }
 }

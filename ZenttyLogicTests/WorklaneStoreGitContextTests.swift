@@ -529,6 +529,100 @@ final class WorklaneStoreGitContextTests: XCTestCase {
         XCTAssertEqual(presentation.lookupBranch, "feature/review-band")
     }
 
+    func test_agent_completion_reloads_git_context_when_branch_changes_without_prompt_update() async throws {
+        let paneID = PaneID("pane-shell")
+        let worklaneID = WorklaneID("worklane-main")
+        let resolver = SequencedPaneGitContextResolver(
+            resultsByWorkingDirectory: [
+                "/tmp/project": [
+                    PaneGitContext(
+                        workingDirectory: "/tmp/project",
+                        repositoryRoot: "/tmp/project",
+                        reference: .branch("main")
+                    ),
+                    PaneGitContext(
+                        workingDirectory: "/tmp/project",
+                        repositoryRoot: "/tmp/project",
+                        reference: .branch("fix/nimbu-acl-cloud-code")
+                    ),
+                ]
+            ]
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: paneID, title: "shell")],
+                        focusedPaneID: paneID
+                    ),
+                    paneContextByPaneID: [
+                        paneID: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: NSHomeDirectory(),
+                            user: NSUserName(),
+                            host: nil,
+                            gitBranch: "main"
+                        ),
+                    ]
+                ),
+            ],
+            gitContextResolver: resolver
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "zsh",
+                gitBranch: "main"
+            )
+        )
+        try await waitForBranch("main", paneID: paneID, in: store)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .running,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "codex-run",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentWorkingDirectory: "/tmp/project"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "codex-run",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentWorkingDirectory: "/tmp/project"
+            )
+        )
+
+        try await waitForBranch("fix/nimbu-acl-cloud-code", paneID: paneID, in: store)
+
+        let resolveCount = await resolver.resolveCallCount(for: "/tmp/project")
+        XCTAssertEqual(resolveCount, 2)
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.branch, "fix/nimbu-acl-cloud-code")
+        XCTAssertEqual(presentation.lookupBranch, "fix/nimbu-acl-cloud-code")
+    }
+
     private func waitForBranch(
         _ branch: String,
         paneID: PaneID,

@@ -973,7 +973,10 @@ extension WorklaneStore {
         }
     }
 
-    func refreshGitContextIfNeeded(for paneReference: PaneReference) {
+    func refreshGitContextIfNeeded(
+        for paneReference: PaneReference,
+        forceReload: Bool = false
+    ) {
         guard
             let worklaneIndex = worklanes.firstIndex(where: { $0.id == paneReference.worklaneID }),
             worklanes[worklaneIndex].paneStripState.panes.contains(where: { $0.id == paneReference.paneID })
@@ -994,14 +997,20 @@ extension WorklaneStore {
 
         let shellBranchHint = WorklaneContextFormatter.displayBranch(auxiliaryState?.shellContext?.gitBranch)
 
-        if let cached = cachedGitContextByPath[workingDirectory],
+        if forceReload {
+            invalidateCachedGitContext(path: workingDirectory)
+        }
+
+        if !forceReload,
+           let cached = cachedGitContextByPath[workingDirectory],
            cachedGitContext(cached, matches: shellBranchHint) {
             updateGitContext(paneID: paneReference.paneID, gitContext: cached)
             return
         }
         cachedGitContextByPath.removeValue(forKey: workingDirectory)
 
-        if knownNonRepositoryPaths.contains(workingDirectory) {
+        if !forceReload,
+           knownNonRepositoryPaths.contains(workingDirectory) {
             if shellBranchHint != nil {
                 knownNonRepositoryPaths.remove(workingDirectory)
                 nonRepositoryRetryDeadlineByPath.removeValue(forKey: workingDirectory)
