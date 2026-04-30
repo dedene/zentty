@@ -176,7 +176,7 @@ final class SidebarViewRenderTests: XCTestCase {
         XCTAssertTrue(buttonC === worklaneButton(in: sidebar, id: "C"))
     }
 
-    func test_dragPreview_reordersButtonsAndLeavesInvisibleSpacerAtDropSlot() {
+    func test_dragPreview_reordersButtonsAndLeavesInvisibleSpacerAtDropSlot() throws {
         let sidebar = makeSidebar()
         let theme = ZenttyTheme.fallback(for: nil)
         let summaries = [
@@ -200,6 +200,9 @@ final class SidebarViewRenderTests: XCTestCase {
         }
         let draggedHeight = buttonB.frame.height
         sidebar.prepareDraggedWorklaneButton(buttonB)
+        XCTAssertEqual(buttonB.alphaValue, 1)
+        let dragBackgroundAlpha = try XCTUnwrap(buttonB.backgroundColorForTesting?.alphaComponent)
+        XCTAssertEqual(dragBackgroundAlpha, 1, accuracy: 0.001)
 
         sidebar.setDragPreview(
             draggedID: WorklaneID("B"),
@@ -219,8 +222,20 @@ final class SidebarViewRenderTests: XCTestCase {
             ["A", "C", "spacer"]
         )
         XCTAssertEqual(sidebar.reorderSpacerHeightForTesting, draggedHeight, accuracy: 0.001)
+        XCTAssertEqual(sidebar.reorderPreviewLastAnimationDurationForTesting, 0)
         XCTAssertTrue(buttonB === worklaneButton(in: sidebar, id: "B"))
         XCTAssertNotNil(buttonB.superview)
+
+        sidebar.setDragPreview(
+            draggedID: WorklaneID("B"),
+            previewOrder: [WorklaneID("A"), WorklaneID("B"), WorklaneID("C")]
+        )
+
+        XCTAssertEqual(
+            arrangedSidebarItems(in: sidebar),
+            ["A", "spacer", "C"]
+        )
+        XCTAssertGreaterThan(sidebar.reorderPreviewLastAnimationDurationForTesting ?? 0, 0)
     }
 
     func test_clearDragPreview_restoresDetachedDraggedRowWhenOrderDidNotChange() {

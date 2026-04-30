@@ -43,6 +43,7 @@ final class SidebarView: NSView {
         static let updateRowBottomInset: CGFloat = ShellMetrics.sidebarContentInset
         static let updateRowSpacing: CGFloat = 8
         static let resizeHandleWidth: CGFloat = 4
+        static let reorderPreviewAnimationDuration: TimeInterval = 0.11
         static let defaultHeaderContentMinX: CGFloat =
             ShellMetrics.sidebarContentInset + ShellMetrics.sidebarCreateWorklaneHorizontalInset
     }
@@ -90,6 +91,7 @@ final class SidebarView: NSView {
     private var currentTheme = ZenttyTheme.fallback(for: nil)
 #if DEBUG
     private(set) var renderInvocationCountForTesting: Int = 0
+    private(set) var reorderPreviewLastAnimationDurationForTesting: TimeInterval?
 #endif
     private var headerPinnedContentMinX = Layout.defaultHeaderContentMinX
     private var headerVisibilityMode: SidebarVisibilityMode = .pinnedOpen
@@ -561,9 +563,14 @@ final class SidebarView: NSView {
             return
         }
 
+        let shouldAnimate = SidebarWorklaneReorderModel.previewSlotChanged(
+            previousPreviewOrder: dragPreviewOrder,
+            nextPreviewOrder: previewOrder,
+            draggedID: draggedID
+        )
         dragPreviewDraggedWorklaneID = draggedID
         dragPreviewOrder = previewOrder
-        render(summaries: canonicalWorklaneSummaries, theme: currentTheme)
+        renderDragPreview(animated: shouldAnimate)
     }
 
     func clearDragPreview() {
@@ -605,7 +612,7 @@ final class SidebarView: NSView {
         }
         button.translatesAutoresizingMaskIntoConstraints = true
         button.frame = frameInDocument
-        button.alphaValue = 0.92
+        button.setReorderDragActive(true)
         button.layer?.zPosition = 100
     }
 
@@ -628,6 +635,7 @@ final class SidebarView: NSView {
 
     func finishDraggedWorklaneButton(_ button: SidebarWorklaneRowButton) {
         button.alphaValue = 1
+        button.setReorderDragActive(false)
         button.layer?.zPosition = 0
         button.translatesAutoresizingMaskIntoConstraints = false
     }
@@ -942,6 +950,28 @@ final class SidebarView: NSView {
 }
 
 private extension SidebarView {
+    func renderDragPreview(animated: Bool) {
+#if DEBUG
+        reorderPreviewLastAnimationDurationForTesting = animated
+            ? Layout.reorderPreviewAnimationDuration
+            : 0
+#endif
+
+        guard animated else {
+            render(summaries: canonicalWorklaneSummaries, theme: currentTheme)
+            return
+        }
+
+        listDocumentView.layoutSubtreeIfNeeded()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Layout.reorderPreviewAnimationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.allowsImplicitAnimation = true
+            render(summaries: canonicalWorklaneSummaries, theme: currentTheme)
+            listDocumentView.animator().layoutSubtreeIfNeeded()
+        }
+    }
+
     func syncReorderSpacer() {
         guard let draggedID = dragPreviewDraggedWorklaneID,
               let dragPreviewOrder,

@@ -170,6 +170,40 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             idleBackground.alphaComponent, workingBackground.alphaComponent, accuracy: 0.001)
     }
 
+    func test_reorderDragAppearance_usesSolidVersionOfSidebarRowBackground() throws {
+        let row = makeRow()
+        let theme = darkTheme(foreground: "#E8EEF7")
+
+        row.configure(
+            with: makeSummary(primaryText: "Claude Code", isActive: false),
+            theme: theme,
+            animated: false
+        )
+        let normalBackground = try XCTUnwrap(row.backgroundColorForTesting?.srgbClamped)
+        XCTAssertLessThan(normalBackground.alphaComponent, 1)
+
+        row.setReorderDragActive(true)
+
+        let dragBackground = try XCTUnwrap(row.backgroundColorForTesting?.srgbClamped)
+        let sidebarSurface = theme.sidebarBackground.composited(over: theme.windowBackground)
+        let expectedBackground = normalBackground
+            .composited(over: sidebarSurface)
+            .srgbClamped
+            .withAlphaComponent(1)
+        XCTAssertEqual(dragBackground.alphaComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(dragBackground.redComponent, expectedBackground.redComponent, accuracy: 0.001)
+        XCTAssertEqual(dragBackground.greenComponent, expectedBackground.greenComponent, accuracy: 0.001)
+        XCTAssertEqual(dragBackground.blueComponent, expectedBackground.blueComponent, accuracy: 0.001)
+
+        row.setReorderDragActive(false)
+
+        let restoredBackground = try XCTUnwrap(row.backgroundColorForTesting?.srgbClamped)
+        XCTAssertEqual(restoredBackground.alphaComponent, normalBackground.alphaComponent, accuracy: 0.001)
+        XCTAssertEqual(restoredBackground.redComponent, normalBackground.redComponent, accuracy: 0.001)
+        XCTAssertEqual(restoredBackground.greenComponent, normalBackground.greenComponent, accuracy: 0.001)
+        XCTAssertEqual(restoredBackground.blueComponent, normalBackground.blueComponent, accuracy: 0.001)
+    }
+
     func test_worklane_row_exposes_plain_status_copy() {
         let row = makeRow(height: 88)
 

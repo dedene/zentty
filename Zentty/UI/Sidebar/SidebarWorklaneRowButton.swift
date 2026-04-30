@@ -71,6 +71,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private var isApplyingResolvedSummary = false
     private var shimmerCoordinator: SidebarShimmerCoordinator?
     private var isDropTargetHighlighted = false
+    private var isReorderDragActive = false
     private let reducedMotionProvider: () -> Bool
 
     var onPaneSelected: ((PaneID) -> Void)?
@@ -449,6 +450,15 @@ final class SidebarWorklaneRowButton: NSButton {
 
     // MARK: - Public API
 
+    func setReorderDragActive(_ isActive: Bool) {
+        guard isReorderDragActive != isActive else {
+            return
+        }
+
+        isReorderDragActive = isActive
+        applyCurrentAppearance(animated: false)
+    }
+
     func configure(
         with summary: WorklaneSidebarSummary,
         theme: ZenttyTheme,
@@ -792,7 +802,7 @@ final class SidebarWorklaneRowButton: NSButton {
         performThemeAnimation(animated: animated) {
             self.layer?.zPosition = summary.isActive ? 10 : 0
             self.layer?.backgroundColor =
-                self.backgroundColor(
+                self.resolvedBackgroundColor(
                     isActive: summary.isActive,
                     activeBackground: activeBackground,
                     hoverBackground: hoverBackground,
@@ -847,6 +857,31 @@ final class SidebarWorklaneRowButton: NSButton {
         }
 
         return inactiveBackground
+    }
+
+    private func resolvedBackgroundColor(
+        isActive: Bool,
+        activeBackground: NSColor,
+        hoverBackground: NSColor,
+        inactiveBackground: NSColor
+    ) -> NSColor {
+        let background = backgroundColor(
+            isActive: isActive,
+            activeBackground: activeBackground,
+            hoverBackground: hoverBackground,
+            inactiveBackground: inactiveBackground
+        )
+        guard isReorderDragActive else {
+            return background
+        }
+
+        let sidebarSurface = currentTheme.sidebarBackground.composited(
+            over: currentTheme.windowBackground
+        )
+        return background
+            .composited(over: sidebarSurface)
+            .srgbClamped
+            .withAlphaComponent(1)
     }
 
     private func updateShimmerState() {
