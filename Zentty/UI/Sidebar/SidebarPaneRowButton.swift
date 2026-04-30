@@ -12,6 +12,120 @@ extension NSView {
     }
 }
 
+// MARK: - Sidebar Context Menus
+
+enum SidebarWorklaneMoveDirection: Equatable {
+    case up
+    case down
+
+    var delta: Int {
+        switch self {
+        case .up:
+            return -1
+        case .down:
+            return 1
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .up:
+            return "Move Worklane Up"
+        case .down:
+            return "Move Worklane Down"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .up:
+            return "arrow.up"
+        case .down:
+            return "arrow.down"
+        }
+    }
+}
+
+struct SidebarWorklaneMoveAvailability: Equatable {
+    var canMoveUp: Bool
+    var canMoveDown: Bool
+
+    static let none = SidebarWorklaneMoveAvailability(canMoveUp: false, canMoveDown: false)
+}
+
+@MainActor
+enum SidebarContextMenu {
+    static func item(
+        title: String,
+        action: Selector?,
+        target: AnyObject?,
+        symbolName: String,
+        fallbackSymbolName: String? = nil,
+        accessibilityDescription: String? = nil
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = target
+        item.image = symbolImage(
+            named: symbolName,
+            fallbackName: fallbackSymbolName,
+            accessibilityDescription: accessibilityDescription ?? title
+        )
+        return item
+    }
+
+    static func addMoveItems(
+        to menu: NSMenu,
+        availability: SidebarWorklaneMoveAvailability,
+        target: AnyObject,
+        moveUpAction: Selector,
+        moveDownAction: Selector
+    ) {
+        if availability.canMoveUp {
+            menu.addItem(
+                item(
+                    title: SidebarWorklaneMoveDirection.up.title,
+                    action: moveUpAction,
+                    target: target,
+                    symbolName: SidebarWorklaneMoveDirection.up.symbolName
+                )
+            )
+        }
+
+        if availability.canMoveDown {
+            menu.addItem(
+                item(
+                    title: SidebarWorklaneMoveDirection.down.title,
+                    action: moveDownAction,
+                    target: target,
+                    symbolName: SidebarWorklaneMoveDirection.down.symbolName
+                )
+            )
+        }
+    }
+
+    static func addSeparatorIfNeeded(to menu: NSMenu) {
+        guard let lastItem = menu.items.last, !lastItem.isSeparatorItem else {
+            return
+        }
+
+        menu.addItem(NSMenuItem.separator())
+    }
+
+    private static func symbolImage(
+        named symbolName: String,
+        fallbackName: String?,
+        accessibilityDescription: String
+    ) -> NSImage? {
+        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityDescription)
+            ?? fallbackName.flatMap {
+                NSImage(systemSymbolName: $0, accessibilityDescription: accessibilityDescription)
+            }
+
+        return image?.withSymbolConfiguration(symbolConfiguration) ?? image
+    }
+}
+
 // MARK: - SidebarInsetContainerView
 
 final class SidebarInsetContainerView: NSView {
@@ -77,6 +191,9 @@ final class SidebarPaneRowButton: NSButton {
     var onSplitHorizontal: ((PaneID) -> Void)?
     var onSplitVertical: ((PaneID) -> Void)?
     var onPickWorklaneColor: ((PaneID, WorklaneColor?) -> Void)?
+    var onWorklaneDragRequested: ((NSEvent) -> Bool)?
+    var onMoveWorklane: ((SidebarWorklaneMoveDirection) -> Void)?
+    var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
 
     private var activeContextPicker: WorklaneColorMenuItemView?
 
@@ -142,6 +259,25 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleClick() {
         onPaneClicked?(paneID)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.type == .leftMouseDown, onWorklaneDragRequested != nil else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        SidebarWorklaneDragGestureTracker.track(
+            from: self,
+            event: event,
+            beginDrag: { [weak self] dragEvent in
+                self?.onWorklaneDragRequested?(dragEvent) ?? false
+            },
+            click: { [weak self] in
+                guard let self else { return }
+                self.onPaneClicked?(self.paneID)
+            }
+        )
     }
 
     func setContent(_ views: [NSView]) {
@@ -232,30 +368,40 @@ final class SidebarPaneRowButton: NSButton {
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
 
-        let closeWorklaneItem = NSMenuItem(
+        let closeWorklaneItem = SidebarContextMenu.item(
             title: "Close Worklane",
             action: #selector(handleCloseWorklane),
-            keyEquivalent: ""
+            target: self,
+            symbolName: "rectangle.stack.badge.minus",
+            fallbackSymbolName: "xmark.circle"
         )
-        closeWorklaneItem.target = self
         menu.addItem(closeWorklaneItem)
 
         if !isLastPaneInWorklane {
-            let closePaneItem = NSMenuItem(
+            let closePaneItem = SidebarContextMenu.item(
                 title: "Close Pane",
                 action: #selector(handleClosePane),
-                keyEquivalent: ""
+                target: self,
+                symbolName: "rectangle.badge.minus",
+                fallbackSymbolName: "xmark.square"
             )
-            closePaneItem.target = self
             menu.addItem(closePaneItem)
         }
 
-        menu.addItem(NSMenuItem.separator())
+        SidebarContextMenu.addSeparatorIfNeeded(to: menu)
+        SidebarContextMenu.addMoveItems(
+            to: menu,
+            availability: worklaneMoveAvailability,
+            target: self,
+            moveUpAction: #selector(handleMoveWorklaneUp),
+            moveDownAction: #selector(handleMoveWorklaneDown)
+        )
 
-        let worklaneColorItem = NSMenuItem(
+        let worklaneColorItem = SidebarContextMenu.item(
             title: "Worklane Color",
             action: nil,
-            keyEquivalent: ""
+            target: nil,
+            symbolName: "paintpalette"
         )
         let worklaneColorSubmenu = NSMenu()
         let pickerItem = NSMenuItem()
@@ -269,22 +415,22 @@ final class SidebarPaneRowButton: NSButton {
         menu.addItem(worklaneColorItem)
         activeContextPicker = picker
 
-        menu.addItem(NSMenuItem.separator())
+        SidebarContextMenu.addSeparatorIfNeeded(to: menu)
 
-        let splitHItem = NSMenuItem(
+        let splitHItem = SidebarContextMenu.item(
             title: "Split Horizontal",
             action: #selector(handleSplitHorizontal),
-            keyEquivalent: ""
+            target: self,
+            symbolName: "rectangle.split.2x1"
         )
-        splitHItem.target = self
         menu.addItem(splitHItem)
 
-        let splitVItem = NSMenuItem(
+        let splitVItem = SidebarContextMenu.item(
             title: "Split Vertical",
             action: #selector(handleSplitVertical),
-            keyEquivalent: ""
+            target: self,
+            symbolName: "rectangle.split.1x2"
         )
-        splitVItem.target = self
         menu.addItem(splitVItem)
 
         return menu
@@ -296,6 +442,14 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleClosePane() {
         onClosePane?(paneID)
+    }
+
+    @objc private func handleMoveWorklaneUp() {
+        onMoveWorklane?(.up)
+    }
+
+    @objc private func handleMoveWorklaneDown() {
+        onMoveWorklane?(.down)
     }
 
     @objc private func handleSplitHorizontal() {

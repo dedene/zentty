@@ -729,6 +729,9 @@ final class RootViewController: NSViewController {
         sidebarView.onWorklaneColorChanged = { [weak self] worklaneID, color in
             self?.worklaneStore.setColor(color, on: worklaneID)
         }
+        sidebarView.onWorklaneReorderCommitted = { [weak self] worklaneID, targetIndex in
+            self?.worklaneStore.moveWorklane(id: worklaneID, toIndex: targetIndex) ?? false
+        }
         sidebarView.onNewWorklaneRequested = { [weak self] in
             self?.handle(.newWorklane)
         }
@@ -1005,6 +1008,10 @@ final class RootViewController: NSViewController {
             worklaneStore.selectNextWorklane()
         case .previousWorklane:
             worklaneStore.selectPreviousWorklane()
+        case .moveWorklaneUp:
+            moveActiveWorklane(by: -1)
+        case .moveWorklaneDown:
+            moveActiveWorklane(by: 1)
         case .find:
             showFocusedPaneSearch()
         case .globalFind:
@@ -1491,6 +1498,37 @@ final class RootViewController: NSViewController {
 
     private func commandID(for action: AppAction) -> AppCommandID? {
         AppCommandRegistry.definitions.first(where: { $0.action == action })?.id
+    }
+
+    private func moveActiveWorklane(by delta: Int) {
+        guard let currentIndex = worklaneStore.worklanes.firstIndex(where: { $0.id == worklaneStore.activeWorklaneID }) else {
+            return
+        }
+
+        let targetIndex = currentIndex + delta
+        guard worklaneStore.moveWorklane(id: worklaneStore.activeWorklaneID, toIndex: targetIndex) else {
+            return
+        }
+
+        postWorklaneMoveAccessibilityAnnouncement()
+    }
+
+    private func postWorklaneMoveAccessibilityAnnouncement() {
+        guard let index = worklaneStore.worklanes.firstIndex(where: { $0.id == worklaneStore.activeWorklaneID }) else {
+            return
+        }
+
+        let worklane = worklaneStore.worklanes[index]
+        let name = WorklaneSidebarSummaryBuilder.summary(
+            for: worklane,
+            isActive: worklane.id == worklaneStore.activeWorklaneID
+        ).primaryText
+        let message = "Moved \(name) to position \(index + 1) of \(worklaneStore.worklanes.count)"
+        NSAccessibility.post(
+            element: view as Any,
+            notification: .announcementRequested,
+            userInfo: [.announcement: message]
+        )
     }
 
     private func resolvedVerticalKeyboardResizeDelta(_ delta: CGFloat) -> CGFloat {

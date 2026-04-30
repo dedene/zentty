@@ -170,6 +170,125 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             idleBackground.alphaComponent, workingBackground.alphaComponent, accuracy: 0.001)
     }
 
+    func test_reorderDragAppearance_usesSolidVersionOfSidebarRowBackground() throws {
+        let row = makeRow()
+        let theme = darkTheme(foreground: "#E8EEF7")
+
+        row.configure(
+            with: makeSummary(primaryText: "Claude Code", isActive: false),
+            theme: theme,
+            animated: false
+        )
+        let normalBackground = try XCTUnwrap(row.backgroundColorForTesting?.srgbClamped)
+        XCTAssertLessThan(normalBackground.alphaComponent, 1)
+
+        row.setReorderDragActive(true)
+
+        let dragBackground = try XCTUnwrap(row.backgroundColorForTesting?.srgbClamped)
+        let sidebarSurface = theme.sidebarBackground.composited(over: theme.windowBackground)
+        let expectedBackground = normalBackground
+            .composited(over: sidebarSurface)
+            .srgbClamped
+            .withAlphaComponent(1)
+        XCTAssertEqual(dragBackground.alphaComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(dragBackground.redComponent, expectedBackground.redComponent, accuracy: 0.001)
+        XCTAssertEqual(dragBackground.greenComponent, expectedBackground.greenComponent, accuracy: 0.001)
+        XCTAssertEqual(dragBackground.blueComponent, expectedBackground.blueComponent, accuracy: 0.001)
+
+        row.setReorderDragActive(false)
+
+        let restoredBackground = try XCTUnwrap(row.backgroundColorForTesting?.srgbClamped)
+        XCTAssertEqual(restoredBackground.alphaComponent, normalBackground.alphaComponent, accuracy: 0.001)
+        XCTAssertEqual(restoredBackground.redComponent, normalBackground.redComponent, accuracy: 0.001)
+        XCTAssertEqual(restoredBackground.greenComponent, normalBackground.greenComponent, accuracy: 0.001)
+        XCTAssertEqual(restoredBackground.blueComponent, normalBackground.blueComponent, accuracy: 0.001)
+    }
+
+    func test_worklaneContextMenu_hidesUnavailableMoveCommandsAtEdges() throws {
+        let event = try makeContextMenuEvent()
+        let row = makeRow()
+        row.configure(
+            with: makeSummary(primaryText: "Claude Code"),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: false, canMoveDown: false))
+        XCTAssertEqual(menuTitles(row.menu(for: event)), ["Worklane Color"])
+
+        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: false, canMoveDown: true))
+        XCTAssertEqual(menuTitles(row.menu(for: event)), ["Move Worklane Down", "Worklane Color"])
+
+        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: true, canMoveDown: true))
+        XCTAssertEqual(
+            menuTitles(row.menu(for: event)),
+            ["Move Worklane Up", "Move Worklane Down", "Worklane Color"]
+        )
+
+        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: true, canMoveDown: false))
+        XCTAssertEqual(menuTitles(row.menu(for: event)), ["Move Worklane Up", "Worklane Color"])
+    }
+
+    func test_worklaneContextMenu_moveItemsUseIconsAndInvokeCallbacks() throws {
+        let event = try makeContextMenuEvent()
+        let row = makeRow()
+        var moves: [(WorklaneID, SidebarWorklaneMoveDirection)] = []
+        row.onWorklaneMoveRequested = { worklaneID, direction in
+            moves.append((worklaneID, direction))
+        }
+        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: true, canMoveDown: true))
+        row.configure(
+            with: makeSummary(primaryText: "Claude Code"),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let menu = try XCTUnwrap(row.menu(for: event))
+        let moveUp = try XCTUnwrap(menu.item(withTitle: "Move Worklane Up"))
+        let moveDown = try XCTUnwrap(menu.item(withTitle: "Move Worklane Down"))
+        let color = try XCTUnwrap(menu.item(withTitle: "Worklane Color"))
+
+        XCTAssertNotNil(moveUp.image)
+        XCTAssertNotNil(moveDown.image)
+        XCTAssertNotNil(color.image)
+
+        NSApp.sendAction(try XCTUnwrap(moveUp.action), to: moveUp.target, from: moveUp)
+        NSApp.sendAction(try XCTUnwrap(moveDown.action), to: moveDown.target, from: moveDown)
+
+        XCTAssertEqual(moves.map(\.0), [WorklaneID("worklane-main"), WorklaneID("worklane-main")])
+        XCTAssertEqual(moves.map(\.1), [.up, .down])
+    }
+
+    func test_paneRowContextMenu_includesMoveCommandsAndSidebarMenuIcons() throws {
+        let row = makeRow(width: 320, height: 110)
+        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: true, canMoveDown: true))
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [makePaneRow(isFocused: true)]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let menu = try XCTUnwrap(row.firstPaneRowMenuForTesting(event: try makeContextMenuEvent()))
+
+        XCTAssertEqual(
+            menuTitles(menu),
+            [
+                "Close Worklane",
+                "Move Worklane Up",
+                "Move Worklane Down",
+                "Worklane Color",
+                "Split Horizontal",
+                "Split Vertical",
+            ]
+        )
+        for title in menuTitles(menu) {
+            XCTAssertNotNil(menu.item(withTitle: title)?.image, "\(title) should have an icon")
+        }
+    }
+
     func test_worklane_row_exposes_plain_status_copy() {
         let row = makeRow(height: 88)
 
@@ -2332,6 +2451,19 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
     }
 
+    private func makePaneRow(isFocused: Bool) -> WorklaneSidebarPaneRow {
+        WorklaneSidebarPaneRow(
+            paneID: PaneID("worklane-main-pane"),
+            primaryText: "Claude Code",
+            trailingText: "main",
+            detailText: "…/zentty",
+            statusText: "╰ Idle",
+            attentionState: nil,
+            isFocused: isFocused,
+            isWorking: false
+        )
+    }
+
     private func makeRenderableSidebarView(width: CGFloat, height: CGFloat) -> SidebarView {
         SidebarView(
             frame: NSRect(x: 0, y: 0, width: width, height: height),
@@ -2361,6 +2493,32 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         window.contentView = view
         window.orderFrontRegardless()
         return window
+    }
+
+    private func makeContextMenuEvent() throws -> NSEvent {
+        try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .rightMouseDown,
+                location: NSPoint(x: 12, y: 12),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 0
+            )
+        )
+    }
+
+    private func menuTitles(_ menu: NSMenu?) -> [String] {
+        menuTitles(menu ?? NSMenu())
+    }
+
+    private func menuTitles(_ menu: NSMenu) -> [String] {
+        menu.items.compactMap { item in
+            item.isSeparatorItem ? nil : item.title
+        }
     }
 
     private func sidebarWorklaneButtons(in sidebarView: SidebarView) throws

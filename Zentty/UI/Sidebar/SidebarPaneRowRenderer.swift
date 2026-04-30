@@ -9,7 +9,10 @@ final class SidebarPaneRowRenderer {
         var onSplitHorizontalRequested: ((PaneID) -> Void)?
         var onSplitVerticalRequested: ((PaneID) -> Void)?
         var onWorklaneColorChanged: ((WorklaneColor?) -> Void)?
+        var onWorklaneDragRequested: ((NSEvent) -> Bool)?
         var onHoverChanged: ((Bool) -> Void)?
+        var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
+        var onMoveWorklaneRequested: ((SidebarWorklaneMoveDirection) -> Void)?
     }
 
     private(set) var panePrimaryRows: [SidebarPanePrimaryRowView] = []
@@ -32,6 +35,10 @@ final class SidebarPaneRowRenderer {
     func setShimmerVisibility(_ isVisible: Bool) {
         panePrimaryRows.forEach { $0.setShimmerVisibility(isVisible) }
         paneStatusRows.forEach { $0.setShimmerVisibility(isVisible) }
+    }
+
+    func setWorklaneMoveAvailability(_ availability: SidebarWorklaneMoveAvailability) {
+        paneRowButtons.forEach { $0.worklaneMoveAvailability = availability }
     }
 
     func setVolatilePaneTitle(paneID: PaneID, text: String, paneRows: [WorklaneSidebarPaneRow]) {
@@ -90,7 +97,10 @@ final class SidebarPaneRowRenderer {
             button.onPickWorklaneColor = { _, color in
                 callbacks.onWorklaneColorChanged?(color)
             }
+            button.onWorklaneDragRequested = callbacks.onWorklaneDragRequested
             button.onHoverChanged = callbacks.onHoverChanged
+            button.worklaneMoveAvailability = callbacks.worklaneMoveAvailability
+            button.onMoveWorklane = callbacks.onMoveWorklaneRequested
         }
     }
 
