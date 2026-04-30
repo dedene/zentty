@@ -62,4 +62,18 @@ enum SidebarWorklaneReorderModel {
 
         return 0
     }
+
+    static func previewSlotChanged(
+        previousPreviewOrder: [WorklaneID]?,
+        nextPreviewOrder: [WorklaneID],
+        draggedID: WorklaneID
+    ) -> Bool {
+        guard let previousPreviewOrder,
+              let previousIndex = previousPreviewOrder.firstIndex(of: draggedID),
+              let nextIndex = nextPreviewOrder.firstIndex(of: draggedID) else {
+            return false
+        }
+
+        return previousIndex != nextIndex
+    }
 }

@@ -1,11 +1,28 @@
 import AppKit
 
 @MainActor
+protocol SidebarReorderHapticFeedbackPerforming {
+    func performReorderAlignmentFeedback()
+}
+
+@MainActor
+struct SidebarReorderHapticFeedbackPerformer: SidebarReorderHapticFeedbackPerforming {
+    func performReorderAlignmentFeedback() {
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+    }
+}
+
+@MainActor
 final class SidebarDragCoordinator {
     private weak var sidebarView: SidebarView?
+    private let hapticFeedbackPerformer: any SidebarReorderHapticFeedbackPerforming
 
-    init(sidebarView: SidebarView) {
+    init(
+        sidebarView: SidebarView,
+        hapticFeedbackPerformer: any SidebarReorderHapticFeedbackPerforming = SidebarReorderHapticFeedbackPerformer()
+    ) {
         self.sidebarView = sidebarView
+        self.hapticFeedbackPerformer = hapticFeedbackPerformer
     }
 
     func beginDrag(button: SidebarWorklaneRowButton, event: NSEvent) -> Bool {
@@ -24,6 +41,7 @@ final class SidebarDragCoordinator {
         let pointInButton = button.convert(event.locationInWindow, from: nil)
         let verticalOffset = pointInButton.y
         var latestPreviewOrder = initialOrder
+        var lastFeedbackPreviewOrder: [WorklaneID]?
 
         sidebarView.prepareDraggedWorklaneButton(button)
         defer {
@@ -36,6 +54,7 @@ final class SidebarDragCoordinator {
             draggedID: draggedID,
             initialOrder: initialOrder,
             latestPreviewOrder: &latestPreviewOrder,
+            lastFeedbackPreviewOrder: &lastFeedbackPreviewOrder,
             button: button,
             verticalOffset: verticalOffset
         )
@@ -53,6 +72,7 @@ final class SidebarDragCoordinator {
                     draggedID: draggedID,
                     initialOrder: initialOrder,
                     latestPreviewOrder: &latestPreviewOrder,
+                    lastFeedbackPreviewOrder: &lastFeedbackPreviewOrder,
                     button: button,
                     verticalOffset: verticalOffset
                 )
@@ -75,6 +95,7 @@ final class SidebarDragCoordinator {
         draggedID: WorklaneID,
         initialOrder: [WorklaneID],
         latestPreviewOrder: inout [WorklaneID],
+        lastFeedbackPreviewOrder: inout [WorklaneID]?,
         button: SidebarWorklaneRowButton,
         verticalOffset: CGFloat
     ) {
@@ -102,8 +123,17 @@ final class SidebarDragCoordinator {
             return
         }
 
+        let shouldPerformHapticFeedback = SidebarWorklaneReorderModel.previewSlotChanged(
+            previousPreviewOrder: lastFeedbackPreviewOrder,
+            nextPreviewOrder: previewOrder,
+            draggedID: draggedID
+        )
         latestPreviewOrder = previewOrder
+        lastFeedbackPreviewOrder = previewOrder
         sidebarView.setDragPreview(draggedID: draggedID, previewOrder: previewOrder)
+        if shouldPerformHapticFeedback {
+            hapticFeedbackPerformer.performReorderAlignmentFeedback()
+        }
 
         let visibleRect = sidebarView.visibleListRectForReordering()
         let velocity = SidebarWorklaneReorderModel.autoScrollVelocity(
