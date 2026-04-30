@@ -77,6 +77,23 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertEqual(definition.action, .pane(.duplicateFocusedPane))
     }
 
+    func test_registry_includes_worklane_reorder_commands_without_menu_items() {
+        let moveUp = AppCommandRegistry.definition(for: .worklaneMoveUp)
+        let moveDown = AppCommandRegistry.definition(for: .worklaneMoveDown)
+
+        XCTAssertEqual(moveUp.title, "Move Worklane Up")
+        XCTAssertEqual(moveUp.category, .worklanes)
+        XCTAssertEqual(moveUp.defaultShortcut, .init(key: .upArrow, modifiers: [.command, .control]))
+        XCTAssertEqual(moveUp.action, .moveWorklaneUp)
+        XCTAssertNil(moveUp.menuItem)
+
+        XCTAssertEqual(moveDown.title, "Move Worklane Down")
+        XCTAssertEqual(moveDown.category, .worklanes)
+        XCTAssertEqual(moveDown.defaultShortcut, .init(key: .downArrow, modifiers: [.command, .control]))
+        XCTAssertEqual(moveDown.action, .moveWorklaneDown)
+        XCTAssertNil(moveDown.menuItem)
+    }
+
     func test_resolves_default_shortcuts_from_registry() {
         XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
@@ -134,6 +151,20 @@ final class KeyboardShortcutResolverTests: XCTestCase {
                 shortcuts: .default
             ),
             .globalFind
+        )
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .upArrow, modifiers: [.command, .control]),
+                shortcuts: .default
+            ),
+            .moveWorklaneUp
+        )
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .downArrow, modifiers: [.command, .control]),
+                shortcuts: .default
+            ),
+            .moveWorklaneDown
         )
     }
 

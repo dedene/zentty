@@ -9,6 +9,7 @@ final class SidebarPaneRowRenderer {
         var onSplitHorizontalRequested: ((PaneID) -> Void)?
         var onSplitVerticalRequested: ((PaneID) -> Void)?
         var onWorklaneColorChanged: ((WorklaneColor?) -> Void)?
+        var onWorklaneDragRequested: ((NSEvent) -> Bool)?
         var onHoverChanged: ((Bool) -> Void)?
     }
 
@@ -90,6 +91,7 @@ final class SidebarPaneRowRenderer {
             button.onPickWorklaneColor = { _, color in
                 callbacks.onWorklaneColorChanged?(color)
             }
+            button.onWorklaneDragRequested = callbacks.onWorklaneDragRequested
             button.onHoverChanged = callbacks.onHoverChanged
         }
     }

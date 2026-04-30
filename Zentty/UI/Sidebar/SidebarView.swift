@@ -20,6 +20,7 @@ final class SidebarView: NSView {
     var onSplitHorizontalRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitVerticalRequested: ((WorklaneID, PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
+    var onWorklaneReorderCommitted: ((WorklaneID, Int) -> Bool)?
     var onNewWorklaneRequested: (() -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onResized: ((CGFloat) -> Void)?
@@ -37,9 +38,14 @@ final class SidebarView: NSView {
     private let shimmerCoordinator = SidebarShimmerCoordinator()
     private let activeWorklaneAutoScroller = SidebarActiveWorklaneAutoScroller()
     private let windowRenderabilityResolver: (NSWindow?) -> Bool
+    private lazy var dragCoordinator = SidebarDragCoordinator(sidebarView: self)
 
     private var worklaneButtons: [SidebarWorklaneRowButton] = []
     private var worklaneSummaries: [WorklaneSidebarSummary] = []
+    private var canonicalWorklaneSummaries: [WorklaneSidebarSummary] = []
+    private var dragPreviewOrder: [WorklaneID]?
+    private var dragPreviewDraggedWorklaneID: WorklaneID?
+    private var reorderPlaceholderView: SidebarDropPlaceholderView?
     private var addWorklaneLeadingConstraint: NSLayoutConstraint?
     private var addWorklaneWidthConstraint: NSLayoutConstraint?
     private var addWorklaneCenterYConstraint: NSLayoutConstraint?
@@ -282,9 +288,13 @@ final class SidebarView: NSView {
         summaries: [WorklaneSidebarSummary],
         theme: ZenttyTheme
     ) {
-        if summaries == worklaneSummaries,
+        reconcileDragPreview(with: summaries)
+        let effectiveSummaries = effectiveSummaries(for: summaries)
+
+        if effectiveSummaries == worklaneSummaries,
            theme == currentTheme,
-           worklaneButtons.map(\.worklaneID) == summaries.map(\.worklaneID) {
+           worklaneButtons.map(\.worklaneID) == effectiveSummaries.map(\.worklaneID) {
+            syncReorderPlaceholder()
             return
         }
 
@@ -294,10 +304,11 @@ final class SidebarView: NSView {
         let previousActiveID = worklaneSummaries.first(where: \.isActive)?.worklaneID
         let previousSummaries = worklaneSummaries
         let previousTheme = currentTheme
-        worklaneSummaries = summaries
+        canonicalWorklaneSummaries = summaries
+        worklaneSummaries = effectiveSummaries
         currentTheme = theme
 
-        let diff = SidebarRowDiff.compute(old: previousSummaries, new: summaries)
+        let diff = SidebarRowDiff.compute(old: previousSummaries, new: effectiveSummaries)
 
         if !diff.hasStructuralChange {
             // Same IDs — apply theme + content updates in place.
@@ -305,23 +316,25 @@ final class SidebarView: NSView {
         } else {
             worklaneButtons = SidebarListRenderer.renderStructuralDiff(
                 diff,
-                summaries: summaries,
+                summaries: effectiveSummaries,
                 currentButtons: worklaneButtons,
                 targetStack: listStack,
                 theme: theme,
                 shimmerCoordinator: shimmerCoordinator,
                 reconfigureSurvivingButtons: theme != previousTheme,
+                excludedWorklaneID: dragPreviewDraggedWorklaneID,
                 buttonFactory: makeWorklaneButton(for:)
             )
             applySidebarChrome(theme: theme, animated: true)
         }
 
+        syncReorderPlaceholder()
         worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
         syncShimmerVisibility()
         shimmerCoordinator.labelStateDidChange()
 
         let newActiveID = summaries.first(where: \.isActive)?.worklaneID
-        if newActiveID != previousActiveID, let newActiveID {
+        if dragPreviewDraggedWorklaneID == nil, newActiveID != previousActiveID, let newActiveID {
             activeWorklaneAutoScroller.scrollToActiveWorklaneIfNeeded(
                 newActiveID,
                 currentActiveID: { [weak self] in
@@ -366,6 +379,9 @@ final class SidebarView: NSView {
         }
         button.onWorklaneColorChanged = { [weak self] id, color in
             self?.onWorklaneColorChanged?(id, color)
+        }
+        button.onWorklaneDragRequested = { [weak self] button, event in
+            self?.beginWorklaneDrag(button: button, event: event) ?? false
         }
 
         button.setShimmerCoordinator(shimmerCoordinator)
@@ -484,6 +500,102 @@ final class SidebarView: NSView {
         }
     }
 
+    func visibleListRect(in targetView: NSView) -> CGRect {
+        targetView.convert(listScrollView.contentView.bounds, from: listScrollView.contentView)
+    }
+
+    func visibleListRectForReordering() -> CGRect {
+        listDocumentView.convert(listScrollView.contentView.bounds, from: listScrollView.contentView)
+    }
+
+    func reorderPoint(fromWindowLocation windowLocation: NSPoint) -> NSPoint {
+        listDocumentView.convert(windowLocation, from: nil)
+    }
+
+    func worklaneRowFramesForReordering() -> [(WorklaneID, CGRect)] {
+        worklaneRowFrames(in: listDocumentView)
+    }
+
+    func currentWorklaneOrder() -> [WorklaneID] {
+        canonicalWorklaneSummaries.map(\.worklaneID)
+    }
+
+    func setDragPreview(draggedID: WorklaneID, previewOrder: [WorklaneID]) {
+        let currentIDs = canonicalWorklaneSummaries.map(\.worklaneID)
+        guard Set(previewOrder) == Set(currentIDs), previewOrder.count == currentIDs.count else {
+            return
+        }
+
+        dragPreviewDraggedWorklaneID = draggedID
+        dragPreviewOrder = previewOrder
+        render(summaries: canonicalWorklaneSummaries, theme: currentTheme)
+    }
+
+    func clearDragPreview() {
+        guard dragPreviewOrder != nil || dragPreviewDraggedWorklaneID != nil else {
+            return
+        }
+
+        let detachedDraggedButton = worklaneButtons.first { button in
+            button.worklaneID == dragPreviewDraggedWorklaneID
+                && !listStack.arrangedSubviews.contains(button)
+        }
+
+        dragPreviewOrder = nil
+        dragPreviewDraggedWorklaneID = nil
+        removeReorderPlaceholder()
+
+        if detachedDraggedButton != nil,
+           canonicalWorklaneSummaries == worklaneSummaries,
+           worklaneButtons.map(\.worklaneID) == canonicalWorklaneSummaries.map(\.worklaneID) {
+            restoreArrangedWorklaneButtons()
+        } else {
+            render(summaries: canonicalWorklaneSummaries, theme: currentTheme)
+        }
+    }
+
+    func commitWorklaneReorder(id: WorklaneID, toIndex: Int) -> Bool {
+        onWorklaneReorderCommitted?(id, toIndex) ?? false
+    }
+
+    func prepareDraggedWorklaneButton(_ button: SidebarWorklaneRowButton) {
+        layoutSubtreeIfNeeded()
+        let frameInDocument = listDocumentView.convert(button.bounds, from: button)
+        deactivateListStackConstraints(referencing: button)
+        listStack.removeArrangedSubview(button)
+        if button.superview !== listDocumentView {
+            button.removeFromSuperview()
+            listDocumentView.addSubview(button)
+        }
+        button.translatesAutoresizingMaskIntoConstraints = true
+        button.frame = frameInDocument
+        button.alphaValue = 0.92
+        button.layer?.zPosition = 100
+    }
+
+    func positionDraggedWorklaneButton(
+        _ button: SidebarWorklaneRowButton,
+        atWindowLocation windowLocation: NSPoint,
+        verticalOffset: CGFloat
+    ) {
+        let point = listDocumentView.convert(windowLocation, from: nil)
+        var frame = button.frame
+        frame.origin.y = point.y - verticalOffset
+        frame.origin.x = 0
+        frame.size.width = max(
+            listStack.bounds.width,
+            listScrollView.contentView.bounds.width,
+            frame.width
+        )
+        button.frame = frame
+    }
+
+    func finishDraggedWorklaneButton(_ button: SidebarWorklaneRowButton) {
+        button.alphaValue = 1
+        button.layer?.zPosition = 0
+        button.translatesAutoresizingMaskIntoConstraints = false
+    }
+
     func setHighlightedDropTargetWorklane(_ worklaneID: WorklaneID?) {
         for button in worklaneButtons {
             button.setDropTargetHighlighted(button.worklaneID == worklaneID)
@@ -520,6 +632,10 @@ final class SidebarView: NSView {
         }
 
         onWorklaneSelected?(worklaneID)
+    }
+
+    private func beginWorklaneDrag(button: SidebarWorklaneRowButton, event: NSEvent) -> Bool {
+        dragCoordinator.beginDrag(button: button, event: event)
     }
 
     @objc
@@ -582,6 +698,16 @@ final class SidebarView: NSView {
 
     var worklaneButtonsForTesting: [NSButton] {
         worklaneButtons
+    }
+
+    var arrangedWorklaneIDsForTesting: [WorklaneID] {
+        listStack.arrangedSubviews.compactMap { view in
+            (view as? SidebarWorklaneRowButton)?.worklaneID
+        }
+    }
+
+    var worklaneRowFramesForReorderingForTesting: [(WorklaneID, CGRect)] {
+        worklaneRowFramesForReordering()
     }
 
     func listStackHasConstraintsReferencingViewForTesting(_ view: NSView) -> Bool {
@@ -776,6 +902,166 @@ final class SidebarView: NSView {
 }
 
 private extension SidebarView {
+    func syncReorderPlaceholder() {
+        guard let draggedID = dragPreviewDraggedWorklaneID,
+              let dragPreviewOrder,
+              let placeholderIndex = dragPreviewOrder.firstIndex(of: draggedID) else {
+            removeReorderPlaceholder()
+            return
+        }
+
+        let placeholder = reorderPlaceholderView ?? makeReorderPlaceholder()
+        reorderPlaceholderView = placeholder
+
+        if listStack.arrangedSubviews.contains(placeholder) {
+            listStack.removeArrangedSubview(placeholder)
+        }
+
+        let insertionIndex = min(placeholderIndex, listStack.arrangedSubviews.count)
+        listStack.insertArrangedSubview(placeholder, at: insertionIndex)
+        ensureReorderPlaceholderConstraints(placeholder)
+    }
+
+    func makeReorderPlaceholder() -> SidebarDropPlaceholderView {
+        let placeholder = SidebarDropPlaceholderView()
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
+        placeholder.animateIn()
+        return placeholder
+    }
+
+    func ensureReorderPlaceholderConstraints(_ placeholder: SidebarDropPlaceholderView) {
+        let hasLeadingConstraint = listStack.constraints.contains { constraint in
+            constraint.isActive
+                && (constraint.firstItem as AnyObject?) === placeholder
+                && constraint.firstAttribute == .leading
+                && (constraint.secondItem as AnyObject?) === listStack
+                && constraint.secondAttribute == .leading
+        }
+        let hasTrailingConstraint = listStack.constraints.contains { constraint in
+            constraint.isActive
+                && (constraint.firstItem as AnyObject?) === placeholder
+                && constraint.firstAttribute == .trailing
+                && (constraint.secondItem as AnyObject?) === listStack
+                && constraint.secondAttribute == .trailing
+        }
+        let hasHeightConstraint = placeholder.constraints.contains { constraint in
+            constraint.isActive
+                && (constraint.firstItem as AnyObject?) === placeholder
+                && constraint.firstAttribute == .height
+        }
+
+        var constraints: [NSLayoutConstraint] = []
+        if !hasLeadingConstraint {
+            constraints.append(placeholder.leadingAnchor.constraint(equalTo: listStack.leadingAnchor))
+        }
+        if !hasTrailingConstraint {
+            constraints.append(placeholder.trailingAnchor.constraint(equalTo: listStack.trailingAnchor))
+        }
+        if !hasHeightConstraint {
+            constraints.append(
+                placeholder.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight)
+            )
+        }
+        NSLayoutConstraint.activate(constraints)
+    }
+
+    func removeReorderPlaceholder() {
+        guard let placeholder = reorderPlaceholderView else {
+            return
+        }
+
+        if listStack.arrangedSubviews.contains(placeholder) {
+            listStack.removeArrangedSubview(placeholder)
+        }
+        placeholder.removeFromSuperview()
+        reorderPlaceholderView = nil
+    }
+
+    func restoreArrangedWorklaneButtons() {
+        removeReorderPlaceholder()
+
+        for button in worklaneButtons where listStack.arrangedSubviews.contains(button) {
+            listStack.removeArrangedSubview(button)
+        }
+
+        let buttonsByID = Dictionary(
+            uniqueKeysWithValues: worklaneButtons.compactMap { button in
+                button.worklaneID.map { ($0, button) }
+            }
+        )
+
+        for (index, summary) in canonicalWorklaneSummaries.enumerated() {
+            guard let button = buttonsByID[summary.worklaneID] else {
+                continue
+            }
+
+            button.translatesAutoresizingMaskIntoConstraints = false
+            listStack.insertArrangedSubview(button, at: min(index, listStack.arrangedSubviews.count))
+            ensureListStackEdgeConstraints(for: button)
+        }
+    }
+
+    func ensureListStackEdgeConstraints(for button: SidebarWorklaneRowButton) {
+        let hasLeadingConstraint = listStack.constraints.contains { constraint in
+            constraint.isActive
+                && (constraint.firstItem as AnyObject?) === button
+                && constraint.firstAttribute == .leading
+                && (constraint.secondItem as AnyObject?) === listStack
+                && constraint.secondAttribute == .leading
+        }
+        let hasTrailingConstraint = listStack.constraints.contains { constraint in
+            constraint.isActive
+                && (constraint.firstItem as AnyObject?) === button
+                && constraint.firstAttribute == .trailing
+                && (constraint.secondItem as AnyObject?) === listStack
+                && constraint.secondAttribute == .trailing
+        }
+
+        var constraints: [NSLayoutConstraint] = []
+        if !hasLeadingConstraint {
+            constraints.append(button.leadingAnchor.constraint(equalTo: listStack.leadingAnchor))
+        }
+        if !hasTrailingConstraint {
+            constraints.append(button.trailingAnchor.constraint(equalTo: listStack.trailingAnchor))
+        }
+        NSLayoutConstraint.activate(constraints)
+    }
+
+    func reconcileDragPreview(with summaries: [WorklaneSidebarSummary]) {
+        guard let dragPreviewOrder else {
+            return
+        }
+
+        let summaryIDs = summaries.map(\.worklaneID)
+        if dragPreviewOrder.count != summaryIDs.count || Set(dragPreviewOrder) != Set(summaryIDs) {
+            self.dragPreviewOrder = nil
+            dragPreviewDraggedWorklaneID = nil
+        }
+    }
+
+    func effectiveSummaries(for summaries: [WorklaneSidebarSummary]) -> [WorklaneSidebarSummary] {
+        guard let dragPreviewOrder else {
+            return summaries
+        }
+
+        let summariesByID = Dictionary(
+            uniqueKeysWithValues: summaries.map { ($0.worklaneID, $0) }
+        )
+        let reorderedSummaries = dragPreviewOrder.compactMap { summariesByID[$0] }
+        guard reorderedSummaries.count == summaries.count else {
+            return summaries
+        }
+        return reorderedSummaries
+    }
+
+    func deactivateListStackConstraints(referencing view: NSView) {
+        let constraints = listStack.constraints.filter { constraint in
+            (constraint.firstItem as AnyObject?) === view
+                || (constraint.secondItem as AnyObject?) === view
+        }
+        NSLayoutConstraint.deactivate(constraints)
+    }
+
     func applyUpdateAvailability() {
         updateAvailableRowView.isHidden = !isUpdateAvailable
         updateRowHeightConstraint?.constant = isUpdateAvailable ? Layout.updateRowHeight : 0

@@ -176,6 +176,115 @@ final class SidebarViewRenderTests: XCTestCase {
         XCTAssertTrue(buttonC === worklaneButton(in: sidebar, id: "C"))
     }
 
+    func test_dragPreview_reordersButtonsAndLeavesPlaceholderAtDropSlot() {
+        let sidebar = makeSidebar()
+        let theme = ZenttyTheme.fallback(for: nil)
+        let summaries = [
+            makeSummary(worklaneID: "A", primaryText: "a"),
+            makeSummary(worklaneID: "B", primaryText: "b"),
+            makeSummary(worklaneID: "C", primaryText: "c"),
+        ]
+
+        sidebar.render(summaries: summaries, theme: theme)
+        let buttonB = worklaneButton(in: sidebar, id: "B")
+
+        sidebar.setDragPreview(
+            draggedID: WorklaneID("B"),
+            previewOrder: [WorklaneID("A"), WorklaneID("C"), WorklaneID("B")]
+        )
+
+        XCTAssertEqual(
+            worklaneIDs(in: sidebar),
+            [WorklaneID("A"), WorklaneID("C"), WorklaneID("B")]
+        )
+        XCTAssertEqual(
+            sidebar.arrangedWorklaneIDsForTesting,
+            [WorklaneID("A"), WorklaneID("C")]
+        )
+        XCTAssertEqual(
+            arrangedSidebarItems(in: sidebar),
+            ["A", "C", "placeholder"]
+        )
+        XCTAssertTrue(buttonB === worklaneButton(in: sidebar, id: "B"))
+        XCTAssertNotNil(buttonB?.superview)
+    }
+
+    func test_clearDragPreview_restoresDetachedDraggedRowWhenOrderDidNotChange() {
+        let sidebar = makeSidebar()
+        let theme = ZenttyTheme.fallback(for: nil)
+        let summaries = [
+            makeSummary(worklaneID: "A", primaryText: "a"),
+            makeSummary(worklaneID: "B", primaryText: "b"),
+            makeSummary(worklaneID: "C", primaryText: "c"),
+        ]
+
+        sidebar.render(summaries: summaries, theme: theme)
+        guard let buttonB = worklaneButton(in: sidebar, id: "B") else {
+            XCTFail("Expected B row")
+            return
+        }
+
+        sidebar.prepareDraggedWorklaneButton(buttonB)
+        sidebar.setDragPreview(
+            draggedID: WorklaneID("B"),
+            previewOrder: [WorklaneID("A"), WorklaneID("B"), WorklaneID("C")]
+        )
+
+        sidebar.clearDragPreview()
+
+        XCTAssertEqual(
+            sidebar.arrangedWorklaneIDsForTesting,
+            [WorklaneID("A"), WorklaneID("B"), WorklaneID("C")]
+        )
+    }
+
+    func test_clearDragPreview_restoresCanonicalOrder() {
+        let sidebar = makeSidebar()
+        let theme = ZenttyTheme.fallback(for: nil)
+        let summaries = [
+            makeSummary(worklaneID: "A", primaryText: "a"),
+            makeSummary(worklaneID: "B", primaryText: "b"),
+            makeSummary(worklaneID: "C", primaryText: "c"),
+        ]
+
+        sidebar.render(summaries: summaries, theme: theme)
+        sidebar.setDragPreview(
+            draggedID: WorklaneID("B"),
+            previewOrder: [WorklaneID("A"), WorklaneID("C"), WorklaneID("B")]
+        )
+
+        sidebar.clearDragPreview()
+
+        XCTAssertEqual(
+            worklaneIDs(in: sidebar),
+            [WorklaneID("A"), WorklaneID("B"), WorklaneID("C")]
+        )
+        XCTAssertEqual(
+            sidebar.arrangedWorklaneIDsForTesting,
+            [WorklaneID("A"), WorklaneID("B"), WorklaneID("C")]
+        )
+    }
+
+    func test_reorderRowFrames_useVisualTopToBottomCoordinateOrder() {
+        let sidebar = makeSidebar()
+        let theme = ZenttyTheme.fallback(for: nil)
+
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "A", primaryText: "a"),
+                makeSummary(worklaneID: "B", primaryText: "b"),
+                makeSummary(worklaneID: "C", primaryText: "c"),
+            ],
+            theme: theme
+        )
+        sidebar.layoutSubtreeIfNeeded()
+
+        let frames = sidebar.worklaneRowFramesForReorderingForTesting
+        XCTAssertEqual(frames.map(\.0), [WorklaneID("A"), WorklaneID("B"), WorklaneID("C")])
+        XCTAssertLessThan(frames[0].1.midY, frames[1].1.midY)
+        XCTAssertLessThan(frames[1].1.midY, frames[2].1.midY)
+    }
+
     func test_render_removes_deleted_buttons_from_view_hierarchy_immediately() {
         let sidebar = makeSidebar()
         let theme = ZenttyTheme.fallback(for: nil)
@@ -361,6 +470,36 @@ final class SidebarViewRenderTests: XCTestCase {
         sidebar.worklaneButtonsForTesting.compactMap {
             ($0 as? SidebarWorklaneRowButton)?.worklaneID
         }
+    }
+
+    private func arrangedSidebarItems(in sidebar: SidebarView) -> [String] {
+        guard let stack = findListStack(in: sidebar) else {
+            return []
+        }
+
+        return stack.arrangedSubviews.compactMap { view in
+            if let button = view as? SidebarWorklaneRowButton {
+                return button.worklaneID?.rawValue
+            }
+            if view is SidebarDropPlaceholderView {
+                return "placeholder"
+            }
+            return nil
+        }
+    }
+
+    private func findListStack(in view: NSView) -> NSStackView? {
+        if let stack = view as? NSStackView,
+           stack.arrangedSubviews.contains(where: { $0 is SidebarWorklaneRowButton }) {
+            return stack
+        }
+
+        for subview in view.subviews {
+            if let stack = findListStack(in: subview) {
+                return stack
+            }
+        }
+        return nil
     }
 
     private func makeSidebar() -> SidebarView {

@@ -79,6 +79,7 @@ final class SidebarWorklaneRowButton: NSButton {
     var onSplitHorizontalRequested: ((PaneID) -> Void)?
     var onSplitVerticalRequested: ((PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
+    var onWorklaneDragRequested: ((SidebarWorklaneRowButton, NSEvent) -> Bool)?
 
     private var activeContextPicker: WorklaneColorMenuItemView?
 
@@ -427,6 +428,25 @@ final class SidebarWorklaneRowButton: NSButton {
         applyCurrentAppearance(animated: true)
     }
 
+    override func mouseDown(with event: NSEvent) {
+        guard event.type == .leftMouseDown, onWorklaneDragRequested != nil else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        SidebarWorklaneDragGestureTracker.track(
+            from: self,
+            event: event,
+            beginDrag: { [weak self] dragEvent in
+                guard let self else { return false }
+                return self.onWorklaneDragRequested?(self, dragEvent) ?? false
+            },
+            click: { [weak self] in
+                self?.performClick(nil)
+            }
+        )
+    }
+
     // MARK: - Public API
 
     func configure(
@@ -661,6 +681,10 @@ final class SidebarWorklaneRowButton: NSButton {
                 onWorklaneColorChanged: { [weak self] color in
                     guard let self, let worklaneID = self.worklaneID else { return }
                     self.onWorklaneColorChanged?(worklaneID, color)
+                },
+                onWorklaneDragRequested: { [weak self] event in
+                    guard let self else { return false }
+                    return self.onWorklaneDragRequested?(self, event) ?? false
                 },
                 onHoverChanged: { [weak self] isHovered in
                     self?.paneRowHoverChanged(isHovered: isHovered)

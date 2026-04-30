@@ -25,6 +25,8 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case newWorklane = "worklane.new"
     case nextWorklane = "worklane.next"
     case previousWorklane = "worklane.previous"
+    case worklaneMoveUp = "worklane.move_up"
+    case worklaneMoveDown = "worklane.move_down"
     case find = "pane.search.find"
     case globalFind = "window.search.find"
     case useSelectionForFind = "pane.search.selection"
@@ -82,6 +84,8 @@ enum AppAction: Equatable, Sendable {
     case newWorklane
     case nextWorklane
     case previousWorklane
+    case moveWorklaneUp
+    case moveWorklaneDown
     case find
     case globalFind
     case useSelectionForFind
@@ -203,6 +207,22 @@ enum AppCommandRegistry {
                 title: "Previous Worklane",
                 selector: #selector(MainWindowController.previousWorklane(_:))
             )
+        ),
+        AppCommandDefinition(
+            id: .worklaneMoveUp,
+            title: "Move Worklane Up",
+            category: .worklanes,
+            defaultShortcut: .init(key: .upArrow, modifiers: [.command, .control]),
+            action: .moveWorklaneUp,
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .worklaneMoveDown,
+            title: "Move Worklane Down",
+            category: .worklanes,
+            defaultShortcut: .init(key: .downArrow, modifiers: [.command, .control]),
+            action: .moveWorklaneDown,
+            menuItem: nil
         ),
         AppCommandDefinition(
             id: .find,
@@ -800,6 +820,10 @@ extension AppCommandDefinition {
             "Switch to the next worklane."
         case .previousWorklane:
             "Switch to the previous worklane."
+        case .worklaneMoveUp:
+            "Move the active worklane up in the sidebar."
+        case .worklaneMoveDown:
+            "Move the active worklane down in the sidebar."
         case .find:
             "Open find in the focused pane."
         case .globalFind:

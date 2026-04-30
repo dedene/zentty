@@ -12,6 +12,7 @@ enum SidebarListRenderer {
         theme: ZenttyTheme,
         shimmerCoordinator: SidebarShimmerCoordinator,
         reconfigureSurvivingButtons: Bool,
+        excludedWorklaneID: WorklaneID? = nil,
         buttonFactory: ButtonFactory
     ) -> [SidebarWorklaneRowButton] {
         let buttonsByID = Dictionary(
@@ -38,18 +39,24 @@ enum SidebarListRenderer {
         let targetButtons = summaries.compactMap { summary in
             buttonsByID[summary.worklaneID] ?? insertedButtons[summary.worklaneID]
         }
+        let arrangedTargetButtons = targetButtons.filter { button in
+            button.worklaneID != excludedWorklaneID
+        }
         let targetIDs = Set(targetButtons.compactMap(\.worklaneID))
 
         for button in currentButtons {
-            targetStack.removeArrangedSubview(button)
+            if targetStack.arrangedSubviews.contains(button) {
+                targetStack.removeArrangedSubview(button)
+            }
             if let worklaneID = button.worklaneID, !targetIDs.contains(worklaneID) {
                 button.removeFromSuperview()
             }
         }
 
-        for (index, button) in targetButtons.enumerated() {
+        for (index, button) in arrangedTargetButtons.enumerated() {
+            button.translatesAutoresizingMaskIntoConstraints = false
             targetStack.insertArrangedSubview(button, at: index)
-            if let worklaneID = button.worklaneID, insertedButtons[worklaneID] != nil {
+            if targetStack.needsSidebarEdgeConstraints(to: button) {
                 NSLayoutConstraint.activate([
                     button.leadingAnchor.constraint(equalTo: targetStack.leadingAnchor),
                     button.trailingAnchor.constraint(equalTo: targetStack.trailingAnchor),
@@ -83,5 +90,25 @@ enum SidebarListRenderer {
         }
 
         return targetButtons
+    }
+}
+
+private extension NSStackView {
+    func needsSidebarEdgeConstraints(to button: SidebarWorklaneRowButton) -> Bool {
+        let hasLeadingConstraint = constraints.contains { constraint in
+            constraint.isActive
+                && (constraint.firstItem as AnyObject?) === button
+                && constraint.firstAttribute == .leading
+                && (constraint.secondItem as AnyObject?) === self
+                && constraint.secondAttribute == .leading
+        }
+        let hasTrailingConstraint = constraints.contains { constraint in
+            constraint.isActive
+                && (constraint.firstItem as AnyObject?) === button
+                && constraint.firstAttribute == .trailing
+                && (constraint.secondItem as AnyObject?) === self
+                && constraint.secondAttribute == .trailing
+        }
+        return hasLeadingConstraint == false || hasTrailingConstraint == false
     }
 }

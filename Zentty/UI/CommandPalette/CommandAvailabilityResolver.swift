@@ -105,7 +105,7 @@ enum CommandAvailabilityResolver {
             return context.activeColumnCount >= 2
         case .arrangeHeightGoldenFocusTall, .arrangeHeightGoldenFocusShort:
             return context.focusedColumnPaneCount >= 2
-        case .nextWorklane, .previousWorklane:
+        case .nextWorklane, .previousWorklane, .worklaneMoveUp, .worklaneMoveDown:
             return context.worklaneCount > 1
         default:
             return true

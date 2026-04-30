@@ -77,6 +77,7 @@ final class SidebarPaneRowButton: NSButton {
     var onSplitHorizontal: ((PaneID) -> Void)?
     var onSplitVertical: ((PaneID) -> Void)?
     var onPickWorklaneColor: ((PaneID, WorklaneColor?) -> Void)?
+    var onWorklaneDragRequested: ((NSEvent) -> Bool)?
 
     private var activeContextPicker: WorklaneColorMenuItemView?
 
@@ -142,6 +143,25 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleClick() {
         onPaneClicked?(paneID)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.type == .leftMouseDown, onWorklaneDragRequested != nil else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        SidebarWorklaneDragGestureTracker.track(
+            from: self,
+            event: event,
+            beginDrag: { [weak self] dragEvent in
+                self?.onWorklaneDragRequested?(dragEvent) ?? false
+            },
+            click: { [weak self] in
+                guard let self else { return }
+                self.onPaneClicked?(self.paneID)
+            }
+        )
     }
 
     func setContent(_ views: [NSView]) {
