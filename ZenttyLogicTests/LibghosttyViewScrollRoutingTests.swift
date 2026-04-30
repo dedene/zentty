@@ -51,6 +51,14 @@ final class LibghosttyViewScrollRoutingTests: AppKitTestCase {
         XCTAssertTrue(view.trackingAreas.contains { $0.options.contains(.activeAlways) })
     }
 
+    func test_detached_view_does_not_push_viewport_size() {
+        view.frame = NSRect(x: 0, y: 0, width: 3200, height: 900)
+
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(surface.viewportUpdates.isEmpty)
+    }
+
     func test_mouse_entered_forwards_local_position() throws {
         let event = try makeMouseEvent(type: .mouseEntered, location: CGPoint(x: 120, y: 180))
 
@@ -136,13 +144,17 @@ private final class ScrollRoutingSurfaceSpy: LibghosttySurfaceControlling {
     var cellWidth: CGFloat = 8
     var cellHeight: CGFloat = 16
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
+    private(set) var viewportUpdates: [(size: CGSize, scale: CGFloat, displayID: UInt32?)] = []
     private(set) var sentScrollEvents: [ScrollEvent] = []
     private(set) var sentMousePositions: [MousePositionEvent] = []
     private(set) var sentMouseButtons: [MouseButtonEvent] = []
     var mouseButtonResults: [ghostty_input_mouse_button_e: Bool] = [:]
 
-    func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
+    func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {
+        viewportUpdates.append((size: size, scale: scale, displayID: displayID))
+    }
     func setFocused(_ isFocused: Bool) {}
+    func setOcclusionVisible(_ isVisible: Bool) {}
     func refresh() {}
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool { true }
     func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {

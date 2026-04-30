@@ -452,6 +452,7 @@ private final class HostedRightClickSurfaceSpy: LibghosttySurfaceControlling {
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) {}
+    func setOcclusionVisible(_ isVisible: Bool) {}
     func refresh() {}
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool { true }
     func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {}

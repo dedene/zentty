@@ -43,6 +43,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
     var searchDidChange: ((TerminalSearchEvent) -> Void)? { get set }
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?)
     func setFocused(_ isFocused: Bool)
+    func setOcclusionVisible(_ isVisible: Bool)
     func refresh()
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool
     func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase)
@@ -157,6 +158,10 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling {
 
             if isFirstApplication || previouslyAppliedActivity.isFocused != activity.isFocused {
                 surfaceController.setFocused(activity.isFocused)
+            }
+
+            if isFirstApplication || previouslyAppliedActivity.isVisible != activity.isVisible {
+                surfaceController.setOcclusionVisible(activity.isVisible)
             }
 
             if !previouslyAppliedActivity.isVisible && activity.isVisible {

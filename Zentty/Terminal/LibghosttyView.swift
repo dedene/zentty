@@ -1114,6 +1114,10 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
             return
         }
 
+        guard window != nil else {
+            return
+        }
+
         if isViewportSyncSuspended {
             return
         }

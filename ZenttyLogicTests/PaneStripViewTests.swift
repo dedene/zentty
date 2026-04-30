@@ -1562,6 +1562,52 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_reattached_pane_forces_terminal_viewport_sync_after_worklane_switch() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                paneStripView.prepareForTestingTearDown()
+            }
+        }
+        let firstWorklane = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        let secondWorklane = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("agent"), title: "agent"),
+            ],
+            focusedPaneID: PaneID("agent")
+        )
+
+        paneStripView.render(firstWorklane)
+        paneStripView.layoutSubtreeIfNeeded()
+        let shellAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("shell")))
+        let forceCountBeforeSwitch = shellAdapter.terminalView.forceViewportSyncCallCount
+
+        paneStripView.render(secondWorklane)
+        paneStripView.layoutSubtreeIfNeeded()
+        XCTAssertNil(paneStripView.descendantPaneViews().first { $0.paneID == PaneID("shell") })
+
+        paneStripView.render(firstWorklane)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            shellAdapter.terminalView.forceViewportSyncCallCount,
+            forceCountBeforeSwitch + 1
+        )
+    }
+
+    @MainActor
     func test_resize_reuses_existing_pane_views_and_does_not_restart_sessions() throws {
         let adapterFactory = TerminalAdapterFactorySpy()
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
@@ -3477,6 +3523,7 @@ private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncContro
     var onFocusDidChange: ((Bool) -> Void)?
     private(set) var viewportSyncSuspensionUpdates: [Bool] = []
     private(set) var viewportSyncSuspensionBounds: [CGSize] = []
+    private(set) var forceViewportSyncCallCount = 0
     private(set) var displayIfNeededCallCount = 0
     let detachedFocusTarget = NSView()
     var usesDetachedFocusTarget = false
@@ -3493,6 +3540,10 @@ private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncContro
     func setViewportSyncSuspended(_ suspended: Bool) {
         viewportSyncSuspensionUpdates.append(suspended)
         viewportSyncSuspensionBounds.append(bounds.size)
+    }
+
+    func forceViewportSync() {
+        forceViewportSyncCallCount += 1
     }
 
     func simulateFocusChange(_ isFocused: Bool) {

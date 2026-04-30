@@ -233,6 +233,46 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertEqual(surfaceController.focusValues.last, false)
     }
 
+    func test_surface_activity_forwards_occlusion_visibility() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        adapter.setSurfaceActivity(
+            TerminalSurfaceActivity(
+                keepsRuntimeLive: true,
+                isVisible: false,
+                isFocused: false
+            )
+        )
+        adapter.setSurfaceActivity(
+            TerminalSurfaceActivity(
+                keepsRuntimeLive: true,
+                isVisible: true,
+                isFocused: false
+            )
+        )
+
+        XCTAssertEqual(surfaceController.occlusionVisibilityValues, [false, true])
+        XCTAssertEqual(surfaceController.refreshCallCount, 1)
+    }
+
+    func test_surface_activity_set_before_start_is_applied_as_initial_occlusion_visibility() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        XCTAssertEqual(surfaceController.occlusionVisibilityValues, [true])
+        XCTAssertEqual(surfaceController.focusValues, [true])
+        XCTAssertEqual(surfaceController.refreshCallCount, 1)
+    }
+
     func test_find_next_uses_navigate_search_binding_action() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)
@@ -877,6 +917,7 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var refreshCallCount = 0
     private(set) var focusValues: [Bool] = []
+    private(set) var occlusionVisibilityValues: [Bool] = []
     private(set) var bindingActions: [String] = []
     private(set) var inheritedConfigRequests: [ghostty_surface_context_e] = []
     private(set) var sendKeyCallCount = 0
@@ -884,6 +925,9 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     var inheritedConfigContext: ghostty_surface_context_e?
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) { focusValues.append(isFocused) }
+    func setOcclusionVisible(_ isVisible: Bool) {
+        occlusionVisibilityValues.append(isVisible)
+    }
     func refresh() { refreshCallCount += 1 }
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool {
         sendKeyCallCount += 1

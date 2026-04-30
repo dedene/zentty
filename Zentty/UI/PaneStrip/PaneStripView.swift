@@ -536,6 +536,10 @@ final class PaneStripView: NSView {
             from: previousPresentation,
             to: presentation
         )
+        let newlyAttachedPaneIDs = newlyAttachedPaneIDs(
+            from: previousPresentation,
+            to: presentation
+        )
         lastInsertionTransition = insertionTransition
         currentPresentation = presentation
         let targetOffset = preferredTargetOffset(
@@ -609,7 +613,8 @@ final class PaneStripView: NSView {
                     state: state,
                     targetOffset: targetOffset,
                     insertionTransition: insertionTransition,
-                    needsTerminalRedrawAfterRender: needsTerminalRedrawAfterRender
+                    needsTerminalRedrawAfterRender: needsTerminalRedrawAfterRender,
+                    newlyAttachedPaneIDs: newlyAttachedPaneIDs
                 )
             }
             pendingAnimatedSettleAction = settleAction
@@ -628,7 +633,8 @@ final class PaneStripView: NSView {
                         state: state,
                         targetOffset: targetOffset,
                         insertionTransition: insertionTransition,
-                        needsTerminalRedrawAfterRender: needsTerminalRedrawAfterRender
+                        needsTerminalRedrawAfterRender: needsTerminalRedrawAfterRender,
+                        newlyAttachedPaneIDs: newlyAttachedPaneIDs
                     )
                 }
             }
@@ -639,12 +645,13 @@ final class PaneStripView: NSView {
                 applyTerminalAnimationFreeze(to: [])
             }
             flushViewportLayoutIfNeeded()
-            if forceViewportLayoutBeforeViewportSync {
+            if forceViewportLayoutBeforeViewportSync || !newlyAttachedPaneIDs.isEmpty {
                 viewportView.layoutSubtreeIfNeeded()
             }
             if !isZoomedOut {
                 applyViewportSyncSuspension(to: [])
             }
+            forceTerminalViewportSync(for: newlyAttachedPaneIDs)
             if needsTerminalRedrawAfterRender {
                 refreshTerminalDisplaysIfNeeded()
             }
@@ -719,6 +726,25 @@ final class PaneStripView: NSView {
         return false
     }
 
+    private func newlyAttachedPaneIDs(
+        from previousPresentation: StripPresentation?,
+        to presentation: StripPresentation
+    ) -> Set<PaneID> {
+        guard let previousPresentation else {
+            return []
+        }
+
+        let previousPaneIDs = Set(previousPresentation.panes.map(\.paneID))
+        let currentPaneIDs = Set(presentation.panes.map(\.paneID))
+        return currentPaneIDs.subtracting(previousPaneIDs)
+    }
+
+    private func forceTerminalViewportSync(for paneIDs: Set<PaneID>) {
+        for paneID in paneIDs {
+            paneViews[paneID]?.forceTerminalViewportSync()
+        }
+    }
+
     private func refreshTerminalDisplays() {
         for paneView in paneViews.values {
             paneView.needsLayout = true
@@ -766,7 +792,8 @@ final class PaneStripView: NSView {
         state: PaneStripState,
         targetOffset: CGFloat,
         insertionTransition: PaneInsertionTransition?,
-        needsTerminalRedrawAfterRender: Bool
+        needsTerminalRedrawAfterRender: Bool,
+        newlyAttachedPaneIDs: Set<PaneID>
     ) {
         if renderGuard.generation == settleGeneration {
             applyPresentation(
@@ -792,9 +819,9 @@ final class PaneStripView: NSView {
         }
         if needsTerminalRedrawAfterRender {
             refreshTerminalDisplaysIfNeeded()
-            for paneView in paneViews.values {
-                paneView.forceTerminalViewportSync()
-            }
+            forceTerminalViewportSync(for: Set(paneViews.keys))
+        } else {
+            forceTerminalViewportSync(for: newlyAttachedPaneIDs)
         }
     }
 

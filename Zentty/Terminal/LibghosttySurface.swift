@@ -266,6 +266,14 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
         ghostty_surface_set_focus(surface, isFocused)
     }
 
+    func setOcclusionVisible(_ isVisible: Bool) {
+        guard let surface else {
+            return
+        }
+
+        ghostty_surface_set_occlusion(surface, isVisible)
+    }
+
     func refresh() {
         guard let surface else {
             return

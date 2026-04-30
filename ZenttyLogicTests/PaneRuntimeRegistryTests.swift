@@ -171,6 +171,20 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertEqual(adapterFactory.adaptersByPaneID[backgroundShell.id]?.startSessionCallCount, 1)
     }
 
+    func test_runtime_applies_surface_activity_before_starting_session() {
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: PaneID("shell"))
+        let runtime = PaneRuntime(
+            pane: PaneState(id: PaneID("shell"), title: "shell"),
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+
+        runtime.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
+
+        XCTAssertEqual(adapter.activityAndStartLog, ["activity:visible:focused", "start"])
+    }
+
     func test_registry_removes_runtime_for_closed_pane() {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
@@ -789,6 +803,7 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var startSessionCallCount = 0
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: true, isFocused: false)
+    private(set) var activityAndStartLog: [String] = []
     private(set) weak var prepareSourceAdapter: PaneRuntimeTerminalAdapterSpy?
     private(set) var eventLog: [String] = []
     private(set) var preparedContexts: [TerminalSurfaceContext] = []
@@ -806,6 +821,7 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
 
     func startSession(using request: TerminalSessionRequest) throws {
         eventLog.append("start")
+        activityAndStartLog.append("start")
         startSessionCallCount += 1
     }
 
@@ -820,6 +836,9 @@ private final class PaneRuntimeTerminalAdapterSpy: TerminalAdapter, TerminalSess
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         lastSurfaceActivity = activity
+        let visibility = activity.isVisible ? "visible" : "hidden"
+        let focus = activity.isFocused ? "focused" : "unfocused"
+        activityAndStartLog.append("activity:\(visibility):\(focus)")
     }
 
     func showSearch() {

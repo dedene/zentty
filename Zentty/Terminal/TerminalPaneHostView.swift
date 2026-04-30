@@ -655,10 +655,10 @@ final class PaneRuntime {
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
         ZenttyPerformanceSignposts.interval("PaneRuntimeSetSurfaceActivity") {
+            hostViewValue.setSurfaceActivity(activity)
             if activity.keepsRuntimeLive {
                 ensureStarted()
             }
-            hostViewValue.setSurfaceActivity(activity)
         }
     }
 
