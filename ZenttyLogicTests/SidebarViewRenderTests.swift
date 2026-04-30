@@ -176,17 +176,30 @@ final class SidebarViewRenderTests: XCTestCase {
         XCTAssertTrue(buttonC === worklaneButton(in: sidebar, id: "C"))
     }
 
-    func test_dragPreview_reordersButtonsAndLeavesPlaceholderAtDropSlot() {
+    func test_dragPreview_reordersButtonsAndLeavesInvisibleSpacerAtDropSlot() {
         let sidebar = makeSidebar()
         let theme = ZenttyTheme.fallback(for: nil)
         let summaries = [
             makeSummary(worklaneID: "A", primaryText: "a"),
-            makeSummary(worklaneID: "B", primaryText: "b"),
+            makeSummary(
+                worklaneID: "B",
+                primaryText: "b",
+                detailLines: [
+                    WorklaneSidebarDetailLine(text: "~/Development/project", emphasis: .primary),
+                    WorklaneSidebarDetailLine(text: "main", emphasis: .secondary),
+                ]
+            ),
             makeSummary(worklaneID: "C", primaryText: "c"),
         ]
 
         sidebar.render(summaries: summaries, theme: theme)
-        let buttonB = worklaneButton(in: sidebar, id: "B")
+        sidebar.layoutSubtreeIfNeeded()
+        guard let buttonB = worklaneButton(in: sidebar, id: "B") else {
+            XCTFail("Expected B row")
+            return
+        }
+        let draggedHeight = buttonB.frame.height
+        sidebar.prepareDraggedWorklaneButton(buttonB)
 
         sidebar.setDragPreview(
             draggedID: WorklaneID("B"),
@@ -203,10 +216,11 @@ final class SidebarViewRenderTests: XCTestCase {
         )
         XCTAssertEqual(
             arrangedSidebarItems(in: sidebar),
-            ["A", "C", "placeholder"]
+            ["A", "C", "spacer"]
         )
+        XCTAssertEqual(sidebar.reorderSpacerHeightForTesting, draggedHeight, accuracy: 0.001)
         XCTAssertTrue(buttonB === worklaneButton(in: sidebar, id: "B"))
-        XCTAssertNotNil(buttonB?.superview)
+        XCTAssertNotNil(buttonB.superview)
     }
 
     func test_clearDragPreview_restoresDetachedDraggedRowWhenOrderDidNotChange() {
@@ -479,10 +493,10 @@ final class SidebarViewRenderTests: XCTestCase {
 
         return stack.arrangedSubviews.compactMap { view in
             if let button = view as? SidebarWorklaneRowButton {
-                return button.worklaneID?.rawValue
+                return button.worklaneID?.rawValue ?? "unknown"
             }
-            if view is SidebarDropPlaceholderView {
-                return "placeholder"
+            if view is SidebarReorderSpacerView {
+                return "spacer"
             }
             return nil
         }
@@ -525,7 +539,8 @@ final class SidebarViewRenderTests: XCTestCase {
     private func makeSummary(
         worklaneID: String,
         primaryText: String,
-        isActive: Bool = false
+        isActive: Bool = false,
+        detailLines: [WorklaneSidebarDetailLine] = []
     ) -> WorklaneSidebarSummary {
         WorklaneSidebarSummary(
             worklaneID: WorklaneID(worklaneID),
@@ -533,7 +548,7 @@ final class SidebarViewRenderTests: XCTestCase {
             topLabel: nil,
             primaryText: primaryText,
             statusText: nil,
-            detailLines: [],
+            detailLines: detailLines,
             attentionState: nil,
             isWorking: false,
             isActive: isActive

@@ -126,6 +126,44 @@ final class SidebarWorklaneReorderModelTests: XCTestCase {
         )
     }
 
+    func test_previewSlotChanged_onlyWhenDraggedPreviewIndexChanges() {
+        XCTAssertFalse(
+            SidebarWorklaneReorderModel.previewSlotChanged(
+                previousPreviewOrder: nil,
+                nextPreviewOrder: ids("A", "B", "C"),
+                draggedID: WorklaneID("B")
+            )
+        )
+        XCTAssertFalse(
+            SidebarWorklaneReorderModel.previewSlotChanged(
+                previousPreviewOrder: ids("A", "B", "C"),
+                nextPreviewOrder: ids("A", "B", "C"),
+                draggedID: WorklaneID("B")
+            )
+        )
+        XCTAssertTrue(
+            SidebarWorklaneReorderModel.previewSlotChanged(
+                previousPreviewOrder: ids("A", "B", "C"),
+                nextPreviewOrder: ids("A", "C", "B"),
+                draggedID: WorklaneID("B")
+            )
+        )
+        XCTAssertFalse(
+            SidebarWorklaneReorderModel.previewSlotChanged(
+                previousPreviewOrder: ids("A", "C"),
+                nextPreviewOrder: ids("A", "B", "C"),
+                draggedID: WorklaneID("B")
+            )
+        )
+        XCTAssertFalse(
+            SidebarWorklaneReorderModel.previewSlotChanged(
+                previousPreviewOrder: ids("A", "B", "C"),
+                nextPreviewOrder: ids("A", "C"),
+                draggedID: WorklaneID("B")
+            )
+        )
+    }
+
     private func ids(_ values: String...) -> [WorklaneID] {
         values.map(WorklaneID.init)
     }

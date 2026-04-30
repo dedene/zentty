@@ -1,6 +1,40 @@
 import AppKit
 
 @MainActor
+final class SidebarReorderSpacerView: NSView {
+    private var heightConstraint: NSLayoutConstraint?
+
+    init(height: CGFloat) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        updateHeight(height)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    var spacerHeight: CGFloat {
+        heightConstraint?.constant ?? 0
+    }
+
+    func updateHeight(_ height: CGFloat) {
+        let clampedHeight = max(0, height)
+        if let heightConstraint {
+            heightConstraint.constant = clampedHeight
+            return
+        }
+
+        let heightConstraint = heightAnchor.constraint(equalToConstant: clampedHeight)
+        heightConstraint.isActive = true
+        self.heightConstraint = heightConstraint
+    }
+}
+
+@MainActor
 final class SidebarView: NSView {
     private enum Layout {
         static let contentInset: CGFloat = ShellMetrics.sidebarContentInset
@@ -45,7 +79,8 @@ final class SidebarView: NSView {
     private var canonicalWorklaneSummaries: [WorklaneSidebarSummary] = []
     private var dragPreviewOrder: [WorklaneID]?
     private var dragPreviewDraggedWorklaneID: WorklaneID?
-    private var reorderPlaceholderView: SidebarDropPlaceholderView?
+    private var reorderSpacerView: SidebarReorderSpacerView?
+    private var reorderSpacerHeight: CGFloat = ShellMetrics.sidebarCompactRowHeight
     private var addWorklaneLeadingConstraint: NSLayoutConstraint?
     private var addWorklaneWidthConstraint: NSLayoutConstraint?
     private var addWorklaneCenterYConstraint: NSLayoutConstraint?
@@ -294,7 +329,7 @@ final class SidebarView: NSView {
         if effectiveSummaries == worklaneSummaries,
            theme == currentTheme,
            worklaneButtons.map(\.worklaneID) == effectiveSummaries.map(\.worklaneID) {
-            syncReorderPlaceholder()
+            syncReorderSpacer()
             return
         }
 
@@ -328,7 +363,7 @@ final class SidebarView: NSView {
             applySidebarChrome(theme: theme, animated: true)
         }
 
-        syncReorderPlaceholder()
+        syncReorderSpacer()
         worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
         syncShimmerVisibility()
         shimmerCoordinator.labelStateDidChange()
@@ -543,7 +578,7 @@ final class SidebarView: NSView {
 
         dragPreviewOrder = nil
         dragPreviewDraggedWorklaneID = nil
-        removeReorderPlaceholder()
+        removeReorderSpacer()
 
         if detachedDraggedButton != nil,
            canonicalWorklaneSummaries == worklaneSummaries,
@@ -561,6 +596,7 @@ final class SidebarView: NSView {
     func prepareDraggedWorklaneButton(_ button: SidebarWorklaneRowButton) {
         layoutSubtreeIfNeeded()
         let frameInDocument = listDocumentView.convert(button.bounds, from: button)
+        reorderSpacerHeight = frameInDocument.height
         deactivateListStackConstraints(referencing: button)
         listStack.removeArrangedSubview(button)
         if button.superview !== listDocumentView {
@@ -704,6 +740,10 @@ final class SidebarView: NSView {
         listStack.arrangedSubviews.compactMap { view in
             (view as? SidebarWorklaneRowButton)?.worklaneID
         }
+    }
+
+    var reorderSpacerHeightForTesting: CGFloat {
+        reorderSpacerView?.spacerHeight ?? 0
     }
 
     var worklaneRowFramesForReorderingForTesting: [(WorklaneID, CGRect)] {
@@ -902,83 +942,71 @@ final class SidebarView: NSView {
 }
 
 private extension SidebarView {
-    func syncReorderPlaceholder() {
+    func syncReorderSpacer() {
         guard let draggedID = dragPreviewDraggedWorklaneID,
               let dragPreviewOrder,
-              let placeholderIndex = dragPreviewOrder.firstIndex(of: draggedID) else {
-            removeReorderPlaceholder()
+              let spacerIndex = dragPreviewOrder.firstIndex(of: draggedID) else {
+            removeReorderSpacer()
             return
         }
 
-        let placeholder = reorderPlaceholderView ?? makeReorderPlaceholder()
-        reorderPlaceholderView = placeholder
+        let spacer = reorderSpacerView ?? makeReorderSpacer()
+        spacer.updateHeight(reorderSpacerHeight)
+        reorderSpacerView = spacer
 
-        if listStack.arrangedSubviews.contains(placeholder) {
-            listStack.removeArrangedSubview(placeholder)
+        if listStack.arrangedSubviews.contains(spacer) {
+            listStack.removeArrangedSubview(spacer)
         }
 
-        let insertionIndex = min(placeholderIndex, listStack.arrangedSubviews.count)
-        listStack.insertArrangedSubview(placeholder, at: insertionIndex)
-        ensureReorderPlaceholderConstraints(placeholder)
+        let insertionIndex = min(spacerIndex, listStack.arrangedSubviews.count)
+        listStack.insertArrangedSubview(spacer, at: insertionIndex)
+        ensureReorderSpacerConstraints(spacer)
     }
 
-    func makeReorderPlaceholder() -> SidebarDropPlaceholderView {
-        let placeholder = SidebarDropPlaceholderView()
-        placeholder.translatesAutoresizingMaskIntoConstraints = false
-        placeholder.animateIn()
-        return placeholder
+    func makeReorderSpacer() -> SidebarReorderSpacerView {
+        SidebarReorderSpacerView(height: reorderSpacerHeight)
     }
 
-    func ensureReorderPlaceholderConstraints(_ placeholder: SidebarDropPlaceholderView) {
+    func ensureReorderSpacerConstraints(_ spacer: SidebarReorderSpacerView) {
         let hasLeadingConstraint = listStack.constraints.contains { constraint in
             constraint.isActive
-                && (constraint.firstItem as AnyObject?) === placeholder
+                && (constraint.firstItem as AnyObject?) === spacer
                 && constraint.firstAttribute == .leading
                 && (constraint.secondItem as AnyObject?) === listStack
                 && constraint.secondAttribute == .leading
         }
         let hasTrailingConstraint = listStack.constraints.contains { constraint in
             constraint.isActive
-                && (constraint.firstItem as AnyObject?) === placeholder
+                && (constraint.firstItem as AnyObject?) === spacer
                 && constraint.firstAttribute == .trailing
                 && (constraint.secondItem as AnyObject?) === listStack
                 && constraint.secondAttribute == .trailing
         }
-        let hasHeightConstraint = placeholder.constraints.contains { constraint in
-            constraint.isActive
-                && (constraint.firstItem as AnyObject?) === placeholder
-                && constraint.firstAttribute == .height
-        }
 
         var constraints: [NSLayoutConstraint] = []
         if !hasLeadingConstraint {
-            constraints.append(placeholder.leadingAnchor.constraint(equalTo: listStack.leadingAnchor))
+            constraints.append(spacer.leadingAnchor.constraint(equalTo: listStack.leadingAnchor))
         }
         if !hasTrailingConstraint {
-            constraints.append(placeholder.trailingAnchor.constraint(equalTo: listStack.trailingAnchor))
-        }
-        if !hasHeightConstraint {
-            constraints.append(
-                placeholder.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight)
-            )
+            constraints.append(spacer.trailingAnchor.constraint(equalTo: listStack.trailingAnchor))
         }
         NSLayoutConstraint.activate(constraints)
     }
 
-    func removeReorderPlaceholder() {
-        guard let placeholder = reorderPlaceholderView else {
+    func removeReorderSpacer() {
+        guard let spacer = reorderSpacerView else {
             return
         }
 
-        if listStack.arrangedSubviews.contains(placeholder) {
-            listStack.removeArrangedSubview(placeholder)
+        if listStack.arrangedSubviews.contains(spacer) {
+            listStack.removeArrangedSubview(spacer)
         }
-        placeholder.removeFromSuperview()
-        reorderPlaceholderView = nil
+        spacer.removeFromSuperview()
+        reorderSpacerView = nil
     }
 
     func restoreArrangedWorklaneButtons() {
-        removeReorderPlaceholder()
+        removeReorderSpacer()
 
         for button in worklaneButtons where listStack.arrangedSubviews.contains(button) {
             listStack.removeArrangedSubview(button)
