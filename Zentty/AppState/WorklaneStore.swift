@@ -905,7 +905,11 @@ final class WorklaneStore {
             return
         }
 
-        guard worklane.paneStripState.arrangeVertically(arrangement) else {
+        let didArrange = worklane.paneStripState.arrangeVertically(arrangement)
+        let didNormalizeSingleColumnWidth =
+            worklane.paneStripState.updateSingleColumnWidth(layoutContext.singlePaneWidth)
+
+        guard didArrange || didNormalizeSingleColumnWidth else {
             return
         }
 

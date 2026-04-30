@@ -1758,6 +1758,58 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_vertical_arrange_to_single_column_reexpands_to_full_readable_width() throws {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("left"), title: "left")],
+                                width: 747,
+                                focusedPaneID: PaneID("left"),
+                                lastFocusedPaneID: PaneID("left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [PaneState(id: PaneID("right"), title: "right")],
+                                width: 747,
+                                focusedPaneID: PaneID("right"),
+                                lastFocusedPaneID: PaneID("right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: WorklaneID("main")
+        )
+        var changes: [WorklaneChange] = []
+        store.subscribe { changes.append($0) }
+
+        store.arrangeActiveWorklaneVertically(.twoPerColumn)
+
+        let columns = try XCTUnwrap(store.activeWorklane?.paneStripState.columns)
+        XCTAssertEqual(columns.count, 1)
+        XCTAssertEqual(columns[0].panes.map(\.id), [PaneID("left"), PaneID("right")])
+        XCTAssertEqual(columns[0].width, layoutContext.singlePaneWidth, accuracy: 0.001)
+        XCTAssertEqual(
+            changes,
+            [.layoutResized(WorklaneID("main"), animation: .splitCurve)]
+        )
+    }
+
     func test_golden_width_arrange_uses_available_width_and_sidebar_inset() {
         let store = WorklaneStore(
             worklanes: [
