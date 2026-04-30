@@ -331,6 +331,7 @@ final class SidebarView: NSView {
         if effectiveSummaries == worklaneSummaries,
            theme == currentTheme,
            worklaneButtons.map(\.worklaneID) == effectiveSummaries.map(\.worklaneID) {
+            syncWorklaneMoveAvailability()
             syncReorderSpacer()
             return
         }
@@ -366,6 +367,7 @@ final class SidebarView: NSView {
         }
 
         syncReorderSpacer()
+        syncWorklaneMoveAvailability()
         worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
         syncShimmerVisibility()
         shimmerCoordinator.labelStateDidChange()
@@ -419,6 +421,9 @@ final class SidebarView: NSView {
         }
         button.onWorklaneDragRequested = { [weak self] button, event in
             self?.beginWorklaneDrag(button: button, event: event) ?? false
+        }
+        button.onWorklaneMoveRequested = { [weak self] id, direction in
+            self?.moveWorklaneFromMenu(id: id, direction: direction)
         }
 
         button.setShimmerCoordinator(shimmerCoordinator)
@@ -598,6 +603,42 @@ final class SidebarView: NSView {
 
     func commitWorklaneReorder(id: WorklaneID, toIndex: Int) -> Bool {
         onWorklaneReorderCommitted?(id, toIndex) ?? false
+    }
+
+    private func moveWorklaneFromMenu(id: WorklaneID, direction: SidebarWorklaneMoveDirection) {
+        guard let currentIndex = canonicalWorklaneSummaries.firstIndex(where: { $0.worklaneID == id }) else {
+            return
+        }
+
+        let targetIndex = currentIndex + direction.delta
+        guard canonicalWorklaneSummaries.indices.contains(targetIndex) else {
+            return
+        }
+
+        _ = commitWorklaneReorder(id: id, toIndex: targetIndex)
+    }
+
+    private func syncWorklaneMoveAvailability() {
+        for button in worklaneButtons {
+            guard let worklaneID = button.worklaneID else {
+                button.setWorklaneMoveAvailability(.none)
+                continue
+            }
+
+            button.setWorklaneMoveAvailability(moveAvailability(for: worklaneID))
+        }
+    }
+
+    private func moveAvailability(for worklaneID: WorklaneID) -> SidebarWorklaneMoveAvailability {
+        guard let index = canonicalWorklaneSummaries.firstIndex(where: { $0.worklaneID == worklaneID }),
+              canonicalWorklaneSummaries.count > 1 else {
+            return .none
+        }
+
+        return SidebarWorklaneMoveAvailability(
+            canMoveUp: index > 0,
+            canMoveDown: index < canonicalWorklaneSummaries.count - 1
+        )
     }
 
     func prepareDraggedWorklaneButton(_ button: SidebarWorklaneRowButton) {

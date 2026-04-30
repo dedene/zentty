@@ -486,6 +486,58 @@ final class SidebarViewRenderTests: XCTestCase {
         )
     }
 
+    func test_worklaneContextMenusReflectCanonicalMoveAvailability() throws {
+        let sidebar = makeSidebar()
+        let theme = ZenttyTheme.fallback(for: nil)
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "A", primaryText: "a"),
+                makeSummary(worklaneID: "B", primaryText: "b"),
+                makeSummary(worklaneID: "C", primaryText: "c"),
+            ],
+            theme: theme
+        )
+
+        let event = try makeContextMenuEvent()
+        let buttons = try sidebarWorklaneButtons(in: sidebar)
+
+        XCTAssertEqual(menuTitles(buttons[0].menu(for: event)), ["Move Worklane Down", "Worklane Color"])
+        XCTAssertEqual(
+            menuTitles(buttons[1].menu(for: event)),
+            ["Move Worklane Up", "Move Worklane Down", "Worklane Color"]
+        )
+        XCTAssertEqual(menuTitles(buttons[2].menu(for: event)), ["Move Worklane Up", "Worklane Color"])
+    }
+
+    func test_worklaneContextMoveCommandsCommitAdjacentTargetIndexes() throws {
+        let sidebar = makeSidebar()
+        let theme = ZenttyTheme.fallback(for: nil)
+        var moves: [(WorklaneID, Int)] = []
+        sidebar.onWorklaneReorderCommitted = { worklaneID, targetIndex in
+            moves.append((worklaneID, targetIndex))
+            return true
+        }
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "A", primaryText: "a"),
+                makeSummary(worklaneID: "B", primaryText: "b"),
+                makeSummary(worklaneID: "C", primaryText: "c"),
+            ],
+            theme: theme
+        )
+
+        let button = try XCTUnwrap(worklaneButton(in: sidebar, id: "B"))
+        let menu = try XCTUnwrap(button.menu(for: try makeContextMenuEvent()))
+        let moveUp = try XCTUnwrap(menu.item(withTitle: "Move Worklane Up"))
+        let moveDown = try XCTUnwrap(menu.item(withTitle: "Move Worklane Down"))
+
+        NSApp.sendAction(try XCTUnwrap(moveUp.action), to: moveUp.target, from: moveUp)
+        NSApp.sendAction(try XCTUnwrap(moveDown.action), to: moveDown.target, from: moveDown)
+
+        XCTAssertEqual(moves.map(\.0), [WorklaneID("B"), WorklaneID("B")])
+        XCTAssertEqual(moves.map(\.1), [0, 2])
+    }
+
     private func worklaneButton(
         in sidebar: SidebarView,
         id: String
@@ -534,6 +586,40 @@ final class SidebarViewRenderTests: XCTestCase {
     private func makeSidebar() -> SidebarView {
         let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
         return sidebar
+    }
+
+    private func makeContextMenuEvent() throws -> NSEvent {
+        try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .rightMouseDown,
+                location: NSPoint(x: 12, y: 12),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 0
+            )
+        )
+    }
+
+    private func menuTitles(_ menu: NSMenu?) -> [String] {
+        menuTitles(menu ?? NSMenu())
+    }
+
+    private func menuTitles(_ menu: NSMenu) -> [String] {
+        menu.items.compactMap { item in
+            item.isSeparatorItem ? nil : item.title
+        }
+    }
+
+    private func sidebarWorklaneButtons(in sidebarView: SidebarView) throws
+        -> [SidebarWorklaneRowButton]
+    {
+        try sidebarView.worklaneButtonsForTesting.map { button in
+            try XCTUnwrap(button as? SidebarWorklaneRowButton)
+        }
     }
 
     private func makeDarkTheme(foreground: String) -> ZenttyTheme {

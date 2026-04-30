@@ -72,6 +72,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private var shimmerCoordinator: SidebarShimmerCoordinator?
     private var isDropTargetHighlighted = false
     private var isReorderDragActive = false
+    private var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
     private let reducedMotionProvider: () -> Bool
 
     var onPaneSelected: ((PaneID) -> Void)?
@@ -81,6 +82,7 @@ final class SidebarWorklaneRowButton: NSButton {
     var onSplitVerticalRequested: ((PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneDragRequested: ((SidebarWorklaneRowButton, NSEvent) -> Bool)?
+    var onWorklaneMoveRequested: ((WorklaneID, SidebarWorklaneMoveDirection) -> Void)?
 
     private var activeContextPicker: WorklaneColorMenuItemView?
 
@@ -292,10 +294,20 @@ final class SidebarWorklaneRowButton: NSButton {
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let worklaneID else { return nil }
         let menu = NSMenu()
-        let parent = NSMenuItem(
-            title: NSLocalizedString("Worklane color", comment: "Worklane row context menu item"),
+
+        SidebarContextMenu.addMoveItems(
+            to: menu,
+            availability: worklaneMoveAvailability,
+            target: self,
+            moveUpAction: #selector(handleMoveWorklaneUp),
+            moveDownAction: #selector(handleMoveWorklaneDown)
+        )
+
+        let parent = SidebarContextMenu.item(
+            title: "Worklane Color",
             action: nil,
-            keyEquivalent: ""
+            target: nil,
+            symbolName: "paintpalette"
         )
         let submenu = NSMenu()
         let pickerItem = NSMenuItem()
@@ -308,6 +320,16 @@ final class SidebarWorklaneRowButton: NSButton {
         menu.addItem(parent)
         activeContextPicker = picker
         return menu
+    }
+
+    @objc private func handleMoveWorklaneUp() {
+        guard let worklaneID else { return }
+        onWorklaneMoveRequested?(worklaneID, .up)
+    }
+
+    @objc private func handleMoveWorklaneDown() {
+        guard let worklaneID else { return }
+        onWorklaneMoveRequested?(worklaneID, .down)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -457,6 +479,11 @@ final class SidebarWorklaneRowButton: NSButton {
 
         isReorderDragActive = isActive
         applyCurrentAppearance(animated: false)
+    }
+
+    func setWorklaneMoveAvailability(_ availability: SidebarWorklaneMoveAvailability) {
+        worklaneMoveAvailability = availability
+        paneRowRenderer.setWorklaneMoveAvailability(availability)
     }
 
     func configure(
@@ -698,6 +725,11 @@ final class SidebarWorklaneRowButton: NSButton {
                 },
                 onHoverChanged: { [weak self] isHovered in
                     self?.paneRowHoverChanged(isHovered: isHovered)
+                },
+                worklaneMoveAvailability: worklaneMoveAvailability,
+                onMoveWorklaneRequested: { [weak self] direction in
+                    guard let self, let worklaneID = self.worklaneID else { return }
+                    self.onWorklaneMoveRequested?(worklaneID, direction)
                 }
             )
         )
@@ -1675,6 +1707,14 @@ final class SidebarWorklaneRowButton: NSButton {
 
     var firstPaneRowCornerRadiusForTesting: CGFloat? {
         paneRowButtons.first?.cornerRadiusForTesting
+    }
+
+    func setWorklaneMoveAvailabilityForTesting(_ availability: SidebarWorklaneMoveAvailability) {
+        setWorklaneMoveAvailability(availability)
+    }
+
+    func firstPaneRowMenuForTesting(event: NSEvent) -> NSMenu? {
+        paneRowButtons.first?.menu(for: event)
     }
 
     var primaryTextMinXForTesting: CGFloat? {
