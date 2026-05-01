@@ -6,6 +6,16 @@ fi
 export ZENTTY_BASH_INTEGRATION_LOADED=1
 _zentty_shell_activity_last=""
 
+_zentty_print_tty() {
+    local sequence="$1"
+    local tty_path="${TTY:-}"
+    if [[ -z "$tty_path" || ! -w "$tty_path" ]]; then
+        tty_path="/dev/tty"
+    fi
+    [[ -w "$tty_path" ]] || return 0
+    { printf '%s' "$sequence" > "$tty_path"; } 2>/dev/null || true
+}
+
 _zentty_ensure_wrapper_path() {
     local wrapper_dirs="${ZENTTY_ALL_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIR:-}}}"
     [[ -n "$wrapper_dirs" ]] || return 0
@@ -108,7 +118,7 @@ _zentty_local_git_branch() {
 }
 
 _zentty_reset_title_to_cwd() {
-    printf '\e]2;%s\a' "${PWD/#$HOME/\~}"
+    _zentty_print_tty $'\e]2;'"${PWD/#$HOME/\~}"$'\a'
 }
 
 _zentty_emit_pane_context() {
@@ -151,7 +161,7 @@ _zentty_bash_prompt_hook() {
     # without disabling it (e.g., Ctrl+C killing an agent). Pop up to 99
     # entries to clear multi-level stacks (e.g., Ink/React TUI layers).
     # Extra pops beyond the stack depth are harmless no-ops.
-    printf '\e[<99u'
+    _zentty_print_tty $'\e[<99u'
     _zentty_report_shell_activity prompt
     _zentty_emit_pane_context
     if [[ -n "$_zentty_bash_original_prompt_command" ]]; then
@@ -166,7 +176,7 @@ _zentty_bash_preexec_hook() {
     [[ "$_zentty_bash_in_prompt" == "1" ]] && return 0
     _zentty_report_shell_activity running
     # Set terminal title to the running command (first line only)
-    printf '\e]2;%s\a' "${BASH_COMMAND%%$'\n'*}"
+    _zentty_print_tty $'\e]2;'"${BASH_COMMAND%%$'\n'*}"$'\a'
 }
 
 cd() {
