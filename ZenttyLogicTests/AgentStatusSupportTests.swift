@@ -442,6 +442,20 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_zsh_shell_integration_does_not_write_terminal_sequences_to_stdout_or_stderr_when_loaded() throws {
+        let result = try runShellIntegrationCommand(shell: .zsh, command: ":", extraEnvironment: ["TTY": "/dev/null"])
+
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(result.stderr, "")
+    }
+
+    func test_bash_shell_integration_does_not_write_terminal_sequences_to_stdout_or_stderr_when_loaded() throws {
+        let result = try runShellIntegrationCommand(shell: .bash, command: ":", extraEnvironment: ["TTY": "/dev/null"])
+
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(result.stderr, "")
+    }
+
     func test_zsh_shell_integration_emits_updated_pane_context_before_next_command_after_cd() throws {
         let targetDirectory = try makeTemporaryDirectory(named: "shell-zsh-target")
 
