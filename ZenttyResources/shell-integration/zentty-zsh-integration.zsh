@@ -3,6 +3,23 @@
 [[ "${ZENTTY_ZSH_INTEGRATION_LOADED:-0}" == "1" ]] && return 0
 typeset -g ZENTTY_ZSH_INTEGRATION_LOADED=1
 typeset -g _zentty_shell_activity_last=""
+typeset -gi _zentty_tty_fd=0
+
+_zentty_open_tty_fd() {
+    (( _zentty_tty_fd > 0 )) && return 0
+    {
+        builtin zmodload zsh/system && (( $+builtins[sysopen] )) && {
+            { [[ -n "${TTY:-}" && -w "$TTY" ]] && builtin sysopen -o cloexec -wu _zentty_tty_fd -- "$TTY" } ||
+            { [[ -w /dev/tty ]] && builtin sysopen -o cloexec -wu _zentty_tty_fd -- /dev/tty }
+        }
+    } 2>/dev/null || return 1
+    (( _zentty_tty_fd > 0 ))
+}
+
+_zentty_print_tty() {
+    _zentty_open_tty_fd || return 0
+    builtin print -rn -u "$_zentty_tty_fd" -- "$1"
+}
 
 _zentty_ensure_wrapper_path() {
     local wrapper_dirs="${ZENTTY_ALL_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIR:-}}}"
@@ -85,7 +102,7 @@ _zentty_local_git_branch() {
 }
 
 _zentty_reset_title_to_cwd() {
-    builtin printf '\e]2;%s\a' "${PWD/#$HOME/~}"
+    _zentty_print_tty $'\e]2;'"${PWD/#$HOME/~}"$'\a'
 }
 
 _zentty_emit_pane_context() {
@@ -124,7 +141,7 @@ _zentty_precmd() {
     # without disabling it (e.g., Ctrl+C killing an agent). Pop up to 99
     # entries to clear multi-level stacks (e.g., Ink/React TUI layers).
     # Extra pops beyond the stack depth are harmless no-ops.
-    builtin printf '\e[<99u'
+    _zentty_print_tty $'\e[<99u'
     _zentty_report_shell_activity prompt
     _zentty_emit_pane_context
     _zentty_reset_title_to_cwd
@@ -152,7 +169,7 @@ _zentty_preexec() {
     local cmd="${1%%[[:space:]]*}"
     _zentty_is_navigation_command "$cmd" || _zentty_report_shell_activity running
     # Set terminal title to the running command (first line only)
-    builtin printf '\e]2;%s\a' "${1%%$'\n'*}"
+    _zentty_print_tty $'\e]2;'"${1%%$'\n'*}"$'\a'
 }
 
 autoload -Uz add-zsh-hook 2>/dev/null || true
