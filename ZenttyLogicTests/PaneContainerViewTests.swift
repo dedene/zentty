@@ -295,6 +295,48 @@ final class PaneContainerViewTests: AppKitTestCase {
         XCTAssertEqual(paneView.borderLabelGapWidthForTesting, 0, accuracy: 0.001)
     }
 
+    func test_pane_container_border_context_exposes_copy_affordance() throws {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil),
+            backingScaleFactorProvider: { 2 }
+        )
+        paneView.onBorderContextClicked = { _ in }
+
+        paneView.render(
+            pane: pane,
+            emphasis: 1,
+            isFocused: true,
+            borderContext: PaneBorderContextDisplayModel(text: "~/src/zentty")
+        )
+        paneView.layoutSubtreeIfNeeded()
+
+        let frame = try XCTUnwrap(paneView.paneBorderContextFrameForTesting)
+        let pointInPane = CGPoint(x: frame.midX, y: frame.midY)
+        let clickTarget = try XCTUnwrap(paneView.hitTest(pointInPane) as? PaneBorderContextInsetView)
+        let copyIconLayer = try XCTUnwrap(
+            clickTarget.layer?.sublayers?.first { $0.name == "copyIconLayer" },
+            "Pane path label should include a visible copy icon because the label itself is clickable"
+        )
+
+        XCTAssertEqual(clickTarget.toolTip, "Copy path")
+        XCTAssertFalse(copyIconLayer.isHidden)
+        XCTAssertNotNil(copyIconLayer.contents)
+    }
+
     func test_pane_container_clamps_border_context_width_to_available_pane_width() throws {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")
