@@ -277,6 +277,137 @@ extension WorklaneStore {
         }
     }
 
+    // MARK: - Cross-Window Transfer
+
+    func canSplitOutPaneToNewWindow(paneID: PaneID) -> Bool {
+        guard let sourceWorklane = worklanes.first(where: { worklane in
+            worklane.paneStripState.panes.contains { $0.id == paneID }
+        }) else {
+            return false
+        }
+
+        return !(worklanes.count == 1 && sourceWorklane.paneStripState.panes.count == 1)
+    }
+
+    @discardableResult
+    func splitOutPaneToNewWindow(
+        paneID: PaneID,
+        destinationWindowID: WindowID
+    ) -> PaneSplitOutResult? {
+        guard let sourceIndex = worklanes.firstIndex(where: { worklane in
+            worklane.paneStripState.panes.contains { $0.id == paneID }
+        }) else {
+            return nil
+        }
+
+        var sourceWorklane = worklanes[sourceIndex]
+        guard !(worklanes.count == 1 && sourceWorklane.paneStripState.panes.count == 1) else {
+            return nil
+        }
+
+        if sourceWorklane.paneStripState.panes.count == 1 {
+            var movedWorklane = worklanes.remove(at: sourceIndex)
+            if let movedColumnIndex = movedWorklane.paneStripState.columns.firstIndex(where: { column in
+                column.panes.contains { $0.id == paneID }
+            }),
+               let movedPaneIndex = movedWorklane.paneStripState.columns[movedColumnIndex].panes.firstIndex(where: { $0.id == paneID }) {
+                retargetPaneForSplitOut(
+                    &movedWorklane.paneStripState.columns[movedColumnIndex].panes[movedPaneIndex],
+                    destinationWindowID: destinationWindowID,
+                    destinationWorklaneID: movedWorklane.id
+                )
+            }
+
+            if activeWorklaneID == movedWorklane.id {
+                let fallbackIndex = min(sourceIndex, worklanes.count - 1)
+                if worklanes.indices.contains(fallbackIndex) {
+                    activeWorklaneID = worklanes[fallbackIndex].id
+                }
+            }
+            refreshLastFocusedLocalWorkingDirectory()
+            notify(.worklaneListChanged)
+
+            return PaneSplitOutResult(
+                destinationWorkspaceState: WindowWorkspaceState(
+                    worklanes: [movedWorklane],
+                    activeWorklaneID: movedWorklane.id
+                ),
+                movedPaneID: paneID,
+                sourceWindowShouldClose: worklanes.isEmpty
+            )
+        }
+
+        let previousSourceColumnCount = sourceWorklane.paneStripState.columns.count
+        guard var removal = sourceWorklane.paneStripState.removePane(
+            id: paneID,
+            singleColumnWidth: layoutContext.singlePaneWidth
+        ) else {
+            return nil
+        }
+        let auxiliaryState = sourceWorklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
+
+        applyColumnWidthNormalization(
+            &sourceWorklane,
+            previousColumnCount: previousSourceColumnCount,
+            singleColumnWidth: layoutContext.singlePaneWidth
+        )
+
+        worklanes[sourceIndex] = sourceWorklane
+
+        removal.pane.width = layoutContext.singlePaneWidth
+        let destinationWorklaneID = runtimeIdentity.makeWorklaneID()
+        retargetPaneForSplitOut(
+            &removal.pane,
+            destinationWindowID: destinationWindowID,
+            destinationWorklaneID: destinationWorklaneID
+        )
+        let destinationWorklane = WorklaneState(
+            id: destinationWorklaneID,
+            title: sourceWorklane.title,
+            paneStripState: PaneStripState(
+                panes: [removal.pane],
+                focusedPaneID: removal.pane.id,
+                layoutSizing: layoutContext.sizing
+            ),
+            nextPaneNumber: sourceWorklane.nextPaneNumber,
+            auxiliaryStateByPaneID: auxiliaryState.map { [paneID: $0] } ?? [:],
+            color: sourceWorklane.color
+        )
+
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(sourceWorklane.id))
+
+        return PaneSplitOutResult(
+            destinationWorkspaceState: WindowWorkspaceState(
+                worklanes: [destinationWorklane],
+                activeWorklaneID: destinationWorklaneID
+            ),
+            movedPaneID: paneID,
+            sourceWindowShouldClose: false
+        )
+    }
+
+    private func retargetPaneForSplitOut(
+        _ pane: inout PaneState,
+        destinationWindowID: WindowID,
+        destinationWorklaneID: WorklaneID
+    ) {
+        var request = pane.sessionRequest
+        let initialWorkingDirectory = request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"]
+            ?? request.workingDirectory
+
+        request.inheritFromPaneID = nil
+        request.configInheritanceSourcePaneID = nil
+        request.surfaceContext = .window
+        request.environmentVariables = sessionEnvironment(
+            windowID: destinationWindowID,
+            worklaneID: destinationWorklaneID,
+            paneID: pane.id,
+            initialWorkingDirectory: initialWorkingDirectory
+        )
+        pane.sessionRequest = request
+    }
+
     // MARK: - Duplicate Pane
 
     func duplicatePaneToWorklane(

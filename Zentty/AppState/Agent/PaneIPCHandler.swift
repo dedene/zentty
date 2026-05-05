@@ -38,10 +38,11 @@ enum PaneIPCHandler {
         target: AgentIPCTarget
     ) -> AgentIPCResponseResult {
         guard let appDelegate = NSApp.delegate as? AppDelegate,
-              let windowController = target.windowID.flatMap(appDelegate.windowController(with:))
-                ?? appDelegate.windowController(containingWorklane: target.worklaneID) else {
+              let resolved = resolveTarget(target, appDelegate: appDelegate) else {
             return AgentIPCResponseResult()
         }
+        let windowController = resolved.windowController
+        let target = resolved.target
 
         if subcommand != .list && subcommand != .worklaneColor {
             windowController.focusPane(id: target.paneID, in: target.worklaneID)
@@ -65,6 +66,32 @@ enum PaneIPCHandler {
         case .worklaneColor:
             return handleWorklaneColor(arguments: request.arguments, target: target, windowController: windowController)
         }
+    }
+
+    @MainActor
+    private static func resolveTarget(
+        _ target: AgentIPCTarget,
+        appDelegate: AppDelegate
+    ) -> (windowController: MainWindowController, target: AgentIPCTarget)? {
+        let exactWindowController = target.windowID
+            .flatMap(appDelegate.windowController(with:))
+            .flatMap { controller in
+                controller.containsPane(worklaneID: target.worklaneID, paneID: target.paneID) ? controller : nil
+            }
+        let paneOwner = appDelegate.windowController(containingPane: target.paneID)
+        let worklaneOwner = appDelegate.windowController(containingWorklane: target.worklaneID)
+
+        guard let windowController = exactWindowController ?? paneOwner ?? worklaneOwner else {
+            return nil
+        }
+
+        let resolvedWorklaneID = windowController.worklaneID(containing: target.paneID) ?? target.worklaneID
+        let resolvedTarget = AgentIPCTarget(
+            windowID: windowController.windowID,
+            worklaneID: resolvedWorklaneID,
+            paneID: target.paneID
+        )
+        return (windowController, resolvedTarget)
     }
 
     // MARK: - Worklane color

@@ -177,6 +177,7 @@ final class RootViewController: NSViewController {
     var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
+    var onMovePaneToNewWindowRequested: ((PaneID?) -> Void)?
     var onWorkspaceStateDidChange: (() -> Void)?
 
     init(
@@ -736,6 +737,10 @@ final class RootViewController: NSViewController {
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
             self?.worklaneStore.send(.splitVertically)
         }
+        sidebarView.onMovePaneToNewWindowRequested = { [weak self] worklaneID, paneID in
+            self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+            self?.onMovePaneToNewWindowRequested?(paneID)
+        }
         sidebarView.onWorklaneColorChanged = { [weak self] worklaneID, color in
             self?.worklaneStore.setColor(color, on: worklaneID)
         }
@@ -1054,6 +1059,8 @@ final class RootViewController: NSViewController {
             }
         case .pane(let command):
             handlePaneCommand(command)
+        case .moveFocusedPaneToNewWindow:
+            onMovePaneToNewWindowRequested?(worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
         case .navigateBack:
             worklaneStore.navigateBack()
         case .navigateForward:
@@ -1938,6 +1945,36 @@ final class RootViewController: NSViewController {
             worklane.id == worklaneID
                 && worklane.paneStripState.panes.contains(where: { $0.id == paneID })
         }
+    }
+
+    func containsPane(_ paneID: PaneID) -> Bool {
+        worklaneStore.worklanes.contains { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
+        }
+    }
+
+    func worklaneID(containing paneID: PaneID) -> WorklaneID? {
+        worklaneStore.worklanes.first { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
+        }?.id
+    }
+
+    func focusedPaneID() -> PaneID? {
+        worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+    }
+
+    func canSplitOutPaneToNewWindow(paneID: PaneID) -> Bool {
+        worklaneStore.canSplitOutPaneToNewWindow(paneID: paneID)
+    }
+
+    func splitOutPaneToNewWindow(
+        paneID: PaneID,
+        destinationWindowID: WindowID
+    ) -> PaneSplitOutResult? {
+        worklaneStore.splitOutPaneToNewWindow(
+            paneID: paneID,
+            destinationWindowID: destinationWindowID
+        )
     }
 
     // MARK: - Pane IPC

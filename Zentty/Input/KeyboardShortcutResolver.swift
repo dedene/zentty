@@ -35,6 +35,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case copyFocusedPanePath = "pane.copy_path"
     case jumpToLatestNotification = "notifications.jump_latest"
     case duplicateFocusedPane = "pane.duplicate"
+    case movePaneToNewWindow = "pane.move_to_new_window"
     case splitHorizontally = "pane.split.horizontal"
     case splitVertically = "pane.split.vertical"
     case arrangeWidthFull = "pane.arrange.width.full"
@@ -97,6 +98,7 @@ enum AppAction: Equatable, Sendable {
     case copyRaw
     case jumpToLatestNotification
     case pane(PaneCommand)
+    case moveFocusedPaneToNewWindow
     case navigateBack
     case navigateForward
     case showCommandPalette
@@ -337,6 +339,18 @@ enum AppCommandRegistry {
             defaultShortcut: nil,
             action: .pane(.duplicateFocusedPane),
             menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .movePaneToNewWindow,
+            title: "Move Pane to New Window",
+            category: .panes,
+            defaultShortcut: nil,
+            action: .moveFocusedPaneToNewWindow,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Move Pane to New Window",
+                selector: #selector(MainWindowController.movePaneToNewWindow(_:))
+            )
         ),
         AppCommandDefinition(
             id: .splitHorizontally,
@@ -769,6 +783,7 @@ enum AppCommandRegistry {
             .separator,
             .command(.splitHorizontally),
             .command(.splitVertically),
+            .command(.movePaneToNewWindow),
             .separator,
             .submenu("Arrange Width", [
                 .command(.arrangeWidthFull),
@@ -859,6 +874,8 @@ extension AppCommandDefinition {
             "Go to the most recent notification."
         case .duplicateFocusedPane:
             "Duplicate the focused pane in a new column, keeping its working directory."
+        case .movePaneToNewWindow:
+            "Move the focused pane into its own window without restarting the terminal session."
         case .splitHorizontally:
             "Add a pane below in the same column."
         case .splitVertically:

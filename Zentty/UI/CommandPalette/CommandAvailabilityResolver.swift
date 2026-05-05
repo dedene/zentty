@@ -77,6 +77,9 @@ enum CommandAvailabilityResolver {
             return context.activePaneCount >= 1
         case .duplicateFocusedPane:
             return context.activePaneCount >= 1
+        case .movePaneToNewWindow:
+            return context.activePaneCount >= 1
+                && !(context.worklaneCount == 1 && context.activePaneCount == 1)
         case .focusLeftPane,
              .focusRightPane,
              .resizePaneLeft,

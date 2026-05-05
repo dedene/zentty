@@ -55,6 +55,7 @@ final class SidebarView: NSView {
     var onClosePaneRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitHorizontalRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitVerticalRequested: ((WorklaneID, PaneID) -> Void)?
+    var onMovePaneToNewWindowRequested: ((WorklaneID, PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneReorderCommitted: ((WorklaneID, Int) -> Bool)?
     var onNewWorklaneRequested: (() -> Void)?
@@ -383,6 +384,7 @@ final class SidebarView: NSView {
             applySidebarChrome(theme: theme, animated: true)
         }
 
+        worklaneButtons.forEach { $0.isOnlyWorklane = effectiveSummaries.count == 1 }
         syncReorderSpacer()
         syncWorklaneMoveAvailability()
         worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
@@ -432,6 +434,9 @@ final class SidebarView: NSView {
         }
         button.onSplitVerticalRequested = { [weak self] paneID in
             self?.onSplitVerticalRequested?(worklaneID, paneID)
+        }
+        button.onMovePaneToNewWindowRequested = { [weak self] paneID in
+            self?.onMovePaneToNewWindowRequested?(worklaneID, paneID)
         }
         button.onWorklaneColorChanged = { [weak self] id, color in
             self?.onWorklaneColorChanged?(id, color)
@@ -514,6 +519,7 @@ final class SidebarView: NSView {
             guard worklaneSummaries.indices.contains(index) else {
                 return
             }
+            button.isOnlyWorklane = worklaneSummaries.count == 1
             button.configure(
                 with: worklaneSummaries[index],
                 theme: theme,

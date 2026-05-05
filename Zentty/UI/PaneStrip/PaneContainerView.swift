@@ -1109,16 +1109,56 @@ final class PaneContainerView: NSView {
         focusTerminal()
 
         let customMenu = NSMenu(title: "")
-        customMenu.addItem(makeContextMenuItem(title: "Copy", action: #selector(NSText.copy(_:))))
-        let cleanCopyItem = makeContextMenuItem(title: "Clean Copy", action: #selector(MainWindowController.cleanCopy(_:)))
-        cleanCopyItem.image = NSImage(systemSymbolName: "sparkles.rectangle.stack", accessibilityDescription: "Clean Copy")
-        customMenu.addItem(cleanCopyItem)
-        customMenu.addItem(makeContextMenuItem(title: "Paste", action: #selector(NSText.paste(_:))))
+        customMenu.addItem(makeContextMenuItem(
+            title: "Copy",
+            action: #selector(NSText.copy(_:)),
+            symbolName: "doc.on.doc"
+        ))
+        customMenu.addItem(makeContextMenuItem(
+            title: "Clean Copy",
+            action: #selector(MainWindowController.cleanCopy(_:)),
+            symbolName: "sparkles.rectangle.stack",
+            fallbackSymbolName: "doc.on.doc"
+        ))
+        customMenu.addItem(makeContextMenuItem(
+            title: "Paste",
+            action: #selector(NSText.paste(_:)),
+            symbolName: "clipboard"
+        ))
         customMenu.addItem(.separator())
-        customMenu.addItem(makeContextMenuItem(title: "Add Pane Right", action: #selector(MainWindowController.addPaneRight(_:))))
-        customMenu.addItem(makeContextMenuItem(title: "Add Pane Left", action: #selector(MainWindowController.addPaneLeft(_:))))
-        customMenu.addItem(makeContextMenuItem(title: "Add Pane Down", action: #selector(MainWindowController.addPaneDown(_:))))
-        customMenu.addItem(makeContextMenuItem(title: "Add Pane Up", action: #selector(MainWindowController.addPaneUp(_:))))
+        customMenu.addItem(makeContextMenuItem(
+            title: "Add Pane Right",
+            action: #selector(MainWindowController.addPaneRight(_:)),
+            symbolName: "arrow.right.square",
+            fallbackSymbolName: "arrow.right"
+        ))
+        customMenu.addItem(makeContextMenuItem(
+            title: "Add Pane Left",
+            action: #selector(MainWindowController.addPaneLeft(_:)),
+            symbolName: "arrow.left.square",
+            fallbackSymbolName: "arrow.left"
+        ))
+        customMenu.addItem(makeContextMenuItem(
+            title: "Add Pane Down",
+            action: #selector(MainWindowController.addPaneDown(_:)),
+            symbolName: "arrow.down.square",
+            fallbackSymbolName: "arrow.down"
+        ))
+        customMenu.addItem(makeContextMenuItem(
+            title: "Add Pane Up",
+            action: #selector(MainWindowController.addPaneUp(_:)),
+            symbolName: "arrow.up.square",
+            fallbackSymbolName: "arrow.up"
+        ))
+        customMenu.addItem(.separator())
+        let moveToWindowItem = makeContextMenuItem(
+            title: "Move Pane to New Window",
+            action: #selector(MainWindowController.movePaneToNewWindow(_:)),
+            symbolName: "macwindow.badge.plus",
+            fallbackSymbolName: "macwindow"
+        )
+        moveToWindowItem.representedObject = paneID
+        customMenu.addItem(moveToWindowItem)
 
         let mergedMenu = NSMenu(title: "")
         customMenu.items.forEach { mergedMenu.addItem($0.copy() as! NSMenuItem) }
@@ -1134,10 +1174,19 @@ final class PaneContainerView: NSView {
         return mergedMenu.items.isEmpty ? nil : mergedMenu
     }
 
-    private func makeContextMenuItem(title: String, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = nil
-        return item
+    private func makeContextMenuItem(
+        title: String,
+        action: Selector,
+        symbolName: String,
+        fallbackSymbolName: String? = nil
+    ) -> NSMenuItem {
+        SidebarContextMenu.item(
+            title: title,
+            action: action,
+            target: nil,
+            symbolName: symbolName,
+            fallbackSymbolName: fallbackSymbolName
+        )
     }
 
     private static func shouldIncludeSystemContextMenuItem(_ item: NSMenuItem) -> Bool {

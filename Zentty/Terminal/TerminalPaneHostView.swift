@@ -328,8 +328,8 @@ final class PaneRuntime {
     private let paneIDValue: PaneID
     private let adapterValue: any TerminalAdapter
     private let hostViewValue: TerminalPaneHostView
-    private let metadataSink: (PaneID, TerminalMetadata) -> Void
-    private let eventSink: (PaneID, TerminalEvent) -> Void
+    private var metadataSink: (PaneID, TerminalMetadata) -> Void
+    private var eventSink: (PaneID, TerminalEvent) -> Void
     private let startupCommandSettleDelay: TimeInterval
     private let restoreDraftSettleDelay: TimeInterval
     private var sessionRequest: TerminalSessionRequest
@@ -453,6 +453,16 @@ final class PaneRuntime {
     var globalSearchDidChange: ((PaneID, TerminalSearchEvent) -> Void)? {
         get { globalSearchEventSink }
         set { globalSearchEventSink = newValue }
+    }
+
+    func rebindSinks(
+        metadataSink: @escaping (PaneID, TerminalMetadata) -> Void,
+        eventSink: @escaping (PaneID, TerminalEvent) -> Void,
+        globalSearchDidChange: ((PaneID, TerminalSearchEvent) -> Void)?
+    ) {
+        self.metadataSink = metadataSink
+        self.eventSink = eventSink
+        self.globalSearchDidChange = globalSearchDidChange
     }
 
     func update(pane: PaneState) {
@@ -905,16 +915,10 @@ final class PaneRuntimeRegistry {
             let runtime = PaneRuntime(
                 pane: pane,
                 adapter: adapterFactory(pane.id),
-                metadataSink: { [weak self] paneID, metadata in
-                    self?.onMetadataDidChange?(paneID, metadata)
-                },
-                eventSink: { [weak self] paneID, event in
-                    self?.onEventDidOccur?(paneID, event)
-                }
+                metadataSink: metadataSink(),
+                eventSink: eventSink()
             )
-            runtime.globalSearchDidChange = { [weak self] paneID, event in
-                self?.onGlobalSearchDidChange?(paneID, event)
-            }
+            bindSinks(to: runtime)
             runtimes[pane.id] = runtime
             return runtime
         }
@@ -922,6 +926,32 @@ final class PaneRuntimeRegistry {
 
     func runtime(for paneID: PaneID) -> PaneRuntime? {
         runtimes[paneID]
+    }
+
+    func detachRuntime(for paneID: PaneID) -> PaneRuntime? {
+        guard let runtime = runtimes.removeValue(forKey: paneID) else {
+            return nil
+        }
+
+        runtime.rebindSinks(
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in },
+            globalSearchDidChange: nil
+        )
+        return runtime
+    }
+
+    func adoptRuntime(_ runtime: PaneRuntime, for paneID: PaneID) {
+        guard runtime.paneID == paneID else {
+            return
+        }
+
+        if let existingRuntime = runtimes[paneID], existingRuntime !== runtime {
+            existingRuntime.adapter.close()
+        }
+
+        bindSinks(to: runtime)
+        runtimes[paneID] = runtime
     }
 
     func synchronize(with worklanes: [WorklaneState]) {
@@ -950,6 +980,32 @@ final class PaneRuntimeRegistry {
     func destroyAll() {
         runtimes.values.forEach { $0.adapter.close() }
         runtimes.removeAll()
+    }
+
+    private func bindSinks(to runtime: PaneRuntime) {
+        runtime.rebindSinks(
+            metadataSink: metadataSink(),
+            eventSink: eventSink(),
+            globalSearchDidChange: globalSearchSink()
+        )
+    }
+
+    private func metadataSink() -> (PaneID, TerminalMetadata) -> Void {
+        { [weak self] paneID, metadata in
+            self?.onMetadataDidChange?(paneID, metadata)
+        }
+    }
+
+    private func eventSink() -> (PaneID, TerminalEvent) -> Void {
+        { [weak self] paneID, event in
+            self?.onEventDidOccur?(paneID, event)
+        }
+    }
+
+    private func globalSearchSink() -> (PaneID, TerminalSearchEvent) -> Void {
+        { [weak self] paneID, event in
+            self?.onGlobalSearchDidChange?(paneID, event)
+        }
     }
 
     func updateSurfaceActivities(

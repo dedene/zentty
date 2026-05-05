@@ -1356,6 +1356,8 @@ final class PaneContainerViewTests: AppKitTestCase {
                 "Add Pane Down",
                 "Add Pane Up",
                 "---",
+                "Move Pane to New Window",
+                "---",
                 "AutoFill",
                 "Services",
             ]
@@ -1384,7 +1386,9 @@ final class PaneContainerViewTests: AppKitTestCase {
         let menu = try XCTUnwrap(paneView.contextMenuForTesting())
 
         XCTAssertEqual(
-            menu.items.filter { !$0.isSeparatorItem }.suffix(4).map(\.action),
+            menu.items
+                .filter { $0.title.hasPrefix("Add Pane ") }
+                .map(\.action),
             [
                 #selector(MainWindowController.addPaneRight(_:)),
                 #selector(MainWindowController.addPaneLeft(_:)),
@@ -1392,6 +1396,42 @@ final class PaneContainerViewTests: AppKitTestCase {
                 #selector(MainWindowController.addPaneUp(_:)),
             ]
         )
+    }
+
+    func test_context_menu_custom_items_have_icons() throws {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        let menu = try XCTUnwrap(paneView.contextMenuForTesting())
+        let customTitles = [
+            "Copy",
+            "Clean Copy",
+            "Paste",
+            "Add Pane Right",
+            "Add Pane Left",
+            "Add Pane Down",
+            "Add Pane Up",
+            "Move Pane to New Window",
+        ]
+
+        for title in customTitles {
+            XCTAssertNotNil(menu.item(withTitle: title)?.image, "\(title) should have an icon")
+        }
     }
 
 }

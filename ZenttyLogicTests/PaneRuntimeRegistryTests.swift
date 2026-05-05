@@ -220,6 +220,70 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertNotNil(registry.runtime(for: shell.id))
     }
 
+    func test_registry_detaches_runtime_without_closing_terminal_session() throws {
+        let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        let pane = PaneState(id: PaneID("pn_live"), title: "agent")
+        registry.synchronize(with: [
+            WorklaneState(
+                id: WorklaneID("wl_source"),
+                title: "Source",
+                paneStripState: PaneStripState(panes: [pane], focusedPaneID: pane.id)
+            )
+        ])
+        let originalRuntime = try XCTUnwrap(registry.runtime(for: pane.id))
+
+        let detachedRuntime = try XCTUnwrap(registry.detachRuntime(for: pane.id))
+
+        XCTAssertTrue(detachedRuntime === originalRuntime)
+        XCTAssertNil(registry.runtime(for: pane.id))
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[pane.id]?.eventLog, ["prepare"])
+    }
+
+    func test_registry_adopts_detached_runtime_and_rebinds_event_sinks() throws {
+        let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let sourceRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        var sourceMetadataEvents: [PaneID] = []
+        var destinationMetadataEvents: [PaneID] = []
+        var sourceTerminalEvents: [PaneID] = []
+        var destinationTerminalEvents: [PaneID] = []
+        sourceRegistry.onMetadataDidChange = { paneID, _ in sourceMetadataEvents.append(paneID) }
+        sourceRegistry.onEventDidOccur = { paneID, _ in sourceTerminalEvents.append(paneID) }
+        let pane = PaneState(id: PaneID("pn_live"), title: "agent")
+        sourceRegistry.synchronize(with: [
+            WorklaneState(
+                id: WorklaneID("wl_source"),
+                title: "Source",
+                paneStripState: PaneStripState(panes: [pane], focusedPaneID: pane.id)
+            )
+        ])
+        let originalRuntime = try XCTUnwrap(sourceRegistry.runtime(for: pane.id))
+        let detachedRuntime = try XCTUnwrap(sourceRegistry.detachRuntime(for: pane.id))
+
+        let destinationRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        destinationRegistry.onMetadataDidChange = { paneID, _ in destinationMetadataEvents.append(paneID) }
+        destinationRegistry.onEventDidOccur = { paneID, _ in destinationTerminalEvents.append(paneID) }
+        destinationRegistry.adoptRuntime(detachedRuntime, for: pane.id)
+
+        XCTAssertTrue(destinationRegistry.runtime(for: pane.id) === originalRuntime)
+        XCTAssertEqual(adapterFactory.adapters.count, 1)
+
+        let adapter = try XCTUnwrap(adapterFactory.adaptersByPaneID[pane.id])
+        adapter.metadataDidChange?(TerminalMetadata(title: "moved"))
+        adapter.eventDidOccur?(.shellReady)
+
+        XCTAssertEqual(sourceMetadataEvents, [])
+        XCTAssertEqual(sourceTerminalEvents, [])
+        XCTAssertEqual(destinationMetadataEvents, [pane.id])
+        XCTAssertEqual(destinationTerminalEvents, [pane.id])
+    }
+
     func test_registry_prepares_local_split_pane_from_config_inheritance_source_before_starting() throws {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in

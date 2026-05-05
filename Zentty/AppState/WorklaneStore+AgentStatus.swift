@@ -195,7 +195,10 @@ extension WorklaneStore {
     }
 
     func applyAgentStatusPayload(_ payload: AgentStatusPayload) {
-        if let payloadWindowID = payload.windowID, payloadWindowID != windowID {
+        let ownsPayloadPane = worklanes.contains { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == payload.paneID })
+        }
+        if let payloadWindowID = payload.windowID, payloadWindowID != windowID, !ownsPayloadPane {
             return
         }
 

@@ -256,6 +256,7 @@ final class AppDelegateTests: XCTestCase {
                 "Toggle Sidebar",
                 "Split Horizontally",
                 "Split Vertically",
+                "Move Pane to New Window",
                 "Arrange Width",
                 "Arrange Height",
                 "Resize Pane Left",

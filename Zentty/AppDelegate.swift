@@ -251,13 +251,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func makeWindowController(
         windowID: WindowID,
-        initialWorkspaceState: WindowWorkspaceState?
+        initialWorkspaceState: WindowWorkspaceState?,
+        runtimeRegistry: PaneRuntimeRegistry? = nil
     ) -> MainWindowController {
         let index = nextWindowIndex
         nextWindowIndex += 1
         let controller = MainWindowController(
             windowID: windowID,
-            runtimeRegistry: runtimeRegistryFactory(),
+            runtimeRegistry: runtimeRegistry ?? runtimeRegistryFactory(),
             configStore: configStore,
             appUpdateStateStore: appUpdateController.updateStateStore,
             notificationStore: notificationStore,
@@ -284,10 +285,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onNavigateToNotificationRequested = { [weak self] windowID, worklaneID, paneID in
             self?.navigateToNotification(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
         }
+        controller.onMovePaneToNewWindowRequested = { [weak self] sourceController, paneID in
+            self?.movePaneToNewWindow(from: sourceController, paneID: paneID)
+        }
         controller.onWorkspaceStateDidChange = { [weak self] in
             self?.scheduleWorkspaceSnapshotSave()
         }
         return controller
+    }
+
+    private func movePaneToNewWindow(from sourceController: MainWindowController, paneID requestedPaneID: PaneID?) {
+        guard let paneID = requestedPaneID,
+              sourceController.canMovePaneToNewWindow(paneID: paneID)
+        else {
+            return
+        }
+
+        let sourceFrame = sourceController.window.frame
+        let destinationWindowID = makeWindowID()
+        guard let extracted = sourceController.splitOutPaneForNewWindow(
+            paneID: paneID,
+            destinationWindowID: destinationWindowID
+        ) else {
+            return
+        }
+
+        let destinationRegistry = runtimeRegistryFactory()
+        if let runtime = extracted.runtime {
+            destinationRegistry.adoptRuntime(runtime, for: extracted.result.movedPaneID)
+        }
+
+        let destinationController = makeWindowController(
+            windowID: destinationWindowID,
+            initialWorkspaceState: extracted.result.destinationWorkspaceState,
+            runtimeRegistry: destinationRegistry
+        )
+        destinationController.showSplitOutWindow(cascadingFrom: sourceFrame)
+        if let destinationWorklaneID = extracted.result.destinationWorkspaceState.activeWorklaneID {
+            destinationController.focusPane(id: extracted.result.movedPaneID, in: destinationWorklaneID)
+        }
+
+        if extracted.result.sourceWindowShouldClose {
+            sourceController.closeWindowBypassingConfirmation()
+        }
+        scheduleWorkspaceSnapshotSave()
     }
 
     private func makeWindowID() -> WindowID {
@@ -505,6 +546,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowControllers.values.first { $0.containsWorklane(worklaneID) }
     }
 
+    func windowController(containingPane paneID: PaneID) -> MainWindowController? {
+        windowControllers.values.first { $0.containsPane(paneID) }
+    }
+
     func orderedWindowControllersForDiscovery() -> [MainWindowController] {
         windowControllers.values.sorted { lhs, rhs in
             lhs.windowOrder < rhs.windowOrder
@@ -516,11 +561,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .flatMap { controller in
                 controller.containsPane(worklaneID: worklaneID, paneID: paneID) ? controller : nil
             }
+            ?? windowController(containingPane: paneID)
             ?? windowControllers.values.first {
                 $0.containsPane(worklaneID: worklaneID, paneID: paneID)
             }
 
-        target?.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+        guard let target else { return }
+        let resolvedWorklaneID = target.worklaneID(containing: paneID) ?? worklaneID
+        target.navigateToPane(worklaneID: resolvedWorklaneID, paneID: paneID)
     }
 
     func windowController(with windowID: WindowID) -> MainWindowController? {

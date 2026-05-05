@@ -156,6 +156,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
+    var onMovePaneToNewWindowRequested: ((MainWindowController, PaneID?) -> Void)?
     var onWorkspaceStateDidChange: (() -> Void)?
 
     init(
@@ -255,6 +256,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         rootViewController.onNavigateToNotificationRequested = { [weak self] windowID, worklaneID, paneID in
             self?.onNavigateToNotificationRequested?(windowID, worklaneID, paneID)
+        }
+        rootViewController.onMovePaneToNewWindowRequested = { [weak self] paneID in
+            guard let self else { return }
+            self.onMovePaneToNewWindowRequested?(self, paneID)
         }
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
@@ -709,6 +714,59 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.containsPane(worklaneID: worklaneID, paneID: paneID)
     }
 
+    func containsPane(_ paneID: PaneID) -> Bool {
+        rootViewController.containsPane(paneID)
+    }
+
+    func worklaneID(containing paneID: PaneID) -> WorklaneID? {
+        rootViewController.worklaneID(containing: paneID)
+    }
+
+    @objc
+    func movePaneToNewWindow(_ sender: Any?) {
+        onMovePaneToNewWindowRequested?(self, representedPaneID(from: sender) ?? rootViewController.focusedPaneID())
+    }
+
+    func canMovePaneToNewWindow(paneID: PaneID?) -> Bool {
+        guard let paneID = paneID ?? rootViewController.focusedPaneID() else {
+            return false
+        }
+
+        return rootViewController.canSplitOutPaneToNewWindow(paneID: paneID)
+    }
+
+    func splitOutPaneForNewWindow(
+        paneID: PaneID,
+        destinationWindowID: WindowID
+    ) -> (result: PaneSplitOutResult, runtime: PaneRuntime?)? {
+        guard rootViewController.canSplitOutPaneToNewWindow(paneID: paneID) else {
+            return nil
+        }
+
+        let runtime = runtimeRegistry.detachRuntime(for: paneID)
+        guard let result = rootViewController.splitOutPaneToNewWindow(
+            paneID: paneID,
+            destinationWindowID: destinationWindowID
+        ) else {
+            if let runtime {
+                runtimeRegistry.adoptRuntime(runtime, for: paneID)
+            }
+            return nil
+        }
+
+        return (result, runtime)
+    }
+
+    func showSplitOutWindow(cascadingFrom sourceFrame: NSRect) {
+        isWindowKey = true
+        window.setFrame(sourceFrame, display: false)
+        window.cascadeTopLeft(from: NSPoint(x: sourceFrame.minX, y: sourceFrame.maxY))
+        window.makeKeyAndOrderFront(nil)
+        syncWindowAppearance()
+        layoutTrafficLights()
+        rootViewController.activateWindowBindingsIfNeeded()
+    }
+
     // MARK: - Pane IPC
 
     func handlePaneIPCCommand(_ command: PaneCommand) {
@@ -914,6 +972,22 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     private func handle(_ action: AppAction) {
         rootViewController.handle(action)
+    }
+
+    private func representedPaneID(from sender: Any?) -> PaneID? {
+        guard let representedObject = (sender as? NSMenuItem)?.representedObject else {
+            return nil
+        }
+
+        if let paneID = representedObject as? PaneID {
+            return paneID
+        }
+
+        if let rawValue = representedObject as? String {
+            return PaneID(rawValue)
+        }
+
+        return nil
     }
 
     private func rememberOpenWithPrimaryTarget(_ stableID: String) {
@@ -1234,6 +1308,8 @@ extension MainWindowController: NSMenuItemValidation {
             switch commandID {
             case .cleanCopy, .copyRaw:
                 return rootViewController.focusedTerminalHasSelection
+            case .movePaneToNewWindow:
+                return canMovePaneToNewWindow(paneID: representedPaneID(from: menuItem))
             default:
                 return rootViewController.isCommandAvailable(commandID)
             }

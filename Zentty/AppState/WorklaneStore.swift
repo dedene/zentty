@@ -74,6 +74,12 @@ struct WorklaneOpenWithContext: Equatable, Sendable {
     let scope: PaneShellContextScope
 }
 
+struct PaneSplitOutResult: Equatable, Sendable {
+    let destinationWorkspaceState: WindowWorkspaceState
+    let movedPaneID: PaneID
+    let sourceWindowShouldClose: Bool
+}
+
 struct PaneBorderContextDisplayModel: Equatable, Sendable {
     let text: String
 }
@@ -1501,6 +1507,21 @@ final class WorklaneStore {
     }
 
     private func sessionEnvironment(
+        worklaneID: WorklaneID,
+        paneID: PaneID,
+        initialWorkingDirectory: String? = nil
+    ) -> [String: String] {
+        Self.sessionEnvironment(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            initialWorkingDirectory: initialWorkingDirectory,
+            processEnvironment: processEnvironment
+        )
+    }
+
+    func sessionEnvironment(
+        windowID: WindowID,
         worklaneID: WorklaneID,
         paneID: PaneID,
         initialWorkingDirectory: String? = nil

@@ -64,6 +64,7 @@ struct SidebarWorklaneContextMenuContext {
     var worklaneColor: WorklaneColor?
     var bookmarkOriginID: UUID?
     var bookmarkName: String?
+    var isOnlyWorklane: Bool
 }
 
 struct SidebarWorklaneContextMenuActions {
@@ -74,6 +75,7 @@ struct SidebarWorklaneContextMenuActions {
     var moveDownAction: Selector
     var splitHorizontalAction: Selector?
     var splitVerticalAction: Selector?
+    var movePaneToNewWindowAction: Selector?
     var bookmarkAction: Selector
     var colorChanged: (WorklaneColor?) -> Void
 }
@@ -212,7 +214,7 @@ enum SidebarWorklaneContextMenu {
             bookmarkAction: actions.bookmarkAction
         )
 
-        if case .paneRow = context.origin,
+        if case let .paneRow(isLastPaneInWorklane) = context.origin,
            let splitHorizontalAction = actions.splitHorizontalAction,
            let splitVerticalAction = actions.splitVerticalAction
         {
@@ -233,6 +235,19 @@ enum SidebarWorklaneContextMenu {
                     symbolName: "rectangle.split.1x2"
                 )
             )
+
+            if let movePaneToNewWindowAction = actions.movePaneToNewWindowAction {
+                SidebarContextMenu.addSeparatorIfNeeded(to: menu)
+                let moveToWindowItem = SidebarContextMenu.item(
+                    title: "Move Pane to New Window",
+                    action: movePaneToNewWindowAction,
+                    target: actions.target,
+                    symbolName: "macwindow.badge.plus",
+                    fallbackSymbolName: "macwindow"
+                )
+                moveToWindowItem.isEnabled = !(context.isOnlyWorklane && isLastPaneInWorklane)
+                menu.addItem(moveToWindowItem)
+            }
         }
 
         return Result(menu: menu, activePicker: picker)
@@ -415,6 +430,7 @@ final class SidebarInsetContainerView: NSView {
 final class SidebarPaneRowButton: NSButton {
     var paneID = PaneID("")
     var isLastPaneInWorklane = false
+    var isLastPaneInOnlyWorklane = false
     var currentWorklaneColor: WorklaneColor?
     var onPaneClicked: ((PaneID) -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
@@ -422,6 +438,7 @@ final class SidebarPaneRowButton: NSButton {
     var onClosePane: ((PaneID) -> Void)?
     var onSplitHorizontal: ((PaneID) -> Void)?
     var onSplitVertical: ((PaneID) -> Void)?
+    var onMovePaneToNewWindow: ((PaneID) -> Void)?
     var onPickWorklaneColor: ((PaneID, WorklaneColor?) -> Void)?
     var onBookmarkAction: ((SidebarBookmarkRowAction) -> Void)?
     var bookmarkOriginID: UUID?
@@ -608,7 +625,8 @@ final class SidebarPaneRowButton: NSButton {
                 moveAvailability: worklaneMoveAvailability,
                 worklaneColor: currentWorklaneColor,
                 bookmarkOriginID: originID,
-                bookmarkName: originID.flatMap { bookmarkNameLookup?($0) }
+                bookmarkName: originID.flatMap { bookmarkNameLookup?($0) },
+                isOnlyWorklane: isLastPaneInOnlyWorklane && isLastPaneInWorklane
             ),
             actions: SidebarWorklaneContextMenuActions(
                 target: self,
@@ -618,6 +636,7 @@ final class SidebarPaneRowButton: NSButton {
                 moveDownAction: #selector(handleMoveWorklaneDown),
                 splitHorizontalAction: #selector(handleSplitHorizontal),
                 splitVerticalAction: #selector(handleSplitVertical),
+                movePaneToNewWindowAction: #selector(handleMovePaneToNewWindow),
                 bookmarkAction: #selector(handleBookmarkMenuItem(_:)),
                 colorChanged: { [weak self] color in
                     guard let self else { return }
@@ -658,5 +677,9 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleSplitVertical() {
         onSplitVertical?(paneID)
+    }
+
+    @objc private func handleMovePaneToNewWindow() {
+        onMovePaneToNewWindow?(paneID)
     }
 }

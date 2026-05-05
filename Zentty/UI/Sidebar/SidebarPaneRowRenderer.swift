@@ -8,12 +8,14 @@ final class SidebarPaneRowRenderer {
         var onClosePaneRequested: ((PaneID) -> Void)?
         var onSplitHorizontalRequested: ((PaneID) -> Void)?
         var onSplitVerticalRequested: ((PaneID) -> Void)?
+        var onMovePaneToNewWindowRequested: ((PaneID) -> Void)?
         var onWorklaneColorChanged: ((WorklaneColor?) -> Void)?
         var onBookmarkAction: ((SidebarBookmarkRowAction) -> Void)?
         var bookmarkOriginID: UUID?
         var bookmarkNameLookup: ((UUID) -> String?)?
         var onWorklaneDragRequested: ((NSEvent) -> Bool)?
         var onHoverChanged: ((Bool) -> Void)?
+        var isOnlyWorklane = false
         var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
         var onMoveWorklaneRequested: ((SidebarWorklaneMoveDirection) -> Void)?
     }
@@ -42,6 +44,12 @@ final class SidebarPaneRowRenderer {
 
     func setWorklaneMoveAvailability(_ availability: SidebarWorklaneMoveAvailability) {
         paneRowButtons.forEach { $0.worklaneMoveAvailability = availability }
+    }
+
+    func setOnlyWorklane(_ isOnlyWorklane: Bool) {
+        paneRowButtons.forEach { button in
+            button.isLastPaneInOnlyWorklane = isOnlyWorklane && button.isLastPaneInWorklane
+        }
     }
 
     func setVolatilePaneTitle(paneID: PaneID, text: String, paneRows: [WorklaneSidebarPaneRow]) {
@@ -90,6 +98,7 @@ final class SidebarPaneRowRenderer {
             let button = paneRowButtons[index]
             button.paneID = paneRow.paneID
             button.isLastPaneInWorklane = panePresentations.count == 1
+            button.isLastPaneInOnlyWorklane = callbacks.isOnlyWorklane && panePresentations.count == 1
             button.currentWorklaneColor = worklaneColor
             button.setAccessibilityLabel(paneRow.primaryText)
             button.onPaneClicked = callbacks.onPaneSelected
@@ -97,6 +106,7 @@ final class SidebarPaneRowRenderer {
             button.onClosePane = callbacks.onClosePaneRequested
             button.onSplitHorizontal = callbacks.onSplitHorizontalRequested
             button.onSplitVertical = callbacks.onSplitVerticalRequested
+            button.onMovePaneToNewWindow = callbacks.onMovePaneToNewWindowRequested
             button.onPickWorklaneColor = { _, color in
                 callbacks.onWorklaneColorChanged?(color)
             }

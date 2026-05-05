@@ -117,6 +117,45 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(targetStore.activeWorklane?.auxiliaryStateByPaneID[targetPaneID]?.shellContext?.path, originalPath)
     }
 
+    func test_payload_with_stale_window_id_updates_store_that_owns_pane_id() throws {
+        let pane = PaneState(id: PaneID("pn_moved"), title: "agent")
+        let worklane = WorklaneState(
+            id: WorklaneID("wl_current"),
+            title: "Moved",
+            paneStripState: PaneStripState(panes: [pane], focusedPaneID: pane.id)
+        )
+        let store = WorklaneStore(
+            windowID: WindowID("wd_current"),
+            worklanes: [worklane],
+            activeWorklaneID: worklane.id
+        )
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                windowID: WindowID("wd_old"),
+                worklaneID: WorklaneID("wl_old"),
+                paneID: pane.id,
+                signalKind: .paneContext,
+                state: nil,
+                paneContext: PaneShellContext(
+                    scope: .local,
+                    path: "/tmp/moved",
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: nil
+                ),
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[pane.id]?.shellContext?.path, "/tmp/moved")
+    }
+
     func test_select_worklane_switches_active_worklane_without_resetting_other_worklane_state() throws {
         let store = WorklaneStore()
         store.createWorklane()
@@ -148,6 +187,195 @@ final class PaneStripStoreTests: XCTestCase {
             store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.surfaceContext,
             .tab
         )
+    }
+
+    func test_split_out_pane_to_new_window_extracts_pane_state_without_closing_source_worklane() throws {
+        let sourceWindowID = WindowID("wd_source")
+        let destinationWindowID = WindowID("wd_destination")
+        let sourceWorklaneID = WorklaneID("wl_source")
+        let shellPane = PaneState(id: PaneID("pn_shell"), title: "shell", width: 420)
+        let movedPaneID = PaneID("pn_agent")
+        let movedPane = PaneState(
+            id: movedPaneID,
+            title: "agent",
+            sessionRequest: TerminalSessionRequest(
+                workingDirectory: "/tmp/project",
+                inheritFromPaneID: shellPane.id,
+                configInheritanceSourcePaneID: shellPane.id,
+                surfaceContext: .split,
+                environmentVariables: [
+                    "ZENTTY_WINDOW_ID": sourceWindowID.rawValue,
+                    "ZENTTY_WORKLANE_ID": sourceWorklaneID.rawValue,
+                    "ZENTTY_PANE_ID": movedPaneID.rawValue,
+                    "ZENTTY_INITIAL_WORKING_DIRECTORY": "/tmp/project"
+                ]
+            ),
+            width: 520
+        )
+        let movedAuxiliary = PaneAuxiliaryState(
+            metadata: TerminalMetadata(title: "agent", currentWorkingDirectory: "/tmp/project"),
+            shellContext: PaneShellContext(
+                scope: .local,
+                path: "/tmp/project",
+                home: "/Users/peter",
+                user: "peter",
+                host: nil
+            )
+        )
+        let sourceWorklane = WorklaneState(
+            id: sourceWorklaneID,
+            title: "Build",
+            paneStripState: PaneStripState(
+                panes: [shellPane, movedPane],
+                focusedPaneID: movedPane.id
+            ),
+            nextPaneNumber: 7,
+            auxiliaryStateByPaneID: [movedPane.id: movedAuxiliary],
+            color: .teal
+        )
+        let store = WorklaneStore(
+            windowID: sourceWindowID,
+            worklanes: [sourceWorklane],
+            activeWorklaneID: sourceWorklaneID
+        )
+
+        let result = try XCTUnwrap(store.splitOutPaneToNewWindow(
+            paneID: movedPane.id,
+            destinationWindowID: destinationWindowID
+        ))
+
+        XCTAssertFalse(result.sourceWindowShouldClose)
+        XCTAssertEqual(store.worklanes.map(\.id), [sourceWorklaneID])
+        XCTAssertEqual(store.activeWorklaneID, sourceWorklaneID)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.id), [shellPane.id])
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[movedPane.id])
+
+        let destinationWorklane = try XCTUnwrap(result.destinationWorkspaceState.worklanes.first)
+        XCTAssertEqual(result.destinationWorkspaceState.worklanes.count, 1)
+        XCTAssertEqual(result.destinationWorkspaceState.activeWorklaneID, destinationWorklane.id)
+        XCTAssertNotEqual(destinationWorklane.id, sourceWorklaneID)
+        XCTAssertEqual(destinationWorklane.title, "Build")
+        XCTAssertEqual(destinationWorklane.color, .teal)
+        XCTAssertEqual(destinationWorklane.nextPaneNumber, 7)
+        XCTAssertEqual(destinationWorklane.paneStripState.panes.map(\.id), [movedPane.id])
+        XCTAssertEqual(destinationWorklane.paneStripState.focusedPaneID, movedPane.id)
+        XCTAssertEqual(destinationWorklane.auxiliaryStateByPaneID[movedPane.id]?.metadata, movedAuxiliary.metadata)
+        XCTAssertEqual(destinationWorklane.auxiliaryStateByPaneID[movedPane.id]?.shellContext, movedAuxiliary.shellContext)
+
+        let destinationPane = try XCTUnwrap(destinationWorklane.paneStripState.panes.first)
+        XCTAssertEqual(destinationPane.sessionRequest.surfaceContext, .window)
+        XCTAssertNil(destinationPane.sessionRequest.inheritFromPaneID)
+        XCTAssertNil(destinationPane.sessionRequest.configInheritanceSourcePaneID)
+        XCTAssertEqual(
+            destinationPane.sessionRequest.environmentVariables["ZENTTY_WINDOW_ID"],
+            destinationWindowID.rawValue
+        )
+        XCTAssertEqual(
+            destinationPane.sessionRequest.environmentVariables["ZENTTY_WORKLANE_ID"],
+            destinationWorklane.id.rawValue
+        )
+        XCTAssertEqual(
+            destinationPane.sessionRequest.environmentVariables["ZENTTY_PANE_ID"],
+            movedPane.id.rawValue
+        )
+        XCTAssertEqual(
+            destinationPane.sessionRequest.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"],
+            "/tmp/project"
+        )
+    }
+
+    func test_split_out_only_pane_in_multi_worklane_window_moves_entire_worklane() throws {
+        let sourceWindowID = WindowID("wd_source")
+        let destinationWindowID = WindowID("wd_destination")
+        let movedWorklaneID = WorklaneID("wl_build")
+        let movedPane = PaneState(
+            id: PaneID("pn_build"),
+            title: "build",
+            sessionRequest: TerminalSessionRequest(
+                workingDirectory: "/tmp/build",
+                surfaceContext: .split,
+                environmentVariables: [
+                    "ZENTTY_WINDOW_ID": sourceWindowID.rawValue,
+                    "ZENTTY_WORKLANE_ID": movedWorklaneID.rawValue,
+                    "ZENTTY_PANE_ID": "pn_build",
+                    "ZENTTY_INITIAL_WORKING_DIRECTORY": "/tmp/build"
+                ]
+            )
+        )
+        let remainingPane = PaneState(id: PaneID("pn_review"), title: "review")
+        let movedWorklane = WorklaneState(
+            id: movedWorklaneID,
+            title: "Build",
+            paneStripState: PaneStripState(panes: [movedPane], focusedPaneID: movedPane.id),
+            nextPaneNumber: 3,
+            color: .purple
+        )
+        let remainingWorklane = WorklaneState(
+            id: WorklaneID("wl_review"),
+            title: "Review",
+            paneStripState: PaneStripState(panes: [remainingPane], focusedPaneID: remainingPane.id)
+        )
+        let store = WorklaneStore(
+            windowID: sourceWindowID,
+            worklanes: [movedWorklane, remainingWorklane],
+            activeWorklaneID: movedWorklane.id
+        )
+
+        let result = try XCTUnwrap(store.splitOutPaneToNewWindow(
+            paneID: movedPane.id,
+            destinationWindowID: destinationWindowID
+        ))
+
+        XCTAssertFalse(result.sourceWindowShouldClose)
+        XCTAssertEqual(store.worklanes.map(\.id), [remainingWorklane.id])
+        XCTAssertEqual(store.activeWorklaneID, remainingWorklane.id)
+        let destinationWorklane = try XCTUnwrap(result.destinationWorkspaceState.worklanes.first)
+        XCTAssertEqual(destinationWorklane.id, movedWorklane.id)
+        XCTAssertEqual(destinationWorklane.title, movedWorklane.title)
+        XCTAssertEqual(destinationWorklane.color, movedWorklane.color)
+        XCTAssertEqual(destinationWorklane.nextPaneNumber, movedWorklane.nextPaneNumber)
+        XCTAssertEqual(destinationWorklane.paneStripState.panes.map(\.id), [movedPane.id])
+        XCTAssertEqual(result.destinationWorkspaceState.activeWorklaneID, movedWorklane.id)
+
+        let destinationPane = try XCTUnwrap(destinationWorklane.paneStripState.panes.first)
+        XCTAssertEqual(destinationPane.sessionRequest.surfaceContext, .window)
+        XCTAssertEqual(
+            destinationPane.sessionRequest.environmentVariables["ZENTTY_WINDOW_ID"],
+            destinationWindowID.rawValue
+        )
+        XCTAssertEqual(
+            destinationPane.sessionRequest.environmentVariables["ZENTTY_WORKLANE_ID"],
+            movedWorklane.id.rawValue
+        )
+        XCTAssertEqual(
+            destinationPane.sessionRequest.environmentVariables["ZENTTY_PANE_ID"],
+            movedPane.id.rawValue
+        )
+        XCTAssertEqual(
+            destinationPane.sessionRequest.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"],
+            "/tmp/build"
+        )
+    }
+
+    func test_split_out_last_pane_in_last_worklane_is_unavailable() throws {
+        let pane = PaneState(id: PaneID("pn_only"), title: "shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("wl_only"),
+            title: "Main",
+            paneStripState: PaneStripState(panes: [pane], focusedPaneID: pane.id)
+        )
+        let store = WorklaneStore(
+            worklanes: [worklane],
+            activeWorklaneID: worklane.id
+        )
+
+        XCTAssertNil(store.splitOutPaneToNewWindow(
+            paneID: pane.id,
+            destinationWindowID: WindowID("wd_destination")
+        ))
+        XCTAssertEqual(store.worklanes.map(\.id), [worklane.id])
+        XCTAssertEqual(store.worklanes.first?.paneStripState.panes.map(\.id), [pane.id])
+        XCTAssertEqual(store.activeWorklaneID, worklane.id)
     }
 
     func test_default_worklane_uses_window_surface_context() throws {
