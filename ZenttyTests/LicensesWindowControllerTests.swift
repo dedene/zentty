@@ -30,7 +30,7 @@ final class LicensesWindowControllerTests: XCTestCase {
         let controller = LicensesWindowController(catalog: catalog)
         addTeardownBlock { controller.window?.close() }
 
-        controller.show(sender: nil)
+        controller.showWindowForHostedTesting(nil)
         waitForLayout()
 
         XCTAssertEqual(controller.window?.title, "Third-Party Licenses")
@@ -63,7 +63,7 @@ final class LicensesWindowControllerTests: XCTestCase {
         let controller = LicensesWindowController(catalog: catalog)
         addTeardownBlock { controller.window?.close() }
 
-        controller.show(sender: nil)
+        controller.showWindowForHostedTesting(nil)
         waitForLayout()
 
         XCTAssertEqual(controller.contentTopInsetForTesting, 10)

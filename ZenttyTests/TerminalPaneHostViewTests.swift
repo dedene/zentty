@@ -87,7 +87,7 @@ final class TerminalPaneHostViewTests: XCTestCase {
         addTeardownBlock { window.close() }
 
         window.contentView = hostView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForHostedTesting(nil)
         hostView.focusTerminal()
 
         XCTAssertTrue(window.firstResponder === hostView.terminalViewForTesting)
@@ -224,7 +224,7 @@ final class TerminalPaneHostViewTests: XCTestCase {
 
         hostView.frame = window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 480, height: 240)
         window.contentView = hostView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForHostedTesting(nil)
         hostView.layoutSubtreeIfNeeded()
 
         try sendHostedRightMouseClick(at: CGPoint(x: 120, y: 80), in: hostView, window: window)
@@ -263,7 +263,7 @@ final class TerminalPaneHostViewTests: XCTestCase {
         addTeardownBlock { window.close() }
 
         window.contentView = paneView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForHostedTesting(nil)
         runtime.showSearch()
         paneView.layoutSubtreeIfNeeded()
 
@@ -302,7 +302,7 @@ final class TerminalPaneHostViewTests: XCTestCase {
 
         hostView.frame = window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 480, height: 240)
         window.contentView = hostView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForHostedTesting(nil)
         hostView.layoutSubtreeIfNeeded()
 
         try sendHostedMouseDrag(
@@ -330,7 +330,7 @@ final class TerminalPaneHostViewTests: XCTestCase {
 
         hostView.frame = window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 480, height: 240)
         window.contentView = hostView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForHostedTesting(nil)
         hostView.layoutSubtreeIfNeeded()
 
         try sendHostedMouseDrag(

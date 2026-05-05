@@ -132,6 +132,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         static let settingsTitle = "Choose Apps…"
     }
 
+    private static var isHostedTestMode: Bool {
+        CommandLine.arguments.contains("-ApplePersistenceIgnoreState")
+            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     let window: NSWindow
     let windowID: WindowID
     let windowOrder: Int
@@ -218,7 +223,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.view.frame = NSRect(origin: .zero, size: initialFrame.size)
         rootViewController.view.autoresizingMask = [.width, .height]
         window.contentView = rootViewController.view
-        if !CommandLine.arguments.contains("-ApplePersistenceIgnoreState") {
+        if !Self.isHostedTestMode {
             let autosaveName = windowIndex == 0 ? "MainWindow" : "ZenttyWindow-\(windowIndex)"
             window.setFrameAutosaveName(autosaveName)
         }
@@ -690,7 +695,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         lastNavigateRequestPaneID = paneID
         #endif
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if !Self.isHostedTestMode {
+            NSApp.activate(ignoringOtherApps: true)
+        }
         rootViewController.navigateToPane(worklaneID: worklaneID, paneID: paneID)
     }
 

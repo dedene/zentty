@@ -52,6 +52,26 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(paneLayoutController.inactivePaneOpacityPercentageForTesting, 70)
     }
 
+    func test_settings_window_uses_configured_test_screen() throws {
+        guard let screenName = ProcessInfo.processInfo.environment["ZENTTY_TEST_SCREEN_NAME"] else {
+            throw XCTSkip("ZENTTY_TEST_SCREEN_NAME is not set")
+        }
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+        waitForLayout()
+
+        let window = try XCTUnwrap(controller.window)
+        XCTAssertEqual(window.screen?.localizedName, screenName)
+    }
+
     func test_panes_section_reads_persisted_controls_from_config() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
@@ -489,7 +509,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.showWindowForHostedTesting(nil)
         waitForLayout()
 
         XCTAssertEqual(
@@ -509,7 +529,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.showWindowForHostedTesting(nil)
         waitForLayout()
 
         controller.applyAppearance(NSAppearance(named: .darkAqua))
@@ -802,7 +822,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.showWindowForHostedTesting(nil)
         waitForLayout()
 
         let contentController = try XCTUnwrap(

@@ -1,30 +1,8 @@
 import AppKit
-import XCTest
-
-/// Base class for tests that create real AppKit views (`NSView`, `NSViewController`,
-/// `LibghosttyView`, etc). Wraps each test invocation in an `autoreleasepool` so AppKit
-/// state is drained before the next test runs.
-///
-/// Why this exists: in a plain `XCTestCase`, the autorelease pool isn't drained until
-/// the test method returns to XCTest infrastructure. When AppKit views created in the
-/// test fall out of scope but remain in the autorelease pool, their CA transaction /
-/// `NSPointerArray` state accumulates across tests. On macOS 26 Tahoe, a subsequent
-/// test that pumps the run loop (via `Task.sleep`, `await fulfillment(of:)`, etc.) can
-/// crash inside `CA::Transaction::commit` → `-[NSConcretePointerArray dealloc]` when it
-/// drains that stale state.
-///
-/// Wrapping `invokeTest()` in `autoreleasepool` forces the stale state to drain within
-/// the test's own scope — so it never leaks into subsequent tests.
-class AppKitTestCase: XCTestCase {
-    override func invokeTest() {
-        autoreleasepool {
-            super.invokeTest()
-        }
-    }
-}
+@testable import Zentty
 
 @MainActor
-enum AppKitTestDisplay {
+enum HostedTestDisplay {
     static let environmentKey = "ZENTTY_TEST_SCREEN_NAME"
 
     static var screenNameFromEnvironment: String? {
@@ -62,17 +40,39 @@ enum AppKitTestDisplay {
 @MainActor
 extension NSWindow {
     @discardableResult
-    func prepareForAppKitTesting() -> Self {
-        animationBehavior = .none
+    func prepareForHostedTesting(
+        onScreenNamed screenName: String? = HostedTestDisplay.screenNameFromEnvironment
+    ) -> Self {
         isReleasedWhenClosed = false
-        if let screen = AppKitTestDisplay.screen(named: AppKitTestDisplay.screenNameFromEnvironment) {
-            setFrame(AppKitTestDisplay.centeredFrame(forWindowFrame: frame, on: screen), display: false)
+        guard let screen = HostedTestDisplay.screen(named: screenName) else {
+            return self
         }
+
+        animationBehavior = .none
+        setFrame(HostedTestDisplay.centeredFrame(forWindowFrame: frame, on: screen), display: false)
         return self
     }
 
-    func makeKeyAndOrderFrontForAppKitTesting(_ sender: Any?) {
-        prepareForAppKitTesting()
+    func makeKeyAndOrderFrontForHostedTesting(_ sender: Any?) {
+        prepareForHostedTesting()
         makeKeyAndOrderFront(sender)
+    }
+}
+
+@MainActor
+extension MainWindowController {
+    @discardableResult
+    func prepareForHostedTesting() -> Self {
+        window.prepareForHostedTesting()
+        return self
+    }
+}
+
+@MainActor
+extension NSWindowController {
+    func showWindowForHostedTesting(_ sender: Any?) {
+        window?.prepareForHostedTesting()
+        showWindow(sender)
+        window?.prepareForHostedTesting()
     }
 }

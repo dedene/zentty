@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 
 let isHostedTestMode = CommandLine.arguments.contains("-ApplePersistenceIgnoreState")
+    || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 let configStore = AppConfigStore()
 
 if !isHostedTestMode {

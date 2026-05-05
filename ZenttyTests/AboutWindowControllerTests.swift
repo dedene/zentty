@@ -8,7 +8,7 @@ final class AboutWindowControllerTests: XCTestCase {
         let controller = makeController()
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.showWindowForHostedTesting(nil)
         waitForLayout()
 
         XCTAssertEqual(controller.window?.title, "About Zentty")
@@ -38,7 +38,7 @@ final class AboutWindowControllerTests: XCTestCase {
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.showWindowForHostedTesting(nil)
         waitForLayout()
 
         XCTAssertEqual(controller.windowAppearanceMatchForTesting, .darkAqua)
@@ -49,7 +49,7 @@ final class AboutWindowControllerTests: XCTestCase {
         let controller = makeController()
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.showWindowForHostedTesting(nil)
         controller.applyAppearance(NSAppearance(named: .darkAqua))
         waitForLayout("dark appearance applied")
 
@@ -68,7 +68,7 @@ final class AboutWindowControllerTests: XCTestCase {
         let controller = makeController { openedURLs.append($0) }
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.showWindowForHostedTesting(nil)
         waitForLayout()
 
         try clickButton(titled: "GitHub", in: controller.window)
@@ -81,7 +81,7 @@ final class AboutWindowControllerTests: XCTestCase {
         let controller = makeController { openedURLs.append($0) }
         addTeardownBlock { controller.window?.close() }
 
-        controller.showWindow(nil)
+        controller.showWindowForHostedTesting(nil)
         waitForLayout()
 
         try clickButton(titled: "Docs", in: controller.window)
@@ -92,12 +92,12 @@ final class AboutWindowControllerTests: XCTestCase {
     func test_licenses_button_opens_dedicated_licenses_window() throws {
         let licensesWindowController = LicensesWindowController()
         let controller = makeController(onLicensesRequested: {
-            licensesWindowController.show(sender: nil)
+            licensesWindowController.showWindowForHostedTesting(nil)
         })
         addTeardownBlock { controller.window?.close() }
         addTeardownBlock { licensesWindowController.window?.close() }
 
-        controller.showWindow(nil)
+        controller.showWindowForHostedTesting(nil)
         waitForLayout()
 
         try clickButton(titled: "Licenses", in: controller.window)

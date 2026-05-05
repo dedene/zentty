@@ -94,14 +94,13 @@ final class RootViewCompositionTests: AppKitTestCase {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         addTeardownBlock {
             window.orderOut(nil)
             window.close()
         }
         window.contentView = controller.view
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
         controller.view.layoutSubtreeIfNeeded()
         return window
     }

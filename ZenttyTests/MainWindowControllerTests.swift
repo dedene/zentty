@@ -73,7 +73,7 @@ final class MainWindowControllerTests: XCTestCase {
         let c = MainWindowController(
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
             sidebarVisibilityDefaults: sidebarVisibilityDefaults
-        )
+        ).prepareForHostedTesting()
         controller = c
         return c
     }
@@ -85,7 +85,7 @@ final class MainWindowControllerTests: XCTestCase {
                 adapterStore.adapters[paneID] = adapter
                 return adapter
             })
-        )
+        ).prepareForHostedTesting()
         controller = c
         return c
     }
@@ -103,9 +103,24 @@ final class MainWindowControllerTests: XCTestCase {
             }),
             configStore: configStore,
             openWithService: openWithService
-        )
+        ).prepareForHostedTesting()
         controller = c
         return c
+    }
+
+    private func testWindowFrame(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> NSRect {
+        let fallback = NSRect(x: x, y: y, width: width, height: height)
+        guard let screen = HostedTestDisplay.screen(named: HostedTestDisplay.screenNameFromEnvironment) else {
+            return fallback
+        }
+
+        let visibleFrame = screen.visibleFrame
+        return NSRect(
+            x: visibleFrame.minX + x,
+            y: visibleFrame.minY + y,
+            width: min(width, max(1, visibleFrame.width - x - 24)),
+            height: min(height, max(1, visibleFrame.height - y - 24))
+        ).integral
     }
 
     private func waitForLayout(_ description: String = "layout settled", delay: TimeInterval = 0.1) {
@@ -250,7 +265,7 @@ final class MainWindowControllerTests: XCTestCase {
 
         let window = controller.window
 
-        let manualFrame = NSRect(x: 120, y: 140, width: 1180, height: 760)
+        let manualFrame = testWindowFrame(x: 120, y: 140, width: 1180, height: 760)
         window.setFrame(manualFrame, display: false)
         let frameSettled = expectation(description: "layout settled")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { frameSettled.fulfill() }
@@ -644,7 +659,7 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(closeOverlay.frame.integral, closeButton.frame.integral)
         XCTAssertEqual(miniOverlay.frame.integral, miniButton.frame.integral)
 
-        let resizedFrame = NSRect(x: 120, y: 140, width: 1420, height: 880)
+        let resizedFrame = testWindowFrame(x: 120, y: 140, width: 1420, height: 880)
         controller.window.setFrame(resizedFrame, display: false)
         waitForLayout("resize settled", delay: 0.1)
 
@@ -700,7 +715,7 @@ final class MainWindowControllerTests: XCTestCase {
         let initialPaneViews = initialAppCanvasView.descendantPaneViews().sorted { $0.frame.minX < $1.frame.minX }
         let initialWidths = initialPaneViews.map(\.frame.width)
 
-        let resizedFrame = NSRect(x: 120, y: 140, width: 1420, height: 880)
+        let resizedFrame = testWindowFrame(x: 120, y: 140, width: 1420, height: 880)
         controller.window.setFrame(resizedFrame, display: false)
         let resizeSettled = expectation(description: "layout settled")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { resizeSettled.fulfill() }
@@ -748,7 +763,7 @@ final class MainWindowControllerTests: XCTestCase {
         let initialWidths = initialPaneViews.map(\.frame.width)
         let initialHeights = initialPaneViews.map(\.frame.height)
 
-        let resizedFrame = NSRect(x: 120, y: 140, width: 1420, height: 880)
+        let resizedFrame = testWindowFrame(x: 120, y: 140, width: 1420, height: 880)
         controller.window.setFrame(resizedFrame, display: false)
         waitForLayout("stack resize settled", delay: 0.1)
 
@@ -791,7 +806,7 @@ final class MainWindowControllerTests: XCTestCase {
             (try XCTUnwrap($0.titleText.isEmpty ? nil : $0.titleText), $0.frame)
         })
 
-        let resizedFrame = NSRect(x: 120, y: 140, width: 1420, height: 880)
+        let resizedFrame = testWindowFrame(x: 120, y: 140, width: 1420, height: 880)
         controller.window.setFrame(resizedFrame, display: false)
         waitForLayout("mixed resize settled", delay: 0.1)
 
