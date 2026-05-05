@@ -180,6 +180,10 @@ final class WorklaneRenderCoordinator {
             handleAuxiliaryStateUpdate(worklaneID: worklaneID, paneID: paneID, impacts: impacts)
         case .volatileAgentTitleUpdated(let worklaneID, let paneID):
             handleVolatileAgentTitleUpdate(worklaneID: worklaneID, paneID: paneID)
+        case .teamAnchorsChanged(let worklaneID):
+            if worklaneID == worklaneStore.activeWorklaneID {
+                renderCanvasForCurrentWorklane(animated: false)
+            }
         case .historyChanged:
             break
         }
@@ -286,10 +290,18 @@ final class WorklaneRenderCoordinator {
             let paneSettings = currentPaneSettings
 
             terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.paneStripState.focusedPaneID)
+            let teamAnchor = worklaneStore.teamAnchorByWorklaneID[worklane.id]
+            let leaderPaneID = teamAnchor.map { PaneID($0.leaderPaneID) }
+            let memberPaneIDs: Set<PaneID> = teamAnchor
+                .map { Set($0.columnPaneIDs.map(PaneID.init)) }
+                ?? []
             views.appCanvasView.render(
                 state: worklane.paneStripState,
                 metadataByPaneID: worklane.auxiliaryStateByPaneID.compactMapValues(\.metadata),
-                paneBorderContextByPaneID: worklane.paneBorderContextDisplayByPaneID,
+                paneBorderContextByPaneID: worklane.paneBorderContextDisplayByPaneID(
+                    leaderPaneID: leaderPaneID,
+                    memberPaneIDs: memberPaneIDs
+                ),
                 showsPaneLabels: paneSettings.showLabels,
                 inactivePaneOpacity: paneSettings.inactiveOpacity,
                 worklaneColor: worklane.color,

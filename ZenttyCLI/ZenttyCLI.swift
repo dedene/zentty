@@ -27,6 +27,7 @@ struct ZenttyCLI: ParsableCommand {
             LaunchCommand.self,
             InstallCommand.self,
             UninstallCommand.self,
+            TmuxCompatCommand.self,
         ]
     )
 }

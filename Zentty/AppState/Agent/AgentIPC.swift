@@ -195,6 +195,8 @@ enum AgentIPCBridge {
             throw AgentIPCError.unsupportedSubcommand("discover (must be handled by server)")
         case .pane:
             throw AgentIPCError.unsupportedSubcommand("pane (must be handled by server)")
+        case .tmuxCompat:
+            throw AgentIPCError.unsupportedSubcommand("tmux_compat (must be handled by server)")
         }
     }
 
@@ -684,6 +686,17 @@ final class AgentIPCServer: @unchecked Sendable {
 
             if canonicalRequest.kind == .pane {
                 let result = try PaneIPCHandler.handle(request: canonicalRequest, target: target)
+                if canonicalRequest.expectsResponse {
+                    try writeResponse(
+                        AgentIPCResponse(id: canonicalRequest.id, ok: true, result: result),
+                        to: fileDescriptor
+                    )
+                }
+                return
+            }
+
+            if canonicalRequest.kind == .tmuxCompat {
+                let result = try TmuxCompatIPCHandler.handle(request: canonicalRequest, target: target)
                 if canonicalRequest.expectsResponse {
                     try writeResponse(
                         AgentIPCResponse(id: canonicalRequest.id, ok: true, result: result),

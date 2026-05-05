@@ -10,6 +10,9 @@ enum TerminalSurfaceContext: Equatable, Sendable {
 struct TerminalSessionRequest: Equatable, Sendable {
     var workingDirectory: String?
     var command: String?
+    var nativeCommand: String?
+    var waitAfterNativeCommand: Bool
+    var isLaunchDeferred: Bool
     var prefillText: String?
     var inheritFromPaneID: PaneID?
     var configInheritanceSourcePaneID: PaneID?
@@ -23,6 +26,9 @@ struct TerminalSessionRequest: Equatable, Sendable {
     init(
         workingDirectory: String? = nil,
         command: String? = nil,
+        nativeCommand: String? = nil,
+        waitAfterNativeCommand: Bool = false,
+        isLaunchDeferred: Bool = false,
         prefillText: String? = nil,
         inheritFromPaneID: PaneID? = nil,
         configInheritanceSourcePaneID: PaneID? = nil,
@@ -31,6 +37,9 @@ struct TerminalSessionRequest: Equatable, Sendable {
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
+        self.nativeCommand = nativeCommand
+        self.waitAfterNativeCommand = waitAfterNativeCommand
+        self.isLaunchDeferred = isLaunchDeferred
         self.prefillText = prefillText
         self.inheritFromPaneID = inheritFromPaneID
         self.configInheritanceSourcePaneID = configInheritanceSourcePaneID
@@ -177,6 +186,11 @@ protocol TerminalAdapter: AnyObject {
     func close()
     var metadataDidChange: ((TerminalMetadata) -> Void)? { get set }
     var eventDidOccur: ((TerminalEvent) -> Void)? { get set }
+}
+
+@MainActor
+protocol TerminalTextReading: AnyObject {
+    func readText(includeScrollback: Bool, lineLimit: Int?) -> String?
 }
 
 @MainActor

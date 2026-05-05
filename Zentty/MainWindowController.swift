@@ -703,8 +703,33 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.handlePaneIPCCommand(command)
     }
 
-    func splitWithLayout(placement: PanePlacement, isHorizontal: Bool, layout: SplitLayoutAction) {
-        rootViewController.splitWithLayout(placement: placement, isHorizontal: isHorizontal, layout: layout)
+    @discardableResult
+    func splitWithLayout(
+        placement: PanePlacement,
+        isHorizontal: Bool,
+        layout: SplitLayoutAction,
+        targetPaneID: PaneID? = nil,
+        preserveFocusPaneID: PaneID? = nil,
+        sessionRequest: TerminalSessionRequest? = nil
+    ) -> PaneID? {
+        rootViewController.splitWithLayout(
+            placement: placement,
+            isHorizontal: isHorizontal,
+            layout: layout,
+            targetPaneID: targetPaneID,
+            preserveFocusPaneID: preserveFocusPaneID,
+            sessionRequest: sessionRequest
+        )
+    }
+
+    @discardableResult
+    func launchDeferredPane(id paneID: PaneID, nativeCommand: String) -> Bool {
+        rootViewController.launchDeferredPane(id: paneID, nativeCommand: nativeCommand)
+    }
+
+    @discardableResult
+    func setPaneTitle(id paneID: PaneID, title: String) -> Bool {
+        rootViewController.setPaneTitle(id: paneID, title: title)
     }
 
     func paneListEntries(for worklaneID: WorklaneID) -> [PaneListEntry] {
@@ -723,6 +748,35 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.closePaneByID(id)
     }
 
+    /// Used by `TmuxCompatIPCHandler` for `tmux send-keys`. Returns true when
+    /// the pane has a live runtime and the text was forwarded; false when the
+    /// pane is unknown or its runtime hasn't been created yet.
+    @discardableResult
+    func sendText(_ text: String, to paneID: PaneID) -> Bool {
+        guard let runtime = runtimeRegistry.runtime(for: paneID) else {
+            return false
+        }
+        runtime.adapter.sendText(text)
+        return true
+    }
+
+    func readText(from paneID: PaneID, includeScrollback: Bool, lineLimit: Int?) -> String? {
+        guard let runtime = runtimeRegistry.runtime(for: paneID),
+              let reader = runtime.adapter as? TerminalTextReading
+        else {
+            return nil
+        }
+        return reader.readText(includeScrollback: includeScrollback, lineLimit: lineLimit)
+    }
+
+    /// Re-load the in-memory `WorklaneStore.teamAnchorByWorklaneID` from disk
+    /// and emit `.teamAnchorsChanged` for any worklane that changed. Called
+    /// by `TmuxCompatIPCHandler` after every store-mutating subcommand so
+    /// the title strip's LEADER star redraws.
+    func refreshTeamAnchors() {
+        rootViewController.worklaneStore.refreshTeamAnchors()
+    }
+
     @discardableResult
     func setWorklaneColor(_ color: WorklaneColor?, on id: WorklaneID) -> Bool {
         rootViewController.setWorklaneColor(color, on: id)
@@ -730,6 +784,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
         rootViewController.resizeFocusedColumnToFraction(fraction)
+    }
+
+    func resizeColumnContainingPane(id paneID: PaneID, toFraction fraction: CGFloat) {
+        rootViewController.resizeColumnContainingPane(id: paneID, toFraction: fraction)
+    }
+
+    func columnWidthForPane(id paneID: PaneID, in worklaneID: WorklaneID) -> CGFloat? {
+        rootViewController.columnWidthForPane(id: paneID, in: worklaneID)
+    }
+
+    func resizeColumnContainingPaneToWidth(id paneID: PaneID, width: CGFloat) {
+        rootViewController.resizeColumnContainingPaneToWidth(id: paneID, width: width)
     }
 
     func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) {

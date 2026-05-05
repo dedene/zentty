@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+exec "${ZENTTY_CLI_BIN:-zentty}" __tmux-compat "$@"

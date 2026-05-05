@@ -67,8 +67,9 @@ final class PaneBorderContextInsetView: NSView {
 
     override func updateLayer() {}
 
-    func measure(text: String, maxWidth: CGFloat) -> CGSize {
-        naturalTextWidth = ceil(Self.naturalTextWidth(for: text, font: textFont))
+    func measure(text: String, maxWidth: CGFloat, prefixGlyph: String? = nil) -> CGSize {
+        let displayText = (prefixGlyph ?? "") + text
+        naturalTextWidth = ceil(Self.naturalTextWidth(for: displayText, font: textFont))
         let textHeight = ceil(Self.textLineHeight(for: textFont))
         return CGSize(
             width: min(maxWidth, naturalTextWidth + (Layout.paneContextHorizontalPadding * 2)),
@@ -83,19 +84,24 @@ final class PaneBorderContextInsetView: NSView {
         text: String,
         isFocused: Bool,
         theme: ZenttyTheme,
-        backingScaleFactor: CGFloat
+        backingScaleFactor: CGFloat,
+        prefixGlyph: String? = nil
     ) {
         let textColor = (isFocused
             ? theme.paneBorderFocused
             : theme.paneBorderUnfocused).brightenedForLabel
         let textHeight = ceil(Self.textLineHeight(for: textFont))
-        let attributedText = NSAttributedString(
-            string: text,
-            attributes: [
-                .font: textFont,
-                .foregroundColor: textColor,
-            ]
-        )
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: textFont,
+            .foregroundColor: textColor,
+        ]
+        let attributedText = NSMutableAttributedString()
+        if let prefixGlyph, !prefixGlyph.isEmpty {
+            attributedText.append(NSAttributedString(string: prefixGlyph, attributes: attributes))
+        }
+        if !text.isEmpty {
+            attributedText.append(NSAttributedString(string: text, attributes: attributes))
+        }
 
         let borderColor = (isFocused
             ? theme.paneBorderFocused
@@ -202,6 +208,13 @@ final class PaneBorderContextInsetView: NSView {
     private static func textLineHeight(for font: NSFont) -> CGFloat {
         font.ascender - font.descender + font.leading
     }
+
+    /// Eight-spoked asterisk + space marking a Claude Code agent-teams leader
+    /// pane. Matches the glyph Claude Code itself prints in its window title.
+    static let leaderGlyph = "\u{2733} "
+    /// Middle dot + space marking a Claude Code agent-teams column member
+    /// (non-leader) in the border-context inset.
+    static let memberGlyph = "\u{00B7} "
 
     private static func renderTextImage(
         _ attributedText: NSAttributedString,

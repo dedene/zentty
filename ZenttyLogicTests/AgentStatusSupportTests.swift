@@ -548,6 +548,116 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
     }
 
+    func test_zsh_shell_integration_prefers_tmux_shim_when_agent_teams_enabled() throws {
+        let shimDir = try makeTemporaryDirectory(named: "shell-zsh-tmux-shim")
+        let shimURL = shimDir.appendingPathComponent("tmux", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: shimURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shimURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-zsh-real-tmux")
+        let realURL = realBinDir.appendingPathComponent("tmux", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .zsh,
+            command: """
+            PATH="\(realBinDir.path):/usr/bin:/bin"
+            export PATH
+            _zentty_ensure_wrapper_path
+            command -v tmux
+            """,
+            extraEnvironment: [
+                "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+                "ZENTTY_TMUX_SHIM_DIR": shimDir.path,
+            ]
+        )
+
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), shimURL.path)
+    }
+
+    func test_bash_shell_integration_prefers_tmux_shim_when_agent_teams_enabled() throws {
+        let shimDir = try makeTemporaryDirectory(named: "shell-bash-tmux-shim")
+        let shimURL = shimDir.appendingPathComponent("tmux", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: shimURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shimURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-bash-real-tmux")
+        let realURL = realBinDir.appendingPathComponent("tmux", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .bash,
+            command: """
+            PATH="\(realBinDir.path):/usr/bin:/bin"
+            export PATH
+            _zentty_ensure_wrapper_path
+            command -v tmux
+            """,
+            extraEnvironment: [
+                "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+                "ZENTTY_TMUX_SHIM_DIR": shimDir.path,
+            ]
+        )
+
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), shimURL.path)
+    }
+
+    func test_zsh_shell_integration_leaves_real_tmux_first_without_agent_teams() throws {
+        let shimDir = try makeTemporaryDirectory(named: "shell-zsh-inactive-tmux-shim")
+        let shimURL = shimDir.appendingPathComponent("tmux", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: shimURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shimURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-zsh-inactive-real-tmux")
+        let realURL = realBinDir.appendingPathComponent("tmux", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .zsh,
+            command: """
+            PATH="\(realBinDir.path):\(shimDir.path):/usr/bin:/bin"
+            export PATH
+            _zentty_ensure_wrapper_path
+            command -v tmux
+            """,
+            extraEnvironment: [
+                "ZENTTY_TMUX_SHIM_DIR": shimDir.path,
+            ]
+        )
+
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), realURL.path)
+    }
+
+    func test_bash_shell_integration_leaves_real_tmux_first_without_agent_teams() throws {
+        let shimDir = try makeTemporaryDirectory(named: "shell-bash-inactive-tmux-shim")
+        let shimURL = shimDir.appendingPathComponent("tmux", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: shimURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shimURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-bash-inactive-real-tmux")
+        let realURL = realBinDir.appendingPathComponent("tmux", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .bash,
+            command: """
+            PATH="\(realBinDir.path):\(shimDir.path):/usr/bin:/bin"
+            export PATH
+            _zentty_ensure_wrapper_path
+            command -v tmux
+            """,
+            extraEnvironment: [
+                "ZENTTY_TMUX_SHIM_DIR": shimDir.path,
+            ]
+        )
+
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), realURL.path)
+    }
+
     func test_repository_codex_wrapper_delegates_to_launch_cli() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

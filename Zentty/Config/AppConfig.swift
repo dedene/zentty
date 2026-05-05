@@ -107,6 +107,12 @@ struct AppConfig: Equatable, Sendable {
         static let `default` = Clipboard(alwaysCleanCopies: false)
     }
 
+    struct AgentTeams: Equatable, Sendable {
+        var enabled: Bool
+
+        static let `default` = AgentTeams(enabled: false)
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var panes: Panes
@@ -119,6 +125,7 @@ struct AppConfig: Equatable, Sendable {
     var clipboard: Clipboard
     var appearance: Appearance
     var restore: Restore
+    var agentTeams: AgentTeams
 
     static let `default` = AppConfig(
         sidebar: Sidebar(
@@ -135,7 +142,8 @@ struct AppConfig: Equatable, Sendable {
         confirmations: .default,
         clipboard: .default,
         appearance: .default,
-        restore: .default
+        restore: .default,
+        agentTeams: .default
     )
 
     static func migrated(
@@ -158,7 +166,8 @@ struct AppConfig: Equatable, Sendable {
             confirmations: .default,
             clipboard: .default,
             appearance: .default,
-            restore: .default
+            restore: .default,
+            agentTeams: .default
         )
     }
 

@@ -453,7 +453,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 restoreDraftWindow: envelope.restoreDraftWindow(forWindowID: recipeWindow.id),
                 windowID: WindowID(recipeWindow.id),
                 layoutContext: layoutContext,
-                processEnvironment: ProcessInfo.processInfo.environment
+                processEnvironment: ProcessInfo.processInfo.environment,
+                agentTeamsEnabled: config.agentTeams.enabled
             )
             let controller = makeWindowController(
                 windowID: WindowID(recipeWindow.id),

@@ -935,6 +935,234 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         restoreWorkspaceSwitch.state = enabled ? .on : .off
         handleRestoreWorkspaceSwitchChanged(restoreWorkspaceSwitch)
     }
+
+}
+
+@MainActor
+final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewController {
+    private let configStore: AppConfigStore
+    private let agentTeamsEnableWarningPresenter: AgentTeamsEnableWarningPresenter
+    private var currentAgentTeams: AppConfig.AgentTeams
+
+    private let agentTeamsSwitch = NSSwitch()
+    private let experimentalBadgeLabel = NSTextField(labelWithString: "EXPERIMENTAL")
+    private weak var agentTeamsTitleLabel: NSTextField?
+
+    init(
+        configStore: AppConfigStore,
+        agentTeamsEnableWarningPresenter: @escaping AgentTeamsEnableWarningPresenter =
+            AgentTeamsEnableWarning.present
+    ) {
+        self.configStore = configStore
+        self.agentTeamsEnableWarningPresenter = agentTeamsEnableWarningPresenter
+        self.currentAgentTeams = configStore.current.agentTeams
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func assembleContent(in contentView: NSView) {
+        let stackView = NSStackView()
+        stackView.orientation = .vertical
+        stackView.alignment = .leading
+        stackView.spacing = 16
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stackView)
+
+        let card = SettingsCardView()
+        let cardStack = NSStackView()
+        cardStack.orientation = .vertical
+        cardStack.alignment = .leading
+        cardStack.spacing = 0
+        cardStack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(cardStack)
+
+        let agentTeamsRow = makeAgentTeamsRow()
+        cardStack.addArrangedSubview(agentTeamsRow)
+        agentTeamsRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
+
+        NSLayoutConstraint.activate([
+            cardStack.topAnchor.constraint(equalTo: card.topAnchor),
+            cardStack.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            cardStack.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            cardStack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+        ])
+
+        stackView.addArrangedSubview(card)
+        card.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        NSLayoutConstraint.activate([
+            stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stackView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
+        ])
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        agentTeamsSwitch.state = currentAgentTeams.enabled ? .on : .off
+    }
+
+    func apply(agentTeams: AppConfig.AgentTeams) {
+        currentAgentTeams = agentTeams
+        guard isViewLoaded else { return }
+        agentTeamsSwitch.state = agentTeams.enabled ? .on : .off
+    }
+
+    private func makeAgentTeamsRow() -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let leftStack = NSStackView()
+        leftStack.orientation = .vertical
+        leftStack.alignment = .leading
+        leftStack.spacing = 4
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleRow = NSView()
+        titleRow.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = makeLabel(
+            text: "Claude Code agent teams",
+            font: .systemFont(ofSize: 13, weight: .semibold)
+        )
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        agentTeamsTitleLabel = titleLabel
+        configureExperimentalBadge()
+        experimentalBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        titleRow.addSubview(titleLabel)
+        titleRow.addSubview(experimentalBadgeLabel)
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: titleRow.topAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: titleRow.leadingAnchor),
+            titleLabel.bottomAnchor.constraint(equalTo: titleRow.bottomAnchor),
+
+            experimentalBadgeLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
+            experimentalBadgeLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor, constant: 1),
+            experimentalBadgeLabel.trailingAnchor.constraint(lessThanOrEqualTo: titleRow.trailingAnchor),
+        ])
+        leftStack.addArrangedSubview(titleRow)
+
+        let subtitleLabel = makeLabel(
+            text:
+                "Render Claude Code's subagents as native Zentty panes when team mode is enabled.",
+            font: .systemFont(ofSize: 12, weight: .regular)
+        )
+        subtitleLabel.textColor = .secondaryLabelColor
+        leftStack.addArrangedSubview(subtitleLabel)
+
+        agentTeamsSwitch.target = self
+        agentTeamsSwitch.action = #selector(handleAgentTeamsSwitchChanged(_:))
+
+        container.addSubview(leftStack)
+        container.addSubview(agentTeamsSwitch)
+        agentTeamsSwitch.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
+
+            agentTeamsSwitch.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            agentTeamsSwitch.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leftStack.trailingAnchor,
+                constant: 12
+            ),
+            agentTeamsSwitch.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+        ])
+
+        return container
+    }
+
+    private func configureExperimentalBadge() {
+        experimentalBadgeLabel.font = .systemFont(ofSize: 10, weight: .bold)
+        experimentalBadgeLabel.textColor = .secondaryLabelColor
+        experimentalBadgeLabel.alignment = .center
+        experimentalBadgeLabel.wantsLayer = true
+        experimentalBadgeLabel.layer?.cornerRadius = 5
+        experimentalBadgeLabel.layer?.cornerCurve = .continuous
+        experimentalBadgeLabel.layer?.backgroundColor = NSColor.systemOrange
+            .withAlphaComponent(0.16)
+            .cgColor
+        experimentalBadgeLabel.layer?.borderColor = NSColor.systemOrange
+            .withAlphaComponent(0.35)
+            .cgColor
+        experimentalBadgeLabel.layer?.borderWidth = 1
+        experimentalBadgeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        experimentalBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 84).isActive = true
+        experimentalBadgeLabel.heightAnchor.constraint(equalToConstant: 16).isActive = true
+    }
+
+    @objc
+    private func handleAgentTeamsSwitchChanged(_ sender: NSSwitch) {
+        requestAgentTeamsChange(to: sender.state == .on)
+    }
+
+    private func requestAgentTeamsChange(to requestedValue: Bool) {
+        guard requestedValue != currentAgentTeams.enabled else {
+            agentTeamsSwitch.state = currentAgentTeams.enabled ? .on : .off
+            return
+        }
+
+        if requestedValue == false {
+            persistAgentTeamsEnabled(false)
+            return
+        }
+
+        guard let window = view.window else {
+            agentTeamsSwitch.state = currentAgentTeams.enabled ? .on : .off
+            return
+        }
+
+        agentTeamsSwitch.state = .off
+        agentTeamsEnableWarningPresenter(window) { [weak self] decision in
+            guard let self else { return }
+            if decision == .enable {
+                self.persistAgentTeamsEnabled(true)
+            } else {
+                self.agentTeamsSwitch.state = self.currentAgentTeams.enabled ? .on : .off
+            }
+        }
+    }
+
+    private func persistAgentTeamsEnabled(_ enabled: Bool) {
+        try? configStore.update { config in
+            config.agentTeams.enabled = enabled
+        }
+        currentAgentTeams = configStore.current.agentTeams
+        agentTeamsSwitch.state = currentAgentTeams.enabled ? .on : .off
+    }
+
+    private func makeLabel(text: String, font: NSFont) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = font
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 0
+        return label
+    }
+
+    var isAgentTeamsSwitchOn: Bool {
+        agentTeamsSwitch.state == .on
+    }
+
+    var experimentalBadgeText: String {
+        experimentalBadgeLabel.stringValue
+    }
+
+    var experimentalBadgeTitleCenterYOffset: CGFloat? {
+        guard let titleLabel = agentTeamsTitleLabel else { return nil }
+        return titleLabel.frame.midY - experimentalBadgeLabel.frame.midY
+    }
+
+    func setAgentTeamsEnabledForTesting(_ enabled: Bool) {
+        agentTeamsSwitch.state = enabled ? .on : .off
+        requestAgentTeamsChange(to: enabled)
+    }
 }
 
 func resolvedNotificationSound(for soundName: String) -> UNNotificationSound {

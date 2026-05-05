@@ -1914,6 +1914,35 @@ struct PaneStripState: Equatable, Sendable {
     }
 
     @discardableResult
+    mutating func resizeFocusedColumnToWidth(
+        _ width: CGFloat,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+    ) -> Bool {
+        guard let focusedColumnIndex else {
+            return false
+        }
+
+        let minimumWidth = minimumColumnWidth(
+            for: columns[focusedColumnIndex],
+            minimumSizeByPaneID: minimumSizeByPaneID
+        )
+        let maximumWidth = maximumColumnWidth(
+            for: availableWidth,
+            leadingVisibleInset: leadingVisibleInset
+        )
+        let targetWidth = min(maximumWidth, max(minimumWidth, width))
+
+        guard abs(columns[focusedColumnIndex].width - targetWidth) > 0.001 else {
+            return false
+        }
+
+        columns[focusedColumnIndex].width = targetWidth
+        return true
+    }
+
+    @discardableResult
     mutating func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) -> Bool {
         guard let focusedColumnIndex, columns[focusedColumnIndex].panes.count >= 2 else {
             return false

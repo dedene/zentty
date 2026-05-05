@@ -1128,6 +1128,43 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertFalse(state.arrangeGoldenWidth(focusWide: true, availableWidth: availableWidth))
     }
 
+    func test_resizeFocusedColumnToWidth_updates_single_remaining_column() {
+        var state = PaneStripState(
+            columns: [makeColumn("leader", paneIDs: ["leader"], width: 480)],
+            focusedColumnID: PaneColumnID("leader")
+        )
+
+        let didResize = state.resizeFocusedColumnToWidth(
+            720,
+            availableWidth: 1000,
+            leadingVisibleInset: 280,
+            minimumSizeByPaneID: [:]
+        )
+
+        XCTAssertTrue(didResize)
+        XCTAssertEqual(state.columns[0].width, 720, accuracy: 0.001)
+    }
+
+    func test_resizeFocusedColumnToWidth_restores_exact_full_readable_width() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("leader", paneIDs: ["leader"], width: 500),
+                makeColumn("neighbor", paneIDs: ["neighbor"], width: 260),
+            ],
+            focusedColumnID: PaneColumnID("leader")
+        )
+
+        let didResize = state.resizeFocusedColumnToWidth(
+            720,
+            availableWidth: 1000,
+            leadingVisibleInset: 280,
+            minimumSizeByPaneID: [:]
+        )
+
+        XCTAssertTrue(didResize)
+        XCTAssertEqual(state.columns[0].width, 720, accuracy: 0.001)
+    }
+
     func test_arrangeGoldenWidth_focusWide_uses_readable_width_when_sidebar_is_open_on_laptop() {
         var state = PaneStripState(
             columns: [

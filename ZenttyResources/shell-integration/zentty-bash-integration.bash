@@ -18,11 +18,19 @@ _zentty_print_tty() {
 
 _zentty_ensure_wrapper_path() {
     local wrapper_dirs="${ZENTTY_ALL_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIR:-}}}"
-    [[ -n "$wrapper_dirs" ]] || return 0
+    local tmux_shim_dir="${ZENTTY_TMUX_SHIM_DIR:-}"
+    local tmux_shim_enabled=0
+    if [[ "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" == "1" && -n "$tmux_shim_dir" && -x "$tmux_shim_dir/tmux" ]]; then
+        tmux_shim_enabled=1
+    fi
+    [[ -n "$wrapper_dirs" || -n "$tmux_shim_dir" ]] || return 0
 
     local -a wrappers entries cleaned_path next_path
     local wrapper entry tool_name
-    IFS=: read -r -a wrappers <<< "$wrapper_dirs"
+    wrappers=()
+    if [[ -n "$wrapper_dirs" ]]; then
+        IFS=: read -r -a wrappers <<< "$wrapper_dirs"
+    fi
     IFS=: read -r -a entries <<< "${PATH:-}"
     cleaned_path=()
     for entry in "${entries[@]}"; do
@@ -32,10 +40,14 @@ _zentty_ensure_wrapper_path() {
                 continue 2
             fi
         done
+        [[ -n "$tmux_shim_dir" && "$entry" == "$tmux_shim_dir" ]] && continue
         cleaned_path+=("$entry")
     done
 
     next_path=()
+    if (( tmux_shim_enabled )); then
+        next_path+=("$tmux_shim_dir")
+    fi
     for wrapper in "${wrappers[@]}"; do
         [[ -n "$wrapper" ]] || continue
         tool_name="${wrapper##*/}"
@@ -52,9 +64,10 @@ _zentty_ensure_wrapper_path() {
         local IFS=:
         printf '%s' "${next_path[*]}"
     )"
-    if (( ${#next_path[@]} > ${#cleaned_path[@]} )); then
-        local active_wrapper_count=$(( ${#next_path[@]} - ${#cleaned_path[@]} ))
-        local -a active_wrappers=("${next_path[@]:0:${active_wrapper_count}}")
+    local active_wrapper_count=$(( ${#next_path[@]} - ${#cleaned_path[@]} - tmux_shim_enabled ))
+    if (( active_wrapper_count > 0 )); then
+        local active_wrapper_start=$tmux_shim_enabled
+        local -a active_wrappers=("${next_path[@]:${active_wrapper_start}:${active_wrapper_count}}")
         ZENTTY_WRAPPER_BIN_DIR="${active_wrappers[0]}"
         ZENTTY_WRAPPER_BIN_DIRS="$(
             local IFS=:
