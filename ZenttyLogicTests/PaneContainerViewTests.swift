@@ -295,7 +295,7 @@ final class PaneContainerViewTests: AppKitTestCase {
         XCTAssertEqual(paneView.borderLabelGapWidthForTesting, 0, accuracy: 0.001)
     }
 
-    func test_pane_container_border_context_exposes_copy_affordance() throws {
+    func test_pane_container_border_context_stays_clickable_without_copy_icon() throws {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")
         let runtime = PaneRuntime(
@@ -327,14 +327,12 @@ final class PaneContainerViewTests: AppKitTestCase {
         let frame = try XCTUnwrap(paneView.paneBorderContextFrameForTesting)
         let pointInPane = CGPoint(x: frame.midX, y: frame.midY)
         let clickTarget = try XCTUnwrap(paneView.hitTest(pointInPane) as? PaneBorderContextInsetView)
-        let copyIconLayer = try XCTUnwrap(
-            clickTarget.layer?.sublayers?.first { $0.name == "copyIconLayer" },
-            "Pane path label should include a visible copy icon because the label itself is clickable"
-        )
 
         XCTAssertEqual(clickTarget.toolTip, "Copy path")
-        XCTAssertFalse(copyIconLayer.isHidden)
-        XCTAssertNotNil(copyIconLayer.contents)
+        XCTAssertNil(
+            clickTarget.layer?.sublayers?.first { $0.name == "copyIconLayer" },
+            "Pane path label should stay clickable without showing a copy icon"
+        )
     }
 
     func test_pane_container_clamps_border_context_width_to_available_pane_width() throws {

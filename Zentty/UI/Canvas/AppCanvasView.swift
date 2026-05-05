@@ -7,8 +7,6 @@ final class PaneBorderContextInsetView: NSView {
         static let paneContextLeadingInset: CGFloat = 24
         static let paneContextTrailingGutter: CGFloat = 16
         static let paneContextHorizontalPadding: CGFloat = 7
-        static let paneContextCopyIconGap: CGFloat = 4
-        static let paneContextCopyIconSize: CGFloat = 10
         static let paneContextMinHeight: CGFloat = 16
         static let paneContextFontSize: CGFloat = 10
     }
@@ -26,7 +24,6 @@ final class PaneBorderContextInsetView: NSView {
     }
 
     private let textContentLayer = CALayer()
-    private let copyIconLayer = CALayer()
     private let leftBorderLineLayer = CALayer()
     private let rightBorderLineLayer = CALayer()
     private let textFont = NSFont.systemFont(ofSize: Layout.paneContextFontSize, weight: .semibold)
@@ -78,11 +75,8 @@ final class PaneBorderContextInsetView: NSView {
         let displayText = (prefixGlyph ?? "") + text
         naturalTextWidth = ceil(Self.naturalTextWidth(for: displayText, font: textFont))
         let textHeight = ceil(Self.textLineHeight(for: textFont))
-        let iconWidth = showsCopyAffordance
-            ? Layout.paneContextCopyIconGap + Layout.paneContextCopyIconSize
-            : 0
         return CGSize(
-            width: min(maxWidth, naturalTextWidth + iconWidth + (Layout.paneContextHorizontalPadding * 2)),
+            width: min(maxWidth, naturalTextWidth + (Layout.paneContextHorizontalPadding * 2)),
             height: max(
                 Layout.paneContextMinHeight,
                 textHeight + TextLayout.topInset + TextLayout.bottomInset + TextLayout.verticalSafety
@@ -141,14 +135,11 @@ final class PaneBorderContextInsetView: NSView {
         let availableHeight = max(0, bounds.height - TextLayout.topInset - TextLayout.bottomInset)
         let drawingHeight = min(availableHeight, textHeight + TextLayout.verticalSafety)
         let drawingY = TextLayout.topInset + max(0, floor((availableHeight - drawingHeight) / 2))
-        let iconWidth = showsCopyAffordance
-            ? Layout.paneContextCopyIconGap + Layout.paneContextCopyIconSize
-            : 0
         currentTextRect = Self.alignedRect(
             CGRect(
                 x: Layout.paneContextHorizontalPadding,
                 y: drawingY,
-                width: max(0, bounds.width - (Layout.paneContextHorizontalPadding * 2) - iconWidth),
+                width: max(0, bounds.width - (Layout.paneContextHorizontalPadding * 2)),
                 height: drawingHeight
             ),
             scale: backingScaleFactor
@@ -160,27 +151,6 @@ final class PaneBorderContextInsetView: NSView {
             size: currentTextRect.size,
             scale: backingScaleFactor
         )
-        if showsCopyAffordance {
-            let iconRect = Self.alignedRect(
-                CGRect(
-                    x: bounds.width - Layout.paneContextHorizontalPadding - Layout.paneContextCopyIconSize,
-                    y: (bounds.height - Layout.paneContextCopyIconSize) / 2,
-                    width: Layout.paneContextCopyIconSize,
-                    height: Layout.paneContextCopyIconSize
-                ),
-                scale: backingScaleFactor
-            )
-            copyIconLayer.frame = iconRect
-            copyIconLayer.contentsScale = backingScaleFactor
-            copyIconLayer.contents = Self.renderCopyIconImage(
-                color: textColor,
-                size: iconRect.size,
-                scale: backingScaleFactor
-            )
-        } else {
-            copyIconLayer.contents = nil
-            copyIconLayer.frame = .zero
-        }
         CATransaction.commit()
     }
 
@@ -221,12 +191,9 @@ final class PaneBorderContextInsetView: NSView {
         layer?.masksToBounds = false
 
         textContentLayer.zPosition = 1
-        copyIconLayer.name = "copyIconLayer"
-        copyIconLayer.zPosition = 1
         leftBorderLineLayer.zPosition = 1
         rightBorderLineLayer.zPosition = 1
         layer?.addSublayer(textContentLayer)
-        layer?.addSublayer(copyIconLayer)
         layer?.addSublayer(leftBorderLineLayer)
         layer?.addSublayer(rightBorderLineLayer)
         updateCopyAffordanceState()
@@ -238,7 +205,6 @@ final class PaneBorderContextInsetView: NSView {
 
     private func updateCopyAffordanceState() {
         toolTip = showsCopyAffordance ? "Copy path" : nil
-        copyIconLayer.isHidden = !showsCopyAffordance
     }
 
     private static func naturalTextWidth(for text: String, font: NSFont) -> CGFloat {
@@ -309,42 +275,6 @@ final class PaneBorderContextInsetView: NSView {
         context.textMatrix = .identity
         context.textPosition = CGPoint(x: 0, y: bottomPadding + descent)
         CTLineDraw(drawLine, context)
-
-        return context.makeImage()
-    }
-
-    private static func renderCopyIconImage(
-        color: NSColor,
-        size: CGSize,
-        scale: CGFloat
-    ) -> CGImage? {
-        let pixelWidth = Int(ceil(size.width * scale))
-        let pixelHeight = Int(ceil(size.height * scale))
-        guard pixelWidth > 0, pixelHeight > 0 else {
-            return nil
-        }
-
-        guard let context = CGContext(
-            data: nil,
-            width: pixelWidth,
-            height: pixelHeight,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            return nil
-        }
-
-        context.scaleBy(x: scale, y: scale)
-        context.setStrokeColor(color.withAlphaComponent(0.85).cgColor)
-        context.setLineWidth(1.15)
-        context.setLineJoin(.round)
-
-        let backRect = CGRect(x: 1.5, y: 1.5, width: size.width - 4.5, height: size.height - 4.5)
-        let frontRect = CGRect(x: 3.5, y: 3.5, width: size.width - 4.5, height: size.height - 4.5)
-        context.stroke(backRect, width: 1.15)
-        context.stroke(frontRect, width: 1.15)
 
         return context.makeImage()
     }
