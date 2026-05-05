@@ -32,14 +32,13 @@ final class PaneStripViewTests: AppKitTestCase {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
-        )
-        window.isReleasedWhenClosed = false
+        ).prepareForAppKitTesting()
         addTeardownBlock {
             window.orderOut(nil)
             window.close()
         }
         window.contentView = paneStripView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
         return window
     }
 
@@ -595,7 +594,7 @@ final class PaneStripViewTests: AppKitTestCase {
             window.close()
         }
         window.contentView = paneStripView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
         paneStripView.dragOverlayView = paneStripView
 
         let sourceState = PaneStripState(
@@ -778,7 +777,7 @@ final class PaneStripViewTests: AppKitTestCase {
             window.close()
         }
         window.contentView = paneStripView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
 
         let paneID = PaneID("shell")
         var clickedPaneIDs: [PaneID] = []
@@ -844,7 +843,7 @@ final class PaneStripViewTests: AppKitTestCase {
             window.close()
         }
         window.contentView = paneStripView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
 
         let paneID = PaneID("shell")
         var clickedPaneIDs: [PaneID] = []
@@ -902,7 +901,7 @@ final class PaneStripViewTests: AppKitTestCase {
             window.close()
         }
         window.contentView = paneStripView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
 
         let paneID = PaneID("shell")
         var clickedPaneIDs: [PaneID] = []
@@ -2601,7 +2600,7 @@ final class PaneStripViewTests: AppKitTestCase {
         }
 
         window.contentView = paneStripView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
 
         let sourcePane = PaneState(id: PaneID("source"), title: "source")
         let siblingPane = PaneState(id: PaneID("sibling"), title: "sibling")
@@ -3294,7 +3293,7 @@ final class PaneStripViewTests: AppKitTestCase {
             window.close()
         }
         window.contentView = paneStripView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
 
         let sourceState = PaneStripState(
             panes: [
@@ -3350,7 +3349,7 @@ final class PaneStripViewTests: AppKitTestCase {
             window.close()
         }
         window.contentView = paneStripView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
 
         let state = PaneStripState(
             panes: [
@@ -3399,7 +3398,7 @@ final class PaneStripViewTests: AppKitTestCase {
             window.close()
         }
         window.contentView = paneStripView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
 
         let sourceState = PaneStripState(
             panes: [

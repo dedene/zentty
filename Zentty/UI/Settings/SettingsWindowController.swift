@@ -128,7 +128,9 @@ final class SettingsWindowController: NSWindowController {
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor.windowBackgroundColor
         window.appearance = appearance
-        window.center()
+        if window.placeOnHostedTestScreenIfNeeded() == nil {
+            window.center()
+        }
         if #available(macOS 13.0, *) {
             window.toolbarStyle = .preference
         }
@@ -149,13 +151,47 @@ final class SettingsWindowController: NSWindowController {
             section: section,
             animated: window?.isVisible == true && settingsViewController.selectedSection != section
         )
+        window?.placeOnHostedTestScreenIfNeeded()
         showWindow(sender)
+        window?.placeOnHostedTestScreenIfNeeded()
         window?.makeKeyAndOrderFront(sender)
     }
 
     func applyAppearance(_ appearance: NSAppearance?) {
         window?.appearance = appearance
         settingsViewController.handleAppearanceChange()
+    }
+}
+
+private extension NSWindow {
+    @discardableResult
+    func placeOnHostedTestScreenIfNeeded() -> NSWindow? {
+        guard
+            let screenName = ProcessInfo.processInfo.environment["ZENTTY_TEST_SCREEN_NAME"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !screenName.isEmpty,
+            let screen = NSScreen.screens.first(where: { $0.localizedName == screenName })
+        else {
+            return nil
+        }
+
+        let visibleFrame = screen.visibleFrame
+        if frame.intersects(visibleFrame) {
+            return self
+        }
+
+        let targetSize = NSSize(
+            width: min(max(frame.width, 1), visibleFrame.width),
+            height: min(max(frame.height, 1), visibleFrame.height)
+        )
+        let targetFrame = NSRect(
+            x: visibleFrame.midX - targetSize.width / 2,
+            y: visibleFrame.midY - targetSize.height / 2,
+            width: targetSize.width,
+            height: targetSize.height
+        ).integral
+        setFrame(targetFrame, display: false)
+        return self
     }
 }
 

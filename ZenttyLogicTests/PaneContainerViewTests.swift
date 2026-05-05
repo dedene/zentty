@@ -364,7 +364,7 @@ final class PaneContainerViewTests: AppKitTestCase {
         ).prepareForAppKitTesting()
         addTeardownBlock { window.close() }
         window.contentView = paneView
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
         var clickedPaneID: PaneID?
         paneView.onBorderContextClicked = { clickedPaneID = $0 }
 
@@ -651,7 +651,7 @@ final class PaneContainerViewTests: AppKitTestCase {
         window.contentView = contentView
         paneView.frame = contentView.bounds
         contentView.addSubview(paneView)
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
         paneView.layoutSubtreeIfNeeded()
 
         var selectionCount = 0

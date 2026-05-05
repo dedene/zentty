@@ -501,7 +501,7 @@ final class AppDelegateTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { replaced.fulfill() }
         wait(for: [replaced], timeout: 2.0)
 
-        keyController.window.makeKeyAndOrderFront(nil)
+        keyController.window.makeKeyAndOrderFrontForHostedTesting(nil)
         let focused = expectation(description: "key window focused")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused.fulfill() }
         wait(for: [focused], timeout: 2.0)

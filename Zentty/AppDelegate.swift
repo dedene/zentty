@@ -9,6 +9,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private static let logger = Logger(subsystem: "be.zenjoy.zentty", category: "SessionRestore")
+    private static var isHostedTestMode: Bool {
+        CommandLine.arguments.contains("-ApplePersistenceIgnoreState")
+            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
 
     private let shouldOpenMainWindow: Bool
     private let configStore: AppConfigStore
@@ -44,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.sessionRestoreStore = sessionRestoreStore
             ?? SessionRestoreStore(configDirectoryURL: configStore.fileURL.deletingLastPathComponent())
         self.isSessionRestoreEnabled = sessionRestoreEnabled
-            ?? !CommandLine.arguments.contains("-ApplePersistenceIgnoreState")
+            ?? !Self.isHostedTestMode
         self.restoreErrorReporter = restoreErrorReporter
         super.init()
     }
@@ -120,7 +124,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             windowController.showWindow(nil)
         }
 
-        NSApp.activate(ignoringOtherApps: true)
+        if !Self.isHostedTestMode {
+            NSApp.activate(ignoringOtherApps: true)
+        }
         if isSessionRestoreEnabled {
             scheduleWorkspaceSnapshotSave()
         }
