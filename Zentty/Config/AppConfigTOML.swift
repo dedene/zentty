@@ -23,6 +23,7 @@ enum AppConfigTOML {
         case clipboard
         case updates
         case restore
+        case agentTeams
     }
 
     static func encode(_ config: AppConfig) -> String {
@@ -117,6 +118,10 @@ enum AppConfigTOML {
         lines.append("[restore]")
         lines.append("restore_workspace_on_launch = \(config.restore.restoreWorkspaceOnLaunch)")
 
+        lines.append("")
+        lines.append("[agent_teams]")
+        lines.append("enabled = \(config.agentTeams.enabled)")
+
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -190,6 +195,10 @@ enum AppConfigTOML {
                 section = .restore
                 continue
             }
+            if line == "[agent_teams]" {
+                section = .agentTeams
+                continue
+            }
             guard let assignment = parseAssignment(line) else {
                 return nil
             }
@@ -253,6 +262,10 @@ enum AppConfigTOML {
                 }
             case .restore:
                 guard decodeRestoreAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .agentTeams:
+                guard decodeAgentTeamsAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .root:
@@ -545,6 +558,20 @@ enum AppConfigTOML {
         case "restore_workspace_on_launch":
             guard let value = decodeBool(assignment.value) else { return false }
             config.restore.restoreWorkspaceOnLaunch = value
+        default:
+            return true
+        }
+        return true
+    }
+
+    private static func decodeAgentTeamsAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "enabled":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.agentTeams.enabled = value
         default:
             return true
         }

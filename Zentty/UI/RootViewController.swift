@@ -78,7 +78,7 @@ final class RootViewController: NSViewController {
         static let minimumRows: CGFloat = 5
     }
 
-    private let worklaneStore: WorklaneStore
+    let worklaneStore: WorklaneStore
     private let windowID: WindowID
     private let configStore: AppConfigStore
     private let appUpdateStateStore: AppUpdateStateStore
@@ -222,7 +222,10 @@ final class RootViewController: NSViewController {
             worklanes: initialWorkspaceState?.worklanes ?? [],
             layoutContext: initialLayoutContext,
             activeWorklaneID: initialWorkspaceState?.activeWorklaneID,
-            gitContextResolver: gitContextResolver
+            gitContextResolver: gitContextResolver,
+            agentTeamsEnabledProvider: { [weak configStore] in
+                configStore?.current.agentTeams.enabled ?? false
+            }
         )
         self.renderCoordinator = WorklaneRenderCoordinator(
             windowID: windowID,
@@ -1983,20 +1986,27 @@ final class RootViewController: NSViewController {
         handlePaneCommand(command)
     }
 
+    @discardableResult
     func splitWithLayout(
         placement: PanePlacement,
         isHorizontal: Bool,
-        layout: SplitLayoutAction
-    ) {
+        layout: SplitLayoutAction,
+        targetPaneID: PaneID? = nil,
+        preserveFocusPaneID: PaneID? = nil,
+        sessionRequest: TerminalSessionRequest? = nil
+    ) -> PaneID? {
         appCanvasView.settlePaneStripPresentationNow()
-        worklaneStore.splitWithLayout(
+        return worklaneStore.splitWithLayout(
             placement: placement,
             isHorizontal: isHorizontal,
             layout: layout,
             availableWidth: appCanvasView.bounds.width,
             leadingVisibleInset: appCanvasView.leadingVisibleInset,
             availableSize: appCanvasView.bounds.size,
-            minimumSizeByPaneID: paneMinimumSizesByPaneID()
+            minimumSizeByPaneID: paneMinimumSizesByPaneID(),
+            targetPaneID: targetPaneID,
+            preserveFocusPaneID: preserveFocusPaneID,
+            sessionRequest: sessionRequest
         )
     }
 
@@ -2007,6 +2017,16 @@ final class RootViewController: NSViewController {
 
     func closePaneByID(_ paneID: PaneID) {
         handlePaneCloseResult(worklaneStore.closePane(id: paneID))
+    }
+
+    @discardableResult
+    func launchDeferredPane(id paneID: PaneID, nativeCommand: String) -> Bool {
+        worklaneStore.launchDeferredPane(id: paneID, nativeCommand: nativeCommand)
+    }
+
+    @discardableResult
+    func setPaneTitle(id paneID: PaneID, title: String) -> Bool {
+        worklaneStore.setPaneTitle(id: paneID, title: title)
     }
 
     @discardableResult
@@ -2022,6 +2042,38 @@ final class RootViewController: NSViewController {
             leadingVisibleInset: appCanvasView.leadingVisibleInset,
             minimumSizeByPaneID: paneMinimumSizesByPaneID()
         )
+    }
+
+    func resizeColumnContainingPane(id paneID: PaneID, toFraction fraction: CGFloat) {
+        appCanvasView.settlePaneStripPresentationNow()
+        worklaneStore.resizeColumnContainingPane(
+            id: paneID,
+            toFraction: fraction,
+            availableWidth: appCanvasView.bounds.width,
+            leadingVisibleInset: appCanvasView.leadingVisibleInset,
+            minimumSizeByPaneID: paneMinimumSizesByPaneID()
+        )
+    }
+
+    func columnWidthForPane(id paneID: PaneID, in worklaneID: WorklaneID) -> CGFloat? {
+        worklaneStore.columnWidthForPane(id: paneID, in: worklaneID)
+    }
+
+    func resizeColumnContainingPaneToWidth(id paneID: PaneID, width: CGFloat) {
+        appCanvasView.settlePaneStripPresentationNow()
+        let availableWidth = appCanvasView.bounds.width
+        let leadingVisibleInset = appCanvasView.leadingVisibleInset
+        appCanvasView.centerFocusedInteriorPaneOnNextRender()
+        let didResize = worklaneStore.resizeColumnContainingPanePreservingNeighbors(
+            id: paneID,
+            toWidth: width,
+            availableWidth: availableWidth,
+            leadingVisibleInset: leadingVisibleInset,
+            minimumSizeByPaneID: paneMinimumSizesByPaneID()
+        )
+        if !didResize {
+            appCanvasView.clearPendingPaneStripTargetOffsetOverride()
+        }
     }
 
     func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) {

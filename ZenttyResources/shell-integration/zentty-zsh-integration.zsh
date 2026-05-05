@@ -23,13 +23,20 @@ _zentty_print_tty() {
 
 _zentty_ensure_wrapper_path() {
     local wrapper_dirs="${ZENTTY_ALL_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIR:-}}}"
-    [[ -n "$wrapper_dirs" ]] || return 0
-    local -a wrappers cleaned_path enabled_wrappers
+    local tmux_shim_dir="${ZENTTY_TMUX_SHIM_DIR:-}"
+    local tmux_shim_enabled=0
+    if [[ "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" == "1" && -n "$tmux_shim_dir" && -x "$tmux_shim_dir/tmux" ]]; then
+        tmux_shim_enabled=1
+    fi
+    [[ -n "$wrapper_dirs" || -n "$tmux_shim_dir" ]] || return 0
+    local -a wrappers cleaned_path enabled_wrappers next_path
     local wrapper entry tool_name
-    wrappers=("${(@s/:/)wrapper_dirs}")
+    wrappers=()
+    [[ -z "$wrapper_dirs" ]] || wrappers=("${(@s/:/)wrapper_dirs}")
     cleaned_path=()
     for entry in "${path[@]}"; do
         (( ${wrappers[(I)$entry]} == 0 )) || continue
+        [[ -z "$tmux_shim_dir" || "$entry" != "$tmux_shim_dir" ]] || continue
         cleaned_path+=("$entry")
     done
     for wrapper in "${wrappers[@]}"; do
@@ -40,8 +47,13 @@ _zentty_ensure_wrapper_path() {
             break
         done
     done
+    next_path=()
+    if (( tmux_shim_enabled )); then
+        next_path+=("$tmux_shim_dir")
+    fi
+    next_path+=("${enabled_wrappers[@]}" "${cleaned_path[@]}")
     typeset -gU path
-    path=("${enabled_wrappers[@]}" "${cleaned_path[@]}")
+    path=("${next_path[@]}")
     if (( ${#enabled_wrappers[@]} > 0 )); then
         export ZENTTY_WRAPPER_BIN_DIR="${enabled_wrappers[1]}"
         export ZENTTY_WRAPPER_BIN_DIRS="${(j.:.)enabled_wrappers}"

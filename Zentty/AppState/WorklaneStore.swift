@@ -82,6 +82,13 @@ struct PaneSplitOutResult: Equatable, Sendable {
 
 struct PaneBorderContextDisplayModel: Equatable, Sendable {
     let text: String
+    /// True when this pane is the recorded leader of a Claude Code agent
+    /// teams anchor. Renders a star glyph at the leading edge of the inset.
+    var isAgentTeamLeader: Bool = false
+    /// True when this pane is a recorded child column member of a Claude
+    /// Code agent teams anchor (excluding the leader). Renders a subordinate
+    /// glyph at the leading edge of the inset.
+    var isAgentTeamMember: Bool = false
 }
 
 struct WorklaneAuxiliaryInvalidation: OptionSet, Equatable, Sendable {
@@ -157,8 +164,46 @@ extension WorklaneState {
         auxiliaryStateByPaneID.compactMapValues { auxiliaryState in
             let borderText = WorklaneContextFormatter.trimmed(auxiliaryState.presentation.sshConnectionLabel)
                 ?? auxiliaryState.shellContext?.borderContextDisplayText
-            return borderText.map(PaneBorderContextDisplayModel.init(text:))
+            return borderText.map { PaneBorderContextDisplayModel(text: $0) }
         }
+    }
+
+    /// Variant of `paneBorderContextDisplayByPaneID` that flags the recorded
+    /// Claude Code agent-teams leader pane and any column members. Forces an
+    /// entry for the leader even when the pane has no shell-context text —
+    /// the leader glyph needs a host view to draw into. Members only get
+    /// flagged when they already have a context entry (their cwd label).
+    func paneBorderContextDisplayByPaneID(
+        leaderPaneID: PaneID?,
+        memberPaneIDs: Set<PaneID> = []
+    ) -> [PaneID: PaneBorderContextDisplayModel] {
+        var result = paneBorderContextDisplayByPaneID
+        let livePaneIDs = Set(paneStripState.panes.map(\.id))
+
+        if let leaderPaneID, livePaneIDs.contains(leaderPaneID) {
+            if let existing = result[leaderPaneID] {
+                result[leaderPaneID] = PaneBorderContextDisplayModel(
+                    text: existing.text,
+                    isAgentTeamLeader: true
+                )
+            } else {
+                result[leaderPaneID] = PaneBorderContextDisplayModel(
+                    text: "",
+                    isAgentTeamLeader: true
+                )
+            }
+        }
+
+        for memberID in memberPaneIDs where memberID != leaderPaneID && livePaneIDs.contains(memberID) {
+            if let existing = result[memberID] {
+                result[memberID] = PaneBorderContextDisplayModel(
+                    text: existing.text,
+                    isAgentTeamMember: true
+                )
+            }
+        }
+
+        return result
     }
 }
 
@@ -173,6 +218,10 @@ enum WorklaneChange: Equatable, Sendable {
     /// sidebar/chrome label setters (not a full render) to update the UI
     /// without re-running summary builders or auxiliary invalidation.
     case volatileAgentTitleUpdated(worklaneID: WorklaneID, paneID: PaneID)
+    /// Emitted when a Claude Code agent-teams anchor is added, removed, or
+    /// its column membership changes. Title-strip views redraw to add/remove
+    /// the leader star.
+    case teamAnchorsChanged(WorklaneID)
     case activeWorklaneChanged
     case worklaneListChanged
     case historyChanged
@@ -245,6 +294,13 @@ final class WorklaneStore {
     let nonRepositoryRetryInterval: TimeInterval
     let currentDateProvider: @MainActor () -> Date
     private let scheduleReadyStatusTask: ReadyStatusScheduler
+    private let agentTeamsEnabledProvider: @MainActor () -> Bool
+    /// In-memory mirror of `TmuxCompatStore.anchors` for this app session.
+    /// Refreshed via `refreshTeamAnchors()` after any handler that mutates
+    /// the on-disk store (split-window, kill-pane, kill-window, leader-close
+    /// cascade). Read by `paneBorderContextDisplayByPaneID` to flag the
+    /// leader pane.
+    private(set) var teamAnchorByWorklaneID: [WorklaneID: WorklaneAnchor] = [:]
     let windowID: WindowID
     let runtimeIdentity: WorklaneRuntimeIdentity
     let focusHistoryController = PaneFocusHistoryController()
@@ -295,7 +351,8 @@ final class WorklaneStore {
         currentDateProvider: @escaping @MainActor () -> Date = Date.init,
         readyStatusScheduler: @escaping ReadyStatusScheduler = WorklaneStore.defaultReadyStatusScheduler,
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
-        terminalDiagnostics: TerminalDiagnostics = .shared
+        terminalDiagnostics: TerminalDiagnostics = .shared,
+        agentTeamsEnabledProvider: @escaping @MainActor () -> Bool = { false }
     ) {
         self.windowID = windowID
         self.gitContextResolver = gitContextResolver
@@ -306,21 +363,25 @@ final class WorklaneStore {
         self.nonRepositoryRetryInterval = nonRepositoryRetryInterval
         self.currentDateProvider = currentDateProvider
         self.scheduleReadyStatusTask = readyStatusScheduler
+        self.agentTeamsEnabledProvider = agentTeamsEnabledProvider
         self.runtimeIdentity = runtimeIdentity
         let initialWorklanes = worklanes.isEmpty
             ? WorklaneStore.defaultWorklanes(
                 windowID: windowID,
                 layoutContext: layoutContext,
                 processEnvironment: processEnvironment,
-                runtimeIdentity: runtimeIdentity
+                runtimeIdentity: runtimeIdentity,
+                agentTeamsEnabled: agentTeamsEnabledProvider()
             )
             : worklanes
+        let seededAnchors = WorklaneStore.pruneStaleTeamAnchors(in: initialWorklanes)
         let requestedActiveWorklaneID = activeWorklaneID ?? initialWorklanes.first?.id ?? runtimeIdentity.makeWorklaneID()
         let resolvedActiveWorklaneID = initialWorklanes.contains(where: { $0.id == requestedActiveWorklaneID })
             ? requestedActiveWorklaneID
             : initialWorklanes.first?.id ?? runtimeIdentity.makeWorklaneID()
         self.worklanes = initialWorklanes
         self.activeWorklaneID = resolvedActiveWorklaneID
+        self.teamAnchorByWorklaneID = seededAnchors
         normalizeAllPanePresentationState()
         refreshLastFocusedLocalWorkingDirectory()
         refreshAllPaneGitContexts()
@@ -616,6 +677,7 @@ final class WorklaneStore {
         notify(changeType)
     }
 
+    @discardableResult
     func splitWithLayout(
         placement: PanePlacement,
         isHorizontal: Bool,
@@ -623,19 +685,26 @@ final class WorklaneStore {
         availableWidth: CGFloat,
         leadingVisibleInset: CGFloat,
         availableSize: CGSize,
-        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
-    ) {
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize],
+        targetPaneID: PaneID? = nil,
+        preserveFocusPaneID: PaneID? = nil,
+        sessionRequest: TerminalSessionRequest? = nil
+    ) -> PaneID? {
         guard var worklane = activeWorklane else {
-            return
+            return nil
         }
 
         let previousPaneRef = currentPaneReference
+        if let targetPaneID {
+            worklane.paneStripState.focusPane(id: targetPaneID)
+        }
 
         if isHorizontal {
-            insertNewPaneHorizontally(into: &worklane, placement: placement)
+            insertNewPaneHorizontally(into: &worklane, placement: placement, sessionRequest: sessionRequest)
         } else {
-            insertNewPaneVertically(into: &worklane, placement: placement)
+            insertNewPaneVertically(into: &worklane, placement: placement, sessionRequest: sessionRequest)
         }
+        let newPaneID = worklane.paneStripState.focusedPaneID
 
         switch layout {
         case .none:
@@ -676,6 +745,10 @@ final class WorklaneStore {
             }
         }
 
+        if let preserveFocusPaneID {
+            worklane.paneStripState.focusPane(id: preserveFocusPaneID)
+        }
+
         activeWorklane = worklane
 
         let newPaneRef = currentPaneReference
@@ -685,6 +758,7 @@ final class WorklaneStore {
 
         refreshLastFocusedLocalWorkingDirectory()
         notify(.paneStructure(activeWorklaneID))
+        return newPaneID
     }
 
     func markDividerInteraction(_ divider: PaneDivider) {
@@ -746,6 +820,59 @@ final class WorklaneStore {
         activeWorklane = worklane
         notifyLayoutResized(animation: .immediate)
         return applied
+    }
+
+    @discardableResult
+    func launchDeferredPane(id paneID: PaneID, nativeCommand: String) -> Bool {
+        guard var worklane = activeWorklane else {
+            return false
+        }
+        let trimmedCommand = nativeCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty else {
+            return false
+        }
+
+        for columnIndex in worklane.paneStripState.columns.indices {
+            guard let paneIndex = worklane.paneStripState.columns[columnIndex].panes.firstIndex(where: { $0.id == paneID }) else {
+                continue
+            }
+            guard worklane.paneStripState.columns[columnIndex].panes[paneIndex].sessionRequest.isLaunchDeferred else {
+                return false
+            }
+
+            worklane.paneStripState.columns[columnIndex].panes[paneIndex].sessionRequest.command = nil
+            worklane.paneStripState.columns[columnIndex].panes[paneIndex].sessionRequest.nativeCommand = trimmedCommand
+            worklane.paneStripState.columns[columnIndex].panes[paneIndex].sessionRequest.waitAfterNativeCommand = true
+            worklane.paneStripState.columns[columnIndex].panes[paneIndex].sessionRequest.isLaunchDeferred = false
+            activeWorklane = worklane
+            notify(.paneStructure(activeWorklaneID))
+            return true
+        }
+
+        return false
+    }
+
+    @discardableResult
+    func setPaneTitle(id paneID: PaneID, title: String) -> Bool {
+        guard var worklane = activeWorklane else {
+            return false
+        }
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            return false
+        }
+
+        for columnIndex in worklane.paneStripState.columns.indices {
+            guard let paneIndex = worklane.paneStripState.columns[columnIndex].panes.firstIndex(where: { $0.id == paneID }) else {
+                continue
+            }
+            worklane.paneStripState.columns[columnIndex].panes[paneIndex].title = trimmedTitle
+            activeWorklane = worklane
+            notify(.paneStructure(activeWorklaneID))
+            return true
+        }
+
+        return false
     }
 
     func focusedHorizontalKeyboardResizeAction(
@@ -818,6 +945,107 @@ final class WorklaneStore {
 
         activeWorklane = worklane
         notifyLayoutResized(animation: .splitCurve)
+    }
+
+    func resizeColumnContainingPane(
+        id paneID: PaneID,
+        toFraction fraction: CGFloat,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+    ) {
+        guard var worklane = activeWorklane else {
+            return
+        }
+
+        let previousPaneID = worklane.paneStripState.focusedPaneID
+        worklane.paneStripState.focusPane(id: paneID)
+        let phi: CGFloat = (1 + sqrt(5)) / 2
+        let goldenNarrowFraction = 1 / (1 + phi)
+        let goldenWideFraction = phi / (1 + phi)
+        let didResize: Bool
+        if abs(fraction - goldenWideFraction) < 0.001 {
+            didResize = worklane.paneStripState.arrangeGoldenWidth(
+                focusWide: true,
+                availableWidth: availableWidth,
+                leadingVisibleInset: leadingVisibleInset
+            )
+        } else if abs(fraction - goldenNarrowFraction) < 0.001 {
+            didResize = worklane.paneStripState.arrangeGoldenWidth(
+                focusWide: false,
+                availableWidth: availableWidth,
+                leadingVisibleInset: leadingVisibleInset
+            )
+        } else {
+            didResize = worklane.paneStripState.resizeFocusedColumnToFraction(
+                fraction,
+                availableWidth: availableWidth,
+                leadingVisibleInset: leadingVisibleInset,
+                minimumSizeByPaneID: minimumSizeByPaneID
+            )
+        }
+        guard didResize else {
+            if let previousPaneID {
+                worklane.paneStripState.focusPane(id: previousPaneID)
+            }
+            activeWorklane = worklane
+            return
+        }
+        if let previousPaneID {
+            worklane.paneStripState.focusPane(id: previousPaneID)
+        }
+
+        activeWorklane = worklane
+        notifyLayoutResized(animation: .splitCurve)
+    }
+
+    /// Read the absolute pixel width of the column containing `paneID` in
+    /// `worklaneID`. Used by the agent-teams flow to snapshot the leader's
+    /// column width before the team's first split, so the pre-team layout
+    /// can be restored when the team dissolves.
+    func columnWidthForPane(id paneID: PaneID, in worklaneID: WorklaneID) -> CGFloat? {
+        guard let worklane = worklanes.first(where: { $0.id == worklaneID }),
+              let columnIndex = worklane.paneStripState.columns.firstIndex(where: { column in
+                  column.panes.contains(where: { $0.id == paneID })
+              }) else {
+            return nil
+        }
+        return worklane.paneStripState.columns[columnIndex].width
+    }
+
+    /// Resize the column containing `paneID` to an absolute pixel width using
+    /// the non-arrangement path. This works after the team column has been
+    /// removed and only the leader column remains, and it avoids the
+    /// user-facing fractional resize clamp when restoring snapshotted widths.
+    @discardableResult
+    func resizeColumnContainingPanePreservingNeighbors(
+        id paneID: PaneID,
+        toWidth width: CGFloat,
+        availableWidth: CGFloat,
+        leadingVisibleInset: CGFloat = 0,
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+    ) -> Bool {
+        guard var worklane = activeWorklane else {
+            return false
+        }
+        let previousPaneID = worklane.paneStripState.focusedPaneID
+        worklane.paneStripState.focusPane(id: paneID)
+        let didResize = worklane.paneStripState.resizeFocusedColumnToWidth(
+            width,
+            availableWidth: availableWidth,
+            leadingVisibleInset: leadingVisibleInset,
+            minimumSizeByPaneID: minimumSizeByPaneID
+        )
+        if let previousPaneID {
+            worklane.paneStripState.focusPane(id: previousPaneID)
+        }
+        guard didResize else {
+            activeWorklane = worklane
+            return false
+        }
+        activeWorklane = worklane
+        notifyLayoutResized(animation: .splitCurve)
+        return true
     }
 
     func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) {
@@ -971,12 +1199,17 @@ final class WorklaneStore {
         notifyLayoutResized(animation: .splitCurve)
     }
 
-    private func insertNewPaneHorizontally(into worklane: inout WorklaneState, placement: PanePlacement) {
+    private func insertNewPaneHorizontally(
+        into worklane: inout WorklaneState,
+        placement: PanePlacement,
+        sessionRequest: TerminalSessionRequest? = nil
+    ) {
         let existingColumnCount = worklane.paneStripState.columns.count
         let sourceWidth = worklane.paneStripState.focusedColumn?.width
             ?? worklane.paneStripState.panes.first?.width
             ?? layoutContext.singlePaneWidth
         var insertedPane = makePane(in: &worklane, existingPaneCount: existingColumnCount)
+        applySessionRequestOverride(sessionRequest, to: &insertedPane)
         insertedPane.width = sourceWidth
 
         if existingColumnCount == 1, let firstPaneWidth = layoutContext.firstPaneWidthAfterSingleSplit {
@@ -986,18 +1219,43 @@ final class WorklaneStore {
         worklane.paneStripState.insertPaneHorizontally(insertedPane, placement: placement)
     }
 
-    private func insertNewPaneVertically(into worklane: inout WorklaneState, placement: PanePlacement = .afterFocused) {
+    private func insertNewPaneVertically(
+        into worklane: inout WorklaneState,
+        placement: PanePlacement = .afterFocused,
+        sessionRequest: TerminalSessionRequest? = nil
+    ) {
         let existingPaneCount = worklane.paneStripState.panes.count
         let sourceWidth = worklane.paneStripState.focusedColumn?.width
             ?? worklane.paneStripState.panes.first?.width
             ?? layoutContext.singlePaneWidth
         var insertedPane = makePane(in: &worklane, existingPaneCount: existingPaneCount)
+        applySessionRequestOverride(sessionRequest, to: &insertedPane)
         insertedPane.width = sourceWidth
         _ = worklane.paneStripState.insertPaneVertically(
             insertedPane,
             placement: placement,
             availableHeight: paneViewportHeight
         )
+    }
+
+    private func applySessionRequestOverride(
+        _ override: TerminalSessionRequest?,
+        to pane: inout PaneState
+    ) {
+        guard let override else {
+            return
+        }
+
+        if let workingDirectory = override.workingDirectory {
+            pane.sessionRequest.workingDirectory = workingDirectory
+        }
+        pane.sessionRequest.command = override.command
+        pane.sessionRequest.nativeCommand = override.nativeCommand
+        pane.sessionRequest.waitAfterNativeCommand = override.waitAfterNativeCommand
+        pane.sessionRequest.isLaunchDeferred = override.isLaunchDeferred
+        if !override.environmentVariables.isEmpty {
+            pane.sessionRequest.environmentVariables.merge(override.environmentVariables) { _, new in new }
+        }
     }
 
     func selectWorklane(id: WorklaneID) {
@@ -1049,7 +1307,8 @@ final class WorklaneStore {
                 surfaceContext: .tab,
                 configInheritanceSourcePaneID: configInheritanceSourcePaneID,
                 processEnvironment: processEnvironment,
-                runtimeIdentity: runtimeIdentity
+                runtimeIdentity: runtimeIdentity,
+                agentTeamsEnabled: agentTeamsEnabledProvider()
             )
         )
         activeWorklaneID = id
@@ -1212,6 +1471,11 @@ final class WorklaneStore {
         guard var worklane = activeWorklane else {
             return .notFound
         }
+
+        // If this pane is a leader of a Claude Code agent-teams column, close
+        // the subagent column first so the
+        // leader-close action takes the whole team down with it.
+        cascadeCloseTeamColumnIfLeader(paneID: id, in: &worklane)
 
         let previousPaneRef = currentPaneReference
         worklane.paneStripState.focusPane(id: id)
@@ -1410,7 +1674,8 @@ final class WorklaneStore {
         windowID: WindowID,
         layoutContext: PaneLayoutContext,
         processEnvironment: [String: String],
-        runtimeIdentity: WorklaneRuntimeIdentity
+        runtimeIdentity: WorklaneRuntimeIdentity,
+        agentTeamsEnabled: Bool
     ) -> [WorklaneState] {
         [
             makeDefaultWorklane(
@@ -1421,7 +1686,8 @@ final class WorklaneStore {
                 workingDirectory: Self.defaultWorkingDirectory(),
                 surfaceContext: .window,
                 processEnvironment: processEnvironment,
-                runtimeIdentity: runtimeIdentity
+                runtimeIdentity: runtimeIdentity,
+                agentTeamsEnabled: agentTeamsEnabled
             ),
         ]
     }
@@ -1435,7 +1701,8 @@ final class WorklaneStore {
         surfaceContext: TerminalSurfaceContext,
         configInheritanceSourcePaneID: PaneID? = nil,
         processEnvironment: [String: String],
-        runtimeIdentity: WorklaneRuntimeIdentity
+        runtimeIdentity: WorklaneRuntimeIdentity,
+        agentTeamsEnabled: Bool
     ) -> WorklaneState {
         let shellPaneID = runtimeIdentity.makePaneID()
         let initialShellContext = PaneShellContext(
@@ -1469,7 +1736,8 @@ final class WorklaneStore {
                                 worklaneID: id,
                                 paneID: shellPaneID,
                                 initialWorkingDirectory: workingDirectory,
-                                processEnvironment: processEnvironment
+                                processEnvironment: processEnvironment,
+                                agentTeamsEnabled: agentTeamsEnabled
                             )
                         ),
                         width: layoutContext.singlePaneWidth
@@ -1516,7 +1784,8 @@ final class WorklaneStore {
             worklaneID: worklaneID,
             paneID: paneID,
             initialWorkingDirectory: initialWorkingDirectory,
-            processEnvironment: processEnvironment
+            processEnvironment: processEnvironment,
+            agentTeamsEnabled: agentTeamsEnabledProvider()
         )
     }
 
@@ -1540,15 +1809,111 @@ final class WorklaneStore {
         worklaneID: WorklaneID,
         paneID: PaneID,
         initialWorkingDirectory: String? = nil,
-        processEnvironment: [String: String]
+        processEnvironment: [String: String],
+        agentTeamsEnabled: Bool = false
     ) -> [String: String] {
         WorklaneSessionEnvironment.make(
             windowID: windowID,
             worklaneID: worklaneID,
             paneID: paneID,
             initialWorkingDirectory: initialWorkingDirectory,
-            processEnvironment: processEnvironment
+            processEnvironment: processEnvironment,
+            agentTeamsEnabled: agentTeamsEnabled
         )
+    }
+
+    /// When a Claude Code agent-teams leader pane is closed (either by Claude
+    /// emitting `tmux kill-pane` or by the user clicking close in the UI),
+    /// cascade-close every subagent pane in the recorded column and prune the
+    /// anchor entry. Recorded panes that no longer exist are silently
+    /// skipped — `closeFocusedPane` is a no-op for unknown IDs.
+    private func cascadeCloseTeamColumnIfLeader(
+        paneID: PaneID,
+        in worklane: inout WorklaneState
+    ) {
+        guard let anchor = teamAnchorByWorklaneID[worklane.id],
+              anchor.leaderPaneID == paneID.rawValue else {
+            return
+        }
+
+        for paneRaw in anchor.columnPaneIDs {
+            let teammateID = PaneID(paneRaw)
+            guard worklane.paneStripState.panes.contains(where: { $0.id == teammateID }) else {
+                continue
+            }
+            worklane.paneStripState.focusPane(id: teammateID)
+            if let removed = worklane.paneStripState.closeFocusedPane(
+                singleColumnWidth: layoutContext.singlePaneWidth
+            ) {
+                clearPaneState(for: removed.id, in: &worklane)
+            }
+        }
+
+        TmuxCompatStoreIO.mutate { store in
+            store.anchors.removeValue(forKey: worklane.id.rawValue)
+        }
+        teamAnchorByWorklaneID.removeValue(forKey: worklane.id)
+        notify(.teamAnchorsChanged(worklane.id))
+    }
+
+    /// Reload the in-memory anchor cache from the on-disk JSON store. The
+    /// IPC handler calls this after every mutation (split-window,
+    /// kill-pane, set-buffer, …) so the title-strip sees the change without
+    /// disk I/O on its hot path.
+    func refreshTeamAnchors() {
+        let next = TmuxCompatStoreIO.load().anchors.reduce(into: [WorklaneID: WorklaneAnchor]()) {
+            partial, entry in
+            partial[WorklaneID(entry.key)] = entry.value
+        }
+        let changedWorklanes = Set(teamAnchorByWorklaneID.keys).symmetricDifference(next.keys)
+            .union(next.compactMap { worklaneID, anchor -> WorklaneID? in
+                teamAnchorByWorklaneID[worklaneID] == anchor ? nil : worklaneID
+            })
+        teamAnchorByWorklaneID = next
+        for worklaneID in changedWorklanes {
+            notify(.teamAnchorsChanged(worklaneID))
+        }
+    }
+
+    /// Drop on-disk anchor entries whose recorded panes no longer exist.
+    /// Called from `init` so a workspace restored with fresh pane IDs
+    /// doesn't keep showing the LEADER star on a pane that has nothing to
+    /// do with the original team.
+    private static func pruneStaleTeamAnchors(
+        in worklanes: [WorklaneState]
+    ) -> [WorklaneID: WorklaneAnchor] {
+        let livePaneIDsByWorklane = Dictionary(
+            uniqueKeysWithValues: worklanes.map { worklane in
+                (worklane.id, Set(worklane.paneStripState.panes.map(\.id.rawValue)))
+            }
+        )
+        let diskAnchors = TmuxCompatStoreIO.load().anchors
+        var seeded: [WorklaneID: WorklaneAnchor] = [:]
+        var pruned = false
+        for (rawWorklaneID, anchor) in diskAnchors {
+            let worklaneID = WorklaneID(rawWorklaneID)
+            guard let alive = livePaneIDsByWorklane[worklaneID],
+                  alive.contains(anchor.leaderPaneID) else {
+                pruned = true
+                continue
+            }
+            let liveColumn = anchor.columnPaneIDs.filter(alive.contains)
+            if liveColumn.count != anchor.columnPaneIDs.count {
+                pruned = true
+            }
+            seeded[worklaneID] = WorklaneAnchor(
+                leaderPaneID: anchor.leaderPaneID,
+                columnPaneIDs: liveColumn
+            )
+        }
+        if pruned {
+            TmuxCompatStoreIO.mutate { store in
+                store.anchors = Dictionary(uniqueKeysWithValues:
+                    seeded.map { ($0.key.rawValue, $0.value) }
+                )
+            }
+        }
+        return seeded
     }
 
     private func sourcePaneIDForSessionInheritance(in worklane: WorklaneState) -> PaneID? {

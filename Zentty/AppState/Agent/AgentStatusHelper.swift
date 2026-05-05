@@ -159,6 +159,21 @@ enum AgentStatusHelper {
         return nil
     }
 
+    static func tmuxShimDirectoryPath(in bundle: Bundle = .main) -> String? {
+        for candidateBundle in candidateBundles(for: bundle) {
+            if let path = validatedDirectoryPath(
+                candidateBundle.resourceURL?
+                    .appendingPathComponent("bin", isDirectory: true)
+                    .appendingPathComponent("tmux-shim", isDirectory: true),
+                requiredRelativePaths: ["tmux"],
+                executableRelativePaths: ["tmux"]
+            ) {
+                return path
+            }
+        }
+        return nil
+    }
+
     static func post(
         _ payload: AgentStatusPayload,
         instanceID: String? = ProcessInfo.processInfo.environment[AgentStatusTransport.instanceIDEnvironmentKey]

@@ -9,6 +9,7 @@ enum PaneRestorationBuilder {
         var command: String?
         var prefillText: String?
         var environmentOverrides: [String: String]
+        var agentTeamsEnabled: Bool = false
         var surfaceContext: TerminalSurfaceContext
         var columnWidth: CGFloat
         var statusTextWhenWorkingDirectoryMissing: String?
@@ -60,7 +61,8 @@ enum PaneRestorationBuilder {
             worklaneID: worklaneID,
             paneID: inputs.id,
             initialWorkingDirectory: resolvedDirectory,
-            processEnvironment: processEnvironment
+            processEnvironment: processEnvironment,
+            agentTeamsEnabled: inputs.agentTeamsEnabled
         )
         for (key, value) in WorklaneSessionEnvironment.templateSafeOverrides(from: inputs.environmentOverrides) {
             environment[key] = value

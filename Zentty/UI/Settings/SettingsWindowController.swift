@@ -6,6 +6,7 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
     case shortcuts
     case openWith
     case paneLayout
+    case agents
 
     var title: String {
         switch self {
@@ -19,6 +20,8 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
             "Open With"
         case .paneLayout:
             "Panes"
+        case .agents:
+            "Agents"
         }
     }
 
@@ -34,6 +37,8 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
             "square.and.arrow.up.on.square"
         case .paneLayout:
             "rectangle.split.3x1"
+        case .agents:
+            "cpu"
         }
     }
 
@@ -49,6 +54,37 @@ enum SettingsSection: String, CaseIterable, Equatable, Sendable {
             .systemBlue
         case .paneLayout:
             .systemPurple
+        case .agents:
+            .systemOrange
+        }
+    }
+}
+
+enum AgentTeamsEnableWarningDecision {
+    case enable
+    case cancel
+}
+
+typealias AgentTeamsEnableWarningPresenter = @MainActor (
+    NSWindow,
+    @escaping (AgentTeamsEnableWarningDecision) -> Void
+) -> Void
+
+enum AgentTeamsEnableWarning {
+    @MainActor
+    static func present(
+        from window: NSWindow,
+        completion: @escaping (AgentTeamsEnableWarningDecision) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Claude Code agent teams only apply to new panes"
+        alert.informativeText =
+            "After enabling this experimental integration, restart Zentty or close and recreate the pane where you want to use Claude Code team mode."
+        alert.addButton(withTitle: "Enable")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            completion(response == .alertFirstButtonReturn ? .enable : .cancel)
         }
     }
 }
@@ -100,6 +136,7 @@ final class SettingsWindowController: NSWindowController {
         },
         errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter = ErrorReportingRestartConfirmation.present,
         errorReportingRestartHandler: @escaping ErrorReportingRestartHandler = ErrorReportingApplicationRestart.restart,
+        agentTeamsEnableWarningPresenter: @escaping AgentTeamsEnableWarningPresenter = AgentTeamsEnableWarning.present,
         runtimeErrorReportingEnabled: Bool = ErrorReportingRuntimeState.isEnabledForCurrentProcess,
         appearance: NSAppearance? = nil,
         initialSection: SettingsSection = .shortcuts
@@ -111,6 +148,7 @@ final class SettingsWindowController: NSWindowController {
             errorReportingBundleConfigurationProvider: errorReportingBundleConfigurationProvider,
             errorReportingConfirmationPresenter: errorReportingConfirmationPresenter,
             errorReportingRestartHandler: errorReportingRestartHandler,
+            agentTeamsEnableWarningPresenter: agentTeamsEnableWarningPresenter,
             runtimeErrorReportingEnabled: runtimeErrorReportingEnabled,
             initialSection: initialSection
         )
@@ -239,10 +277,15 @@ final class SettingsViewController: NSTabViewController {
     }()
     private lazy var shortcutsViewController = ShortcutsSettingsSectionViewController(configStore: configStore)
     private lazy var paneLayoutViewController = PaneLayoutSettingsSectionViewController(configStore: configStore)
+    private lazy var agentsViewController = AgentsSettingsSectionViewController(
+        configStore: configStore,
+        agentTeamsEnableWarningPresenter: agentTeamsEnableWarningPresenter
+    )
     private let openWithViewController: OpenWithSettingsSectionViewController
     private let errorReportingBundleConfigurationProvider: ErrorReportingBundleConfigurationProvider
     private let errorReportingConfirmationPresenter: ErrorReportingConfirmationPresenter
     private let errorReportingRestartHandler: ErrorReportingRestartHandler
+    private let agentTeamsEnableWarningPresenter: AgentTeamsEnableWarningPresenter
     private let runtimeErrorReportingEnabled: Bool
     private var entriesBySection: [SettingsSection: SectionEntry] = [:]
     private weak var hostWindow: NSWindow?
@@ -264,6 +307,7 @@ final class SettingsViewController: NSTabViewController {
         errorReportingBundleConfigurationProvider: @escaping ErrorReportingBundleConfigurationProvider,
         errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter,
         errorReportingRestartHandler: @escaping ErrorReportingRestartHandler,
+        agentTeamsEnableWarningPresenter: @escaping AgentTeamsEnableWarningPresenter,
         runtimeErrorReportingEnabled: Bool,
         initialSection: SettingsSection
     ) {
@@ -272,6 +316,7 @@ final class SettingsViewController: NSTabViewController {
         self.errorReportingBundleConfigurationProvider = errorReportingBundleConfigurationProvider
         self.errorReportingConfirmationPresenter = errorReportingConfirmationPresenter
         self.errorReportingRestartHandler = errorReportingRestartHandler
+        self.agentTeamsEnableWarningPresenter = agentTeamsEnableWarningPresenter
         self.runtimeErrorReportingEnabled = runtimeErrorReportingEnabled
         self.openWithViewController = OpenWithSettingsSectionViewController(
             configStore: configStore,
@@ -456,6 +501,7 @@ final class SettingsViewController: NSTabViewController {
         generalViewController.apply(clipboard: config.clipboard)
         generalViewController.apply(updates: config.updates)
         generalViewController.apply(errorReporting: config.errorReporting)
+        agentsViewController.apply(agentTeams: config.agentTeams)
         shortcutsViewController.apply(shortcuts: config.shortcuts)
         paneLayoutViewController.apply(panes: config.panes)
         openWithViewController.apply(preferences: config.openWith)
@@ -474,6 +520,8 @@ final class SettingsViewController: NSTabViewController {
             openWithViewController
         case .paneLayout:
             paneLayoutViewController
+        case .agents:
+            agentsViewController
         }
     }
 

@@ -124,7 +124,7 @@ final class LibghosttySurfaceActionCoalescer {
 }
 
 @MainActor
-final class LibghosttySurface: LibghosttySurfaceControlling {
+final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTextReading {
     nonisolated(unsafe) var surface: ghostty_surface_t?
     nonisolated(unsafe) private let actionCoalescer = LibghosttySurfaceActionCoalescer()
     nonisolated let paneID: PaneID
@@ -202,14 +202,27 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             }
         }
 
-        if let workingDirectory = request.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !workingDirectory.isEmpty {
-            workingDirectory.withCString { cString in
-                config.working_directory = cString
+        let createSurfaceWithWorkingDirectory = {
+            if let workingDirectory = request.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workingDirectory.isEmpty {
+                workingDirectory.withCString { cString in
+                    config.working_directory = cString
+                    createSurface()
+                }
+            } else {
                 createSurface()
             }
+        }
+
+        if let nativeCommand = request.nativeCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !nativeCommand.isEmpty {
+            config.wait_after_command = request.waitAfterNativeCommand
+            nativeCommand.withCString { cString in
+                config.command = cString
+                createSurfaceWithWorkingDirectory()
+            }
         } else {
-            createSurface()
+            createSurfaceWithWorkingDirectory()
         }
 
         guard let surface = createdSurface else {
@@ -340,6 +353,87 @@ final class LibghosttySurface: LibghosttySurfaceControlling {
             }
             ghostty_surface_text(surface, baseAddress, UInt(buffer.count - 1))
         }
+    }
+
+    func readText(includeScrollback: Bool, lineLimit: Int?) -> String? {
+        guard let surface else {
+            return nil
+        }
+
+        func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
+            let topLeft = ghostty_point_s(
+                tag: pointTag,
+                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                x: 0,
+                y: 0
+            )
+            let bottomRight = ghostty_point_s(
+                tag: pointTag,
+                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0,
+                y: 0
+            )
+            let selection = ghostty_selection_s(
+                top_left: topLeft,
+                bottom_right: bottomRight,
+                rectangle: false
+            )
+
+            var text = ghostty_text_s()
+            guard ghostty_surface_read_text(surface, selection, &text) else {
+                return nil
+            }
+            defer {
+                ghostty_surface_free_text(surface, &text)
+            }
+
+            guard let pointer = text.text, text.text_len > 0 else {
+                return ""
+            }
+            return String(decoding: Data(bytes: pointer, count: Int(text.text_len)), as: UTF8.self)
+        }
+
+        let output: String
+        if includeScrollback {
+            let screen = readSelectionText(pointTag: GHOSTTY_POINT_SCREEN)
+            let history = readSelectionText(pointTag: GHOSTTY_POINT_SURFACE)
+            let active = readSelectionText(pointTag: GHOSTTY_POINT_ACTIVE)
+            var candidates: [String] = []
+            if let screen {
+                candidates.append(screen)
+            }
+            if history != nil || active != nil {
+                var merged = history ?? ""
+                if let active {
+                    if !merged.isEmpty, !merged.hasSuffix("\n"), !active.isEmpty {
+                        merged.append("\n")
+                    }
+                    merged.append(active)
+                }
+                candidates.append(merged)
+            }
+            guard let best = candidates.max(by: { lhs, rhs in
+                let lhsLines = lhs.isEmpty ? 0 : lhs.split(separator: "\n", omittingEmptySubsequences: false).count
+                let rhsLines = rhs.isEmpty ? 0 : rhs.split(separator: "\n", omittingEmptySubsequences: false).count
+                if lhsLines != rhsLines {
+                    return lhsLines < rhsLines
+                }
+                return lhs.utf8.count < rhs.utf8.count
+            }) else {
+                return nil
+            }
+            output = best
+        } else {
+            guard let viewport = readSelectionText(pointTag: GHOSTTY_POINT_VIEWPORT) else {
+                return nil
+            }
+            output = viewport
+        }
+
+        if let lineLimit {
+            return TmuxCompatIPCHandler.tailTerminalLines(output, maxLines: lineLimit)
+        }
+        return output
     }
 
     func performBindingAction(_ action: String) -> Bool {

@@ -41,7 +41,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(tabController.tabStyle, .toolbar)
         XCTAssertNotNil(controller.window?.toolbar)
         XCTAssertFalse(controller.window?.styleMask.contains(.resizable) == true)
-        XCTAssertEqual(contentController.sectionTitles, ["General", "Appearance", "Shortcuts", "Open With", "Panes"])
+        XCTAssertEqual(contentController.sectionTitles, ["General", "Appearance", "Shortcuts", "Open With", "Panes", "Agents"])
         XCTAssertEqual(contentController.selectedSection, .paneLayout)
         XCTAssertEqual(controller.window?.title, "Panes")
 
@@ -255,6 +255,122 @@ final class SettingsWindowControllerTests: XCTestCase {
                 "Expected \(section.title) toolbar icon to reserve label spacing"
             )
         }
+    }
+
+    func test_settings_window_can_switch_to_agents_section_and_read_agent_team_setting() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        try store.update { config in
+            config.agentTeams.enabled = true
+        }
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .agents, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+
+        XCTAssertEqual(contentController.selectedSection, .agents)
+        XCTAssertEqual(controller.window?.title, "Agents")
+        XCTAssertEqual(SettingsSection.agents.symbolName, "cpu")
+
+        let agentsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? AgentsSettingsSectionViewController
+        )
+        XCTAssertTrue(agentsController.isAgentTeamsSwitchOn)
+        XCTAssertEqual(agentsController.experimentalBadgeText, "EXPERIMENTAL")
+    }
+
+    func test_agents_section_experimental_badge_is_optically_aligned_with_title() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .agents
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .agents, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let agentsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? AgentsSettingsSectionViewController
+        )
+        let offset = try XCTUnwrap(agentsController.experimentalBadgeTitleCenterYOffset)
+
+        XCTAssertEqual(offset, 1, accuracy: 0.5)
+    }
+
+    func test_agents_section_confirms_enabling_agent_teams_before_persisting() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        var warningWasPresented = false
+        let controller = SettingsWindowController(
+            configStore: store,
+            agentTeamsEnableWarningPresenter: { _, completion in
+                warningWasPresented = true
+                completion(.enable)
+            },
+            initialSection: .agents
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .agents, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let agentsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? AgentsSettingsSectionViewController
+        )
+
+        agentsController.setAgentTeamsEnabledForTesting(true)
+
+        XCTAssertTrue(warningWasPresented)
+        XCTAssertTrue(store.current.agentTeams.enabled)
+        XCTAssertTrue(agentsController.isAgentTeamsSwitchOn)
+    }
+
+    func test_agents_section_cancels_enabling_agent_teams_without_persisting() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            agentTeamsEnableWarningPresenter: { _, completion in
+                completion(.cancel)
+            },
+            initialSection: .agents
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .agents, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let agentsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? AgentsSettingsSectionViewController
+        )
+
+        agentsController.setAgentTeamsEnabledForTesting(true)
+
+        XCTAssertFalse(store.current.agentTeams.enabled)
+        XCTAssertFalse(agentsController.isAgentTeamsSwitchOn)
     }
 
     func test_settings_window_auto_sizes_height_for_selected_pane_without_exceeding_screen_cap() throws {

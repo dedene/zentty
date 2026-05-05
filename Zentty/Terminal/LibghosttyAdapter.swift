@@ -61,7 +61,12 @@ protocol LibghosttySurfaceControlling: AnyObject {
 }
 
 @MainActor
-final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling {
+protocol LibghosttySurfaceTextReading: AnyObject {
+    func readText(includeScrollback: Bool, lineLimit: Int?) -> String?
+}
+
+@MainActor
+final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, TerminalTextReading {
     private let runtime: any LibghosttyRuntimeProviding
     private let paneID: PaneID
     private let diagnostics: TerminalDiagnostics
@@ -136,6 +141,13 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling {
 
     func sendText(_ text: String) {
         surfaceController?.sendText(text)
+    }
+
+    func readText(includeScrollback: Bool, lineLimit: Int?) -> String? {
+        (surfaceController as? LibghosttySurfaceTextReading)?.readText(
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        )
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {

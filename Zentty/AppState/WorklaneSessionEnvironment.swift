@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let agentTeamsLogger = Logger(subsystem: "be.zenjoy.zentty", category: "agent-teams")
 
 enum WorklaneSessionEnvironment {
     private static let generatedTemplateEnvironmentKeys: Set<String> = [
@@ -13,7 +16,8 @@ enum WorklaneSessionEnvironment {
         worklaneID: WorklaneID,
         paneID: PaneID,
         initialWorkingDirectory: String? = nil,
-        processEnvironment: [String: String]
+        processEnvironment: [String: String],
+        agentTeamsEnabled: Bool = false
     ) -> [String: String] {
         var environment: [String: String] = [
             "ZENTTY_WINDOW_ID": windowID.rawValue,
@@ -46,6 +50,15 @@ enum WorklaneSessionEnvironment {
             environment["PATH"] = pathEntries.contains(supportDirectory)
                 ? currentPath
                 : ([supportDirectory] + pathEntries).joined(separator: ":")
+        }
+
+        if agentTeamsEnabled {
+            applyAgentTeamsInjection(
+                environment: &environment,
+                processEnvironment: processEnvironment,
+                worklaneID: worklaneID,
+                paneID: paneID
+            )
         }
 
         if let shellIntegrationDirectory = AgentStatusHelper.shellIntegrationDirectoryPath() {
@@ -91,5 +104,46 @@ enum WorklaneSessionEnvironment {
         }
 
         return value
+    }
+
+    private static func applyAgentTeamsInjection(
+        environment: inout [String: String],
+        processEnvironment: [String: String],
+        worklaneID: WorklaneID,
+        paneID: PaneID
+    ) {
+        if let existing = processEnvironment["TMUX"], !existing.isEmpty {
+            agentTeamsLogger.info(
+                "Skipping tmux shim injection: TMUX already set to \(existing, privacy: .public)"
+            )
+            return
+        }
+
+        guard let shimDirectory = AgentStatusHelper.tmuxShimDirectoryPath() else {
+            agentTeamsLogger.warning("Skipping tmux shim injection: bundled shim directory unavailable")
+            return
+        }
+
+        environment["ZENTTY_TMUX_SHIM_DIR"] = shimDirectory
+
+        let currentPath = environment["PATH"] ?? processEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        let pathEntries = currentPath.split(separator: ":").map(String.init)
+        if !pathEntries.contains(shimDirectory) {
+            environment["PATH"] = ([shimDirectory] + pathEntries).joined(separator: ":")
+        }
+
+        environment["TMUX"] = "/tmp/zentty-claude-teams/\(worklaneID.rawValue),0,\(paneID.rawValue)"
+        environment["TMUX_PANE"] = "%\(paneID.rawValue)"
+        environment["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
+        environment["ZENTTY_TMUX_COMPAT_TRACE_PATH"] = processEnvironment["ZENTTY_TMUX_COMPAT_TRACE_PATH"]
+            ?? defaultTmuxCompatTracePath()
+    }
+
+    private static func defaultTmuxCompatTracePath() -> String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("zentty", isDirectory: true)
+            .appendingPathComponent("tmux-compat-trace.jsonl", isDirectory: false)
+            .path
     }
 }

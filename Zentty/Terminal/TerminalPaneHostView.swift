@@ -476,6 +476,9 @@ final class PaneRuntime {
         guard !hasAttemptedStart else {
             return
         }
+        guard !sessionRequest.isLaunchDeferred else {
+            return
+        }
 
         ZenttyPerformanceSignposts.interval("PaneRuntimeEnsureStarted") {
             hasAttemptedStart = true

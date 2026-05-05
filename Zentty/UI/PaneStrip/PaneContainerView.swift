@@ -1048,7 +1048,13 @@ final class PaneContainerView: NSView {
             return
         }
 
-        guard let borderContext = currentBorderContext, !borderContext.text.isEmpty else {
+        let borderContext = currentBorderContext
+        let prefixGlyph = teamPrefixGlyph(for: borderContext)
+        let text = borderContext?.text ?? ""
+        // Show the inset when there's either shell-context text OR a team
+        // marker to render. A leader pane with no shell context still gets
+        // its glyph.
+        guard !text.isEmpty || prefixGlyph != nil else {
             borderContextView.isHidden = true
             setBorderLabelGap(width: 0)
             focusGlowLayer.labelGapRect = .zero
@@ -1068,7 +1074,11 @@ final class PaneContainerView: NSView {
             return
         }
 
-        let size = borderContextView.measure(text: borderContext.text, maxWidth: maxWidth)
+        let size = borderContextView.measure(
+            text: text,
+            maxWidth: maxWidth,
+            prefixGlyph: prefixGlyph
+        )
         let targetFrame = paneBorderContextFrame(for: size)
         if borderContextView.frame == .zero {
             CATransaction.begin()
@@ -1080,16 +1090,28 @@ final class PaneContainerView: NSView {
         }
         borderContextView.isHidden = false
         borderContextView.render(
-            text: borderContext.text,
+            text: text,
             isFocused: currentIsFocused,
             theme: currentTheme,
-            backingScaleFactor: resolvedBackingScaleFactor
+            backingScaleFactor: resolvedBackingScaleFactor,
+            prefixGlyph: prefixGlyph
         )
         setBorderLabelGap(width: size.width)
         focusGlowLayer.labelGapRect = targetFrame
         if borderContextView.onClick != nil {
             window?.invalidateCursorRects(for: borderContextView)
         }
+    }
+
+    private func teamPrefixGlyph(for context: PaneBorderContextDisplayModel?) -> String? {
+        guard let context else { return nil }
+        if context.isAgentTeamLeader {
+            return PaneBorderContextInsetView.leaderGlyph
+        }
+        if context.isAgentTeamMember {
+            return PaneBorderContextInsetView.memberGlyph
+        }
+        return nil
     }
 
     private func paneBorderContextFrame(for size: CGSize) -> CGRect {

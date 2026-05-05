@@ -201,7 +201,8 @@ enum WorkspaceRecipeImporter {
         restoreDraftWindow: SessionRestoreDraftWindow? = nil,
         windowID: WindowID,
         layoutContext: PaneLayoutContext,
-        processEnvironment: [String: String]
+        processEnvironment: [String: String],
+        agentTeamsEnabled: Bool = false
     ) -> WindowWorkspaceState {
         let worklanes = window.worklanes.map {
             makeWorklane(
@@ -210,7 +211,8 @@ enum WorkspaceRecipeImporter {
                 restoreDraftWindow: restoreDraftWindow,
                 windowID: windowID,
                 layoutContext: layoutContext,
-                processEnvironment: processEnvironment
+                processEnvironment: processEnvironment,
+                agentTeamsEnabled: agentTeamsEnabled
             )
         }
         let requestedActiveID = window.activeWorklaneID.map(WorklaneID.init)
@@ -230,7 +232,8 @@ enum WorkspaceRecipeImporter {
         restoreDraftWindow: SessionRestoreDraftWindow?,
         windowID: WindowID,
         layoutContext: PaneLayoutContext,
-        processEnvironment: [String: String]
+        processEnvironment: [String: String],
+        agentTeamsEnabled: Bool
     ) -> WorklaneState {
         let worklaneID = WorklaneID(recipe.id)
         var auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:]
@@ -243,7 +246,8 @@ enum WorkspaceRecipeImporter {
                 windowID: windowID,
                 worklaneID: worklaneID,
                 auxiliaryStateByPaneID: &auxiliaryStateByPaneID,
-                processEnvironment: processEnvironment
+                processEnvironment: processEnvironment,
+                agentTeamsEnabled: agentTeamsEnabled
             )
         }
 
@@ -270,7 +274,8 @@ enum WorkspaceRecipeImporter {
         windowID: WindowID,
         worklaneID: WorklaneID,
         auxiliaryStateByPaneID: inout [PaneID: PaneAuxiliaryState],
-        processEnvironment: [String: String]
+        processEnvironment: [String: String],
+        agentTeamsEnabled: Bool
     ) -> PaneColumnState {
         let panes = recipe.panes.enumerated().map { index, pane in
             makePane(
@@ -284,7 +289,8 @@ enum WorkspaceRecipeImporter {
                 worklaneID: worklaneID,
                 columnWidth: CGFloat(recipe.width),
                 auxiliaryStateByPaneID: &auxiliaryStateByPaneID,
-                processEnvironment: processEnvironment
+                processEnvironment: processEnvironment,
+                agentTeamsEnabled: agentTeamsEnabled
             )
         }
 
@@ -309,7 +315,8 @@ enum WorkspaceRecipeImporter {
         worklaneID: WorklaneID,
         columnWidth: CGFloat,
         auxiliaryStateByPaneID: inout [PaneID: PaneAuxiliaryState],
-        processEnvironment: [String: String]
+        processEnvironment: [String: String],
+        agentTeamsEnabled: Bool
     ) -> PaneState {
         let paneID = PaneID(recipe.id)
         let prefillText = restoreDraftWindow
@@ -323,6 +330,7 @@ enum WorkspaceRecipeImporter {
             command: nil,
             prefillText: prefillText,
             environmentOverrides: [:],
+            agentTeamsEnabled: agentTeamsEnabled,
             surfaceContext: PaneRestorationBuilder.inferredSurfaceContext(
                 paneCountInColumn: paneCountInColumn,
                 totalColumns: worklane.columns.count,

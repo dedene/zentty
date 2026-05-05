@@ -679,6 +679,53 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertFalse(store.current.restore.restoreWorkspaceOnLaunch)
     }
 
+    func test_store_defaults_agent_teams_to_disabled() {
+        let store = AppConfigStore(
+            fileURL: temporaryDirectoryURL.appendingPathComponent("config.toml"),
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertFalse(store.current.agentTeams.enabled)
+    }
+
+    func test_store_reads_agent_teams_enabled_from_config_file() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [agent_teams]
+        enabled = true
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertTrue(store.current.agentTeams.enabled)
+    }
+
+    func test_store_persists_agent_teams_enabled_in_toml() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.agentTeams.enabled = true
+        }
+
+        let persisted = try String(contentsOf: fileURL)
+        XCTAssertTrue(persisted.contains("[agent_teams]"))
+        XCTAssertTrue(persisted.contains("enabled = true"))
+        XCTAssertTrue(store.current.agentTeams.enabled)
+    }
+
     private func makeDefaults(suffix: String) -> UserDefaults {
         let suiteName = "ZenttyTests.AppConfigStoreTests.\(suffix).\(UUID().uuidString)"
         defaultsSuiteNames.append(suiteName)

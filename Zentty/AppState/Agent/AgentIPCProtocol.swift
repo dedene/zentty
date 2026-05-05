@@ -10,6 +10,7 @@ enum AgentIPCRequestKind: String, Codable, Equatable {
     case bootstrap
     case pane
     case discover
+    case tmuxCompat = "tmux_compat"
 }
 
 enum AgentBootstrapTool: String, Codable, Equatable {
@@ -135,19 +136,25 @@ struct AgentIPCResponseResult: Codable, Equatable {
     let discoveredWindows: [DiscoveredWindow]?
     let discoveredWorklanes: [DiscoveredWorklane]?
     let discoveredPanes: [DiscoveredPane]?
+    /// Optional text payload returned from tmux-compat subcommands like
+    /// `capture-pane`, `list-panes`, `display-message`. The CLI writes this
+    /// directly to stdout.
+    let stdout: String?
 
     init(
         launchPlan: AgentLaunchPlan? = nil,
         paneList: [PaneListEntry]? = nil,
         discoveredWindows: [DiscoveredWindow]? = nil,
         discoveredWorklanes: [DiscoveredWorklane]? = nil,
-        discoveredPanes: [DiscoveredPane]? = nil
+        discoveredPanes: [DiscoveredPane]? = nil,
+        stdout: String? = nil
     ) {
         self.launchPlan = launchPlan
         self.paneList = paneList
         self.discoveredWindows = discoveredWindows
         self.discoveredWorklanes = discoveredWorklanes
         self.discoveredPanes = discoveredPanes
+        self.stdout = stdout
     }
 }
 
