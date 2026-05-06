@@ -13,6 +13,7 @@ build/
 .agent-bench-runs/
 .factory
 .planning
+.wrangler/
 
 # Fastlane
 fastlane/.wrangler/
