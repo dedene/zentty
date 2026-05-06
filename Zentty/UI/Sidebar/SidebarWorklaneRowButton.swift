@@ -779,28 +779,32 @@ final class SidebarWorklaneRowButton: NSButton {
         let activeTextColor = currentTheme.sidebarButtonActiveText
         let inactiveTextColor = currentTheme.sidebarButtonInactiveText
 
-        topLabel.textColor = topLabelTextColor(
-            for: summary,
+        topLabel.textColor = SidebarWorklaneRowStyleResolver.topLabelTextColor(
+            isActive: summary.isActive,
             activeTextColor: activeTextColor,
-            inactiveTextColor: inactiveTextColor
+            theme: currentTheme
         )
-        overflowLabel.textColor =
-            summary.isActive
-            ? activeTextColor.withAlphaComponent(0.54)
-            : currentTheme.tertiaryText
+        overflowLabel.textColor = SidebarWorklaneRowStyleResolver.overflowTextColor(
+            isActive: summary.isActive,
+            activeTextColor: activeTextColor,
+            theme: currentTheme
+        )
 
         if summary.paneRows.isEmpty {
-            let primaryColor = primaryTextColor(
-                for: summary,
+            let primaryColor = SidebarWorklaneRowStyleResolver.primaryTextColor(
+                isActive: summary.isActive,
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor
             )
-            primaryBaseLabel.textColor = renderedBaseTextColor(
+            primaryBaseLabel.textColor = SidebarWorklaneRowStyleResolver.renderedBaseTextColor(
                 primaryColor,
                 isShimmering: summary.isWorking,
                 treatment: .shadow
             )
-            statusBaseLabel.textColor = statusTextColor(for: summary)
+            statusBaseLabel.textColor = SidebarWorklaneRowStyleResolver.statusTextColor(
+                attentionState: summary.attentionState,
+                theme: currentTheme
+            )
             statusIconView.contentTintColor =
                 statusBaseLabel.textColor ?? currentTheme.secondaryText
             let statusWraps = (currentPresentation?.statusLineCount ?? 1) > 1
@@ -819,9 +823,10 @@ final class SidebarWorklaneRowButton: NSButton {
                 setStatusProgressRevealVisible(false, animated: false)
             }
             configureStatusContentLine(taskProgressVisible: statusWraps == false && summary.taskProgress != nil)
-            contextPrefixLabel.textColor = detailTextColor(
-                for: .secondary,
-                summary: summary
+            contextPrefixLabel.textColor = SidebarWorklaneRowStyleResolver.detailTextColor(
+                emphasis: .secondary,
+                isActive: summary.isActive,
+                theme: currentTheme
             )
 
             for (index, detailLabel) in detailLabels.enumerated() {
@@ -829,9 +834,10 @@ final class SidebarWorklaneRowButton: NSButton {
                     continue
                 }
 
-                detailLabel.textColor = detailTextColor(
-                    for: summary.detailLines[index].emphasis,
-                    summary: summary
+                detailLabel.textColor = SidebarWorklaneRowStyleResolver.detailTextColor(
+                    emphasis: summary.detailLines[index].emphasis,
+                    isActive: summary.isActive,
+                    theme: currentTheme
                 )
             }
         } else {
@@ -842,17 +848,15 @@ final class SidebarWorklaneRowButton: NSButton {
             )
         }
 
-        let paneRowHoverColor: NSColor
-        let paneRowPressedColor: NSColor
-        if let color = summary.color {
-            paneRowHoverColor = color.tint(alpha: WorklaneColor.Alpha.paneRowHover)
-            paneRowPressedColor = color.tint(alpha: WorklaneColor.Alpha.paneRowPressed)
-        } else {
-            paneRowHoverColor = currentTheme.sidebarButtonHoverBackground.withAlphaComponent(0.5)
-            paneRowPressedColor = currentTheme.sidebarButtonHoverBackground.withAlphaComponent(0.7)
-        }
+        let paneRowInteractionColors = SidebarWorklaneRowStyleResolver.paneRowInteractionColors(
+            worklaneColor: summary.color,
+            theme: currentTheme
+        )
         for button in paneRowButtons {
-            button.updateTheme(hoverColor: paneRowHoverColor, pressedColor: paneRowPressedColor)
+            button.updateTheme(
+                hoverColor: paneRowInteractionColors.hover,
+                pressedColor: paneRowInteractionColors.pressed
+            )
         }
 
         let activeBackground = currentTheme.sidebarButtonActiveBackground
@@ -865,11 +869,16 @@ final class SidebarWorklaneRowButton: NSButton {
         performThemeAnimation(animated: animated) {
             self.layer?.zPosition = summary.isActive ? 10 : 0
             self.layer?.backgroundColor =
-                self.resolvedBackgroundColor(
+                SidebarWorklaneRowStyleResolver.resolvedBackgroundColor(
                     isActive: summary.isActive,
+                    isWorking: self.isWorking,
+                    isHovered: self.isHovered,
+                    isPaneRowHovered: self.isPaneRowHovered,
+                    isReorderDragActive: self.isReorderDragActive,
                     activeBackground: activeBackground,
                     hoverBackground: hoverBackground,
-                    inactiveBackground: inactiveBackground
+                    inactiveBackground: inactiveBackground,
+                    theme: self.currentTheme
                 ).cgColor
             self.layer?.borderColor = (summary.isActive ? activeBorder : inactiveBorder).cgColor
             self.layer?.borderWidth = summary.isActive ? 0.8 : 1
@@ -878,73 +887,13 @@ final class SidebarWorklaneRowButton: NSButton {
             self.layer?.shadowOpacity = 1
             self.layer?.shadowRadius = summary.isActive ? 12 : 4
             self.layer?.shadowOffset = CGSize(width: 0, height: -1)
-            self.tintLayer.backgroundColor = self.resolvedTintColor(for: summary)
+            self.tintLayer.backgroundColor = SidebarWorklaneRowStyleResolver.tintColor(
+                worklaneColor: summary.color,
+                isActive: summary.isActive,
+                isHovered: self.isHovered,
+                isPaneRowHovered: self.isPaneRowHovered
+            )
         }
-    }
-
-    private func resolvedTintColor(for summary: WorklaneSidebarSummary) -> CGColor {
-        guard let color = summary.color else {
-            return NSColor.clear.cgColor
-        }
-
-        let alpha: CGFloat
-        if summary.isActive {
-            alpha = WorklaneColor.Alpha.active
-        } else if isHovered && !isPaneRowHovered {
-            alpha = WorklaneColor.Alpha.hover
-        } else {
-            alpha = WorklaneColor.Alpha.inactive
-        }
-
-        return color.tint(alpha: alpha).cgColor
-    }
-
-    private func backgroundColor(
-        isActive: Bool,
-        activeBackground: NSColor,
-        hoverBackground: NSColor,
-        inactiveBackground: NSColor
-    ) -> NSColor {
-        if isActive {
-            guard isWorking else {
-                return activeBackground
-            }
-
-            return
-                activeBackground
-                .mixed(towards: currentTheme.sidebarGradientStart.brightenedForLabel, amount: 0.12)
-        }
-
-        if isHovered && !isPaneRowHovered {
-            return hoverBackground
-        }
-
-        return inactiveBackground
-    }
-
-    private func resolvedBackgroundColor(
-        isActive: Bool,
-        activeBackground: NSColor,
-        hoverBackground: NSColor,
-        inactiveBackground: NSColor
-    ) -> NSColor {
-        let background = backgroundColor(
-            isActive: isActive,
-            activeBackground: activeBackground,
-            hoverBackground: hoverBackground,
-            inactiveBackground: inactiveBackground
-        )
-        guard isReorderDragActive else {
-            return background
-        }
-
-        let sidebarSurface = currentTheme.sidebarBackground.composited(
-            over: currentTheme.windowBackground
-        )
-        return background
-            .composited(over: sidebarSurface)
-            .srgbClamped
-            .withAlphaComponent(1)
     }
 
     private func updateShimmerState() {
@@ -963,8 +912,8 @@ final class SidebarWorklaneRowButton: NSButton {
             return
         }
 
-        let primaryColor = primaryTextColor(
-            for: summary,
+        let primaryColor = SidebarWorklaneRowStyleResolver.primaryTextColor(
+            isActive: summary.isActive,
             activeTextColor: activeTextColor,
             inactiveTextColor: inactiveTextColor
         )
@@ -973,12 +922,13 @@ final class SidebarWorklaneRowButton: NSButton {
         primaryLabel.isShimmering = isWorking
         primaryLabel.reducedMotion = reducedMotionProvider()
         let primaryShimmerTreatment: SidebarShimmerColorResolver.Treatment = isActive ? .shadow : .highlight
-        primaryLabel.shimmerColor = shimmerColor(
-            for: primaryColor,
+        primaryLabel.shimmerColor = SidebarWorklaneRowStyleResolver.shimmerColor(
+            baseTextColor: primaryColor,
             worklaneColor: summary.color,
             coloredEmphasis: .full,
             treatment: primaryShimmerTreatment,
-            isActive: isActive
+            isActive: isActive,
+            theme: currentTheme
         )
         let statusWraps = (currentPresentation?.statusLineCount ?? 1) > 1
         let shimmersStatus =
@@ -986,22 +936,18 @@ final class SidebarWorklaneRowButton: NSButton {
             && statusWraps == false
         statusLabel.isShimmering = shimmersStatus
         statusLabel.reducedMotion = reducedMotionProvider()
-        let shimmerBase = statusShimmerBaseColor(for: currentTheme.statusRunning)
-        statusLabel.shimmerColor = shimmerColor(
-            for: shimmerBase,
+        let shimmerBase = SidebarWorklaneRowStyleResolver.statusShimmerBaseColor(
+            statusColor: currentTheme.statusRunning,
+            theme: currentTheme
+        )
+        statusLabel.shimmerColor = SidebarWorklaneRowStyleResolver.shimmerColor(
+            baseTextColor: shimmerBase,
             worklaneColor: nil,
             coloredEmphasis: .full,
             treatment: .highlight,
-            isActive: isActive
+            isActive: isActive,
+            theme: currentTheme
         )
-    }
-
-    private func primaryTextColor(
-        for summary: WorklaneSidebarSummary,
-        activeTextColor: NSColor,
-        inactiveTextColor: NSColor
-    ) -> NSColor {
-        return summary.isActive ? activeTextColor : inactiveTextColor
     }
 
     private func applyPaneRowColors(
@@ -1017,15 +963,20 @@ final class SidebarWorklaneRowButton: NSButton {
                 continue
             }
 
-            let primaryColor = panePrimaryTextColor(
-                for: paneRow,
+            let isActive = currentSummary?.isActive ?? false
+            let primaryColor = SidebarWorklaneRowStyleResolver.panePrimaryTextColor(
+                isFocused: paneRow.isFocused,
+                isActive: isActive,
                 activeTextColor: activeTextColor,
-                inactiveTextColor: inactiveTextColor
+                inactiveTextColor: inactiveTextColor,
+                theme: currentTheme
             )
-            let trailingColor = paneTrailingTextColor(
-                for: paneRow,
+            let trailingColor = SidebarWorklaneRowStyleResolver.paneTrailingTextColor(
+                isFocused: paneRow.isFocused,
+                isActive: isActive,
                 activeTextColor: activeTextColor,
-                inactiveTextColor: inactiveTextColor
+                inactiveTextColor: inactiveTextColor,
+                theme: currentTheme
             )
             let presentationMode: SidebarPaneRowPresentationMode
             if let panePresentations = currentPresentation?.paneRows,
@@ -1034,149 +985,51 @@ final class SidebarWorklaneRowButton: NSButton {
             } else {
                 presentationMode = .inline
             }
-            let isActive = currentSummary?.isActive ?? false
             let paneShimmerTreatment: SidebarShimmerColorResolver.Treatment = isActive ? .shadow : .highlight
             panePrimaryRows[index].applyColors(
                 primaryColor: primaryColor,
                 trailingColor: trailingColor,
                 isShimmering: paneRow.isWorking,
-                shimmerColor: shimmerColor(
-                    for: primaryColor,
+                shimmerColor: SidebarWorklaneRowStyleResolver.shimmerColor(
+                    baseTextColor: primaryColor,
                     worklaneColor: currentSummary?.color,
                     coloredEmphasis: paneRow.isFocused ? .focusedPane : .unfocusedPane,
                     treatment: paneShimmerTreatment,
-                    isActive: isActive
+                    isActive: isActive,
+                    theme: currentTheme
                 ),
                 reducedMotion: reducedMotionProvider()
             )
-            paneDetailLabels[index].textColor = paneDetailTextColor(
-                for: paneRow,
+            paneDetailLabels[index].textColor = SidebarWorklaneRowStyleResolver.paneDetailTextColor(
+                isFocused: paneRow.isFocused,
+                isWorking: paneRow.isWorking,
+                isActive: isActive,
                 activeTextColor: activeTextColor,
-                inactiveTextColor: inactiveTextColor
+                inactiveTextColor: inactiveTextColor,
+                theme: currentTheme
             )
             paneStatusRows[index].applyColors(
-                textColor: paneStatusTextColor(
-                    for: paneRow,
-                    activeTextColor: activeTextColor,
-                    inactiveTextColor: inactiveTextColor
+                textColor: SidebarWorklaneRowStyleResolver.statusTextColor(
+                    attentionState: paneRow.attentionState,
+                    theme: currentTheme
                 ),
                 trailingTextColor: presentationMode == .adaptive ? trailingColor : nil,
                 progressColor: currentTheme.statusRunning,
                 isShimmering: paneRow.isWorking && paneRow.attentionState == .running,
-                shimmerColor: shimmerColor(
-                    for: statusShimmerBaseColor(for: currentTheme.statusRunning),
+                shimmerColor: SidebarWorklaneRowStyleResolver.shimmerColor(
+                    baseTextColor: SidebarWorklaneRowStyleResolver.statusShimmerBaseColor(
+                        statusColor: currentTheme.statusRunning,
+                        theme: currentTheme
+                    ),
                     worklaneColor: nil,
                     coloredEmphasis: .full,
                     treatment: .highlight,
-                    isActive: currentSummary?.isActive ?? false
+                    isActive: isActive,
+                    theme: currentTheme
                 ),
                 reducedMotion: reducedMotionProvider()
             )
         }
-    }
-
-    private func panePrimaryTextColor(
-        for paneRow: WorklaneSidebarPaneRow,
-        activeTextColor: NSColor,
-        inactiveTextColor: NSColor
-    ) -> NSColor {
-        let focusedBaseColor =
-            (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
-        return paneRow.isFocused ? focusedBaseColor : currentTheme.secondaryText
-    }
-
-    private func paneTrailingTextColor(
-        for paneRow: WorklaneSidebarPaneRow,
-        activeTextColor: NSColor,
-        inactiveTextColor: NSColor
-    ) -> NSColor {
-        let focusedBaseColor =
-            (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
-        if paneRow.isWorking {
-            return paneRow.isFocused
-                ? focusedBaseColor.withAlphaComponent(0.62)
-                : currentTheme.tertiaryText
-        }
-
-        return paneRow.isFocused
-            ? focusedBaseColor.withAlphaComponent(0.62)
-            : currentTheme.tertiaryText
-    }
-
-    private func paneDetailTextColor(
-        for paneRow: WorklaneSidebarPaneRow,
-        activeTextColor: NSColor,
-        inactiveTextColor: NSColor
-    ) -> NSColor {
-        let focusedBaseColor =
-            (currentSummary?.isActive ?? false) ? activeTextColor : inactiveTextColor
-        if paneRow.isWorking {
-            let emphasis = workingTextHighlightColor(
-                isActive: currentSummary?.isActive ?? false,
-                activeTextColor: activeTextColor,
-                inactiveTextColor: inactiveTextColor
-            )
-            return paneRow.isFocused
-                ? emphasis.withAlphaComponent(0.68)
-                : emphasis.withAlphaComponent(0.60)
-        }
-
-        return paneRow.isFocused
-            ? focusedBaseColor.withAlphaComponent(0.62)
-            : currentTheme.tertiaryText
-    }
-
-    private func topLabelTextColor(
-        for summary: WorklaneSidebarSummary,
-        activeTextColor: NSColor,
-        inactiveTextColor: NSColor
-    ) -> NSColor {
-        return summary.isActive
-            ? activeTextColor.withAlphaComponent(0.66)
-            : currentTheme.tertiaryText
-    }
-
-    private func workingTextHighlightColor(
-        isActive: Bool,
-        activeTextColor: NSColor,
-        inactiveTextColor: NSColor
-    ) -> NSColor {
-        if isActive {
-            return .white
-        }
-
-        return inactiveTextColor.mixed(towards: .white, amount: 0.72)
-    }
-
-    private func statusShimmerBaseColor(for statusColor: NSColor) -> NSColor {
-        if currentTheme.sidebarGlassAppearance == .dark {
-            return statusColor.adjustedHSB(
-                saturationBy: 0.18,
-                brightnessBy: 0.10
-            )
-        }
-
-        return statusColor.adjustedHSB(
-            saturationBy: 0.14,
-            brightnessBy: -0.04
-        )
-    }
-
-    private func shimmerColor(
-        for baseTextColor: NSColor,
-        worklaneColor: WorklaneColor?,
-        coloredEmphasis: SidebarShimmerColorResolver.ColoredEmphasis,
-        treatment: SidebarShimmerColorResolver.Treatment,
-        isActive: Bool
-    ) -> NSColor {
-        SidebarShimmerColorResolver.shimmerColor(
-            baseTextColor: baseTextColor,
-            worklaneColor: worklaneColor,
-            coloredEmphasis: coloredEmphasis,
-            treatment: treatment,
-            isActive: isActive,
-            theme: currentTheme
-        )
     }
 
     private func configureStatusContentLine(taskProgressVisible: Bool) {
@@ -1190,121 +1043,18 @@ final class SidebarWorklaneRowButton: NSButton {
         )
     }
 
-    private func renderedBaseTextColor(
-        _ textColor: NSColor,
-        isShimmering: Bool,
-        treatment: SidebarShimmerColorResolver.Treatment
-    ) -> NSColor {
-        guard isShimmering else {
-            return textColor
-        }
-
-        switch treatment {
-        case .highlight:
-            return textColor.withAlphaComponent(textColor.alphaComponent * 0.78)
-        case .shadow:
-            return textColor
-        }
-    }
-
-    private func statusTextColor(for summary: WorklaneSidebarSummary) -> NSColor {
-        switch summary.attentionState {
-        case .running:
-            return currentTheme.statusRunning
-        case .needsInput:
-            return currentTheme.statusNeedsInput
-        case .unresolvedStop:
-            return currentTheme.statusStopped
-        case .ready:
-            return currentTheme.statusReady
-        case nil:
-            return currentTheme.secondaryText
-        }
-    }
-
-    private func paneStatusTextColor(
-        for paneRow: WorklaneSidebarPaneRow,
-        activeTextColor: NSColor,
-        inactiveTextColor: NSColor
-    ) -> NSColor {
-        switch paneRow.attentionState {
-        case .running:
-            return currentTheme.statusRunning
-        case .needsInput:
-            return currentTheme.statusNeedsInput
-        case .unresolvedStop:
-            return currentTheme.statusStopped
-        case .ready:
-            return currentTheme.statusReady
-        case nil:
-            return currentTheme.secondaryText
-        }
-    }
-
-    private func detailTextColor(
-        for emphasis: WorklaneSidebarDetailEmphasis,
-        summary: WorklaneSidebarSummary
-    ) -> NSColor {
-        switch emphasis {
-        case .primary:
-            return summary.isActive
-                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.78)
-                : currentTheme.secondaryText
-        case .secondary:
-            return summary.isActive
-                ? currentTheme.sidebarButtonActiveText.withAlphaComponent(0.62)
-                : currentTheme.tertiaryText
-        }
-    }
-
     // MARK: - Layout Composition
 
     private func groupedViews(for layout: SidebarWorklaneRowLayout) -> [NSView] {
-        var views: [NSView] = []
-        var currentPaneIndex: Int?
-        // Track whether the context prefix has already been bundled into a
-        // pane row button so the fallback branch (paneRows.isEmpty) and the
-        // adjacency check in `.contextPrefix` below know to skip it.
-        var contextPrefixConsumed = false
-
-        for row in layout.visibleTextRows {
-            switch row {
-            case .panePrimary(let index):
-                if index != currentPaneIndex {
-                    currentPaneIndex = index
-                    var subViews: [NSView] = [panePrimaryRows[index]]
-                    for next in layout.visibleTextRows {
-                        switch next {
-                        case .paneDetail(let i) where i == index:
-                            subViews.append(paneDetailLabels[i])
-                        case .contextPrefix where index == 0:
-                            subViews.append(contextPrefixLabel)
-                            contextPrefixConsumed = true
-                        case .paneStatus(let i) where i == index:
-                            subViews.append(paneStatusRows[i])
-                        default:
-                            break
-                        }
-                    }
-                    paneRowButtons[index].setContent(subViews)
-                    views.append(paneRowContainers[index])
-                }
-            case .paneDetail, .paneStatus:
-                break
-            case .contextPrefix:
-                // Skip when the pane row bundle already absorbed it. This
-                // only fires in the standalone (paneRows.isEmpty) fallback.
-                if contextPrefixConsumed == false {
-                    currentPaneIndex = nil
-                    views.append(insetWrappedView(for: label(for: row)))
-                }
-            default:
-                currentPaneIndex = nil
-                views.append(insetWrappedView(for: label(for: row)))
+        layout.contentGroups.map { group in
+            switch group {
+            case .standalone(let row):
+                return insetWrappedView(for: label(for: row))
+            case .pane(let index, let rows):
+                paneRowButtons[index].setContent(rows.map(label(for:)))
+                return paneRowContainers[index]
             }
         }
-
-        return views
     }
 
     private func insetWrappedView(for view: NSView) -> NSView {
@@ -1360,6 +1110,7 @@ final class SidebarWorklaneRowButton: NSButton {
         label.maximumNumberOfLines = 1
     }
 
+#if DEBUG
     // MARK: - Test Accessors
     //
     // The block below is read-only support for XCTest assertions. It uses
@@ -1774,4 +1525,5 @@ final class SidebarWorklaneRowButton: NSButton {
     var appearanceMatchForTesting: NSAppearance.Name? {
         appearance?.bestMatch(from: [.darkAqua, .aqua])
     }
+#endif
 }

@@ -86,7 +86,7 @@ More detail about the Ghostty bootstrap flow lives in [`docs/ghosttykit-setup.md
 Run the full test suite:
 
 ```bash
-xcodebuild test -scheme Zentty -destination 'platform=macOS'
+ZENTTY_TEST_DISPLAY_PROVIDER=betterdisplay scripts/test-on-virtual-display
 ```
 
 ## Agent Hooks

@@ -4,6 +4,24 @@ import XCTest
 
 @MainActor
 final class SidebarWorklaneRowButtonColorTests: AppKitTestCase {
+    func test_style_resolver_tint_uses_hover_alpha_only_when_pane_row_is_not_hovered() {
+        let tint = SidebarWorklaneRowStyleResolver.tintColor(
+            worklaneColor: .red,
+            isActive: false,
+            isHovered: true,
+            isPaneRowHovered: false
+        )
+        let paneHoveredTint = SidebarWorklaneRowStyleResolver.tintColor(
+            worklaneColor: .red,
+            isActive: false,
+            isHovered: true,
+            isPaneRowHovered: true
+        )
+
+        XCTAssertEqual(tint.alpha, WorklaneColor.Alpha.hover, accuracy: 0.001)
+        XCTAssertEqual(paneHoveredTint.alpha, WorklaneColor.Alpha.inactive, accuracy: 0.001)
+    }
+
     func test_no_color_leaves_tint_layer_clear() {
         let row = makeRow()
         row.configure(with: makeSummary(color: nil, isActive: false), theme: ZenttyTheme.fallback(for: nil), animated: false)

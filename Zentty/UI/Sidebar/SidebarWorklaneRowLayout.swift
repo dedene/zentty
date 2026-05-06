@@ -20,6 +20,11 @@ enum WorklaneRowTextRow: Equatable {
     case overflow
 }
 
+enum SidebarWorklaneRowContentGroup: Equatable {
+    case standalone(WorklaneRowTextRow)
+    case pane(index: Int, rows: [WorklaneRowTextRow])
+}
+
 struct SidebarPaneStatusTrailingLayout: Equatable {
     let isVisible: Bool
     let width: CGFloat
@@ -151,6 +156,7 @@ struct WorklaneRowLayoutMetrics: Equatable {
 struct SidebarWorklaneRowLayout: Equatable {
     let mode: WorklaneRowMode
     let visibleTextRows: [WorklaneRowTextRow]
+    let contentGroups: [SidebarWorklaneRowContentGroup]
     let rowHeight: CGFloat
 
     init(
@@ -163,6 +169,7 @@ struct SidebarWorklaneRowLayout: Equatable {
 
         self.mode = mode
         self.visibleTextRows = visibleTextRows
+        contentGroups = Self.makeContentGroups(for: visibleTextRows)
         self.rowHeight = metrics.height(
             for: visibleTextRows,
             summary: summary,
@@ -601,6 +608,48 @@ struct SidebarWorklaneRowLayout: Equatable {
         8
     }
 
+    static func makeContentGroups(for visibleTextRows: [WorklaneRowTextRow]) -> [SidebarWorklaneRowContentGroup] {
+        var groups: [SidebarWorklaneRowContentGroup] = []
+        var currentPaneIndex: Int?
+        var contextPrefixConsumed = false
+
+        for row in visibleTextRows {
+            switch row {
+            case .panePrimary(let index):
+                if index != currentPaneIndex {
+                    currentPaneIndex = index
+                    var paneRows: [WorklaneRowTextRow] = [.panePrimary(index)]
+                    for next in visibleTextRows {
+                        switch next {
+                        case .paneDetail(let i) where i == index:
+                            paneRows.append(.paneDetail(i))
+                        case .contextPrefix where index == 0:
+                            paneRows.append(.contextPrefix)
+                            contextPrefixConsumed = true
+                        case .paneStatus(let i) where i == index:
+                            paneRows.append(.paneStatus(i))
+                        default:
+                            break
+                        }
+                    }
+                    groups.append(.pane(index: index, rows: paneRows))
+                }
+            case .paneDetail, .paneStatus:
+                break
+            case .contextPrefix:
+                if contextPrefixConsumed == false {
+                    currentPaneIndex = nil
+                    groups.append(.standalone(row))
+                }
+            default:
+                currentPaneIndex = nil
+                groups.append(.standalone(row))
+            }
+        }
+
+        return groups
+    }
+
 }
 
 enum SidebarPaneRowPresentationMode: Equatable {
@@ -677,4 +726,5 @@ private extension WorklaneRowLayoutMetrics {
             return lineHeight(for: row)
         }
     }
+
 }

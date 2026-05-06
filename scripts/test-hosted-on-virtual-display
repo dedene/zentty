@@ -1,138 +1,19 @@
 #!/usr/bin/env zsh
 set -euo pipefail
 
-display_name="${ZENTTY_TEST_SCREEN_NAME:-ZenttyTests}"
-provider="${ZENTTY_TEST_DISPLAY_PROVIDER:-auto}"
-created_display=0
-
-betterdisplay_command() {
-  if [[ -n "${ZENTTY_BETTERDISPLAY_COMMAND:-}" ]]; then
-    print -r -- "${ZENTTY_BETTERDISPLAY_COMMAND}"
-  elif command -v betterdisplaycli >/dev/null 2>&1; then
-    command -v betterdisplaycli
-  elif [[ -x /Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay ]]; then
-    print -r -- "/Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay"
-  else
-    return 1
-  fi
-}
-
-screen_exists() {
-  ZENTTY_SCREEN_LOOKUP_NAME="$display_name" /usr/bin/swift -e '
-import AppKit
-import Foundation
-
-let screenName = ProcessInfo.processInfo.environment["ZENTTY_SCREEN_LOOKUP_NAME"] ?? ""
-exit(NSScreen.screens.contains { $0.localizedName == screenName } ? 0 : 1)
-  ' >/dev/null 2>&1
-}
-
-wait_for_screen() {
-  local attempt
-  for attempt in {1..30}; do
-    if screen_exists; then
-      return 0
-    fi
-    sleep 0.5
-  done
-
-  print -u2 "error: virtual display '${display_name}' did not appear in NSScreen.screens"
-  return 1
-}
-
-resolve_provider() {
-  case "$provider" in
-    auto)
-      if betterdisplay_command >/dev/null 2>&1; then
-        print -r -- "betterdisplay"
-      elif command -v simpledisplayctl >/dev/null 2>&1; then
-        print -r -- "simpledisplay"
-      else
-        print -u2 "error: no virtual display provider CLI found"
-        print -u2 "Install BetterDisplay CLI with: brew install waydabber/betterdisplay/betterdisplaycli"
-        print -u2 "Or install SimpleDisplay CLI and set ZENTTY_TEST_DISPLAY_PROVIDER=simpledisplay."
-        return 1
-      fi
-      ;;
-    betterdisplay|simpledisplay)
-      print -r -- "$provider"
-      ;;
-    *)
-      print -u2 "error: unsupported ZENTTY_TEST_DISPLAY_PROVIDER='${provider}'"
-      print -u2 "Supported values: auto, betterdisplay, simpledisplay"
-      return 1
+has_test_selection=0
+for arg in "$@"; do
+  case "$arg" in
+    -only-testing|-only-testing:*|-skip-testing|-skip-testing:*|-testPlan)
+      has_test_selection=1
       ;;
   esac
-}
-
-create_betterdisplay() {
-  local bd
-  if ! bd="$(betterdisplay_command)"; then
-    print -u2 "error: BetterDisplay CLI not found"
-    print -u2 "Install it with: brew install waydabber/betterdisplay/betterdisplaycli"
-    print -u2 "Fallback supported if BetterDisplay.app is installed at /Applications/BetterDisplay.app."
-    return 1
-  fi
-
-  "$bd" create -devicetype=virtualscreen -virtualscreenname="$display_name" -aspectWidth=16 -aspectHeight=10 -virtualScreenHiDPI=on
-  "$bd" set -namelike="$display_name" -connected=on
-}
-
-cleanup_betterdisplay() {
-  local bd
-  bd="$(betterdisplay_command)" || return 0
-  "$bd" discard -namelike="$display_name" >/dev/null 2>&1 || true
-}
-
-create_simpledisplay() {
-  if ! command -v simpledisplayctl >/dev/null 2>&1; then
-    print -u2 "error: simpledisplayctl not found"
-    return 1
-  fi
-
-  simpledisplayctl create --width 2732 --height 2048 --name "$display_name" --hidpi
-}
-
-cleanup_simpledisplay() {
-  command -v simpledisplayctl >/dev/null 2>&1 || return 0
-  simpledisplayctl remove --name "$display_name" >/dev/null 2>&1 || true
-}
-
-cleanup() {
-  if [[ "$created_display" != "1" ]]; then
-    return
-  fi
-
-  case "$resolved_provider" in
-    betterdisplay) cleanup_betterdisplay ;;
-    simpledisplay) cleanup_simpledisplay ;;
-  esac
-}
-
-resolved_provider="$(resolve_provider)"
-trap cleanup EXIT INT TERM
-
-if screen_exists; then
-  print -r -- "Using existing display '${display_name}'. It will not be removed."
-else
-  case "$resolved_provider" in
-    betterdisplay) create_betterdisplay ;;
-    simpledisplay) create_simpledisplay ;;
-  esac
-  created_display=1
-  wait_for_screen
-fi
-
-export ZENTTY_TEST_SCREEN_NAME="$display_name"
+done
 
 xcode_args=("$@")
-if (( ${#xcode_args[@]} == 0 )); then
-  xcode_args=("-only-testing:ZenttyTests")
+if (( has_test_selection == 0 )); then
+  xcode_args=("-only-testing:ZenttyTests" "${xcode_args[@]}")
 fi
 
-TEST_RUNNER_SWIFT_BACKTRACE=enable=no \
-  TEST_RUNNER_ZENTTY_TEST_SCREEN_NAME="$display_name" \
-  xcodebuild test \
-  -scheme Zentty \
-  -destination 'platform=macOS' \
-  "${xcode_args[@]}"
+script_dir="${0:A:h}"
+exec "$script_dir/test-on-virtual-display" "${xcode_args[@]}"

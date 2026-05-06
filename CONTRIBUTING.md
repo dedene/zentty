@@ -34,7 +34,7 @@ Bootstrap the required Ghostty framework:
 Run the test suite:
 
 ```bash
-xcodebuild test -scheme Zentty -destination 'platform=macOS'
+ZENTTY_TEST_DISPLAY_PROVIDER=betterdisplay scripts/test-on-virtual-display
 ```
 
 Regenerate the Xcode project when needed:
@@ -55,7 +55,7 @@ xcodebuild -scheme Zentty -destination 'platform=macOS' \
 For test-only runs, you can skip signing entirely:
 
 ```bash
-xcodebuild test -scheme Zentty -destination 'platform=macOS' \
+ZENTTY_TEST_DISPLAY_PROVIDER=betterdisplay scripts/test-on-virtual-display \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 ```
 

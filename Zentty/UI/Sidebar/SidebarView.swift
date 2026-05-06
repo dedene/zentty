@@ -817,6 +817,7 @@ final class SidebarView: NSView {
         return startWidth + translation
     }
 
+#if DEBUG
     var worklanePrimaryTexts: [String] {
         worklaneSummaries.map(\.primaryText)
     }
@@ -1032,6 +1033,7 @@ final class SidebarView: NSView {
             translation: translation
         )
     }
+#endif
 }
 
 private extension SidebarView {

@@ -519,6 +519,59 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
         )
     }
 
+    func test_content_groups_bundle_single_pane_rows_with_context_prefix() {
+        let summary = makeSummary(
+            topLabel: "Docs",
+            contextPrefixText: ".../Development",
+            paneRows: [
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-agent"),
+                    primaryText: "Claude Code",
+                    trailingText: "main",
+                    detailText: ".../zentty",
+                    statusText: "Running",
+                    attentionState: .running,
+                    isFocused: true,
+                    isWorking: true
+                )
+            ],
+            overflowText: "+2 pending"
+        )
+
+        let layout = SidebarWorklaneRowLayout(summary: summary, availableWidth: 320)
+
+        XCTAssertEqual(
+            layout.contentGroups,
+            [
+                .standalone(.topLabel),
+                .pane(index: 0, rows: [.panePrimary(0), .paneDetail(0), .contextPrefix, .paneStatus(0)]),
+                .standalone(.overflow),
+            ]
+        )
+    }
+
+    func test_content_groups_keep_non_pane_rows_standalone() {
+        let layout = SidebarWorklaneRowLayout(summary: makeSummary(
+            topLabel: "Docs",
+            statusText: "Needs input",
+            detailLines: [
+                WorklaneSidebarDetailLine(text: "feature/sidebar - zentty", emphasis: .primary),
+            ],
+            overflowText: "+2 more"
+        ))
+
+        XCTAssertEqual(
+            layout.contentGroups,
+            [
+                .standalone(.topLabel),
+                .standalone(.primary),
+                .standalone(.detail(0)),
+                .standalone(.status),
+                .standalone(.overflow),
+            ]
+        )
+    }
+
     func test_sidebar_row_status_trailing_layout_hides_long_branch_when_narrow_and_restores_when_wider() {
         let paneRow = WorklaneSidebarPaneRow(
             paneID: PaneID("worklane-main-agent"),

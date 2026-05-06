@@ -9,7 +9,7 @@ final class SidebarRowDiffTests: XCTestCase {
 
         XCTAssertTrue(diff.removals.isEmpty)
         XCTAssertTrue(diff.insertions.isEmpty)
-        XCTAssertTrue(diff.moves.isEmpty)
+        XCTAssertTrue(diff.orderChanges.isEmpty)
         XCTAssertTrue(diff.updates.isEmpty)
         XCTAssertFalse(diff.hasStructuralChange)
     }
@@ -22,7 +22,7 @@ final class SidebarRowDiffTests: XCTestCase {
         XCTAssertEqual(diff.insertions[0].index, 0)
         XCTAssertEqual(diff.insertions.first!.summary.worklaneID, WorklaneID("A"))
         XCTAssertTrue(diff.removals.isEmpty)
-        XCTAssertTrue(diff.moves.isEmpty)
+        XCTAssertTrue(diff.orderChanges.isEmpty)
         XCTAssertTrue(diff.hasStructuralChange)
     }
 
@@ -34,7 +34,7 @@ final class SidebarRowDiffTests: XCTestCase {
         XCTAssertEqual(diff.removals[0].index, 0)
         XCTAssertEqual(diff.removals[0].worklaneID, WorklaneID("A"))
         XCTAssertTrue(diff.insertions.isEmpty)
-        XCTAssertTrue(diff.moves.isEmpty)
+        XCTAssertTrue(diff.orderChanges.isEmpty)
         XCTAssertTrue(diff.hasStructuralChange)
     }
 
@@ -75,9 +75,9 @@ final class SidebarRowDiffTests: XCTestCase {
         XCTAssertTrue(diff.insertions.isEmpty)
     }
 
-    // MARK: - Moves
+    // MARK: - Order changes
 
-    func test_move_reorder() {
+    func test_order_change_reorder() {
         let a = makeSummary("A")
         let b = makeSummary("B")
         let c = makeSummary("C")
@@ -85,11 +85,11 @@ final class SidebarRowDiffTests: XCTestCase {
 
         XCTAssertTrue(diff.removals.isEmpty)
         XCTAssertTrue(diff.insertions.isEmpty)
-        XCTAssertFalse(diff.moves.isEmpty)
+        XCTAssertFalse(diff.orderChanges.isEmpty)
         XCTAssertTrue(diff.hasStructuralChange)
 
         // All three are at different positions.
-        let movedIDs = Set(diff.moves.map(\.worklaneID))
+        let movedIDs = Set(diff.orderChanges.map(\.worklaneID))
         XCTAssertTrue(movedIDs.contains(WorklaneID("C")))
         XCTAssertTrue(movedIDs.contains(WorklaneID("A")))
     }
@@ -104,7 +104,7 @@ final class SidebarRowDiffTests: XCTestCase {
 
         XCTAssertTrue(diff.removals.isEmpty)
         XCTAssertTrue(diff.insertions.isEmpty)
-        XCTAssertTrue(diff.moves.isEmpty)
+        XCTAssertTrue(diff.orderChanges.isEmpty)
         XCTAssertFalse(diff.hasStructuralChange)
         XCTAssertEqual(diff.updates.count, 1)
         XCTAssertEqual(diff.updates[0].worklaneID, WorklaneID("A"))
@@ -118,7 +118,7 @@ final class SidebarRowDiffTests: XCTestCase {
 
         XCTAssertTrue(diff.removals.isEmpty)
         XCTAssertTrue(diff.insertions.isEmpty)
-        XCTAssertTrue(diff.moves.isEmpty)
+        XCTAssertTrue(diff.orderChanges.isEmpty)
         XCTAssertTrue(diff.updates.isEmpty)
         XCTAssertFalse(diff.hasStructuralChange)
     }
@@ -143,11 +143,11 @@ final class SidebarRowDiffTests: XCTestCase {
         let insertedIDs = Set(diff.insertions.map(\.summary.worklaneID))
         XCTAssertEqual(insertedIDs, [WorklaneID("D"), WorklaneID("E")])
 
-        // A moved from index 0 to index 1
-        let aMoves = diff.moves.filter { $0.worklaneID == WorklaneID("A") }
-        XCTAssertEqual(aMoves.count, 1)
-        XCTAssertEqual(aMoves[0].fromIndex, 0)
-        XCTAssertEqual(aMoves[0].toIndex, 1)
+        // A changed order position from index 0 to index 1.
+        let aOrderChanges = diff.orderChanges.filter { $0.worklaneID == WorklaneID("A") }
+        XCTAssertEqual(aOrderChanges.count, 1)
+        XCTAssertEqual(aOrderChanges[0].fromIndex, 0)
+        XCTAssertEqual(aOrderChanges[0].toIndex, 1)
     }
 
     func test_full_replacement() {

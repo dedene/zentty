@@ -84,6 +84,7 @@
 		39721130F49DA6F5A8ACE5DB /* PresentationReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F44720E310A2D65A5867D5AC /* PresentationReducer.swift */; };
 		3A9A36F98D4A239EC59BF56B /* WorklaneSessionEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 475875CF8F562326EDD395B9 /* WorklaneSessionEnvironmentTests.swift */; };
 		3C27BE61B2B00785B0BC5BB7 /* SessionRestoreStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE9959CFC3168BC8324CC3C /* SessionRestoreStoreTests.swift */; };
+		3D1215D6569A04E56328D295 /* SidebarWorklaneRowStyleResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1973D41434D3540DC3A5D582 /* SidebarWorklaneRowStyleResolver.swift */; };
 		3D8E68F60EB0EE09177233CC /* WorklaneHeaderSummaryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239D19C1C465BA5197EBC394 /* WorklaneHeaderSummaryBuilder.swift */; };
 		3DCBA0FA944C7437C270DE8B /* SidebarWorklaneReorderModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E30C709665B28CA5A52C11 /* SidebarWorklaneReorderModelTests.swift */; };
 		3F270AD6399CAA5729853F2D /* PaneContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F299D46F21F8BC295D1F0B3 /* PaneContainerView.swift */; };
@@ -413,6 +414,7 @@
 		1703E7CBF1D46D10D30281FC /* KimiHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiHooksInstaller.swift; sourceTree = "<group>"; };
 		172E7F852B70FDD655345CF4 /* CodexTitlePromotionReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTitlePromotionReducer.swift; sourceTree = "<group>"; };
 		1750C0A516E7016E42B94EC2 /* SidebarWorklaneDragGestureTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneDragGestureTracker.swift; sourceTree = "<group>"; };
+		1973D41434D3540DC3A5D582 /* SidebarWorklaneRowStyleResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowStyleResolver.swift; sourceTree = "<group>"; };
 		19801FEA1E31AE1665776372 /* OpenWithCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWithCatalog.swift; sourceTree = "<group>"; };
 		1AB93DE6432DD894D0CA2C72 /* SidebarBookmarksButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarBookmarksButton.swift; sourceTree = "<group>"; };
 		1AE59622A5FC54739F5CC7AA /* ZenttyCLIDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyCLIDiscoveryTests.swift; sourceTree = "<group>"; };
@@ -1199,6 +1201,7 @@
 				6036CEA3DA007CEA2955C180 /* SidebarWorklaneRowButton.swift */,
 				916D215502518D8BAF3C3921 /* SidebarWorklaneRowLayout.swift */,
 				0EC3C3E57E52AACEA9F6C90C /* SidebarWorklaneRowPresentation.swift */,
+				1973D41434D3540DC3A5D582 /* SidebarWorklaneRowStyleResolver.swift */,
 				677818B56188202E6289EC96 /* WorklaneColorMenuItemView.swift */,
 				F486F3A22B74F1699C4D18B9 /* WorklaneSidebarSummary.swift */,
 				A594231C8131296490BB8E76 /* WorklaneSidebarSummaryBuilder.swift */,
@@ -1877,6 +1880,7 @@
 				54429983035325D5F12099E2 /* SidebarWorklaneRowButton.swift in Sources */,
 				C41A9DA1C5F846F4F63F7D95 /* SidebarWorklaneRowLayout.swift in Sources */,
 				38097CB04F82C5C29109E67B /* SidebarWorklaneRowPresentation.swift in Sources */,
+				3D1215D6569A04E56328D295 /* SidebarWorklaneRowStyleResolver.swift in Sources */,
 				4A3471E1B0600EF1412C3932 /* SparkleAppUpdateController.swift in Sources */,
 				DC139F18052FBD8126678D7F /* TerminalAdapter.swift in Sources */,
 				21B5B2D8D083E4D952FD9E03 /* TerminalClipboard.swift in Sources */,

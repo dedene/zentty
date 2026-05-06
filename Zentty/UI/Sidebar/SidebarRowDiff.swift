@@ -8,11 +8,10 @@ import Foundation
 /// - **Removals** — IDs present in `old` but absent in `new`.
 /// - **Insertions** — IDs present in `new` but absent in `old`. Indices
 ///   refer to positions in the `new` array.
-/// - **Moves** — IDs present in both arrays but at different indices.
+/// - **Order changes** — IDs present in both arrays but at different indices.
 ///   The sidebar renderer rebuilds the arranged subview order from the target
 ///   summary order while preserving surviving button instances.
-/// - **Updates** — IDs present in both arrays at the same position (or
-///   after a move) whose summary has changed. The existing button is reused
+/// - **Updates** — IDs present in both arrays whose summary has changed. The existing button is reused
 ///   and re-configured in-place.
 ///
 /// Complexity: O(n) where n = max(old.count, new.count), using an ID→index
@@ -30,7 +29,7 @@ struct SidebarRowDiff {
         let worklaneID: WorklaneID
     }
 
-    struct Move {
+    struct OrderChange {
         let worklaneID: WorklaneID
         /// Index in the **old** array.
         let fromIndex: Int
@@ -47,13 +46,13 @@ struct SidebarRowDiff {
 
     let removals: [Removal]
     let insertions: [Insertion]
-    let moves: [Move]
+    let orderChanges: [OrderChange]
     let updates: [Update]
 
-    /// Whether the diff describes any structural change (add/remove/move).
+    /// Whether the diff describes any structural change (add/remove/order change).
     /// When false, only in-place updates (or nothing at all) are needed.
     var hasStructuralChange: Bool {
-        !removals.isEmpty || !insertions.isEmpty || !moves.isEmpty
+        !removals.isEmpty || !insertions.isEmpty || !orderChanges.isEmpty
     }
 
     /// Compute the diff between two ordered summary arrays.
@@ -89,8 +88,8 @@ struct SidebarRowDiff {
             }
         }
 
-        // Moves + Updates: in both, check position and content.
-        var moves: [Move] = []
+        // Order changes + Updates: in both, check position and content.
+        var orderChanges: [OrderChange] = []
         var updates: [Update] = []
         for (newIndex, summary) in new.enumerated() {
             guard let oldIndex = oldMap[summary.worklaneID] else {
@@ -98,7 +97,7 @@ struct SidebarRowDiff {
             }
 
             if oldIndex != newIndex {
-                moves.append(Move(
+                orderChanges.append(OrderChange(
                     worklaneID: summary.worklaneID,
                     fromIndex: oldIndex,
                     toIndex: newIndex
@@ -117,7 +116,7 @@ struct SidebarRowDiff {
         return SidebarRowDiff(
             removals: removals,
             insertions: insertions,
-            moves: moves,
+            orderChanges: orderChanges,
             updates: updates
         )
     }

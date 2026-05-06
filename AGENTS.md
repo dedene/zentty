@@ -6,24 +6,25 @@ Two test targets:
 - **ZenttyLogicTests** — no app host, parallel-safe. Pure logic + detached AppKit component tests (~380 tests).
 - **ZenttyTests** — hosted in Zentty.app, serial. Tests that need real windows or app lifecycle (~24 tests).
 
-Run the full all-target gate only when you explicitly need Logic + hosted app + integration in one command. This will run hosted AppKit tests on the active display:
+Run the full all-target gate only when you explicitly need Logic + hosted app + integration in one command. Use the virtual-display harness so AppKit windows are created on the test display:
 ```
-TEST_RUNNER_SWIFT_BACKTRACE=enable=no xcodebuild test -scheme Zentty -destination 'platform=macOS'
+ZENTTY_TEST_DISPLAY_PROVIDER=betterdisplay scripts/test-on-virtual-display
 ```
 
-For normal local verification of hosted window/AppKit behavior, use the virtual-display harness instead of running `ZenttyTests` through plain `xcodebuild`:
+For normal local verification of hosted window/AppKit behavior, use the hosted virtual-display wrapper instead of running `ZenttyTests` through plain `xcodebuild`:
 ```
 scripts/test-hosted-on-virtual-display
 ```
 
-The virtual-display harness is the expected local path for `ZenttyTests`. It creates or reuses a display named `ZenttyTests`, sets `ZENTTY_TEST_SCREEN_NAME=ZenttyTests`, and runs the hosted `ZenttyTests` target. It supports `ZENTTY_TEST_DISPLAY_PROVIDER=auto`, `betterdisplay`, or `simpledisplay`; `auto` prefers BetterDisplay when available. This can move test windows off the active display, but AppKit tests still run in the same Aqua session and can still steal focus.
+The virtual-display harness is the expected local path for tests that can create AppKit windows. It creates or reuses a display named `ZenttyTests`, sets `ZENTTY_TEST_SCREEN_NAME=ZenttyTests`, and runs the scheme's testables by default. It supports `ZENTTY_TEST_DISPLAY_PROVIDER=auto`, `betterdisplay`, or `simpledisplay`; `auto` prefers BetterDisplay when available. This moves prepared test windows off the active display, but AppKit tests still run in the same Aqua session and can still steal focus.
 
-**Always prefix with `TEST_RUNNER_SWIFT_BACKTRACE=enable=no`.** On macOS 26 (Tahoe) the Swift backtrace handler shows an interactive "Press space to interact" prompt on crash, which hangs xcodebuild indefinitely until a 30s timeout. The `TEST_RUNNER_` prefix forwards env vars from xcodebuild to the xctest subprocess (a plain `SWIFT_BACKTRACE=...` on xcodebuild does NOT propagate).
+The virtual-display scripts set `TEST_RUNNER_SWIFT_BACKTRACE=enable=no`. If you bypass them and call `xcodebuild` directly, always prefix with `TEST_RUNNER_SWIFT_BACKTRACE=enable=no`. On macOS 26 (Tahoe) the Swift backtrace handler shows an interactive "Press space to interact" prompt on crash, which hangs xcodebuild indefinitely until a 30s timeout. The `TEST_RUNNER_` prefix forwards env vars from xcodebuild to the xctest subprocess (a plain `SWIFT_BACKTRACE=...` on xcodebuild does NOT propagate).
 
 Multiple agents often run in parallel in this repo.
 
 Guidelines:
 - New tests go in `ZenttyLogicTests` unless they call `showWindow()`, `makeKeyAndOrderFront()`, or access `NSApp` lifecycle.
+- Use `scripts/test-on-virtual-display -only-testing:ZenttyLogicTests` for local `ZenttyLogicTests` runs that may create real AppKit windows.
 - Use `scripts/test-hosted-on-virtual-display` for local `ZenttyTests` runs that open real AppKit windows.
 - Tests that create windows must close them in `tearDown` or `addTeardownBlock`.
 - Use XCTest expectations instead of `RunLoop.current.run(until:)`.
