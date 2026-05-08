@@ -51,12 +51,14 @@ final class PaneStripView: NSView {
     var onPaneReorderRequested: ((PaneID, Int, Bool) -> Void)?
     var onPaneReorderInColumnRequested: ((PaneID, PaneColumnID, Int, Bool) -> Void)?
     var onPaneSplitDropRequested: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool, Bool) -> Void)?
-    var onPaneCrossWorklaneDropRequested: ((PaneID, WorklaneID, Bool) -> Void)?
+    var onPaneCrossWorklaneDropRequested: ((PaneID, WorklaneID, Int?, Bool) -> Void)?
     var sidebarWorklaneFrameProvider: (() -> [(WorklaneID, CGRect)])?
+    var sidebarPaneBoundaryProvider: (() -> [(WorklaneID, [PaneInsertionBoundary])])?
     var onDragApproachingSidebarEdge: ((Bool) -> Void)?
     var onHoveredSidebarWorklaneChanged: ((WorklaneID?) -> Void)?
-    var onNewWorklanePlaceholderVisibilityChanged: ((Bool) -> Void)?
+    var onNewWorklanePlaceholderVisibilityChanged: ((Int?) -> Void)?
     var onSidebarScrollRequested: ((CGFloat) -> Void)?
+    var onSidebarInsertionLineChanged: ((CGFloat?) -> Void)?
     var onDragActiveChanged: ((Bool) -> Void)?
     var onLeadingInsetChangedDuringDrag: ((CGFloat) -> Void)?
     var activeWorklaneIDProvider: (() -> WorklaneID?)?
@@ -220,7 +222,7 @@ final class PaneStripView: NSView {
         setupDragCoordinator()
     }
 
-    var onPaneNewWorklaneDropRequested: ((PaneID, Bool) -> Void)?
+    var onPaneNewWorklaneDropRequested: ((PaneID, Int, Bool) -> Void)?
 
     private func setupDragCoordinator() {
         dragCoordinator.onReorder = { [weak self] paneID, columnIndex, isDuplicate in
@@ -242,11 +244,11 @@ final class PaneStripView: NSView {
             }
             self.onDragActiveChanged?(active)
         }
-        dragCoordinator.onSidebarDrop = { [weak self] paneID, worklaneID, isDuplicate in
-            self?.onPaneCrossWorklaneDropRequested?(paneID, worklaneID, isDuplicate)
+        dragCoordinator.onSidebarDrop = { [weak self] paneID, worklaneID, paneIndex, isDuplicate in
+            self?.onPaneCrossWorklaneDropRequested?(paneID, worklaneID, paneIndex, isDuplicate)
         }
-        dragCoordinator.onSidebarNewWorklaneDrop = { [weak self] paneID, isDuplicate in
-            self?.onPaneNewWorklaneDropRequested?(paneID, isDuplicate)
+        dragCoordinator.onSidebarNewWorklaneDrop = { [weak self] paneID, insertionIndex, isDuplicate in
+            self?.onPaneNewWorklaneDropRequested?(paneID, insertionIndex, isDuplicate)
         }
         dragCoordinator.onHoveredSidebarWorklaneChanged = { [weak self] worklaneID in
             self?.onHoveredSidebarWorklaneChanged?(worklaneID)
@@ -269,11 +271,17 @@ final class PaneStripView: NSView {
         dragCoordinator.sidebarWidthProvider = { [weak self] in
             self?.sidebarWidthProvider?() ?? 0
         }
-        dragCoordinator.onNewWorklanePlaceholderVisibilityChanged = { [weak self] visible in
-            self?.onNewWorklanePlaceholderVisibilityChanged?(visible)
+        dragCoordinator.onNewWorklanePlaceholderVisibilityChanged = { [weak self] insertionIndex in
+            self?.onNewWorklanePlaceholderVisibilityChanged?(insertionIndex)
         }
         dragCoordinator.onSidebarScrollRequested = { [weak self] delta in
             self?.onSidebarScrollRequested?(delta)
+        }
+        dragCoordinator.onSidebarInsertionLineChanged = { [weak self] lineY in
+            self?.onSidebarInsertionLineChanged?(lineY)
+        }
+        dragCoordinator.sidebarPaneBoundaryProvider = { [weak self] in
+            self?.sidebarPaneBoundaryProvider?() ?? []
         }
     }
 

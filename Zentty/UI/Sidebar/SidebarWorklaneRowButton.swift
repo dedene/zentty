@@ -333,6 +333,69 @@ final class SidebarWorklaneRowButton: NSButton {
         paneRowRenderer.setShimmerVisibility(isVisible)
     }
 
+    /// Returns Y positions of pane insertion boundaries within this worklane row,
+    /// in the given target view's coordinate space. Boundaries sit at the midpoint
+    /// of each gap between pane rows (first/last at the top/bottom of the row).
+    /// Only containers currently in the view hierarchy are considered, so stale
+    /// containers from previous configurations never produce phantom boundaries.
+    func paneRowInsertionBoundaries(in targetView: NSView) -> [PaneInsertionBoundary] {
+        guard let summary = currentSummary, summary.paneRows.isEmpty == false else {
+            return []
+        }
+
+        let paneCount = summary.paneRows.count
+        guard paneRowContainers.count >= paneCount else {
+            return []
+        }
+
+        let activeContainers = paneRowContainers.prefix(paneCount)
+        guard activeContainers.allSatisfy({ container in
+            textStack.arrangedSubviews.contains(container)
+                && container.superview != nil
+                && !container.isHidden
+                && container.bounds.width > 0
+                && container.bounds.height > 0
+        }) else {
+            return []
+        }
+
+        let frames: [CGRect] = activeContainers.map { $0.convert($0.bounds, to: targetView) }
+        guard frames.allSatisfy({ $0.minY.isFinite && $0.maxY.isFinite && $0.height > 0 }) else {
+            return []
+        }
+
+        var boundaries: [PaneInsertionBoundary] = []
+        let tolerance: CGFloat = 0.5
+
+        if targetView.isFlipped {
+            boundaries.append(PaneInsertionBoundary(y: frames[0].minY))
+
+            for i in 1..<frames.count {
+                guard frames[i - 1].maxY <= frames[i].minY + tolerance else {
+                    return []
+                }
+                let gapMid = (frames[i - 1].maxY + frames[i].minY) / 2
+                boundaries.append(PaneInsertionBoundary(y: gapMid))
+            }
+
+            boundaries.append(PaneInsertionBoundary(y: frames.last!.maxY))
+        } else {
+            boundaries.append(PaneInsertionBoundary(y: frames[0].maxY))
+
+            for i in 1..<frames.count {
+                guard frames[i - 1].minY + tolerance >= frames[i].maxY else {
+                    return []
+                }
+                let gapMid = (frames[i - 1].minY + frames[i].maxY) / 2
+                boundaries.append(PaneInsertionBoundary(y: gapMid))
+            }
+
+            boundaries.append(PaneInsertionBoundary(y: frames.last!.minY))
+        }
+
+        return boundaries
+    }
+
     func setDropTargetHighlighted(_ highlighted: Bool) {
         chrome.setDropTargetHighlighted(
             highlighted,

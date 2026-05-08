@@ -634,12 +634,20 @@ final class RootViewController: NSViewController {
             }
         }
         appCanvasView.paneStripView.onPaneCrossWorklaneDropRequested = {
-            [weak self] paneID, worklaneID, isDuplicate in
+            [weak self] paneID, worklaneID, paneIndex, isDuplicate in
             guard let self else { return }
             if isDuplicate {
                 self.worklaneStore.duplicatePaneToWorklane(
                     paneID: paneID,
                     targetWorklaneID: worklaneID,
+                    atPaneIndex: paneIndex,
+                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
+                )
+            } else if let paneIndex {
+                self.worklaneStore.transferPaneToWorklane(
+                    paneID: paneID,
+                    targetWorklaneID: worklaneID,
+                    atPaneIndex: paneIndex,
                     singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
                 )
             } else {
@@ -651,24 +659,26 @@ final class RootViewController: NSViewController {
             }
         }
         appCanvasView.paneStripView.onPaneNewWorklaneDropRequested = {
-            [weak self] paneID, isDuplicate in
+            [weak self] paneID, insertionIndex, isDuplicate in
             guard let self else { return }
             if isDuplicate {
                 self.worklaneStore.duplicatePaneToNewWorklane(
                     paneID: paneID,
+                    atIndex: insertionIndex,
                     singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
                 )
             } else {
                 self.worklaneStore.transferPaneToNewWorklane(
                     paneID: paneID,
+                    atIndex: insertionIndex,
                     singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
                 )
             }
         }
         appCanvasView.paneStripView.onNewWorklanePlaceholderVisibilityChanged = {
-            [weak self] visible in
-            if visible {
-                self?.sidebarView.showNewWorklanePlaceholder()
+            [weak self] insertionIndex in
+            if let insertionIndex {
+                self?.sidebarView.showNewWorklanePlaceholder(atIndex: insertionIndex)
             } else {
                 self?.sidebarView.hideNewWorklanePlaceholder()
             }
@@ -676,9 +686,22 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onSidebarScrollRequested = { [weak self] delta in
             self?.sidebarView.adjustScrollOffset(by: delta)
         }
+        appCanvasView.paneStripView.onSidebarInsertionLineChanged = { [weak self] lineY in
+            guard let self else { return }
+            if let lineY {
+                let yInDocument = self.sidebarView.convertYForInsertionLine(lineY, from: self.appCanvasView)
+                self.sidebarView.showInsertionLine(atY: yInDocument)
+            } else {
+                self.sidebarView.hideInsertionLine()
+            }
+        }
         appCanvasView.paneStripView.sidebarWorklaneFrameProvider = { [weak self] in
             guard let self else { return [] }
             return self.sidebarView.worklaneRowFrames(in: self.appCanvasView)
+        }
+        appCanvasView.paneStripView.sidebarPaneBoundaryProvider = { [weak self] in
+            guard let self else { return [] }
+            return self.sidebarView.paneInsertionBoundaries(in: self.appCanvasView)
         }
         appCanvasView.paneStripView.onDragApproachingSidebarEdge = { [weak self] approaching in
             guard let self else { return }
