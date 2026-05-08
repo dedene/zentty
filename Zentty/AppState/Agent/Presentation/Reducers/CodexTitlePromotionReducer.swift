@@ -13,6 +13,7 @@ struct CodexTitlePromotionReducer: PresentationReducer {
     ) -> PresentationDraft {
         guard
             context.recognizedTool == .codex,
+            !context.raw.codexInterruptSuppressionIsActive(),
             let agentState = context.raw.agentStatus?.state,
             let titlePhase = context.titlePhase
         else {

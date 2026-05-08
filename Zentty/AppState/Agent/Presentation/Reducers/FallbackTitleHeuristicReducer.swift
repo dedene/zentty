@@ -12,6 +12,10 @@ struct FallbackTitleHeuristicReducer: PresentationReducer {
         guard let titlePhase = context.titlePhase else {
             return draft
         }
+        if context.recognizedTool == .codex,
+           context.raw.codexInterruptSuppressionIsActive() {
+            return draft
+        }
 
         var draft = draft
         draft.runtimePhase = titlePhase

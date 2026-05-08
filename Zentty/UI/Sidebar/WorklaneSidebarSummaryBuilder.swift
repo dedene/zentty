@@ -442,7 +442,8 @@ enum WorklaneSidebarSummaryBuilder {
         let branch = presentation.branchDisplayText
         let workingDirectory = compactWorkingDirectory(for: presentation)
 
-        if let recognizedTool = presentation.recognizedTool,
+        if presentation.runtimePhase != .needsInput,
+           let recognizedTool = presentation.recognizedTool,
            let volatileTitle = WorklaneContextFormatter.trimmed(metadata?.title),
            TerminalMetadataChangeClassifier.isRealtimeAgentStatusTitle(
                volatileTitle,
@@ -956,7 +957,7 @@ enum WorklaneSidebarSummaryBuilder {
         }
 
         if attentionState == .needsInput {
-            return interactionLabel ?? interactionKind?.defaultLabel ?? fallback ?? plainStatusText(for: attentionState)
+            return interactionLabel ?? interactionKind?.defaultLabel ?? plainStatusText(for: attentionState)
         }
 
         return fallback ?? plainStatusText(for: attentionState)

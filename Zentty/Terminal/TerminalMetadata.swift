@@ -125,6 +125,12 @@ enum TerminalMetadataChangeClassifier {
                 subject: threadStatus.subject
             )
         }
+        if let actionRequired = parseCodexActionRequiredTitle(normalized) {
+            return VolatileAgentStatusTitleSignature(
+                phase: .needsInput,
+                subject: actionRequired.subject
+            )
+        }
 
         guard let parsed = parseAgentStatusTitle(
                   normalized,
@@ -297,6 +303,9 @@ enum TerminalMetadataChangeClassifier {
         if let threadStatus = parseCodexThreadStatusTitle(normalized) {
             return threadStatus.interactionKind
         }
+        if let actionRequired = parseCodexActionRequiredTitle(normalized) {
+            return actionRequired.interactionKind
+        }
 
         guard codexWaitingTitleKind(for: rawNormalized) == .needsInput else {
             return nil
@@ -363,12 +372,40 @@ enum TerminalMetadataChangeClassifier {
         case "approval":
             interactionKind = .approval
         case "input":
-            interactionKind = .question
+            interactionKind = .genericInput
         default:
             return nil
         }
 
         return (normalized.lowercased(), interactionKind)
+    }
+
+    private static func parseCodexActionRequiredTitle(
+        _ normalized: String
+    ) -> (subject: String, interactionKind: PaneAgentInteractionKind)? {
+        let stripped = stripCodexTitleBadge(from: normalized)
+        let actionRequiredPrefix = "action required"
+        guard stripped.lowercased().hasPrefix(actionRequiredPrefix) else {
+            return nil
+        }
+
+        return (stripped.lowercased(), .genericInput)
+    }
+
+    private static func stripCodexTitleBadge(from value: String) -> String {
+        var remainder = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard remainder.hasPrefix("["),
+              let closingIndex = remainder.firstIndex(of: "]") else {
+            return remainder
+        }
+        let badge = remainder[remainder.index(after: remainder.startIndex)..<closingIndex]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard badge == "!" || badge == "." else {
+            return remainder
+        }
+        remainder = String(remainder[remainder.index(after: closingIndex)...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return remainder
     }
 
     private static func parseAgentStatusTitle(

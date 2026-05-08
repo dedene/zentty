@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import os
 
@@ -327,27 +328,10 @@ enum AgentLaunchBootstrap {
             return directPlan(executablePath: executablePath, arguments: arguments)
         }
 
-        var setEnvironment = ["ZENTTY_AGENT_TOOL": "codex"]
-        let overlayDirectoryURL = try prepareToolDirectory(
-            tool: .codex,
-            target: target,
-            runtimeDirectoryURL: runtimeDirectoryURL,
-            fileManager: fileManager
-        )
-
-        let sourceHomeURL = URL(fileURLWithPath: environment["CODEX_HOME"]?.nilIfBlank ?? "\(environment["HOME"] ?? NSHomeDirectory())/.codex", isDirectory: true)
-        if let overlayHomePath = try prepareCodexOverlay(
-            sourceHomeURL: sourceHomeURL,
-            overlayDirectoryURL: overlayDirectoryURL,
-            cliPath: cliPath,
-            fileManager: fileManager
-        ) {
-            setEnvironment["CODEX_HOME"] = overlayHomePath
-        }
-
+        let setEnvironment = ["ZENTTY_AGENT_TOOL": "codex"]
+        let unsetEnvironment = codexUnsetEnvironment(environment: environment)
         var plannedArguments = arguments
-        plannedArguments.insert(contentsOf: [
-            "-c", "features.codex_hooks=true",
+        plannedArguments.insert(contentsOf: codexHookConfigArguments(cliPath: cliPath) + [
             "-c", "tui.notification_method=osc9",
             "-c", #"tui.terminal_title=["status","spinner","project","task-progress"]"#,
         ], at: 0)
@@ -362,7 +346,7 @@ enum AgentLaunchBootstrap {
             executablePath: executablePath,
             arguments: plannedArguments,
             setEnvironment: setEnvironment,
-            unsetEnvironment: [],
+            unsetEnvironment: unsetEnvironment,
             preLaunchActions: []
         )
     }
@@ -563,37 +547,6 @@ enum AgentLaunchBootstrap {
         return executablePath
     }
 
-    private static func prepareCodexOverlay(
-        sourceHomeURL: URL,
-        overlayDirectoryURL: URL,
-        cliPath: String,
-        fileManager: FileManager
-    ) throws -> String? {
-        let overlayHomeURL = overlayDirectoryURL.appendingPathComponent("home", isDirectory: true)
-        try fileManager.createDirectory(at: overlayHomeURL, withIntermediateDirectories: true)
-        try symlinkDirectoryContentsSkipping(
-            from: sourceHomeURL,
-            to: overlayHomeURL,
-            skippingNames: ["hooks.json"],
-            fileManager: fileManager
-        )
-
-        let overlayHooksURL = overlayHomeURL.appendingPathComponent("hooks.json", isDirectory: false)
-        let sourceHooksURL = sourceHomeURL.appendingPathComponent("hooks.json", isDirectory: false)
-        if fileManager.fileExists(atPath: sourceHooksURL.path) {
-            let rawData = try Data(contentsOf: sourceHooksURL)
-            if let mergedData = try codexMergedHooksJSON(existingData: rawData, cliPath: cliPath) {
-                try mergedData.write(to: overlayHooksURL, options: .atomic)
-            } else {
-                try rawData.write(to: overlayHooksURL, options: .atomic)
-            }
-        } else {
-            try codexBaseHooksJSON(cliPath: cliPath).write(to: overlayHooksURL, options: .atomic)
-        }
-
-        return overlayHomeURL.path
-    }
-
     private static func prepareCopilotOverlay(
         sourceHomeURL: URL,
         overlayDirectoryURL: URL,
@@ -739,64 +692,98 @@ enum AgentLaunchBootstrap {
         try cleaned.write(to: kvURL, options: .atomic)
     }
 
-    private static func codexBaseHooksJSON(cliPath: String) throws -> Data {
-        let commands = [
-            "SessionStart": codexHookCommand(cliPath: cliPath, event: "session-start"),
-            "PreToolUse": codexHookCommand(cliPath: cliPath, event: "pre-tool-use"),
-            "PermissionRequest": codexHookCommand(cliPath: cliPath, event: "permission-request"),
-            "PostToolUse": codexHookCommand(cliPath: cliPath, event: "post-tool-use"),
-            "UserPromptSubmit": codexHookCommand(cliPath: cliPath, event: "prompt-submit"),
-            "Stop": codexHookCommand(cliPath: cliPath, event: "stop"),
-        ]
-        let hooks = Dictionary(uniqueKeysWithValues: commands.map { key, command in
-            (key, [[
-                "hooks": [[
-                    "type": "command",
-                    "command": command,
-                    "timeout": 10,
-                ]],
-            ]])
-        })
-        return try compactJSONData(["hooks": hooks])
+    private struct CodexHookTrustState {
+        var key: String
+        var trustedHash: String
     }
 
-    private static func codexMergedHooksJSON(existingData: Data, cliPath: String) throws -> Data? {
-        guard var jsonObject = try JSONSerialization.jsonObject(with: existingData) as? [String: Any] else {
-            return nil
-        }
-        let commands = [
-            ("SessionStart", codexHookCommand(cliPath: cliPath, event: "session-start")),
-            ("PreToolUse", codexHookCommand(cliPath: cliPath, event: "pre-tool-use")),
-            ("PermissionRequest", codexHookCommand(cliPath: cliPath, event: "permission-request")),
-            ("PostToolUse", codexHookCommand(cliPath: cliPath, event: "post-tool-use")),
-            ("UserPromptSubmit", codexHookCommand(cliPath: cliPath, event: "prompt-submit")),
-            ("Stop", codexHookCommand(cliPath: cliPath, event: "stop")),
-        ]
+    private struct CodexHookSpec {
+        var eventName: String
+        var eventKey: String
+        var eventArgument: String
+        var timeout: Int
+    }
 
-        guard var hooks = jsonObject["hooks"] as? [String: Any] else {
-            return try compactJSONData(jsonObject)
+    private static var codexHookSpecs: [CodexHookSpec] {
+        [
+            CodexHookSpec(eventName: "SessionStart", eventKey: "session_start", eventArgument: "session-start", timeout: 10),
+            CodexHookSpec(eventName: "PreToolUse", eventKey: "pre_tool_use", eventArgument: "pre-tool-use", timeout: 10),
+            CodexHookSpec(eventName: "PermissionRequest", eventKey: "permission_request", eventArgument: "permission-request", timeout: 10),
+            CodexHookSpec(eventName: "PostToolUse", eventKey: "post_tool_use", eventArgument: "post-tool-use", timeout: 10),
+            CodexHookSpec(eventName: "UserPromptSubmit", eventKey: "user_prompt_submit", eventArgument: "prompt-submit", timeout: 10),
+            CodexHookSpec(eventName: "Stop", eventKey: "stop", eventArgument: "stop", timeout: 10),
+        ]
+    }
+
+    private static func codexHookConfigArguments(cliPath: String) -> [String] {
+        var configValues = ["features.hooks=true"]
+        let trustStates = codexHookSpecs.map { spec in
+            let command = codexHookCommand(cliPath: cliPath, event: spec.eventArgument)
+            configValues.append(codexHookEventConfig(spec: spec, command: command))
+            return codexHookTrustState(
+                spec: spec,
+                matcher: nil,
+                command: command,
+                timeout: spec.timeout
+            )
         }
-        for (eventName, command) in commands {
-            var entries = hooks[eventName] as? [[String: Any]] ?? []
-            let alreadyPresent = entries.contains { entry in
-                let nestedHooks = entry["hooks"] as? [[String: Any]] ?? []
-                return nestedHooks.contains {
-                    ($0["type"] as? String) == "command" && ($0["command"] as? String) == command
-                }
-            }
-            if !alreadyPresent {
-                entries.append([
-                    "hooks": [[
-                        "type": "command",
-                        "command": command,
-                        "timeout": 10,
-                    ]],
-                ])
-            }
-            hooks[eventName] = entries
+        configValues.append(codexHookStateConfig(trustStates))
+        return configValues.flatMap { ["-c", $0] }
+    }
+
+    private static func codexHookEventConfig(spec: CodexHookSpec, command: String) -> String {
+        let commandValue = tomlBasicStringLiteral(command)
+        return "hooks.\(spec.eventName)=[{hooks=[{type=\"command\",command=\(commandValue),timeout=\(spec.timeout)}]}]"
+    }
+
+    private static func codexHookStateConfig(_ states: [CodexHookTrustState]) -> String {
+        let entries = states.map { state in
+            "\(tomlBasicStringLiteral(state.key))={trusted_hash=\(tomlBasicStringLiteral(state.trustedHash))}"
         }
-        jsonObject["hooks"] = hooks
-        return try compactJSONData(jsonObject)
+        return "hooks.state={\(entries.joined(separator: ","))}"
+    }
+
+    private static func codexHookTrustState(
+        spec: CodexHookSpec,
+        matcher: String?,
+        command: String,
+        timeout: Int
+    ) -> CodexHookTrustState {
+        CodexHookTrustState(
+            key: "/<session-flags>/config.toml:\(spec.eventKey):0:0",
+            trustedHash: codexHookTrustedHash(
+                eventKey: spec.eventKey,
+                matcher: matcher,
+                command: command,
+                timeout: timeout
+            )
+        )
+    }
+
+    private static func codexHookTrustedHash(
+        eventKey: String,
+        matcher: String?,
+        command: String,
+        timeout: Int
+    ) -> String {
+        var identity = CodexCanonicalJSON.object([
+            "event_name": .string(eventKey),
+            "hooks": .array([
+                .object([
+                    "async": .bool(false),
+                    "command": .string(command),
+                    "timeout": .number(timeout),
+                    "type": .string("command"),
+                ]),
+            ]),
+        ])
+        if let matcher {
+            identity["matcher"] = .string(matcher)
+        }
+
+        let digest = SHA256.hash(data: Data(identity.serialized().utf8))
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return "sha256:\(hex)"
     }
 
     private static func copilotBaseConfigJSON(cliPath: String) throws -> Data {
@@ -952,6 +939,29 @@ enum AgentLaunchBootstrap {
             }
         }
 
+        return false
+    }
+
+    private static func codexUnsetEnvironment(environment: [String: String]) -> [String] {
+        guard let codexHome = environment["CODEX_HOME"]?.nilIfBlank,
+              isZenttyLaunchCachePath(codexHome) else {
+            return []
+        }
+        return ["CODEX_HOME"]
+    }
+
+    private static func isZenttyLaunchCachePath(_ path: String) -> Bool {
+        let components = URL(fileURLWithPath: path, isDirectory: true).pathComponents
+        guard components.count >= 3 else {
+            return false
+        }
+        for index in 0...(components.count - 3) {
+            if components[index] == "Library",
+               components[index + 1] == "Caches",
+               components[index + 2] == "Zentty" {
+                return true
+            }
+        }
         return false
     }
 
@@ -1124,13 +1134,101 @@ enum AgentLaunchBootstrap {
     }
 
     private static func tomlBasicStringLiteral(_ string: String) -> String {
-        let escaped = string
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\t", with: "\\t")
-        return "\"\(escaped)\""
+        var output = "\""
+        for scalar in string.unicodeScalars {
+            switch scalar {
+            case "\u{08}":
+                output.append("\\b")
+            case "\t":
+                output.append("\\t")
+            case "\n":
+                output.append("\\n")
+            case "\u{0C}":
+                output.append("\\f")
+            case "\r":
+                output.append("\\r")
+            case "\"":
+                output.append("\\\"")
+            case "\\":
+                output.append("\\\\")
+            case _ where scalar.value < 0x20:
+                output.append(String(format: "\\u%04x", scalar.value))
+            default:
+                output.append(String(scalar))
+            }
+        }
+        output.append("\"")
+        return output
+    }
+
+    private indirect enum CodexCanonicalJSON {
+        case object([String: CodexCanonicalJSON])
+        case array([CodexCanonicalJSON])
+        case string(String)
+        case number(Int)
+        case bool(Bool)
+
+        subscript(key: String) -> CodexCanonicalJSON? {
+            get {
+                guard case let .object(values) = self else {
+                    return nil
+                }
+                return values[key]
+            }
+            set {
+                guard case var .object(values) = self else {
+                    return
+                }
+                values[key] = newValue
+                self = .object(values)
+            }
+        }
+
+        func serialized() -> String {
+            switch self {
+            case let .object(values):
+                let members = values.keys.sorted().map { key in
+                    "\(Self.escapedString(key)):\(values[key]?.serialized() ?? "null")"
+                }
+                return "{\(members.joined(separator: ","))}"
+            case let .array(values):
+                return "[\(values.map { $0.serialized() }.joined(separator: ","))]"
+            case let .string(value):
+                return Self.escapedString(value)
+            case let .number(value):
+                return String(value)
+            case let .bool(value):
+                return value ? "true" : "false"
+            }
+        }
+
+        private static func escapedString(_ value: String) -> String {
+            var output = "\""
+            for scalar in value.unicodeScalars {
+                switch scalar {
+                case "\"":
+                    output.append("\\\"")
+                case "\\":
+                    output.append("\\\\")
+                case "\u{08}":
+                    output.append("\\b")
+                case "\u{0C}":
+                    output.append("\\f")
+                case "\n":
+                    output.append("\\n")
+                case "\r":
+                    output.append("\\r")
+                case "\t":
+                    output.append("\\t")
+                case _ where scalar.value < 0x20:
+                    output.append(String(format: "\\u%04x", scalar.value))
+                default:
+                    output.append(String(scalar))
+                }
+            }
+            output.append("\"")
+            return output
+        }
     }
 
     private static func symlinkDirectoryContentsSkipping(

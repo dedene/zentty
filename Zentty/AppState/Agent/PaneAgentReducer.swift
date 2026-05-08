@@ -159,6 +159,10 @@ struct PaneAgentReducerState: Equatable, Sendable {
     @discardableResult
     mutating func resumeBlockedSessionFromActivity(now: Date = Date()) -> Bool {
         let blockedSessions = sessionsByID.values.filter { session in
+            if session.tool == .codex,
+               session.state == .needsInput || session.interactionKind.requiresHumanAttention {
+                return false
+            }
             // Kimi keeps emitting shell/progress activity while its inline
             // approval panel is visible. Treating that passive activity as a
             // resume signal clears "Requires approval" before the user has
@@ -188,9 +192,17 @@ struct PaneAgentReducerState: Equatable, Sendable {
     }
 
     @discardableResult
-    mutating func resumeBlockedSessionFromUserInput(now: Date = Date()) -> Bool {
+    mutating func resumeBlockedSessionFromUserInput(
+        allowCodexNeedsInputResume: Bool = true,
+        now: Date = Date()
+    ) -> Bool {
         let blockedSessions = sessionsByID.values.filter { session in
-            session.state == .needsInput || session.interactionKind.requiresHumanAttention
+            if session.tool == .codex,
+               !allowCodexNeedsInputResume,
+               session.state == .needsInput || session.interactionKind.requiresHumanAttention {
+                return false
+            }
+            return session.state == .needsInput || session.interactionKind.requiresHumanAttention
         }
         guard let sessionID = blockedSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
               var session = sessionsByID[sessionID]
@@ -211,15 +223,19 @@ struct PaneAgentReducerState: Equatable, Sendable {
     }
 
     @discardableResult
-    mutating func promoteExplicitCodexSessionFromUserInput(now: Date = Date()) -> Bool {
+    mutating func promoteExplicitCodexSessionFromUserInput(
+        allowNeedsInputResume: Bool = true,
+        allowIdleResume: Bool = true,
+        now: Date = Date()
+    ) -> Bool {
         let candidateSessions = sessionsByID.values.filter { session in
             session.tool == .codex
                 && session.source == .explicit
                 && session.origin != .shell
                 && (
-                    session.state == .needsInput
+                    (allowNeedsInputResume && session.state == .needsInput)
                         || session.state == .starting
-                        || (session.state == .idle && session.hasObservedRunning)
+                        || (allowIdleResume && session.state == .idle && session.hasObservedRunning)
                 )
         }
         guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
@@ -247,11 +263,10 @@ struct PaneAgentReducerState: Equatable, Sendable {
                 && session.source == .explicit
                 && (session.origin == .explicitHook || session.origin == .explicitAPI)
                 && session.hasObservedRunning
-                && (!session.interactionKind.requiresHumanAttention || session.interactionKind == .genericInput)
+                && !session.interactionKind.requiresHumanAttention
                 && (
                     session.state == .running
                         || session.state == .starting
-                        || (session.state == .needsInput && session.interactionKind == .genericInput)
                 )
         }
         guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
@@ -299,6 +314,22 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.hasObservedRunning = true
         session.updatedAt = now
         sessionsByID[sessionID] = session
+        return true
+    }
+
+    @discardableResult
+    mutating func clearCodexSessionsFromUserInterrupt(now: Date = Date()) -> Bool {
+        let sessionIDs = sessionsByID.values
+            .filter { $0.tool == .codex }
+            .sorted(by: Self.preferred(lhs:rhs:))
+            .map(\.sessionID)
+        guard !sessionIDs.isEmpty else {
+            return false
+        }
+
+        for sessionID in sessionIDs {
+            sessionsByID.removeValue(forKey: sessionID)
+        }
         return true
     }
 
@@ -684,9 +715,10 @@ struct PaneAgentReducerState: Equatable, Sendable {
             return true
         }
 
-        if existingSession.state == .needsInput,
+        if existingSession.tool == .codex,
+           existingSession.state == .needsInput,
            existingSession.interactionKind.requiresHumanAttention,
-           payload.state == .idle {
+           payload.state == .idle || payload.state == .running || payload.state == .starting {
             return false
         }
 

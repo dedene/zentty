@@ -1180,13 +1180,20 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNotNil(hooks["TaskCompleted"])
     }
 
-    func test_agent_launch_bootstrap_builds_codex_overlay_and_notify_override() throws {
+    func test_agent_launch_bootstrap_builds_codex_hook_flags_and_notify_override() throws {
         let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-codex-runtime")
         let codexHome = try makeTemporaryDirectory(named: "agent-launch-codex-home")
+        let cliPath = "/tmp/zentty\tbin"
         try """
-        {"hooks":{"Existing":[{"hooks":[{"type":"command","command":"echo existing","timeout":3}]}]}}
+        {"hooks":{"Existing":[{"hooks":[{"type":"command","command":"echo existing","timeout":3}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo user-session-start","timeout":3}]}]}}
         """.write(
             to: codexHome.appendingPathComponent("hooks.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        let sourceConfigURL = codexHome.appendingPathComponent("config.toml", isDirectory: false)
+        try "model = \"gpt-5.1\"\n".write(
+            to: sourceConfigURL,
             atomically: true,
             encoding: .utf8
         )
@@ -1199,7 +1206,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 "HOME": NSHomeDirectory(),
                 "CODEX_HOME": codexHome.path,
                 "ZENTTY_REAL_BINARY": "/usr/local/bin/codex",
-                "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "ZENTTY_CLI_BIN": cliPath,
             ],
             expectsResponse: true,
             tool: .codex
@@ -1217,24 +1224,69 @@ final class AgentStatusSupportTests: XCTestCase {
 
         XCTAssertEqual(plan.executablePath, "/usr/local/bin/codex")
         XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "codex")
-        let overlayHome = try XCTUnwrap(plan.setEnvironment["CODEX_HOME"])
-        let overlayHooksURL = URL(fileURLWithPath: overlayHome, isDirectory: true)
-            .appendingPathComponent("hooks.json", isDirectory: false)
-        let overlayHooks = try String(contentsOf: overlayHooksURL, encoding: .utf8)
-        XCTAssertTrue(overlayHooks.contains("session-start"))
-        XCTAssertTrue(overlayHooks.contains("prompt-submit"))
-        XCTAssertTrue(overlayHooks.contains("pre-tool-use"))
-        XCTAssertTrue(overlayHooks.contains("permission-request"))
-        XCTAssertTrue(overlayHooks.contains("post-tool-use"))
-        XCTAssertTrue(overlayHooks.contains("echo existing"))
-        XCTAssertTrue(plan.arguments.contains("features.codex_hooks=true"))
+        XCTAssertNil(plan.setEnvironment["CODEX_HOME"])
+        XCTAssertFalse(plan.unsetEnvironment.contains("CODEX_HOME"))
+        let hookConfigArguments = plan.arguments.filter { $0.hasPrefix("hooks.") || $0 == "features.hooks=true" }
+        XCTAssertTrue(hookConfigArguments.contains("features.hooks=true"))
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.SessionStart=") && $0.contains("session-start") })
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.PreToolUse=") && $0.contains("pre-tool-use") })
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.PermissionRequest=") && $0.contains("permission-request") })
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.PostToolUse=") && $0.contains("post-tool-use") })
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.UserPromptSubmit=") && $0.contains("prompt-submit") })
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.Stop=") && $0.contains("stop") })
+        XCTAssertFalse(hookConfigArguments.contains { $0.contains("\t") })
+        let hookStateArgument = try XCTUnwrap(hookConfigArguments.first { $0.hasPrefix("hooks.state=") })
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:session_start:0:0""#))
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:pre_tool_use:0:0""#))
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:permission_request:0:0""#))
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:post_tool_use:0:0""#))
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:user_prompt_submit:0:0""#))
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:stop:0:0""#))
+        XCTAssertEqual(hookStateArgument.components(separatedBy: "trusted_hash=\"sha256:").count - 1, 6)
+        let sourceConfig = try String(contentsOf: sourceConfigURL, encoding: .utf8)
+        XCTAssertFalse(sourceConfig.contains("hooks.state"))
+        XCTAssertTrue(plan.arguments.contains("features.hooks=true"))
+        XCTAssertFalse(plan.arguments.contains("features.codex_hooks=true"))
         XCTAssertTrue(plan.arguments.contains("tui.notification_method=osc9"))
         XCTAssertTrue(plan.arguments.contains(#"tui.terminal_title=["status","spinner","project","task-progress"]"#))
         let notifyArgument = try XCTUnwrap(
-            plan.arguments.first(where: { $0.contains("notify=[") && $0.contains(#""/tmp/zentty""#) })
+            plan.arguments.first(where: { $0.hasPrefix("notify=[") })
         )
-        XCTAssertEqual(notifyArgument, #"notify=["/tmp/zentty","codex-notify"]"#)
+        XCTAssertEqual(notifyArgument, #"notify=["/tmp/zentty\tbin","codex-notify"]"#)
+        XCTAssertFalse(notifyArgument.contains("\t"))
         XCTAssertFalse(notifyArgument.contains(#"\/"#))
+    }
+
+    func test_agent_launch_bootstrap_unsets_nested_zentty_codex_home() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-codex-runtime-nested-home")
+        let inheritedCodexHome = "\(NSHomeDirectory())/Library/Caches/Zentty/ipc-1/launch/worklane/pane/codex/home"
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["hello"],
+            standardInput: nil,
+            environment: [
+                "HOME": NSHomeDirectory(),
+                "CODEX_HOME": inheritedCodexHome,
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/codex",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ],
+            expectsResponse: true,
+            tool: .codex
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertTrue(plan.unsetEnvironment.contains("CODEX_HOME"))
+        XCTAssertNil(plan.setEnvironment["CODEX_HOME"])
     }
 
     func test_agent_launch_bootstrap_keeps_notify_hook_when_prompt_contains_notify_equals() throws {
@@ -1266,11 +1318,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertTrue(plan.arguments.contains(#"notify=["/tmp/zentty","codex-notify"]"#))
-        let overlayHome = try XCTUnwrap(plan.setEnvironment["CODEX_HOME"])
-        let overlayHooksURL = URL(fileURLWithPath: overlayHome, isDirectory: true)
-            .appendingPathComponent("hooks.json", isDirectory: false)
-        let overlayHooks = try String(contentsOf: overlayHooksURL, encoding: .utf8)
-        XCTAssertTrue(overlayHooks.contains("permission-request"))
+        XCTAssertTrue(plan.arguments.contains { $0.hasPrefix("hooks.PermissionRequest=") && $0.contains("permission-request") })
     }
 
     func test_agent_launch_bootstrap_respects_explicit_codex_notify_override() throws {
@@ -3981,6 +4029,47 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
+    func test_codex_hook_permission_request_for_ask_user_question_maps_to_generic_input() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.codexAdapter(
+                data: Data("""
+                {"hook_event_name":"PermissionRequest","session_id":"session-1","tool_name":"askuserquestion","tool_input":{"question":"Which season do you like most?"}}
+                """.utf8),
+                defaultEventName: nil,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.lifecycleEvent, .update)
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.toolName, "Codex")
+        XCTAssertEqual(payload.text, "Codex needs your input")
+        XCTAssertEqual(payload.interactionKind, .genericInput)
+    }
+
+    func test_codex_hook_permission_request_for_bash_stays_approval() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.codexAdapter(
+                data: Data("""
+                {"hook_event_name":"PermissionRequest","session_id":"session-1","tool_name":"Bash","tool_input":{"command":"printf ok"}}
+                """.utf8),
+                defaultEventName: nil,
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.text, "Codex needs your approval")
+        XCTAssertEqual(payload.interactionKind, .approval)
+    }
+
     func test_codex_hook_session_start_emits_session_scoped_pid_attach_and_starting_payloads() throws {
         let payloads = try AgentEventBridge.codexAdapter(
             data: Data("""
@@ -5187,6 +5276,373 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
+    func test_codex_action_required_title_promotes_running_sidebar_state_to_needs_input() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let cwd = "/tmp/codex-action-required"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: "session-1",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .genericInput)
+        XCTAssertEqual(presentation.statusText, "Needs input")
+    }
+
+    func test_codex_action_required_title_survives_passive_progress_activity() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let cwd = "/tmp/codex-action-required-progress"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .progressReport(TerminalProgressReport(state: .indeterminate, progress: nil))
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .genericInput)
+        XCTAssertEqual(presentation.statusText, "Needs input")
+    }
+
+    func test_codex_action_required_title_survives_running_title_tick() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let cwd = "/tmp/codex-action-required-running"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .genericInput)
+        XCTAssertEqual(presentation.statusText, "Needs input")
+    }
+
+    func test_codex_action_required_title_survives_ready_title_tick() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let cwd = "/tmp/codex-action-required-ready"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .genericInput)
+        XCTAssertEqual(presentation.statusText, "Needs input")
+    }
+
+    func test_codex_needs_input_title_uses_generic_input_status_text() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let cwd = "/tmp/codex-needs-input-title"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Main needs input | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .genericInput)
+        XCTAssertEqual(presentation.statusText, "Needs input")
+    }
+
+    func test_codex_approval_survives_running_hook_until_user_submits_input() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let sessionID = "session-approval"
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .needsInput,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: "Codex needs your approval",
+            interactionKind: .approval,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        var presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .approval)
+        XCTAssertEqual(presentation.statusText, "Requires approval")
+
+        let worklaneIndex = try XCTUnwrap(store.worklanes.firstIndex { $0.id == worklaneID })
+        store.worklanes[worklaneIndex].auxiliaryStateByPaneID[paneID]?.agentStatus?.updatedAt =
+            Date(timeIntervalSinceNow: -1)
+        store.handleTerminalEvent(paneID: paneID, event: .userSubmittedInput)
+
+        presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_codex_approval_survives_passive_progress_activity_until_user_submits_input() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let sessionID = "session-approval-progress"
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .needsInput,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: "Codex needs your approval",
+            interactionKind: .approval,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .progressReport(TerminalProgressReport(state: .indeterminate, progress: nil))
+        )
+
+        var presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.interactionKind, .approval)
+        XCTAssertEqual(presentation.statusText, "Requires approval")
+
+        let worklaneIndex = try XCTUnwrap(store.worklanes.firstIndex { $0.id == worklaneID })
+        store.worklanes[worklaneIndex].auxiliaryStateByPaneID[paneID]?.agentStatus?.updatedAt =
+            Date(timeIntervalSinceNow: -1)
+        store.handleTerminalEvent(paneID: paneID, event: .userSubmittedInput)
+
+        presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_codex_running_title_restarts_after_prior_explicit_hook_idle() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let cwd = "/tmp/codex-restart"
+        let sessionID = "session-restart"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .idle,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        guard let worklaneIndex = store.worklanes.firstIndex(where: { $0.id == worklaneID }) else {
+            XCTFail("missing worklane")
+            return
+        }
+        store.worklanes[worklaneIndex].auxiliaryStateByPaneID[paneID]?.agentStatus?.updatedAt =
+            Date(timeIntervalSinceNow: -5)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ codex-restart",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let status = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertEqual(status.state, .running)
+        XCTAssertEqual(status.origin, .inferred)
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_codex_running_title_restarts_in_same_pane_after_non_codex_prompt_title() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let cwd = "/tmp/codex-restart-prompt"
+        let sessionID = "session-restart-prompt"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ codex-restart-prompt",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .idle,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: cwd,
+                processName: "zsh",
+                gitBranch: "main"
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ codex-restart-prompt",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
     }
 
     func test_notification_coordinator_records_origin_window_id_on_system_notification() {

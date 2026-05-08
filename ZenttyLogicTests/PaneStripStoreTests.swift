@@ -3772,6 +3772,52 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_codex_user_edited_input_does_not_resume_explicit_idle_session() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .lifecycle,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            confidence: .explicit,
+            sessionID: "codex-session",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .lifecycle,
+            state: .idle,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            confidence: .explicit,
+            sessionID: "codex-session",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
+
+        store.handleTerminalEvent(paneID: paneID, event: .userEditedInput)
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .idle,
+            "Typing into Codex input must not revive a completed explicit session as Running."
+        )
+        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+    }
+
     func test_user_submitted_input_resumes_blocked_needs_input_state() throws {
         // Companion to the edited-input test: Enter/submit IS the correct
         // signal to flip needsInput → running, so the existing resume path
@@ -3803,6 +3849,49 @@ final class PaneStripStoreTests: XCTestCase {
             .running,
             "Submitting input must resume the blocked agent state."
         )
+    }
+
+    func test_codex_user_submitted_input_immediately_after_action_required_stays_needs_input() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-question",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: "Codex needs your input",
+                interactionKind: .genericInput,
+                confidence: .explicit,
+                sessionID: "codex-question",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.handleTerminalEvent(paneID: paneID, event: .userSubmittedInput)
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Needs input")
     }
 
     func test_ready_codex_title_clears_desktop_notification_generic_needs_input_in_sidebar() throws {
@@ -4056,6 +4145,7 @@ final class PaneStripStoreTests: XCTestCase {
     func test_submit_input_event_clears_blocked_codex_state_into_running() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
 
         store.updateMetadata(
             paneID: paneID,
@@ -4068,7 +4158,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         store.applyAgentStatusPayload(
             AgentStatusPayload(
-                worklaneID: WorklaneID("worklane-main"),
+                worklaneID: worklaneID,
                 paneID: paneID,
                 signalKind: .lifecycle,
                 state: .needsInput,
@@ -4084,6 +4174,9 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
+        let worklaneIndex = try XCTUnwrap(store.worklanes.firstIndex { $0.id == worklaneID })
+        store.worklanes[worklaneIndex].auxiliaryStateByPaneID[paneID]?.agentStatus?.updatedAt =
+            Date(timeIntervalSinceNow: -1)
         store.handleTerminalEvent(
             paneID: paneID,
             event: .userSubmittedInput
@@ -4897,7 +4990,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Needs input")
     }
 
-    func test_codex_main_needs_input_title_promotes_running_session_to_needs_decision() throws {
+    func test_codex_main_needs_input_title_promotes_running_session_to_needs_input() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.knownNonRepositoryPaths.insert("/tmp/project")
@@ -4932,10 +5025,10 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
-            .some(.question)
+            .some(.genericInput)
         )
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.runtimePhase, .needsInput)
-        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Needs decision")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Needs input")
     }
 
     func test_codex_main_needs_approval_title_promotes_running_session_to_requires_approval() throws {
@@ -5601,6 +5694,178 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Idle")
         XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
         XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_codex_control_c_interrupt_clears_running_session_without_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+
+        store.handleTerminalEvent(paneID: paneID, event: .userInterrupted)
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_codex_control_c_interrupt_clears_visible_status() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.handleTerminalEvent(paneID: paneID, event: .userInterrupted)
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_codex_control_c_suppresses_late_idle_and_running_title_signals() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.handleTerminalEvent(paneID: paneID, event: .userInterrupted)
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_codex_control_c_clears_sticky_agent_ready_status() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+
+        store.handleTerminalEvent(paneID: paneID, event: .userInterrupted)
+
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
     }
 
     func test_waiting_codex_title_preserves_specific_blocked_prompt_copy() throws {

@@ -99,6 +99,47 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.primaryText, "~")
     }
 
+    func test_builder_needs_input_status_does_not_render_stale_running_fallback() {
+        let paneID = PaneID("worklane-main-shell")
+        let presentation = PanePresentationState(
+            cwd: "/tmp/codex-status",
+            repoRoot: "/tmp/codex-status",
+            branch: "main",
+            branchDisplayText: "main",
+            lookupBranch: "main",
+            branchURL: nil,
+            identityText: "Codex",
+            contextText: "/tmp/codex-status",
+            rememberedTitle: "Working codex-status",
+            recognizedTool: .codex,
+            runtimePhase: .needsInput,
+            statusText: "Running",
+            updatedAt: Date(timeIntervalSince1970: 42),
+            isWorking: false,
+            isReady: false,
+            statusSymbolName: "bolt.fill",
+            interactionKind: .genericInput,
+            interactionLabel: nil,
+            interactionSymbolName: nil
+        )
+        let auxiliaryState = PaneAuxiliaryState(presentation: presentation)
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+
+        XCTAssertEqual(summary.paneRows.first?.attentionState, .needsInput)
+        XCTAssertEqual(summary.paneRows.first?.statusText, "Needs input")
+        XCTAssertNotEqual(summary.paneRows.first?.statusText, "Running")
+    }
+
     func test_builder_prefixes_remote_host_for_realtime_agent_titles() {
         let paneID = PaneID("worklane-main-shell")
         var auxiliaryState = PaneAuxiliaryState()
@@ -571,6 +612,115 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.interactionKind, .question)
         XCTAssertEqual(paneRow.interactionLabel, "Needs decision")
         XCTAssertEqual(paneRow.interactionSymbolName, "list.bullet")
+    }
+
+    func test_builder_keeps_codex_action_required_title_out_of_pane_identity() {
+        let paneID = PaneID("worklane-main-agent")
+        var auxiliaryState = PaneAuxiliaryState(
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | zentty",
+                currentWorkingDirectory: "\(NSHomeDirectory())/Development/Personal/zentty",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .needsInput,
+                text: "[ ! ] Action Required | zentty",
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                source: .inferred,
+                origin: .inferred,
+                interactionKind: .genericInput,
+                confidence: .weak
+            )
+        )
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "codex",
+            raw: auxiliaryState.raw,
+            previous: PanePresentationState(
+                cwd: "\(NSHomeDirectory())/Development/Personal/zentty",
+                repoRoot: "\(NSHomeDirectory())/Development/Personal/zentty",
+                branch: "main",
+                branchDisplayText: "main",
+                lookupBranch: "main",
+                identityText: "Codex",
+                contextText: "main · ~/Development/Personal/zentty",
+                rememberedTitle: "Codex",
+                recognizedTool: .codex,
+                runtimePhase: .running,
+                statusText: "Running",
+                pullRequest: nil,
+                reviewChips: [],
+                attentionArtifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 41),
+                isWorking: true,
+                interactionKind: nil
+            )
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "codex")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.primaryText, "Codex")
+        XCTAssertEqual(paneRow.statusText, "Needs input")
+        XCTAssertEqual(paneRow.attentionState, .needsInput)
+    }
+
+    func test_builder_prefers_codex_action_required_input_label_over_stale_approval_label() {
+        let paneID = PaneID("worklane-main-agent")
+        var auxiliaryState = PaneAuxiliaryState(
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | zentty",
+                currentWorkingDirectory: "\(NSHomeDirectory())/Development/Personal/zentty",
+                processName: "codex",
+                gitBranch: "main"
+            ),
+            agentStatus: PaneAgentStatus(
+                tool: .codex,
+                state: .needsInput,
+                text: "Codex needs your approval",
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 42),
+                source: .explicit,
+                origin: .explicitHook,
+                interactionKind: .approval,
+                confidence: .explicit
+            )
+        )
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "codex",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "codex")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.attentionState, .needsInput)
+        XCTAssertEqual(paneRow.interactionKind, .genericInput)
+        XCTAssertEqual(paneRow.statusText, "Needs input")
+        XCTAssertNotEqual(paneRow.statusText, "Requires approval")
     }
 
     func test_builder_surfaces_cwd_as_pane_row_detail_text_for_single_pane_with_remembered_title() {

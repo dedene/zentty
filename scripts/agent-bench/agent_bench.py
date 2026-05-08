@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import fcntl
+import hashlib
 import json
 import os
 import pathlib
@@ -234,6 +235,7 @@ def classify_completed_result(
     scenario: str,
     expectation: ScenarioExpectation,
     records: list[TraceRecord],
+    terminal_observations: list[TerminalObservation],
     output: str,
     skip_patterns: list[str],
     exit_code: int,
@@ -269,6 +271,18 @@ def classify_completed_result(
         result.detail = "required lifecycle hooks observed but no TodoWrite task progress hook was captured"
         result.result_kind = "missing-task-hook"
         return result
+    if scenario_requires_terminal_needs_input(scenario) and not terminal_needs_input_observed(terminal_observations):
+        result.passed = False
+        result.status = "fail"
+        result.detail = "required lifecycle hooks observed but no terminal needs-input title was captured"
+        result.result_kind = "missing-terminal-needs-input"
+        return result
+    if scenario_requires_scripted_input(scenario) and not scripted_input_observed(terminal_observations):
+        result.passed = False
+        result.status = "fail"
+        result.detail = "required lifecycle hooks observed but scripted input was not captured"
+        result.result_kind = "missing-scripted-input"
+        return result
     if exit_code != 0 and not completed_by_predicate:
         result.passed = False
         result.status = "fail"
@@ -286,6 +300,7 @@ def classify_timeout_result(
     scenario: str,
     expectation: ScenarioExpectation,
     records: list[TraceRecord],
+    terminal_observations: list[TerminalObservation],
     output: str,
     skip_patterns: list[str],
     timeout: int,
@@ -298,6 +313,16 @@ def classify_timeout_result(
             partial.status = "fail"
             partial.detail = "required lifecycle hooks observed but no TodoWrite task progress hook was captured"
             partial.result_kind = "missing-task-hook"
+        elif scenario_requires_terminal_needs_input(scenario) and not terminal_needs_input_observed(terminal_observations):
+            partial.passed = False
+            partial.status = "fail"
+            partial.detail = "required lifecycle hooks observed but no terminal needs-input title was captured"
+            partial.result_kind = "missing-terminal-needs-input"
+        elif scenario_requires_scripted_input(scenario) and not scripted_input_observed(terminal_observations):
+            partial.passed = False
+            partial.status = "fail"
+            partial.detail = "required lifecycle hooks observed but scripted input was not captured"
+            partial.result_kind = "missing-scripted-input"
         else:
             partial.passed = True
             partial.status = "pass"
@@ -391,6 +416,26 @@ def source_sort_key(source: str) -> int:
 
 def scenario_requires_task_observation(scenario: str) -> bool:
     return scenario == "tasks"
+
+
+def scenario_requires_terminal_needs_input(scenario: str) -> bool:
+    return scenario in {"question", "question_interrupt"}
+
+
+def scenario_requires_scripted_input(scenario: str) -> bool:
+    return scenario == "question_interrupt"
+
+
+def terminal_needs_input_observed(observations: list[TerminalObservation]) -> bool:
+    return any(
+        observation.kind in {"title", "progress"}
+        and "action required" in observation.text.lower()
+        for observation in observations
+    )
+
+
+def scripted_input_observed(observations: list[TerminalObservation]) -> bool:
+    return any(observation.kind == "input" for observation in observations)
 
 
 def task_observations_for_records(agent: str, scenario: str, records: list[TraceRecord]) -> list[dict[str, Any]]:
@@ -712,34 +757,37 @@ class LaunchPlanner:
         return self._launch_plan(executable, planned, {"ZENTTY_AGENT_TOOL": "claude"}, unset=["CLAUDECODE"])
 
     def _plan_codex(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
-        overlay = self._overlay_dir("codex") / "home"
-        source = config_source_dir(environment, "CODEX_HOME", ".codex")
-        symlink_directory_contents_skipping(source, overlay, {"hooks.json"})
-        hooks = {
-            "hooks": {
-                event: [{"hooks": [{"type": "command", "command": f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=codex {arg} || echo \'{{}}\'', "timeout": 10}]}]
-                for event, arg in {
-                    "SessionStart": "session-start",
-                    "PreToolUse": "pre-tool-use",
-                    "PermissionRequest": "permission-request",
-                    "PostToolUse": "post-tool-use",
-                    "UserPromptSubmit": "prompt-submit",
-                    "Stop": "stop",
-                }.items()
-            }
-        }
-        write_json(overlay / "hooks.json", hooks)
+        hook_specs = [
+            ("SessionStart", "session_start", "session-start"),
+            ("PreToolUse", "pre_tool_use", "pre-tool-use"),
+            ("PermissionRequest", "permission_request", "permission-request"),
+            ("PostToolUse", "post_tool_use", "post-tool-use"),
+            ("UserPromptSubmit", "user_prompt_submit", "prompt-submit"),
+            ("Stop", "stop", "stop"),
+        ]
+        hook_config_args = ["features.hooks=true"]
+        trust_states: list[tuple[str, str]] = []
+        for event, event_key, arg in hook_specs:
+            command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=codex {arg} || echo \'{{}}\''
+            hook_config_args.append(f"hooks.{event}=[{{hooks=[{{type=\"command\",command={quoted_toml_basic_string(command)},timeout=10}}]}}]")
+            state_key = f"/<session-flags>/config.toml:{event_key}:0:0"
+            trust_states.append((state_key, codex_hook_trusted_hash(event_key, None, command, 10)))
+        state_entries = ",".join(
+            f"{quoted_toml_basic_string(key)}={{trusted_hash={quoted_toml_basic_string(trusted_hash)}}}"
+            for key, trusted_hash in trust_states
+        )
+        hook_config_args.append(f"hooks.state={{{state_entries}}}")
         planned = [
             "-c",
             f'notify={toml_string_array([cli_path, "codex-notify"])}',
-            "-c",
-            "features.codex_hooks=true",
+            *(item for config in hook_config_args for item in ("-c", config)),
             "-c",
             "tui.notification_method=osc9",
             "-c",
             'tui.terminal_title=["status","spinner","project","task-progress"]',
         ] + arguments
-        return self._launch_plan(executable, planned, {"ZENTTY_AGENT_TOOL": "codex", "CODEX_HOME": str(overlay)})
+        unset = ["CODEX_HOME"] if is_zentty_launch_cache_path(str(environment.get("CODEX_HOME") or "")) else []
+        return self._launch_plan(executable, planned, {"ZENTTY_AGENT_TOOL": "codex"}, unset=unset)
 
     def _plan_copilot(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
         overlay = self._overlay_dir("copilot") / "home"
@@ -938,7 +986,7 @@ class BenchRunner:
         self.profiles = load_profiles(BENCH_ROOT / "profiles")
         self.run_dir = pathlib.Path(args.run_dir) if args.run_dir else DEFAULT_RUNS_DIR / time.strftime("%Y%m%d-%H%M%S")
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        self.socket_dir = pathlib.Path(tempfile.mkdtemp(prefix="zentty-agent-bench-sock-"))
+        self.socket_dir = pathlib.Path(tempfile.mkdtemp(prefix="zab-", dir="/tmp"))
         self.recorder = TraceRecorder(self.run_dir)
 
     def run(self) -> int:
@@ -1067,7 +1115,17 @@ class BenchRunner:
             inputs=profile.input_by_scenario.get(scenario, []),
             timeout=self.args.timeout,
             transcript_path=transcript_path,
-            completion_predicate=lambda: not validate_scenario(agent, expectation, self.recorder.records()).missing_events,
+            completion_predicate=lambda _output, observations: (
+                not validate_scenario(agent, expectation, self.recorder.records()).missing_events
+                and (
+                    not scenario_requires_terminal_needs_input(scenario)
+                    or terminal_needs_input_observed(observations)
+                )
+                and (
+                    not scenario_requires_scripted_input(scenario)
+                    or scripted_input_observed(observations)
+                )
+            ),
         )
         observations = completed.terminal_observations
         if completed.timed_out:
@@ -1076,6 +1134,7 @@ class BenchRunner:
                 scenario=scenario,
                 expectation=expectation,
                 records=self.recorder.records(),
+                terminal_observations=observations,
                 output=completed.output,
                 skip_patterns=profile.skip_patterns,
                 timeout=self.args.timeout,
@@ -1087,6 +1146,7 @@ class BenchRunner:
             scenario=scenario,
             expectation=expectation,
             records=self.recorder.records(),
+            terminal_observations=observations,
             output=completed.output,
             skip_patterns=profile.skip_patterns,
             exit_code=completed.exit_code,
@@ -1175,8 +1235,16 @@ class BenchRunner:
     def _resolve_app_path(self) -> pathlib.Path:
         if self.args.no_build:
             candidate = REPO_ROOT / "build" / "Debug" / "Zentty.app"
-            if candidate.exists():
+            if app_has_agent_bench_resources(candidate):
                 return candidate
+            derived_data_candidate = latest_derived_data_zentty_app()
+            if derived_data_candidate is not None:
+                return derived_data_candidate
+            if candidate.exists():
+                raise SystemExit(
+                    "--no-build found build/Debug/Zentty.app, but it is missing agent bench resources. "
+                    "Pass --app-path to a fresh build product or run without --no-build."
+                )
             raise SystemExit("--no-build requires --app-path when build/Debug/Zentty.app is absent")
         subprocess.run(["xcodebuild", "-project", "Zentty.xcodeproj", "-scheme", "Zentty", "-destination", "platform=macOS", "build"], cwd=REPO_ROOT, check=True)
         settings = subprocess.run(
@@ -1204,6 +1272,8 @@ class BenchRunner:
         env["ZENTTY_PANE_ID"] = "bench-pane"
         env["ZENTTY_PANE_TOKEN"] = "bench-pane-token"
         env["ZENTTY_INSTANCE_ID"] = "agent-bench"
+        if is_zentty_launch_cache_path(str(env.get("CODEX_HOME") or "")):
+            env.pop("CODEX_HOME", None)
         return env
 
     def _write_report(self, results: list[ScenarioResult]) -> None:
@@ -1304,7 +1374,16 @@ def run_pty(
                     if not re.search(match, text_so_far, flags=re.I | re.S):
                         continue
                 if now - start >= float(item.get("after", 0)):
+                    text_so_far = output.decode("utf-8", errors="replace")
                     os.write(master, str(item.get("text", "")).encode("utf-8"))
+                    terminal_observations.append(
+                        TerminalObservation(
+                            kind="input",
+                            text=scripted_input_label(item),
+                            offset=len(text_so_far),
+                            timestamp=time.time(),
+                        )
+                    )
                     sent[index] = True
             ready, _, _ = select.select([master], [], [], 0.05)
             if ready:
@@ -1315,7 +1394,10 @@ def run_pty(
                     pass
             if process.poll() is not None:
                 break
-            if completion_predicate is not None and completion_predicate():
+            if completion_predicate is not None and completion_predicate(
+                output.decode("utf-8", errors="replace"),
+                terminal_observations,
+            ):
                 process.terminate()
                 try:
                     process.wait(timeout=2)
@@ -1351,6 +1433,19 @@ def run_pty(
         return PtyResult(exit_code, False, text, terminal_observations=terminal_observations)
     finally:
         os.close(master)
+
+
+def scripted_input_label(item: dict[str, Any]) -> str:
+    label = item.get("label")
+    if isinstance(label, str) and label.strip():
+        return label.strip()
+
+    text = str(item.get("text", ""))
+    if text == "\x03":
+        return "ctrl-c"
+    if text == "\x1b":
+        return "escape"
+    return redact_pii_text(text.replace("\n", "\\n"))[:80]
 
 
 def set_pty_window_size(fd: int, rows: int, columns: int) -> None:
@@ -1395,6 +1490,22 @@ def parse_build_settings(output: str) -> dict[str, str]:
             continue
         values[key] = value
     return values
+
+
+def app_has_agent_bench_resources(app_path: pathlib.Path) -> bool:
+    return (app_path / "Contents" / "Resources" / "bin" / "shared" / "zentty").exists()
+
+
+def latest_derived_data_zentty_app(home: pathlib.Path | None = None) -> pathlib.Path | None:
+    derived_data = (home or pathlib.Path.home()) / "Library" / "Developer" / "Xcode" / "DerivedData"
+    candidates = [
+        path
+        for path in derived_data.glob("Zentty-*/Build/Products/Debug/Zentty.app")
+        if app_has_agent_bench_resources(path)
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
 def matches_any(text: str, patterns: list[str]) -> bool:
@@ -1461,6 +1572,24 @@ def read_json_object(path: pathlib.Path) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def codex_hook_trusted_hash(event_key: str, matcher: str | None, command: str, timeout: int) -> str:
+    identity: dict[str, Any] = {
+        "event_name": event_key,
+        "hooks": [
+            {
+                "async": False,
+                "command": command,
+                "timeout": timeout,
+                "type": "command",
+            }
+        ],
+    }
+    if matcher is not None:
+        identity["matcher"] = matcher
+    serialized = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(serialized).hexdigest()
+
+
 def remove_top_level_toml_key(text: str, key: str) -> str:
     lines: list[str] = []
     in_table = False
@@ -1511,11 +1640,36 @@ def shell_escape_double_quoted(value: str) -> str:
 
 
 def toml_basic_string(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    escaped: list[str] = []
+    for char in value:
+        codepoint = ord(char)
+        if char == "\b":
+            escaped.append("\\b")
+        elif char == "\t":
+            escaped.append("\\t")
+        elif char == "\n":
+            escaped.append("\\n")
+        elif char == "\f":
+            escaped.append("\\f")
+        elif char == "\r":
+            escaped.append("\\r")
+        elif char == '"':
+            escaped.append('\\"')
+        elif char == "\\":
+            escaped.append("\\\\")
+        elif codepoint < 0x20:
+            escaped.append(f"\\u{codepoint:04x}")
+        else:
+            escaped.append(char)
+    return "".join(escaped)
+
+
+def quoted_toml_basic_string(value: str) -> str:
+    return f'"{toml_basic_string(value)}"'
 
 
 def toml_string_array(values: list[str]) -> str:
-    return "[" + ",".join(f'"{toml_basic_string(value)}"' for value in values) + "]"
+    return "[" + ",".join(quoted_toml_basic_string(value) for value in values) + "]"
 
 
 def list_agents() -> int:

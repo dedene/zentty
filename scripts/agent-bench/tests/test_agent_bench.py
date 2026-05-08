@@ -116,6 +116,7 @@ class ExpectationTests(unittest.TestCase):
             scenario="approval",
             expectation=agent_bench.ScenarioExpectation("approval", ["permission-request"]),
             records=[],
+            terminal_observations=[],
             output="working for a while",
             skip_patterns=[],
             timeout=3,
@@ -132,6 +133,7 @@ class ExpectationTests(unittest.TestCase):
             scenario="approval",
             expectation=agent_bench.ScenarioExpectation("approval", ["PreToolUse"]),
             records=[],
+            terminal_observations=[],
             output="I cannot run that command without more context.",
             skip_patterns=[],
             exit_code=0,
@@ -151,6 +153,7 @@ class ExpectationTests(unittest.TestCase):
             records=[
                 agent_bench.TraceRecord(kind="hook", agent="opencode", scenario="approval", event_name="session.start")
             ],
+            terminal_observations=[],
             output="done",
             skip_patterns=[],
             exit_code=0,
@@ -168,6 +171,7 @@ class ExpectationTests(unittest.TestCase):
             scenario="approval",
             expectation=agent_bench.ScenarioExpectation("approval", ["Notification"]),
             records=[],
+            terminal_observations=[],
             output="Waiting for authentication...\nZENTTY_AGENT_BENCH_APPROVAL_OK",
             skip_patterns=["auth"],
             exit_code=0,
@@ -186,6 +190,7 @@ class ExpectationTests(unittest.TestCase):
             scenario="approval",
             expectation=agent_bench.ScenarioExpectation("approval", ["Notification"]),
             records=[],
+            terminal_observations=[],
             output="Waiting for authentication...\nZENTTY_AGENT_BENCH_APPROVAL_OK",
             skip_patterns=["auth"],
             timeout=30,
@@ -195,6 +200,97 @@ class ExpectationTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.status, "fail")
         self.assertEqual(result.result_kind, "missing-hook")
+
+    def test_question_scenario_requires_terminal_needs_input_title(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question", event_name="session-start"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question", event_name="prompt-submit"),
+        ]
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="question",
+            expectation=agent_bench.ScenarioExpectation("question", ["session-start", "prompt-submit"]),
+            records=records,
+            terminal_observations=[],
+            output="",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "missing-terminal-needs-input")
+
+    def test_question_scenario_accepts_action_required_title(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question", event_name="session-start"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question", event_name="prompt-submit"),
+        ]
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="question",
+            expectation=agent_bench.ScenarioExpectation("question", ["session-start", "prompt-submit"]),
+            records=records,
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="[ ! ] Action Required | codex-question", offset=0)
+            ],
+            output="",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=True,
+            strict=False,
+        )
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.result_kind, "hook-pass")
+
+    def test_question_interrupt_scenario_requires_scripted_input_trace(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="session-start"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="prompt-submit"),
+        ]
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="question_interrupt",
+            expectation=agent_bench.ScenarioExpectation("question_interrupt", ["session-start", "prompt-submit"]),
+            records=records,
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="[ ! ] Action Required | codex-question", offset=0)
+            ],
+            output="",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=True,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "missing-scripted-input")
+
+    def test_question_interrupt_scenario_accepts_ctrl_c_input_trace(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="session-start"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="prompt-submit"),
+        ]
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="question_interrupt",
+            expectation=agent_bench.ScenarioExpectation("question_interrupt", ["session-start", "prompt-submit"]),
+            records=records,
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="[ ! ] Action Required | codex-question", offset=0),
+                agent_bench.TerminalObservation(kind="input", text="ctrl-c", offset=12),
+            ],
+            output="",
+            skip_patterns=[],
+            exit_code=130,
+            completed_by_predicate=True,
+            strict=False,
+        )
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.result_kind, "hook-pass")
 
 
 class TimelineTests(unittest.TestCase):
@@ -226,14 +322,16 @@ class TimelineTests(unittest.TestCase):
         ]
         observations = [
             agent_bench.TerminalObservation(kind="title", text="Codex Working", offset=12, timestamp=base + 0.1),
+            agent_bench.TerminalObservation(kind="input", text="ctrl-c", offset=24, timestamp=base + 0.2),
         ]
 
         timeline = agent_bench.build_timeline("codex", "smoke", records, observations)
 
-        self.assertEqual([entry["source"] for entry in timeline], ["process", "terminal", "hook"])
-        self.assertEqual([entry["time_ms"] for entry in timeline], [0, 100, 250])
+        self.assertEqual([entry["source"] for entry in timeline], ["process", "terminal", "terminal", "hook"])
+        self.assertEqual([entry["time_ms"] for entry in timeline], [0, 100, 200, 250])
         self.assertEqual(timeline[1]["event"], "title")
-        self.assertEqual(timeline[2]["event"], "session-start")
+        self.assertEqual(timeline[2]["event"], "input")
+        self.assertEqual(timeline[3]["event"], "session-start")
 
     def test_legacy_terminal_observations_without_timestamp_sort_after_records(self):
         base = 1000.0
@@ -351,6 +449,7 @@ class TaskObservationTests(unittest.TestCase):
                 agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionStart"),
                 agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionEnd"),
             ],
+            terminal_observations=[],
             output="ZENTTY_AGENT_BENCH_TASKS_OK",
             skip_patterns=[],
             exit_code=0,
@@ -364,6 +463,30 @@ class TaskObservationTests(unittest.TestCase):
 
 
 class IPCServerTests(unittest.TestCase):
+    def test_bench_runner_uses_short_socket_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = type(
+                "Args",
+                (),
+                {
+                    "run_dir": tmp,
+                    "app_path": "/tmp/Zentty.app",
+                    "no_build": True,
+                    "timeout": 30,
+                    "strict": False,
+                    "agents": "codex",
+                    "scenarios": "question_interrupt",
+                },
+            )()
+            runner = agent_bench.BenchRunner(args)
+            try:
+                socket_path = runner.socket_dir / "question_interrupt.sock"
+
+                self.assertTrue(str(socket_path).startswith("/tmp/zab-"))
+                self.assertLess(len(str(socket_path)), 100)
+            finally:
+                runner._cleanup_socket_dir()
+
     def test_capture_server_accepts_newline_delimited_requests_and_records_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
             profile = agent_bench.AgentProfile(
@@ -481,6 +604,22 @@ class ProfileTests(unittest.TestCase):
             ],
         )
 
+    def test_codex_question_profile_waits_for_action_required_title(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["codex"]
+
+        self.assertIn("question", profile.launch_args_by_scenario)
+        self.assertIn("question_interrupt", profile.launch_args_by_scenario)
+        self.assertEqual(
+            profile.expectations["question"].required_events,
+            ["session-start", "prompt-submit"],
+        )
+        self.assertEqual(
+            profile.expectations["question_interrupt"].required_events,
+            ["session-start", "prompt-submit"],
+        )
+        self.assertEqual(profile.input_by_scenario["question"][0]["match"], "trust")
+        self.assertEqual(profile.input_by_scenario["question_interrupt"][-1]["label"], "ctrl-c")
+
     def test_gemini_smoke_profile_skips_trust_prompt_for_headless_runs(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["gemini"]
 
@@ -520,7 +659,84 @@ class ProfileTests(unittest.TestCase):
         )
 
 
+class AppPathResolutionTests(unittest.TestCase):
+    def test_app_has_agent_bench_resources_requires_shared_launcher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app_path = pathlib.Path(tmp) / "Zentty.app"
+
+            self.assertFalse(agent_bench.app_has_agent_bench_resources(app_path))
+
+            launcher = app_path / "Contents" / "Resources" / "bin" / "shared" / "zentty"
+            launcher.parent.mkdir(parents=True)
+            launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            self.assertTrue(agent_bench.app_has_agent_bench_resources(app_path))
+
+    def test_no_build_resolver_skips_stale_build_debug_app_for_derived_data_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = pathlib.Path(tmp)
+            stale_app = tmp_path / "build" / "Debug" / "Zentty.app"
+            stale_app.mkdir(parents=True)
+            derived_app = tmp_path / "DerivedData" / "Zentty.app"
+            launcher = derived_app / "Contents" / "Resources" / "bin" / "shared" / "zentty"
+            launcher.parent.mkdir(parents=True)
+            launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "run_dir": tmp,
+                    "app_path": None,
+                    "no_build": True,
+                    "timeout": 30,
+                    "strict": False,
+                    "agents": "codex",
+                    "scenarios": "question",
+                },
+            )()
+            old_repo_root = agent_bench.REPO_ROOT
+            old_latest = agent_bench.latest_derived_data_zentty_app
+            agent_bench.REPO_ROOT = tmp_path
+            agent_bench.latest_derived_data_zentty_app = lambda: derived_app
+            runner = agent_bench.BenchRunner(args)
+            try:
+                self.assertEqual(runner._resolve_app_path(), derived_app)
+            finally:
+                runner._cleanup_socket_dir()
+                agent_bench.REPO_ROOT = old_repo_root
+                agent_bench.latest_derived_data_zentty_app = old_latest
+
+
 class EnvironmentTests(unittest.TestCase):
+    def test_base_environment_drops_nested_zentty_codex_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = type(
+                "Args",
+                (),
+                {
+                    "run_dir": tmp,
+                    "app_path": "/tmp/Zentty.app",
+                    "no_build": True,
+                    "timeout": 30,
+                    "strict": False,
+                    "agents": "codex",
+                    "scenarios": "question",
+                },
+            )()
+            old = os.environ.get("CODEX_HOME")
+            os.environ["CODEX_HOME"] = "/Users/tester/Library/Caches/Zentty/ipc-1/launch/worklane/pane/codex/home"
+            runner = agent_bench.BenchRunner(args)
+            try:
+                env = runner._base_environment(pathlib.Path("/tmp/Zentty.app/Contents/Resources"))
+            finally:
+                runner._cleanup_socket_dir()
+                if old is None:
+                    os.environ.pop("CODEX_HOME", None)
+                else:
+                    os.environ["CODEX_HOME"] = old
+
+        self.assertNotIn("CODEX_HOME", env)
+
     def test_parse_build_settings_ignores_malformed_assignment_lines(self):
         values = agent_bench.parse_build_settings(
             """
@@ -573,6 +789,67 @@ class EnvironmentTests(unittest.TestCase):
 
 
 class LaunchPlannerTests(unittest.TestCase):
+    def test_codex_plan_unsets_nested_zentty_codex_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            profile = agent_bench.AgentProfile(
+                name="codex",
+                command="codex",
+                real_binary_names=["codex"],
+                version_args=["--version"],
+                launch_args_by_scenario={"smoke": []},
+                expectations={"smoke": agent_bench.ScenarioExpectation("smoke", ["session-start"])},
+            )
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="smoke",
+                run_dir=root / "run",
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": [],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/codex",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                        "HOME": "/Users/tester",
+                        "CODEX_HOME": "/Users/tester/Library/Caches/Zentty/ipc-1/launch/worklane/pane/codex/home",
+                    },
+                }
+            )
+
+            self.assertIn("CODEX_HOME", plan["unsetEnvironment"])
+            self.assertNotIn("CODEX_HOME", plan["setEnvironment"])
+
+    def test_codex_plan_preserves_custom_codex_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            profile = agent_bench.AgentProfile(
+                name="codex",
+                command="codex",
+                real_binary_names=["codex"],
+                version_args=["--version"],
+                launch_args_by_scenario={"smoke": []},
+                expectations={"smoke": agent_bench.ScenarioExpectation("smoke", ["session-start"])},
+            )
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="smoke",
+                run_dir=root / "run",
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": [],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/codex",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                        "HOME": "/Users/tester",
+                        "CODEX_HOME": "/tmp/custom-codex-home",
+                    },
+                }
+            )
+
+            self.assertNotIn("CODEX_HOME", plan["unsetEnvironment"])
+
     def test_cursor_plan_writes_overlay_hooks_without_mutating_real_hooks_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -743,6 +1020,7 @@ class LaunchPlannerTests(unittest.TestCase):
             scenario="smoke",
             expectation=agent_bench.ScenarioExpectation("smoke", ["SessionStart"]),
             records=[],
+            terminal_observations=[],
             output="Gemini CLI is not running in a trusted directory",
             skip_patterns=["not running in a trusted directory"],
             timeout=120,

@@ -16,6 +16,12 @@
       "--ask-for-approval",
       "untrusted",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ],
+    "question": [
+      "Ask me one short random question using the askuserquestion tool. Do not answer it yourself."
+    ],
+    "question_interrupt": [
+      "Ask me one short random question using the askuserquestion tool. Do not answer it yourself."
     ]
   },
   "expectations": {
@@ -24,6 +30,12 @@
     },
     "approval": {
       "required_events": ["session-start", "prompt-submit", "permission-request", "stop"]
+    },
+    "question": {
+      "required_events": ["session-start", "prompt-submit"]
+    },
+    "question_interrupt": {
+      "required_events": ["session-start", "prompt-submit"]
     }
   },
   "input_by_scenario": {
@@ -35,6 +47,24 @@
       {
         "match": "Would you like to run the following command",
         "text": "y\n"
+      }
+    ],
+    "question": [
+      {
+        "match": "trust",
+        "text": "1\n"
+      }
+    ],
+    "question_interrupt": [
+      {
+        "match": "trust",
+        "text": "1\n",
+        "label": "trust-workspace"
+      },
+      {
+        "match": "Action Required",
+        "text": "\u0003",
+        "label": "ctrl-c"
       }
     ]
   },

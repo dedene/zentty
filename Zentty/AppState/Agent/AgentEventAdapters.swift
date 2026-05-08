@@ -907,6 +907,8 @@ extension AgentEventBridge {
             payloads.append(lifecyclePayload(target: target, toolName: toolName, state: .starting, sessionID: sessionID, cwd: cwd))
             return payloads
         case "PermissionRequest":
+            let requestedToolName = firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
+            let interaction = codexPermissionRequestInteraction(toolName: requestedToolName)
             return [AgentStatusPayload(
                 windowID: target.windowID,
                 worklaneID: target.worklaneID,
@@ -914,9 +916,9 @@ extension AgentEventBridge {
                 state: .needsInput,
                 origin: .explicitHook,
                 toolName: toolName,
-                text: "Codex needs your approval",
+                text: interaction.text,
                 lifecycleEvent: .update,
-                interactionKind: .approval,
+                interactionKind: interaction.kind,
                 confidence: .explicit,
                 sessionID: sessionID,
                 artifactKind: nil,
@@ -944,6 +946,28 @@ extension AgentEventBridge {
         case "stop": return "Stop"
         default: return nil
         }
+    }
+
+    private static func codexPermissionRequestInteraction(toolName: String?) -> (
+        text: String,
+        kind: PaneAgentInteractionKind
+    ) {
+        if codexPermissionRequestIsUserInput(toolName) {
+            return ("Codex needs your input", .genericInput)
+        }
+
+        return ("Codex needs your approval", .approval)
+    }
+
+    private static func codexPermissionRequestIsUserInput(_ toolName: String?) -> Bool {
+        guard let toolName = AgentInteractionClassifier.trimmed(toolName) else {
+            return false
+        }
+
+        let normalized = toolName.lowercased().filter { $0.isLetter || $0.isNumber }
+        return normalized.contains("askuserquestion")
+            || normalized.contains("askuser")
+            || normalized.contains("requestuserinput")
     }
 
     static func codexNotifyAdapter(
@@ -1045,7 +1069,7 @@ extension AgentEventBridge {
             return .approval
         }
         if normalizedPayloadType.contains("question") || normalized.contains("?") {
-            return codexNotifyContainsDecisionOptions(message) ? .decision : .question
+            return codexNotifyContainsDecisionOptions(message) ? .decision : .genericInput
         }
         if [
             "waiting for your input",

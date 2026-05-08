@@ -173,8 +173,16 @@ struct PaneRawState: Equatable, Sendable {
     var wantsReadyStatus = false
     var showsReadyStatus = false
     var codexTitleIdleSuppressionUntil: Date?
+    var codexInterruptSuppressionUntil: Date?
     var lastDesktopNotificationText: String?
     var lastDesktopNotificationDate: Date?
+
+    func codexInterruptSuppressionIsActive(now: Date = Date()) -> Bool {
+        guard let deadline = codexInterruptSuppressionUntil else {
+            return false
+        }
+        return now < deadline
+    }
 }
 
 struct PaneTerminalLocationSnapshot: Equatable, Sendable {
@@ -325,10 +333,14 @@ enum PanePresentationNormalizer {
             && TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: raw.metadata?.title)
                 == .backgroundWait
         let showsReadyStatus = raw.showsReadyStatus && !codexBackgroundWait
+        let codexInterruptSuppressionIsActive = raw.codexInterruptSuppressionIsActive()
         let hasObservedRunning =
-            raw.agentStatus?.hasObservedRunning == true
-            || titlePhase == .running
-            || previous?.runtimePhase == .running
+            !codexInterruptSuppressionIsActive
+            && (
+                raw.agentStatus?.hasObservedRunning == true
+                || titlePhase == .running
+                || previous?.runtimePhase == .running
+            )
         let taskProgress =
             (recognizedTool == .codex
                 ? TerminalMetadataChangeClassifier.codexTaskProgress(for: raw.metadata?.title)
@@ -346,11 +358,14 @@ enum PanePresentationNormalizer {
         let interactionKind = PaneInteractionKind(agentInteractionKind)
         let interactionLabel: String?
         let interactionSymbolName: String?
-        if copilotTitleNeedsInput {
-            // Copilot's hook-driven agentStatus is still .idle when the
-            // title flips to "Asking ..."; derive labels from the override
-            // instead of agentStatus to avoid showing "Idle" next to the
-            // needs-input state.
+        let titleDerivedNeedsInput =
+            runtimePhase == .needsInput
+            && (copilotTitleNeedsInput || codexTitleInteractionKind != nil)
+        if titleDerivedNeedsInput {
+            // Some terminal-title driven needs-input states arrive before the
+            // hook/API state catches up, or while a stale approval status is
+            // still present. Derive the visible label from the current title
+            // classifier so Codex Action Required shows "Needs input".
             interactionLabel = agentInteractionKind.statusLabel
             interactionSymbolName = agentInteractionKind.symbolName
         } else {

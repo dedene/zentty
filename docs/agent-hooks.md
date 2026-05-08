@@ -148,6 +148,48 @@ Counts are intentionally scoped to the main session only. Subagent or nested tas
 
 Claude hook execution is best effort. If the Claude adapter fails internally, Zentty returns success to Claude and suppresses stderr so users do not see hook error banners.
 
+## Codex CLI
+
+Zentty injects Codex hooks through per-launch `-c` config flags. It does not create a temporary `CODEX_HOME` overlay, so the user's real Codex home and config files stay untouched.
+If a wrapped Codex session inherits a Zentty-managed nested `CODEX_HOME`, Zentty unsets it for the child launch so parent-session hook state does not leak into the new session.
+
+The launch flags:
+
+- enable Codex hooks with `features.hooks=true`
+- register Zentty command hooks for the wrapped session
+- pre-trust only those generated session-flag hooks with `hooks.state`
+
+This avoids Codex's `/hooks review` prompt for Zentty's own hooks without changing the trust state for user, project, or plugin hooks.
+
+Zentty registers these Codex hook events:
+
+- `SessionStart`
+- `UserPromptSubmit`
+- `PreToolUse`
+- `PermissionRequest`
+- `PostToolUse`
+- `Stop`
+
+Each hook calls:
+
+```sh
+"$ZENTTY_CLI_BIN" ipc agent-event --adapter=codex <event>
+```
+
+### Current mapping
+
+- `SessionStart` -> PID attach + `starting`
+- `UserPromptSubmit` -> `running`
+- `PreToolUse` -> `running`
+- `PermissionRequest` -> `needs-input` with `approval`
+- `PostToolUse` -> `running`
+- `Stop` -> `idle`
+
+Codex 0.129's built-in AskUserQuestion UI does not emit a `PreToolUse` hook.
+When Codex switches the terminal title to `[ ! ] Action Required | ...`, Zentty
+treats that title as `needs-input` so the sidebar still reflects the blocked
+session.
+
 ## GitHub Copilot CLI
 
 Zentty injects Copilot hooks via a temporary `COPILOT_HOME` overlay so the user's real `~/.copilot` config stays untouched. Official schema: https://docs.github.com/en/copilot/reference/hooks-configuration.
