@@ -2975,6 +2975,252 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.id, PaneID("left"))
     }
 
+    func test_transferPaneToWorklane_sameWorklane_flatBoundaryMovesPaneIntoStack() throws {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let worklaneID = WorklaneID("main")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("left"), title: "left")],
+                                width: 300,
+                                focusedPaneID: PaneID("left"),
+                                lastFocusedPaneID: PaneID("left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 700,
+                                paneHeights: [4, 6],
+                                focusedPaneID: PaneID("top"),
+                                lastFocusedPaneID: PaneID("top")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: worklaneID
+        )
+
+        store.transferPaneToWorklane(
+            paneID: PaneID("left"),
+            targetWorklaneID: worklaneID,
+            atPaneIndex: 2,
+            singleColumnWidth: layoutContext.singlePaneWidth
+        )
+
+        let columns = try XCTUnwrap(store.activeWorklane?.paneStripState.columns)
+        XCTAssertEqual(columns.count, 1)
+        XCTAssertEqual(columns[0].panes.map(\.id), [PaneID("top"), PaneID("left"), PaneID("bottom")])
+        XCTAssertEqual(columns[0].paneHeights, [1, 1, 1])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.id, PaneID("left"))
+    }
+
+    func test_transferPaneToWorklane_sameWorklane_flatBoundaryMovesPaneToBeginningColumn() throws {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let worklaneID = WorklaneID("main")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("left"), title: "left")],
+                                width: 300,
+                                focusedPaneID: PaneID("left"),
+                                lastFocusedPaneID: PaneID("left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("middle"),
+                                panes: [PaneState(id: PaneID("middle"), title: "middle")],
+                                width: 400,
+                                focusedPaneID: PaneID("middle"),
+                                lastFocusedPaneID: PaneID("middle")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [PaneState(id: PaneID("right"), title: "right")],
+                                width: 500,
+                                focusedPaneID: PaneID("right"),
+                                lastFocusedPaneID: PaneID("right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("middle")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: worklaneID
+        )
+
+        store.transferPaneToWorklane(
+            paneID: PaneID("middle"),
+            targetWorklaneID: worklaneID,
+            atPaneIndex: 0,
+            singleColumnWidth: layoutContext.singlePaneWidth
+        )
+
+        let columns = try XCTUnwrap(store.activeWorklane?.paneStripState.columns)
+        XCTAssertEqual(columns.flatMap { $0.panes.map(\.id) }, [
+            PaneID("middle"),
+            PaneID("left"),
+            PaneID("right"),
+        ])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPane?.id, PaneID("middle"))
+    }
+
+    func test_transferPaneToWorklane_otherWorklane_flatBoundaryPreservesSourceColumnWidth() throws {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let sourceWorklaneID = WorklaneID("source")
+        let targetWorklaneID = WorklaneID("target")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: sourceWorklaneID,
+                    title: "SOURCE",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("source"),
+                                panes: [PaneState(id: PaneID("source-pane"), title: "source")],
+                                width: 640,
+                                focusedPaneID: PaneID("source-pane"),
+                                lastFocusedPaneID: PaneID("source-pane")
+                            )
+                        ],
+                        focusedColumnID: PaneColumnID("source")
+                    )
+                ),
+                WorklaneState(
+                    id: targetWorklaneID,
+                    title: "TARGET",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("target-left"),
+                                panes: [PaneState(id: PaneID("target-left"), title: "target-left")],
+                                width: 300,
+                                focusedPaneID: PaneID("target-left"),
+                                lastFocusedPaneID: PaneID("target-left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("target-right"),
+                                panes: [PaneState(id: PaneID("target-right"), title: "target-right")],
+                                width: 500,
+                                focusedPaneID: PaneID("target-right"),
+                                lastFocusedPaneID: PaneID("target-right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("target-left")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: sourceWorklaneID
+        )
+
+        store.transferPaneToWorklane(
+            paneID: PaneID("source-pane"),
+            targetWorklaneID: targetWorklaneID,
+            atPaneIndex: 1,
+            singleColumnWidth: layoutContext.singlePaneWidth
+        )
+
+        let target = try XCTUnwrap(store.worklanes.first(where: { $0.id == targetWorklaneID }))
+        let insertedColumn = try XCTUnwrap(target.paneStripState.columns.first(where: {
+            $0.panes.first?.id == PaneID("source-pane")
+        }))
+        XCTAssertEqual(insertedColumn.width, 640, accuracy: 0.001)
+    }
+
+    func test_duplicatePaneToWorklane_sameWorklane_insertsCopyAtFlatBoundary() throws {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let worklaneID = WorklaneID("main")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [PaneState(id: PaneID("left"), title: "left")],
+                                width: 300,
+                                focusedPaneID: PaneID("left"),
+                                lastFocusedPaneID: PaneID("left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [PaneState(id: PaneID("right"), title: "right")],
+                                width: 500,
+                                focusedPaneID: PaneID("right"),
+                                lastFocusedPaneID: PaneID("right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left")
+                    ),
+                    nextPaneNumber: 3
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: worklaneID
+        )
+
+        store.duplicatePaneToWorklane(
+            paneID: PaneID("left"),
+            targetWorklaneID: worklaneID,
+            atPaneIndex: 1,
+            singleColumnWidth: layoutContext.singlePaneWidth
+        )
+
+        let columns = try XCTUnwrap(store.activeWorklane?.paneStripState.columns)
+        XCTAssertEqual(columns.count, 3)
+        XCTAssertEqual(columns[0].panes.map(\.id), [PaneID("left")])
+        XCTAssertEqual(columns[2].panes.map(\.id), [PaneID("right")])
+        let duplicatedPane = try XCTUnwrap(columns[1].panes.first)
+        XCTAssertNotEqual(duplicatedPane.id, PaneID("left"))
+        XCTAssertNotEqual(duplicatedPane.id, PaneID("right"))
+        XCTAssertEqual(columns[1].width, 300, accuracy: 0.001)
+    }
+
     func test_focus_commands_update_only_active_worklane() {
         let store = WorklaneStore(
             worklanes: [

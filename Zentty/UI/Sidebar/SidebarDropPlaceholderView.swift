@@ -85,10 +85,15 @@ final class SidebarDropPlaceholderView: NSView {
 @MainActor
 final class SidebarPaneDropPresenter {
     private weak var targetStack: NSStackView?
+    private weak var lineContainer: NSView?
     private var dropPlaceholder: SidebarDropPlaceholderView?
+    private var dropPlaceholderGeneration = 0
+    private var insertionLine: PaneDragInsertionLineView?
+    private var insertionLineY: CGFloat?
 
-    init(targetStack: NSStackView) {
+    init(targetStack: NSStackView, lineContainer: NSView) {
         self.targetStack = targetStack
+        self.lineContainer = lineContainer
     }
 
     func setHighlightedDropTargetWorklane(
@@ -100,26 +105,73 @@ final class SidebarPaneDropPresenter {
         }
     }
 
-    func showNewWorklanePlaceholder() {
-        guard dropPlaceholder == nil, let targetStack else { return }
+    func showInsertionLine(atY y: CGFloat) {
+        guard insertionLineY != y, let lineContainer else { return }
+        hideInsertionLine()
 
-        let placeholder = SidebarDropPlaceholderView()
-        placeholder.translatesAutoresizingMaskIntoConstraints = false
-        targetStack.addArrangedSubview(placeholder)
-        NSLayoutConstraint.activate([
-            placeholder.leadingAnchor.constraint(equalTo: targetStack.leadingAnchor),
-            placeholder.trailingAnchor.constraint(equalTo: targetStack.trailingAnchor),
-            placeholder.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight),
-        ])
-        dropPlaceholder = placeholder
-        placeholder.animateIn()
+        let line = PaneDragInsertionLineView()
+        line.setOrientation(.horizontal)
+        lineContainer.addSubview(line)
+
+        let width = lineContainer.bounds.width
+        let lineHeight: CGFloat = 4
+        line.frame = CGRect(x: 0, y: y - lineHeight / 2, width: width, height: lineHeight)
+        line.startPulsing()
+        line.alphaValue = 0.9
+
+        insertionLine = line
+        insertionLineY = y
+    }
+
+    func hideInsertionLine() {
+        guard let line = insertionLine else { return }
+        line.removeFromSuperview()
+        insertionLine = nil
+        insertionLineY = nil
+    }
+
+    func showNewWorklanePlaceholder(atIndex insertionIndex: Int) {
+        guard let targetStack else { return }
+        dropPlaceholderGeneration += 1
+
+        let placeholder: SidebarDropPlaceholderView
+        let shouldAnimateIn: Bool
+        if let existing = dropPlaceholder {
+            placeholder = existing
+            shouldAnimateIn = false
+            placeholder.layer?.removeAnimation(forKey: "placeholderScaleOut")
+            placeholder.alphaValue = 1
+            if targetStack.arrangedSubviews.contains(existing) {
+                targetStack.removeArrangedSubview(existing)
+            }
+        } else {
+            placeholder = SidebarDropPlaceholderView()
+            placeholder.translatesAutoresizingMaskIntoConstraints = false
+            dropPlaceholder = placeholder
+            shouldAnimateIn = true
+        }
+
+        let clampedIndex = max(0, min(insertionIndex, targetStack.arrangedSubviews.count))
+        targetStack.insertArrangedSubview(placeholder, at: clampedIndex)
+        if shouldAnimateIn {
+            NSLayoutConstraint.activate([
+                placeholder.leadingAnchor.constraint(equalTo: targetStack.leadingAnchor),
+                placeholder.trailingAnchor.constraint(equalTo: targetStack.trailingAnchor),
+                placeholder.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight),
+            ])
+            placeholder.animateIn()
+        }
     }
 
     func hideNewWorklanePlaceholder() {
         guard let placeholder = dropPlaceholder else { return }
+        dropPlaceholderGeneration += 1
+        let generation = dropPlaceholderGeneration
         placeholder.animateOut { [weak self] in
+            guard let self, self.dropPlaceholderGeneration == generation else { return }
+            self.targetStack?.removeArrangedSubview(placeholder)
             placeholder.removeFromSuperview()
-            self?.dropPlaceholder = nil
+            self.dropPlaceholder = nil
         }
     }
 }

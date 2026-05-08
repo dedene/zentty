@@ -520,6 +520,75 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
     }
 
+    func test_paneRowInsertionBoundaries_use_visual_edges_in_nonFlipped_target() throws {
+        let target = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 180))
+        let row = makeRow(width: 320, height: 150)
+        target.addSubview(row)
+        row.frame = NSRect(x: 0, y: 20, width: 320, height: 150)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "General coding assistance session",
+                paneRows: [
+                    makePaneRow(paneID: "top", isFocused: true),
+                    makePaneRow(paneID: "bottom", isFocused: false),
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        target.layoutSubtreeIfNeeded()
+        row.layoutSubtreeIfNeeded()
+
+        let access = row.debugAccessForTesting
+        let frames = access.paneRowContainers.prefix(2).map {
+            $0.convert($0.bounds, to: target)
+        }
+        XCTAssertEqual(frames.count, 2)
+
+        let boundaries = row.paneRowInsertionBoundaries(in: target).map(\.y)
+
+        XCTAssertEqual(boundaries.count, 3)
+        XCTAssertEqual(boundaries[0], frames[0].maxY, accuracy: 0.5)
+        XCTAssertEqual(boundaries[1], (frames[0].minY + frames[1].maxY) / 2, accuracy: 0.5)
+        XCTAssertEqual(boundaries[2], frames[1].minY, accuracy: 0.5)
+    }
+
+    func test_paneRowInsertionBoundaries_only_use_currentPaneRows_afterReconfigure() {
+        let target = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 220))
+        let row = makeRow(width: 320, height: 190)
+        target.addSubview(row)
+        row.frame = NSRect(x: 0, y: 20, width: 320, height: 190)
+        let theme = ZenttyTheme.fallback(for: nil)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "General coding assistance session",
+                paneRows: [
+                    makePaneRow(paneID: "one", isFocused: true),
+                    makePaneRow(paneID: "two", isFocused: false),
+                    makePaneRow(paneID: "three", isFocused: false),
+                ]
+            ),
+            theme: theme,
+            animated: false
+        )
+        row.configure(
+            with: makeSummary(
+                primaryText: "General coding assistance session",
+                paneRows: [
+                    makePaneRow(paneID: "one", isFocused: true),
+                ]
+            ),
+            theme: theme,
+            animated: false
+        )
+        target.layoutSubtreeIfNeeded()
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(row.paneRowInsertionBoundaries(in: target).count, 2)
+    }
+
     func test_worklane_row_uses_tighter_main_text_inset() {
         let row = makeRow(width: 320, height: 88)
 

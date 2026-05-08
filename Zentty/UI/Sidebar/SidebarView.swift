@@ -91,7 +91,7 @@ final class SidebarView: NSView {
         resizeHandleView: resizeHandleView
     )
     private lazy var dragCoordinator = SidebarDragCoordinator(sidebarView: self)
-    private lazy var paneDropPresenter = SidebarPaneDropPresenter(targetStack: listStack)
+    private lazy var paneDropPresenter = SidebarPaneDropPresenter(targetStack: listStack, lineContainer: listDocumentView)
 
     private var worklaneButtons: [SidebarWorklaneRowButton] = []
     private var worklaneSummaries: [WorklaneSidebarSummary] = []
@@ -558,6 +558,17 @@ final class SidebarView: NSView {
         }
     }
 
+    /// Returns pane insertion boundaries per worklane, in targetView coordinates.
+    /// Each element is (worklaneID, [PaneInsertionBoundary]) with count = paneCount + 1.
+    /// Excludes worklanes with no pane rows.
+    func paneInsertionBoundaries(in targetView: NSView) -> [(WorklaneID, [PaneInsertionBoundary])] {
+        worklaneButtons.compactMap { button in
+            guard let worklaneID = button.worklaneID else { return nil }
+            let boundaries = button.paneRowInsertionBoundaries(in: targetView)
+            return boundaries.isEmpty ? nil : (worklaneID, boundaries)
+        }
+    }
+
     func visibleListRect(in targetView: NSView) -> CGRect {
         targetView.convert(listScrollView.contentView.bounds, from: listScrollView.contentView)
     }
@@ -704,12 +715,26 @@ final class SidebarView: NSView {
         )
     }
 
-    func showNewWorklanePlaceholder() {
-        paneDropPresenter.showNewWorklanePlaceholder()
+    func showNewWorklanePlaceholder(atIndex insertionIndex: Int) {
+        paneDropPresenter.showNewWorklanePlaceholder(atIndex: insertionIndex)
     }
 
     func hideNewWorklanePlaceholder() {
         paneDropPresenter.hideNewWorklanePlaceholder()
+    }
+
+    func showInsertionLine(atY y: CGFloat) {
+        paneDropPresenter.showInsertionLine(atY: y)
+    }
+
+    func hideInsertionLine() {
+        paneDropPresenter.hideInsertionLine()
+    }
+
+    /// Converts a Y coordinate from the given source view (e.g., AppCanvasView)
+    /// into the sidebar's listDocumentView coordinate space.
+    func convertYForInsertionLine(_ y: CGFloat, from sourceView: NSView) -> CGFloat {
+        listDocumentView.convert(CGPoint(x: 0, y: y), from: sourceView).y
     }
 
     @objc
