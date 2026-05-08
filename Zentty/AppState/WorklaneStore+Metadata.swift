@@ -193,6 +193,12 @@ extension WorklaneStore {
             ) {
                 return false
             }
+        } else if AgentToolRecognizer.recognize(metadata: nextMetadata) == .codex,
+                  TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            nextMetadata.title,
+            recognizedTool: .codex
+        ) != nil {
+            return false
         }
         return true
     }

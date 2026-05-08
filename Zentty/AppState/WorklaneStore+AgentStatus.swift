@@ -65,6 +65,7 @@ extension WorklaneStore {
                 now: now,
                 in: worklane
             )
+            worklane.auxiliaryStateByPaneID[paneID]?.raw.codexInterruptSuppressionUntil = nil
             clearCodexTitleIdleSuppression(for: paneID, in: &worklane)
             clearReadyStatusIfNeeded(for: paneID, in: &worklane)
             promoteCodexAgentStateFromUserInput(
