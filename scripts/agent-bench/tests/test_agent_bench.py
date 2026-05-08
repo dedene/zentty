@@ -292,6 +292,55 @@ class ExpectationTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.result_kind, "hook-pass")
 
+    def test_question_interrupt_scenario_rejects_trust_input_as_scripted_interrupt(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="session-start"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="prompt-submit"),
+        ]
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="question_interrupt",
+            expectation=agent_bench.ScenarioExpectation("question_interrupt", ["session-start", "prompt-submit"]),
+            records=records,
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="[ ! ] Action Required | codex-question", offset=0),
+                agent_bench.TerminalObservation(kind="input", text="trust-workspace", offset=12),
+            ],
+            output="",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=True,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "missing-scripted-input")
+
+    def test_question_interrupt_scenario_fails_when_action_required_persists_after_ctrl_c(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="session-start"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="prompt-submit"),
+        ]
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="question_interrupt",
+            expectation=agent_bench.ScenarioExpectation("question_interrupt", ["session-start", "prompt-submit"]),
+            records=records,
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="[ ! ] Action Required | codex-question", offset=0),
+                agent_bench.TerminalObservation(kind="input", text="ctrl-c", offset=12),
+                agent_bench.TerminalObservation(kind="title", text="[ ! ] Action Required | codex-question", offset=30),
+            ],
+            output="",
+            skip_patterns=[],
+            exit_code=130,
+            completed_by_predicate=True,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "stale-terminal-needs-input")
+
 
 class TimelineTests(unittest.TestCase):
     def test_extracts_terminal_title_and_osc9_observations(self):

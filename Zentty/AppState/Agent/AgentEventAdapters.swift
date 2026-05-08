@@ -926,11 +926,25 @@ extension AgentEventBridge {
                 artifactURL: nil
             )]
         case "PreToolUse", "PostToolUse":
-            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                lifecycleEvent: .toolActivity,
+                sessionID: sessionID,
+                cwd: cwd
+            )]
         case "UserPromptSubmit":
             return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
         case "Stop":
-            return [lifecyclePayload(target: target, toolName: toolName, state: .idle, sessionID: sessionID, cwd: cwd)]
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .idle,
+                lifecycleEvent: .turnComplete,
+                sessionID: sessionID,
+                cwd: cwd
+            )]
         default:
             return []
         }
@@ -989,7 +1003,7 @@ extension AgentEventBridge {
                 origin: .explicitAPI,
                 toolName: toolName,
                 text: nil,
-                lifecycleEvent: .update,
+                lifecycleEvent: .turnComplete,
                 interactionKind: .none,
                 confidence: .explicit,
                 sessionID: sessionID,

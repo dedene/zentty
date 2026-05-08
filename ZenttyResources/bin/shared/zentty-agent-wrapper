@@ -29,7 +29,7 @@ kimi_early_exit_flag_present() {
 
 should_passthrough_to_real_binary() {
     case "$tool_basename" in
-        kimi)
+        kimi|kimi-cli)
             [[ "${ZENTTY_KIMI_HOOKS_DISABLED:-}" == "1" ]] && return 0
             kimi_passthrough_subcommand "${1:-}" && return 0
             kimi_early_exit_flag_present "$@" && return 0
@@ -46,6 +46,7 @@ should_passthrough_to_real_binary() {
 real_binary_candidates() {
     case "$tool_basename" in
         cursor) printf '%s\n' cursor-agent ;;
+        kimi)   printf '%s\n' kimi kimi-cli ;;
         *)      printf '%s\n' "$tool_basename" ;;
     esac
 }

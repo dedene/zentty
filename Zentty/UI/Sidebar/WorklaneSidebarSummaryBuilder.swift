@@ -442,8 +442,7 @@ enum WorklaneSidebarSummaryBuilder {
         let branch = presentation.branchDisplayText
         let workingDirectory = compactWorkingDirectory(for: presentation)
 
-        if presentation.runtimePhase != .needsInput,
-           let recognizedTool = presentation.recognizedTool,
+        if let recognizedTool = presentation.recognizedTool,
            let volatileTitle = WorklaneContextFormatter.trimmed(metadata?.title),
            TerminalMetadataChangeClassifier.isRealtimeAgentStatusTitle(
                volatileTitle,

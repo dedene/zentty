@@ -76,8 +76,29 @@ final class AgentStatusSupportTests: XCTestCase {
 
     func test_agent_tool_recognizes_kimi_for_explicit_and_known_tool_resolution() {
         XCTAssertEqual(AgentTool.resolve(named: "kimi"), .kimi)
+        XCTAssertEqual(AgentTool.resolve(named: "kimi-cli"), .kimi)
         XCTAssertEqual(AgentTool.resolve(named: "Kimi CLI"), .kimi)
         XCTAssertEqual(AgentTool.resolveKnown(named: "Kimi"), .kimi)
+    }
+
+    func test_agent_tool_recognizer_infers_codex_from_explicit_attention_title() {
+        XCTAssertEqual(
+            AgentToolRecognizer.recognize(metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            )),
+            .codex
+        )
+        XCTAssertNil(
+            AgentToolRecognizer.recognize(metadata: TerminalMetadata(
+                title: "Waiting for build",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            ))
+        )
     }
 
     func test_agent_tool_recognizes_cursor() {
@@ -403,6 +424,46 @@ final class AgentStatusSupportTests: XCTestCase {
             AgentStatusHelper.enabledWrapperDirectoryPaths(in: bundle, processEnvironment: environment)
                 .contains(binURL.appendingPathComponent("cursor", isDirectory: true).path),
             "cursor wrapper should only activate when cursor-agent is on PATH, not the Cursor IDE launcher"
+        )
+    }
+
+    func test_agent_status_helper_enables_kimi_wrapper_when_only_kimi_cli_is_on_path() throws {
+        let bundleRoot = try makeTemporaryBundleRoot(named: "KimiCliOnlyPath")
+        let resourcesURL = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+        let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
+
+        for (dirName, fileName) in wrapperLayoutPairs {
+            let wrapperDirectoryURL = binURL.appendingPathComponent(dirName, isDirectory: true)
+            try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
+            let wrapperURL = wrapperDirectoryURL.appendingPathComponent(fileName, isDirectory: false)
+            try "#!/bin/sh\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+        }
+        let sharedURL = binURL.appendingPathComponent("shared", isDirectory: true)
+        try FileManager.default.createDirectory(at: sharedURL, withIntermediateDirectories: true)
+        let sharedWrapperURL = sharedURL.appendingPathComponent("zentty-agent-wrapper", isDirectory: false)
+        try "#!/bin/sh\n".write(to: sharedWrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapperURL.path)
+
+        let realBinURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
+        // Only `kimi-cli` exists — `kimi` is absent.
+        let kimiCli = realBinURL.appendingPathComponent("kimi-cli", isDirectory: false)
+        try "#!/bin/sh\n".write(to: kimiCli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: kimiCli.path)
+
+        let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
+        let environment = [
+            "PATH": [realBinURL.path, "/usr/bin", "/bin"].joined(separator: ":"),
+        ]
+
+        XCTAssertTrue(
+            AgentStatusHelper.enabledWrapperDirectoryPaths(in: bundle, processEnvironment: environment)
+                .contains(binURL.appendingPathComponent("kimi", isDirectory: true).path),
+            "kimi wrapper should activate when kimi-cli is on PATH"
         )
     }
 
@@ -897,14 +958,16 @@ final class AgentStatusSupportTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
 
-        let kimiWrapper = try String(contentsOf: repositoryRoot
-            .appendingPathComponent("ZenttyResources", isDirectory: true)
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("kimi", isDirectory: true)
-            .appendingPathComponent("kimi", isDirectory: false), encoding: .utf8)
-        XCTAssertTrue(kimiWrapper.contains("ZENTTY_AGENT_TOOL=\"kimi\""))
-        XCTAssertTrue(kimiWrapper.contains("zentty-agent-wrapper"))
-        XCTAssertFalse(kimiWrapper.contains("ZENTTY_AGENT_BIN"))
+        for name in ["kimi", "kimi-cli"] {
+            let kimiWrapper = try String(contentsOf: repositoryRoot
+                .appendingPathComponent("ZenttyResources", isDirectory: true)
+                .appendingPathComponent("bin", isDirectory: true)
+                .appendingPathComponent("kimi", isDirectory: true)
+                .appendingPathComponent(name, isDirectory: false), encoding: .utf8)
+            XCTAssertTrue(kimiWrapper.contains("ZENTTY_AGENT_TOOL=\"kimi\""), name)
+            XCTAssertTrue(kimiWrapper.contains("zentty-agent-wrapper"), name)
+            XCTAssertFalse(kimiWrapper.contains("ZENTTY_AGENT_BIN"), name)
+        }
     }
 
     func test_repository_cursor_wrapper_exposes_cursor_agent_and_agent() throws {
@@ -945,6 +1008,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let project = try String(contentsOf: projectURL, encoding: .utf8)
 
         XCTAssertTrue(project.contains("-o -path \"*/kimi/kimi\""))
+        XCTAssertTrue(project.contains("-o -path \"*/kimi/kimi-cli\""))
         XCTAssertTrue(project.contains("-o -path \"*/shared/zentty-agent-wrapper\""))
     }
 
@@ -4002,7 +4066,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .running)
-        XCTAssertEqual(payload.lifecycleEvent, .update)
+        XCTAssertEqual(payload.lifecycleEvent, .toolActivity)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
@@ -4023,7 +4087,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .running)
-        XCTAssertEqual(payload.lifecycleEvent, .update)
+        XCTAssertEqual(payload.lifecycleEvent, .toolActivity)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
@@ -4136,7 +4200,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .idle)
-        XCTAssertEqual(payload.lifecycleEvent, .update)
+        XCTAssertEqual(payload.lifecycleEvent, .turnComplete)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
     }
@@ -5371,7 +5435,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(presentation.statusText, "Needs input")
     }
 
-    func test_codex_action_required_title_survives_ready_title_tick() throws {
+    func test_codex_ready_title_clears_action_required_title_state() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         let cwd = "/tmp/codex-action-required-ready"
@@ -5397,9 +5461,8 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
-        XCTAssertEqual(presentation.runtimePhase, .needsInput)
-        XCTAssertEqual(presentation.interactionKind, .genericInput)
-        XCTAssertEqual(presentation.statusText, "Needs input")
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertEqual(presentation.interactionKind, .none)
     }
 
     func test_codex_needs_input_title_uses_generic_input_status_text() throws {
@@ -5483,6 +5546,105 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(presentation.statusText, "Running")
     }
 
+    func test_codex_tool_activity_clears_prior_explicit_approval() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let sessionID = "session-approval-tool-activity"
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .needsInput,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: "Codex needs your approval",
+            interactionKind: .approval,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            lifecycleEvent: .toolActivity,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_codex_turn_complete_does_not_clear_current_action_required_title() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let cwd = "/tmp/codex-action-required-turn-complete"
+        let sessionID = "session-action-required-turn-complete"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .idle,
+            origin: .explicitAPI,
+            toolName: "Codex",
+            text: nil,
+            lifecycleEvent: .turnComplete,
+            interactionKind: .none,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.statusText, "Needs input")
+    }
+
     func test_codex_approval_survives_passive_progress_activity_until_user_submits_input() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -5530,6 +5692,83 @@ final class AgentStatusSupportTests: XCTestCase {
         store.handleTerminalEvent(paneID: paneID, event: .userSubmittedInput)
 
         presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_codex_approval_clears_when_working_title_and_progress_resume_after_approval() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let cwd = "/tmp/codex-approval-working-progress"
+        let sessionID = "session-approval-working-progress"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .needsInput,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: "Codex needs your approval",
+            interactionKind: .approval,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ codex-approval-working-progress",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .progressReport(TerminalProgressReport(state: .indeterminate, progress: nil))
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_codex_recognized_process_progress_surfaces_running_without_hook_status() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let cwd = "/tmp/codex-progress-only"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "codex-progress-only",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .progressReport(TerminalProgressReport(state: .indeterminate, progress: nil))
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
         XCTAssertEqual(presentation.runtimePhase, .running)
         XCTAssertEqual(presentation.statusText, "Running")
     }
@@ -6096,6 +6335,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ("droid", "droid"),
             ("gemini", "gemini"),
             ("kimi", "kimi"),
+            ("kimi", "kimi-cli"),
             ("opencode", "opencode"),
             ("pi", "pi"),
         ]

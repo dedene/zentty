@@ -42,11 +42,13 @@
     "approval": [
       {
         "match": "trust",
-        "text": "1\n"
+        "text": "1\n",
+        "label": "trust-workspace"
       },
       {
         "match": "Would you like to run the following command",
-        "text": "y\n"
+        "text": "y\n",
+        "label": "approve-command"
       }
     ],
     "question": [

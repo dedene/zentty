@@ -189,6 +189,62 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.paneRows.first?.detailText, "~/project")
     }
 
+    func test_builder_shows_codex_action_required_title_and_needs_input_badge() {
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "[ ! ] Action Required | zentty",
+                    currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                    processName: "codex",
+                    gitBranch: "main"
+                )
+            ]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(summary.primaryText, "[ ! ] Action Required | zentty")
+        XCTAssertEqual(paneRow.primaryText, "[ ! ] Action Required | zentty")
+        XCTAssertEqual(paneRow.trailingText, "main")
+        XCTAssertEqual(paneRow.attentionState, .needsInput)
+        XCTAssertEqual(paneRow.statusText, "Needs input")
+    }
+
+    func test_builder_infers_codex_action_required_title_without_process_name() {
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "[ . ] Action Required | zentty",
+                    currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                    processName: nil,
+                    gitBranch: "main"
+                )
+            ]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.primaryText, "[ . ] Action Required | zentty")
+        XCTAssertEqual(paneRow.attentionState, .needsInput)
+        XCTAssertEqual(paneRow.statusText, "Needs input")
+    }
+
     func test_builder_uses_inferred_ssh_identity_over_local_cwd_while_ssh_is_active() {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
@@ -614,7 +670,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.interactionSymbolName, "list.bullet")
     }
 
-    func test_builder_keeps_codex_action_required_title_out_of_pane_identity() {
+    func test_builder_surfaces_codex_action_required_title_as_pane_identity() {
         let paneID = PaneID("worklane-main-agent")
         var auxiliaryState = PaneAuxiliaryState(
             metadata: TerminalMetadata(
@@ -672,7 +728,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
-        XCTAssertEqual(paneRow.primaryText, "Codex")
+        XCTAssertEqual(paneRow.primaryText, "[ ! ] Action Required | zentty")
         XCTAssertEqual(paneRow.statusText, "Needs input")
         XCTAssertEqual(paneRow.attentionState, .needsInput)
     }

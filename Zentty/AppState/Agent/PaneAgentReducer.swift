@@ -719,7 +719,9 @@ struct PaneAgentReducerState: Equatable, Sendable {
            existingSession.state == .needsInput,
            existingSession.interactionKind.requiresHumanAttention,
            payload.state == .idle || payload.state == .running || payload.state == .starting {
-            return false
+            return payload.lifecycleEvent == .toolActivity
+                || payload.lifecycleEvent == .turnComplete
+                || Self.codexNeedsInputIsWeakTerminalFallback(existingSession)
         }
 
         if payload.origin.priority > existingSession.origin.priority {
@@ -746,6 +748,22 @@ struct PaneAgentReducerState: Equatable, Sendable {
         }
 
         return true
+    }
+
+    private static func codexNeedsInputIsWeakTerminalFallback(_ session: PaneAgentSessionState) -> Bool {
+        guard session.tool == .codex,
+              session.state == .needsInput,
+              session.interactionKind == .genericInput,
+              session.confidence == .weak else {
+            return false
+        }
+
+        switch session.origin {
+        case .heuristic, .inferred, .compatibility:
+            return true
+        case .explicitAPI, .explicitHook, .shell:
+            return false
+        }
     }
 
     private static func preferred(lhs: PaneAgentSessionState, rhs: PaneAgentSessionState) -> Bool {

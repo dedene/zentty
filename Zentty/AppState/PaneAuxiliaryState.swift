@@ -823,7 +823,7 @@ enum PanePresentationNormalizer {
         case .gemini:
             return ["gemini", "gemini cli"].contains(normalized)
         case .kimi:
-            return ["kimi", "kimi cli"].contains(normalized)
+            return ["kimi", "kimi-cli", "kimi cli"].contains(normalized)
         case .openCode:
             return ["opencode", "open code"].contains(normalized)
         case .pi:

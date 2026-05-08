@@ -131,6 +131,8 @@ class ScenarioResult:
     detail: str = ""
     result_kind: str = "hook-pass"
     warnings: list[str] = dataclasses.field(default_factory=list)
+    terminal_final_phase: str | None = None
+    terminal_post_scripted_input_phase: str | None = None
     terminal_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     task_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     timeline: list[dict[str, Any]] = dataclasses.field(default_factory=list)
@@ -277,11 +279,17 @@ def classify_completed_result(
         result.detail = "required lifecycle hooks observed but no terminal needs-input title was captured"
         result.result_kind = "missing-terminal-needs-input"
         return result
-    if scenario_requires_scripted_input(scenario) and not scripted_input_observed(terminal_observations):
+    if scenario_requires_scripted_input(scenario) and not scripted_input_observed(scenario, terminal_observations):
         result.passed = False
         result.status = "fail"
         result.detail = "required lifecycle hooks observed but scripted input was not captured"
         result.result_kind = "missing-scripted-input"
+        return result
+    if terminal_needs_input_persisted_after_scripted_input(scenario, terminal_observations):
+        result.passed = False
+        result.status = "fail"
+        result.detail = "terminal still reported needs-input after scripted input"
+        result.result_kind = "stale-terminal-needs-input"
         return result
     if exit_code != 0 and not completed_by_predicate:
         result.passed = False
@@ -318,11 +326,16 @@ def classify_timeout_result(
             partial.status = "fail"
             partial.detail = "required lifecycle hooks observed but no terminal needs-input title was captured"
             partial.result_kind = "missing-terminal-needs-input"
-        elif scenario_requires_scripted_input(scenario) and not scripted_input_observed(terminal_observations):
+        elif scenario_requires_scripted_input(scenario) and not scripted_input_observed(scenario, terminal_observations):
             partial.passed = False
             partial.status = "fail"
             partial.detail = "required lifecycle hooks observed but scripted input was not captured"
             partial.result_kind = "missing-scripted-input"
+        elif terminal_needs_input_persisted_after_scripted_input(scenario, terminal_observations):
+            partial.passed = False
+            partial.status = "fail"
+            partial.detail = "terminal still reported needs-input after scripted input"
+            partial.result_kind = "stale-terminal-needs-input"
         else:
             partial.passed = True
             partial.status = "pass"
@@ -426,17 +439,81 @@ def scenario_requires_scripted_input(scenario: str) -> bool:
     return scenario == "question_interrupt"
 
 
+def required_scripted_input_label(scenario: str) -> str | None:
+    if scenario == "question_interrupt":
+        return "ctrl-c"
+    return None
+
+
 def terminal_needs_input_observed(observations: list[TerminalObservation]) -> bool:
-    return any(
-        observation.kind in {"title", "progress"}
-        and "action required" in observation.text.lower()
-        for observation in observations
-    )
+    return any(terminal_observation_indicates_needs_input(observation) for observation in observations)
 
 
-def scripted_input_observed(observations: list[TerminalObservation]) -> bool:
+def scripted_input_observed(scenario: str, observations: list[TerminalObservation]) -> bool:
+    required_label = required_scripted_input_label(scenario)
+    if required_label:
+        return any(
+            observation.kind == "input" and observation.text == required_label
+            for observation in observations
+        )
     return any(observation.kind == "input" for observation in observations)
 
+
+def terminal_observation_indicates_needs_input(observation: TerminalObservation) -> bool:
+    return observation.kind in {"title", "progress"} and "action required" in observation.text.lower()
+
+
+def terminal_observation_phase(observation: TerminalObservation) -> str | None:
+    if observation.kind not in {"title", "progress"}:
+        return None
+    text = observation.text.lower()
+    if "action required" in text or "needs input" in text:
+        return "needs-input"
+    if "working" in text or "running" in text:
+        return "running"
+    if "ready" in text or "idle" in text:
+        return "idle"
+    return None
+
+
+def terminal_final_phase(observations: list[TerminalObservation]) -> str | None:
+    for observation in sorted(observations, key=lambda item: item.offset, reverse=True):
+        phase = terminal_observation_phase(observation)
+        if phase:
+            return phase
+    return None
+
+
+def terminal_needs_input_persisted_after_scripted_input(
+    scenario: str,
+    observations: list[TerminalObservation],
+) -> bool:
+    return terminal_phase_after_scripted_input(scenario, observations) == "needs-input"
+
+
+def terminal_phase_after_scripted_input(
+    scenario: str,
+    observations: list[TerminalObservation],
+) -> str | None:
+    required_label = required_scripted_input_label(scenario)
+    if not required_label:
+        return None
+
+    input_offsets = [
+        observation.offset
+        for observation in observations
+        if observation.kind == "input" and observation.text == required_label
+    ]
+    if not input_offsets:
+        return None
+
+    last_input_offset = max(input_offsets)
+    later_terminal_observations = [
+        observation
+        for observation in observations
+        if observation.kind in {"title", "progress"} and observation.offset > last_input_offset
+    ]
+    return terminal_final_phase(later_terminal_observations)
 
 def task_observations_for_records(agent: str, scenario: str, records: list[TraceRecord]) -> list[dict[str, Any]]:
     observations: list[dict[str, Any]] = []
@@ -1100,9 +1177,14 @@ class BenchRunner:
                 [],
                 [],
             )
-        command = shutil.which(profile.command, path=env["PATH"])
+        command = None
+        for candidate in [profile.command] + profile.real_binary_names:
+            command = shutil.which(candidate, path=env["PATH"])
+            if command:
+                break
         if not command:
-            return self._finalize_result(self._skip_or_fail(agent, scenario, f"{profile.command} not found", "binary-skip"), [], [])
+            names = ", ".join([profile.command] + profile.real_binary_names)
+            return self._finalize_result(self._skip_or_fail(agent, scenario, f"none of {names} found", "binary-skip"), [], [])
         version = run_version(command, profile.version_args, env)
         self.recorder.append(TraceRecord(kind="version", agent=agent, scenario=scenario, extra={"version": version}))
         argv = [command] + profile.launch_args_by_scenario.get(scenario, [])
@@ -1123,8 +1205,9 @@ class BenchRunner:
                 )
                 and (
                     not scenario_requires_scripted_input(scenario)
-                    or scripted_input_observed(observations)
+                    or scripted_input_observed(scenario, observations)
                 )
+                and not terminal_needs_input_persisted_after_scripted_input(scenario, observations)
             ),
         )
         observations = completed.terminal_observations
@@ -1173,12 +1256,18 @@ class BenchRunner:
         records: list[TraceRecord],
         observations: list[TerminalObservation],
     ) -> ScenarioResult:
+        result.terminal_final_phase = terminal_final_phase(observations)
+        result.terminal_post_scripted_input_phase = terminal_phase_after_scripted_input(result.scenario, observations)
         result.terminal_observations = [dataclasses.asdict(observation) for observation in observations]
         result.task_observations = task_observations_for_records(result.agent, result.scenario, records)
         result.timeline = build_timeline(result.agent, result.scenario, records, observations)
         result.rerun_command = self._rerun_command(result.agent, result.scenario)
         if observations and not any(warning.startswith("terminal observations") for warning in result.warnings):
             result.warnings.append(f"terminal observations captured: {len(observations)}")
+        if result.terminal_post_scripted_input_phase == "needs-input" and not any(
+            warning.startswith("terminal post-scripted-input phase") for warning in result.warnings
+        ):
+            result.warnings.append("terminal post-scripted-input phase: needs-input")
         if result.task_observations and not any(warning.startswith("task observations") for warning in result.warnings):
             result.warnings.append(f"task observations captured: {len(result.task_observations)}")
         return result
@@ -1297,6 +1386,10 @@ class BenchRunner:
                 lines.append(f"  Observed: {', '.join(result.observed_events)}")
             if result.warnings:
                 lines.append(f"  Warnings: {'; '.join(result.warnings)}")
+            if result.terminal_final_phase:
+                lines.append(f"  Terminal final phase: {result.terminal_final_phase}")
+            if result.terminal_post_scripted_input_phase:
+                lines.append(f"  Terminal post-scripted-input phase: {result.terminal_post_scripted_input_phase}")
             if result.terminal_observations:
                 observations = ", ".join(f"{item['kind']}={item['text']}" for item in result.terminal_observations[:3])
                 suffix = "..." if len(result.terminal_observations) > 3 else ""

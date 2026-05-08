@@ -354,6 +354,34 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.statusText, "Running")
     }
 
+    func test_normalize_infers_codex_from_action_required_title_without_process_name() {
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: PaneRawState(
+                metadata: TerminalMetadata(
+                    title: "[ ! ] Action Required | zentty",
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: nil,
+                    gitBranch: "main"
+                ),
+                shellContext: nil,
+                agentStatus: nil,
+                terminalProgress: nil,
+                reviewState: nil,
+                gitContext: PaneGitContext(
+                    workingDirectory: "/tmp/project",
+                    repositoryRoot: "/tmp/project",
+                    reference: .branch("main")
+                )
+            ),
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.recognizedTool, .codex)
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.statusText, "Needs input")
+    }
+
     func test_normalize_does_not_infer_codex_from_generic_working_title_without_process_name() {
         let presentation = PanePresentationNormalizer.normalize(
             paneTitle: "shell",
@@ -1725,8 +1753,8 @@ final class PanePresentationStateTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.runtimePhase, .needsInput)
-        XCTAssertEqual(presentation.interactionKind, .question)
-        XCTAssertEqual(presentation.statusText, "Needs decision")
+        XCTAssertEqual(presentation.interactionKind, .genericInput)
+        XCTAssertEqual(presentation.statusText, "Needs input")
     }
 
     func test_normalize_promotes_running_codex_session_when_title_needs_approval() {
