@@ -245,6 +245,14 @@ final class RootViewController: NSViewController {
                 self?.applyPersistedConfig(config)
             }
         }
+        worklaneStore.scrollbackProvider = { [weak self] paneID in
+            guard let self else { return nil }
+            guard let runtime = self.runtimeRegistry.runtime(for: paneID),
+                  let reader = runtime.adapter as? TerminalTextReading
+            else { return nil }
+            return reader.readText(includeScrollback: true, lineLimit: 5_000)
+        }
+        ClosedPaneScrollbackArchive.purgeStale()
         preloadOpenWithIcons()
     }
 
@@ -1278,6 +1286,8 @@ final class RootViewController: NSViewController {
             } else {
                 closeFocusedPane()
             }
+        case .restoreClosedPane:
+            performRestoreClosedPane()
         case .toggleZoomOut:
             appCanvasView.paneStripView.toggleZoom()
         default:
@@ -1296,6 +1306,21 @@ final class RootViewController: NSViewController {
 
     private func closePane(id paneID: PaneID) {
         handlePaneCloseResult(worklaneStore.closePane(id: paneID))
+    }
+
+    private func performRestoreClosedPane() {
+        if let result = worklaneStore.restoreClosedPane() {
+            showRestoreToast(message: result.toastMessage)
+        } else {
+            showRestoreToast(message: "No recently closed pane to restore")
+        }
+    }
+
+    private func showRestoreToast(message: String) {
+        pathCopiedToastView?.removeFromSuperview()
+        let toast = PathCopiedToastView()
+        pathCopiedToastView = toast
+        toast.show(message: message, in: appCanvasView, theme: currentTheme)
     }
 
     private func closeFocusedPane() {

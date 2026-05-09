@@ -53,6 +53,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case arrangeHeightGoldenFocusTall = "pane.arrange.height.golden_focus_tall"
     case arrangeHeightGoldenFocusShort = "pane.arrange.height.golden_focus_short"
     case closeFocusedPane = "pane.close_focused"
+    case restoreClosedPane = "pane.restore_closed"
     case focusPreviousPane = "pane.focus.previous"
     case focusNextPane = "pane.focus.next"
     case focusLeftPane = "pane.focus.left"
@@ -540,11 +541,27 @@ enum AppCommandRegistry {
         ),
         AppCommandDefinition(
             id: .closeFocusedPane,
-            title: "Close Focused Pane",
+            title: "Close Pane",
             category: .panes,
             defaultShortcut: .init(key: .character("w"), modifiers: [.command]),
             action: .pane(.closeFocusedPane),
-            menuItem: nil
+            menuItem: AppCommandMenuItem(
+                section: .file,
+                title: "Close Pane",
+                selector: #selector(MainWindowController.closeFocusedPane(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .restoreClosedPane,
+            title: "Undo Close Pane",
+            category: .panes,
+            defaultShortcut: .init(key: .character("t"), modifiers: [.command, .shift]),
+            action: .pane(.restoreClosedPane),
+            menuItem: AppCommandMenuItem(
+                section: .file,
+                title: "Undo Close Pane",
+                selector: #selector(MainWindowController.restoreClosedPane(_:))
+            )
         ),
         AppCommandDefinition(
             id: .focusPreviousPane,
@@ -767,6 +784,9 @@ enum AppCommandRegistry {
             .command(.newWindow),
             .command(.newWorklane),
             .separator,
+            .command(.closeFocusedPane),
+            .command(.restoreClosedPane),
+            .separator,
             .command(.nextWorklane),
             .command(.previousWorklane),
         ],
@@ -928,6 +948,8 @@ extension AppCommandDefinition {
             "Golden ratio: focused pane gets the short side (~38%)."
         case .closeFocusedPane:
             "Close the focused pane."
+        case .restoreClosedPane:
+            "Reopen the most recently closed pane in this window, restoring its working directory and resuming its agent session if there was one."
         case .focusPreviousPane:
             "Focus the previous pane, wrapping across worklanes."
         case .focusNextPane:

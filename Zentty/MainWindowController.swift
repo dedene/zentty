@@ -551,6 +551,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func closeFocusedPane(_ sender: Any?) {
+        handle(.pane(.closeFocusedPane))
+    }
+
+    @objc
+    func restoreClosedPane(_ sender: Any?) {
+        handle(.pane(.restoreClosedPane))
+    }
+
+    @objc
     func focusLeftPane(_ sender: Any?) {
         handle(.pane(.focusLeft))
     }

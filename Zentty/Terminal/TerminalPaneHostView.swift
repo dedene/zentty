@@ -841,12 +841,12 @@ final class PaneRuntime {
     private static func initialRestoreDraftLifecycleState(
         for request: TerminalSessionRequest
     ) -> PaneRestoreDraftLifecycleState {
-        guard let draftText = request.prefillText?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !draftText.isEmpty else {
+        guard let raw = request.prefillText,
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .none
         }
 
-        return .pending(draftText)
+        return .pending(raw)
     }
 
     private func handleSearchDidChange(_ event: TerminalSearchEvent) {

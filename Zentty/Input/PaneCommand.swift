@@ -43,6 +43,7 @@ enum PaneCommand: Equatable, Sendable {
     case splitAfterFocusedPane
     case splitBeforeFocusedPane
     case closeFocusedPane
+    case restoreClosedPane
     case focusPreviousPaneBySidebarOrder
     case focusNextPaneBySidebarOrder
     case focusLeft
