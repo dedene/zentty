@@ -44,7 +44,7 @@ Download the latest `.dmg` from the [releases page](https://github.com/dedene/ze
 
 Zentty updates itself in place via [Sparkle](https://sparkle-project.org) once installed. No need to check back here for new versions.
 
-Builds are signed and notarized by Zenjoy BV. Requires macOS 26 (Tahoe) or later.
+Builds are signed and notarized by Zenjoy BV. Requires macOS 14 (Sonoma) or later.
 
 ## Status
 
@@ -52,7 +52,7 @@ Zentty is in active development. Expect rapid iteration, rough edges, and occasi
 
 ## Requirements
 
-- macOS 26 (Tahoe) or later
+- macOS 14 (Sonoma) or later
 - Xcode
 - `zig` on `PATH`
 - `gettext` on `PATH`

@@ -2,12 +2,12 @@ name: Zentty
 options:
   bundleIdPrefix: be.zenjoy
   deploymentTarget:
-    macOS: "26.0"
+    macOS: "14.0"
 settings:
   base:
     PRODUCT_NAME: Zentty
     SWIFT_VERSION: "6.0"
-    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
     GENERATE_INFOPLIST_FILE: NO
     CLANG_ENABLE_MODULES: YES
     CODE_SIGN_STYLE: Automatic
@@ -69,7 +69,7 @@ targets:
         SKIP_INSTALL: YES
         ENABLE_HARDENED_RUNTIME: YES
         INFOPLIST_KEY_CFBundleName: zentty
-        INFOPLIST_KEY_LSMinimumSystemVersion: "26.0"
+        INFOPLIST_KEY_LSMinimumSystemVersion: "14.0"
   Zentty:
     type: application
     platform: macOS
