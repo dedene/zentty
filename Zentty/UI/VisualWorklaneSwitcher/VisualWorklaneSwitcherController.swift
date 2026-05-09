@@ -7,8 +7,6 @@ import QuartzCore
 protocol VisualSwitcherWorklaneAccess: AnyObject {
     var worklanes: [WorklaneState] { get }
     var activeWorklaneID: WorklaneID { get }
-    func selectNextWorklane()
-    func selectPreviousWorklane()
     func selectWorklaneAndFocusPane(worklaneID: WorklaneID, paneID: PaneID)
 }
 
@@ -32,7 +30,11 @@ protocol VisualWorklaneSwitcherControllerDelegate: AnyObject {
 final class VisualWorklaneSwitcherController {
     enum Phase: Equatable {
         case idle
-        case armed(armedAt: CFTimeInterval)
+        /// Tap-versus-hold disambiguation window. The pane step from tap 1
+        /// is deferred until either the user releases Ctrl (commit step) or
+        /// the hold timer fires (open visual at the original pane, step is
+        /// abandoned).
+        case armed(armedAt: CFTimeInterval, pendingDirection: VisualSwitcherDirection)
         case visualMode(VisualSwitcherSelectionState, traversal: VisualSwitcherTraversal)
     }
 
@@ -79,28 +81,47 @@ final class VisualWorklaneSwitcherController {
 
         switch phase {
         case .idle:
-            performInstantSwitch(direction: direction)
+            // Defer the pane step until tap-vs-hold is disambiguated. The
+            // pane only changes if the user releases Ctrl within the hold
+            // window; if they keep holding, visual mode opens at the
+            // *current* pane and the deferred step is abandoned.
             let armedAt = clock()
-            phase = .armed(armedAt: armedAt)
+            phase = .armed(armedAt: armedAt, pendingDirection: direction)
             scheduleHoldTimer(for: armedAt)
             delegate?.switcherDidArm(self)
-        case .armed:
+
+        case let .armed(_, pendingDirection):
+            // 2nd tap inside the hold window. We now know the user is
+            // navigating fast, not holding. Commit the deferred step from
+            // tap 1, open visual, then advance once more for tap 2 so each
+            // tap still maps to one pane forward.
             cancelPendingHoldTimer()
+            performInstantSwitch(direction: pendingDirection)
             openVisualMode()
+            if case let .visualMode(selection, traversal) = phase {
+                let updated = selection.advancing(by: direction, traversal: traversal)
+                if updated != selection {
+                    phase = .visualMode(updated, traversal: traversal)
+                    delegate?.switcherDidUpdateSelection(self)
+                }
+            }
+
         case .visualMode:
             advanceSelection(direction: direction)
         }
     }
 
     /// Called by the key monitor when Ctrl is released. Acts as commit while
-    /// in visual mode, or just disarms while armed (the instant switch
-    /// already happened on tap 1).
+    /// in visual mode, or completes the deferred tap step while armed.
     func handleCtrlReleased() {
         switch phase {
         case .idle:
             break
-        case .armed:
+        case let .armed(_, pendingDirection):
+            // Released within the hold window — disambiguated as a quick
+            // tap. Perform the deferred step now.
             cancelPendingHoldTimer()
+            performInstantSwitch(direction: pendingDirection)
             phase = .idle
         case let .visualMode(selection, _):
             commit(focusing: selection.current)
@@ -108,10 +129,19 @@ final class VisualWorklaneSwitcherController {
     }
 
     /// Called by the key monitor when Escape is pressed. Cancels visual mode
-    /// by restoring the originally-focused pane.
+    /// (restoring the originally-focused pane) or aborts a pending tap step
+    /// if pressed during the hold window.
     func handleEscape() {
-        guard case let .visualMode(selection, _) = phase else { return }
-        commit(focusing: selection.original)
+        switch phase {
+        case .idle:
+            break
+        case .armed:
+            // Aborts the deferred step entirely.
+            cancelPendingHoldTimer()
+            phase = .idle
+        case let .visualMode(selection, _):
+            commit(focusing: selection.original)
+        }
     }
 
     /// Called by the overlay view when the user clicks a visible pane.
@@ -124,10 +154,18 @@ final class VisualWorklaneSwitcherController {
     // MARK: - Internals
 
     private func performInstantSwitch(direction: VisualSwitcherDirection) {
-        switch direction {
-        case .forward: worklaneAccess.selectNextWorklane()
-        case .backward: worklaneAccess.selectPreviousWorklane()
-        }
+        // Move to the next pane in the linear traversal (same step the
+        // visual picker would take). Naturally wraps across worklane
+        // boundaries when crossing the end of a worklane's panes — the
+        // gesture's granularity stays "one pane forward" regardless of
+        // whether the user taps or holds.
+        guard let current = currentPaneReference() else { return }
+        let traversal = VisualSwitcherTraversal.from(worklanes: worklaneAccess.worklanes)
+        guard let next = traversal.step(from: current, direction: direction) else { return }
+        worklaneAccess.selectWorklaneAndFocusPane(
+            worklaneID: next.worklaneID,
+            paneID: next.paneID
+        )
     }
 
     private func openVisualMode() {
@@ -182,10 +220,13 @@ final class VisualWorklaneSwitcherController {
     private func handleHoldTimerFired(armedAt: CFTimeInterval) {
         // Confirm the timer corresponds to the current arming, not a stale
         // closure left over from a previous gesture.
-        guard case let .armed(actualArmedAt) = phase, actualArmedAt == armedAt else {
+        guard case let .armed(actualArmedAt, _) = phase, actualArmedAt == armedAt else {
             return
         }
         pendingHoldTimerCancel = nil
+        // Hold detected — open visual at the *current* pane. The deferred
+        // tap step is intentionally abandoned: pure tap-and-hold should
+        // zoom out where you are without moving focus.
         openVisualMode()
     }
 

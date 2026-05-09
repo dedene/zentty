@@ -74,6 +74,12 @@ final class VisualSwitcherKeyMonitor {
         case .keyDown:
             switch event.keyCode {
             case Self.tabKeyCode:
+                // Defense-in-depth: only swallow Tab / Shift+Tab when Ctrl
+                // is actually held. The lifecycle keeps the monitor
+                // installed only during the gesture, but a stray Tab
+                // arriving between Ctrl-release and uninstall must NOT be
+                // consumed.
+                guard event.modifierFlags.contains(.control) else { return event }
                 let shifted = event.modifierFlags.contains(.shift)
                 handler?(.tab(forward: !shifted))
                 return nil

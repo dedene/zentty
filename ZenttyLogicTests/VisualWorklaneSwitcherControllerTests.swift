@@ -30,20 +30,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
     final class FakeWorklaneAccess: VisualSwitcherWorklaneAccess {
         var worklanes: [WorklaneState] = []
         var activeWorklaneID: WorklaneID = WorklaneID("")
-
-        var nextSwitchCount = 0
-        var previousSwitchCount = 0
         var focusCalls: [(worklaneID: WorklaneID, paneID: PaneID)] = []
-
-        func selectNextWorklane() {
-            nextSwitchCount += 1
-            advanceActive(by: 1)
-        }
-
-        func selectPreviousWorklane() {
-            previousSwitchCount += 1
-            advanceActive(by: -1)
-        }
 
         func selectWorklaneAndFocusPane(worklaneID: WorklaneID, paneID: PaneID) {
             focusCalls.append((worklaneID, paneID))
@@ -51,15 +38,6 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
             if let i = worklanes.firstIndex(where: { $0.id == worklaneID }) {
                 worklanes[i].paneStripState.focusPane(id: paneID)
             }
-        }
-
-        private func advanceActive(by offset: Int) {
-            guard !worklanes.isEmpty,
-                  let i = worklanes.firstIndex(where: { $0.id == activeWorklaneID })
-            else { return }
-            let count = worklanes.count
-            let next = (i + offset + count) % count
-            activeWorklaneID = worklanes[next].id
         }
     }
 
@@ -147,9 +125,12 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         )
     }
 
-    // MARK: - First tap (idle → armed)
+    // MARK: - First tap (idle → armed) — step is deferred
 
-    func test_first_tab_in_idle_does_instant_switch_and_arms() {
+    func test_first_tab_in_idle_arms_without_stepping() {
+        // The first tap only ARMS — we don't yet know if it's a tap or a
+        // hold. The pane step is deferred until disambiguation (release ⇒
+        // step; hold timer ⇒ no step, visual at original).
         let harness = makeHarness(
             worklanes: [
                 makeWorklane("w1", panes: ["a", "b"], focused: "a"),
@@ -160,8 +141,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
 
         harness.controller.handleTab(forward: true)
 
-        XCTAssertEqual(harness.access.nextSwitchCount, 1)
-        XCTAssertEqual(harness.access.activeWorklaneID, WorklaneID("w2"))
+        XCTAssertEqual(harness.access.focusCalls.count, 0, "step should be deferred")
         XCTAssertEqual(harness.delegate.armed, 1)
         XCTAssertEqual(harness.delegate.opened, 0)
         if case .armed = harness.controller.phase {} else {
@@ -170,24 +150,78 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         XCTAssertTrue(harness.scheduler.hasPending, "hold timer should be scheduled")
     }
 
-    func test_first_tab_backward_uses_previous_switch() {
+    func test_quick_tap_release_performs_deferred_step() {
+        let harness = makeHarness(
+            worklanes: [
+                makeWorklane("w1", panes: ["a", "b"], focused: "a"),
+                makeWorklane("w2", panes: ["c"], focused: "c"),
+            ],
+            active: "w1"
+        )
+
+        harness.controller.handleTab(forward: true) // arm only
+        harness.controller.handleCtrlReleased()      // release → run deferred step
+
+        XCTAssertEqual(harness.access.focusCalls.count, 1)
+        XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("w1"))
+        XCTAssertEqual(harness.access.focusCalls.last?.paneID, PaneID("b"))
+        XCTAssertEqual(harness.controller.phase, .idle)
+    }
+
+    func test_quick_tap_release_at_end_of_worklane_crosses_into_next() {
         let harness = makeHarness(
             worklanes: [
                 makeWorklane("w1", panes: ["a"], focused: "a"),
                 makeWorklane("w2", panes: ["c"], focused: "c"),
             ],
+            active: "w1"
+        )
+
+        harness.controller.handleTab(forward: true)
+        harness.controller.handleCtrlReleased()
+
+        XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("w2"))
+        XCTAssertEqual(harness.access.focusCalls.last?.paneID, PaneID("c"))
+    }
+
+    func test_quick_tap_release_backward_steps_to_previous_pane() {
+        let harness = makeHarness(
+            worklanes: [
+                makeWorklane("w1", panes: ["a"], focused: "a"),
+                makeWorklane("w2", panes: ["c", "d"], focused: "d"),
+            ],
             active: "w2"
         )
 
         harness.controller.handleTab(forward: false)
+        harness.controller.handleCtrlReleased()
 
-        XCTAssertEqual(harness.access.previousSwitchCount, 1)
-        XCTAssertEqual(harness.access.activeWorklaneID, WorklaneID("w1"))
+        XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("w2"))
+        XCTAssertEqual(harness.access.focusCalls.last?.paneID, PaneID("c"))
+    }
+
+    func test_escape_while_armed_aborts_deferred_step() {
+        let harness = makeHarness(
+            worklanes: [
+                makeWorklane("w1", panes: ["a", "b"], focused: "a"),
+                makeWorklane("w2", panes: ["c"], focused: "c"),
+            ],
+            active: "w1"
+        )
+
+        harness.controller.handleTab(forward: true) // arm only
+        harness.controller.handleEscape()            // abort
+
+        XCTAssertEqual(harness.controller.phase, .idle)
+        XCTAssertEqual(harness.access.focusCalls.count, 0, "no step should run on abort")
+        XCTAssertFalse(harness.scheduler.hasPending)
     }
 
     // MARK: - Hold timer fires (armed → visualMode)
 
-    func test_hold_timer_fires_opens_visual_at_focused_pane() {
+    func test_hold_timer_opens_visual_at_original_pane_with_no_step() {
+        // Pure tap-and-hold: visual zooms out where the user IS, no pane
+        // movement. The deferred tap step is intentionally abandoned.
         let harness = makeHarness(
             worklanes: [
                 makeWorklane("w1", panes: ["a", "b"], focused: "a"),
@@ -197,20 +231,20 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         )
 
         harness.controller.handleTab(forward: true)
-        // Active is now w2 (focused: c).
         harness.scheduler.fireAll()
 
+        XCTAssertEqual(harness.access.focusCalls.count, 0, "hold should not perform the deferred step")
         XCTAssertEqual(harness.delegate.opened, 1)
         guard case let .visualMode(selection, _) = harness.controller.phase else {
             return XCTFail("expected visualMode phase")
         }
-        XCTAssertEqual(selection.current, ref("w2", "c"))
-        XCTAssertEqual(selection.original, ref("w2", "c"))
+        XCTAssertEqual(selection.current, ref("w1", "a"))
+        XCTAssertEqual(selection.original, ref("w1", "a"))
     }
 
-    // MARK: - Second tap opens visual without re-switching
+    // MARK: - Second tap commits deferred + opens visual + advances once
 
-    func test_second_tab_while_armed_opens_visual_without_extra_switch() {
+    func test_second_tab_while_armed_runs_deferred_step_opens_visual_and_advances() {
         let harness = makeHarness(
             worklanes: [
                 makeWorklane("w1", panes: ["a"], focused: "a"),
@@ -220,16 +254,20 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
             active: "w1"
         )
 
-        harness.controller.handleTab(forward: true)
-        XCTAssertEqual(harness.access.nextSwitchCount, 1) // w1 → w2
+        harness.controller.handleTab(forward: true) // arm — no focus call
+        XCTAssertEqual(harness.access.focusCalls.count, 0)
         harness.controller.handleTab(forward: true)
 
-        XCTAssertEqual(harness.access.nextSwitchCount, 1, "second tap should not re-switch")
+        // Tap 1's deferred step ran (a → c). Visual opened at (w2, c).
+        // Tap 2 advanced selection to (w3, e).
+        XCTAssertEqual(harness.access.focusCalls.count, 1, "deferred step should fire on tap 2")
+        XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("w2"))
         XCTAssertEqual(harness.delegate.opened, 1)
         guard case let .visualMode(selection, _) = harness.controller.phase else {
             return XCTFail("expected visualMode phase")
         }
-        XCTAssertEqual(selection.current, ref("w2", "c"))
+        XCTAssertEqual(selection.current, ref("w3", "e"))
+        XCTAssertEqual(selection.original, ref("w2", "c"))
         XCTAssertFalse(harness.scheduler.hasPending, "hold timer should be cancelled")
     }
 
@@ -244,16 +282,15 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
             active: "w1"
         )
 
-        harness.controller.handleTab(forward: true) // w1→w2 (instant)
-        harness.scheduler.fireAll()                  // open visual at (w2,c)
+        harness.controller.handleTab(forward: true) // arm
+        harness.scheduler.fireAll()                  // hold: visual at (w1,a)
         XCTAssertEqual(harness.delegate.opened, 1)
 
-        harness.controller.handleTab(forward: true) // advance pane
+        harness.controller.handleTab(forward: true) // advance to (w1,b)
         guard case let .visualMode(selection, _) = harness.controller.phase else {
             return XCTFail("expected visualMode phase")
         }
-        // After (w2,c), forward wraps to (w1,a) (only one pane in w2).
-        XCTAssertEqual(selection.current, ref("w1", "a"))
+        XCTAssertEqual(selection.current, ref("w1", "b"))
         XCTAssertEqual(harness.delegate.updates, 1)
     }
 
@@ -266,13 +303,13 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
             active: "w1"
         )
         harness.controller.handleTab(forward: true)
-        harness.scheduler.fireAll() // visual at (w2,c)
+        harness.scheduler.fireAll()                  // visual at (w1,a)
 
-        harness.controller.handleTab(forward: false) // backward
+        harness.controller.handleTab(forward: false) // shift-tab: wrap to (w2,c)
         guard case let .visualMode(selection, _) = harness.controller.phase else {
             return XCTFail("expected visualMode phase")
         }
-        XCTAssertEqual(selection.current, ref("w1", "b"))
+        XCTAssertEqual(selection.current, ref("w2", "c"))
     }
 
     // MARK: - Commit / Cancel
@@ -286,15 +323,17 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
             active: "w1"
         )
         harness.controller.handleTab(forward: true)
-        harness.scheduler.fireAll() // visual at (w2,c)
-        harness.controller.handleTab(forward: true) // wraps to (w1,a)
+        harness.scheduler.fireAll()                  // visual at (w1,a)
+        harness.controller.handleTab(forward: true) // advance to (w1,b)
 
         harness.controller.handleCtrlReleased()
 
         XCTAssertEqual(harness.controller.phase, .idle)
+        // Only the commit fires a focus call — no deferred step happened
+        // because the gesture transitioned to hold (visual mode).
         XCTAssertEqual(harness.access.focusCalls.count, 1)
         XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("w1"))
-        XCTAssertEqual(harness.access.focusCalls.last?.paneID, PaneID("a"))
+        XCTAssertEqual(harness.access.focusCalls.last?.paneID, PaneID("b"))
         XCTAssertEqual(harness.delegate.closed, 1)
     }
 
@@ -307,32 +346,14 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
             active: "w1"
         )
         harness.controller.handleTab(forward: true)
-        harness.scheduler.fireAll() // visual at (w2,c) — original = (w2,c)
-        harness.controller.handleTab(forward: true) // navigate to (w1,a)
+        harness.scheduler.fireAll()                  // visual at (w1,a) — original
+        harness.controller.handleTab(forward: true) // advance to (w1,b)
 
         harness.controller.handleEscape()
 
         XCTAssertEqual(harness.controller.phase, .idle)
-        XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("w2"))
-        XCTAssertEqual(harness.access.focusCalls.last?.paneID, PaneID("c"))
-    }
-
-    func test_ctrl_release_while_armed_just_disarms() {
-        let harness = makeHarness(
-            worklanes: [
-                makeWorklane("w1", panes: ["a"], focused: "a"),
-                makeWorklane("w2", panes: ["c"], focused: "c"),
-            ],
-            active: "w1"
-        )
-        harness.controller.handleTab(forward: true) // armed
-        harness.controller.handleCtrlReleased()
-
-        XCTAssertEqual(harness.controller.phase, .idle)
-        XCTAssertEqual(harness.access.focusCalls.count, 0, "no commit when only armed")
-        XCTAssertFalse(harness.scheduler.hasPending)
-        XCTAssertEqual(harness.delegate.opened, 0)
-        XCTAssertEqual(harness.delegate.closed, 0)
+        XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("w1"))
+        XCTAssertEqual(harness.access.focusCalls.last?.paneID, PaneID("a"))
     }
 
     // MARK: - Click
@@ -368,25 +389,32 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
 
     // MARK: - Single-worklane case
 
-    func test_single_worklane_first_tap_no_op_but_arms() {
-        // selectNextWorklane is recorded but no actual lane change happens
-        // (only one worklane). The controller still arms, so a hold opens
-        // visual on the lone lane.
+    func test_single_worklane_tap_release_steps_within_lane() {
         let harness = makeHarness(
             worklanes: [makeWorklane("only", panes: ["a", "b"], focused: "a")],
             active: "only"
         )
 
         harness.controller.handleTab(forward: true)
+        harness.controller.handleCtrlReleased()
 
-        XCTAssertEqual(harness.access.nextSwitchCount, 1)
-        XCTAssertEqual(harness.access.activeWorklaneID, WorklaneID("only"))
-        if case .armed = harness.controller.phase {} else {
-            XCTFail("expected armed phase")
-        }
+        XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("only"))
+        XCTAssertEqual(harness.access.focusCalls.last?.paneID, PaneID("b"))
+        XCTAssertEqual(harness.controller.phase, .idle)
+    }
 
+    func test_single_worklane_hold_opens_visual_at_current_pane() {
+        // With a single worklane, hold zooms out at the user's current pane
+        // — no step performed.
+        let harness = makeHarness(
+            worklanes: [makeWorklane("only", panes: ["a", "b"], focused: "a")],
+            active: "only"
+        )
+
+        harness.controller.handleTab(forward: true)
         harness.scheduler.fireAll()
 
+        XCTAssertEqual(harness.access.focusCalls.count, 0)
         guard case let .visualMode(selection, _) = harness.controller.phase else {
             return XCTFail("expected visualMode phase after hold")
         }
