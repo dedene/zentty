@@ -105,6 +105,9 @@ final class RootViewController: NSViewController {
         return store
     }()
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
+    private let visualSwitcherView = VisualWorklaneSwitcherView()
+    private let visualSwitcherKeyMonitor = VisualSwitcherKeyMonitor()
+    private let visualSwitcherController: VisualWorklaneSwitcherController
     private let dragOverlayView: HitTransparentView = {
         let view = HitTransparentView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -228,6 +231,9 @@ final class RootViewController: NSViewController {
                 configStore?.current.agentTeams.enabled ?? false
             }
         )
+        self.visualSwitcherController = VisualWorklaneSwitcherController(
+            worklaneAccess: worklaneStore
+        )
         self.renderCoordinator = WorklaneRenderCoordinator(
             windowID: windowID,
             worklaneStore: worklaneStore,
@@ -246,6 +252,25 @@ final class RootViewController: NSViewController {
             }
         }
         preloadOpenWithIcons()
+        wireVisualSwitcher()
+    }
+
+    private func wireVisualSwitcher() {
+        visualSwitcherController.delegate = self
+        visualSwitcherKeyMonitor.handler = { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .tab(let forward):
+                self.visualSwitcherController.handleTab(forward: forward)
+            case .escape:
+                self.visualSwitcherController.handleEscape()
+            case .ctrlReleased:
+                self.visualSwitcherController.handleCtrlReleased()
+            }
+        }
+        appCanvasView.paneStripView.onZoomTransformChanged = { [weak self] in
+            self?.refreshVisualSwitcherOverlay()
+        }
     }
 
     convenience init(
@@ -350,7 +375,10 @@ final class RootViewController: NSViewController {
         sidebarView.translatesAutoresizingMaskIntoConstraints = false
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
         globalSearchHUDView.translatesAutoresizingMaskIntoConstraints = false
+        visualSwitcherView.translatesAutoresizingMaskIntoConstraints = false
+        visualSwitcherView.isHidden = true
         view.addSubview(appCanvasView)
+        view.addSubview(visualSwitcherView)
         view.addSubview(globalSearchHUDView)
         view.addSubview(windowChromeView)
         view.addSubview(sidebarHoverRailView)
@@ -408,6 +436,13 @@ final class RootViewController: NSViewController {
             dragOverlayView.leadingAnchor.constraint(equalTo: appCanvasView.leadingAnchor),
             dragOverlayView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
             dragOverlayView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
+
+            // Visual switcher overlay matches canvas frame too — it sits above
+            // the panes but below the chrome and sidebar.
+            visualSwitcherView.topAnchor.constraint(equalTo: appCanvasView.topAnchor),
+            visualSwitcherView.leadingAnchor.constraint(equalTo: appCanvasView.leadingAnchor),
+            visualSwitcherView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
+            visualSwitcherView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
 
             windowChromeView.topAnchor.constraint(
                 equalTo: view.topAnchor, constant: ShellMetrics.headerOuterPadding),
@@ -1065,9 +1100,9 @@ final class RootViewController: NSViewController {
         case .newWorklane:
             worklaneStore.createWorklane()
         case .nextWorklane:
-            worklaneStore.selectNextWorklane()
+            visualSwitcherController.handleTab(forward: true)
         case .previousWorklane:
-            worklaneStore.selectPreviousWorklane()
+            visualSwitcherController.handleTab(forward: false)
         case .moveWorklaneUp:
             moveActiveWorklane(by: -1)
         case .moveWorklaneDown:
@@ -2997,4 +3032,98 @@ extension RootViewController: WindowSearchHUDViewDelegate {
 /// Transparent to hit testing — allows mouse events to pass through to views below.
 private final class HitTransparentView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+// MARK: - Visual Worklane Switcher
+
+extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
+
+    func switcherDidArm(_ controller: VisualWorklaneSwitcherController) {
+        // Once armed, route subsequent Tab / Shift-Tab / Escape / Ctrl-release
+        // through the local key monitor so the menu doesn't keep firing
+        // selectNextWorklane on each subsequent tap.
+        visualSwitcherKeyMonitor.install()
+    }
+
+    func switcherDidOpenVisualMode(_ controller: VisualWorklaneSwitcherController) {
+        let initialHighlight: PaneID? = {
+            if case let .visualMode(selection, _) = controller.phase {
+                return selection.current.paneID
+            }
+            return nil
+        }()
+        appCanvasView.paneStripView.beginVisualModeZoomOut(
+            animated: true,
+            centerOnPaneID: initialHighlight
+        )
+        visualSwitcherView.attach(paneStripView: appCanvasView.paneStripView)
+        visualSwitcherView.isHidden = false
+        // Force layout so the overlay's bounds reflect AppCanvasView's frame
+        // before we compute the HUD position from those bounds.
+        visualSwitcherView.layoutSubtreeIfNeeded()
+        visualSwitcherView.placeHUDStably(
+            targetZoomScale: PaneStripView.zoomScale,
+            visibleLeadingInset: appCanvasView.leadingVisibleInset
+        )
+        refreshVisualSwitcherOverlay()
+    }
+
+    func switcherDidUpdateSelection(_ controller: VisualWorklaneSwitcherController) {
+        if case let .visualMode(selection, _) = controller.phase {
+            appCanvasView.paneStripView.centerVisualModeOnPane(
+                selection.current.paneID,
+                animated: true
+            )
+        }
+        refreshVisualSwitcherOverlay()
+    }
+
+    func switcherDidCloseVisualMode(_ controller: VisualWorklaneSwitcherController) {
+        appCanvasView.paneStripView.endVisualModeZoomIn(animated: true)
+        visualSwitcherView.isHidden = true
+        visualSwitcherView.detach()
+        visualSwitcherKeyMonitor.uninstall()
+    }
+
+    private func refreshVisualSwitcherOverlay() {
+        guard case let .visualMode(selection, _) = visualSwitcherController.phase else { return }
+        let content = visualSwitcherHUDContent(for: selection.current)
+        // Layout out the canvas first so livePaneFrame is stable.
+        appCanvasView.layoutSubtreeIfNeeded()
+        visualSwitcherView.update(
+            highlightedPaneID: selection.current.paneID,
+            hudContent: content
+        )
+    }
+
+    private func visualSwitcherHUDContent(
+        for ref: WorklaneStore.PaneReference
+    ) -> VisualSwitcherHUDView.Content {
+        guard let worklane = worklaneStore.worklanes.first(where: { $0.id == ref.worklaneID }),
+              let context = worklane.paneContext(for: ref.paneID)
+        else {
+            return .init()
+        }
+        let presentation = context.presentation
+        let proctitle: String? = {
+            if let tool = presentation.recognizedTool { return tool.displayName }
+            let trimmed = presentation.rememberedTitle?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed?.isEmpty ?? true) ? nil : trimmed
+        }()
+        let folder: String? = presentation.cwd.flatMap { path in
+            let last = (path as NSString).lastPathComponent
+            return last.isEmpty ? nil : last
+        }
+        let branch: String? = {
+            let trimmed = presentation.branchDisplayText?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed?.isEmpty ?? true) ? nil : trimmed
+        }()
+        return VisualSwitcherHUDView.Content(
+            proctitle: proctitle,
+            folder: folder,
+            branch: branch
+        )
+    }
 }

@@ -1148,7 +1148,7 @@ final class PaneStripView: NSView {
         hostDrivenResizeRenderRequestPending = false
         needsTerminalRedrawAfterLayout = false
         isTerminalRedrawScheduled = false
-        stopZoomAnimation()
+        zoomSpring.stop()
         isZoomedOut = false
         dragScrollOffsetX = 0
         viewportView.autoresizingMask = [.width, .height]
@@ -1403,13 +1403,16 @@ final class PaneStripView: NSView {
     }
 
     /// Whether a zoom animation is currently in progress.
-    var isZoomAnimating: Bool { zoomAnimationTimer != nil }
-    private var zoomAnimationTimer: Timer?
-    private var zoomAnimationStart: CFTimeInterval = 0
-    private var zoomAnimationFrom: CGFloat = 1
-    private var zoomAnimationTo: CGFloat = 1
+    var isZoomAnimating: Bool { zoomSpring.isRunning }
+    private let zoomSpring = SpringAnimator()
     private var zoomAnchor: CGPoint = .zero
     private static let zoomAnimationDuration: CFTimeInterval = 0.35
+
+    /// Fires on every frame of the zoom animation (and once on completion),
+    /// plus on synchronous `applyZoomScale` calls. Used by the visual
+    /// worklane switcher overlay to keep the highlight border and HUD in
+    /// sync with the zoom transform and any `dragScrollOffsetX` shifts.
+    var onZoomTransformChanged: (() -> Void)?
 
     private func updateZoomAnchor() {
         let fw = viewportView.frame.width
@@ -1422,22 +1425,59 @@ final class PaneStripView: NSView {
         }
     }
 
-    private func applyZoom(animated: Bool) {
+    private func applyZoom(animated: Bool, centerOnPaneID: PaneID? = nil) {
         // Compute the anchor: focused pane center in content space
         updateZoomAnchor()
 
         let targetScale = isZoomedOut ? Self.zoomScale : 1.0
+        let targetScrollX = scrollOffsetCentering(paneID: centerOnPaneID, scale: targetScale)
 
         if animated {
-            zoomAnimationFrom = currentZoomScale()
-            zoomAnimationTo = targetScale
-            zoomAnimationFromScrollX = dragScrollOffsetX
-            zoomAnimationToScrollX = dragScrollOffsetX
-            zoomAnimationStart = CACurrentMediaTime()
-            startZoomAnimation()
+            let fromScale = currentZoomScale()
+            let fromScrollX = dragScrollOffsetX
+            zoomSpring.start(duration: Self.zoomAnimationDuration) { [weak self] eased in
+                guard let self else { return }
+                let scale = fromScale + (targetScale - fromScale) * eased
+                self.dragScrollOffsetX = fromScrollX + (targetScrollX - fromScrollX) * eased
+                self.applyZoomScale(scale)
+                if self.isDragActive {
+                    self.dragCoordinator.updateDraggedPanePosition(zoomScale: scale)
+                }
+                self.onZoomTransformChanged?()
+            } complete: { [weak self] in
+                guard let self else { return }
+                self.dragScrollOffsetX = targetScrollX
+                self.applyZoomScale(targetScale)
+                if self.isDragActive {
+                    self.dragCoordinator.updateDraggedPanePosition(zoomScale: targetScale)
+                    self.dragCoordinator.recheckEdgeScroll()
+                }
+                self.onZoomTransformChanged?()
+            }
         } else {
+            dragScrollOffsetX = targetScrollX
             applyZoomScale(targetScale)
+            onZoomTransformChanged?()
         }
+    }
+
+    /// `dragScrollOffsetX` value that places `paneID`'s center at the
+    /// horizontal center of the *visible* viewport — i.e., between
+    /// `resolvedLeadingVisibleInset` and `viewportView.frame.width`. This
+    /// matters when the sidebar is open; the canvas spans the whole window
+    /// but the leading portion is obscured by the sidebar overlay, so the
+    /// perceived center sits to the right of the geometric viewport center.
+    /// Returns 0 (the natural unscrolled state) when no centering target is
+    /// requested or the pane isn't currently mounted.
+    private func scrollOffsetCentering(paneID: PaneID?, scale: CGFloat) -> CGFloat {
+        guard let paneID,
+              let frame = livePaneFrame(paneID),
+              scale > 0,
+              viewportView.frame.width > 0
+        else { return 0 }
+        let fw = viewportView.frame.width
+        let visibleCenter = (resolvedLeadingVisibleInset + fw) / 2
+        return frame.midX - visibleCenter / scale - zoomAnchor.x * (1 - 1 / scale)
     }
 
     func currentZoomScale() -> CGFloat {
@@ -1450,8 +1490,6 @@ final class PaneStripView: NSView {
 
     /// Extra horizontal scroll offset applied during drag (in content space).
     var dragScrollOffsetX: CGFloat = 0
-    private var zoomAnimationFromScrollX: CGFloat = 0
-    private var zoomAnimationToScrollX: CGFloat = 0
 
     private func composedBounds(scale: CGFloat, scrollX: CGFloat) -> CGRect {
         let fw = viewportView.frame.width
@@ -1473,58 +1511,6 @@ final class PaneStripView: NSView {
     /// Re-apply the current zoom scale (with dragScrollOffsetX). Used by edge scroll.
     func applyCurrentZoom() {
         applyZoomScale(currentZoomScale())
-    }
-
-    private func startZoomAnimation() {
-        stopZoomAnimation()
-
-        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.zoomAnimationTick()
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        zoomAnimationTimer = timer
-    }
-
-    private func stopZoomAnimation() {
-        zoomAnimationTimer?.invalidate()
-        zoomAnimationTimer = nil
-    }
-
-    private func zoomAnimationTick() {
-        let elapsed = CACurrentMediaTime() - zoomAnimationStart
-        let duration = Self.zoomAnimationDuration
-        let progress = min(1, elapsed / duration)
-
-        // Critically damped spring with initial kick: snappy, no overshoot
-        let omega: CGFloat = 10
-        let v0: CGFloat = 5
-        let raw = 1 + ((v0 - omega) * progress - 1) * exp(-omega * progress)
-        let norm = 1 + ((v0 - omega) - 1) * exp(-omega)
-        let eased = raw / norm
-
-        let currentScale = zoomAnimationFrom + (zoomAnimationTo - zoomAnimationFrom) * eased
-        let currentScrollX = zoomAnimationFromScrollX
-            + (zoomAnimationToScrollX - zoomAnimationFromScrollX) * eased
-        dragScrollOffsetX = currentScrollX
-        applyZoomScale(currentScale)
-
-        if isDragActive {
-            dragCoordinator.updateDraggedPanePosition(zoomScale: currentScale)
-        }
-
-        if progress >= 1 {
-            dragScrollOffsetX = zoomAnimationToScrollX
-            applyZoomScale(zoomAnimationTo)
-            // Stop animation BEFORE recheckEdgeScroll so isZoomAnimating is false
-            // when the edge scroll timer guard checks it.
-            stopZoomAnimation()
-            if isDragActive {
-                dragCoordinator.updateDraggedPanePosition(zoomScale: zoomAnimationTo)
-                dragCoordinator.recheckEdgeScroll()
-            }
-        }
     }
 
     // MARK: - Pane Drag
@@ -1581,6 +1567,80 @@ final class PaneStripView: NSView {
         paneViews[paneID]?.frame
     }
 
+    /// Convert a pane's current frame into the coordinate system of `target`,
+    /// which must share an ancestor with this view. Returns `nil` if the pane
+    /// isn't currently mounted. Used by the visual switcher overlay to track
+    /// a highlighted pane through the zoom transform.
+    func convertPaneFrame(_ paneID: PaneID, to target: NSView) -> CGRect? {
+        guard let frame = livePaneFrame(paneID) else { return nil }
+        return viewportView.convert(frame, to: target)
+    }
+
+    /// Convert the bounding rect of the column containing `paneID` into the
+    /// coordinate system of `target`. The visual switcher uses this so the
+    /// HUD can anchor to the column (stable across pane changes within a
+    /// vertical split) rather than to an individual pane.
+    func convertColumnFrame(containingPaneID paneID: PaneID, to target: NSView) -> CGRect? {
+        guard let state = currentState,
+              let column = state.columns.first(where: { col in
+                  col.panes.contains(where: { $0.id == paneID })
+              })
+        else { return nil }
+
+        let frames = column.panes.compactMap { livePaneFrame($0.id) }
+        guard let first = frames.first else { return nil }
+        let union = frames.dropFirst().reduce(first) { $0.union($1) }
+        return viewportView.convert(union, to: target)
+    }
+
+    /// Enter visual-switcher zoom-out using the same approach drag-zoom uses
+    /// for *non-dragged* panes: only `setTerminalViewportSyncSuspended(true)`,
+    /// no `beginVerticalFreeze`. The vertical freeze is needed when a pane is
+    /// being snapshot-replaced (the dragged pane), but for static panes it
+    /// causes an extra layout pass that re-runs `syncViewport` and reflows
+    /// the terminal grid.
+    ///
+    /// `centerOnPaneID`, if provided, animates `dragScrollOffsetX` together
+    /// with the zoom so that pane's column lands at the horizontal center of
+    /// the viewport when the animation settles.
+    func beginVisualModeZoomOut(animated: Bool = true, centerOnPaneID: PaneID? = nil) {
+        guard !isDragActive, !isZoomedOut else { return }
+        isZoomedOut = true
+        for (_, paneView) in paneViews {
+            paneView.setTerminalViewportSyncSuspended(true)
+        }
+        applyZoom(animated: animated, centerOnPaneID: centerOnPaneID)
+    }
+
+    /// While zoomed out, animate `dragScrollOffsetX` so the given pane's
+    /// column ends up at the horizontal center of the viewport. No-op when
+    /// not currently zoomed.
+    func centerVisualModeOnPane(_ paneID: PaneID, animated: Bool = true) {
+        guard isZoomedOut else { return }
+        applyZoom(animated: animated, centerOnPaneID: paneID)
+    }
+
+    /// Reverse `beginVisualModeZoomOut`. Pairs the zoom-in animation with a
+    /// deferred un-suspend so the terminal re-syncs its viewport to the new
+    /// (full) pixel size only after the animation settles.
+    func endVisualModeZoomIn(animated: Bool = true) {
+        guard isZoomedOut else { return }
+        isZoomedOut = false
+        applyZoom(animated: animated)
+
+        let unfreezeDelay: TimeInterval = animated ? Self.zoomAnimationDuration : 0
+        let deferredWorkGeneration = self.deferredWorkGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
+            guard let self,
+                  deferredWorkGeneration == self.deferredWorkGeneration,
+                  !self.isZoomedOut
+            else { return }
+            for (_, paneView) in self.paneViews {
+                paneView.setTerminalViewportSyncSuspended(false)
+            }
+        }
+    }
+
     /// Called by PaneDragCoordinator after drop/cancel to trigger zoom-in.
     func endDragWithZoomIn() {
         guard isZoomedOut else { return }
@@ -1588,12 +1648,27 @@ final class PaneStripView: NSView {
         updateZoomAnchor()
         // Animate scroll back to 0 alongside the zoom-in
         let targetScale: CGFloat = 1.0
-        zoomAnimationFrom = currentZoomScale()
-        zoomAnimationTo = targetScale
-        zoomAnimationFromScrollX = dragScrollOffsetX
-        zoomAnimationToScrollX = 0
-        zoomAnimationStart = CACurrentMediaTime()
-        startZoomAnimation()
+        let fromScale = currentZoomScale()
+        let fromScrollX = dragScrollOffsetX
+        let toScrollX: CGFloat = 0
+
+        zoomSpring.start(duration: Self.zoomAnimationDuration) { [weak self] eased in
+            guard let self else { return }
+            let scale = fromScale + (targetScale - fromScale) * eased
+            self.dragScrollOffsetX = fromScrollX + (toScrollX - fromScrollX) * eased
+            self.applyZoomScale(scale)
+            if self.isDragActive {
+                self.dragCoordinator.updateDraggedPanePosition(zoomScale: scale)
+            }
+        } complete: { [weak self] in
+            guard let self else { return }
+            self.dragScrollOffsetX = toScrollX
+            self.applyZoomScale(targetScale)
+            if self.isDragActive {
+                self.dragCoordinator.updateDraggedPanePosition(zoomScale: targetScale)
+                self.dragCoordinator.recheckEdgeScroll()
+            }
+        }
 
         let unfreezeDelay: TimeInterval = Self.zoomAnimationDuration + 0.05
         let deferredWorkGeneration = self.deferredWorkGeneration

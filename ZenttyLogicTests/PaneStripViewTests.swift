@@ -3437,6 +3437,62 @@ final class PaneStripViewTests: AppKitTestCase {
         )
     }
 
+    @MainActor
+    func test_visual_mode_zoom_out_suspends_terminal_viewport_sync() {
+        // Visual mode mirrors drag-zoom's NON-dragged-pane handshake: just
+        // suspend terminal viewport sync, no vertical freeze. The freeze
+        // would trigger an extra layout pass that re-runs syncViewport and
+        // reflows the terminal grid.
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let state = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.beginVisualModeZoomOut(animated: false)
+
+        XCTAssertTrue(paneStripView.isZoomedOut)
+        XCTAssertEqual(paneStripView.currentZoomScale(), PaneStripView.zoomScale, accuracy: 0.001)
+
+        paneStripView.endVisualModeZoomIn(animated: false)
+
+        XCTAssertFalse(paneStripView.isZoomedOut)
+        XCTAssertEqual(paneStripView.currentZoomScale(), 1.0, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_visual_mode_zoom_out_skipped_during_active_drag() {
+        // The drag-zoom path owns the zoom while a pane is being dragged.
+        // Visual ctrl+tab must not stomp over it. (Defensive — controller
+        // already blocks this path, but the engine is the last line of
+        // defense.)
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let state = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.beginPaneDragForTesting(
+            paneID: PaneID("alpha"),
+            cursorInStrip: CGPoint(x: 100, y: 200)
+        )
+        XCTAssertTrue(paneStripView.isZoomedOut, "drag should have triggered zoom")
+
+        // Calling visual-mode entry while drag-zoom is active is a no-op.
+        paneStripView.beginVisualModeZoomOut(animated: false)
+        XCTAssertTrue(paneStripView.isZoomedOut)
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }
