@@ -1,15 +1,15 @@
 import AppKit
 
-/// Listens for the key events that drive the visual worklane switcher while
+/// Listens for the key events that drive the Worklane Peek while
 /// it's armed or open: subsequent Tab/Shift-Tab presses, Escape, and the
 /// moment Ctrl is released. Owned by the controller and installed only while
-/// the gesture is active so it doesn't intercept Tab outside visual mode.
+/// the gesture is active so it doesn't intercept Tab outside peek.
 ///
 /// Lifecycle contract: callers MUST balance every `install()` with an
 /// `uninstall()` once the gesture ends. While installed, the monitor swallows
 /// Tab and Escape app-wide.
 @MainActor
-final class VisualSwitcherKeyMonitor {
+final class WorklanePeekKeyMonitor {
     enum Event: Equatable {
         case tab(forward: Bool)   // forward = Tab without Shift
         case escape

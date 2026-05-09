@@ -1,7 +1,7 @@
 import XCTest
 @testable import Zentty
 
-final class VisualSwitcherSelectionStateTests: XCTestCase {
+final class WorklanePeekSelectionStateTests: XCTestCase {
 
     // MARK: - Helpers
 
@@ -12,8 +12,8 @@ final class VisualSwitcherSelectionStateTests: XCTestCase {
         )
     }
 
-    private func traversal(_ pairs: [(String, String)]) -> VisualSwitcherTraversal {
-        VisualSwitcherTraversal(references: pairs.map { ref($0.0, $0.1) })
+    private func traversal(_ pairs: [(String, String)]) -> WorklanePeekTraversal {
+        WorklanePeekTraversal(references: pairs.map { ref($0.0, $0.1) })
     }
 
     // MARK: - Step within / across worklanes
@@ -95,7 +95,7 @@ final class VisualSwitcherSelectionStateTests: XCTestCase {
     }
 
     func test_step_in_empty_traversal_returns_nil() {
-        let t = VisualSwitcherTraversal(references: [])
+        let t = WorklanePeekTraversal(references: [])
         XCTAssertNil(t.step(from: ref("w1", "p1"), direction: .forward))
     }
 
@@ -103,7 +103,7 @@ final class VisualSwitcherSelectionStateTests: XCTestCase {
 
     func test_selection_advancing_changes_current_keeps_original() {
         let t = traversal([("w1", "p1"), ("w1", "p2"), ("w2", "p1")])
-        let initial = VisualSwitcherSelectionState.opening(at: ref("w1", "p1"))
+        let initial = WorklanePeekSelectionState.opening(at: ref("w1", "p1"))
         let advanced = initial.advancing(by: .forward, traversal: t)
         XCTAssertEqual(advanced.current, ref("w1", "p2"))
         XCTAssertEqual(advanced.original, ref("w1", "p1"))
@@ -111,7 +111,7 @@ final class VisualSwitcherSelectionStateTests: XCTestCase {
 
     func test_selection_advancing_wraps_and_keeps_original() {
         let t = traversal([("w1", "p1"), ("w2", "p1")])
-        var s = VisualSwitcherSelectionState.opening(at: ref("w1", "p1"))
+        var s = WorklanePeekSelectionState.opening(at: ref("w1", "p1"))
         s = s.advancing(by: .backward, traversal: t)
         XCTAssertEqual(s.current, ref("w2", "p1"))
         XCTAssertEqual(s.original, ref("w1", "p1"))
@@ -119,7 +119,7 @@ final class VisualSwitcherSelectionStateTests: XCTestCase {
 
     func test_selection_unknown_current_does_not_advance() {
         let t = traversal([("w1", "p1"), ("w2", "p1")])
-        let initial = VisualSwitcherSelectionState.opening(at: ref("wX", "pX"))
+        let initial = WorklanePeekSelectionState.opening(at: ref("wX", "pX"))
         let advanced = initial.advancing(by: .forward, traversal: t)
         XCTAssertEqual(advanced, initial)
     }

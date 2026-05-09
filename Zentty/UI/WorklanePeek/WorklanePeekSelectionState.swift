@@ -1,7 +1,7 @@
 import Foundation
 
-/// Direction of a pane-level step in the visual switcher.
-enum VisualSwitcherDirection: Equatable {
+/// Direction of a pane-level step in the Worklane Peek.
+enum WorklanePeekDirection: Equatable {
     case forward
     case backward
 
@@ -18,9 +18,9 @@ enum VisualSwitcherDirection: Equatable {
 /// worklane in `worklanes` order, then each pane in `paneStripState.panes`
 /// order.
 ///
-/// Built once when the visual switcher opens, then queried for next/previous
+/// Built once when the Worklane Peek opens, then queried for next/previous
 /// hops. Stepping past the last reference cycles to the first, and vice versa.
-struct VisualSwitcherTraversal: Equatable {
+struct WorklanePeekTraversal: Equatable {
     let references: [WorklaneStore.PaneReference]
 
     /// Build the traversal by mirroring `WorklaneStore.paneReferencesInSidebarOrder`.
@@ -39,7 +39,7 @@ struct VisualSwitcherTraversal: Equatable {
 
     func step(
         from reference: WorklaneStore.PaneReference,
-        direction: VisualSwitcherDirection
+        direction: WorklanePeekDirection
     ) -> WorklaneStore.PaneReference? {
         guard !references.isEmpty,
               let currentIndex = index(of: reference)
@@ -55,7 +55,7 @@ struct VisualSwitcherTraversal: Equatable {
     /// view layer to decide between a smooth camera pan and a hard cut.
     func wrapsAround(
         from reference: WorklaneStore.PaneReference,
-        direction: VisualSwitcherDirection
+        direction: WorklanePeekDirection
     ) -> Bool {
         guard let currentIndex = index(of: reference) else { return false }
         switch direction {
@@ -69,19 +69,19 @@ struct VisualSwitcherTraversal: Equatable {
     /// camera pan animation.
     func crossesWorklaneBoundary(
         from reference: WorklaneStore.PaneReference,
-        direction: VisualSwitcherDirection
+        direction: WorklanePeekDirection
     ) -> Bool {
         guard let next = step(from: reference, direction: direction) else { return false }
         return next.worklaneID != reference.worklaneID
     }
 }
 
-/// Snapshot of the current selection in visual mode.
+/// Snapshot of the current selection in peek.
 ///
-/// `original` is captured at the moment visual mode opens (after any
+/// `original` is captured at the moment peek opens (after any
 /// just-fired instant worklane switch). Escape restores focus to it; releasing
 /// Ctrl commits `current`.
-struct VisualSwitcherSelectionState: Equatable {
+struct WorklanePeekSelectionState: Equatable {
     var current: WorklaneStore.PaneReference
     let original: WorklaneStore.PaneReference
 
@@ -90,8 +90,8 @@ struct VisualSwitcherSelectionState: Equatable {
     }
 
     func advancing(
-        by direction: VisualSwitcherDirection,
-        traversal: VisualSwitcherTraversal
+        by direction: WorklanePeekDirection,
+        traversal: WorklanePeekTraversal
     ) -> Self {
         guard let next = traversal.step(from: current, direction: direction) else {
             return self

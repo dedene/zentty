@@ -111,8 +111,8 @@ enum CommandAvailabilityResolver {
         case .worklaneMoveUp, .worklaneMoveDown:
             return context.worklaneCount > 1
         case .nextWorklane, .previousWorklane:
-            // The visual switcher handles the single-worklane case (hold opens
-            // visual mode for in-lane pane picking), so keep these available
+            // The Worklane Peek handles the single-worklane case (hold opens
+            // peek for in-lane pane picking), so keep these available
             // regardless of worklane count. The controller's instant-switch
             // path is a no-op when there's nothing to switch to.
             return true

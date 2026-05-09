@@ -1395,7 +1395,7 @@ final class PaneStripView: NSView {
         }
     }
 
-    /// Override applied to the next zoom-out target scale. The visual switcher
+    /// Override applied to the next zoom-out target scale. The Worklane Peek
     /// uses this to put active + neighbor lanes at the same uniform scale
     /// when multiple worklanes are visible. Reset to nil when zooming back in
     /// so the drag-zoom path keeps using the static `Self.zoomScale`.
@@ -1422,7 +1422,7 @@ final class PaneStripView: NSView {
             //   cause the pane to drift sideways during the zoom.
             //
             // - When the scale stays put (pure pan: tab-navigation between
-            //   panes inside visual mode), the recomputed value is constant,
+            //   panes inside peek), the recomputed value is constant,
             //   which would snap instantly. Fall back to linear
             //   interpolation between fromScrollX and targetScrollX so the
             //   spring's eased curve produces a smooth slide.
@@ -1565,7 +1565,7 @@ final class PaneStripView: NSView {
 
     /// Convert a pane's current frame into the coordinate system of `target`,
     /// which must share an ancestor with this view. Returns `nil` if the pane
-    /// isn't currently mounted. Used by the visual switcher overlay to track
+    /// isn't currently mounted. Used by the Worklane Peek overlay to track
     /// a highlighted pane through the zoom transform.
     func convertPaneFrame(_ paneID: PaneID, to target: NSView) -> CGRect? {
         guard let frame = livePaneFrame(paneID) else { return nil }
@@ -1573,7 +1573,7 @@ final class PaneStripView: NSView {
     }
 
     /// Convert the bounding rect of the column containing `paneID` into the
-    /// coordinate system of `target`. The visual switcher uses this so the
+    /// coordinate system of `target`. The Worklane Peek uses this so the
     /// HUD can anchor to the column (stable across pane changes within a
     /// vertical split) rather than to an individual pane.
     func convertColumnFrame(containingPaneID paneID: PaneID, to target: NSView) -> CGRect? {
@@ -1589,7 +1589,7 @@ final class PaneStripView: NSView {
         return viewportView.convert(union, to: target)
     }
 
-    /// Enter visual-switcher zoom-out using the same approach drag-zoom uses
+    /// Enter peek zoom-out using the same approach drag-zoom uses
     /// for *non-dragged* panes: only `setTerminalViewportSyncSuspended(true)`,
     /// no `beginVerticalFreeze`. The vertical freeze is needed when a pane is
     /// being snapshot-replaced (the dragged pane), but for static panes it
@@ -1599,9 +1599,9 @@ final class PaneStripView: NSView {
     /// `centerOnPaneID`, if provided, animates `dragScrollOffsetX` together
     /// with the zoom so that pane's column lands at the horizontal center of
     /// the viewport when the animation settles.
-    /// `scaleOverride` lets the visual switcher pick a smaller scale when
+    /// `scaleOverride` lets the Worklane Peek pick a smaller scale when
     /// neighbor lanes need to fit alongside the active band.
-    func beginVisualModeZoomOut(
+    func beginPeekZoomOut(
         animated: Bool = true,
         centerOnPaneID: PaneID? = nil,
         scaleOverride: CGFloat? = nil
@@ -1615,7 +1615,7 @@ final class PaneStripView: NSView {
         applyZoom(animated: animated, centerOnPaneID: centerOnPaneID)
     }
 
-    /// Variant of `beginVisualModeZoomOut` for **neighbor preview lanes**:
+    /// Variant of `beginPeekZoomOut` for **neighbor preview lanes**:
     /// puts the strip into the same internal zoom-out state but does *not*
     /// suspend the per-pane terminal viewport sync, so the neighbor's
     /// terminals keep streaming live while the user peeks.
@@ -1623,7 +1623,7 @@ final class PaneStripView: NSView {
     /// The carrier wraps the strip in a layer-scaled, masked container, so
     /// viewport sync staying on doesn't reflow the terminal grid — Ghostty
     /// sees the strip's natural canvas-sized bounds, which don't change.
-    func enterNeighborPreviewZoomOut(scale: CGFloat, centerOnPaneID: PaneID? = nil) {
+    func enterPeekNeighborZoomOut(scale: CGFloat, centerOnPaneID: PaneID? = nil) {
         guard !isDragActive, !isZoomedOut else { return }
         isZoomedOut = true
         zoomOutScaleOverride = scale
@@ -1633,12 +1633,12 @@ final class PaneStripView: NSView {
     /// While zoomed out, animate `dragScrollOffsetX` so the given pane's
     /// column ends up at the horizontal center of the viewport. No-op when
     /// not currently zoomed.
-    func centerVisualModeOnPane(_ paneID: PaneID, animated: Bool = true) {
+    func centerPeekOnPane(_ paneID: PaneID, animated: Bool = true) {
         guard isZoomedOut else { return }
         applyZoom(animated: animated, centerOnPaneID: paneID)
     }
 
-    /// Reverse `beginVisualModeZoomOut`. Pairs the zoom-in animation with a
+    /// Reverse `beginPeekZoomOut`. Pairs the zoom-in animation with a
     /// deferred un-suspend so the terminal re-syncs its viewport to the new
     /// (full) pixel size only after the animation settles.
     ///
@@ -1646,11 +1646,11 @@ final class PaneStripView: NSView {
     /// throughout the zoom-in so the pane stays put visually instead of
     /// sliding back to the natural unscrolled origin (which is where
     /// `dragScrollOffsetX = 0` would land).
-    func endVisualModeZoomIn(animated: Bool = true, centerOnPaneID: PaneID? = nil) {
+    func endPeekZoomIn(animated: Bool = true, centerOnPaneID: PaneID? = nil) {
         guard isZoomedOut else { return }
         isZoomedOut = false
         applyZoom(animated: animated, centerOnPaneID: centerOnPaneID)
-        // Reset so the next drag-zoom (or another visual-mode session)
+        // Reset so the next drag-zoom (or another peek session)
         // starts from the canonical static scale unless explicitly overridden.
         zoomOutScaleOverride = nil
 

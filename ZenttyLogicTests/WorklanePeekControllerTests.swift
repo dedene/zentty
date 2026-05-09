@@ -2,7 +2,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class VisualWorklaneSwitcherControllerTests: XCTestCase {
+final class WorklanePeekControllerTests: XCTestCase {
 
     // MARK: - Fixtures
 
@@ -27,7 +27,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
     // MARK: - Test scaffolding
 
     @MainActor
-    final class FakeWorklaneAccess: VisualSwitcherWorklaneAccess {
+    final class FakeWorklaneAccess: WorklanePeekWorklaneAccess {
         var worklanes: [WorklaneState] = []
         var activeWorklaneID: WorklaneID = WorklaneID("")
         var focusCalls: [(worklaneID: WorklaneID, paneID: PaneID)] = []
@@ -51,7 +51,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         private var nextID = 0
         private(set) var pending: [Int: PendingWork] = [:]
 
-        func make() -> VisualWorklaneSwitcherController.Scheduler {
+        func make() -> WorklanePeekController.Scheduler {
             return { [weak self] delay, work in
                 guard let self else { return {} }
                 self.nextID += 1
@@ -73,30 +73,30 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
     }
 
     @MainActor
-    final class RecordingDelegate: VisualWorklaneSwitcherControllerDelegate {
+    final class RecordingDelegate: WorklanePeekControllerDelegate {
         var armed = 0
         var opened = 0
         var updates = 0
         var closed = 0
-        var transitions: [VisualSwitcherSelectionTransition] = []
+        var transitions: [WorklanePeekSelectionTransition] = []
 
-        func switcherDidArm(_ controller: VisualWorklaneSwitcherController) { armed += 1 }
-        func switcherDidOpenVisualMode(_ controller: VisualWorklaneSwitcherController) { opened += 1 }
-        func switcherDidUpdateSelection(
-            _ controller: VisualWorklaneSwitcherController,
-            transition: VisualSwitcherSelectionTransition
+        func peekDidArm(_ controller: WorklanePeekController) { armed += 1 }
+        func peekDidOpen(_ controller: WorklanePeekController) { opened += 1 }
+        func peekDidUpdateSelection(
+            _ controller: WorklanePeekController,
+            transition: WorklanePeekSelectionTransition
         ) {
             updates += 1
             transitions.append(transition)
         }
-        func switcherDidCloseVisualMode(_ controller: VisualWorklaneSwitcherController) { closed += 1 }
+        func peekDidClose(_ controller: WorklanePeekController) { closed += 1 }
     }
 
     private struct Harness {
         let access: FakeWorklaneAccess
         let scheduler: TestScheduler
         let delegate: RecordingDelegate
-        let controller: VisualWorklaneSwitcherController
+        let controller: WorklanePeekController
         var time: CFTimeInterval
     }
 
@@ -115,7 +115,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         var nowBox = CFTimeInterval(0)
         let clock: () -> CFTimeInterval = { nowBox }
 
-        let controller = VisualWorklaneSwitcherController(
+        let controller = WorklanePeekController(
             worklaneAccess: access,
             clock: clock,
             scheduler: scheduler.make(),
@@ -242,7 +242,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
 
         XCTAssertEqual(harness.access.focusCalls.count, 0, "hold should not perform the deferred step")
         XCTAssertEqual(harness.delegate.opened, 1)
-        guard case let .visualMode(selection, _) = harness.controller.phase else {
+        guard case let .peeking(selection, _) = harness.controller.phase else {
             return XCTFail("expected visualMode phase")
         }
         XCTAssertEqual(selection.current, ref("w1", "a"))
@@ -270,7 +270,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         XCTAssertEqual(harness.access.focusCalls.count, 1, "deferred step should fire on tap 2")
         XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("w2"))
         XCTAssertEqual(harness.delegate.opened, 1)
-        guard case let .visualMode(selection, _) = harness.controller.phase else {
+        guard case let .peeking(selection, _) = harness.controller.phase else {
             return XCTFail("expected visualMode phase")
         }
         XCTAssertEqual(selection.current, ref("w3", "e"))
@@ -278,9 +278,9 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         XCTAssertFalse(harness.scheduler.hasPending, "hold timer should be cancelled")
     }
 
-    // MARK: - In visual mode: navigation
+    // MARK: - In peek: navigation
 
-    func test_tab_in_visual_mode_advances_selection() {
+    func test_tab_in_peek_advances_selection() {
         let harness = makeHarness(
             worklanes: [
                 makeWorklane("w1", panes: ["a", "b"], focused: "a"),
@@ -294,14 +294,14 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         XCTAssertEqual(harness.delegate.opened, 1)
 
         harness.controller.handleTab(forward: true) // advance to (w1,b)
-        guard case let .visualMode(selection, _) = harness.controller.phase else {
+        guard case let .peeking(selection, _) = harness.controller.phase else {
             return XCTFail("expected visualMode phase")
         }
         XCTAssertEqual(selection.current, ref("w1", "b"))
         XCTAssertEqual(harness.delegate.updates, 1)
     }
 
-    func test_shift_tab_in_visual_mode_moves_backward() {
+    func test_shift_tab_in_peek_moves_backward() {
         let harness = makeHarness(
             worklanes: [
                 makeWorklane("w1", panes: ["a", "b"], focused: "a"),
@@ -313,7 +313,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         harness.scheduler.fireAll()                  // visual at (w1,a)
 
         harness.controller.handleTab(forward: false) // shift-tab: wrap to (w2,c)
-        guard case let .visualMode(selection, _) = harness.controller.phase else {
+        guard case let .peeking(selection, _) = harness.controller.phase else {
             return XCTFail("expected visualMode phase")
         }
         XCTAssertEqual(selection.current, ref("w2", "c"))
@@ -333,7 +333,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         harness.scheduler.fireAll()                  // visual at (w1,b)
 
         harness.controller.handleTab(forward: true)  // wrap to (w1,a)
-        guard case let .visualMode(selection, _) = harness.controller.phase else {
+        guard case let .peeking(selection, _) = harness.controller.phase else {
             return XCTFail("expected visualMode phase")
         }
         XCTAssertEqual(selection.current, ref("w1", "a"))
@@ -356,7 +356,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
 
     // MARK: - Commit / Cancel
 
-    func test_ctrl_release_in_visual_mode_commits_current_selection() {
+    func test_ctrl_release_in_peek_commits_current_selection() {
         let harness = makeHarness(
             worklanes: [
                 makeWorklane("w1", panes: ["a", "b"], focused: "a"),
@@ -372,14 +372,14 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
 
         XCTAssertEqual(harness.controller.phase, .idle)
         // Only the commit fires a focus call — no deferred step happened
-        // because the gesture transitioned to hold (visual mode).
+        // because the gesture transitioned to hold (peek).
         XCTAssertEqual(harness.access.focusCalls.count, 1)
         XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("w1"))
         XCTAssertEqual(harness.access.focusCalls.last?.paneID, PaneID("b"))
         XCTAssertEqual(harness.delegate.closed, 1)
     }
 
-    func test_escape_in_visual_mode_restores_original_focus() {
+    func test_escape_in_peek_restores_original_focus() {
         let harness = makeHarness(
             worklanes: [
                 makeWorklane("w1", panes: ["a", "b"], focused: "a"),
@@ -400,7 +400,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
 
     // MARK: - Click
 
-    func test_click_in_visual_mode_commits_at_clicked_pane() {
+    func test_click_in_peek_commits_at_clicked_pane() {
         let harness = makeHarness(
             worklanes: [
                 makeWorklane("w1", panes: ["a", "b"], focused: "a"),
@@ -457,7 +457,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         harness.scheduler.fireAll()
 
         XCTAssertEqual(harness.access.focusCalls.count, 0)
-        guard case let .visualMode(selection, _) = harness.controller.phase else {
+        guard case let .peeking(selection, _) = harness.controller.phase else {
             return XCTFail("expected visualMode phase after hold")
         }
         XCTAssertEqual(selection.current, ref("only", "a"))
@@ -493,7 +493,7 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         ]
         access.activeWorklaneID = WorklaneID("w1")
         let delegate = RecordingDelegate()
-        let controller = VisualWorklaneSwitcherController(
+        let controller = WorklanePeekController(
             worklaneAccess: access,
             holdThreshold: 0.05  // 50ms — the production path also uses 200ms by default
         )
@@ -504,8 +504,8 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         // Wait long enough for the real Timer-based hold scheduler to fire.
         try? await Task.sleep(nanoseconds: 200_000_000)
 
-        XCTAssertEqual(delegate.opened, 1, "real Timer-based scheduler should fire and open visual mode")
-        if case .visualMode = controller.phase {} else {
+        XCTAssertEqual(delegate.opened, 1, "real Timer-based scheduler should fire and open peek")
+        if case .peeking = controller.phase {} else {
             XCTFail("expected visualMode after timer fired, got \(controller.phase)")
         }
     }

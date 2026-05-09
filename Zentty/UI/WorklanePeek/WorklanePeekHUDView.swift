@@ -5,7 +5,7 @@ import AppKit
 /// a pane by content while Tab-cycling. Decoupled from `WindowChromeView` —
 /// the two share data sources (paneContext.presentation) but not view code.
 @MainActor
-final class VisualSwitcherHUDView: NSView {
+final class WorklanePeekHUDView: NSView {
 
     struct Content: Equatable {
         var proctitle: String?

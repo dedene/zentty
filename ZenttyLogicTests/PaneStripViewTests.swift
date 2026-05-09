@@ -426,7 +426,7 @@ final class PaneStripViewTests: AppKitTestCase {
 
         paneStripView.render(state)
         paneStripView.layoutSubtreeIfNeeded()
-        paneStripView.beginVisualModeZoomOut(animated: true)
+        paneStripView.beginPeekZoomOut(animated: true)
 
         XCTAssertTrue(paneStripView.isZoomAnimating)
 
@@ -3418,7 +3418,7 @@ final class PaneStripViewTests: AppKitTestCase {
 
         paneStripView.render(sourceState)
         paneStripView.layoutSubtreeIfNeeded()
-        paneStripView.beginVisualModeZoomOut(animated: false)
+        paneStripView.beginPeekZoomOut(animated: false)
 
         paneStripView.render(duplicateState)
         paneStripView.layoutSubtreeIfNeeded()
@@ -3438,8 +3438,8 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
-    func test_visual_mode_zoom_out_suspends_terminal_viewport_sync() {
-        // Visual mode mirrors drag-zoom's NON-dragged-pane handshake: just
+    func test_peek_zoom_out_suspends_terminal_viewport_sync() {
+        // Peek mirrors drag-zoom's NON-dragged-pane handshake: just
         // suspend terminal viewport sync, no vertical freeze. The freeze
         // would trigger an extra layout pass that re-runs syncViewport and
         // reflows the terminal grid.
@@ -3454,19 +3454,19 @@ final class PaneStripViewTests: AppKitTestCase {
         paneStripView.render(state)
         paneStripView.layoutSubtreeIfNeeded()
 
-        paneStripView.beginVisualModeZoomOut(animated: false)
+        paneStripView.beginPeekZoomOut(animated: false)
 
         XCTAssertTrue(paneStripView.isZoomedOut)
         XCTAssertEqual(paneStripView.currentZoomScale(), PaneStripView.zoomScale, accuracy: 0.001)
 
-        paneStripView.endVisualModeZoomIn(animated: false)
+        paneStripView.endPeekZoomIn(animated: false)
 
         XCTAssertFalse(paneStripView.isZoomedOut)
         XCTAssertEqual(paneStripView.currentZoomScale(), 1.0, accuracy: 0.001)
     }
 
     @MainActor
-    func test_visual_mode_zoom_out_skipped_during_active_drag() {
+    func test_peek_zoom_out_skipped_during_active_drag() {
         // The drag-zoom path owns the zoom while a pane is being dragged.
         // Visual ctrl+tab must not stomp over it. (Defensive — controller
         // already blocks this path, but the engine is the last line of
@@ -3489,7 +3489,7 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertTrue(paneStripView.isZoomedOut, "drag should have triggered zoom")
 
         // Calling visual-mode entry while drag-zoom is active is a no-op.
-        paneStripView.beginVisualModeZoomOut(animated: false)
+        paneStripView.beginPeekZoomOut(animated: false)
         XCTAssertTrue(paneStripView.isZoomedOut)
     }
 

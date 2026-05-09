@@ -1,21 +1,21 @@
 import AppKit
 
-/// Overlay rendered above `AppCanvasView` while visual mode is open. Renders
+/// Overlay rendered above `AppCanvasView` while peek is open. Renders
 /// the dim layer over non-selected panes, the accent border around the
 /// highlighted pane, the HUD (proctitle / folder / branch), and — for multi-
 /// worklane windows — peeking neighbor lanes above and below the active band.
 @MainActor
-final class VisualWorklaneSwitcherView: NSView {
+final class WorklanePeekView: NSView {
 
     private let dimLayer = CAShapeLayer()
     private let highlightLayer = CAShapeLayer()
-    private let hud = VisualSwitcherHUDView()
+    private let hud = WorklanePeekHUDView()
     private weak var anchorPaneStripView: PaneStripView?
 
     /// Neighbor carriers, indexed by relative offset from the active worklane:
     /// −2, −1, +1, +2. The active worklane is rendered by the underlying
     /// `appCanvasView.paneStripView`, not by a carrier.
-    private var laneCarriers: [Int: VisualSwitcherLaneView] = [:]
+    private var laneCarriers: [Int: WorklanePeekLaneView] = [:]
 
     private struct HUDPlacement {
         let targetZoomScale: CGFloat
@@ -75,7 +75,7 @@ final class VisualWorklaneSwitcherView: NSView {
         teardownNeighborLanes()
     }
 
-    /// Set up the neighbor carriers for one visual-mode session.
+    /// Set up the neighbor carriers for one peek session.
     /// `worklanes` is in the same order as `WorklaneStore.worklanes`. The
     /// active worklane is identified by `activeIndex` and is *not* rendered
     /// here (the existing pane strip handles it). Carriers are positioned
@@ -98,7 +98,7 @@ final class VisualWorklaneSwitcherView: NSView {
             let neighborIndex = activeIndex + offset
             guard worklanes.indices.contains(neighborIndex) else { continue }
 
-            let carrier = VisualSwitcherLaneView(runtimeRegistry: runtimeRegistry)
+            let carrier = WorklanePeekLaneView(runtimeRegistry: runtimeRegistry)
             // Carrier is positioned via direct frame assignment in
             // layoutNeighborCarriers — keep autoresizing translation on so
             // the explicit frames stick instead of being clobbered by AL.
@@ -123,7 +123,7 @@ final class VisualWorklaneSwitcherView: NSView {
         }
     }
 
-    private func insertNeighborSubview(_ carrier: VisualSwitcherLaneView) {
+    private func insertNeighborSubview(_ carrier: WorklanePeekLaneView) {
         if hud.superview === self {
             addSubview(carrier, positioned: .below, relativeTo: hud)
         } else {
@@ -144,7 +144,7 @@ final class VisualWorklaneSwitcherView: NSView {
     /// centered on its x-axis midpoint as content widths change. The HUD's
     /// *center* is the stable beacon — content can grow or shrink and the
     /// box widens/narrows symmetrically around the visible-canvas center.
-    func update(highlightedPaneID: PaneID, hudContent: VisualSwitcherHUDView.Content) {
+    func update(highlightedPaneID: PaneID, hudContent: WorklanePeekHUDView.Content) {
         guard let highlightRect = highlightRectFor(paneID: highlightedPaneID) else { return }
         let cornerRadius: CGFloat = 8
 
@@ -266,7 +266,7 @@ final class VisualWorklaneSwitcherView: NSView {
     // MARK: - Hit testing
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Defense-in-depth: if no anchor PaneStripView is attached, visual
+        // Defense-in-depth: if no anchor PaneStripView is attached, peek
         // mode is not active — let clicks fall through so drag-zones,
         // dividers, and pane focus continue working normally even if
         // `isHidden` somehow drifts out of sync.

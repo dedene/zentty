@@ -105,9 +105,9 @@ final class RootViewController: NSViewController {
         return store
     }()
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
-    private let visualSwitcherView = VisualWorklaneSwitcherView()
-    private let visualSwitcherKeyMonitor = VisualSwitcherKeyMonitor()
-    private let visualSwitcherController: VisualWorklaneSwitcherController
+    private let peekView = WorklanePeekView()
+    private let peekKeyMonitor = WorklanePeekKeyMonitor()
+    private let peekController: WorklanePeekController
     private let dragOverlayView: HitTransparentView = {
         let view = HitTransparentView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -231,7 +231,7 @@ final class RootViewController: NSViewController {
                 configStore?.current.agentTeams.enabled ?? false
             }
         )
-        self.visualSwitcherController = VisualWorklaneSwitcherController(
+        self.peekController = WorklanePeekController(
             worklaneAccess: worklaneStore
         )
         self.renderCoordinator = WorklaneRenderCoordinator(
@@ -252,24 +252,24 @@ final class RootViewController: NSViewController {
             }
         }
         preloadOpenWithIcons()
-        wireVisualSwitcher()
+        wirePeek()
     }
 
-    private func wireVisualSwitcher() {
-        visualSwitcherController.delegate = self
-        visualSwitcherKeyMonitor.handler = { [weak self] event in
+    private func wirePeek() {
+        peekController.delegate = self
+        peekKeyMonitor.handler = { [weak self] event in
             guard let self else { return }
             switch event {
             case .tab(let forward):
-                self.visualSwitcherController.handleTab(forward: forward)
+                self.peekController.handleTab(forward: forward)
             case .escape:
-                self.visualSwitcherController.handleEscape()
+                self.peekController.handleEscape()
             case .ctrlReleased:
-                self.visualSwitcherController.handleCtrlReleased()
+                self.peekController.handleCtrlReleased()
             }
         }
         appCanvasView.paneStripView.onZoomTransformChanged = { [weak self] in
-            self?.refreshVisualSwitcherOverlay()
+            self?.refreshPeekOverlay()
         }
     }
 
@@ -375,10 +375,10 @@ final class RootViewController: NSViewController {
         sidebarView.translatesAutoresizingMaskIntoConstraints = false
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
         globalSearchHUDView.translatesAutoresizingMaskIntoConstraints = false
-        visualSwitcherView.translatesAutoresizingMaskIntoConstraints = false
-        visualSwitcherView.isHidden = true
+        peekView.translatesAutoresizingMaskIntoConstraints = false
+        peekView.isHidden = true
         view.addSubview(appCanvasView)
-        view.addSubview(visualSwitcherView)
+        view.addSubview(peekView)
         view.addSubview(globalSearchHUDView)
         view.addSubview(windowChromeView)
         view.addSubview(sidebarHoverRailView)
@@ -437,12 +437,12 @@ final class RootViewController: NSViewController {
             dragOverlayView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
             dragOverlayView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
 
-            // Visual switcher overlay matches canvas frame too — it sits above
+            // Worklane Peek overlay matches canvas frame too — it sits above
             // the panes but below the chrome and sidebar.
-            visualSwitcherView.topAnchor.constraint(equalTo: appCanvasView.topAnchor),
-            visualSwitcherView.leadingAnchor.constraint(equalTo: appCanvasView.leadingAnchor),
-            visualSwitcherView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
-            visualSwitcherView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
+            peekView.topAnchor.constraint(equalTo: appCanvasView.topAnchor),
+            peekView.leadingAnchor.constraint(equalTo: appCanvasView.leadingAnchor),
+            peekView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
+            peekView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
 
             windowChromeView.topAnchor.constraint(
                 equalTo: view.topAnchor, constant: ShellMetrics.headerOuterPadding),
@@ -1119,9 +1119,9 @@ final class RootViewController: NSViewController {
         case .newWorklane:
             worklaneStore.createWorklane()
         case .nextWorklane:
-            visualSwitcherController.handleTab(forward: true)
+            peekController.handleTab(forward: true)
         case .previousWorklane:
-            visualSwitcherController.handleTab(forward: false)
+            peekController.handleTab(forward: false)
         case .moveWorklaneUp:
             moveActiveWorklane(by: -1)
         case .moveWorklaneDown:
@@ -3060,18 +3060,18 @@ private final class HitTransparentView: NSView {
 
 // MARK: - Visual Worklane Switcher
 
-extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
+extension RootViewController: WorklanePeekControllerDelegate {
 
-    func switcherDidArm(_ controller: VisualWorklaneSwitcherController) {
+    func peekDidArm(_ controller: WorklanePeekController) {
         // Once armed, route subsequent Tab / Shift-Tab / Escape / Ctrl-release
         // through the local key monitor so the menu doesn't keep firing
         // selectNextWorklane on each subsequent tap.
-        visualSwitcherKeyMonitor.install()
+        peekKeyMonitor.install()
     }
 
-    func switcherDidOpenVisualMode(_ controller: VisualWorklaneSwitcherController) {
+    func peekDidOpen(_ controller: WorklanePeekController) {
         let initialHighlight: PaneID? = {
-            if case let .visualMode(selection, _) = controller.phase {
+            if case let .peeking(selection, _) = controller.phase {
                 return selection.current.paneID
             }
             return nil
@@ -3091,17 +3091,17 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
             ? Self.multiLaneZoomScale
             : PaneStripView.zoomScale
 
-        appCanvasView.paneStripView.beginVisualModeZoomOut(
+        appCanvasView.paneStripView.beginPeekZoomOut(
             animated: true,
             centerOnPaneID: initialHighlight,
             scaleOverride: zoomScale
         )
-        visualSwitcherView.attach(paneStripView: appCanvasView.paneStripView)
-        visualSwitcherView.isHidden = false
+        peekView.attach(paneStripView: appCanvasView.paneStripView)
+        peekView.isHidden = false
         // Force layout so the overlay's bounds reflect AppCanvasView's frame
         // before we compute the HUD position from those bounds.
-        visualSwitcherView.layoutSubtreeIfNeeded()
-        visualSwitcherView.placeHUDStably(
+        peekView.layoutSubtreeIfNeeded()
+        peekView.placeHUDStably(
             targetZoomScale: zoomScale,
             visibleLeadingInset: appCanvasView.leadingVisibleInset
         )
@@ -3111,7 +3111,7 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
         // canvas size + zoom scale so neighbor strips render at identical
         // dimensions and Ghostty allocates the same terminal cells.
         if let activeIndex {
-            visualSwitcherView.configureNeighborLanes(
+            peekView.configureNeighborLanes(
                 worklanes: allWorklanes,
                 activeIndex: activeIndex,
                 canvasSize: appCanvasView.bounds.size,
@@ -3121,7 +3121,7 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
             )
         }
 
-        refreshVisualSwitcherOverlay()
+        refreshPeekOverlay()
     }
 
     /// Internal zoom scale used when ≥1 neighbor worklane is present.
@@ -3129,47 +3129,47 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
     /// (active + above + below) fit vertically with breathing room.
     private static let multiLaneZoomScale: CGFloat = 0.30
 
-    func switcherDidUpdateSelection(
-        _ controller: VisualWorklaneSwitcherController,
-        transition: VisualSwitcherSelectionTransition
+    func peekDidUpdateSelection(
+        _ controller: WorklanePeekController,
+        transition: WorklanePeekSelectionTransition
     ) {
-        if case let .visualMode(selection, _) = controller.phase {
-            appCanvasView.paneStripView.centerVisualModeOnPane(
+        if case let .peeking(selection, _) = controller.phase {
+            appCanvasView.paneStripView.centerPeekOnPane(
                 selection.current.paneID,
                 animated: transition == .animated
             )
         }
-        refreshVisualSwitcherOverlay()
+        refreshPeekOverlay()
     }
 
-    func switcherDidCloseVisualMode(_ controller: VisualWorklaneSwitcherController) {
+    func peekDidClose(_ controller: WorklanePeekController) {
         // Pass the just-committed pane so the camera stays centered on it
         // through the zoom-in instead of sliding horizontally back to the
         // natural unscrolled origin (which would yank the pane sideways).
         let committedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
-        appCanvasView.paneStripView.endVisualModeZoomIn(
+        appCanvasView.paneStripView.endPeekZoomIn(
             animated: true,
             centerOnPaneID: committedPaneID
         )
-        visualSwitcherView.isHidden = true
-        visualSwitcherView.detach()
-        visualSwitcherKeyMonitor.uninstall()
+        peekView.isHidden = true
+        peekView.detach()
+        peekKeyMonitor.uninstall()
     }
 
-    private func refreshVisualSwitcherOverlay() {
-        guard case let .visualMode(selection, _) = visualSwitcherController.phase else { return }
-        let content = visualSwitcherHUDContent(for: selection.current)
+    private func refreshPeekOverlay() {
+        guard case let .peeking(selection, _) = peekController.phase else { return }
+        let content = peekHUDContent(for: selection.current)
         // Layout out the canvas first so livePaneFrame is stable.
         appCanvasView.layoutSubtreeIfNeeded()
-        visualSwitcherView.update(
+        peekView.update(
             highlightedPaneID: selection.current.paneID,
             hudContent: content
         )
     }
 
-    private func visualSwitcherHUDContent(
+    private func peekHUDContent(
         for ref: WorklaneStore.PaneReference
-    ) -> VisualSwitcherHUDView.Content {
+    ) -> WorklanePeekHUDView.Content {
         guard let worklane = worklaneStore.worklanes.first(where: { $0.id == ref.worklaneID }),
               let context = worklane.paneContext(for: ref.paneID)
         else {
@@ -3191,7 +3191,7 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return (trimmed?.isEmpty ?? true) ? nil : trimmed
         }()
-        return VisualSwitcherHUDView.Content(
+        return WorklanePeekHUDView.Content(
             proctitle: proctitle,
             folder: folder,
             branch: branch

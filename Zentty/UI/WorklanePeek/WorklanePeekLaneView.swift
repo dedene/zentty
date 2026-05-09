@@ -1,13 +1,13 @@
 import AppKit
 
 /// Carrier that hosts a live `PaneStripView` for one neighbor worklane during
-/// visual mode.
+/// peek.
 ///
 /// **Layout strategy.** To preserve the *exact* aspect ratios and pane layout
 /// the user would see if this worklane were active, the inner `PaneStripView`
 /// is sized to the **full canvas dimensions** and put into the same
 /// zoomed-out state as the active strip (internal scale `PaneStripView.zoomScale`
-/// via `beginVisualModeZoomOut`). The visible footprint is then shrunk by a
+/// via `beginPeekZoomOut`). The visible footprint is then shrunk by a
 /// uniform layer-level scale on the strip — the carrier itself only acts as
 /// a masking window so the strip's empty area outside the band is clipped.
 ///
@@ -16,7 +16,7 @@ import AppKit
 /// neighbor's small dimensions, giving a different cell density / visual
 /// than the active strip.
 @MainActor
-final class VisualSwitcherLaneView: NSView {
+final class WorklanePeekLaneView: NSView {
 
     private let strip: PaneStripView
     private(set) var worklaneID: WorklaneID?
@@ -83,7 +83,7 @@ final class VisualSwitcherLaneView: NSView {
             // live while this carrier is on screen. The carrier's masked
             // layer-scale handles the visual shrink without disturbing
             // Ghostty's natural canvas-sized bounds.
-            strip.enterNeighborPreviewZoomOut(
+            strip.enterPeekNeighborZoomOut(
                 scale: zoomScale,
                 centerOnPaneID: worklane.paneStripState.focusedPaneID
             )
@@ -174,7 +174,7 @@ final class VisualSwitcherLaneView: NSView {
     }
 
     /// Detach the strip so the runtime registry can re-mount these panes
-    /// elsewhere. Called on visual-mode exit so a follow-up active-worklane
+    /// elsewhere. Called on peek exit so a follow-up active-worklane
     /// switch (e.g., committing into the just-previewed neighbor) doesn't
     /// race with the neighbor strip still owning the host views.
     func detach() {

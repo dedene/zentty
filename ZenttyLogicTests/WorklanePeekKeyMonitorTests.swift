@@ -2,10 +2,10 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class VisualSwitcherKeyMonitorTests: XCTestCase {
+final class WorklanePeekKeyMonitorTests: XCTestCase {
 
-    private func makeInstalledMonitor() -> VisualSwitcherKeyMonitor {
-        let monitor = VisualSwitcherKeyMonitor()
+    private func makeInstalledMonitor() -> WorklanePeekKeyMonitor {
+        let monitor = WorklanePeekKeyMonitor()
         monitor.install()
         return monitor
     }
@@ -49,7 +49,7 @@ final class VisualSwitcherKeyMonitorTests: XCTestCase {
     }
 
     func test_install_seeds_ctrl_down_so_first_release_fires() {
-        let monitor = VisualSwitcherKeyMonitor()
+        let monitor = WorklanePeekKeyMonitor()
         monitor.install()
         defer { monitor.uninstall() }
 
@@ -61,7 +61,7 @@ final class VisualSwitcherKeyMonitorTests: XCTestCase {
     }
 
     func test_uninstall_then_reinstall_resets_state() {
-        let monitor = VisualSwitcherKeyMonitor()
+        let monitor = WorklanePeekKeyMonitor()
         monitor.install()
         _ = monitor.processFlagsChanged(.init(containsControl: false))
         monitor.uninstall()
