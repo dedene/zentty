@@ -1397,6 +1397,8 @@ final class PaneContainerViewTests: AppKitTestCase {
                 "---",
                 "Move Pane to New Window",
                 "---",
+                "Close Pane",
+                "---",
                 "AutoFill",
                 "Services",
             ]
@@ -1464,6 +1466,7 @@ final class PaneContainerViewTests: AppKitTestCase {
             "New Pane Below",
             "Split Right",
             "Move Pane to New Window",
+            "Close Pane",
         ]
 
         for title in customTitles {

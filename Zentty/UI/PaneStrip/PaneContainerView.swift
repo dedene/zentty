@@ -1190,6 +1190,13 @@ final class PaneContainerView: NSView {
         )
         moveToWindowItem.representedObject = paneID
         customMenu.addItem(moveToWindowItem)
+        customMenu.addItem(.separator())
+        customMenu.addItem(makeContextMenuItem(
+            title: "Close Pane",
+            action: #selector(MainWindowController.closeFocusedPane(_:)),
+            symbolName: "rectangle.badge.minus",
+            fallbackSymbolName: "xmark.square"
+        ))
 
         let mergedMenu = NSMenu(title: "")
         customMenu.items.forEach { mergedMenu.addItem($0.copy() as! NSMenuItem) }
