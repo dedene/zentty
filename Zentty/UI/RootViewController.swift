@@ -3079,7 +3079,14 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
     }
 
     func switcherDidCloseVisualMode(_ controller: VisualWorklaneSwitcherController) {
-        appCanvasView.paneStripView.endVisualModeZoomIn(animated: true)
+        // Pass the just-committed pane so the camera stays centered on it
+        // through the zoom-in instead of sliding horizontally back to the
+        // natural unscrolled origin (which would yank the pane sideways).
+        let committedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+        appCanvasView.paneStripView.endVisualModeZoomIn(
+            animated: true,
+            centerOnPaneID: committedPaneID
+        )
         visualSwitcherView.isHidden = true
         visualSwitcherView.detach()
         visualSwitcherKeyMonitor.uninstall()

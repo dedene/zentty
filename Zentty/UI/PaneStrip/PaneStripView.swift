@@ -1435,10 +1435,29 @@ final class PaneStripView: NSView {
         if animated {
             let fromScale = currentZoomScale()
             let fromScrollX = dragScrollOffsetX
+            // Decide how to interpolate scrollX:
+            //
+            // - When the scale is *changing* AND we want a pane held at the
+            //   visible center (zoom-out / zoom-in transitions), recompute
+            //   scrollX from the current scale each tick. The relationship
+            //   between scrollX and the on-screen pane position is
+            //   non-linear in `scale`, so a linear interpolation here would
+            //   cause the pane to drift sideways during the zoom.
+            //
+            // - When the scale stays put (pure pan: tab-navigation between
+            //   panes inside visual mode), the recomputed value is constant,
+            //   which would snap instantly. Fall back to linear
+            //   interpolation between fromScrollX and targetScrollX so the
+            //   spring's eased curve produces a smooth slide.
+            let scaleIsChanging = abs(targetScale - fromScale) > 0.001
+            let useDynamicScrollX = centerOnPaneID != nil && scaleIsChanging
             zoomSpring.start(duration: Self.zoomAnimationDuration) { [weak self] eased in
                 guard let self else { return }
                 let scale = fromScale + (targetScale - fromScale) * eased
-                self.dragScrollOffsetX = fromScrollX + (targetScrollX - fromScrollX) * eased
+                let scrollX: CGFloat = useDynamicScrollX
+                    ? self.scrollOffsetCentering(paneID: centerOnPaneID, scale: scale)
+                    : (fromScrollX + (targetScrollX - fromScrollX) * eased)
+                self.dragScrollOffsetX = scrollX
                 self.applyZoomScale(scale)
                 if self.isDragActive {
                     self.dragCoordinator.updateDraggedPanePosition(zoomScale: scale)
@@ -1623,10 +1642,15 @@ final class PaneStripView: NSView {
     /// Reverse `beginVisualModeZoomOut`. Pairs the zoom-in animation with a
     /// deferred un-suspend so the terminal re-syncs its viewport to the new
     /// (full) pixel size only after the animation settles.
-    func endVisualModeZoomIn(animated: Bool = true) {
+    ///
+    /// `centerOnPaneID`, if provided, keeps the camera centered on that pane
+    /// throughout the zoom-in so the pane stays put visually instead of
+    /// sliding back to the natural unscrolled origin (which is where
+    /// `dragScrollOffsetX = 0` would land).
+    func endVisualModeZoomIn(animated: Bool = true, centerOnPaneID: PaneID? = nil) {
         guard isZoomedOut else { return }
         isZoomedOut = false
-        applyZoom(animated: animated)
+        applyZoom(animated: animated, centerOnPaneID: centerOnPaneID)
 
         let unfreezeDelay: TimeInterval = animated ? Self.zoomAnimationDuration : 0
         let deferredWorkGeneration = self.deferredWorkGeneration
