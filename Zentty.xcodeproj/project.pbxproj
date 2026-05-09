@@ -333,6 +333,7 @@
 		EBA82B93B865F768A59C3FB5 /* CommandPaletteItemBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1927429EEB90A74961D30D /* CommandPaletteItemBuilderTests.swift */; };
 		EC0DFEE3FDB6728B8FB6E6B6 /* SidebarDropHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E587274DB966B186941A95A /* SidebarDropHitTesting.swift */; };
 		ED27476E195CD5905EA8FE99 /* CleanCopyPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9147BE310A4C4D3D61638835 /* CleanCopyPipeline.swift */; };
+		ED2EF694ABFA5BF369F4A5DB /* VisualSwitcherLaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ADC12099C376330100E24D3 /* VisualSwitcherLaneView.swift */; };
 		ED97F9FB42E05ECE3179E60D /* PaneStripState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D36706DB3DF677FA13DC722 /* PaneStripState.swift */; };
 		EDF799E6005B1597EEA1314D /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63590216920018B71F1ACB7A /* AppDelegateTests.swift */; };
 		EE970D14373E2C135E45C480 /* ThemeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73931D75238B5C4F1427B708 /* ThemeCoordinator.swift */; };
@@ -611,6 +612,7 @@
 		9760F3B7EDC0087FA89778B9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		97D22B5BDA360AE3F6A96AE3 /* WorklaneColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneColorTests.swift; sourceTree = "<group>"; };
 		994F524FDC5F10D6A7A96354 /* AboutMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutMetadata.swift; sourceTree = "<group>"; };
+		9ADC12099C376330100E24D3 /* VisualSwitcherLaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualSwitcherLaneView.swift; sourceTree = "<group>"; };
 		9B4AE87CC3F4EB591D08B9A7 /* WorkspaceTemplateExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTemplateExporterTests.swift; sourceTree = "<group>"; };
 		9B89A97084B5AF5AFF873E2C /* BookmarkRestoreLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkRestoreLogger.swift; sourceTree = "<group>"; };
 		9C9964E75CAB137C49B15001 /* AboutMetadataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutMetadataTests.swift; sourceTree = "<group>"; };
@@ -1115,6 +1117,7 @@
 			children = (
 				3D64556368A803BCED9B5649 /* VisualSwitcherHUDView.swift */,
 				057B987511CE47BB2F800D09 /* VisualSwitcherKeyMonitor.swift */,
+				9ADC12099C376330100E24D3 /* VisualSwitcherLaneView.swift */,
 				490192D4803DCD3CBE31AA78 /* VisualSwitcherSelectionState.swift */,
 				1ACF85F1B6568119BFE8DA70 /* VisualWorklaneSwitcherController.swift */,
 				96F290CE8BEE13C8E52B42A2 /* VisualWorklaneSwitcherView.swift */,
@@ -1963,6 +1966,7 @@
 				F0FF1DAC11BDA07A28868FE4 /* TrackpadPanGestureDriver.swift in Sources */,
 				BC4F98BC0B2E1A96BC25E421 /* VisualSwitcherHUDView.swift in Sources */,
 				CCF28BC08F01E679E31DC110 /* VisualSwitcherKeyMonitor.swift in Sources */,
+				ED2EF694ABFA5BF369F4A5DB /* VisualSwitcherLaneView.swift in Sources */,
 				98B97048CA3CD98DE9608279 /* VisualSwitcherSelectionState.swift in Sources */,
 				6CBCA1A42E7EA6E1DA0DEEBD /* VisualWorklaneSwitcherController.swift in Sources */,
 				F6150B2AF73936C91088B9B7 /* VisualWorklaneSwitcherView.swift in Sources */,

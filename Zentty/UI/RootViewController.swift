@@ -3089,6 +3089,19 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
             targetZoomScale: PaneStripView.zoomScale,
             visibleLeadingInset: appCanvasView.leadingVisibleInset
         )
+
+        // Build live carriers for the ±1 / ±2 neighbor worklanes so the
+        // user has a spatial sense of "what's around" while Tab cycling.
+        let allWorklanes = worklaneStore.worklanes
+        if let activeIndex = allWorklanes.firstIndex(where: { $0.id == worklaneStore.activeWorklaneID }) {
+            visualSwitcherView.configureNeighborLanes(
+                worklanes: allWorklanes,
+                activeIndex: activeIndex,
+                runtimeRegistry: runtimeRegistry,
+                theme: currentTheme
+            )
+        }
+
         refreshVisualSwitcherOverlay()
     }
 
