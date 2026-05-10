@@ -186,7 +186,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     private let visibleSplitWindowWidthValueLabel = NSTextField(labelWithString: "")
     private let visibleSplitWindowWidthTitleLabel = NSTextField(labelWithString: "Adaptive split threshold:")
     private let visibleSplitWindowWidthHintLabel = NSTextField(
-        wrappingLabelWithString: "When Adaptive is selected, panes split once the window reaches this width."
+        wrappingLabelWithString: "Below this width, ⌘D adds a pane. At this width or wider, it splits right."
     )
     private var behaviorOptionViews: [PaneSplitBehaviorMode: PaneSplitBehaviorOptionView] = [:]
     private var isApplyingPanes = false

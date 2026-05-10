@@ -123,7 +123,7 @@ enum PaneVisibleSplitWindowWidth: Int, CaseIterable, Equatable, Sendable {
     case px2560 = 2560
 
     var title: String {
-        "\(rawValue)px"
+        "\(rawValue) pt"
     }
 
     static func nearest(to value: CGFloat) -> PaneVisibleSplitWindowWidth {

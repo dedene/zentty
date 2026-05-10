@@ -160,7 +160,11 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.hoverPeek), .edgeAligned)
     }
 
-    func test_right_pane_behavior_uses_adaptive_window_width_threshold() {
+    func test_visible_split_window_width_title_uses_logical_points() {
+        XCTAssertEqual(PaneVisibleSplitWindowWidth.px1680.title, "1680 pt")
+    }
+
+    func test_right_pane_behavior_uses_adaptive_full_window_width_threshold() {
         let preferences = PaneLayoutPreferences(
             laptopPreset: .compact,
             largeDisplayPreset: .balanced,
@@ -181,6 +185,7 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         )
 
         XCTAssertEqual(narrowContext.rightPaneInsertionBehavior, .worklaneAdd)
+        XCTAssertLessThan(thresholdContext.availableWidth, CGFloat(PaneVisibleSplitWindowWidth.px1440.rawValue))
         XCTAssertEqual(thresholdContext.rightPaneInsertionBehavior, .visibleSplit)
         XCTAssertEqual(thresholdContext.visibleSplitColumnWidth, 572, accuracy: 0.001)
     }

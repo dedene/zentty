@@ -108,7 +108,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(panesController.visibleSplitWindowWidthForTesting, .px1920)
     }
 
-    func test_panes_section_describes_adaptive_split_threshold_slider() throws {
+    func test_panes_section_describes_adaptive_split_threshold_slider_in_points() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -133,7 +133,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         XCTAssertNotNil(
             panesController.view.firstDescendantLabel(
-                stringValue: "When Adaptive is selected, panes split once the window reaches this width."
+                stringValue: "Below this width, ⌘D adds a pane. At this width or wider, it splits right."
             )
         )
     }
