@@ -763,13 +763,17 @@ final class PaneContainerView: NSView {
         terminalHostView.forceViewportSync()
     }
 
-    func setZoomedOutBackdropVisible(_ visible: Bool, animated: Bool) {
+    func setZoomedOutBackdropVisible(
+        _ visible: Bool,
+        animated: Bool,
+        animationDuration: CFTimeInterval = ZenttyTheme.animationDuration
+    ) {
         guard isZoomedOutBackdropVisible != visible else {
             return
         }
 
         isZoomedOutBackdropVisible = visible
-        applyVisualState(animated: animated)
+        applyVisualState(animated: animated, animationDuration: animationDuration)
     }
 
     static let dragZoneHeight: CGFloat = 15
@@ -1514,7 +1518,11 @@ final class PaneContainerView: NSView {
         }
     }
 
-    private func applyVisualState(animated: Bool, useNeutralBackground: Bool = false) {
+    private func applyVisualState(
+        animated: Bool,
+        animationDuration: CFTimeInterval = ZenttyTheme.animationDuration,
+        useNeutralBackground: Bool = false
+    ) {
         let theme = currentTheme
         let emphasis = currentEmphasis
         let isFocused = currentIsFocused
@@ -1544,7 +1552,7 @@ final class PaneContainerView: NSView {
             glowColor = nil
         }
 
-        performThemeAnimation(animated: animated) {
+        performThemeAnimation(animated: animated, duration: animationDuration) {
             let borderColor = self.zoomAwareBorderColor(
                 theme: theme,
                 focusedStroke: focusedStroke,
@@ -1557,13 +1565,50 @@ final class PaneContainerView: NSView {
             self.layer?.shadowOpacity = shadowOpacity
             self.layer?.shadowRadius = shadowRadius
         }
-        performThemeAnimation(animated: animated && !useNeutralBackground) {
-            self.layer?.backgroundColor = paneFillColor.cgColor
+        updateLayerBackground(
+            layer,
+            color: paneFillColor.cgColor,
+            animated: animated && !useNeutralBackground,
+            duration: animationDuration
+        )
+        updateLayerBackground(
+            contentClipView.layer,
+            color: terminalBackingColor.cgColor,
+            animated: animated,
+            duration: animationDuration
+        )
+        updateLayerBackground(
+            terminalHostView.layer,
+            color: terminalBackingColor.cgColor,
+            animated: animated,
+            duration: animationDuration
+        )
+    }
+
+    private func updateLayerBackground(
+        _ layer: CALayer?,
+        color: CGColor,
+        animated: Bool,
+        duration: CFTimeInterval
+    ) {
+        guard let layer else { return }
+        let previousColor = (layer.presentation() ?? layer).backgroundColor ?? layer.backgroundColor
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.backgroundColor = color
+        CATransaction.commit()
+
+        guard animated, let previousColor, previousColor != color else {
+            return
         }
-        performThemeAnimation(animated: animated) {
-            self.contentClipView.layer?.backgroundColor = terminalBackingColor.cgColor
-            self.terminalHostView.layer?.backgroundColor = terminalBackingColor.cgColor
-        }
+
+        let animation = CABasicAnimation(keyPath: "backgroundColor")
+        animation.fromValue = previousColor
+        animation.toValue = color
+        animation.duration = duration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(animation, forKey: "backgroundColor")
     }
 
     private func zoomAwarePaneFillColor(theme: ZenttyTheme, isFocused: Bool) -> NSColor {

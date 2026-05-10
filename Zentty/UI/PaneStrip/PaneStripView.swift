@@ -1795,8 +1795,13 @@ final class PaneStripView: NSView {
     }
 
     private func setZoomedOutPaneBackdropsVisible(_ visible: Bool, animated: Bool) {
+        let duration = animated ? Self.zoomAnimationDuration : ZenttyTheme.animationDuration
         for (_, paneView) in paneViews {
-            paneView.setZoomedOutBackdropVisible(visible, animated: animated)
+            paneView.setZoomedOutBackdropVisible(
+                visible,
+                animated: animated,
+                animationDuration: duration
+            )
         }
     }
 
@@ -1848,12 +1853,12 @@ final class PaneStripView: NSView {
             }
             return
         }
+        setZoomedOutPaneBackdropsVisible(false, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
             guard let self,
                   deferredWorkGeneration == self.deferredWorkGeneration,
                   !self.isZoomedOut
             else { return }
-            self.setZoomedOutPaneBackdropsVisible(false, animated: animated)
             for (_, paneView) in self.paneViews {
                 paneView.configureViewportDiagnostics(
                     worklaneID: self.viewportDiagnosticsWorklaneID,
@@ -1878,6 +1883,7 @@ final class PaneStripView: NSView {
     func endDragWithZoomIn() {
         guard isZoomedOut else { return }
         isZoomedOut = false
+        setZoomedOutPaneBackdropsVisible(false, animated: true)
         updateZoomAnchor()
         // Animate scroll back to 0 alongside the zoom-in
         let targetScale: CGFloat = 1.0
@@ -1912,8 +1918,6 @@ final class PaneStripView: NSView {
 
             // Restore viewport autoresizing (was disabled by the drag coordinator)
             self.viewportView.autoresizingMask = [.width, .height]
-
-            self.setZoomedOutPaneBackdropsVisible(false, animated: false)
 
             // Unfreeze and unsuspend all terminals
             for (_, paneView) in self.paneViews {

@@ -619,6 +619,17 @@ final class PaneStripViewTests: AppKitTestCase {
 
         XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
         XCTAssertEqual(editorPane.backgroundColorTokenForTesting, theme.paneFillUnfocused.themeToken)
+
+        paneStripView.beginPeekZoomOut(animated: true)
+
+        let animation = try XCTUnwrap(shellPane.layer?.animation(forKey: "backgroundColor"))
+        XCTAssertEqual(animation.duration, 0.35, accuracy: 0.001)
+
+        paneStripView.endPeekZoomIn(animated: true)
+
+        XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
+        let fadeOutAnimation = try XCTUnwrap(shellPane.layer?.animation(forKey: "backgroundColor"))
+        XCTAssertEqual(fadeOutAnimation.duration, 0.35, accuracy: 0.001)
     }
 
     @MainActor

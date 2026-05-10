@@ -568,11 +568,15 @@ extension NSColor {
     }
 }
 
-func performThemeAnimation(animated: Bool, updates: () -> Void) {
+func performThemeAnimation(
+    animated: Bool,
+    duration: CFTimeInterval = ZenttyTheme.animationDuration,
+    updates: () -> Void
+) {
     CATransaction.begin()
     CATransaction.setDisableActions(!animated)
     if animated {
-        CATransaction.setAnimationDuration(ZenttyTheme.animationDuration)
+        CATransaction.setAnimationDuration(duration)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
     }
     updates()
