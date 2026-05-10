@@ -340,10 +340,30 @@ extension WorklaneStore {
             return
         }
 
-        if let existingStatus = auxiliaryState.agentStatus,
-           Self.codexStatusShouldBlockTitleDrivenResume(existingStatus),
-           !Self.codexRunningTitleMayClearBlockedStatus(existingStatus, auxiliaryState: auxiliaryState) {
-            return
+        if let existingStatus = auxiliaryState.agentStatus {
+            let runningTitleMayClearBlockedStatus = Self.codexRunningTitleMayClearBlockedStatus(
+                existingStatus,
+                auxiliaryState: auxiliaryState
+            )
+            if Self.codexStatusShouldBlockTitleDrivenResume(existingStatus),
+               !runningTitleMayClearBlockedStatus {
+                return
+            }
+
+            if runningTitleMayClearBlockedStatus {
+                let now = Date()
+                let newStatus = Self.codexRunningStatus(from: existingStatus, now: now)
+                auxiliaryState.agentStatus = newStatus
+                auxiliaryState.agentReducerState = Self.seededReducerState(
+                    PaneAgentReducerState(),
+                    from: newStatus
+                )
+                worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+                stopSignalLogger.debug(
+                    "codex.title.running cleared-blocked-status pane=\(paneID.rawValue, privacy: .public)"
+                )
+                return
+            }
         }
 
         auxiliaryState.agentReducerState = Self.seededReducerState(
@@ -722,12 +742,20 @@ extension WorklaneStore {
     ) -> Bool {
         guard status.tool == .codex,
               status.state == .needsInput,
-              status.interactionKind.requiresHumanAttention,
-              auxiliaryState.terminalProgress?.state.indicatesActivity == true else {
+              status.interactionKind.requiresHumanAttention else {
             return false
         }
 
-        return true
+        if auxiliaryState.terminalProgress?.state.indicatesActivity == true {
+            return true
+        }
+
+        switch status.origin {
+        case .explicitHook, .explicitAPI:
+            return status.interactionKind == .approval
+        case .heuristic, .inferred, .compatibility, .shell:
+            return false
+        }
     }
 
     private static func codexStatusShouldBlockTitleDrivenResume(_ status: PaneAgentStatus) -> Bool {

@@ -5331,6 +5331,159 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(recorder.requests.first?.soundName, "Glass")
     }
 
+    func test_notification_coordinator_debounces_transient_needs_input_system_notification() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            needsInputSystemNotificationDelay: 0.05
+        )
+        let paneID = PaneID("worklane-main-input")
+        let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: paneID,
+                    attentions: [
+                        .init(
+                            paneID: paneID,
+                            title: "Review plan",
+                            state: .needsInput,
+                            interactionKind: .approval,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        XCTAssertTrue(recorder.requests.isEmpty)
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: paneID,
+                    attentions: [
+                        .init(
+                            paneID: paneID,
+                            title: "Review plan",
+                            state: .running,
+                            updatedAt: Date(timeIntervalSince1970: 51)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        try? await Task.sleep(for: .milliseconds(80))
+        XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
+    func test_notification_coordinator_cancels_pending_needs_input_when_focused() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            needsInputSystemNotificationDelay: 0.05
+        )
+        let paneID = PaneID("worklane-main-input")
+        let otherPaneID = PaneID("worklane-main-other")
+        let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: otherPaneID,
+                    attentions: [
+                        .init(
+                            paneID: paneID,
+                            title: "Review plan",
+                            state: .needsInput,
+                            interactionKind: .approval,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+        XCTAssertTrue(recorder.requests.isEmpty)
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: paneID,
+                    attentions: [
+                        .init(
+                            paneID: paneID,
+                            title: "Review plan",
+                            state: .needsInput,
+                            interactionKind: .approval,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+
+        try? await Task.sleep(for: .milliseconds(80))
+        XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
+    func test_notification_coordinator_delivers_persistent_needs_input_system_notification_after_debounce() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            needsInputSystemNotificationDelay: 0.01
+        )
+        let paneID = PaneID("worklane-main-input")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            windowID: WindowID("window-main"),
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: paneID,
+                    attentions: [
+                        .init(
+                            paneID: paneID,
+                            title: "Review plan",
+                            state: .needsInput,
+                            interactionKind: .approval,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        XCTAssertTrue(recorder.requests.isEmpty)
+
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(recorder.requests.first?.title, "Claude Code needs approval")
+    }
+
     func test_notification_coordinator_uses_explicit_needs_input_text_and_compact_location_for_system_notification() {
         let recorder = WorklaneAttentionNotificationRecorder()
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
