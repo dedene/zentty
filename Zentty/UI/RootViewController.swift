@@ -1478,6 +1478,9 @@ final class RootViewController: NSViewController {
             currentPaneReference: worklaneStore.currentPaneReferenceForCommandPalette,
             recentPaneReferences: worklaneStore.recentPaneReferencesForCommandPalette,
             openWithTargets: openWithTargets,
+            openWithIconProvider: { [weak self] target in
+                self?.openWithService.icon(for: target)
+            },
             rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation
         )
     }

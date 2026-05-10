@@ -14,10 +14,7 @@ struct CommandPaletteResultRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: item.iconSystemName)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(isSelected ? .white.opacity(0.9) : secondaryColor)
-                .frame(width: 22, height: 22)
+            iconView
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
                     .font(.system(size: 13, weight: .medium))
@@ -59,6 +56,21 @@ struct CommandPaletteResultRow: View {
         )
         .onHover { hovering in
             isHovered = hovering
+        }
+    }
+
+    @ViewBuilder
+    private var iconView: some View {
+        if let iconImage = item.iconImage {
+            Image(nsImage: iconImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 22, height: 22)
+        } else {
+            Image(systemName: item.iconSystemName)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(isSelected ? .white.opacity(0.9) : secondaryColor)
+                .frame(width: 22, height: 22)
         }
     }
 }

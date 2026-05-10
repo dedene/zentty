@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum CommandPaletteItemID: Hashable {
@@ -43,6 +44,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
     let secondaryAliasSearchText: String
     let group: CommandPaletteItemGroup
     let iconSystemName: String
+    let iconImage: NSImage?
     let rankingBoost: Double
     let family: CommandPaletteItemFamily?
     let familySearchText: String?
@@ -59,6 +61,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
         secondarySearchText: String? = nil,
         group: CommandPaletteItemGroup = .action,
         iconSystemName: String = "command",
+        iconImage: NSImage? = nil,
         rankingBoost: Double = 0,
         family: CommandPaletteItemFamily? = nil,
         familySearchText: String? = nil,
@@ -76,10 +79,31 @@ struct CommandPaletteItem: Identifiable, Equatable {
         self.secondaryAliasSearchText = CommandPaletteSearchTextNormalizer.separatorInsensitive(secondarySearchText ?? searchText)
         self.group = group
         self.iconSystemName = iconSystemName
+        self.iconImage = iconImage
         self.rankingBoost = rankingBoost
         self.family = family
         self.familySearchText = familySearchText
         self.familyOrder = familyOrder
+    }
+
+    static func == (lhs: CommandPaletteItem, rhs: CommandPaletteItem) -> Bool {
+        lhs.id == rhs.id
+            && lhs.title == rhs.title
+            && lhs.subtitle == rhs.subtitle
+            && lhs.shortcutDisplay == rhs.shortcutDisplay
+            && lhs.category == rhs.category
+            && lhs.searchText == rhs.searchText
+            && lhs.primarySearchText == rhs.primarySearchText
+            && lhs.secondarySearchText == rhs.secondarySearchText
+            && lhs.primaryAliasSearchText == rhs.primaryAliasSearchText
+            && lhs.secondaryAliasSearchText == rhs.secondaryAliasSearchText
+            && lhs.group == rhs.group
+            && lhs.iconSystemName == rhs.iconSystemName
+            && lhs.iconImage === rhs.iconImage
+            && lhs.rankingBoost == rhs.rankingBoost
+            && lhs.family == rhs.family
+            && lhs.familySearchText == rhs.familySearchText
+            && lhs.familyOrder == rhs.familyOrder
     }
 }
 
@@ -261,7 +285,8 @@ enum CommandPaletteItemBuilder {
 
     static func buildOpenWithItems(
         targets: [OpenWithResolvedTarget],
-        focusedPanePath: String?
+        focusedPanePath: String?,
+        iconProvider: ((OpenWithResolvedTarget) -> NSImage?)? = nil
     ) -> [CommandPaletteItem] {
         guard let path = focusedPanePath else { return [] }
 
@@ -283,6 +308,7 @@ enum CommandPaletteItemBuilder {
                 category: "Open With",
                 searchText: "open with open \(familySearchText)".lowercased(),
                 iconSystemName: target.iconSystemName,
+                iconImage: iconProvider?(target),
                 family: .openWith,
                 familySearchText: familySearchText,
                 familyOrder: index

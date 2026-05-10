@@ -1,4 +1,5 @@
 @testable import Zentty
+import AppKit
 import XCTest
 
 final class CommandPaletteItemBuilderTests: XCTestCase {
@@ -497,6 +498,28 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
         XCTAssertEqual(items[0].subtitle, "/Users/peter/projects")
         XCTAssertEqual(items[0].category, "Open With")
         XCTAssertNil(items[0].shortcutDisplay)
+    }
+
+    func testOpenWithItemsUseProvidedAppIcons() {
+        let icon = NSImage(size: NSSize(width: 18, height: 18))
+        let target = OpenWithResolvedTarget(
+            stableID: "cursor",
+            kind: .editor,
+            displayName: "Cursor",
+            builtInID: .cursor,
+            appPath: nil
+        )
+
+        let items = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: [target],
+            focusedPanePath: "/Users/peter/projects",
+            iconProvider: { providedTarget in
+                providedTarget.stableID == target.stableID ? icon : nil
+            }
+        )
+
+        XCTAssertTrue(items[0].iconImage === icon)
+        XCTAssertEqual(items[0].iconSystemName, "pencil.and.outline")
     }
 
     func testOpenWithItemsEmptyWithoutPath() {

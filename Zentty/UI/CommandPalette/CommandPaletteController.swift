@@ -30,6 +30,7 @@ final class CommandPaletteController {
         currentPaneReference: WorklaneStore.PaneReference? = nil,
         recentPaneReferences: [WorklaneStore.PaneReference] = [],
         openWithTargets: [OpenWithResolvedTarget] = [],
+        openWithIconProvider: ((OpenWithResolvedTarget) -> NSImage?)? = nil,
         rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
     ) {
         if isShown {
@@ -49,7 +50,8 @@ final class CommandPaletteController {
         )
         let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
             targets: openWithTargets,
-            focusedPanePath: focusedPanePath
+            focusedPanePath: focusedPanePath,
+            iconProvider: openWithIconProvider
         )
         let worklaneColorItems = CommandPaletteItemBuilder.buildWorklaneColorItems()
         let settingsItems = CommandPaletteItemBuilder.buildSettingsItems()
