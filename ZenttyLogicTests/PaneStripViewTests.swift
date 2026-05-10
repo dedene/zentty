@@ -3546,6 +3546,16 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_peek_zoom_in_lands_neutral_after_left_focused_even_split() {
+        assertPeekZoomInLandsNeutralAfterEvenSplit(focusedColumnID: PaneColumnID("left"))
+    }
+
+    @MainActor
+    func test_peek_zoom_in_lands_neutral_after_right_focused_even_split() {
+        assertPeekZoomInLandsNeutralAfterEvenSplit(focusedColumnID: PaneColumnID("right"))
+    }
+
+    @MainActor
     func test_neighbor_peek_zoom_out_suspends_viewport_sync_without_forcing_surface_resize() throws {
         let adapterFactory = TerminalAdapterFactorySpy()
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
@@ -3701,6 +3711,46 @@ final class PaneStripViewTests: AppKitTestCase {
             focusedPaneID: paneIDs.first.map(PaneID.init),
             lastFocusedPaneID: paneIDs.first.map(PaneID.init)
         )
+    }
+
+    @MainActor
+    private func assertPeekZoomInLandsNeutralAfterEvenSplit(
+        focusedColumnID: PaneColumnID,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let columnWidth: CGFloat = 597
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: columnWidth),
+                makeColumn("right", paneIDs: ["right"], width: columnWidth),
+            ],
+            focusedColumnID: focusedColumnID
+        )
+        let focusedPaneID = PaneID(focusedColumnID.rawValue)
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.beginPeekZoomOut(animated: false, centerOnPaneID: focusedPaneID)
+        XCTAssertNotEqual(
+            paneStripView.dragScrollOffsetXForTesting,
+            0,
+            accuracy: 0.001,
+            "test setup should reproduce pane-centered peek scroll",
+            file: file,
+            line: line
+        )
+
+        paneStripView.endPeekZoomIn(animated: false, centerOnPaneID: focusedPaneID)
+
+        XCTAssertFalse(paneStripView.isZoomedOut, file: file, line: line)
+        XCTAssertEqual(paneStripView.currentZoomScale(), 1, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, 0, accuracy: 0.001, file: file, line: line)
     }
 
     private func makeScrollTestState(focusedPaneID: PaneID) -> PaneStripState {

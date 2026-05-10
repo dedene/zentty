@@ -1453,7 +1453,9 @@ final class PaneStripView: NSView {
 
         let zoomedOutScale = zoomOutScaleOverride ?? Self.zoomScale
         let targetScale = isZoomedOut ? zoomedOutScale : 1.0
-        let targetScrollX = scrollOffsetCentering(paneID: centerOnPaneID, scale: targetScale)
+        let targetScrollX = isZoomedOut
+            ? scrollOffsetCentering(paneID: centerOnPaneID, scale: targetScale)
+            : 0
 
         if animated {
             let fromScale = currentZoomScale()
@@ -1473,7 +1475,7 @@ final class PaneStripView: NSView {
             //   interpolation between fromScrollX and targetScrollX so the
             //   spring's eased curve produces a smooth slide.
             let scaleIsChanging = abs(targetScale - fromScale) > 0.001
-            let useDynamicScrollX = centerOnPaneID != nil && scaleIsChanging
+            let useDynamicScrollX = isZoomedOut && centerOnPaneID != nil && scaleIsChanging
             zoomSpring.start(duration: Self.zoomAnimationDuration) { [weak self] eased in
                 guard let self else { return }
                 let scale = fromScale + (targetScale - fromScale) * eased
@@ -1813,10 +1815,9 @@ final class PaneStripView: NSView {
     /// deferred un-suspend so the terminal re-syncs its viewport to the new
     /// (full) pixel size only after the animation settles.
     ///
-    /// `centerOnPaneID`, if provided, keeps the camera centered on that pane
-    /// throughout the zoom-in so the pane stays put visually instead of
-    /// sliding back to the natural unscrolled origin (which is where
-    /// `dragScrollOffsetX = 0` would land).
+    /// `centerOnPaneID`, if provided, is recorded for diagnostics. The
+    /// zoom-in always lands on the natural unscrolled origin so temporary
+    /// peek centering cannot leak into the normal pane-strip layout.
     func endPeekZoomIn(animated: Bool = true, centerOnPaneID: PaneID? = nil) {
         guard isZoomedOut else { return }
         TerminalViewportDiagnostics.shared.record(

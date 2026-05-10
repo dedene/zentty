@@ -3277,9 +3277,8 @@ extension RootViewController: WorklanePeekControllerDelegate {
 
     func peekDidClose(_ controller: WorklanePeekController) {
         updatePeekSidebarFocusOverride(nil)
-        // Pass the just-committed pane so the camera stays centered on it
-        // through the zoom-in instead of sliding horizontally back to the
-        // natural unscrolled origin (which would yank the pane sideways).
+        // Pass the just-committed pane as diagnostic context; the zoom-in
+        // itself lands on the pane strip's neutral horizontal origin.
         let committedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
         TerminalViewportDiagnostics.shared.record(
             .rootPeekDidClose,
