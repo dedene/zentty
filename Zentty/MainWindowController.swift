@@ -936,6 +936,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.paneListEntries(for: worklaneID)
     }
 
+    func taskManagerPaneSources() -> [TaskManagerPaneSource] {
+        rootViewController.taskManagerPaneSources(
+            windowID: windowID,
+            windowTitle: window.title.isEmpty ? "Window \(windowOrder + 1)" : window.title
+        )
+    }
+
     func resolvePaneID(_ target: String, in worklaneID: WorklaneID) -> PaneID? {
         rootViewController.resolvePaneID(target, in: worklaneID)
     }

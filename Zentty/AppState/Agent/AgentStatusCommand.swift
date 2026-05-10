@@ -192,7 +192,7 @@ struct AgentSignalCommand {
                     artifactURL: nil
                 )
             )
-        case .pid:
+        case .pid, .paneRootPID:
             guard let rawEvent = positionals.first,
                   let pidEvent = AgentPIDSignalEvent(rawValue: rawEvent) else {
                 throw AgentStatusPayloadError.invalidArguments("Missing or invalid pid event.")
@@ -216,12 +216,12 @@ struct AgentSignalCommand {
                     windowID: windowID.map(WindowID.init),
                     worklaneID: WorklaneID(worklaneID),
                     paneID: PaneID(paneID),
-                    signalKind: .pid,
+                    signalKind: kind,
                     state: nil,
                     pid: pid,
                     pidEvent: pidEvent,
                     origin: origin,
-                    toolName: options["tool"],
+                    toolName: kind == .pid ? options["tool"] : nil,
                     text: nil,
                     sessionID: options["session-id"],
                     parentSessionID: options["parent-session-id"],
@@ -318,6 +318,8 @@ struct AgentSignalCommand {
             return .shell
         case .pid:
             return .explicitAPI
+        case .paneRootPID:
+            return .shell
         case .paneContext:
             return .shell
         }

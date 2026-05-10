@@ -69,6 +69,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case navigateBack = "navigate.back"
     case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
+    case showTaskManager = "task_manager.show"
     case openBranchOnRemote = "branch.open_remote"
     case openSettings = "app.open_settings"
     case newWindow = "app.new_window"
@@ -105,6 +106,7 @@ enum AppAction: Equatable, Sendable {
     case navigateBack
     case navigateForward
     case showCommandPalette
+    case showTaskManager
     case openBranchOnRemote
     case openSettings
     case newWindow
@@ -118,6 +120,7 @@ enum AppMenuSection: String, CaseIterable {
     case edit = "Edit"
     case navigation = "Navigation"
     case view = "View"
+    case window = "Window"
 }
 
 indirect enum AppMenuEntry {
@@ -130,6 +133,19 @@ struct AppCommandMenuItem {
     let section: AppMenuSection
     let title: String
     let selector: Selector
+    let systemImageName: String?
+
+    init(
+        section: AppMenuSection,
+        title: String,
+        selector: Selector,
+        systemImageName: String? = nil
+    ) {
+        self.section = section
+        self.title = title
+        self.selector = selector
+        self.systemImageName = systemImageName
+    }
 }
 
 struct AppCommandDefinition {
@@ -777,6 +793,19 @@ enum AppCommandRegistry {
                 selector: #selector(MainWindowController.openBookmarksPopover(_:))
             )
         ),
+        AppCommandDefinition(
+            id: .showTaskManager,
+            title: "Task Manager",
+            category: .general,
+            defaultShortcut: nil,
+            action: .showTaskManager,
+            menuItem: AppCommandMenuItem(
+                section: .window,
+                title: "Task Manager",
+                selector: #selector(AppDelegate.showTaskManager(_:)),
+                systemImageName: "gauge.with.dots.needle.67percent"
+            )
+        ),
     ]
 
     static let menuEntriesBySection: [AppMenuSection: [AppMenuEntry]] = [
@@ -848,6 +877,9 @@ enum AppCommandRegistry {
             .command(.resizePaneDown),
             .separator,
             .command(.resetPaneLayout),
+        ],
+        .window: [
+            .command(.showTaskManager),
         ],
     ]
 
@@ -976,6 +1008,8 @@ extension AppCommandDefinition {
             "Zoom out to see all panes and drag to reorder."
         case .showCommandPalette:
             "Open the command palette."
+        case .showTaskManager:
+            "Show CPU and memory usage for live panes."
         case .openBranchOnRemote:
             "Open the current branch on GitHub or your remote host."
         case .openSettings:

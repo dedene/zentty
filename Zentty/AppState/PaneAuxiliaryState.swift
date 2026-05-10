@@ -163,6 +163,7 @@ struct PanePresentationState: Equatable, Sendable {
 struct PaneRawState: Equatable, Sendable {
     var metadata: TerminalMetadata?
     var shellContext: PaneShellContext?
+    var paneRootPID: Int32? = nil
     var agentStatus: PaneAgentStatus?
     var agentReducerState: PaneAgentReducerState = .init()
     var shellActivityState: PaneShellActivityState = .unknown

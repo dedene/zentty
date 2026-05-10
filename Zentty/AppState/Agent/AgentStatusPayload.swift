@@ -15,6 +15,7 @@ enum AgentSignalKind: String, Equatable, Sendable {
     case lifecycle
     case shellState = "shell-state"
     case pid
+    case paneRootPID = "pane-root-pid"
     case paneContext = "pane-context"
 }
 
