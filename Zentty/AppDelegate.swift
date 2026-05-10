@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
     private var aboutWindowController: AboutWindowController?
     private var licensesWindowController: LicensesWindowController?
+    private var taskManagerWindowController: TaskManagerWindowController?
     private var lastKeyWindowControllerID: ObjectIdentifier?
     private var configObserverID: UUID?
     private var nextWindowIndex = 0
@@ -141,6 +142,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     func showSettingsWindow(_ sender: Any?) {
         keyWindowController?.showSettingsWindow(sender)
+    }
+
+    @objc
+    func showTaskManager(_ sender: Any?) {
+        let controller = taskManagerWindowController ?? TaskManagerWindowController(
+            paneSourcesProvider: { [weak self] in
+                self?.orderedWindowControllersForDiscovery().flatMap { $0.taskManagerPaneSources() } ?? []
+            },
+            focusPaneHandler: { [weak self] windowID, worklaneID, paneID in
+                self?.windowController(with: windowID)?.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+            },
+            closePaneHandler: { [weak self] windowID, paneID in
+                self?.windowController(with: windowID)?.closePane(id: paneID)
+            }
+        )
+        taskManagerWindowController = controller
+        controller.show(sender: sender)
     }
 
     @objc

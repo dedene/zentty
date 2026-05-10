@@ -316,6 +316,29 @@ extension WorklaneStore {
             return
         }
 
+        if payload.signalKind == .paneRootPID {
+            guard let pidEvent = payload.pidEvent else {
+                return
+            }
+
+            switch pidEvent {
+            case .attach:
+                guard let pid = payload.pid, pid > 0 else {
+                    return
+                }
+                worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].raw.paneRootPID = pid
+            case .clear:
+                worklane.auxiliaryStateByPaneID[payload.paneID]?.raw.paneRootPID = nil
+            }
+
+            worklanes[worklaneIndex] = worklane
+            let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+            if !impacts.isEmpty {
+                notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, impacts))
+            }
+            return
+        }
+
         let existingStatus = worklane.auxiliaryStateByPaneID[payload.paneID]?.agentStatus
         let tool = AgentTool.resolve(named: payload.toolName)
             ?? existingStatus?.tool
@@ -534,6 +557,8 @@ extension WorklaneStore {
                     in: &worklane
                 )
             }
+        case .paneRootPID:
+            break
         case .paneContext:
             guard let paneContext = payload.paneContext else {
                 return
@@ -761,7 +786,7 @@ extension WorklaneStore {
             return state == .starting || state == .running || state == .needsInput
         case .pid:
             return payload.pidEvent == .attach
-        case .shellState, .paneContext:
+        case .shellState, .paneRootPID, .paneContext:
             return false
         }
     }
@@ -783,7 +808,7 @@ extension WorklaneStore {
             return payload.pidEvent == .attach
         case .shellState:
             return payload.shellActivityState == .commandRunning
-        case .paneContext:
+        case .paneRootPID, .paneContext:
             return false
         }
     }
@@ -1216,7 +1241,7 @@ extension WorklaneStore {
         switch payload.signalKind {
         case .lifecycle:
             return payload.state == .idle || payload.clearsStatus
-        case .pid, .shellState, .paneContext:
+        case .pid, .paneRootPID, .shellState, .paneContext:
             return false
         }
     }
@@ -1286,7 +1311,7 @@ extension WorklaneStore {
                 return false
             }
             return state == .starting || state == .running || state == .needsInput
-        case .shellState, .paneContext:
+        case .shellState, .paneRootPID, .paneContext:
             return false
         }
     }

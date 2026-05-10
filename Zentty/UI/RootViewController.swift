@@ -1137,6 +1137,8 @@ final class RootViewController: NSViewController {
             worklaneStore.navigateForward()
         case .showCommandPalette:
             showCommandPalette()
+        case .showTaskManager:
+            NSApp.sendAction(#selector(AppDelegate.showTaskManager(_:)), to: nil, from: nil)
         case .openBranchOnRemote:
             openBranchOnRemote()
         case .openSettings:
@@ -2195,6 +2197,45 @@ final class RootViewController: NSViewController {
             }
         }
         return entries
+    }
+
+    func taskManagerPaneSources(windowID: WindowID, windowTitle: String) -> [TaskManagerPaneSource] {
+        worklaneStore.worklanes.flatMap { worklane in
+            worklane.paneStripState.panes.map { pane in
+                let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
+                return TaskManagerPaneSource(
+                    windowID: windowID,
+                    windowTitle: windowTitle,
+                    worklaneID: worklane.id,
+                    worklaneTitle: worklane.title,
+                    paneID: pane.id,
+                    paneTitle: auxiliaryState?.presentation.visibleIdentityText ?? pane.title,
+                    statusText: taskManagerStatusText(for: auxiliaryState),
+                    rootPID: auxiliaryState?.raw.paneRootPID,
+                    isRemote: auxiliaryState?.shellContext?.scope == .remote,
+                    currentWorkingDirectory: PaneTerminalLocationResolver.snapshot(
+                        metadata: auxiliaryState?.metadata,
+                        shellContext: auxiliaryState?.shellContext,
+                        requestWorkingDirectory: pane.sessionRequest.workingDirectory
+                    ).workingDirectory
+                )
+            }
+        }
+    }
+
+    private func taskManagerStatusText(for auxiliaryState: PaneAuxiliaryState?) -> String? {
+        if let agentStatus = auxiliaryState?.agentStatus {
+            return "\(agentStatus.tool.displayName) \(agentStatus.state.rawValue)"
+        }
+
+        switch auxiliaryState?.shellActivityState {
+        case .commandRunning:
+            return "Running"
+        case .promptIdle:
+            return "Idle"
+        case .unknown, nil:
+            return nil
+        }
     }
 
     func resolvePaneID(_ target: String, in worklaneID: WorklaneID) -> PaneID? {
