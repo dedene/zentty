@@ -3466,6 +3466,68 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_neighbor_peek_zoom_out_suspends_viewport_sync_without_forcing_surface_resize() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 720),
+            runtimeRegistry: runtimeRegistry
+        )
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let state = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let alphaAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("alpha")))
+        let betaAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("beta")))
+
+        paneStripView.enterPeekNeighborZoomOut(
+            scale: PaneStripView.zoomScale,
+            centerOnPaneID: PaneID("alpha")
+        )
+
+        XCTAssertEqual(alphaAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
+        XCTAssertEqual(betaAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
+        XCTAssertEqual(alphaAdapter.terminalView.forceViewportSyncCallCount, 0)
+        XCTAssertEqual(betaAdapter.terminalView.forceViewportSyncCallCount, 0)
+        XCTAssertEqual(paneStripView.currentZoomScale(), PaneStripView.zoomScale, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_neighbor_peek_zoom_out_reset_resumes_viewport_sync_synchronously() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 720),
+            runtimeRegistry: runtimeRegistry
+        )
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let state = PaneStripState(
+            panes: [makePane("alpha")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let alphaAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("alpha")))
+
+        paneStripView.enterPeekNeighborZoomOut(scale: PaneStripView.zoomScale)
+        paneStripView.endPeekNeighborZoomOut()
+
+        XCTAssertFalse(paneStripView.isZoomedOut)
+        XCTAssertEqual(paneStripView.currentZoomScale(), 1, accuracy: 0.001)
+        XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, 0, accuracy: 0.001)
+        XCTAssertEqual(alphaAdapter.terminalView.viewportSyncSuspensionUpdates.suffix(2), [true, false])
+    }
+
+    @MainActor
     func test_peek_zoom_out_skipped_during_active_drag() {
         // The drag-zoom path owns the zoom while a pane is being dragged.
         // Visual ctrl+tab must not stomp over it. (Defensive — controller

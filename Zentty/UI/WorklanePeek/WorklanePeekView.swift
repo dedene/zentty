@@ -12,10 +12,33 @@ final class WorklanePeekView: NSView {
     private let hud = WorklanePeekHUDView()
     private weak var anchorPaneStripView: PaneStripView?
 
-    /// Neighbor carriers, indexed by relative offset from the active worklane:
-    /// −2, −1, +1, +2. The active worklane is rendered by the underlying
-    /// `appCanvasView.paneStripView`, not by a carrier.
+    /// Lane carriers, keyed by **absolute** worklane index (matching
+    /// `WorklaneStore.worklanes`). The original active worklane is *not*
+    /// in this dict — its rendering belongs to `anchorPaneStripView`.
     private var laneCarriers: [Int: WorklanePeekLaneView] = [:]
+
+    /// Per-session state captured at peek-open. Used by lazy carrier creation
+    /// during camera pan so we don't have to thread these through every call.
+    private struct SessionContext {
+        let worklanes: [WorklaneState]
+        let originalActiveIndex: Int
+        let canvasSize: CGSize
+        let zoomScale: CGFloat
+        let theme: ZenttyTheme
+        let runtimeRegistry: PaneRuntimeRegistry
+    }
+    private var session: SessionContext?
+
+    /// Index of the worklane currently anchored at the *visible* center —
+    /// the one the user is peeking at. Equal to `session.originalActiveIndex`
+    /// at the start; changes as the user crosses worklane boundaries with
+    /// Tab and the camera pans.
+    private(set) var centeredIndex: Int = 0
+
+    /// Vertical offset (in points) applied to every visible lane so the
+    /// `centeredIndex` lane sits at the canvas center. Positive Y shifts
+    /// content up (toward higher worklane indices in the stack).
+    private var cameraOffset: CGFloat = 0
 
     private struct HUDPlacement {
         let targetZoomScale: CGFloat
@@ -29,8 +52,15 @@ final class WorklanePeekView: NSView {
     /// Vertical gap between the column's top edge and the HUD pill above it.
     private let hudGap: CGFloat = 12
 
-    /// Vertical gap between adjacent lane bands.
-    private static let bandGap: CGFloat = 18
+    /// Vertical gap between adjacent lane bands. Generous spacing on
+    /// purpose — partial clipping of the ±1 lanes off the top/bottom of
+    /// the canvas is fine because the camera pans the chosen lane fully
+    /// into view as the user Ctrl-Tabs further.
+    private static let bandGap: CGFloat = 48
+
+    /// Camera pan animation duration. Matches the existing zoom spring's
+    /// 0.35s ballpark so pans and zoom transitions feel of-a-piece.
+    private static let panAnimationDuration: TimeInterval = 0.28
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -66,20 +96,60 @@ final class WorklanePeekView: NSView {
         anchorPaneStripView = paneStripView
     }
 
+    /// Worklane IDs currently rendered as live previews in this peek session
+    /// — every neighbor lane that has a carrier mounted. The
+    /// `WorklaneRenderCoordinator` queries this set so Ghostty's occlusion
+    /// flag stays *off* for those worklanes (otherwise their surfaces would
+    /// pause and the user would see a frozen still instead of live output).
+    /// Includes any lane built so far during the session, even ones currently
+    /// off-screen due to the camera position — keeping them un-occluded means
+    /// they're already streaming when the user pans onto them.
+    var peekVisibleWorklaneIDs: Set<WorklaneID> {
+        guard let session else { return [] }
+        var ids = Set(laneCarriers.compactMap { _, carrier in carrier.worklaneID })
+        // The original active worklane is rendered by the anchor strip and
+        // is already un-occluded by the active-worklane rule; include it
+        // here too so the set fully describes what's "peek-visible" for any
+        // diagnostics or future consumers.
+        if session.worklanes.indices.contains(session.originalActiveIndex) {
+            ids.insert(session.worklanes[session.originalActiveIndex].id)
+        }
+        return ids
+    }
+
+    /// Called whenever the set of peek-visible worklanes changes (open,
+    /// lazy carrier creation during pan, close) so the render coordinator
+    /// can re-push surface-activity flags. Set by the owner.
+    var onPeekVisibleWorklanesChanged: (() -> Void)?
+
+    /// Called when a mounted neighbor carrier changes its internal
+    /// horizontal zoom/scroll transform. The overlay owns the highlight
+    /// CAShapeLayer, so the owner needs to ask for a fresh highlight rect.
+    var onGeometryChanged: (() -> Void)?
+
     func detach() {
+        // Reset the anchor strip's camera transform before letting go so the
+        // strip lands without a residual translate during the zoom-in.
+        anchorPaneStripView?.layer?.transform = CATransform3DIdentity
         anchorPaneStripView = nil
         dimLayer.path = nil
         highlightLayer.path = nil
         hud.content = .init()
         hudPlacement = nil
         teardownNeighborLanes()
+        session = nil
+        cameraOffset = 0
+        centeredIndex = 0
+        // Tell observers (the render coordinator) the peek-visible set is
+        // empty now so neighbor surfaces can be re-occluded.
+        onPeekVisibleWorklanesChanged?()
     }
 
     /// Set up the neighbor carriers for one peek session.
     /// `worklanes` is in the same order as `WorklaneStore.worklanes`. The
     /// active worklane is identified by `activeIndex` and is *not* rendered
-    /// here (the existing pane strip handles it). Carriers are positioned
-    /// once and don't reflow during the session.
+    /// here (the existing pane strip handles it). Carriers for worklanes
+    /// further from the active are built lazily on camera pan.
     func configureNeighborLanes(
         worklanes: [WorklaneState],
         activeIndex: Int,
@@ -89,38 +159,106 @@ final class WorklanePeekView: NSView {
         theme: ZenttyTheme
     ) {
         teardownNeighborLanes()
+        session = SessionContext(
+            worklanes: worklanes,
+            originalActiveIndex: activeIndex,
+            canvasSize: canvasSize,
+            zoomScale: zoomScale,
+            theme: theme,
+            runtimeRegistry: runtimeRegistry
+        )
+        centeredIndex = activeIndex
+        cameraOffset = 0
 
-        // Just ±1 — keeps the visible stack to 3 equal-sized lanes
-        // (active + above + below) and avoids the cognitive load of more
-        // peeking neighbors than the user can act on.
-        let neighborOffsets: [Int] = [-1, 1]
-        for offset in neighborOffsets {
-            let neighborIndex = activeIndex + offset
-            guard worklanes.indices.contains(neighborIndex) else { continue }
+        // Build carriers for the immediate ±1 neighbors so they fade in
+        // alongside the active strip's zoom-out.
+        ensureCarrier(at: activeIndex - 1, fadeInDelay: 0.10)
+        ensureCarrier(at: activeIndex + 1, fadeInDelay: 0.10)
 
-            let carrier = WorklanePeekLaneView(runtimeRegistry: runtimeRegistry)
-            // Carrier is positioned via direct frame assignment in
-            // layoutNeighborCarriers — keep autoresizing translation on so
-            // the explicit frames stick instead of being clobbered by AL.
-            carrier.translatesAutoresizingMaskIntoConstraints = true
-            insertNeighborSubview(carrier)
-            laneCarriers[offset] = carrier
-        }
-        // Size carriers BEFORE binding state so each carrier's bounds is
-        // known when its layer-scale math runs.
+        // Position everything (no carriers if single-worklane session).
         layoutNeighborCarriers()
+        applyCameraOffset(animated: false)
+        onPeekVisibleWorklanesChanged?()
+    }
 
-        for (offset, carrier) in laneCarriers {
-            let neighborIndex = activeIndex + offset
-            guard worklanes.indices.contains(neighborIndex) else { continue }
-            carrier.bind(
-                worklane: worklanes[neighborIndex],
-                theme: theme,
-                canvasSize: canvasSize,
-                zoomScale: zoomScale
-            )
-            carrier.appear(after: 0.10)
+    /// Pan the camera so the worklane containing `worklaneID` is centered.
+    /// Lazily builds a carrier for that worklane (and its ±1 neighbors) if
+    /// it doesn't exist yet, so a long Tab traversal across many worklanes
+    /// keeps a populated centered band.
+    func centerOn(worklaneID: WorklaneID, animated: Bool) {
+        guard let session,
+              let targetIndex = session.worklanes.firstIndex(where: { $0.id == worklaneID }),
+              targetIndex != centeredIndex
+        else { return }
+
+        centeredIndex = targetIndex
+        // Make sure the centered lane *and* its immediate neighbors have
+        // carriers — otherwise the user pans into an empty void after the
+        // first cross.
+        let countBefore = laneCarriers.count
+        for index in (targetIndex - 1)...(targetIndex + 1) {
+            ensureCarrier(at: index, fadeInDelay: 0)
         }
+        if laneCarriers.count != countBefore {
+            onPeekVisibleWorklanesChanged?()
+        }
+        resetNonSelectedHorizontalCentering()
+        applyCameraOffset(animated: animated)
+    }
+
+    /// Center the carrier (or anchor strip) holding `paneID` on its own
+    /// horizontal axis. Mirrors the active strip's `centerPeekOnPane` for
+    /// neighbor lanes so the highlighted pane stays visually centered as
+    /// the user navigates within a worklane that isn't the original active.
+    func centerHorizontally(paneID: PaneID, animated: Bool) {
+        guard let session else { return }
+        for carrier in laneCarriers.values where carrier.containsPane(paneID) {
+            carrier.centerOnPane(paneID, animated: animated)
+        }
+        // The anchor strip is centered by the controller via
+        // `PaneStripView.centerPeekOnPane` already, so skip it here.
+        _ = session
+    }
+
+    private func resetNonSelectedHorizontalCentering() {
+        guard let session else { return }
+        if centeredIndex != session.originalActiveIndex {
+            anchorPaneStripView?.resetPeekHorizontalCentering()
+        }
+        for (index, carrier) in laneCarriers where index != centeredIndex {
+            carrier.showFullCanvas()
+        }
+    }
+
+    private func ensureCarrier(at index: Int, fadeInDelay: TimeInterval) {
+        guard let session,
+              session.worklanes.indices.contains(index),
+              index != session.originalActiveIndex,
+              laneCarriers[index] == nil
+        else { return }
+
+        let carrier = WorklanePeekLaneView(runtimeRegistry: session.runtimeRegistry)
+        // Carrier is positioned via direct frame assignment — translation
+        // stays on so the explicit frame sticks instead of being clobbered.
+        carrier.translatesAutoresizingMaskIntoConstraints = true
+        carrier.onGeometryChanged = { [weak self] in
+            self?.onGeometryChanged?()
+        }
+        insertNeighborSubview(carrier)
+        laneCarriers[index] = carrier
+
+        // Layout *before* binding so the carrier's bounds are known when
+        // the strip's layer-scale math runs inside `bind`.
+        positionCarrier(carrier, atAbsoluteIndex: index)
+        carrier.bind(
+            worklane: session.worklanes[index],
+            theme: session.theme,
+            canvasSize: session.canvasSize,
+            zoomScale: session.zoomScale
+        )
+        carrier.appear(after: fadeInDelay)
+        // The new carrier inherits the current camera offset.
+        applyCameraOffset(toCarrier: carrier, animated: false)
     }
 
     private func insertNeighborSubview(_ carrier: WorklanePeekLaneView) {
@@ -167,15 +305,21 @@ final class WorklanePeekView: NSView {
     /// Resolve the on-screen rect for a pane that may live in the active
     /// strip or in any of the visible neighbor carriers. Returns the rect
     /// in this overlay's coordinate space, padded by `highlightInset`.
+    /// Accounts for the current camera offset so the highlight tracks the
+    /// pane's *visible* position after a pan.
     private func highlightRectFor(paneID: PaneID) -> CGRect? {
         if let anchor = anchorPaneStripView,
            let rect = anchor.convertPaneFrame(paneID, to: self) {
-            return rect.insetBy(dx: highlightInset, dy: highlightInset)
+            // The anchor strip carries a layer translate matching cameraOffset
+            // but the AppKit coordinate conversion above doesn't pick up
+            // layer transforms. Add it manually.
+            return rect.offsetBy(dx: 0, dy: cameraOffset).insetBy(dx: highlightInset, dy: highlightInset)
         }
         for carrier in laneCarriers.values {
             if let rectInCarrier = carrier.paneFrameInCarrier(paneID) {
                 let rect = convert(rectInCarrier, from: carrier)
-                return rect.insetBy(dx: highlightInset, dy: highlightInset)
+                // Same layer-transform compensation as the anchor strip.
+                return rect.offsetBy(dx: 0, dy: cameraOffset).insetBy(dx: highlightInset, dy: highlightInset)
             }
         }
         return nil
@@ -213,38 +357,89 @@ final class WorklanePeekView: NSView {
         hud.frame = CGRect(x: clampedX, y: originY, width: size.width, height: size.height)
     }
 
+    /// Place each carrier at its **absolute** position in the lane stack,
+    /// based on its index relative to the original active. The visible
+    /// position after camera pan is then computed by `applyCameraOffset`
+    /// applying a layer translate on top.
     private func layoutNeighborCarriers() {
-        guard let placement = hudPlacement else {
-            // Without a known active band height we can't position neighbors
-            // sensibly. They'll be placed on the next placeHUDStably call.
-            return
+        guard hudPlacement != nil else { return }
+        for (index, carrier) in laneCarriers {
+            positionCarrier(carrier, atAbsoluteIndex: index)
         }
-        // All visible lanes (active + ±1) use the same band size, so neighbor
-        // carriers match the active band exactly.
-        let bandWidth = bounds.width * placement.targetZoomScale
+    }
+
+    private func positionCarrier(_ carrier: WorklanePeekLaneView, atAbsoluteIndex index: Int) {
+        guard let placement = hudPlacement, let session else { return }
         let bandHeight = bounds.height * placement.targetZoomScale
-        let activeBandTop = bounds.midY + bandHeight / 2
-        let activeBandBottom = bounds.midY - bandHeight / 2
-
         let visibleCenterX = (placement.visibleLeadingInset + bounds.width) / 2
-        let bandX = visibleCenterX - bandWidth / 2
 
-        if let above = laneCarriers[-1] {
-            above.frame = CGRect(
-                x: bandX,
-                y: activeBandTop + Self.bandGap,
-                width: bandWidth,
-                height: bandHeight
-            )
+        // Stack offset, in lane-units, from the original active worklane.
+        // Higher index sits visually below (lower Y in non-flipped coords).
+        let stackOffset = index - session.originalActiveIndex
+        let bandCenterY = bounds.midY - CGFloat(stackOffset) * (bandHeight + Self.bandGap)
+        carrier.frame = CGRect(
+            x: 0,
+            y: bandCenterY - bandHeight / 2,
+            width: bounds.width,
+            height: bandHeight
+        )
+        carrier.setVisibleBandCenterX(visibleCenterX)
+    }
+
+    /// Compute the desired Y translate from the current centered index, then
+    /// apply it (animated or instant) to the anchor strip and every carrier
+    /// so the centered lane sits at the canvas's vertical mid-line.
+    private func applyCameraOffset(animated: Bool) {
+        guard let session, let placement = hudPlacement else { return }
+        let bandHeight = bounds.height * placement.targetZoomScale
+        let stackOffset = centeredIndex - session.originalActiveIndex
+        // Visual "up" is +Y; moving the camera toward a higher-index lane
+        // means shifting all content *up* by that many lanes.
+        cameraOffset = CGFloat(stackOffset) * (bandHeight + Self.bandGap)
+
+        let transform = CATransform3DMakeTranslation(0, cameraOffset, 0)
+        let apply: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.anchorPaneStripView?.layer?.transform = transform
+            for carrier in self.laneCarriers.values {
+                carrier.layer?.transform = transform
+            }
+            self.layoutDimAndHighlight()
         }
-        if let below = laneCarriers[1] {
-            below.frame = CGRect(
-                x: bandX,
-                y: activeBandBottom - Self.bandGap - bandHeight,
-                width: bandWidth,
-                height: bandHeight
+
+        if animated {
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(Self.panAnimationDuration)
+            CATransaction.setAnimationTimingFunction(
+                CAMediaTimingFunction(name: .easeInEaseOut)
             )
+            apply()
+            CATransaction.commit()
+        } else {
+            // Instant: skip any in-flight implicit animation.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            apply()
+            CATransaction.commit()
         }
+    }
+
+    /// Apply the *current* cameraOffset to one carrier (used right after
+    /// lazily building it). No animation — the carrier is fading in via
+    /// alpha; we don't want it sliding too.
+    private func applyCameraOffset(toCarrier carrier: WorklanePeekLaneView, animated: Bool) {
+        let transform = CATransform3DMakeTranslation(0, cameraOffset, 0)
+        CATransaction.begin()
+        CATransaction.setDisableActions(!animated)
+        carrier.layer?.transform = transform
+        CATransaction.commit()
+    }
+
+    private func layoutDimAndHighlight() {
+        // The dim/highlight CAShapeLayers paint relative to the overlay's
+        // own bounds — they don't pick up the per-lane layer transform.
+        // The highlight is recomputed by `update(highlightedPaneID:)` on
+        // every selection change, which already factors in cameraOffset.
     }
 
     // MARK: - Layout

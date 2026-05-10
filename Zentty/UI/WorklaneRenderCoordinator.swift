@@ -65,6 +65,12 @@ final class WorklaneRenderCoordinator {
 
     weak var environment: RenderEnvironmentProviding?
 
+    /// Worklanes whose surfaces should be kept un-occluded even though they
+    /// aren't the active worklane — used by Worklane Peek so neighbor lane
+    /// previews keep streaming live instead of freezing on a still frame.
+    /// Default returns an empty set (nothing peek-visible).
+    var peekVisibleWorklaneIDsProvider: () -> Set<WorklaneID> = { [] }
+
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         worklaneStore: WorklaneStore,
@@ -325,7 +331,8 @@ final class WorklaneRenderCoordinator {
                 worklanes: worklaneStore.worklanes,
                 activeWorklaneID: worklaneStore.activeWorklaneID,
                 windowIsVisible: windowState.isVisible,
-                windowIsKey: windowState.isKeyWindow
+                windowIsKey: windowState.isKeyWindow,
+                peekVisibleWorklaneIDs: peekVisibleWorklaneIDsProvider()
             )
         }
     }

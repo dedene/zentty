@@ -1627,7 +1627,25 @@ final class PaneStripView: NSView {
         guard !isDragActive, !isZoomedOut else { return }
         isZoomedOut = true
         zoomOutScaleOverride = scale
+        for (_, paneView) in paneViews {
+            paneView.setTerminalViewportSyncSuspended(true)
+        }
         applyZoom(animated: false, centerOnPaneID: centerOnPaneID)
+    }
+
+    /// Synchronously leave neighbor peek state. Neighbor carriers are torn
+    /// down immediately on close/commit, so they cannot use the delayed
+    /// unsuspend path from the animated active-strip zoom-in.
+    func endPeekNeighborZoomOut() {
+        guard isZoomedOut else { return }
+        isZoomedOut = false
+        zoomOutScaleOverride = nil
+        dragScrollOffsetX = 0
+        applyZoomScale(1)
+        onZoomTransformChanged?()
+        for (_, paneView) in paneViews {
+            paneView.setTerminalViewportSyncSuspended(false)
+        }
     }
 
     /// While zoomed out, animate `dragScrollOffsetX` so the given pane's
@@ -1636,6 +1654,19 @@ final class PaneStripView: NSView {
     func centerPeekOnPane(_ paneID: PaneID, animated: Bool = true) {
         guard isZoomedOut else { return }
         applyZoom(animated: animated, centerOnPaneID: paneID)
+    }
+
+    /// While zoomed out, return the horizontal peek camera to a neutral
+    /// full-canvas view. Neighbor preview lanes use this whenever they are
+    /// visible but not selected, so a stale pane-centering offset cannot clip
+    /// split panes against the carrier mask.
+    func resetPeekHorizontalCentering() {
+        guard isZoomedOut else { return }
+        zoomSpring.stop()
+        zoomAnchor = CGPoint(x: viewportView.frame.width / 2, y: viewportView.frame.height / 2)
+        dragScrollOffsetX = 0
+        applyZoomScale(currentZoomScale())
+        onZoomTransformChanged?()
     }
 
     /// Reverse `beginPeekZoomOut`. Pairs the zoom-in animation with a

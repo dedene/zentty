@@ -7,9 +7,9 @@ import AppKit
 /// the user would see if this worklane were active, the inner `PaneStripView`
 /// is sized to the **full canvas dimensions** and put into the same
 /// zoomed-out state as the active strip (internal scale `PaneStripView.zoomScale`
-/// via `beginPeekZoomOut`). The visible footprint is then shrunk by a
-/// uniform layer-level scale on the strip — the carrier itself only acts as
-/// a masking window so the strip's empty area outside the band is clipped.
+/// via `beginPeekZoomOut`). The carrier spans the overlay width but keeps the
+/// zoomed band height, so split panes can remain visible to the left/right
+/// while vertical overflow between stacked lanes is still clipped.
 ///
 /// This avoids the bug where rendering the strip into a small frame caused
 /// columns/panes (and their Ghostty terminal cells) to be re-sized to the
@@ -21,6 +21,7 @@ final class WorklanePeekLaneView: NSView {
     private let strip: PaneStripView
     private(set) var worklaneID: WorklaneID?
     private var canvasSize: CGSize = .zero
+    private var visibleBandCenterX: CGFloat?
     /// The internal zoom scale used by both the active strip and this
     /// neighbor preview — must match so all visible lanes share the same
     /// visual size.
@@ -31,12 +32,19 @@ final class WorklanePeekLaneView: NSView {
     /// stay dimmer than the active so focus stays in the centered band.
     static let appearedAlpha: CGFloat = 0.7
 
+    /// Fired when the inner strip's zoom/scroll transform changes. The
+    /// overlay uses this to recompute the highlight path because AppKit
+    /// coordinate conversion sees the updated `viewportView.bounds`, but the
+    /// existing CAShapeLayer path does not move on its own.
+    var onGeometryChanged: (() -> Void)?
+
     init(runtimeRegistry: PaneRuntimeRegistry) {
         self.strip = PaneStripView(runtimeRegistry: runtimeRegistry)
         super.init(frame: .zero)
         wantsLayer = true
-        // Crop the strip's empty area outside its zoomed band so only the
-        // band paints inside our bounds.
+        // Crop the strip vertically to this lane's band. The carrier itself
+        // spans the overlay width so horizontally adjacent split panes are
+        // not clipped at the narrow band edge.
         layer?.masksToBounds = true
         layer?.cornerRadius = 6
         alphaValue = 0
@@ -45,8 +53,10 @@ final class WorklanePeekLaneView: NSView {
         // Translation stays on (default) so the explicit frame sticks.
         strip.translatesAutoresizingMaskIntoConstraints = true
         strip.wantsLayer = true
-        strip.layer?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         addSubview(strip)
+        strip.onZoomTransformChanged = { [weak self] in
+            self?.onGeometryChanged?()
+        }
     }
 
     @available(*, unavailable)
@@ -83,47 +93,40 @@ final class WorklanePeekLaneView: NSView {
             // live while this carrier is on screen. The carrier's masked
             // layer-scale handles the visual shrink without disturbing
             // Ghostty's natural canvas-sized bounds.
-            strip.enterPeekNeighborZoomOut(
-                scale: zoomScale,
-                centerOnPaneID: worklane.paneStripState.focusedPaneID
-            )
+            strip.enterPeekNeighborZoomOut(scale: zoomScale)
+            strip.resetPeekHorizontalCentering()
             hasInitialZoomOut = true
         }
     }
 
-    /// Recomputes the strip's frame + layer scale so the strip's zoomed band
-    /// is what fills our bounds. Called on bind() and on layout().
+    func setVisibleBandCenterX(_ centerX: CGFloat) {
+        visibleBandCenterX = centerX
+        relayoutStrip()
+    }
+
+    /// Re-positions the strip so its zoomed band aligns with the visible
+    /// canvas center inside this carrier.
+    ///
+    /// The carrier is full overlay width and only band-height. Positioning
+    /// the full-size strip around `visibleBandCenterX` keeps the same visual
+    /// center as the active lane while leaving horizontal sibling panes
+    /// visible inside the wider carrier.
+    ///
+    /// Crucially, no layer transform is applied to the strip. AppKit's
+    /// `convert(_:from:)` does not pick up layer transforms, so keeping the
+    /// strip in pure frame-based coordinates lets the highlight overlay
+    /// resolve pane rects via `convert` instead of needing manual scale math.
     func relayoutStrip() {
         guard canvasSize.width > 0, canvasSize.height > 0,
               bounds.width > 0, bounds.height > 0 else { return }
 
-        // The visible band, in strip-local coords, equals canvasSize ×
-        // laneZoomScale (mirrors `applyZoomScale` math). We size ourselves
-        // to *show* exactly that band.
-        let bandWidth = canvasSize.width * laneZoomScale
-        let bandHeight = canvasSize.height * laneZoomScale
-        guard bandWidth > 0, bandHeight > 0 else { return }
-
-        // Uniform scale chosen to fit the band into our bounds. Letterbox
-        // (preserve aspect) rather than stretch when the carrier and band
-        // aspect ratios disagree.
-        let scaleX = bounds.width / bandWidth
-        let scaleY = bounds.height / bandHeight
-        let scale = min(scaleX, scaleY)
-
-        // Place the strip so its band-center aligns with our bounds-center.
-        // Since the strip's band is centered inside its own bounds, this
-        // means strip.frame.center == self.bounds.center.
+        let centerX = visibleBandCenterX ?? bounds.midX
         strip.frame = CGRect(
-            x: bounds.midX - canvasSize.width / 2,
+            x: centerX - canvasSize.width / 2,
             y: bounds.midY - canvasSize.height / 2,
             width: canvasSize.width,
             height: canvasSize.height
         )
-        // Apply uniform scale via the layer transform. This shrinks the
-        // strip's *rendering* without shrinking its layout — panes inside
-        // keep their natural canvas-relative proportions.
-        strip.layer?.transform = CATransform3DMakeScale(scale, scale, 1)
     }
 
     override func layout() {
@@ -132,29 +135,33 @@ final class WorklanePeekLaneView: NSView {
     }
 
     /// Returns the highlighted pane's frame in the carrier's coordinate
-    /// space, accounting for the layer scale applied to the strip.
+    /// space. With no layer transforms in play, AppKit's coordinate
+    /// conversion is sufficient: it takes care of the strip's `frame.origin`
+    /// inside the carrier and the strip's internal viewportView-bounds
+    /// zoom (which `convertPaneFrame` already factors into its result).
     func paneFrameInCarrier(_ paneID: PaneID) -> CGRect? {
-        guard canvasSize.width > 0 else { return nil }
-        let bandWidth = canvasSize.width * laneZoomScale
-        let bandHeight = canvasSize.height * laneZoomScale
-        guard bandWidth > 0, bandHeight > 0 else { return nil }
+        strip.convertPaneFrame(paneID, to: self)
+    }
 
-        // Pane frame in strip-local coords (full-canvas-size strip).
-        guard let frameInStrip = strip.convertPaneFrame(paneID, to: strip) else { return nil }
+    /// Whether the bound worklane currently contains a pane with this ID.
+    /// Quick check used by the overlay to decide which carrier owns the
+    /// highlighted pane after a camera pan.
+    func containsPane(_ paneID: PaneID) -> Bool {
+        strip.convertPaneFrame(paneID, to: strip) != nil
+    }
 
-        let scale = min(bounds.width / bandWidth, bounds.height / bandHeight)
-        let stripCenter = CGPoint(x: strip.bounds.midX, y: strip.bounds.midY)
+    /// Horizontally re-center the carrier's strip on `paneID`. Mirrors the
+    /// active strip's `centerPeekOnPane` so a pane in a neighbor lane
+    /// stays at the visible center as the user navigates within it.
+    func centerOnPane(_ paneID: PaneID, animated: Bool) {
+        strip.centerPeekOnPane(paneID, animated: animated)
+    }
 
-        // Layer scale around the strip's center maps a strip-local point P
-        // to:   carrier-center + (P − strip-center) × scale
-        let dx = (frameInStrip.minX - stripCenter.x) * scale
-        let dy = (frameInStrip.minY - stripCenter.y) * scale
-        return CGRect(
-            x: bounds.midX + dx,
-            y: bounds.midY + dy,
-            width: frameInStrip.width * scale,
-            height: frameInStrip.height * scale
-        )
+    /// Show the full lane canvas inside this carrier. Used for adjacent
+    /// previews that are visible but no longer hold the active peek
+    /// selection.
+    func showFullCanvas() {
+        strip.resetPeekHorizontalCentering()
     }
 
     /// Animate the carrier from invisible to its resting alpha.
@@ -178,7 +185,9 @@ final class WorklanePeekLaneView: NSView {
     /// switch (e.g., committing into the just-previewed neighbor) doesn't
     /// race with the neighbor strip still owning the host views.
     func detach() {
+        strip.endPeekNeighborZoomOut()
         strip.removeFromSuperview()
         worklaneID = nil
+        onGeometryChanged = nil
     }
 }

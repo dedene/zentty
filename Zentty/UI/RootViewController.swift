@@ -271,6 +271,19 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onZoomTransformChanged = { [weak self] in
             self?.refreshPeekOverlay()
         }
+        // Keep neighbor lanes streaming live: feed the peek-visible
+        // worklane set into the render coordinator, and re-push surface
+        // activities whenever the set changes (open, lazy carrier
+        // creation during pan, close).
+        renderCoordinator.peekVisibleWorklaneIDsProvider = { [weak self] in
+            self?.peekView.peekVisibleWorklaneIDs ?? []
+        }
+        peekView.onPeekVisibleWorklanesChanged = { [weak self] in
+            self?.renderCoordinator.updateSurfaceActivities()
+        }
+        peekView.onGeometryChanged = { [weak self] in
+            self?.refreshPeekOverlay()
+        }
     }
 
     convenience init(
@@ -3077,24 +3090,15 @@ extension RootViewController: WorklanePeekControllerDelegate {
             return nil
         }()
 
-        // Use a smaller uniform zoom scale when neighbors are about to be
-        // shown so all visible lanes (active + ±1) share the same band size
-        // and fit vertically in the canvas with comfortable gaps.
-        let allWorklanes = worklaneStore.worklanes
-        let activeIndex = allWorklanes.firstIndex(where: { $0.id == worklaneStore.activeWorklaneID })
-        let hasNeighbors: Bool = {
-            guard let activeIndex else { return false }
-            return allWorklanes.indices.contains(activeIndex - 1)
-                || allWorklanes.indices.contains(activeIndex + 1)
-        }()
-        let zoomScale: CGFloat = hasNeighbors
-            ? Self.multiLaneZoomScale
-            : PaneStripView.zoomScale
+        // The active worklane stays at its canonical zoom scale even when
+        // neighbors are present — partial clipping of ±1 carriers above /
+        // below the canvas is fine; the camera pan will bring the chosen
+        // lane fully into view as the user Ctrl-Tabs further.
+        let zoomScale: CGFloat = PaneStripView.zoomScale
 
         appCanvasView.paneStripView.beginPeekZoomOut(
             animated: true,
-            centerOnPaneID: initialHighlight,
-            scaleOverride: zoomScale
+            centerOnPaneID: initialHighlight
         )
         peekView.attach(paneStripView: appCanvasView.paneStripView)
         peekView.isHidden = false
@@ -3110,7 +3114,8 @@ extension RootViewController: WorklanePeekControllerDelegate {
         // a spatial sense of "what's around" while Tab cycling. Pass the
         // canvas size + zoom scale so neighbor strips render at identical
         // dimensions and Ghostty allocates the same terminal cells.
-        if let activeIndex {
+        let allWorklanes = worklaneStore.worklanes
+        if let activeIndex = allWorklanes.firstIndex(where: { $0.id == worklaneStore.activeWorklaneID }) {
             peekView.configureNeighborLanes(
                 worklanes: allWorklanes,
                 activeIndex: activeIndex,
@@ -3124,21 +3129,43 @@ extension RootViewController: WorklanePeekControllerDelegate {
         refreshPeekOverlay()
     }
 
-    /// Internal zoom scale used when ≥1 neighbor worklane is present.
-    /// Smaller than `PaneStripView.zoomScale` so 3 equal-sized lanes
-    /// (active + above + below) fit vertically with breathing room.
-    private static let multiLaneZoomScale: CGFloat = 0.30
-
     func peekDidUpdateSelection(
         _ controller: WorklanePeekController,
         transition: WorklanePeekSelectionTransition
     ) {
-        if case let .peeking(selection, _) = controller.phase {
+        guard case let .peeking(selection, _) = controller.phase else {
+            refreshPeekOverlay()
+            return
+        }
+
+        let animated = transition == .animated
+        let originalActiveID = worklaneStore.activeWorklaneID
+        let inOriginalActiveLane = selection.current.worklaneID == originalActiveID
+
+        // Pan/create the target lane before horizontal centering. Neighbor
+        // carriers are lazy, so centering first can no-op when the user
+        // crosses into a not-yet-mounted worklane.
+        peekView.centerOn(
+            worklaneID: selection.current.worklaneID,
+            animated: animated
+        )
+
+        if inOriginalActiveLane {
+            // The selected pane lives in the lane the underlying anchor
+            // strip is bound to — center horizontally on it.
             appCanvasView.paneStripView.centerPeekOnPane(
                 selection.current.paneID,
-                animated: transition == .animated
+                animated: animated
+            )
+        } else {
+            // The selected pane lives in a neighbor carrier — ask the
+            // overlay to center that carrier on the pane.
+            peekView.centerHorizontally(
+                paneID: selection.current.paneID,
+                animated: animated
             )
         }
+
         refreshPeekOverlay()
     }
 

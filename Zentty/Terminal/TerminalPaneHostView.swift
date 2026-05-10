@@ -1015,7 +1015,8 @@ final class PaneRuntimeRegistry {
         worklanes: [WorklaneState],
         activeWorklaneID: WorklaneID,
         windowIsVisible: Bool,
-        windowIsKey: Bool
+        windowIsKey: Bool,
+        peekVisibleWorklaneIDs: Set<WorklaneID> = []
     ) {
         let visiblePaneCount = worklanes
             .first(where: { $0.id == activeWorklaneID && windowIsVisible })?
@@ -1031,9 +1032,15 @@ final class PaneRuntimeRegistry {
 
         for worklane in worklanes {
             let isActiveWorklane = worklane.id == activeWorklaneID
+            // A worklane's surfaces are visible (i.e., un-occluded so Ghostty
+            // keeps streaming frames) when the window is visible AND the
+            // worklane is either the active one OR currently rendered as a
+            // Worklane Peek neighbor preview. Focus stays gated on active.
+            let isPeekVisible = peekVisibleWorklaneIDs.contains(worklane.id)
             for pane in worklane.paneStripState.panes {
-                let isVisible = windowIsVisible && isActiveWorklane
-                let isFocused = isVisible && windowIsKey && pane.id == worklane.paneStripState.focusedPaneID
+                let isVisible = windowIsVisible && (isActiveWorklane || isPeekVisible)
+                let isFocused = isVisible && windowIsKey && isActiveWorklane
+                    && pane.id == worklane.paneStripState.focusedPaneID
                 let runtime = runtime(for: pane)
                 runtime.setSurfaceActivity(
                     TerminalSurfaceActivity(
