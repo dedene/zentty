@@ -206,6 +206,26 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_agent_tool_launcher_forwards_opencode_tui_and_xdg_environment() throws {
+        // AgentToolLauncher lives in the ZenttyCLI target which tests don't
+        // import, so read the source file directly to protect the bootstrap
+        // environment forwarding contract.
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        for key in ["XDG_CONFIG_HOME", "XDG_STATE_HOME", "OPENCODE_CONFIG", "OPENCODE_TUI_CONFIG"] {
+            XCTAssertTrue(
+                source.contains("\"\(key)\""),
+                "AgentToolLauncher should forward \(key) into the bootstrap request"
+            )
+        }
+    }
+
     func test_agent_status_helper_returns_nil_when_resource_directories_are_missing() throws {
         let bundle = try makeTemporaryBundle(named: "MissingResources")
 
@@ -2813,7 +2833,14 @@ final class AgentStatusSupportTests: XCTestCase {
         )
         let xdgConfigHome: String = try XCTUnwrap(plan.setEnvironment["XDG_CONFIG_HOME"])
         let xdgStateHome: String = try XCTUnwrap(plan.setEnvironment["XDG_STATE_HOME"])
+        let opencodeConfigDirectory: String = try XCTUnwrap(plan.setEnvironment["OPENCODE_CONFIG_DIR"])
+        let opencodeTUIConfig: String = try XCTUnwrap(plan.setEnvironment["OPENCODE_TUI_CONFIG"])
         XCTAssertEqual(overlayConfigDirectory.path, URL(fileURLWithPath: xdgConfigHome, isDirectory: true).appendingPathComponent("opencode", isDirectory: true).path)
+        XCTAssertEqual(opencodeConfigDirectory, overlayConfigDirectory.path)
+        XCTAssertEqual(
+            opencodeTUIConfig,
+            overlayConfigDirectory.appendingPathComponent("tui.json", isDirectory: false).path
+        )
 
         XCTAssertTrue(
             FileManager.default.fileExists(
@@ -2842,6 +2869,173 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNil(overlayKV["theme_mode"])
         XCTAssertNil(overlayKV["theme_mode_lock"])
         XCTAssertEqual(overlayKV["unrelated"] as? String, "preserved")
+    }
+
+    func test_agent_launch_bootstrap_uses_xdg_config_home_as_default_opencode_source() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-xdg-source-runtime")
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-opencode-xdg-source-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try "export const ZenttyOpenCodePlugin = async () => ({})\n".write(
+            to: pluginDirectory.appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let xdgConfigHome = try makeTemporaryDirectory(named: "agent-launch-opencode-xdg-config-home")
+        let sourceConfigDirectory = xdgConfigHome.appendingPathComponent("opencode", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: sourceConfigDirectory.appendingPathComponent("markers", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "from-xdg".write(
+            to: sourceConfigDirectory
+                .appendingPathComponent("markers", isDirectory: true)
+                .appendingPathComponent("user.txt", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var appConfig = AppConfig.default
+        appConfig.appearance.syncOpenCodeThemeWithTerminal = true
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["run", "hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/opencode",
+                "XDG_CONFIG_HOME": xdgConfigHome.path,
+            ],
+            expectsResponse: true,
+            tool: .opencode
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory,
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot)),
+            appConfigProvider: { appConfig }
+        )
+
+        let overlayConfigDirectory = URL(
+            fileURLWithPath: try XCTUnwrap(plan.setEnvironment["OPENCODE_CONFIG_DIR"]),
+            isDirectory: true
+        )
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_OPENCODE_BASE_CONFIG_DIR"], sourceConfigDirectory.path)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: overlayConfigDirectory
+                    .appendingPathComponent("markers", isDirectory: true)
+                    .appendingPathComponent("user.txt", isDirectory: false)
+                    .path
+            )
+        )
+    }
+
+    func test_agent_launch_bootstrap_excludes_source_opencode_themes_when_sync_enabled() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-theme-quarantine-runtime")
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-opencode-theme-quarantine-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try "export const ZenttyOpenCodePlugin = async () => ({})\n".write(
+            to: pluginDirectory.appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sourceConfigDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-theme-quarantine-source")
+        try FileManager.default.createDirectory(
+            at: sourceConfigDirectory.appendingPathComponent("themes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try #"{"theme": {}}"#.write(
+            to: sourceConfigDirectory
+                .appendingPathComponent("themes", isDirectory: true)
+                .appendingPathComponent("stale-user-theme.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.createDirectory(
+            at: sourceConfigDirectory.appendingPathComponent("markers", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "preserved".write(
+            to: sourceConfigDirectory
+                .appendingPathComponent("markers", isDirectory: true)
+                .appendingPathComponent("user.txt", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var appConfig = AppConfig.default
+        appConfig.appearance.syncOpenCodeThemeWithTerminal = true
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["run", "hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/opencode",
+                "ZENTTY_OPENCODE_BASE_CONFIG_DIR": sourceConfigDirectory.path,
+            ],
+            expectsResponse: true,
+            tool: .opencode
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory,
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot)),
+            appConfigProvider: { appConfig }
+        )
+
+        let overlayConfigDirectory = URL(
+            fileURLWithPath: try XCTUnwrap(plan.setEnvironment["OPENCODE_CONFIG_DIR"]),
+            isDirectory: true
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: overlayConfigDirectory
+                    .appendingPathComponent("themes", isDirectory: true)
+                    .appendingPathComponent("stale-user-theme.json", isDirectory: false)
+                    .path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: overlayConfigDirectory
+                    .appendingPathComponent("themes", isDirectory: true)
+                    .appendingPathComponent("zentty-synced.json", isDirectory: false)
+                    .path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: overlayConfigDirectory
+                    .appendingPathComponent("markers", isDirectory: true)
+                    .appendingPathComponent("user.txt", isDirectory: false)
+                    .path
+            )
+        )
     }
 
     func test_agent_ipc_authentication_is_pane_scoped() {
