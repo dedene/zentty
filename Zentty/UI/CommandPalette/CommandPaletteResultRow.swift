@@ -48,8 +48,8 @@ struct CommandPaletteResultRow: View {
                     .fixedSize(horizontal: true, vertical: false)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, CommandPaletteLayoutMetrics.rowHorizontalPadding)
+        .padding(.vertical, CommandPaletteLayoutMetrics.rowVerticalPadding)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(isSelected ? selectedBackgroundColor : (isHovered ? hoverBackgroundColor : .clear))
@@ -65,12 +65,14 @@ struct CommandPaletteResultRow: View {
             Image(nsImage: iconImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 22, height: 22)
+                .frame(width: CommandPaletteLayoutMetrics.rowIconSize, height: CommandPaletteLayoutMetrics.rowIconSize)
+                .opacity(CommandPaletteLayoutMetrics.rowIconOpacity)
         } else {
             Image(systemName: item.iconSystemName)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(isSelected ? .white.opacity(0.9) : secondaryColor)
-                .frame(width: 22, height: 22)
+                .font(.system(size: CommandPaletteLayoutMetrics.rowIconSymbolSize, weight: .medium))
+                .foregroundStyle(isSelected ? .white : secondaryColor)
+                .frame(width: CommandPaletteLayoutMetrics.rowIconSize, height: CommandPaletteLayoutMetrics.rowIconSize)
+                .opacity(CommandPaletteLayoutMetrics.rowIconOpacity)
         }
     }
 }

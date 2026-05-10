@@ -190,10 +190,12 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
         )
         XCTAssertEqual(resolved.sections.first?.title, "Actions")
         XCTAssertEqual(resolved.sections.first?.items.count, 4)
+        XCTAssertEqual(resolved.sections.first?.items.map(\.showsSubtitle), [false, false, false, false])
+        XCTAssertEqual(resolved.sections.first?.items.map(\.showsCategory), [true, true, true, true])
         XCTAssertLessThan(resolved.items.count, commandItems.count + paneItems.count + recentActionItems.count)
     }
 
-    func testEmptyQueryGroupsCuratedActionsAndRecentPanesBeforePrunedRecentActions() {
+    func testEmptyQueryGroupsCuratedActionsAndRecentPanesBeforeRecentActionsThatFit() {
         let commandItems = CommandPaletteItemBuilder.buildItems(
             availableCommandIDs: [.newWorklane, .splitHorizontally, .splitVertically, .openSettings, .toggleSidebar],
             shortcutManager: shortcutManager
@@ -222,15 +224,33 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(resolved.sections.map(\.title), ["Actions", "Recent Panes"])
+        XCTAssertEqual(resolved.sections.map(\.title), ["Actions", "Recent Panes", "Recent Actions"])
         XCTAssertEqual(resolved.items.map(\.item.id), [
             .command(.newWorklane),
             .command(.splitHorizontally),
             .command(.splitVertically),
             .command(.openSettings),
             paneItem.id,
+            .command(.toggleSidebar),
         ])
         XCTAssertFalse(resolved.requiresScrolling)
+    }
+
+    func testTypedActionSearchKeepsDescriptionVisible() {
+        let commandItems = CommandPaletteItemBuilder.buildItems(
+            availableCommandIDs: [.openSettings],
+            shortcutManager: shortcutManager
+        )
+
+        let resolved = CommandPaletteResultsResolver.resolve(
+            searchText: "settings",
+            items: commandItems,
+            recentItems: []
+        )
+
+        XCTAssertEqual(resolved.items.first?.item.id, .command(.openSettings))
+        XCTAssertEqual(resolved.items.first?.showsSubtitle, true)
+        XCTAssertEqual(resolved.items.first?.showsCategory, true)
     }
 
     func testEmptyQueryExcludesCurrentPaneFromRecentPanes() {
@@ -766,6 +786,26 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
 
         XCTAssertLessThan(height, CommandPaletteLayoutMetrics.maximumPanelHeight)
         XCTAssertGreaterThan(height, CommandPaletteLayoutMetrics.searchFieldHeight)
+    }
+
+    func testCommandPaletteSectionHeaderUsesCompactSpacing() {
+        XCTAssertLessThanOrEqual(CommandPaletteLayoutMetrics.sectionHeaderHeight, 22)
+        XCTAssertEqual(
+            CommandPaletteLayoutMetrics.sectionHeaderHorizontalPadding,
+            CommandPaletteLayoutMetrics.rowHorizontalPadding
+        )
+        XCTAssertEqual(CommandPaletteLayoutMetrics.sectionHeaderBottomSpacing, 2)
+    }
+
+    func testCommandPaletteDynamicHeightChangesDoNotAnimate() {
+        XCTAssertEqual(CommandPaletteLayoutMetrics.dynamicHeightChangeAnimationDuration, 0)
+    }
+
+    func testCommandPaletteRowsUseCompactIconTreatment() {
+        XCTAssertLessThanOrEqual(CommandPaletteLayoutMetrics.rowHorizontalPadding, 8)
+        XCTAssertLessThanOrEqual(CommandPaletteLayoutMetrics.rowIconSize, 20)
+        XCTAssertLessThanOrEqual(CommandPaletteLayoutMetrics.rowIconSymbolSize, 15)
+        XCTAssertEqual(CommandPaletteLayoutMetrics.rowIconOpacity, 0.9, accuracy: 0.001)
     }
 
     func testScopedPreferredHeightAddsVisualOverflowAllowance() {

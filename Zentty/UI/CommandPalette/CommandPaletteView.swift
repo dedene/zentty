@@ -68,7 +68,11 @@ struct CommandPaletteView: View {
                 .opacity(0.3)
             footer
         }
-        .frame(width: CommandPaletteLayoutMetrics.panelWidth)
+        .frame(
+            width: CommandPaletteLayoutMetrics.panelWidth,
+            height: preferredPanelHeight,
+            alignment: .top
+        )
         .onAppear {
             onHeightChange(preferredPanelHeight)
         }
@@ -176,7 +180,7 @@ struct CommandPaletteView: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+        .padding(.vertical, CommandPaletteLayoutMetrics.resultsVerticalPadding / 2)
     }
 
     private var emptyState: some View {
@@ -220,8 +224,13 @@ struct CommandPaletteView: View {
         Text(title)
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(theme.secondaryColor)
-            .frame(height: CommandPaletteLayoutMetrics.sectionHeaderHeight, alignment: .bottomLeading)
-            .padding(.horizontal, 16)
+            .frame(
+                height: CommandPaletteLayoutMetrics.sectionHeaderHeight
+                    - CommandPaletteLayoutMetrics.sectionHeaderBottomSpacing,
+                alignment: .bottomLeading
+            )
+            .padding(.bottom, CommandPaletteLayoutMetrics.sectionHeaderBottomSpacing)
+            .padding(.horizontal, CommandPaletteLayoutMetrics.sectionHeaderHorizontalPadding)
     }
 
     private func row(for resolvedItem: CommandPaletteResolvedItem) -> some View {

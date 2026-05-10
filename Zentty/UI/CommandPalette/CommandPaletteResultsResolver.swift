@@ -7,9 +7,17 @@ enum CommandPaletteLayoutMetrics {
     static let searchFieldHeight: CGFloat = 58
     static let footerHeight: CGFloat = 50
     static let dividerHeight: CGFloat = 1
+    static let rowIconSize: CGFloat = 20
+    static let rowIconSymbolSize: CGFloat = 15
+    static let rowIconOpacity = 0.9
+    static let rowHorizontalPadding: CGFloat = 8
+    static let rowVerticalPadding: CGFloat = 5
     static let rowSpacing: CGFloat = 2
     static let resultsVerticalPadding: CGFloat = 12
-    static let sectionHeaderHeight: CGFloat = lineHeight(for: .systemFont(ofSize: 11, weight: .semibold)) + 14
+    static let sectionHeaderHorizontalPadding = rowHorizontalPadding
+    static let sectionHeaderBottomSpacing: CGFloat = 2
+    static let sectionHeaderHeight: CGFloat = lineHeight(for: .systemFont(ofSize: 11, weight: .semibold)) + 8
+    static let dynamicHeightChangeAnimationDuration: TimeInterval = 0
     static let visualOverflowAllowance: CGFloat = 2
     static let scopedHeaderHeightWithSubtitle: CGFloat = lineHeight(for: .systemFont(ofSize: 11, weight: .semibold))
         + lineHeight(for: .systemFont(ofSize: 11))
@@ -17,12 +25,14 @@ enum CommandPaletteLayoutMetrics {
         + 14
     static let scopedHeaderHeightWithoutSubtitle: CGFloat = lineHeight(for: .systemFont(ofSize: 11, weight: .semibold))
         + 14
-    static let singleLineRowHeight: CGFloat = lineHeight(for: .systemFont(ofSize: 13, weight: .medium))
-        + 16
+    static let singleLineRowHeight: CGFloat = max(
+        lineHeight(for: .systemFont(ofSize: 13, weight: .medium)),
+        rowIconSize
+    ) + (rowVerticalPadding * 2)
     static let doubleLineRowHeight: CGFloat = lineHeight(for: .systemFont(ofSize: 13, weight: .medium))
         + lineHeight(for: .systemFont(ofSize: 11))
         + rowSpacing
-        + 16
+        + (rowVerticalPadding * 2)
     static let emptyStateHeight: CGFloat = lineHeight(for: .systemFont(ofSize: 13))
         + 48
 
@@ -251,7 +261,7 @@ enum CommandPaletteResultsResolver {
 
         let actionItems = searchIndex.emptyActionIDs.compactMap { searchIndex.itemByID[$0] }
         if !actionItems.isEmpty {
-            sections.append(section(id: "empty-actions", title: "Actions", items: actionItems))
+            sections.append(section(id: "empty-actions", title: "Actions", items: actionItems, showsSubtitle: false))
         }
 
         let paneItems = searchIndex.recentPaneIDs
@@ -340,12 +350,20 @@ enum CommandPaletteResultsResolver {
     private static func section(
         id: String,
         title: String,
-        items: [CommandPaletteItem]
+        items: [CommandPaletteItem],
+        showsSubtitle: Bool = true,
+        showsCategory: Bool = true
     ) -> CommandPaletteResolvedSection {
         CommandPaletteResolvedSection(
             id: id,
             title: title,
-            items: items.map { CommandPaletteResolvedItem(item: $0, showsSubtitle: true, showsCategory: true) }
+            items: items.map {
+                CommandPaletteResolvedItem(
+                    item: $0,
+                    showsSubtitle: showsSubtitle,
+                    showsCategory: showsCategory
+                )
+            }
         )
     }
 

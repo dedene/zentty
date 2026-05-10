@@ -244,8 +244,13 @@ final class CommandPaletteController {
             height: clampedHeight
         ).integral
 
+        guard CommandPaletteLayoutMetrics.dynamicHeightChangeAnimationDuration > 0 else {
+            panel.setFrame(newFrame, display: true)
+            return
+        }
+
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
+            context.duration = CommandPaletteLayoutMetrics.dynamicHeightChangeAnimationDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(newFrame, display: true)
         }
