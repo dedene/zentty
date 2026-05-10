@@ -134,6 +134,7 @@ final class SidebarPaneDropPresenter {
 
         line.frame = frame
         line.layer?.cornerRadius = lineHeight / 2
+        line.layer?.zPosition = 1_000
         line.startPulsing()
         line.alphaValue = 0.9
 
