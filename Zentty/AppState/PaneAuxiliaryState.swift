@@ -161,6 +161,11 @@ struct PanePresentationState: Equatable, Sendable {
     }
 }
 
+struct PaneCodexTranscriptContext: Equatable, Sendable {
+    var sessionID: String?
+    var path: String
+}
+
 struct PaneRawState: Equatable, Sendable {
     var metadata: TerminalMetadata?
     var shellContext: PaneShellContext?
@@ -174,10 +179,51 @@ struct PaneRawState: Equatable, Sendable {
     var gitContext: PaneGitContext?
     var wantsReadyStatus = false
     var showsReadyStatus = false
+    var codexCurrentRunHasObservedActivity = false
     var codexTitleIdleSuppressionUntil: Date?
     var codexInterruptSuppressionUntil: Date?
+    var codexTranscriptContext: PaneCodexTranscriptContext?
     var lastDesktopNotificationText: String?
     var lastDesktopNotificationDate: Date?
+
+    init(
+        metadata: TerminalMetadata? = nil,
+        shellContext: PaneShellContext? = nil,
+        paneRootPID: Int32? = nil,
+        agentStatus: PaneAgentStatus? = nil,
+        agentReducerState: PaneAgentReducerState = .init(),
+        shellActivityState: PaneShellActivityState = .unknown,
+        hasCommandHistory: Bool = false,
+        terminalProgress: TerminalProgressReport? = nil,
+        reviewState: WorklaneReviewState? = nil,
+        gitContext: PaneGitContext? = nil,
+        wantsReadyStatus: Bool = false,
+        showsReadyStatus: Bool = false,
+        codexTitleIdleSuppressionUntil: Date? = nil,
+        codexInterruptSuppressionUntil: Date? = nil,
+        codexTranscriptContext: PaneCodexTranscriptContext? = nil,
+        lastDesktopNotificationText: String? = nil,
+        lastDesktopNotificationDate: Date? = nil
+    ) {
+        self.metadata = metadata
+        self.shellContext = shellContext
+        self.paneRootPID = paneRootPID
+        self.agentStatus = agentStatus
+        self.agentReducerState = agentReducerState
+        self.shellActivityState = shellActivityState
+        self.hasCommandHistory = hasCommandHistory
+        self.terminalProgress = terminalProgress
+        self.reviewState = reviewState
+        self.gitContext = gitContext
+        self.wantsReadyStatus = wantsReadyStatus
+        self.showsReadyStatus = showsReadyStatus
+        self.codexCurrentRunHasObservedActivity = false
+        self.codexTitleIdleSuppressionUntil = codexTitleIdleSuppressionUntil
+        self.codexInterruptSuppressionUntil = codexInterruptSuppressionUntil
+        self.codexTranscriptContext = codexTranscriptContext
+        self.lastDesktopNotificationText = lastDesktopNotificationText
+        self.lastDesktopNotificationDate = lastDesktopNotificationDate
+    }
 
     func codexInterruptSuppressionIsActive(now: Date = Date()) -> Bool {
         guard let deadline = codexInterruptSuppressionUntil else {

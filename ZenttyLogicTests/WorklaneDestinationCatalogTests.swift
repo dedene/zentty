@@ -84,6 +84,48 @@ final class WorklaneDestinationCatalogTests: XCTestCase {
         XCTAssertEqual(summary?.primaryPaneTitle, "Untitled")
     }
 
+    func test_summary_usesFocusedPaneSidebarIdentityBeforeGeneratedPaneTitle() {
+        let paneID = PaneID("p1")
+        let projectPath = (NSHomeDirectory() as NSString).appendingPathComponent(
+            "Development/Personal/zentty"
+        )
+        let store = WorklaneStore(
+            windowID: testWindowID,
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("contextual"),
+                    title: "Contextual",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: paneID, title: "pane 7")],
+                        focusedPaneID: paneID
+                    ),
+                    metadataByPaneID: [
+                        paneID: TerminalMetadata(
+                            title: "zsh",
+                            currentWorkingDirectory: NSHomeDirectory(),
+                            processName: "zsh",
+                            gitBranch: "main"
+                        )
+                    ],
+                    paneContextByPaneID: [
+                        paneID: PaneShellContext(
+                            scope: .local,
+                            path: projectPath,
+                            home: NSHomeDirectory(),
+                            user: "peter",
+                            host: "m1-pro-peter"
+                        )
+                    ]
+                )
+            ],
+            activeWorklaneID: WorklaneID("contextual")
+        )
+
+        let summary = store.destinationSummaries(windowID: testWindowID, excluding: nil).first
+
+        XCTAssertEqual(summary?.primaryPaneTitle, "main · …/zentty")
+    }
+
     func test_summary_carriesWorklaneColor() {
         let store = WorklaneStore(
             windowID: testWindowID,

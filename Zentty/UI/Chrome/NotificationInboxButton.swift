@@ -51,7 +51,7 @@ final class NotificationInboxButton: NSButton {
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyDown
         setAccessibilityLabel("Inbox")
-        toolTip = "Inbox"
+        toolTip = "Notification Inbox"
 
         target = self
         action = #selector(handleClick)

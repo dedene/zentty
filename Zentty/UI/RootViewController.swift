@@ -375,6 +375,7 @@ final class RootViewController: NSViewController {
         setupCanvasCallbacks()
         setupSidebarCallbacks()
         setupCoordinatorsAndServices()
+        refreshShortcutTooltips()
         applyInitialState()
         syncAgentCaffeinationState()
         NotificationCenter.default.addObserver(
@@ -2616,12 +2617,22 @@ final class RootViewController: NSViewController {
         sidebarView.setUpdateAvailable(isUpdateAvailable)
     }
 
+    private func refreshShortcutTooltips() {
+        sidebarToggleButton.updateShortcutTooltip(shortcutManager)
+        paneNavigationButtons.updateShortcutTooltips(shortcutManager)
+        sidebarView.updateShortcutTooltips(shortcutManager)
+        windowChromeView.updateShortcutTooltips(shortcutManager)
+        globalSearchHUDView.updateShortcutTooltips(shortcutManager)
+        runtimeRegistry.updateShortcutTooltips(shortcutManager)
+    }
+
     private func applyPersistedConfig(_ config: AppConfig) {
         let appearanceDidChange = config.appearance != lastAppliedAppearanceSettings
         lastAppliedAppearanceSettings = config.appearance
         paneLayoutPreferences = config.paneLayout
         shortcutManager = ShortcutManager(shortcuts: config.shortcuts)
         paneLayoutMenuCoordinator.updateShortcutManager(shortcutManager)
+        refreshShortcutTooltips()
         preloadOpenWithIcons()
         sidebarMotionCoordinator.applyPersistedSidebarSettings(
             config.sidebar,

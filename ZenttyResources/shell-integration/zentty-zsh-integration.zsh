@@ -79,9 +79,25 @@ _zentty_agent_signal() {
 
 _zentty_report_shell_activity() {
     local state="$1"
-    [[ "$_zentty_shell_activity_last" == "$state" ]] && return 0
-    typeset -g _zentty_shell_activity_last="$state"
-    _zentty_agent_signal shell-state "$state"
+    shift || true
+    local key="$state $*"
+    [[ "$_zentty_shell_activity_last" == "$key" ]] && return 0
+    typeset -g _zentty_shell_activity_last="$key"
+    _zentty_agent_signal shell-state "$state" "$@"
+}
+
+_zentty_agent_tool_for_command() {
+    local cmd="${1:t}"
+    case "$cmd" in
+        claude) printf '%s\n' "Claude Code" ;;
+        codex) printf '%s\n' "Codex" ;;
+        droid) printf '%s\n' "Droid" ;;
+        gemini) printf '%s\n' "Gemini" ;;
+        kimi|kimi-cli) printf '%s\n' "Kimi" ;;
+        opencode) printf '%s\n' "OpenCode" ;;
+        pi) printf '%s\n' "Pi" ;;
+        *) return 1 ;;
+    esac
 }
 
 _zentty_report_pane_root_pid() {
@@ -186,8 +202,17 @@ _zentty_is_navigation_command() {
 }
 
 _zentty_preexec() {
+    _zentty_ensure_wrapper_path
     local cmd="${1%%[[:space:]]*}"
-    _zentty_is_navigation_command "$cmd" || _zentty_report_shell_activity running
+    local agent_tool=""
+    agent_tool="$(_zentty_agent_tool_for_command "$cmd" 2>/dev/null || true)"
+    if ! _zentty_is_navigation_command "$cmd"; then
+        if [[ -n "$agent_tool" ]]; then
+            _zentty_report_shell_activity running --tool "$agent_tool"
+        else
+            _zentty_report_shell_activity running
+        fi
+    fi
     # Set terminal title to the running command (first line only)
     _zentty_print_tty $'\e]2;'"${1%%$'\n'*}"$'\a'
 }

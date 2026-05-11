@@ -87,6 +87,33 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.detailText, "Last ran: cmatrix -C cyan")
     }
 
+    func test_builder_hides_generated_pane_title_from_restored_last_activity() throws {
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    presentation: PanePresentationState(
+                        cwd: NSHomeDirectory(),
+                        lastActivityTitle: "pane 13"
+                    )
+                )
+            ]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+        let paneRow = try XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(summary.primaryText, "~")
+        XCTAssertEqual(paneRow.primaryText, "~")
+        XCTAssertNil(paneRow.detailText)
+    }
+
     func test_builder_ignores_agent_working_directory_and_shows_terminal_cwd() {
         let paneID = PaneID("worklane-main-shell")
         var auxiliaryState = PaneAuxiliaryState(

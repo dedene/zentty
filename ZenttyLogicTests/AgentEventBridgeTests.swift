@@ -678,7 +678,7 @@ final class AgentEventBridgeTests: XCTestCase {
     // MARK: - Codex Adapter
 
     func test_codex_adapter_session_start_with_pid() throws {
-        let json = #"{"hook_event_name": "SessionStart", "session_id": "s1", "cwd": "/tmp"}"#
+        let json = #"{"hook_event_name": "SessionStart", "session_id": "s1", "cwd": "/tmp", "transcript_path": "/tmp/codex.jsonl"}"#
         let env = codexEnvironment(pid: "42")
         let payloads = try AgentEventBridge.codexAdapter(data: json.data(using: .utf8)!, defaultEventName: nil, environment: env)
 
@@ -688,6 +688,7 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].pidEvent, .attach)
         XCTAssertEqual(payloads[1].state, .starting)
         XCTAssertEqual(payloads[1].toolName, "Codex")
+        XCTAssertEqual(payloads[1].agentTranscriptPath, "/tmp/codex.jsonl")
     }
 
     func test_codex_adapter_event_from_cli_arg() throws {
@@ -703,6 +704,77 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].state, .needsInput)
         XCTAssertEqual(payloads[0].interactionKind, .approval)
         XCTAssertEqual(payloads[0].toolName, "Codex")
+        XCTAssertEqual(payloads[0].text, "Codex needs your approval")
+    }
+
+    func test_codex_hook_permission_request_for_request_user_input_uses_question_text() throws {
+        let json = """
+        {
+          "hook_event_name": "PermissionRequest",
+          "session_id": "s1",
+          "tool_name": "request_user_input",
+          "tool_input": {
+            "questions": [{
+              "question": "What should Codex do next?",
+              "options": [{"label": "Fix"}, {"label": "Explain"}]
+            }]
+          }
+        }
+        """
+
+        let payloads = try AgentEventBridge.codexAdapter(data: Data(json.utf8), defaultEventName: nil, environment: codexEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .decision)
+        XCTAssertEqual(payloads[0].text, "What should Codex do next?\n[Fix] [Explain]")
+    }
+
+    func test_codex_hook_pre_tool_use_for_request_user_input_uses_question_text() throws {
+        let json = """
+        {
+          "hook_event_name": "PreToolUse",
+          "session_id": "s1",
+          "transcript_path": "/tmp/codex.jsonl",
+          "tool_name": "request_user_input",
+          "tool_input": {
+            "questions": [{
+              "question": "Which would you rather have right now?",
+              "options": [{"label": "Good coffee"}, {"label": "Quiet hour"}]
+            }]
+          }
+        }
+        """
+
+        let payloads = try AgentEventBridge.codexAdapter(data: Data(json.utf8), defaultEventName: nil, environment: codexEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .decision)
+        XCTAssertEqual(payloads[0].text, "Which would you rather have right now?\n[Good coffee] [Quiet hour]")
+        XCTAssertEqual(payloads[0].agentTranscriptPath, "/tmp/codex.jsonl")
+    }
+
+    func test_codex_hook_permission_request_for_non_question_tool_ignores_question_shaped_input() throws {
+        let json = """
+        {
+          "hook_event_name": "PermissionRequest",
+          "session_id": "s1",
+          "tool_name": "Bash",
+          "tool_input": {
+            "questions": [{
+              "question": "Misleading nested field?",
+              "options": [{"label": "Yes"}]
+            }]
+          }
+        }
+        """
+
+        let payloads = try AgentEventBridge.codexAdapter(data: Data(json.utf8), defaultEventName: nil, environment: codexEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .approval)
         XCTAssertEqual(payloads[0].text, "Codex needs your approval")
     }
 
@@ -749,11 +821,12 @@ final class AgentEventBridgeTests: XCTestCase {
     }
 
     func test_codex_adapter_prompt_submit() throws {
-        let json = #"{"hook_event_name": "UserPromptSubmit"}"#
+        let json = #"{"hook_event_name": "UserPromptSubmit", "transcript_path": "/tmp/codex.jsonl"}"#
         let payloads = try AgentEventBridge.codexAdapter(data: json.data(using: .utf8)!, defaultEventName: nil, environment: codexEnvironment())
 
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].agentTranscriptPath, "/tmp/codex.jsonl")
     }
 
     func test_codex_adapter_stop() throws {

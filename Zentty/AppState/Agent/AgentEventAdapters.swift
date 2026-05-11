@@ -895,6 +895,7 @@ extension AgentEventBridge {
         let target = try currentTarget(from: environment)
         let sessionID = firstString(in: jsonObject, keys: ["session_id", "sessionId"])
         let cwd = firstString(in: jsonObject, keys: ["cwd", "current_working_directory", "currentWorkingDirectory"])
+        let transcriptPath = firstString(in: jsonObject, keys: ["transcript_path", "transcriptPath"])
         let pid = parseAgentPID(from: environment, key: "ZENTTY_CODEX_PID")
         let toolName = AgentTool.codex.displayName
 
@@ -904,11 +905,21 @@ extension AgentEventBridge {
             if let pid {
                 payloads.append(pidPayload(target: target, toolName: toolName, pid: pid, event: .attach, sessionID: sessionID))
             }
-            payloads.append(lifecyclePayload(target: target, toolName: toolName, state: .starting, sessionID: sessionID, cwd: cwd))
+            payloads.append(lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .starting,
+                sessionID: sessionID,
+                cwd: cwd,
+                transcriptPath: transcriptPath
+            ))
             return payloads
         case "PermissionRequest":
             let requestedToolName = firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
             let interaction = codexPermissionRequestInteraction(toolName: requestedToolName)
+            let prompt = codexPermissionRequestIsUserInput(requestedToolName)
+                ? codexQuestionPrompt(from: jsonObject)
+                : nil
             return [AgentStatusPayload(
                 windowID: target.windowID,
                 worklaneID: target.worklaneID,
@@ -916,26 +927,60 @@ extension AgentEventBridge {
                 state: .needsInput,
                 origin: .explicitHook,
                 toolName: toolName,
-                text: interaction.text,
+                text: prompt?.text ?? interaction.text,
                 lifecycleEvent: .update,
-                interactionKind: interaction.kind,
+                interactionKind: prompt?.interactionKind ?? interaction.kind,
                 confidence: .explicit,
                 sessionID: sessionID,
                 artifactKind: nil,
                 artifactLabel: nil,
-                artifactURL: nil
+                artifactURL: nil,
+                agentTranscriptPath: transcriptPath
             )]
         case "PreToolUse", "PostToolUse":
+            if hookEventName == "PreToolUse" {
+                let requestedToolName = firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
+                if codexPermissionRequestIsUserInput(requestedToolName),
+                   let prompt = codexQuestionPrompt(from: jsonObject) {
+                    return [AgentStatusPayload(
+                        windowID: target.windowID,
+                        worklaneID: target.worklaneID,
+                        paneID: target.paneID,
+                        state: .needsInput,
+                        origin: .explicitHook,
+                        toolName: toolName,
+                        text: prompt.text,
+                        lifecycleEvent: .update,
+                        interactionKind: prompt.interactionKind,
+                        confidence: .explicit,
+                        sessionID: sessionID,
+                        artifactKind: nil,
+                        artifactLabel: nil,
+                        artifactURL: nil,
+                        agentWorkingDirectory: cwd,
+                        agentTranscriptPath: transcriptPath
+                    )]
+                }
+            }
             return [lifecyclePayload(
                 target: target,
                 toolName: toolName,
                 state: .running,
                 lifecycleEvent: .toolActivity,
                 sessionID: sessionID,
-                cwd: cwd
+                cwd: cwd,
+                transcriptPath: transcriptPath
             )]
         case "UserPromptSubmit":
-            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                lifecycleEvent: .toolActivity,
+                sessionID: sessionID,
+                cwd: cwd,
+                transcriptPath: transcriptPath
+            )]
         case "Stop":
             return [lifecyclePayload(
                 target: target,
@@ -943,7 +988,8 @@ extension AgentEventBridge {
                 state: .idle,
                 lifecycleEvent: .turnComplete,
                 sessionID: sessionID,
-                cwd: cwd
+                cwd: cwd,
+                transcriptPath: transcriptPath
             )]
         default:
             return []
@@ -982,6 +1028,25 @@ extension AgentEventBridge {
         return normalized.contains("askuserquestion")
             || normalized.contains("askuser")
             || normalized.contains("requestuserinput")
+    }
+
+    private static func codexQuestionPrompt(from jsonObject: [String: Any]) -> CodexTranscriptQuestion? {
+        if let toolInput = jsonObject["tool_input"] as? [String: Any] {
+            return CodexTranscriptQuestionExtractor.question(fromToolInput: toolInput)
+        }
+        if let toolInput = jsonObject["toolInput"] as? [String: Any] {
+            return CodexTranscriptQuestionExtractor.question(fromToolInput: toolInput)
+        }
+        for key in ["tool_args", "toolArgs", "arguments"] {
+            guard let string = firstString(in: jsonObject, keys: [key]),
+                  let data = string.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let question = CodexTranscriptQuestionExtractor.question(fromToolInput: object) else {
+                continue
+            }
+            return question
+        }
+        return nil
     }
 
     static func codexNotifyAdapter(
@@ -1706,7 +1771,8 @@ extension AgentEventBridge {
         lifecycleEvent: AgentLifecycleEvent = .update,
         sessionID: String? = nil,
         cwd: String? = nil,
-        taskProgress: PaneAgentTaskProgress? = nil
+        taskProgress: PaneAgentTaskProgress? = nil,
+        transcriptPath: String? = nil
     ) -> AgentStatusPayload {
         AgentStatusPayload(
             windowID: target.windowID,
@@ -1723,7 +1789,8 @@ extension AgentEventBridge {
             artifactKind: nil,
             artifactLabel: nil,
             artifactURL: nil,
-            agentWorkingDirectory: cwd
+            agentWorkingDirectory: cwd,
+            agentTranscriptPath: transcriptPath
         )
     }
 

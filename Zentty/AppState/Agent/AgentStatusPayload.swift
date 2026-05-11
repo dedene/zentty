@@ -47,6 +47,7 @@ struct AgentStatusPayload: Equatable, Sendable {
     let artifactLabel: String?
     let artifactURL: URL?
     let agentWorkingDirectory: String?
+    let agentTranscriptPath: String?
 
     var clearsStatus: Bool {
         signalKind == .lifecycle && state == nil
@@ -133,6 +134,9 @@ struct AgentStatusPayload: Equatable, Sendable {
         if let agentWorkingDirectory {
             userInfo["agentWorkingDirectory"] = agentWorkingDirectory
         }
+        if let agentTranscriptPath {
+            userInfo["agentTranscriptPath"] = agentTranscriptPath
+        }
         return userInfo
     }
 
@@ -158,7 +162,8 @@ struct AgentStatusPayload: Equatable, Sendable {
         artifactKind: WorklaneArtifactKind?,
         artifactLabel: String?,
         artifactURL: URL?,
-        agentWorkingDirectory: String? = nil
+        agentWorkingDirectory: String? = nil,
+        agentTranscriptPath: String? = nil
     ) {
         self.windowID = windowID
         self.worklaneID = worklaneID
@@ -182,6 +187,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         self.artifactLabel = artifactLabel
         self.artifactURL = artifactURL
         self.agentWorkingDirectory = agentWorkingDirectory
+        self.agentTranscriptPath = agentTranscriptPath
     }
 
     init(userInfo: [AnyHashable: Any]) throws {
@@ -238,7 +244,8 @@ struct AgentStatusPayload: Equatable, Sendable {
             artifactKind: (userInfo["artifactKind"] as? String).flatMap(WorklaneArtifactKind.init(rawValue:)),
             artifactLabel: userInfo["artifactLabel"] as? String,
             artifactURL: artifactURL,
-            agentWorkingDirectory: userInfo["agentWorkingDirectory"] as? String
+            agentWorkingDirectory: userInfo["agentWorkingDirectory"] as? String,
+            agentTranscriptPath: userInfo["agentTranscriptPath"] as? String
         )
     }
 }

@@ -62,6 +62,14 @@ final class SidebarBookmarksButton: NSButton {
         layoutIconView()
     }
 
+    func updateShortcutTooltip(_ shortcutManager: ShortcutManager) {
+        toolTip = CommandTooltipFormatter.title(
+            "Bookmarks & Presets",
+            commandID: .openBookmarksPopover,
+            shortcutManager: shortcutManager
+        )
+    }
+
     override func layout() {
         super.layout()
         layoutIconView()

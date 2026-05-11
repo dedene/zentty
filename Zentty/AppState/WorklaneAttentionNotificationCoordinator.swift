@@ -354,6 +354,10 @@ final class WorklaneAttentionNotificationCoordinator {
             return false
         }
 
+        if tool == .codex, Self.isCodexTitleDerivedNeedsInputText(normalized) {
+            return false
+        }
+
         let lowered = normalized.lowercased()
         let genericPhrases = Set([
             interactionKind.defaultLabel.lowercased(),
@@ -365,6 +369,21 @@ final class WorklaneAttentionNotificationCoordinator {
         ])
 
         return !genericPhrases.contains(lowered)
+    }
+
+    private static func isCodexTitleDerivedNeedsInputText(_ text: String) -> Bool {
+        if TerminalMetadataChangeClassifier.codexTitleInteractionKind(for: text) != nil {
+            return true
+        }
+
+        if TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: text) == .needsInput {
+            return true
+        }
+
+        return TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            text,
+            recognizedTool: .codex
+        )?.phase == .needsInput
     }
 
     private func fallbackIdentityText(

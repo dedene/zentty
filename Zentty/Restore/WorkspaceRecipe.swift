@@ -229,7 +229,14 @@ enum WorkspaceRecipeExporter {
         recognizedTool: AgentTool?,
         isRemoteShell: Bool
     ) -> Bool {
-        if recognizedTool != nil || isRemoteShell {
+        if let recognizedTool {
+            return !TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+                candidate,
+                recognizedTool: recognizedTool
+            )
+        }
+
+        if isRemoteShell {
             return true
         }
 
@@ -248,6 +255,10 @@ enum WorkspaceRecipeExporter {
 
     private static func isGenericLocalShellTitle(_ value: String) -> Bool {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.range(of: #"^pane \d+$"#, options: .regularExpression) != nil {
+            return true
+        }
+
         return [
             "shell",
             "shell pane",

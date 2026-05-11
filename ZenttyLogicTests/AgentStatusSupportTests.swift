@@ -519,7 +519,23 @@ final class AgentStatusSupportTests: XCTestCase {
             let script = try String(contentsOf: scriptURL, encoding: .utf8)
 
             XCTAssertTrue(script.contains("_zentty_shell_activity_last"), filename)
-            XCTAssertTrue(script.contains("[[ \"$_zentty_shell_activity_last\" == \"$state\" ]]"), filename)
+            XCTAssertTrue(script.contains("[[ \"$_zentty_shell_activity_last\" == \"$key\" ]]"), filename)
+        }
+    }
+
+    func test_repository_shell_integrations_tag_codex_shell_activity() throws {
+        for shell in [ShellIntegrationTestShell.zsh, .bash] {
+            let signals = try runShellIntegration(
+                shell: shell,
+                command: shell == .zsh
+                    ? #"_zentty_preexec "codex""#
+                    : #"codex 2>/dev/null || true"#
+            )
+
+            XCTAssertTrue(
+                signals.contains(where: { $0.contains("shell-state running --tool Codex") }),
+                "Expected \(shell) integration to tag codex shell activity, got: \(signals)"
+            )
         }
     }
 
@@ -4240,6 +4256,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.lifecycleEvent, .toolActivity)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
@@ -4287,11 +4304,11 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
-    func test_codex_hook_permission_request_for_ask_user_question_maps_to_generic_input() throws {
+    func test_codex_hook_permission_request_for_ask_user_question_maps_to_question_text() throws {
         let payload = try XCTUnwrap(
             AgentEventBridge.codexAdapter(
                 data: Data("""
-                {"hook_event_name":"PermissionRequest","session_id":"session-1","tool_name":"askuserquestion","tool_input":{"question":"Which season do you like most?"}}
+                {"hook_event_name":"PermissionRequest","session_id":"session-1","tool_name":"askuserquestion","tool_input":{"questions":[{"question":"Which season do you like most?","options":[{"label":"Spring"},{"label":"Autumn"}]}]}}
                 """.utf8),
                 defaultEventName: nil,
                 environment: [
@@ -4305,8 +4322,8 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.lifecycleEvent, .update)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
-        XCTAssertEqual(payload.text, "Codex needs your input")
-        XCTAssertEqual(payload.interactionKind, .genericInput)
+        XCTAssertEqual(payload.text, "Which season do you like most?\n[Spring] [Autumn]")
+        XCTAssertEqual(payload.interactionKind, .decision)
     }
 
     func test_codex_hook_permission_request_for_bash_stays_approval() throws {
@@ -5547,6 +5564,36 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(recorder.requests.first?.body, "zentty — Allow edits to project.yml?")
     }
 
+    func test_notification_coordinator_ignores_codex_action_required_title_as_question_preview() {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            windowID: WindowID("window-main"),
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Codex",
+                    interactionKind: .genericInput,
+                    explicitText: "[ . ] Action Required | running-server-detection-recovery",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(recorder.requests.first?.title, "Codex needs input")
+        XCTAssertEqual(recorder.requests.first?.body, "zentty — Input required.")
+    }
+
     func test_notification_coordinator_uses_gemini_action_required_as_approval_notification() {
         let recorder = WorklaneAttentionNotificationRecorder()
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
@@ -5640,6 +5687,130 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(
             recorder.requests.last?.body,
             "zentty • Zentty/UI/Chrome — Use the new two-line row?"
+        )
+    }
+
+    func test_notification_coordinator_replaces_codex_action_required_title_with_enriched_question() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let store = NotificationStore(debounceInterval: 0.01)
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: store)
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
+
+        let firstCommit = expectation(description: "generic codex title committed")
+        store.onChange = { firstCommit.fulfill() }
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .decision,
+                    explicitText: "[ . ] Action Required | zentty",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        await fulfillment(of: [firstCommit], timeout: 2)
+
+        let replacement = expectation(description: "enriched question committed")
+        replacement.expectedFulfillmentCount = 2
+        store.onChange = { replacement.fulfill() }
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .decision,
+                    explicitText: "Should CLI notifications include the agent question?\n[Yes] [No]",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        await fulfillment(of: [replacement], timeout: 2)
+
+        XCTAssertEqual(store.notifications.count, 2)
+        XCTAssertEqual(
+            store.notifications[0].primaryText,
+            "Should CLI notifications include the agent question?\n[Yes] [No]"
+        )
+        XCTAssertTrue(store.notifications[1].isResolved)
+        XCTAssertEqual(recorder.requests.count, 2)
+        XCTAssertEqual(
+            recorder.requests.last?.body,
+            "zentty — Should CLI notifications include the agent question?\n[Yes] [No]"
+        )
+    }
+
+    func test_notification_coordinator_replaces_pending_codex_generic_prompt_before_system_delivery() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            needsInputSystemNotificationDelay: 0.05
+        )
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .decision,
+                    explicitText: "[ . ] Action Required | zentty",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        XCTAssertTrue(recorder.requests.isEmpty)
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .decision,
+                    explicitText: "Should CLI notifications include the agent question?\n[Yes] [No]",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        try? await Task.sleep(for: .milliseconds(90))
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(
+            recorder.requests.first?.body,
+            "zentty — Should CLI notifications include the agent question?\n[Yes] [No]"
         )
     }
 
@@ -5751,7 +5922,43 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(presentation.statusText, "Needs input")
     }
 
-    func test_codex_action_required_title_survives_running_title_tick() throws {
+    func test_codex_interrupt_clears_stale_question_context_and_notification_text() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let cwd = "/tmp/codex-action-required-interrupt"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationText = "Plan mode prompt: Random"
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationDate = Date()
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.codexTranscriptContext = PaneCodexTranscriptContext(
+            sessionID: "session-1",
+            path: "/tmp/codex-session.jsonl"
+        )
+        store.activeWorklane = worklane
+
+        store.handleTerminalEvent(paneID: paneID, event: .userInterrupted)
+
+        let auxiliaryState = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliaryState.agentStatus)
+        XCTAssertNil(auxiliaryState.raw.lastDesktopNotificationText)
+        XCTAssertNil(auxiliaryState.raw.lastDesktopNotificationDate)
+        XCTAssertNil(auxiliaryState.raw.codexTranscriptContext)
+        XCTAssertTrue(auxiliaryState.raw.codexInterruptSuppressionIsActive())
+        XCTAssertEqual(auxiliaryState.presentation.runtimePhase, .idle)
+    }
+
+    func test_codex_running_title_clears_weak_action_required_title_state() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         let cwd = "/tmp/codex-action-required-running"
@@ -5777,9 +5984,55 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.interactionKind, .none)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_codex_running_title_does_not_clear_enriched_question_state() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let cwd = "/tmp/codex-enriched-question-running"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .needsInput,
+            origin: .heuristic,
+            toolName: "Codex",
+            text: "Which option should Zentty use?",
+            interactionKind: .decision,
+            confidence: .strong,
+            sessionID: "session-1",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
         XCTAssertEqual(presentation.runtimePhase, .needsInput)
-        XCTAssertEqual(presentation.interactionKind, .genericInput)
-        XCTAssertEqual(presentation.statusText, "Needs input")
+        XCTAssertEqual(presentation.interactionKind, .decision)
+        XCTAssertEqual(presentation.statusText, "Needs decision")
     }
 
     func test_codex_ready_title_clears_action_required_title_state() throws {
@@ -6573,6 +6826,28 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(decoded, payload)
     }
 
+    func test_agent_status_payload_round_trips_agent_transcript_path() throws {
+        let payload = AgentStatusPayload(
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            signalKind: .lifecycle,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil,
+            agentTranscriptPath: "/Users/peter/.codex/sessions/session.jsonl"
+        )
+
+        let userInfo = try XCTUnwrap(payload.notificationUserInfo)
+        let decoded = try AgentStatusPayload(userInfo: userInfo)
+
+        XCTAssertEqual(decoded.agentTranscriptPath, "/Users/peter/.codex/sessions/session.jsonl")
+        XCTAssertEqual(decoded, payload)
+    }
+
     func test_agent_status_payload_round_trips_window_id() throws {
         let payload = AgentStatusPayload(
             windowID: WindowID("window-main"),
@@ -6756,7 +7031,7 @@ private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUser
     }
 }
 
-private enum ShellIntegrationTestShell {
+private enum ShellIntegrationTestShell: Equatable {
     case zsh
     case bash
 

@@ -534,7 +534,7 @@ enum WorklaneSidebarSummaryBuilder {
     }
 
     private static func lastActivityDetailText(for presentation: PanePresentationState) -> String? {
-        guard let lastActivityTitle = WorklaneContextFormatter.trimmed(presentation.lastActivityTitle) else {
+        guard let lastActivityTitle = WorklaneContextFormatter.normalizeDisplayIdentity(presentation.lastActivityTitle) else {
             return nil
         }
 

@@ -30,4 +30,9 @@ final class HostedTestDisplayTests: XCTestCase {
 
         XCTAssertNil(screen)
     }
+
+    func test_screenNameMatching_accepts_macos_duplicate_suffix() {
+        XCTAssertTrue(HostedTestDisplay.screenName("ZenttyTests (2)", matches: "ZenttyTests"))
+        XCTAssertFalse(HostedTestDisplay.screenName("ZenttyTests Backup", matches: "ZenttyTests"))
+    }
 }

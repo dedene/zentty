@@ -37,10 +37,8 @@ extension WorklaneStore {
         worklanes.compactMap { worklane in
             guard worklane.id != excluded else { return nil }
             let panes = worklane.paneStripState.panes
-            guard let firstTitle = panes.first?.title else { return nil }
-            let primary = firstTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? "Untitled"
-                : firstTitle
+            guard !panes.isEmpty else { return nil }
+            let primary = destinationPrimaryTitle(for: worklane)
             return WorklaneDestinationSummary(
                 windowID: windowID,
                 worklaneID: worklane.id,
@@ -49,5 +47,18 @@ extension WorklaneStore {
                 additionalPaneCount: panes.count - 1
             )
         }
+    }
+
+    private func destinationPrimaryTitle(for worklane: WorklaneState) -> String {
+        let sidebarSummary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+        if let contextualTitle = WorklaneContextFormatter.trimmed(sidebarSummary.primaryText),
+           contextualTitle.caseInsensitiveCompare("Shell") != .orderedSame {
+            return contextualTitle
+        }
+
+        let firstTitle = worklane.paneStripState.panes.first?.title ?? ""
+        return firstTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Untitled"
+            : firstTitle
     }
 }

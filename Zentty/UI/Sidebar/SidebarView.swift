@@ -780,6 +780,11 @@ final class SidebarView: NSView {
         bookmarksButton.setPopoverPresented(presented, animated: animated)
     }
 
+    func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        addWorklaneButton.updateShortcutTooltip(shortcutManager)
+        bookmarksButton.updateShortcutTooltip(shortcutManager)
+    }
+
     var bookmarksButtonAnchor: NSView {
         bookmarksButton
     }

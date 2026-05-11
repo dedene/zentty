@@ -139,6 +139,7 @@ class ScenarioResult:
     warnings: list[str] = dataclasses.field(default_factory=list)
     terminal_final_phase: str | None = None
     terminal_post_scripted_input_phase: str | None = None
+    terminal_phase_sequence: list[str] = dataclasses.field(default_factory=list)
     terminal_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     task_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     timeline: list[dict[str, Any]] = dataclasses.field(default_factory=list)
@@ -564,6 +565,15 @@ def terminal_final_phase(observations: list[TerminalObservation]) -> str | None:
         if phase:
             return phase
     return None
+
+
+def terminal_phase_sequence(observations: list[TerminalObservation]) -> list[str]:
+    phases: list[str] = []
+    for observation in sorted(observations, key=lambda item: ((item.timestamp is None, item.timestamp or 0), item.offset)):
+        phase = terminal_observation_phase(observation)
+        if phase and (not phases or phases[-1] != phase):
+            phases.append(phase)
+    return phases
 
 
 def terminal_needs_input_persisted_after_scripted_input(
@@ -1441,6 +1451,7 @@ class BenchRunner:
     ) -> ScenarioResult:
         result.terminal_final_phase = terminal_final_phase(observations)
         result.terminal_post_scripted_input_phase = terminal_phase_after_scripted_input(result.agent, result.scenario, observations)
+        result.terminal_phase_sequence = terminal_phase_sequence(observations)
         result.terminal_observations = [dataclasses.asdict(observation) for observation in observations]
         result.task_observations = task_observations_for_records(result.agent, result.scenario, records)
         result.timeline = build_timeline(result.agent, result.scenario, records, observations)
@@ -1571,6 +1582,8 @@ class BenchRunner:
                 lines.append(f"  Warnings: {'; '.join(result.warnings)}")
             if result.terminal_final_phase:
                 lines.append(f"  Terminal final phase: {result.terminal_final_phase}")
+            if result.terminal_phase_sequence:
+                lines.append(f"  Terminal phases: {' -> '.join(result.terminal_phase_sequence)}")
             if result.terminal_post_scripted_input_phase:
                 lines.append(f"  Terminal post-scripted-input phase: {result.terminal_post_scripted_input_phase}")
             if result.terminal_observations:

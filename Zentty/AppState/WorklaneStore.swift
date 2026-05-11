@@ -263,8 +263,9 @@ final class WorklaneStore {
         _ interval: TimeInterval,
         _ operation: @escaping @MainActor () -> Void
     ) -> any WorklaneStoreScheduledHandle
+    typealias CodexQuestionResolver = @Sendable (CodexTranscriptQuestionRequest) async -> CodexTranscriptQuestion?
 
-    struct PaneReference: Hashable {
+    struct PaneReference: Hashable, Sendable {
         let worklaneID: WorklaneID
         let paneID: PaneID
     }
@@ -289,11 +290,15 @@ final class WorklaneStore {
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     private var pendingReadyStatusTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
     private var pendingAgentStatusSweepTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
+    var pendingCodexQuestionTasks: [PaneReference: Task<Void, Never>] = [:]
+    var pendingCodexQuestionRequests: [PaneReference: CodexTranscriptQuestionRequest] = [:]
+    var cachedCodexTranscriptQuestions: [CodexTranscriptQuestionCacheKey: CodexTranscriptQuestion] = [:]
     let processEnvironment: [String: String]
     private let readyStatusDebounceInterval: TimeInterval
     let nonRepositoryRetryInterval: TimeInterval
     let currentDateProvider: @MainActor () -> Date
     private let scheduleReadyStatusTask: ReadyStatusScheduler
+    let codexQuestionResolver: CodexQuestionResolver
     private let agentTeamsEnabledProvider: @MainActor () -> Bool
     /// In-memory mirror of `TmuxCompatStore.anchors` for this app session.
     /// Refreshed via `refreshTeamAnchors()` after any handler that mutates
@@ -358,6 +363,9 @@ final class WorklaneStore {
         nonRepositoryRetryInterval: TimeInterval = 5,
         currentDateProvider: @escaping @MainActor () -> Date = Date.init,
         readyStatusScheduler: @escaping ReadyStatusScheduler = WorklaneStore.defaultReadyStatusScheduler,
+        codexQuestionResolver: @escaping CodexQuestionResolver = { request in
+            CodexTranscriptQuestionExtractor.question(fromTranscriptPath: request.transcriptPath)
+        },
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
         terminalDiagnostics: TerminalDiagnostics = .shared,
         agentTeamsEnabledProvider: @escaping @MainActor () -> Bool = { false }
@@ -371,6 +379,7 @@ final class WorklaneStore {
         self.nonRepositoryRetryInterval = nonRepositoryRetryInterval
         self.currentDateProvider = currentDateProvider
         self.scheduleReadyStatusTask = readyStatusScheduler
+        self.codexQuestionResolver = codexQuestionResolver
         self.agentTeamsEnabledProvider = agentTeamsEnabledProvider
         self.runtimeIdentity = runtimeIdentity
         let initialWorklanes = worklanes.isEmpty
@@ -2162,6 +2171,59 @@ final class WorklaneStore {
         recomputePresentation(for: paneID, in: &worklane)
     }
 
+    func markCodexCurrentRunActivityIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
+        guard worklane.auxiliaryStateByPaneID[paneID]?.raw.codexCurrentRunHasObservedActivity != true else {
+            return
+        }
+        worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].raw.codexCurrentRunHasObservedActivity = true
+    }
+
+    func clearCodexCurrentRunActivity(for paneID: PaneID, in worklane: inout WorklaneState) {
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.codexCurrentRunHasObservedActivity = false
+    }
+
+    func codexReadyPromotionAllowed(in auxiliaryState: PaneAuxiliaryState?) -> Bool {
+        guard let auxiliaryState else {
+            return false
+        }
+
+        if auxiliaryState.raw.codexCurrentRunHasObservedActivity {
+            return true
+        }
+
+        return Self.codexStatusIsExplicitCurrentRunActivity(auxiliaryState.agentStatus)
+    }
+
+    static func codexStatusIsExplicitCurrentRunActivity(_ status: PaneAgentStatus?) -> Bool {
+        guard let status,
+              status.tool == .codex,
+              status.state == .running || status.state == .needsInput else {
+            return false
+        }
+
+        return status.origin == .explicitHook || status.origin == .explicitAPI
+    }
+
+    static func metadataIndicatesCodexCurrentRunActivity(_ metadata: TerminalMetadata?) -> Bool {
+        guard let metadata,
+              AgentToolRecognizer.recognize(metadata: metadata) == .codex else {
+            return false
+        }
+
+        if TerminalMetadataChangeClassifier.codexTitleInteractionKind(for: metadata.title) != nil {
+            return true
+        }
+        if TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: metadata.title) == .needsInput {
+            return true
+        }
+
+        let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            metadata.title,
+            recognizedTool: .codex
+        )
+        return signature?.phase == .running || signature?.phase == .needsInput
+    }
+
     func requestReadyStatusIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
         let paneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
         var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
@@ -2279,6 +2341,9 @@ final class WorklaneStore {
         if let agentStatus = auxiliaryState.agentStatus,
            agentStatus.state == .idle,
            agentStatus.hasObservedRunning {
+            if agentStatus.tool == .codex {
+                return codexReadyPromotionAllowed(in: auxiliaryState)
+            }
             return true
         }
 
@@ -2291,6 +2356,11 @@ final class WorklaneStore {
         if notificationText.contains("agent run complete")
             || notificationText.contains("agent ready")
             || notificationText.contains("agent turn complete") {
+            let recognizedTool = auxiliaryState.agentStatus?.tool
+                ?? AgentToolRecognizer.recognize(metadata: auxiliaryState.metadata)
+            if recognizedTool == .codex {
+                return codexReadyPromotionAllowed(in: auxiliaryState)
+            }
             return true
         }
 

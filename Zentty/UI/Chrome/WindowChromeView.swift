@@ -80,6 +80,7 @@ final class WindowChromeView: NSView {
     private let computerLocationOpener: (URL) -> Void
 
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var shortcutManager = ShortcutManager(shortcuts: .default)
     private var currentSummary = WorklaneChromeSummary(
         attention: nil,
         focusedLabel: nil,
@@ -262,7 +263,7 @@ final class WindowChromeView: NSView {
         branchURL = summary.branchURL
         let isBranchClickable = branchURL != nil && !branchText.isEmpty
         branchLabel.isInteractive = isBranchClickable
-        branchLabel.toolTip = isBranchClickable ? "Open branch on remote" : nil
+        branchLabel.toolTip = branchToolTip(isClickable: isBranchClickable)
 
         pullRequestButton.title = summary.pullRequest.map { "PR #\($0.number)" } ?? ""
         pullRequestButton.isHidden = summary.pullRequest == nil
@@ -316,6 +317,11 @@ final class WindowChromeView: NSView {
         openWithMenuButton.setAccessibilityLabel("Show Open With menu")
         updateOpenWithAppearance(animated: false)
         needsLayout = true
+    }
+
+    func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        self.shortcutManager = shortcutManager
+        branchLabel.toolTip = branchToolTip(isClickable: branchLabel.isInteractive)
     }
 
     @objc
@@ -425,6 +431,18 @@ final class WindowChromeView: NSView {
             self.openWithPrimaryButton.contentTintColor = primaryTint
             self.openWithMenuButton.contentTintColor = menuTint
         }
+    }
+
+    private func branchToolTip(isClickable: Bool) -> String? {
+        guard isClickable else {
+            return nil
+        }
+
+        return CommandTooltipFormatter.title(
+            "Open Branch on Remote",
+            commandID: .openBranchOnRemote,
+            shortcutManager: shortcutManager
+        )
     }
 
     private func segmentBackgroundColor(

@@ -443,6 +443,11 @@ struct PaneAgentReducerState: Equatable, Sendable {
 
         let payloadSessionID = normalized(payload.sessionID)
         let sessionID = resolvedSessionID(for: payload, tool: tool)
+        if tool == .codex,
+           payload.origin == .explicitHook,
+           (state == .starting || state == .running) {
+            removeStaleCodexNeedsInputSessions(excluding: sessionID)
+        }
         var session = sessionsByID[sessionID] ?? PaneAgentSessionState(
             sessionID: sessionID,
             parentSessionID: normalized(payload.parentSessionID),
@@ -451,7 +456,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             text: nil,
             artifactLink: explicitArtifactLink(from: payload),
             updatedAt: now,
-            source: payload.origin == .inferred ? .inferred : .explicit,
+            source: statusSource(for: payload.origin),
             origin: payload.origin,
             interactionKind: .none,
             confidence: payload.confidence ?? defaultConfidence(for: payload.origin),
@@ -481,10 +486,11 @@ struct PaneAgentReducerState: Equatable, Sendable {
         let existingText = AgentInteractionClassifier.trimmed(session.text)
         let previousState = session.state
         let previousInteractionKind = session.interactionKind
+        let previousOrigin = session.origin
 
         session.parentSessionID = normalized(payload.parentSessionID) ?? session.parentSessionID
         session.tool = tool
-        session.source = payload.origin == .inferred ? .inferred : .explicit
+        session.source = statusSource(for: payload.origin)
         session.origin = payload.origin
         session.confidence = payload.confidence ?? defaultConfidence(for: payload.origin)
         session.artifactLink = explicitArtifactLink(from: payload) ?? session.artifactLink
@@ -520,7 +526,8 @@ struct PaneAgentReducerState: Equatable, Sendable {
         switch state {
         case .needsInput:
             if previousState == .needsInput {
-                if interactionKind.priority > previousInteractionKind.priority {
+                if payload.origin.priority > previousOrigin.priority
+                    || interactionKind.priority > previousInteractionKind.priority {
                     session.text = payloadText ?? existingText
                 } else {
                     session.text = AgentInteractionClassifier.preferredWaitingMessage(
@@ -558,6 +565,18 @@ struct PaneAgentReducerState: Equatable, Sendable {
         stopSignalLogger.debug(
             "reducer.lifecycle applied session=\(sessionID, privacy: .public) tool=\(tool.displayName, privacy: .public) prev=\(previousState.rawValue, privacy: .public) => \(session.state.rawValue, privacy: .public) origin=\(payload.origin.rawValue, privacy: .public) interaction=\(session.interactionKind.rawValue, privacy: .public) hasObservedRunning=\(session.hasObservedRunning, privacy: .public)"
         )
+    }
+
+    private mutating func removeStaleCodexNeedsInputSessions(excluding sessionID: String) {
+        for key in Array(sessionsByID.keys) {
+            guard key != sessionID,
+                  let session = sessionsByID[key],
+                  session.tool == .codex,
+                  (session.state == .needsInput || session.interactionKind.requiresHumanAttention) else {
+                continue
+            }
+            sessionsByID.removeValue(forKey: key)
+        }
     }
 
     private mutating func mergeInferredSessions(
@@ -747,6 +766,10 @@ struct PaneAgentReducerState: Equatable, Sendable {
            existingSession.state == .needsInput,
            existingSession.interactionKind.requiresHumanAttention,
            payload.state == .idle || payload.state == .running || payload.state == .starting {
+            if payload.origin == .explicitHook,
+               payload.state == .starting {
+                return true
+            }
             return payload.lifecycleEvent == .toolActivity
                 || payload.lifecycleEvent == .turnComplete
                 || Self.codexNeedsInputIsWeakTerminalFallback(existingSession)
@@ -891,6 +914,15 @@ struct PaneAgentReducerState: Equatable, Sendable {
             return .strong
         case .shell, .inferred:
             return .weak
+        }
+    }
+
+    private func statusSource(for origin: AgentSignalOrigin) -> PaneAgentStatusSource {
+        switch origin {
+        case .shell, .inferred:
+            return .inferred
+        case .compatibility, .explicitHook, .explicitAPI, .heuristic:
+            return .explicit
         }
     }
 

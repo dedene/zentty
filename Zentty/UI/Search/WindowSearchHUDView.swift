@@ -71,6 +71,18 @@ final class WindowSearchHUDView: NSView {
         queryField
     }
 
+    var nextToolTipForTesting: String {
+        nextButton.toolTip ?? ""
+    }
+
+    var previousToolTipForTesting: String {
+        previousButton.toolTip ?? ""
+    }
+
+    var closeToolTipForTesting: String {
+        closeButton.toolTip ?? ""
+    }
+
     func buttonPointInWindowForTesting(_ button: ButtonKind) -> NSPoint? {
         guard isHidden == false else {
             return nil
@@ -193,6 +205,20 @@ final class WindowSearchHUDView: NSView {
         ])
 
         isHidden = true
+    }
+
+    func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        previousButton.toolTip = CommandTooltipFormatter.title(
+            "Find Previous",
+            commandID: .findPrevious,
+            shortcutManager: shortcutManager
+        )
+        nextButton.toolTip = CommandTooltipFormatter.title(
+            "Find Next",
+            commandID: .findNext,
+            shortcutManager: shortcutManager
+        )
+        closeButton.toolTip = "Close Global Find"
     }
 
     private func countText(for search: GlobalSearchState) -> String {

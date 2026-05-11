@@ -81,6 +81,7 @@ zentty_cli_bin() {
 }
 
 if cli_bin="$(zentty_cli_bin 2>/dev/null)"; then
+    export ZENTTY_CLI_BIN="$cli_bin"
     if should_passthrough_to_real_binary "$@"; then
         real_binary="$(find_real_binary)" || {
             echo "Error: $tool_basename not found in PATH" >&2

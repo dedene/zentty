@@ -96,9 +96,25 @@ _zentty_agent_signal() {
 
 _zentty_report_shell_activity() {
     local state="$1"
-    [[ "$_zentty_shell_activity_last" == "$state" ]] && return 0
-    _zentty_shell_activity_last="$state"
-    _zentty_agent_signal shell-state "$state"
+    shift || true
+    local key="$state $*"
+    [[ "$_zentty_shell_activity_last" == "$key" ]] && return 0
+    _zentty_shell_activity_last="$key"
+    _zentty_agent_signal shell-state "$state" "$@"
+}
+
+_zentty_agent_tool_for_command() {
+    local cmd="${1##*/}"
+    case "$cmd" in
+        claude) printf '%s\n' "Claude Code" ;;
+        codex) printf '%s\n' "Codex" ;;
+        droid) printf '%s\n' "Droid" ;;
+        gemini) printf '%s\n' "Gemini" ;;
+        kimi|kimi-cli) printf '%s\n' "Kimi" ;;
+        opencode) printf '%s\n' "OpenCode" ;;
+        pi) printf '%s\n' "Pi" ;;
+        *) return 1 ;;
+    esac
 }
 
 _zentty_report_pane_root_pid() {
@@ -187,6 +203,7 @@ _zentty_bash_prompt_hook() {
     _zentty_emit_pane_context
     if [[ -n "$_zentty_bash_original_prompt_command" ]]; then
         eval "$_zentty_bash_original_prompt_command"
+        _zentty_ensure_wrapper_path
     fi
     _zentty_reset_title_to_cwd
     _zentty_bash_in_prompt=0
@@ -195,7 +212,15 @@ _zentty_bash_prompt_hook() {
 _zentty_bash_preexec_hook() {
     [[ -n "${COMP_LINE:-}" ]] && return 0
     [[ "$_zentty_bash_in_prompt" == "1" ]] && return 0
-    _zentty_report_shell_activity running
+    _zentty_ensure_wrapper_path
+    local cmd="${BASH_COMMAND%%[[:space:]]*}"
+    local agent_tool=""
+    agent_tool="$(_zentty_agent_tool_for_command "$cmd" 2>/dev/null || true)"
+    if [[ -n "$agent_tool" ]]; then
+        _zentty_report_shell_activity running --tool "$agent_tool"
+    else
+        _zentty_report_shell_activity running
+    fi
     # Set terminal title to the running command (first line only)
     _zentty_print_tty $'\e]2;'"${BASH_COMMAND%%$'\n'*}"$'\a'
 }

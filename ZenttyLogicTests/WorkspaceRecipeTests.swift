@@ -354,6 +354,60 @@ final class WorkspaceRecipeTests: XCTestCase {
         XCTAssertEqual(pane.lastActivityTitle, "cmatrix -C cyan")
     }
 
+    func test_export_drops_restored_generated_pane_title_as_last_activity() throws {
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.WorkspaceRecipe.generated-pane-last-activity", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: workingDirectory)
+        }
+
+        let paneID = PaneID("pane-main")
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(
+                        id: paneID,
+                        title: "shell",
+                        sessionRequest: TerminalSessionRequest(
+                            workingDirectory: workingDirectory.path,
+                            surfaceContext: .window
+                        ),
+                        width: 640
+                    )
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    metadata: TerminalMetadata(
+                        title: workingDirectory.path,
+                        currentWorkingDirectory: workingDirectory.path,
+                        processName: "zsh",
+                        gitBranch: nil
+                    ),
+                    presentation: PanePresentationState(
+                        cwd: workingDirectory.path,
+                        lastActivityTitle: "pane 13"
+                    )
+                )
+            ]
+        )
+
+        let window = WorkspaceRecipeExporter.makeWindow(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        let pane = try XCTUnwrap(window.worklanes.first?.columns.first?.panes.first)
+        XCTAssertNil(pane.titleSeed)
+        XCTAssertNil(pane.lastActivityTitle)
+    }
+
     func test_import_shows_legacy_local_process_title_as_last_activity() throws {
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ZenttyTests.WorkspaceRecipe.legacy-last-activity", isDirectory: true)
@@ -454,6 +508,36 @@ final class WorkspaceRecipeTests: XCTestCase {
 
         XCTAssertEqual(presentation.rememberedTitle, "api-server")
         XCTAssertNil(presentation.lastActivityTitle)
+    }
+
+    func test_exporter_does_not_persist_volatile_agent_status_title_seed() {
+        let paneID = PaneID("pane-main")
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "Ready | zentty")],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    presentation: PanePresentationState(
+                        cwd: "/tmp/project",
+                        rememberedTitle: "Ready | zentty",
+                        recognizedTool: .codex
+                    )
+                )
+            ]
+        )
+
+        let window = WorkspaceRecipeExporter.makeWindow(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            activeWorklaneID: worklane.id
+        )
+
+        XCTAssertNil(window.worklanes[0].columns[0].panes[0].titleSeed)
     }
 
     func test_import_injects_restore_draft_prefill_for_supported_agent_pane() throws {

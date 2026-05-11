@@ -4,6 +4,34 @@ import XCTest
 
 @MainActor
 final class SidebarViewRenderTests: XCTestCase {
+    func test_sidebar_toggle_tooltip_uses_configured_shortcut() {
+        let button = SidebarToggleButton()
+
+        button.updateShortcutTooltip(ShortcutManager(shortcuts: .default))
+
+        XCTAssertEqual(button.toolTip, "Toggle Sidebar (⌘S)")
+    }
+
+    func test_sidebar_control_tooltips_update_for_custom_and_unassigned_shortcuts() {
+        let sidebar = makeSidebar()
+        let customManager = ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(
+                        commandID: .newWorklane,
+                        shortcut: .init(key: .character("n"), modifiers: [.command, .control])
+                    ),
+                    ShortcutBindingOverride(commandID: .openBookmarksPopover, shortcut: nil),
+                ]
+            )
+        )
+
+        sidebar.updateShortcutTooltips(customManager)
+
+        XCTAssertEqual(sidebar.addWorklaneToolTipForTesting, "New Worklane (⌘⌃N)")
+        XCTAssertEqual(sidebar.bookmarksToolTipForTesting, "Bookmarks & Presets")
+    }
+
     func test_render_skipsWorkWhenSummariesAndThemeAreUnchanged() {
         let sidebar = makeSidebar()
         let theme = ZenttyTheme.fallback(for: nil)

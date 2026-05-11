@@ -201,6 +201,14 @@ extension SidebarView {
         debugAccessForTesting.addWorklaneButton.usesPointingHandCursorForTesting
     }
 
+    var addWorklaneToolTipForTesting: String {
+        debugAccessForTesting.addWorklaneButton.toolTip ?? ""
+    }
+
+    var bookmarksToolTipForTesting: String {
+        debugAccessForTesting.sidebarView.bookmarksButtonAnchor.toolTip ?? ""
+    }
+
     var resizeHandleMinX: CGFloat {
         debugAccessForTesting.resizeHandleView.frame.minX
     }

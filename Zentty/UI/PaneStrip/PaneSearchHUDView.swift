@@ -113,6 +113,18 @@ final class PaneSearchHUDView: NSView {
         queryField
     }
 
+    var nextToolTipForTesting: String {
+        nextButton.toolTip ?? ""
+    }
+
+    var previousToolTipForTesting: String {
+        previousButton.toolTip ?? ""
+    }
+
+    var closeToolTipForTesting: String {
+        closeButton.toolTip ?? ""
+    }
+
     var preservesInteractiveFrame: Bool {
         isDragging || isSnapAnimationInFlight
     }
@@ -376,6 +388,20 @@ final class PaneSearchHUDView: NSView {
         case (false, false):
             return .bottomTrailing
         }
+    }
+
+    func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        previousButton.toolTip = CommandTooltipFormatter.title(
+            "Find Previous",
+            commandID: .findPrevious,
+            shortcutManager: shortcutManager
+        )
+        nextButton.toolTip = CommandTooltipFormatter.title(
+            "Find Next",
+            commandID: .findNext,
+            shortcutManager: shortcutManager
+        )
+        closeButton.toolTip = "Close Find"
     }
 
     func configureSnapAnimationForTesting(

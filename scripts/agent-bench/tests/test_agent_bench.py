@@ -507,6 +507,21 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(timeline[2]["event"], "input")
         self.assertEqual(timeline[3]["event"], "session-start")
 
+    def test_terminal_phase_sequence_keeps_codex_startup_idle_visible(self):
+        base = 1000.0
+        observations = [
+            agent_bench.TerminalObservation(kind="title", text="Ready | zentty", offset=0, timestamp=base),
+            agent_bench.TerminalObservation(kind="progress", text="Ready | zentty", offset=0, timestamp=base),
+            agent_bench.TerminalObservation(kind="title", text="Starting ⠹ zentty", offset=12, timestamp=base + 0.5),
+            agent_bench.TerminalObservation(kind="progress", text="Starting ⠹ zentty", offset=12, timestamp=base + 0.5),
+            agent_bench.TerminalObservation(kind="title", text="Working ⠋ zentty", offset=24, timestamp=base + 1.0),
+        ]
+
+        self.assertEqual(
+            agent_bench.terminal_phase_sequence(observations),
+            ["idle", "starting", "running"],
+        )
+
     def test_legacy_terminal_observations_without_timestamp_sort_after_records(self):
         base = 1000.0
         records = [

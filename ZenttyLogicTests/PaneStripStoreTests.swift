@@ -5303,6 +5303,215 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
+    func test_codex_startup_ready_sequence_does_not_surface_agent_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        for title in [
+            "codex",
+            "Ready | zentty",
+            "Starting ⠹ zentty",
+            "Ready | zentty"
+        ] {
+            store.updateMetadata(
+                paneID: paneID,
+                metadata: TerminalMetadata(
+                    title: title,
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "codex",
+                    gitBranch: "main"
+                )
+            )
+        }
+
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_stale_codex_idle_status_plus_startup_ready_title_does_not_surface_agent_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].agentStatus =
+            PaneAgentStatus(
+                tool: .codex,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                source: .explicit,
+                origin: .explicitHook,
+                confidence: .explicit,
+                hasObservedRunning: true,
+                sessionID: "stale-session"
+            )
+        store.activeWorklane = worklane
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_codex_completion_notification_before_current_run_does_not_surface_agent_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(title: "Codex", body: "Agent ready")
+            )
+        )
+
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_codex_title_completion_survives_ready_status_debounce() throws {
+        let scheduler = ManualReadyStatusScheduler()
+        let store = WorklaneStore(
+            readyStatusDebounceInterval: 1,
+            readyStatusScheduler: scheduler.schedule
+        )
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.wantsReadyStatus == true)
+
+        scheduler.runLatest()
+
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+    }
+
+    func test_shell_origin_codex_idle_does_not_surface_agent_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .running,
+                origin: .shell,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .idle,
+                origin: .shell,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+    }
+
+    func test_shell_ready_clears_stale_transient_agent_ready_status() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+
+        store.handleTerminalEvent(paneID: paneID, event: .shellReady)
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+    }
+
     func test_ready_codex_title_does_not_override_active_question_state() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)

@@ -171,8 +171,38 @@ struct AgentToolLauncher {
             }
             return (key, value)
         })
+        if let cliPath = resolvedCLIPath() {
+            forwarded["ZENTTY_CLI_BIN"] = cliPath
+        }
         forwarded["ZENTTY_REAL_BINARY"] = realBinaryPath
         return forwarded
+    }
+
+    private func resolvedCLIPath() -> String? {
+        if let configuredPath = environment["ZENTTY_CLI_BIN"]?.nonEmpty,
+           FileManager.default.isExecutableFile(atPath: configuredPath) {
+            return configuredPath
+        }
+
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        guard size > 0 else {
+            return CommandLine.arguments.first?.nonEmpty
+        }
+
+        var buffer = [CChar](repeating: 0, count: Int(size))
+        let result = buffer.withUnsafeMutableBufferPointer { pointer in
+            _NSGetExecutablePath(pointer.baseAddress, &size)
+        }
+        guard result == 0 else {
+            return CommandLine.arguments.first?.nonEmpty
+        }
+
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map(UInt8.init), as: UTF8.self)
+        return URL(fileURLWithPath: path)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
     }
 
     private func directEnvironmentPatch() -> EnvironmentPatch {

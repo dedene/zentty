@@ -106,6 +106,14 @@ final class SidebarCreateWorklaneButton: NSButton {
         }
     }
 
+    func updateShortcutTooltip(_ shortcutManager: ShortcutManager) {
+        toolTip = CommandTooltipFormatter.title(
+            "New Worklane",
+            commandID: .newWorklane,
+            shortcutManager: shortcutManager
+        )
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
 

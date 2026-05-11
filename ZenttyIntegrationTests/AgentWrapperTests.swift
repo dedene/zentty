@@ -430,6 +430,93 @@ final class AgentWrapperTests: XCTestCase {
         }
     }
 
+    func test_tool_wrapper_exports_cli_path_when_resolved_from_path() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["codex", "zentty-agent-wrapper"])
+        try harness.installRealBinary(
+            named: "codex",
+            script: """
+            #!/bin/bash
+            set -euo pipefail
+            printf 'unexpected\n' >> "$REAL_ARGS_LOG"
+            """
+        )
+        try harness.installCliStub()
+
+        let result = try harness.run(
+            tool: "codex",
+            arguments: ["hello"],
+            extraEnvironment: [
+                "ZENTTY_INSTANCE_SOCKET": harness.socketPath,
+                "ZENTTY_PANE_TOKEN": harness.paneToken,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        XCTAssertEqual(try harness.readArgumentCalls(named: "cli-args.log"), [["launch", "codex", "hello"]])
+        XCTAssertEqual(try harness.readLines(named: "cli-env.log"), [harness.cliPath])
+        XCTAssertTrue(try harness.readLines(named: "real-args.log").isEmpty)
+    }
+
+    func test_launch_command_forwards_invoking_cli_path_when_environment_omits_cli_bin() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let realBinURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
+        let realCodexURL = realBinURL.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 42\n".write(to: realCodexURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realCodexURL.path)
+        defer { try? FileManager.default.removeItem(at: realBinURL) }
+
+        let process = Process()
+        let cliPath = try builtCLIPath()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = ["launch", "codex", "hello"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = [realBinURL.path, "/usr/bin", "/bin"].joined(separator: ":")
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment.removeValue(forKey: "ZENTTY_CLI_BIN")
+        process.environment = environment
+        process.standardInput = Pipe()
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest { request in
+            AgentIPCResponse(
+                id: request.id,
+                ok: true,
+                result: AgentIPCResponseResult(
+                    launchPlan: AgentLaunchPlan(
+                        executablePath: "/usr/bin/true",
+                        arguments: [],
+                        setEnvironment: [:],
+                        unsetEnvironment: [],
+                        preLaunchActions: []
+                    )
+                ),
+                error: nil
+            )
+        }
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .bootstrap)
+        XCTAssertEqual(request.tool, .codex)
+        XCTAssertEqual(request.environment["ZENTTY_REAL_BINARY"], realCodexURL.path)
+        XCTAssertEqual(
+            request.environment["ZENTTY_CLI_BIN"],
+            URL(fileURLWithPath: cliPath).resolvingSymlinksInPath().standardizedFileURL.path
+        )
+    }
+
     func test_kimi_wrapper_passthroughs_login_to_real_binary_even_when_cli_is_available() throws {
         for tool in ["kimi", "kimi-cli"] {
             let harness = try WrapperHarness(copyingScriptsNamed: [tool, "zentty-agent-wrapper"])
@@ -564,7 +651,10 @@ private final class IPCRequestCaptureServer {
         try? FileManager.default.removeItem(at: rootURL)
     }
 
-    func receiveOneRequest(timeout: TimeInterval = 5) throws -> AgentIPCRequest {
+    func receiveOneRequest(
+        timeout: TimeInterval = 5,
+        respond: ((AgentIPCRequest) -> AgentIPCResponse)? = nil
+    ) throws -> AgentIPCRequest {
         let expectation = XCTestExpectation(description: "receive IPC request")
         let lock = NSLock()
         var capturedRequest: AgentIPCRequest?
@@ -613,6 +703,16 @@ private final class IPCRequestCaptureServer {
 
             do {
                 let request = try JSONDecoder().decode(AgentIPCRequest.self, from: requestData)
+                if let response = respond?(request) {
+                    var responseData = try JSONEncoder().encode(response)
+                    responseData.append(UInt8(ascii: "\n"))
+                    _ = responseData.withUnsafeBytes { rawBuffer in
+                        guard let baseAddress = rawBuffer.baseAddress else {
+                            return
+                        }
+                        _ = Darwin.send(client, baseAddress, rawBuffer.count, 0)
+                    }
+                }
                 lock.lock()
                 capturedRequest = request
                 lock.unlock()
@@ -714,6 +814,9 @@ private struct WrapperHarness {
             done
           } >> "$CLI_ARGS_LOG"
         fi
+        if [[ -n "${CLI_ENV_LOG:-}" ]]; then
+          printf '%s\n' "${ZENTTY_CLI_BIN:-}" >> "$CLI_ENV_LOG"
+        fi
         """.write(to: cliURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cliURL.path)
     }
@@ -740,6 +843,7 @@ private struct WrapperHarness {
         }
         environment["REAL_ARGS_LOG"] = logDirectoryURL.appendingPathComponent("real-args.log", isDirectory: false).path
         environment["CLI_ARGS_LOG"] = logDirectoryURL.appendingPathComponent("cli-args.log", isDirectory: false).path
+        environment["CLI_ENV_LOG"] = logDirectoryURL.appendingPathComponent("cli-env.log", isDirectory: false).path
         environment["CLI_STDIN_LOG"] = logDirectoryURL.appendingPathComponent("cli-stdin.log", isDirectory: false).path
         extraEnvironment.forEach { environment[$0.key] = $0.value }
         process.environment = environment
