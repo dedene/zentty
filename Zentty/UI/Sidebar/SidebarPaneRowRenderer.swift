@@ -8,6 +8,8 @@ final class SidebarPaneRowRenderer {
         var onClosePaneRequested: ((PaneID) -> Void)?
         var onSplitHorizontalRequested: ((PaneID) -> Void)?
         var onSplitVerticalRequested: ((PaneID) -> Void)?
+        var onForceSplitRightRequested: ((PaneID) -> Void)?
+        var onForceAddPaneRightRequested: ((PaneID) -> Void)?
         var onMovePaneToNewWindowRequested: ((PaneID) -> Void)?
         var onWorklaneColorChanged: ((WorklaneColor?) -> Void)?
         var onBookmarkAction: ((SidebarBookmarkRowAction) -> Void)?
@@ -18,6 +20,8 @@ final class SidebarPaneRowRenderer {
         var isOnlyWorklane = false
         var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
         var onMoveWorklaneRequested: ((SidebarWorklaneMoveDirection) -> Void)?
+        var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
+        var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     }
 
     private(set) var panePrimaryRows: [SidebarPanePrimaryRowView] = []
@@ -106,6 +110,8 @@ final class SidebarPaneRowRenderer {
             button.onClosePane = callbacks.onClosePaneRequested
             button.onSplitHorizontal = callbacks.onSplitHorizontalRequested
             button.onSplitVertical = callbacks.onSplitVerticalRequested
+            button.onForceSplitRight = callbacks.onForceSplitRightRequested
+            button.onForceAddPaneRight = callbacks.onForceAddPaneRightRequested
             button.onMovePaneToNewWindow = callbacks.onMovePaneToNewWindowRequested
             button.onPickWorklaneColor = { _, color in
                 callbacks.onWorklaneColorChanged?(color)
@@ -117,6 +123,8 @@ final class SidebarPaneRowRenderer {
             button.onHoverChanged = callbacks.onHoverChanged
             button.worklaneMoveAvailability = callbacks.worklaneMoveAvailability
             button.onMoveWorklane = callbacks.onMoveWorklaneRequested
+            button.rightPaneCommandPresentationProvider = callbacks.rightPaneCommandPresentationProvider
+            button.moveToWorklaneCatalogProvider = callbacks.moveToWorklaneCatalogProvider
         }
     }
 

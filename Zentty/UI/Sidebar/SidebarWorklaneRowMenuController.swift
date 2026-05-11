@@ -42,6 +42,8 @@ final class SidebarWorklaneRowMenuController: NSObject {
                 moveDownAction: #selector(handleMoveWorklaneDown),
                 splitHorizontalAction: nil,
                 splitVerticalAction: nil,
+                forceSplitRightAction: nil,
+                forceAddPaneRightAction: nil,
                 movePaneToNewWindowAction: nil,
                 bookmarkAction: #selector(handleBookmarkMenuItem(_:)),
                 colorChanged: { [weak self] picked in

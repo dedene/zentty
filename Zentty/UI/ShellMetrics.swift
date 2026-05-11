@@ -1,7 +1,17 @@
 import AppKit
 
 enum ChromeGeometry {
-    static let outerWindowRadius: CGFloat = 26
+    /// Outer window corner radius. On macOS 26 (Tahoe) the empty `unifiedCompact`
+    /// toolbar attached in MainWindowController bumps NSThemeFrame to 26pt so the
+    /// shell clip composites flush with the native silhouette. On Sonoma/Sequoia
+    /// NSThemeFrame's titled-window radius is ~10pt and the toolbar trick has
+    /// only a marginal effect, so 10pt is the safe match.
+    static let outerWindowRadius: CGFloat = {
+        if #available(macOS 26.0, *) {
+            return 26
+        }
+        return 10
+    }()
     static let shellInset: CGFloat = 8
     static let paneInset: CGFloat = 4
     static let rowInset: CGFloat = 4

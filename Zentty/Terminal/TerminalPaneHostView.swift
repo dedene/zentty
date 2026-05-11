@@ -3,7 +3,7 @@ import Foundation
 import os
 
 @MainActor
-final class TerminalPaneHostView: NSView {
+final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConfiguring {
     private static let logger = Logger(subsystem: "be.zenjoy.zentty", category: "TerminalPaneHostView")
 
     private let adapter: any TerminalAdapter
@@ -11,6 +11,7 @@ final class TerminalPaneHostView: NSView {
     private let searchHUDView = PaneSearchHUDView()
     private var hasStartedSession = false
     private var lastRenderedSearchState = PaneSearchState()
+    private var viewportDiagnosticsContext = TerminalViewportDiagnostics.Context()
 
     private var searchHUDContainerView: NSView {
         (terminalView as? any TerminalOverlayHosting)?.terminalOverlayHostView ?? self
@@ -99,9 +100,18 @@ final class TerminalPaneHostView: NSView {
     }
 
     func setViewportSyncSuspended(_ suspended: Bool) {
-        syncTerminalViewFrameIfNeeded()
-        (terminalView as? any TerminalViewportSyncControlling)?
-            .setViewportSyncSuspended(suspended)
+        recordViewportDiagnostics(suspended ? .syncSuspended : .syncUnsuspended, suspended: suspended)
+        if suspended {
+            (terminalView as? any TerminalViewportSyncControlling)?
+                .setViewportSyncSuspended(true)
+            syncTerminalViewFrameIfNeeded()
+            layoutTerminalSubtreeIfNeeded()
+        } else {
+            syncTerminalViewFrameIfNeeded()
+            layoutTerminalSubtreeIfNeeded()
+            (terminalView as? any TerminalViewportSyncControlling)?
+                .setViewportSyncSuspended(false)
+        }
     }
 
     func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {
@@ -112,7 +122,28 @@ final class TerminalPaneHostView: NSView {
     func forceViewportSync() {
         syncTerminalViewFrameIfNeeded()
         needsLayout = true
+        recordViewportDiagnostics(.forceViewportSync)
         (terminalView as? any TerminalViewportSyncControlling)?.forceViewportSync()
+    }
+
+    func updateViewportDiagnosticsContext(_ context: TerminalViewportDiagnostics.Context) {
+        viewportDiagnosticsContext = context
+        viewportDiagnosticsContext.terminalHostBounds = bounds
+        (terminalView as? any TerminalViewportDiagnosticsContextConfiguring)?
+            .updateViewportDiagnosticsContext(viewportDiagnosticsContext)
+    }
+
+    private func recordViewportDiagnostics(
+        _ source: TerminalViewportEventSource,
+        suspended: Bool? = nil
+    ) {
+        var context = viewportDiagnosticsContext
+        context.terminalHostBounds = bounds
+        context.windowAttached = window != nil
+        if let suspended {
+            context.isViewportSyncSuspended = suspended
+        }
+        TerminalViewportDiagnostics.shared.record(source, context: context)
     }
 
     var isTerminalFocused: Bool {
@@ -205,6 +236,11 @@ final class TerminalPaneHostView: NSView {
             return
         }
         terminalView.frame = bounds
+    }
+
+    private func layoutTerminalSubtreeIfNeeded() {
+        terminalView.needsLayout = true
+        terminalView.layoutSubtreeIfNeeded()
     }
 
     var terminalViewForTesting: NSView {
@@ -841,12 +877,12 @@ final class PaneRuntime {
     private static func initialRestoreDraftLifecycleState(
         for request: TerminalSessionRequest
     ) -> PaneRestoreDraftLifecycleState {
-        guard let draftText = request.prefillText?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !draftText.isEmpty else {
+        guard let raw = request.prefillText,
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .none
         }
 
-        return .pending(draftText)
+        return .pending(raw)
     }
 
     private func handleSearchDidChange(_ event: TerminalSearchEvent) {
@@ -1015,7 +1051,8 @@ final class PaneRuntimeRegistry {
         worklanes: [WorklaneState],
         activeWorklaneID: WorklaneID,
         windowIsVisible: Bool,
-        windowIsKey: Bool
+        windowIsKey: Bool,
+        peekVisibleWorklaneIDs: Set<WorklaneID> = []
     ) {
         let visiblePaneCount = worklanes
             .first(where: { $0.id == activeWorklaneID && windowIsVisible })?
@@ -1031,9 +1068,15 @@ final class PaneRuntimeRegistry {
 
         for worklane in worklanes {
             let isActiveWorklane = worklane.id == activeWorklaneID
+            // A worklane's surfaces are visible (i.e., un-occluded so Ghostty
+            // keeps streaming frames) when the window is visible AND the
+            // worklane is either the active one OR currently rendered as a
+            // Worklane Peek neighbor preview. Focus stays gated on active.
+            let isPeekVisible = peekVisibleWorklaneIDs.contains(worklane.id)
             for pane in worklane.paneStripState.panes {
-                let isVisible = windowIsVisible && isActiveWorklane
-                let isFocused = isVisible && windowIsKey && pane.id == worklane.paneStripState.focusedPaneID
+                let isVisible = windowIsVisible && (isActiveWorklane || isPeekVisible)
+                let isFocused = isVisible && windowIsKey && isActiveWorklane
+                    && pane.id == worklane.paneStripState.focusedPaneID
                 let runtime = runtime(for: pane)
                 runtime.setSurfaceActivity(
                     TerminalSurfaceActivity(

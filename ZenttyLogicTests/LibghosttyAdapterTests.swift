@@ -836,6 +836,85 @@ final class TerminalDiagnosticsTests: XCTestCase {
     }
 }
 
+final class TerminalViewportDiagnosticsTests: XCTestCase {
+    override func tearDown() {
+        TerminalViewportDiagnostics.shared.setEnabled(false)
+        TerminalViewportDiagnostics.shared.clearForTesting()
+        TerminalViewportDiagnostics.shared.onRecord = nil
+        super.tearDown()
+    }
+
+    func test_viewport_diagnostics_records_ordered_events_when_enabled() {
+        let diagnostics = TerminalViewportDiagnostics()
+        diagnostics.setEnabled(true)
+
+        diagnostics.record(
+            .peekOpened,
+            context: TerminalViewportDiagnostics.Context(
+                paneID: PaneID("pane-1"),
+                worklaneID: WorklaneID("lane-1"),
+                laneRole: .activeCanvas,
+                peekSessionID: "peek-1"
+            )
+        )
+        diagnostics.record(
+            .libghosttyUpdateViewport,
+            context: TerminalViewportDiagnostics.Context(
+                paneID: PaneID("pane-1"),
+                worklaneID: WorklaneID("lane-1"),
+                laneRole: .activeCanvas,
+                viewportSize: CGSize(width: 1200, height: 720),
+                scale: 2,
+                displayID: 42,
+                peekSessionID: "peek-1"
+            )
+        )
+
+        let events = diagnostics.eventsForTesting()
+        XCTAssertEqual(events.map(\.sequence), [1, 2])
+        XCTAssertEqual(events.map(\.source), [.peekOpened, .libghosttyUpdateViewport])
+        XCTAssertEqual(events.last?.context.viewportSize, CGSize(width: 1200, height: 720))
+        XCTAssertEqual(events.last?.context.peekSessionID, "peek-1")
+
+        let payload = TerminalViewportDiagnostics.logPayloadForTesting(events.last!)
+        XCTAssertTrue(payload.contains("source=libghosttyUpdateViewport"))
+        XCTAssertTrue(payload.contains("paneID=pane-1"))
+        XCTAssertTrue(payload.contains("worklaneID=lane-1"))
+        XCTAssertTrue(payload.contains("laneRole=activeCanvas"))
+        XCTAssertTrue(payload.contains("viewport=1200.0x720.0"))
+        XCTAssertTrue(payload.contains("scale=2.0"))
+        XCTAssertTrue(payload.contains("displayID=42"))
+        XCTAssertTrue(payload.contains("peekSessionID=peek-1"))
+    }
+
+    func test_viewport_diagnostics_records_nothing_when_disabled() {
+        let diagnostics = TerminalViewportDiagnostics()
+
+        diagnostics.record(
+            .syncAttempt,
+            context: TerminalViewportDiagnostics.Context(paneID: PaneID("pane-1"))
+        )
+
+        XCTAssertTrue(diagnostics.eventsForTesting().isEmpty)
+    }
+
+    func test_viewport_diagnostics_caps_ring_buffer() {
+        let diagnostics = TerminalViewportDiagnostics(maxEvents: 3)
+        diagnostics.setEnabled(true)
+
+        for index in 1...5 {
+            diagnostics.record(
+                .syncAttempt,
+                context: TerminalViewportDiagnostics.Context(note: "event-\(index)")
+            )
+        }
+
+        let events = diagnostics.eventsForTesting()
+        XCTAssertEqual(events.map(\.sequence), [3, 4, 5])
+        XCTAssertEqual(events.map(\.context.note), ["event-3", "event-4", "event-5"])
+    }
+}
+
 final class LibghosttyWakeupCoordinatorTests: XCTestCase {
     func test_request_tick_coalesces_repeated_wakeups_while_a_tick_is_pending() {
         final class State: @unchecked Sendable {

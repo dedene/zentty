@@ -187,7 +187,6 @@ extension ShortcutPreset {
         .init(commandID: .splitVertically, keyCode: UInt16(kVK_ANSI_R), keyKind: .character, modifiers: [.command, .shift]),
         .init(commandID: .closeFocusedPane, keyCode: UInt16(kVK_ANSI_C), keyKind: .character, modifiers: [.command]),
         .init(commandID: .copyFocusedPanePath, keyCode: UInt16(kVK_ANSI_C), keyKind: .character, modifiers: [.command, .shift]),
-        .init(commandID: .toggleZoomOut, keyCode: UInt16(kVK_ANSI_V), keyKind: .character, modifiers: [.command, .shift]),
 
         // Arrange Width — Cmd+1/2/3/4
         .init(commandID: .arrangeWidthFull, keyCode: UInt16(kVK_ANSI_1), keyKind: .character, modifiers: [.command]),
@@ -238,7 +237,6 @@ extension ShortcutPreset {
         .init(commandID: .splitHorizontally, keyCode: UInt16(kVK_ANSI_J), keyKind: .character, modifiers: [.command]),
         .init(commandID: .splitVertically, keyCode: UInt16(kVK_ANSI_K), keyKind: .character, modifiers: [.command]),
         .init(commandID: .closeFocusedPane, keyCode: UInt16(kVK_ANSI_L), keyKind: .character, modifiers: [.command]),
-        .init(commandID: .toggleZoomOut, keyCode: UInt16(kVK_ANSI_M), keyKind: .character, modifiers: [.command]),
 
         // Arrange Width — Cmd+1/2/3/4
         .init(commandID: .arrangeWidthFull, keyCode: UInt16(kVK_ANSI_1), keyKind: .character, modifiers: [.command]),

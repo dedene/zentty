@@ -123,7 +123,7 @@ final class PaneDragHitTestingTests: XCTestCase {
             ],
             columnForPane: [paneID: columnID],
             paneCountByColumn: [columnID: 2],
-            sourceColumnID: PaneColumnID("source"),
+            excludedPaneID: PaneID("excluded"),
             minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
         )
 
@@ -141,7 +141,7 @@ final class PaneDragHitTestingTests: XCTestCase {
             ],
             columnForPane: [paneID: columnID],
             paneCountByColumn: [columnID: 2],
-            sourceColumnID: PaneColumnID("source"),
+            excludedPaneID: PaneID("excluded"),
             minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
         )
 
@@ -167,7 +167,7 @@ final class PaneDragHitTestingTests: XCTestCase {
             ],
             columnForPane: [paneID: columnID],
             paneCountByColumn: [columnID: 1],
-            sourceColumnID: PaneColumnID("source"),
+            excludedPaneID: PaneID("excluded"),
             minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
         )
 
@@ -180,6 +180,123 @@ final class PaneDragHitTestingTests: XCTestCase {
                 leading: true
             )
         )
+    }
+
+    // MARK: - 2→1 detach: lone sibling becomes a valid split target
+
+    func test_splitZoneHit_allows_left_edge_horizontal_split_on_remaining_sibling_after_2to1_drag() {
+        let remaining = PaneID("remaining")
+        let dragged = PaneID("dragged")
+        let columnID = PaneColumnID("source")
+
+        let hit = PaneDragHitTest.splitZoneHit(
+            cursorInContent: CGPoint(x: 20, y: 460),
+            paneFramesByID: [
+                remaining: CGRect(x: 0, y: 0, width: 320, height: 920)
+            ],
+            columnForPane: [remaining: columnID],
+            paneCountByColumn: [columnID: 1],
+            excludedPaneID: dragged,
+            minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
+        )
+
+        XCTAssertEqual(
+            hit,
+            SplitZoneHit(
+                targetPaneID: remaining,
+                targetColumnID: columnID,
+                axis: .horizontal,
+                leading: true
+            )
+        )
+    }
+
+    func test_splitZoneHit_allows_right_edge_horizontal_split_on_remaining_sibling_after_2to1_drag() {
+        let remaining = PaneID("remaining")
+        let dragged = PaneID("dragged")
+        let columnID = PaneColumnID("source")
+
+        let hit = PaneDragHitTest.splitZoneHit(
+            cursorInContent: CGPoint(x: 300, y: 460),
+            paneFramesByID: [
+                remaining: CGRect(x: 0, y: 0, width: 320, height: 920)
+            ],
+            columnForPane: [remaining: columnID],
+            paneCountByColumn: [columnID: 1],
+            excludedPaneID: dragged,
+            minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
+        )
+
+        XCTAssertEqual(
+            hit,
+            SplitZoneHit(
+                targetPaneID: remaining,
+                targetColumnID: columnID,
+                axis: .horizontal,
+                leading: false
+            )
+        )
+    }
+
+    // MARK: - 3→2 detach: relaxation extends beyond the 2→1 case
+
+    func test_splitZoneHit_allows_vertical_split_on_sibling_in_source_column_with_3_panes() {
+        let remainingTop = PaneID("remaining-top")
+        let remainingBottom = PaneID("remaining-bottom")
+        let dragged = PaneID("dragged")
+        let columnID = PaneColumnID("source")
+
+        // After dragging the middle pane out of [top, middle, bottom], the
+        // reduced presentation has two panes stacked; cursor lands on the top
+        // edge of the surviving top pane.
+        let hit = PaneDragHitTest.splitZoneHit(
+            cursorInContent: CGPoint(x: 160, y: 980),
+            paneFramesByID: [
+                remainingTop: CGRect(x: 0, y: 600, width: 320, height: 400),
+                remainingBottom: CGRect(x: 0, y: 0, width: 320, height: 400)
+            ],
+            columnForPane: [
+                remainingTop: columnID,
+                remainingBottom: columnID
+            ],
+            paneCountByColumn: [columnID: 2],
+            excludedPaneID: dragged,
+            minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
+        )
+
+        XCTAssertEqual(
+            hit,
+            SplitZoneHit(
+                targetPaneID: remainingTop,
+                targetColumnID: columnID,
+                axis: .vertical,
+                leading: true
+            )
+        )
+    }
+
+    // MARK: - Option-held duplicate-drop: dragged pane stays excluded
+
+    func test_splitZoneHit_excludes_dragged_pane_itself_in_option_held_originalPresentation() {
+        let dragged = PaneID("dragged")
+        let columnID = PaneColumnID("source")
+
+        // Option-held mode: the dragged pane's frame is still in the layout
+        // (originalPresentation includes it). The cursor is inside the
+        // dragged pane's left edge zone — splitZoneHit must NOT promote the
+        // dragged pane as its own split target.
+        let hit = PaneDragHitTest.splitZoneHit(
+            cursorInContent: CGPoint(x: 20, y: 460),
+            paneFramesByID: [
+                dragged: CGRect(x: 0, y: 0, width: 320, height: 920)
+            ],
+            columnForPane: [dragged: columnID],
+            paneCountByColumn: [columnID: 1],
+            excludedPaneID: dragged,
+            minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
+        )
+
+        XCTAssertNil(hit)
     }
 
 }

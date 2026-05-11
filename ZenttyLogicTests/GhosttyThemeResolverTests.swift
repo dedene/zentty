@@ -244,6 +244,73 @@ final class GhosttyThemeResolverTests: AppKitTestCase {
         XCTAssertLessThan(theme.startupSurface.srgbClamped.alphaComponent, 1.0)
     }
 
+    func test_derived_theme_uses_mostly_opaque_dark_zoom_pane_fills() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.5,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: false
+        )
+
+        XCTAssertEqual(theme.paneZoomFillUnfocused.srgbClamped.alphaComponent, 0.92, accuracy: 0.001)
+        XCTAssertEqual(theme.paneZoomFillFocused.srgbClamped.alphaComponent, 0.92, accuracy: 0.001)
+        XCTAssertEqual(theme.paneZoomFillFocused.themeToken, theme.paneZoomFillUnfocused.themeToken)
+        XCTAssertLessThan(
+            theme.paneZoomFillUnfocused.perceivedLuminance,
+            theme.windowBackground.withAlphaComponent(1).perceivedLuminance
+        )
+    }
+
+    func test_derived_theme_uses_mostly_opaque_light_zoom_pane_fills() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#F7F4EC")!,
+                foreground: NSColor(hexString: "#1E2428")!,
+                cursorColor: NSColor(hexString: "#006DAD")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.5,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: false
+        )
+
+        XCTAssertEqual(theme.paneZoomFillUnfocused.srgbClamped.alphaComponent, 0.95, accuracy: 0.001)
+        XCTAssertEqual(theme.paneZoomFillFocused.srgbClamped.alphaComponent, 0.95, accuracy: 0.001)
+        XCTAssertEqual(theme.paneZoomFillFocused.themeToken, theme.paneZoomFillUnfocused.themeToken)
+        XCTAssertGreaterThan(
+            theme.paneZoomFillUnfocused.perceivedLuminance,
+            theme.windowBackground.withAlphaComponent(1).perceivedLuminance
+        )
+    }
+
+    func test_derived_theme_makes_zoom_pane_fills_opaque_when_reducing_transparency() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.4,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: true
+        )
+
+        XCTAssertEqual(theme.paneZoomFillUnfocused.srgbClamped.alphaComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(theme.paneZoomFillFocused.srgbClamped.alphaComponent, 1.0, accuracy: 0.001)
+    }
+
     func test_derived_theme_keeps_sidebar_distinct_from_main_window_background() {
         let theme = ZenttyTheme(
             resolvedTheme: GhosttyResolvedTheme(

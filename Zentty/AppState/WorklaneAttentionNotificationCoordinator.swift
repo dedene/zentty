@@ -48,13 +48,27 @@ final class WorklaneAttentionNotificationCoordinator {
         let paneID: PaneID
     }
 
+    private struct SystemNotificationRequest {
+        let identifier: String
+        let title: String
+        let body: String
+        let windowID: String
+        let worklaneID: String
+        let paneID: String
+        let soundName: String
+        let shouldRequestUserAttention: Bool
+    }
+
     private let center: any WorklaneAttentionUserNotificationCenter
     private let notificationStore: NotificationStore
     private let configStore: AppConfigStore?
+    private let needsInputSystemNotificationDelay: TimeInterval
     private let logger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneAttentionNotifications")
     private var lastSeenStates: [PaneKey: WorklaneAttentionState] = [:]
     private var lastSeenActiveViews: [PaneKey: Bool] = [:]
     private var lastSeenNotificationSignatures: [PaneKey: String] = [:]
+    private var pendingSystemNotificationRequests: [PaneKey: SystemNotificationRequest] = [:]
+    private var pendingSystemNotificationTasks: [PaneKey: Task<Void, Never>] = [:]
     private var loggedGenericNeedsInputMessages = Set<String>()
 
     init(
@@ -65,6 +79,20 @@ final class WorklaneAttentionNotificationCoordinator {
         self.center = center ?? Self.makeDefaultNotificationCenter()
         self.notificationStore = notificationStore
         self.configStore = configStore
+        self.needsInputSystemNotificationDelay = Runtime.isRunningTests ? 0 : 1.5
+        self.center.requestAuthorizationIfNeeded()
+    }
+
+    init(
+        center: (any WorklaneAttentionUserNotificationCenter)? = nil,
+        notificationStore: NotificationStore,
+        configStore: AppConfigStore? = nil,
+        needsInputSystemNotificationDelay: TimeInterval
+    ) {
+        self.center = center ?? Self.makeDefaultNotificationCenter()
+        self.notificationStore = notificationStore
+        self.configStore = configStore
+        self.needsInputSystemNotificationDelay = needsInputSystemNotificationDelay
         self.center.requestAuthorizationIfNeeded()
     }
 
@@ -111,6 +139,7 @@ final class WorklaneAttentionNotificationCoordinator {
                 if isActivelyViewed,
                    lastSeenStates[key] == attention.state,
                    lastSeenActiveViews[key] == false {
+                    cancelPendingSystemNotification(for: key)
                     notificationStore.resolve(
                         windowID: windowID,
                         worklaneID: worklane.id,
@@ -145,6 +174,7 @@ final class WorklaneAttentionNotificationCoordinator {
                         worklaneID: worklane.id,
                         paneID: attention.paneID
                     )
+                    cancelPendingSystemNotification(for: key)
                 }
 
                 guard shouldNotifySystemNotification(
@@ -153,21 +183,22 @@ final class WorklaneAttentionNotificationCoordinator {
                     activeWorklaneID: activeWorklaneID,
                     windowIsKey: windowIsKey
                 ) else {
+                    cancelPendingSystemNotification(for: key)
                     continue
                 }
 
-                center.add(
+                notifySystemNotification(
+                    key: key,
+                    state: attention.state,
                     identifier: "\(windowID.rawValue)-\(worklane.id.rawValue)-\(attention.paneID.rawValue)-\(attention.state.rawValue)-\(notificationSignature.hashValue)",
                     title: needsInputContent?.systemTitle ?? systemNotificationTitle(for: attention),
                     body: needsInputContent?.systemBody ?? systemNotificationBody(for: attention, in: worklane),
                     windowID: windowID.rawValue,
                     worklaneID: worklane.id.rawValue,
                     paneID: attention.paneID.rawValue,
-                    soundName: systemNotificationSoundName(for: attention.state)
+                    soundName: systemNotificationSoundName(for: attention.state),
+                    shouldRequestUserAttention: attention.state == .needsInput && !windowIsKey
                 )
-                if attention.state == .needsInput, !windowIsKey {
-                    NSApplication.shared.requestUserAttention(.informationalRequest)
-                }
             }
         }
 
@@ -176,11 +207,82 @@ final class WorklaneAttentionNotificationCoordinator {
                 continue
             }
             notificationStore.resolve(windowID: windowID, worklaneID: key.worklaneID, paneID: key.paneID)
+            cancelPendingSystemNotification(for: key)
         }
 
         lastSeenStates = nextSeenStates
         lastSeenActiveViews = nextSeenActiveViews
         lastSeenNotificationSignatures = nextSeenNotificationSignatures
+    }
+
+    private func notifySystemNotification(
+        key: PaneKey,
+        state: WorklaneAttentionState,
+        identifier: String,
+        title: String,
+        body: String,
+        windowID: String,
+        worklaneID: String,
+        paneID: String,
+        soundName: String,
+        shouldRequestUserAttention: Bool
+    ) {
+        let request = SystemNotificationRequest(
+            identifier: identifier,
+            title: title,
+            body: body,
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            soundName: soundName,
+            shouldRequestUserAttention: shouldRequestUserAttention
+        )
+
+        guard state == .needsInput, needsInputSystemNotificationDelay > 0 else {
+            cancelPendingSystemNotification(for: key)
+            deliverSystemNotification(request)
+            return
+        }
+
+        let delay = needsInputSystemNotificationDelay
+        cancelPendingSystemNotification(for: key)
+        pendingSystemNotificationRequests[key] = request
+        pendingSystemNotificationTasks[key] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else {
+                return
+            }
+            self?.deliverPendingSystemNotification(for: key)
+        }
+    }
+
+    private func deliverPendingSystemNotification(for key: PaneKey) {
+        pendingSystemNotificationTasks[key] = nil
+        guard let request = pendingSystemNotificationRequests.removeValue(forKey: key) else {
+            return
+        }
+
+        deliverSystemNotification(request)
+    }
+
+    private func deliverSystemNotification(_ request: SystemNotificationRequest) {
+        center.add(
+            identifier: request.identifier,
+            title: request.title,
+            body: request.body,
+            windowID: request.windowID,
+            worklaneID: request.worklaneID,
+            paneID: request.paneID,
+            soundName: request.soundName
+        )
+        if request.shouldRequestUserAttention {
+            NSApplication.shared.requestUserAttention(.informationalRequest)
+        }
+    }
+
+    private func cancelPendingSystemNotification(for key: PaneKey) {
+        pendingSystemNotificationTasks.removeValue(forKey: key)?.cancel()
+        pendingSystemNotificationRequests.removeValue(forKey: key)
     }
 
     private func needsInputContent(

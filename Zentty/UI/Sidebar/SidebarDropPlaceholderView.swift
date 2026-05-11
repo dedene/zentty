@@ -85,10 +85,15 @@ final class SidebarDropPlaceholderView: NSView {
 @MainActor
 final class SidebarPaneDropPresenter {
     private weak var targetStack: NSStackView?
+    private weak var lineContainer: NSView?
     private var dropPlaceholder: SidebarDropPlaceholderView?
+    private var dropPlaceholderGeneration = 0
+    private var insertionLine: PaneDragInsertionLineView?
+    private var insertionLineFrame: CGRect?
 
-    init(targetStack: NSStackView) {
+    init(targetStack: NSStackView, lineContainer: NSView) {
         self.targetStack = targetStack
+        self.lineContainer = lineContainer
     }
 
     func setHighlightedDropTargetWorklane(
@@ -100,26 +105,92 @@ final class SidebarPaneDropPresenter {
         }
     }
 
-    func showNewWorklanePlaceholder() {
-        guard dropPlaceholder == nil, let targetStack else { return }
+    func showInsertionLine(
+        _ target: SidebarPaneInsertionLineTarget,
+        buttons: [SidebarWorklaneRowButton]
+    ) {
+        guard let lineContainer,
+              let targetButton = buttons.first(where: { $0.worklaneID == target.worklaneID })
+        else {
+            hideInsertionLine()
+            return
+        }
 
-        let placeholder = SidebarDropPlaceholderView()
-        placeholder.translatesAutoresizingMaskIntoConstraints = false
-        targetStack.addArrangedSubview(placeholder)
-        NSLayoutConstraint.activate([
-            placeholder.leadingAnchor.constraint(equalTo: targetStack.leadingAnchor),
-            placeholder.trailingAnchor.constraint(equalTo: targetStack.trailingAnchor),
-            placeholder.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight),
-        ])
-        dropPlaceholder = placeholder
-        placeholder.animateIn()
+        let rowFrame = lineContainer.convert(targetButton.bounds, from: targetButton)
+        let horizontalInset = ShellMetrics.sidebarPaneRowHorizontalInset
+        let lineHeight: CGFloat = 4
+        let frame = CGRect(
+            x: rowFrame.minX + horizontalInset,
+            y: target.y - lineHeight / 2,
+            width: max(0, rowFrame.width - (horizontalInset * 2)),
+            height: lineHeight
+        )
+        guard insertionLineFrame != frame else { return }
+        hideInsertionLine()
+
+        let line = PaneDragInsertionLineView()
+        line.setOrientation(.horizontal)
+        lineContainer.addSubview(line)
+
+        line.frame = frame
+        line.layer?.cornerRadius = lineHeight / 2
+        line.layer?.zPosition = 1_000
+        line.startPulsing()
+        line.alphaValue = 0.9
+
+        insertionLine = line
+        insertionLineFrame = frame
+    }
+
+    func hideInsertionLine() {
+        guard let line = insertionLine else { return }
+        line.removeFromSuperview()
+        insertionLine = nil
+        insertionLineFrame = nil
+    }
+
+    func showNewWorklanePlaceholder(atIndex insertionIndex: Int) {
+        guard let targetStack else { return }
+        dropPlaceholderGeneration += 1
+
+        let placeholder: SidebarDropPlaceholderView
+        let shouldAnimateIn: Bool
+        if let existing = dropPlaceholder {
+            placeholder = existing
+            shouldAnimateIn = false
+            placeholder.layer?.removeAnimation(forKey: "placeholderScaleOut")
+            placeholder.alphaValue = 1
+            if targetStack.arrangedSubviews.contains(existing) {
+                targetStack.removeArrangedSubview(existing)
+            }
+        } else {
+            placeholder = SidebarDropPlaceholderView()
+            placeholder.translatesAutoresizingMaskIntoConstraints = false
+            dropPlaceholder = placeholder
+            shouldAnimateIn = true
+        }
+
+        let clampedIndex = max(0, min(insertionIndex, targetStack.arrangedSubviews.count))
+        targetStack.insertArrangedSubview(placeholder, at: clampedIndex)
+        if shouldAnimateIn {
+            NSLayoutConstraint.activate([
+                placeholder.leadingAnchor.constraint(equalTo: targetStack.leadingAnchor),
+                placeholder.trailingAnchor.constraint(equalTo: targetStack.trailingAnchor),
+                placeholder.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight),
+            ])
+            placeholder.animateIn()
+        }
     }
 
     func hideNewWorklanePlaceholder() {
         guard let placeholder = dropPlaceholder else { return }
+        dropPlaceholderGeneration += 1
+        let generation = dropPlaceholderGeneration
         placeholder.animateOut { [weak self] in
+            guard let self, self.dropPlaceholderGeneration == generation else { return }
+            self.targetStack?.removeArrangedSubview(placeholder)
             placeholder.removeFromSuperview()
-            self?.dropPlaceholder = nil
+            self.dropPlaceholder = nil
         }
     }
 }

@@ -59,7 +59,7 @@ enum AppMenuBuilder {
         mainMenu.addItem(makeEditMenuItem(shortcutManager: shortcutManager))
         mainMenu.addItem(makeSectionMenuItem(section: .navigation, shortcutManager: shortcutManager))
         mainMenu.addItem(makeViewMenuItem(shortcutManager: shortcutManager))
-        mainMenu.addItem(makeWindowMenuItem())
+        mainMenu.addItem(makeWindowMenuItem(shortcutManager: shortcutManager))
 
         return mainMenu
     }
@@ -83,6 +83,7 @@ enum AppMenuBuilder {
             }
 
             item.title = menuDefinition.title
+            applySystemImage(menuDefinition.systemImageName, title: menuDefinition.title, to: item)
             apply(shortcutManager.shortcut(for: definition.id), to: item)
         }
     }
@@ -133,7 +134,7 @@ enum AppMenuBuilder {
         makeSectionMenuItem(section: .view, shortcutManager: shortcutManager)
     }
 
-    private static func makeWindowMenuItem() -> NSMenuItem {
+    private static func makeWindowMenuItem(shortcutManager: ShortcutManager) -> NSMenuItem {
         let menuItem = NSMenuItem()
         let menu = NSMenu(title: "Window")
 
@@ -148,6 +149,8 @@ enum AppMenuBuilder {
             keyEquivalent: "m"
         ))
         menu.addItem(NSMenuItem(title: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: ""))
+        menu.addItem(makeSeparatorItem())
+        addMenuEntries(AppCommandRegistry.menuEntriesBySection[.window] ?? [], to: menu, shortcutManager: shortcutManager)
         menu.addItem(makeSeparatorItem())
         menu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
 
@@ -215,8 +218,15 @@ enum AppMenuBuilder {
         }
 
         let item = NSMenuItem(title: menuDefinition.title, action: menuDefinition.selector, keyEquivalent: "")
+        applySystemImage(menuDefinition.systemImageName, title: menuDefinition.title, to: item)
         apply(shortcutManager.shortcut(for: commandID), to: item)
         return item
+    }
+
+    private static func applySystemImage(_ systemImageName: String?, title: String, to item: NSMenuItem) {
+        item.image = systemImageName.flatMap {
+            NSImage(systemSymbolName: $0, accessibilityDescription: title)
+        }
     }
 
     private static func apply(_ shortcut: KeyboardShortcut?, to item: NSMenuItem) {
@@ -293,6 +303,8 @@ enum AppMenuBuilder {
                 ("Close Window", #selector(NSWindow.performClose(_:))),
                 ("Minimize", #selector(NSWindow.performMiniaturize(_:))),
                 ("Zoom", #selector(NSWindow.performZoom(_:))),
+                (nil, nil),
+                ("Task Manager", #selector(AppDelegate.showTaskManager(_:))),
                 (nil, nil),
                 ("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
             ], in: windowMenu)

@@ -314,6 +314,29 @@ final class SidebarViewRenderTests: XCTestCase {
         XCTAssertLessThan(frames[1].1.midY, frames[2].1.midY)
     }
 
+    func test_sidebarPaneInsertionLine_rendersAboveRaisedActiveRowsAndClipsToRoundedShape() throws {
+        let lineContainer = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 160))
+        lineContainer.wantsLayer = true
+        let targetStack = NSStackView(frame: lineContainer.bounds)
+        lineContainer.addSubview(targetStack)
+        let targetButton = SidebarWorklaneRowButton(worklaneID: WorklaneID("active"))
+        targetButton.frame = NSRect(x: 0, y: 48, width: 240, height: 80)
+        targetButton.layer?.zPosition = 10
+        lineContainer.addSubview(targetButton)
+
+        let presenter = SidebarPaneDropPresenter(targetStack: targetStack, lineContainer: lineContainer)
+
+        presenter.showInsertionLine(
+            SidebarPaneInsertionLineTarget(worklaneID: WorklaneID("active"), y: 88),
+            buttons: [targetButton]
+        )
+
+        let line = try XCTUnwrap(lineContainer.subviews.compactMap { $0 as? PaneDragInsertionLineView }.first)
+        XCTAssertGreaterThan(line.layer?.zPosition ?? 0, targetButton.layer?.zPosition ?? 0)
+        XCTAssertEqual(line.layer?.masksToBounds, true)
+        XCTAssertEqual(line.layer?.cornerRadius ?? 0, 2, accuracy: 0.001)
+    }
+
     func test_render_removes_deleted_buttons_from_view_hierarchy_immediately() {
         let sidebar = makeSidebar()
         let theme = ZenttyTheme.fallback(for: nil)

@@ -65,6 +65,13 @@ final class WorklaneRenderCoordinator {
 
     weak var environment: RenderEnvironmentProviding?
 
+    /// Worklanes whose surfaces should be kept un-occluded even though they
+    /// aren't the active worklane — used by Worklane Peek so neighbor lane
+    /// previews keep streaming live instead of freezing on a still frame.
+    /// Default returns an empty set (nothing peek-visible).
+    var peekVisibleWorklaneIDsProvider: () -> Set<WorklaneID> = { [] }
+    var sidebarFocusOverrideProvider: () -> WorklaneSidebarFocusOverride? = { nil }
+
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         worklaneStore: WorklaneStore,
@@ -136,6 +143,14 @@ final class WorklaneRenderCoordinator {
         updateRuntimeSurfaceActivities()
     }
 
+    func renderSidebar() {
+        guard let views else {
+            return
+        }
+
+        renderSidebar(in: views)
+    }
+
     #if DEBUG
     var reviewPollingTargetForTesting: (worklaneID: WorklaneID, paneID: PaneID, repoRoot: String, branch: String)? {
         reviewPollingTarget
@@ -154,6 +169,19 @@ final class WorklaneRenderCoordinator {
 
     private var activePaneID: PaneID? {
         worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+    }
+
+    private func renderSidebar(in views: ViewBindings) {
+        terminalDiagnostics.recordRender(.sidebar, activePaneID: activePaneID)
+        views.sidebarView.render(
+            summaries: WorklaneSidebarSummaryBuilder.summaries(
+                for: worklaneStore.worklanes,
+                activeWorklaneID: worklaneStore.activeWorklaneID,
+                focusOverride: sidebarFocusOverrideProvider()
+            ),
+            theme: currentTheme
+        )
+        environment?.renderSidebarSyncNeeded()
     }
 
     private func handleWorklaneChange(_ change: WorklaneChange) {
@@ -225,15 +253,7 @@ final class WorklaneRenderCoordinator {
                     runtimeRegistry.synchronize(with: worklaneStore.worklanes)
                     needsRuntimeSynchronization = false
                 }
-                terminalDiagnostics.recordRender(.sidebar, activePaneID: activePaneID)
-                views.sidebarView.render(
-                    summaries: WorklaneSidebarSummaryBuilder.summaries(
-                        for: worklaneStore.worklanes,
-                        activeWorklaneID: worklaneStore.activeWorklaneID
-                    ),
-                    theme: currentTheme
-                )
-                environment?.renderSidebarSyncNeeded()
+                renderSidebar(in: views)
 
                 guard let worklane = worklaneStore.activeWorklane else {
                     terminalDiagnostics.recordRender(.header, activePaneID: activePaneID)
@@ -325,7 +345,8 @@ final class WorklaneRenderCoordinator {
                 worklanes: worklaneStore.worklanes,
                 activeWorklaneID: worklaneStore.activeWorklaneID,
                 windowIsVisible: windowState.isVisible,
-                windowIsKey: windowState.isKeyWindow
+                windowIsKey: windowState.isKeyWindow,
+                peekVisibleWorklaneIDs: peekVisibleWorklaneIDsProvider()
             )
         }
     }
@@ -413,14 +434,7 @@ final class WorklaneRenderCoordinator {
         }
 
         if impacts.contains(.sidebar) {
-            views.sidebarView.render(
-                summaries: WorklaneSidebarSummaryBuilder.summaries(
-                    for: worklaneStore.worklanes,
-                    activeWorklaneID: worklaneStore.activeWorklaneID
-                ),
-                theme: currentTheme
-            )
-            environment?.renderSidebarSyncNeeded()
+            renderSidebar(in: views)
         }
 
         if impacts.contains(.header) {

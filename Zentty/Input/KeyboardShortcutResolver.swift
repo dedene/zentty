@@ -37,6 +37,8 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case duplicateFocusedPane = "pane.duplicate"
     case movePaneToNewWindow = "pane.move_to_new_window"
     case splitHorizontally = "pane.split.horizontal"
+    case forceSplitRight = "pane.split.right.force"
+    case forceAddPaneRight = "pane.add_right.force"
     case splitVertically = "pane.split.vertical"
     case arrangeWidthFull = "pane.arrange.width.full"
     case arrangeWidthHalves = "pane.arrange.width.halves"
@@ -51,6 +53,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case arrangeHeightGoldenFocusTall = "pane.arrange.height.golden_focus_tall"
     case arrangeHeightGoldenFocusShort = "pane.arrange.height.golden_focus_short"
     case closeFocusedPane = "pane.close_focused"
+    case restoreClosedPane = "pane.restore_closed"
     case focusPreviousPane = "pane.focus.previous"
     case focusNextPane = "pane.focus.next"
     case focusLeftPane = "pane.focus.left"
@@ -62,10 +65,10 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case resizePaneUp = "pane.resize.up"
     case resizePaneDown = "pane.resize.down"
     case resetPaneLayout = "pane.reset_layout"
-    case toggleZoomOut = "pane.toggle_zoom_out"
     case navigateBack = "navigate.back"
     case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
+    case showTaskManager = "task_manager.show"
     case openBranchOnRemote = "branch.open_remote"
     case openSettings = "app.open_settings"
     case newWindow = "app.new_window"
@@ -102,6 +105,7 @@ enum AppAction: Equatable, Sendable {
     case navigateBack
     case navigateForward
     case showCommandPalette
+    case showTaskManager
     case openBranchOnRemote
     case openSettings
     case newWindow
@@ -115,6 +119,7 @@ enum AppMenuSection: String, CaseIterable {
     case edit = "Edit"
     case navigation = "Navigation"
     case view = "View"
+    case window = "Window"
 }
 
 indirect enum AppMenuEntry {
@@ -127,6 +132,19 @@ struct AppCommandMenuItem {
     let section: AppMenuSection
     let title: String
     let selector: Selector
+    let systemImageName: String?
+
+    init(
+        section: AppMenuSection,
+        title: String,
+        selector: Selector,
+        systemImageName: String? = nil
+    ) {
+        self.section = section
+        self.title = title
+        self.selector = selector
+        self.systemImageName = systemImageName
+    }
 }
 
 struct AppCommandDefinition {
@@ -354,25 +372,41 @@ enum AppCommandRegistry {
         ),
         AppCommandDefinition(
             id: .splitHorizontally,
-            title: "Split Horizontally",
+            title: "Add Pane Right",
             category: .panes,
             defaultShortcut: .init(key: .character("d"), modifiers: [.command]),
             action: .pane(.splitHorizontally),
             menuItem: AppCommandMenuItem(
                 section: .view,
-                title: "Split Horizontally",
+                title: "Add Pane Right",
                 selector: #selector(MainWindowController.splitHorizontally(_:))
             )
         ),
         AppCommandDefinition(
+            id: .forceSplitRight,
+            title: "Split Right Visibly",
+            category: .panes,
+            defaultShortcut: nil,
+            action: .pane(.splitRightVisibly),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .forceAddPaneRight,
+            title: "Add Pane Right Without Resizing",
+            category: .panes,
+            defaultShortcut: nil,
+            action: .pane(.addPaneRightWithoutResizing),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
             id: .splitVertically,
-            title: "Split Vertically",
+            title: "New Pane Below",
             category: .panes,
             defaultShortcut: .init(key: .character("d"), modifiers: [.command, .shift]),
             action: .pane(.splitVertically),
             menuItem: AppCommandMenuItem(
                 section: .view,
-                title: "Split Vertically",
+                title: "New Pane Below",
                 selector: #selector(MainWindowController.splitVertically(_:))
             )
         ),
@@ -522,11 +556,27 @@ enum AppCommandRegistry {
         ),
         AppCommandDefinition(
             id: .closeFocusedPane,
-            title: "Close Focused Pane",
+            title: "Close Pane",
             category: .panes,
             defaultShortcut: .init(key: .character("w"), modifiers: [.command]),
             action: .pane(.closeFocusedPane),
-            menuItem: nil
+            menuItem: AppCommandMenuItem(
+                section: .file,
+                title: "Close Pane",
+                selector: #selector(MainWindowController.closeFocusedPane(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .restoreClosedPane,
+            title: "Undo Close Pane",
+            category: .panes,
+            defaultShortcut: .init(key: .character("t"), modifiers: [.command, .shift]),
+            action: .pane(.restoreClosedPane),
+            menuItem: AppCommandMenuItem(
+                section: .file,
+                title: "Undo Close Pane",
+                selector: #selector(MainWindowController.restoreClosedPane(_:))
+            )
         ),
         AppCommandDefinition(
             id: .focusPreviousPane,
@@ -660,16 +710,6 @@ enum AppCommandRegistry {
                 selector: #selector(MainWindowController.resetPaneLayout(_:))
             )
         ),
-        // Toggle Zoom Out is currently internal-only (triggered by drag).
-        // Hidden from menu and command palette until the UX is finalized.
-        AppCommandDefinition(
-            id: .toggleZoomOut,
-            title: "Toggle Zoom Out",
-            category: .panes,
-            defaultShortcut: nil,
-            action: .pane(.toggleZoomOut),
-            menuItem: nil
-        ),
         AppCommandDefinition(
             id: .showCommandPalette,
             title: "Command Palette",
@@ -742,12 +782,28 @@ enum AppCommandRegistry {
                 selector: #selector(MainWindowController.openBookmarksPopover(_:))
             )
         ),
+        AppCommandDefinition(
+            id: .showTaskManager,
+            title: "Task Manager",
+            category: .general,
+            defaultShortcut: nil,
+            action: .showTaskManager,
+            menuItem: AppCommandMenuItem(
+                section: .window,
+                title: "Task Manager",
+                selector: #selector(AppDelegate.showTaskManager(_:)),
+                systemImageName: "gauge.with.dots.needle.67percent"
+            )
+        ),
     ]
 
     static let menuEntriesBySection: [AppMenuSection: [AppMenuEntry]] = [
         .file: [
             .command(.newWindow),
             .command(.newWorklane),
+            .separator,
+            .command(.closeFocusedPane),
+            .command(.restoreClosedPane),
             .separator,
             .command(.nextWorklane),
             .command(.previousWorklane),
@@ -810,6 +866,9 @@ enum AppCommandRegistry {
             .command(.resizePaneDown),
             .separator,
             .command(.resetPaneLayout),
+        ],
+        .window: [
+            .command(.showTaskManager),
         ],
     ]
 
@@ -877,9 +936,13 @@ extension AppCommandDefinition {
         case .movePaneToNewWindow:
             "Move the focused pane into its own window without restarting the terminal session."
         case .splitHorizontally:
-            "Add a pane below in the same column."
+            "Add a pane to the right using your pane split behavior setting."
+        case .forceSplitRight:
+            "Force a visible side-by-side split to the right."
+        case .forceAddPaneRight:
+            "Force adding a pane to the right without shrinking the current pane."
         case .splitVertically:
-            "Add a pane to the right in a new column."
+            "Add a pane below in the same column."
         case .arrangeWidthFull:
             "Give each column the full window width."
         case .arrangeWidthHalves:
@@ -906,6 +969,8 @@ extension AppCommandDefinition {
             "Golden ratio: focused pane gets the short side (~38%)."
         case .closeFocusedPane:
             "Close the focused pane."
+        case .restoreClosedPane:
+            "Reopen the most recently closed pane in this window, restoring its working directory and resuming its agent session if there was one."
         case .focusPreviousPane:
             "Focus the previous pane, wrapping across worklanes."
         case .focusNextPane:
@@ -928,10 +993,10 @@ extension AppCommandDefinition {
             "Grow the focused pane downward."
         case .resetPaneLayout:
             "Reset pane sizes to their defaults."
-        case .toggleZoomOut:
-            "Zoom out to see all panes and drag to reorder."
         case .showCommandPalette:
             "Open the command palette."
+        case .showTaskManager:
+            "Show CPU and memory usage for live panes."
         case .openBranchOnRemote:
             "Open the current branch on GitHub or your remote host."
         case .openSettings:

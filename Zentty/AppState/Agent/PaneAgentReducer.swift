@@ -22,6 +22,12 @@ struct PaneAgentSessionState: Equatable, Sendable {
     var completionCandidateDeadline: Date?
     var idleVisibleUntil: Date?
     var unresolvedStopVisibleUntil: Date?
+    /// Timestamp of the most recent explicit Stop-style transition into
+    /// `.idle`. Used by `shouldApplyLifecycle` to ignore weaker `.needsInput`
+    /// signals that arrive moments after Stop — e.g., a generic Claude
+    /// `Notification("Claude is waiting for your input")` racing the Stop hook
+    /// over the IPC bus.
+    var explicitIdleSince: Date?
 }
 
 struct PaneAgentReducerState: Equatable, Sendable {
@@ -30,6 +36,11 @@ struct PaneAgentReducerState: Equatable, Sendable {
     static let idleVisibilityWindow: TimeInterval = 120
     static let unresolvedStopVisibilityWindow: TimeInterval = 600
     static let staleSessionVisibilityWindow: TimeInterval = 1_800
+    /// How long after an explicit Stop we ignore non-explicit `.needsInput`
+    /// payloads. Real follow-up interactions (PermissionRequest,
+    /// AskUserQuestion) come through with `.explicit` confidence and bypass
+    /// this guard.
+    static let postStopNeedsInputGraceWindow: TimeInterval = 5
 
     var sessionsByID: [String: PaneAgentSessionState] = [:]
 
@@ -41,6 +52,8 @@ struct PaneAgentReducerState: Equatable, Sendable {
             applyPID(payload, now: now)
         case .shellState:
             applyShellState(payload, now: now)
+        case .paneRootPID:
+            break
         case .paneContext:
             break
         }
@@ -448,7 +461,8 @@ struct PaneAgentReducerState: Equatable, Sendable {
             taskProgress: payload.taskProgress,
             completionCandidateDeadline: nil,
             idleVisibleUntil: nil,
-            unresolvedStopVisibleUntil: nil
+            unresolvedStopVisibleUntil: nil,
+            explicitIdleSince: nil
         )
 
         if payload.origin != .inferred {
@@ -458,7 +472,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             mergeFallbackSession(into: &session, for: tool, excluding: sessionID)
         }
 
-        if !shouldApplyLifecycle(payload, over: session) {
+        if !shouldApplyLifecycle(payload, over: session, now: now) {
             return
         }
 
@@ -517,15 +531,27 @@ struct PaneAgentReducerState: Equatable, Sendable {
             } else {
                 session.text = payloadText ?? existingText
             }
+            session.explicitIdleSince = nil
         case .idle:
             session.text = nil
             session.idleVisibleUntil = now.addingTimeInterval(Self.idleVisibilityWindow)
+            // Stamp the moment we accepted an explicit Stop (or equivalent
+            // .idle transition) so a late, lower-confidence `.needsInput`
+            // can't flip the session right back. Re-stamping on each
+            // explicit idle is fine — only the most recent matters.
+            if payload.origin == .explicitHook || payload.origin == .explicitAPI {
+                session.explicitIdleSince = now
+            } else {
+                session.explicitIdleSince = nil
+            }
         case .unresolvedStop:
             session.text = nil
             session.trackedPID = nil
             session.unresolvedStopVisibleUntil = now.addingTimeInterval(Self.unresolvedStopVisibilityWindow)
+            session.explicitIdleSince = nil
         case .running, .starting:
             session.text = nil
+            session.explicitIdleSince = nil
         }
 
         sessionsByID[sessionID] = session
@@ -613,7 +639,8 @@ struct PaneAgentReducerState: Equatable, Sendable {
                 taskProgress: payload.taskProgress,
                 completionCandidateDeadline: nil,
                 idleVisibleUntil: nil,
-                unresolvedStopVisibleUntil: nil
+                unresolvedStopVisibleUntil: nil,
+                explicitIdleSince: nil
             )
 
             if session.state == .idle || session.state == .unresolvedStop {
@@ -709,7 +736,8 @@ struct PaneAgentReducerState: Equatable, Sendable {
 
     private func shouldApplyLifecycle(
         _ payload: AgentStatusPayload,
-        over existingSession: PaneAgentSessionState
+        over existingSession: PaneAgentSessionState,
+        now: Date
     ) -> Bool {
         if payload.lifecycleEvent == .stopCandidate {
             return true
@@ -719,7 +747,28 @@ struct PaneAgentReducerState: Equatable, Sendable {
            existingSession.state == .needsInput,
            existingSession.interactionKind.requiresHumanAttention,
            payload.state == .idle || payload.state == .running || payload.state == .starting {
-            return false
+            return payload.lifecycleEvent == .toolActivity
+                || payload.lifecycleEvent == .turnComplete
+                || Self.codexNeedsInputIsWeakTerminalFallback(existingSession)
+        }
+
+        // Post-Stop grace: if the session was just explicitly stopped
+        // (Claude Stop hook, Codex stop, etc.), reject `.needsInput`
+        // payloads whose confidence isn't `.explicit`. Real follow-up
+        // interactions (PermissionRequest, AskUserQuestion) carry
+        // `.explicit` confidence and bypass this guard; weak/stale
+        // notifications racing the Stop over the IPC bus do not.
+        if existingSession.state == .idle,
+           payload.state == .needsInput,
+           let explicitIdleSince = existingSession.explicitIdleSince {
+            let payloadConfidence = payload.confidence ?? defaultConfidence(for: payload.origin)
+            if payloadConfidence != .explicit,
+               now.timeIntervalSince(explicitIdleSince) <= Self.postStopNeedsInputGraceWindow {
+                stopSignalLogger.debug(
+                    "reducer.lifecycle suppressing late needs-input session=\(existingSession.sessionID, privacy: .public) tool=\(existingSession.tool.displayName, privacy: .public) confidence=\(payloadConfidence.rawValue, privacy: .public)"
+                )
+                return false
+            }
         }
 
         if payload.origin.priority > existingSession.origin.priority {
@@ -746,6 +795,22 @@ struct PaneAgentReducerState: Equatable, Sendable {
         }
 
         return true
+    }
+
+    private static func codexNeedsInputIsWeakTerminalFallback(_ session: PaneAgentSessionState) -> Bool {
+        guard session.tool == .codex,
+              session.state == .needsInput,
+              session.interactionKind == .genericInput,
+              session.confidence == .weak else {
+            return false
+        }
+
+        switch session.origin {
+        case .heuristic, .inferred, .compatibility:
+            return true
+        case .explicitAPI, .explicitHook, .shell:
+            return false
+        }
     }
 
     private static func preferred(lhs: PaneAgentSessionState, rhs: PaneAgentSessionState) -> Bool {

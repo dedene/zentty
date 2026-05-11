@@ -232,8 +232,14 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         self.surface = surface
         self.hostView = hostView
         metadata.currentWorkingDirectory = request.workingDirectory
+        let initialViewportSize = hostView.normalizedBackingViewportSize
+        var initialViewportContext = hostView.viewportDiagnosticsContextForSurface
+        initialViewportContext.viewportSize = initialViewportSize
+        initialViewportContext.scale = hostView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        initialViewportContext.displayID = hostView.currentDisplayID
+        TerminalViewportDiagnostics.shared.record(.libghosttySurfaceInit, context: initialViewportContext)
         updateViewport(
-            size: hostView.convertToBacking(hostView.bounds).size,
+            size: initialViewportSize,
             scale: hostView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1,
             displayID: hostView.currentDisplayID
         )
@@ -258,6 +264,13 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         guard let surface else {
             return
         }
+
+        var context = hostView?.viewportDiagnosticsContextForSurface
+            ?? TerminalViewportDiagnostics.Context(paneID: paneID)
+        context.viewportSize = size
+        context.scale = scale
+        context.displayID = displayID
+        TerminalViewportDiagnostics.shared.record(.libghosttyUpdateViewport, context: context)
 
         if let displayID {
             ghostty_surface_set_display_id(surface, displayID)

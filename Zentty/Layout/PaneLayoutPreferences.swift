@@ -98,15 +98,123 @@ enum PaneLayoutPreset: String, CaseIterable, Equatable, Sendable {
     }
 }
 
+enum PaneSplitBehaviorMode: String, CaseIterable, Equatable, Sendable {
+    case adaptive
+    case alwaysSplit
+    case alwaysAdd
+
+    var title: String {
+        switch self {
+        case .adaptive:
+            "Adaptive"
+        case .alwaysSplit:
+            "Always Split"
+        case .alwaysAdd:
+            "Always Add"
+        }
+    }
+}
+
+enum PaneVisibleSplitWindowWidth: Int, CaseIterable, Equatable, Sendable {
+    case px1200 = 1200
+    case px1440 = 1440
+    case px1680 = 1680
+    case px1920 = 1920
+    case px2560 = 2560
+
+    var title: String {
+        "\(rawValue) pt"
+    }
+
+    static func nearest(to value: CGFloat) -> PaneVisibleSplitWindowWidth {
+        allCases.min { lhs, rhs in
+            abs(CGFloat(lhs.rawValue) - value) < abs(CGFloat(rhs.rawValue) - value)
+        } ?? .px1440
+    }
+}
+
+enum PaneRightInsertionBehavior: Equatable, Sendable {
+    case visibleSplit
+    case worklaneAdd
+}
+
+enum PaneRightCommandPresentation: Equatable, Sendable {
+    case splitsVisibly
+    case addsToWorklane
+
+    init(behavior: PaneRightInsertionBehavior) {
+        switch behavior {
+        case .visibleSplit:
+            self = .splitsVisibly
+        case .worklaneAdd:
+            self = .addsToWorklane
+        }
+    }
+
+    var primaryTitle: String {
+        switch self {
+        case .splitsVisibly:
+            "Split Right"
+        case .addsToWorklane:
+            "Add Pane Right"
+        }
+    }
+
+    var primaryDetailDescription: String {
+        switch self {
+        case .splitsVisibly:
+            "Split the current pane area into two visible panes."
+        case .addsToWorklane:
+            "Add a pane to the right in the worklane without shrinking the current pane."
+        }
+    }
+
+    var forceOppositeTitle: String {
+        switch self {
+        case .splitsVisibly:
+            "Add Pane Right"
+        case .addsToWorklane:
+            "Split Right"
+        }
+    }
+
+    var forceOppositeCommand: PaneCommand {
+        switch self {
+        case .splitsVisibly:
+            .addPaneRightWithoutResizing
+        case .addsToWorklane:
+            .splitRightVisibly
+        }
+    }
+}
+
 struct PaneLayoutPreferences: Equatable, Sendable {
     var laptopPreset: PaneLayoutPreset
     var largeDisplayPreset: PaneLayoutPreset
     var ultrawidePreset: PaneLayoutPreset
+    var rightSplitBehaviorMode: PaneSplitBehaviorMode
+    var visibleSplitWindowWidth: PaneVisibleSplitWindowWidth
+
+    init(
+        laptopPreset: PaneLayoutPreset,
+        largeDisplayPreset: PaneLayoutPreset,
+        ultrawidePreset: PaneLayoutPreset,
+        rightSplitBehaviorMode: PaneSplitBehaviorMode = .adaptive,
+        visibleSplitWindowWidth: PaneVisibleSplitWindowWidth = .px1440
+    ) {
+        self.laptopPreset = laptopPreset
+        self.largeDisplayPreset = largeDisplayPreset
+        self.ultrawidePreset = ultrawidePreset
+        self.rightSplitBehaviorMode = rightSplitBehaviorMode
+        self.visibleSplitWindowWidth = visibleSplitWindowWidth
+    }
 
     static let `default` = PaneLayoutPreferences(
         laptopPreset: .compact,
         largeDisplayPreset: .balanced,
-        ultrawidePreset: .balanced
+        ultrawidePreset: .balanced,
+        rightSplitBehaviorMode: .adaptive,
+        visibleSplitWindowWidth: .px1440
     )
 
     func preset(for displayClass: DisplayClass) -> PaneLayoutPreset {
@@ -131,7 +239,9 @@ struct PaneLayoutPreferences: Equatable, Sendable {
             preset: preset(for: displayClass),
             viewportWidth: viewportWidth,
             leadingVisibleInset: leadingVisibleInset,
-            sizing: sizing
+            sizing: sizing,
+            rightSplitBehaviorMode: rightSplitBehaviorMode,
+            visibleSplitWindowWidth: visibleSplitWindowWidth
         )
     }
 }
@@ -142,6 +252,26 @@ struct PaneLayoutContext: Equatable, Sendable {
     let viewportWidth: CGFloat
     let leadingVisibleInset: CGFloat
     let sizing: PaneLayoutSizing
+    let rightSplitBehaviorMode: PaneSplitBehaviorMode
+    let visibleSplitWindowWidth: PaneVisibleSplitWindowWidth
+
+    init(
+        displayClass: DisplayClass,
+        preset: PaneLayoutPreset,
+        viewportWidth: CGFloat,
+        leadingVisibleInset: CGFloat,
+        sizing: PaneLayoutSizing,
+        rightSplitBehaviorMode: PaneSplitBehaviorMode = .adaptive,
+        visibleSplitWindowWidth: PaneVisibleSplitWindowWidth = .px1440
+    ) {
+        self.displayClass = displayClass
+        self.preset = preset
+        self.viewportWidth = viewportWidth
+        self.leadingVisibleInset = leadingVisibleInset
+        self.sizing = sizing
+        self.rightSplitBehaviorMode = rightSplitBehaviorMode
+        self.visibleSplitWindowWidth = visibleSplitWindowWidth
+    }
 
     var availableWidth: CGFloat {
         max(0, viewportWidth - leadingVisibleInset)
@@ -189,12 +319,33 @@ struct PaneLayoutContext: Equatable, Sendable {
         )
     }
 
+    var rightPaneInsertionBehavior: PaneRightInsertionBehavior {
+        switch rightSplitBehaviorMode {
+        case .adaptive:
+            viewportWidth >= CGFloat(visibleSplitWindowWidth.rawValue) ? .visibleSplit : .worklaneAdd
+        case .alwaysSplit:
+            .visibleSplit
+        case .alwaysAdd:
+            .worklaneAdd
+        }
+    }
+
+    var rightPaneCommandPresentation: PaneRightCommandPresentation {
+        PaneRightCommandPresentation(behavior: rightPaneInsertionBehavior)
+    }
+
+    var visibleSplitColumnWidth: CGFloat {
+        max(1, (availableWidth - sizing.interPaneSpacing) / 2)
+    }
+
     static let fallback = PaneLayoutContext(
         displayClass: .largeDisplay,
         preset: .balanced,
         viewportWidth: 1280,
         leadingVisibleInset: 0,
-        sizing: .balanced
+        sizing: .balanced,
+        rightSplitBehaviorMode: .adaptive,
+        visibleSplitWindowWidth: .px1440
     )
 }
 

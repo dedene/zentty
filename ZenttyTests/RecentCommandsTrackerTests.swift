@@ -54,4 +54,14 @@ final class RecentCommandsTrackerTests: XCTestCase {
             .command(.toggleSidebar),
         ])
     }
+
+    func testTracksPaneAndSettingsDestinations() {
+        var tracker = RecentCommandsTracker()
+        let paneID = CommandPaletteItemID.pane(worklaneID: WorklaneID("worklane-1"), paneID: PaneID("pane-1"))
+
+        tracker.record(.settings(.appearance))
+        tracker.record(paneID)
+
+        XCTAssertEqual(tracker.recentItemIDs, [paneID, .settings(.appearance)])
+    }
 }

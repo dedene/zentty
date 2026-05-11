@@ -1,0 +1,5 @@
+{"hook_event_name":"SessionStart","session_id":"sess-bench-stop-race"}
+{"hook_event_name":"UserPromptSubmit","session_id":"sess-bench-stop-race"}
+{"hook_event_name":"PreToolUse","session_id":"sess-bench-stop-race","tool_name":"Bash"}
+{"hook_event_name":"Stop","session_id":"sess-bench-stop-race"}
+{"hook_event_name":"Notification","session_id":"sess-bench-stop-race","message":"Claude is waiting for your input"}

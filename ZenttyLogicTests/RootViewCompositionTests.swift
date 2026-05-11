@@ -372,8 +372,9 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(
             controller.paneLayoutMenuCommandTitlesForTesting(),
             [
-                "Split Horizontally",
-                "Split Vertically",
+                "Add Pane Right",
+                "New Pane Below",
+                "Split Right",
                 "Width Presets",
                 "Height Presets",
             ]

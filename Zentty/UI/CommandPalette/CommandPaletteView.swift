@@ -1,271 +1,4 @@
-import AppKit
 import SwiftUI
-
-enum CommandPaletteLayoutMetrics {
-    static let panelWidth: CGFloat = 640
-    static let maximumPanelHeight: CGFloat = 393
-    static let searchFieldHeight: CGFloat = 52
-    static let dividerHeight: CGFloat = 1
-    static let rowSpacing: CGFloat = 2
-    static let resultsVerticalPadding: CGFloat = 12
-    static let visualOverflowAllowance: CGFloat = 2
-    static let scopedHeaderHeightWithSubtitle: CGFloat = lineHeight(for: .systemFont(ofSize: 11, weight: .semibold))
-        + lineHeight(for: .systemFont(ofSize: 11))
-        + rowSpacing
-        + 14
-    static let scopedHeaderHeightWithoutSubtitle: CGFloat = lineHeight(for: .systemFont(ofSize: 11, weight: .semibold))
-        + 14
-    static let singleLineRowHeight: CGFloat = lineHeight(for: .systemFont(ofSize: 13, weight: .medium))
-        + 16
-    static let doubleLineRowHeight: CGFloat = lineHeight(for: .systemFont(ofSize: 13, weight: .medium))
-        + lineHeight(for: .systemFont(ofSize: 11))
-        + rowSpacing
-        + 16
-    static let emptyStateHeight: CGFloat = lineHeight(for: .systemFont(ofSize: 13))
-        + 48
-
-    private static func lineHeight(for font: NSFont) -> CGFloat {
-        ceil(font.ascender - font.descender + font.leading)
-    }
-
-    static func preferredPanelHeight(
-        results: CommandPaletteResolvedResults
-    ) -> CGFloat {
-        let scopeHeight: CGFloat
-        if let scope = results.scope {
-            scopeHeight = (scope.subtitle?.isEmpty == false)
-                ? scopedHeaderHeightWithSubtitle
-                : scopedHeaderHeightWithoutSubtitle
-        } else {
-            scopeHeight = 0
-        }
-
-        let resultsHeight: CGFloat
-        if results.items.isEmpty {
-            resultsHeight = emptyStateHeight
-        } else {
-            resultsHeight = results.items.reduce(CGFloat.zero) { partial, item in
-                partial + (item.showsSubtitle ? doubleLineRowHeight : singleLineRowHeight)
-            } + resultsVerticalPadding + (CGFloat(max(results.items.count - 1, 0)) * rowSpacing) + visualOverflowAllowance
-        }
-
-        let totalHeight = searchFieldHeight + dividerHeight + scopeHeight + resultsHeight
-        return min(maximumPanelHeight, ceil(totalHeight))
-    }
-}
-
-struct CommandPaletteResolvedScope: Equatable {
-    let family: CommandPaletteItemFamily
-    let title: String
-    let subtitle: String?
-}
-
-struct CommandPaletteResolvedItem: Equatable {
-    let item: CommandPaletteItem
-    let showsSubtitle: Bool
-    let showsCategory: Bool
-}
-
-struct CommandPaletteResolvedResults: Equatable {
-    let items: [CommandPaletteResolvedItem]
-    let scope: CommandPaletteResolvedScope?
-}
-
-enum CommandPaletteResultsResolver {
-    static func resolve(
-        searchText: String,
-        items: [CommandPaletteItem],
-        recentItems: [CommandPaletteItem]
-    ) -> CommandPaletteResolvedResults {
-        let normalizedQuery = normalized(searchText)
-        guard !normalizedQuery.isEmpty else {
-            return CommandPaletteResolvedResults(
-                items: recentItems.map { CommandPaletteResolvedItem(item: $0, showsSubtitle: true, showsCategory: true) },
-                scope: nil
-            )
-        }
-
-        if let scopeActivation = resolveScope(query: normalizedQuery, items: items) {
-            return resolveScopedResults(
-                queryRemainder: scopeActivation.remainder,
-                items: items,
-                recentItems: recentItems,
-                family: scopeActivation.family
-            )
-        }
-
-        let resolvedItems = items
-            .enumerated()
-            .map { index, item in
-                (item: item, score: FuzzyMatcher.score(query: normalizedQuery, in: item.searchText), index: index)
-            }
-            .filter { $0.score > 0 }
-            .sorted { lhs, rhs in
-                if lhs.score == rhs.score {
-                    return lhs.index < rhs.index
-                }
-                return lhs.score > rhs.score
-            }
-            .map { CommandPaletteResolvedItem(item: $0.item, showsSubtitle: true, showsCategory: true) }
-
-        return CommandPaletteResolvedResults(items: resolvedItems, scope: nil)
-    }
-
-    private static func resolveScopedResults(
-        queryRemainder: String,
-        items: [CommandPaletteItem],
-        recentItems: [CommandPaletteItem],
-        family: CommandPaletteItemFamily
-    ) -> CommandPaletteResolvedResults {
-        let familyItems = items.enumerated().compactMap { index, item -> (item: CommandPaletteItem, index: Int)? in
-            guard item.family == family else { return nil }
-            return (item, index)
-        }
-
-        let recentRankByID = Dictionary(
-            uniqueKeysWithValues: recentItems
-                .filter { $0.family == family }
-                .enumerated()
-                .map { offset, item in (item.id, offset) }
-        )
-
-        let normalizedRemainder = normalized(queryRemainder)
-        let scoredItems = familyItems.map { entry in
-            let target = entry.item.familySearchText ?? entry.item.searchText
-            return (
-                item: entry.item,
-                index: entry.index,
-                score: normalizedRemainder.isEmpty ? 0 : FuzzyMatcher.score(query: normalizedRemainder, in: target),
-                recentRank: recentRankByID[entry.item.id]
-            )
-        }
-
-        let orderedItems = scoredItems.sorted { lhs, rhs in
-            let lhsMatches = lhs.score > 0
-            let rhsMatches = rhs.score > 0
-            if lhsMatches != rhsMatches {
-                return lhsMatches && !rhsMatches
-            }
-
-            if lhsMatches && rhsMatches && lhs.score != rhs.score {
-                return lhs.score > rhs.score
-            }
-
-            switch (lhs.recentRank, rhs.recentRank) {
-            case let (left?, right?) where left != right:
-                return left < right
-            case (_?, nil):
-                return true
-            case (nil, _?):
-                return false
-            default:
-                let leftFamilyOrder = lhs.item.familyOrder ?? lhs.index
-                let rightFamilyOrder = rhs.item.familyOrder ?? rhs.index
-                if leftFamilyOrder != rightFamilyOrder {
-                    return leftFamilyOrder < rightFamilyOrder
-                }
-                return lhs.index < rhs.index
-            }
-        }
-
-        let scopeSubtitle = orderedItems.first?.item.subtitle
-        return CommandPaletteResolvedResults(
-            items: orderedItems.map {
-                CommandPaletteResolvedItem(
-                    item: $0.item,
-                    showsSubtitle: $0.item.family != family,
-                    showsCategory: $0.item.family != family
-                )
-            },
-            scope: CommandPaletteResolvedScope(
-                family: family,
-                title: family.scopeTitle,
-                subtitle: scopeSubtitle
-            )
-        )
-    }
-
-    private static func resolveScope(
-        query: String,
-        items: [CommandPaletteItem]
-    ) -> (family: CommandPaletteItemFamily, remainder: String)? {
-        for family in CommandPaletteItemFamily.allCases {
-            let familyItems = items.filter { $0.family == family }
-            guard !familyItems.isEmpty else { continue }
-
-            if let remainder = family.explicitRemainder(for: query) {
-                return (family, remainder)
-            }
-
-            if let remainder = family.aliasRemainder(for: query),
-               (remainder.isEmpty || familyItems.contains(where: {
-                   FuzzyMatcher.score(
-                       query: remainder,
-                       in: $0.familySearchText ?? $0.searchText
-                   ) > 0
-               }))
-            {
-                return (family, remainder)
-            }
-        }
-
-        return nil
-    }
-
-    private static func normalized(_ text: String) -> String {
-        text
-            .lowercased()
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-    }
-}
-
-private extension CommandPaletteItemFamily {
-    static let allCases: [CommandPaletteItemFamily] = [.openWith, .server, .worklaneColor]
-
-    var scopeTitle: String {
-        switch self {
-        case .openWith:
-            "Open With"
-        case .server:
-            "Server"
-        case .worklaneColor:
-            "Worklane color"
-        }
-    }
-
-    func explicitRemainder(for query: String) -> String? {
-        switch self {
-        case .openWith:
-            return remainder(in: query, matching: "open with")
-        case .server:
-            return remainder(in: query, matching: "server")
-        case .worklaneColor:
-            return remainder(in: query, matching: "worklane color")
-        }
-    }
-
-    func aliasRemainder(for query: String) -> String? {
-        switch self {
-        case .openWith:
-            return remainder(in: query, matching: "open")
-        case .server:
-            return remainder(in: query, matching: "open server")
-        case .worklaneColor:
-            return remainder(in: query, matching: "worklane")
-        }
-    }
-
-    private func remainder(in query: String, matching prefix: String) -> String? {
-        if query == prefix {
-            return ""
-        }
-
-        let prefixedValue = "\(prefix) "
-        guard query.hasPrefix(prefixedValue) else { return nil }
-        return String(query.dropFirst(prefixedValue.count))
-    }
-}
 
 struct CommandPaletteTheme {
     let primaryColor: Color
@@ -284,31 +17,45 @@ struct CommandPaletteTheme {
 }
 
 struct CommandPaletteView: View {
-    let items: [CommandPaletteItem]
-    let recentItems: [CommandPaletteItem]
     let theme: CommandPaletteTheme
     let onExecute: (CommandPaletteItemID) -> Void
     let onDismiss: () -> Void
     let onHeightChange: (CGFloat) -> Void
 
-    @State private var searchText = ""
-    @State private var selectedIndex = 0
+    @StateObject private var viewModel: CommandPaletteViewModel
     @FocusState private var isSearchFocused: Bool
 
-    private var resolvedResults: CommandPaletteResolvedResults {
-        CommandPaletteResultsResolver.resolve(
-            searchText: searchText,
+    init(
+        items: [CommandPaletteItem],
+        recentItems: [CommandPaletteItem],
+        recentPaneIDs: [CommandPaletteItemID],
+        currentPaneID: CommandPaletteItemID?,
+        emptyActionIDs: [CommandPaletteItemID],
+        theme: CommandPaletteTheme,
+        onExecute: @escaping (CommandPaletteItemID) -> Void,
+        onDismiss: @escaping () -> Void,
+        onHeightChange: @escaping (CGFloat) -> Void
+    ) {
+        let searchIndex = CommandPaletteSearchIndex(
             items: items,
-            recentItems: recentItems
+            recentItems: recentItems,
+            recentPaneIDs: recentPaneIDs,
+            currentPaneID: currentPaneID,
+            emptyActionIDs: emptyActionIDs
         )
+        _viewModel = StateObject(wrappedValue: CommandPaletteViewModel(searchIndex: searchIndex))
+        self.theme = theme
+        self.onExecute = onExecute
+        self.onDismiss = onDismiss
+        self.onHeightChange = onHeightChange
     }
 
     private var displayedItems: [CommandPaletteResolvedItem] {
-        resolvedResults.items
+        viewModel.resolvedResults.items
     }
 
     private var preferredPanelHeight: CGFloat {
-        CommandPaletteLayoutMetrics.preferredPanelHeight(results: resolvedResults)
+        CommandPaletteLayoutMetrics.preferredPanelHeight(results: viewModel.resolvedResults)
     }
 
     var body: some View {
@@ -317,8 +64,15 @@ struct CommandPaletteView: View {
             Divider()
                 .opacity(0.3)
             resultsList
+            Divider()
+                .opacity(0.3)
+            footer
         }
-        .frame(width: CommandPaletteLayoutMetrics.panelWidth)
+        .frame(
+            width: CommandPaletteLayoutMetrics.panelWidth,
+            height: preferredPanelHeight,
+            alignment: .top
+        )
         .onAppear {
             onHeightChange(preferredPanelHeight)
         }
@@ -334,11 +88,11 @@ struct CommandPaletteView: View {
             return .handled
         }
         .onKeyPress(.upArrow) {
-            moveSelection(by: -1)
+            viewModel.moveSelection(by: -1)
             return .handled
         }
         .onKeyPress(.downArrow) {
-            moveSelection(by: 1)
+            viewModel.moveSelection(by: 1)
             return .handled
         }
     }
@@ -348,18 +102,19 @@ struct CommandPaletteView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 16))
                 .foregroundStyle(theme.secondaryColor)
-            TextField("Type a command\u{2026}", text: $searchText, prompt: Text("Type a command\u{2026}").foregroundStyle(theme.secondaryColor))
+            TextField(
+                "Search commands, panes, and settings\u{2026}",
+                text: $viewModel.searchText,
+                prompt: Text("Search commands, panes, and settings\u{2026}").foregroundStyle(theme.secondaryColor)
+            )
                 .textFieldStyle(.plain)
-                .font(.system(size: 16))
+                .font(.system(size: 17))
                 .foregroundStyle(theme.primaryColor)
                 .focused($isSearchFocused)
                 .onAppear { isSearchFocused = true }
-                .onChange(of: searchText) {
-                    selectedIndex = 0
-                }
-            if !searchText.isEmpty {
+            if !viewModel.searchText.isEmpty {
                 Button {
-                    searchText = ""
+                    viewModel.updateSearchText("")
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14))
@@ -369,7 +124,7 @@ struct CommandPaletteView: View {
             }
         }
         .padding(.horizontal, 16)
-        .frame(height: 52)
+        .frame(height: CommandPaletteLayoutMetrics.searchFieldHeight)
     }
 
     private var resultsList: some View {
@@ -379,44 +134,120 @@ struct CommandPaletteView: View {
                 emptyState
             } else {
                 VStack(spacing: 0) {
-                    if let scope = resolvedResults.scope {
+                    if let scope = viewModel.resolvedResults.scope {
                         scopeHeader(scope)
                     }
 
                     ScrollViewReader { proxy in
-                        ScrollView {
-                            LazyVStack(spacing: 2) {
-                                ForEach(Array(results.enumerated()), id: \.element.item.id) { index, resolvedItem in
-                                    CommandPaletteResultRow(
-                                        item: resolvedItem.item,
-                                        showsSubtitle: resolvedItem.showsSubtitle,
-                                        showsCategory: resolvedItem.showsCategory,
-                                        isSelected: index == selectedIndex,
-                                        primaryColor: theme.primaryColor,
-                                        secondaryColor: theme.secondaryColor,
-                                        selectedBackgroundColor: theme.selectedBackgroundColor,
-                                        hoverBackgroundColor: theme.hoverBackgroundColor
-                                    )
-                                    .id(resolvedItem.item.id)
-                                    .onTapGesture {
-                                        onExecute(resolvedItem.item.id)
-                                    }
-                                }
+                        resultRows(results)
+                            .conditionalScroll(
+                                enabled: viewModel.resolvedResults.requiresScrolling,
+                                maxHeight: CommandPaletteLayoutMetrics.maximumScrollableResultsHeight(
+                                    scope: viewModel.resolvedResults.scope
+                                )
+                            )
+                            .onChange(of: viewModel.selectedIndex) {
+                                guard viewModel.resolvedResults.requiresScrolling,
+                                      let item = results[safe: viewModel.selectedIndex]
+                                else { return }
+                                proxy.scrollTo(item.item.id, anchor: .center)
                             }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 6)
-                        }
-                        .frame(maxHeight: CommandPaletteLayoutMetrics.maximumPanelHeight, alignment: .top)
-                        .onChange(of: selectedIndex) {
-                            if let item = results[safe: selectedIndex] {
-                                withAnimation(.easeOut(duration: 0.15)) {
-                                    proxy.scrollTo(item.item.id, anchor: .center)
-                                }
+                            .onChange(of: viewModel.resolvedResults) {
+                                guard viewModel.resolvedResults.requiresScrolling,
+                                      let item = viewModel.resolvedResults.items[safe: viewModel.selectedIndex]
+                                else { return }
+                                proxy.scrollTo(item.item.id, anchor: .center)
                             }
-                        }
                     }
                 }
             }
+        }
+    }
+
+    private func resultRows(_ results: [CommandPaletteResolvedItem]) -> some View {
+        LazyVStack(alignment: .leading, spacing: 2) {
+            if viewModel.resolvedResults.scope == nil {
+                ForEach(viewModel.resolvedResults.sections) { section in
+                    sectionHeader(section.title)
+                    ForEach(section.items, id: \.item.id) { resolvedItem in
+                        row(for: resolvedItem)
+                    }
+                }
+            } else {
+                ForEach(results, id: \.item.id) { resolvedItem in
+                    row(for: resolvedItem)
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, CommandPaletteLayoutMetrics.resultsVerticalPadding / 2)
+    }
+
+    private var emptyState: some View {
+        Text(viewModel.searchText.isEmpty ? "No recent panes or actions" : "No matching commands, panes, or settings")
+            .font(.system(size: 13))
+            .foregroundStyle(theme.secondaryColor)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            footerHint(keys: ["↑", "↓"], label: "Navigate")
+            footerHint(keys: ["Return"], label: "Select")
+            footerHint(keys: ["Esc"], label: "Close")
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .frame(height: CommandPaletteLayoutMetrics.footerHeight)
+    }
+
+    private func footerHint(keys: [String], label: String) -> some View {
+        HStack(spacing: 5) {
+            ForEach(keys, id: \.self) { key in
+                Text(key)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.secondaryColor)
+                    .frame(minWidth: 28, minHeight: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(theme.secondaryColor.opacity(0.08))
+                    )
+            }
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(theme.secondaryColor)
+        }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(theme.secondaryColor)
+            .frame(
+                height: CommandPaletteLayoutMetrics.sectionHeaderHeight
+                    - CommandPaletteLayoutMetrics.sectionHeaderBottomSpacing,
+                alignment: .bottomLeading
+            )
+            .padding(.bottom, CommandPaletteLayoutMetrics.sectionHeaderBottomSpacing)
+            .padding(.horizontal, CommandPaletteLayoutMetrics.sectionHeaderHorizontalPadding)
+    }
+
+    private func row(for resolvedItem: CommandPaletteResolvedItem) -> some View {
+        let index = viewModel.index(of: resolvedItem.item.id)
+        return CommandPaletteResultRow(
+            item: resolvedItem.item,
+            showsSubtitle: resolvedItem.showsSubtitle,
+            showsCategory: resolvedItem.showsCategory,
+            isSelected: index == viewModel.selectedIndex,
+            primaryColor: theme.primaryColor,
+            secondaryColor: theme.secondaryColor,
+            selectedBackgroundColor: theme.selectedBackgroundColor,
+            hoverBackgroundColor: theme.hoverBackgroundColor
+        )
+        .id(resolvedItem.item.id)
+        .onTapGesture {
+            onExecute(resolvedItem.item.id)
         }
     }
 
@@ -439,28 +270,87 @@ struct CommandPaletteView: View {
         .padding(.bottom, 4)
     }
 
-    private var emptyState: some View {
-        Text(searchText.isEmpty ? "No recent commands" : "No matching commands")
-            .font(.system(size: 13))
-            .foregroundStyle(theme.secondaryColor)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
+    private func executeSelected() {
+        guard let item = viewModel.selectedItem else { return }
+        onExecute(item.item.id)
+    }
+}
+
+@MainActor
+final class CommandPaletteViewModel: ObservableObject {
+    typealias Resolver = (String, CommandPaletteSearchIndex) -> CommandPaletteResolvedResults
+
+    @Published var searchText: String {
+        didSet {
+            guard searchText != oldValue else { return }
+            selectedIndex = 0
+            resolve()
+        }
+    }
+    @Published private(set) var selectedIndex: Int
+    @Published private(set) var resolvedResults: CommandPaletteResolvedResults
+
+    private let searchIndex: CommandPaletteSearchIndex
+    private let resolver: Resolver
+    private var itemIndexByID: [CommandPaletteItemID: Int]
+
+    init(
+        searchIndex: CommandPaletteSearchIndex,
+        resolver: @escaping Resolver = CommandPaletteResultsResolver.resolve(searchText:index:)
+    ) {
+        self.searchIndex = searchIndex
+        self.resolver = resolver
+        self.searchText = ""
+        self.selectedIndex = 0
+        let initialResults = resolver("", searchIndex)
+        self.resolvedResults = initialResults
+        self.itemIndexByID = Self.makeItemIndexByID(for: initialResults.items)
     }
 
-    private var displayedItemCount: Int {
-        displayedItems.count
+    var selectedItem: CommandPaletteResolvedItem? {
+        resolvedResults.items[safe: selectedIndex]
     }
 
-    private func moveSelection(by delta: Int) {
-        let count = displayedItemCount
+    func updateSearchText(_ searchText: String) {
+        self.searchText = searchText
+    }
+
+    func moveSelection(by delta: Int) {
+        let count = resolvedResults.items.count
         guard count > 0 else { return }
         selectedIndex = max(0, min(count - 1, selectedIndex + delta))
     }
 
-    private func executeSelected() {
-        let results = displayedItems
-        guard let item = results[safe: selectedIndex] else { return }
-        onExecute(item.item.id)
+    func index(of itemID: CommandPaletteItemID) -> Int {
+        itemIndexByID[itemID] ?? 0
+    }
+
+    private func resolve() {
+        let nextResults = resolver(searchText, searchIndex)
+        itemIndexByID = Self.makeItemIndexByID(for: nextResults.items)
+        resolvedResults = nextResults
+    }
+
+    private static func makeItemIndexByID(
+        for items: [CommandPaletteResolvedItem]
+    ) -> [CommandPaletteItemID: Int] {
+        Dictionary(uniqueKeysWithValues: items.enumerated().map { index, item in
+            (item.item.id, index)
+        })
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func conditionalScroll(enabled: Bool, maxHeight: CGFloat) -> some View {
+        if enabled {
+            ScrollView {
+                self
+            }
+            .frame(maxHeight: maxHeight, alignment: .top)
+        } else {
+            self
+        }
     }
 }
 

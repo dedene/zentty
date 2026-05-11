@@ -183,11 +183,21 @@ extension WorklaneStore {
            let nextTitlePhase = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
                 nextMetadata.title,
                 recognizedTool: .codex
-           )?.phase,
-           !Self.codexVolatileTitleFastPathStatusMatches(
+           )?.phase {
+            if nextTitlePhase == .needsInput {
+                return false
+            }
+            if !Self.codexVolatileTitleFastPathStatusMatches(
                 existingStatus: existingStatus,
                 titlePhase: nextTitlePhase
-           ) {
+            ) {
+                return false
+            }
+        } else if AgentToolRecognizer.recognize(metadata: nextMetadata) == .codex,
+                  TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            nextMetadata.title,
+            recognizedTool: .codex
+        ) != nil {
             return false
         }
         return true
@@ -330,9 +340,30 @@ extension WorklaneStore {
             return
         }
 
-        if let existingStatus = auxiliaryState.agentStatus,
-           Self.codexStatusShouldBlockTitleDrivenResume(existingStatus) {
-            return
+        if let existingStatus = auxiliaryState.agentStatus {
+            let runningTitleMayClearBlockedStatus = Self.codexRunningTitleMayClearBlockedStatus(
+                existingStatus,
+                auxiliaryState: auxiliaryState
+            )
+            if Self.codexStatusShouldBlockTitleDrivenResume(existingStatus),
+               !runningTitleMayClearBlockedStatus {
+                return
+            }
+
+            if runningTitleMayClearBlockedStatus {
+                let now = Date()
+                let newStatus = Self.codexRunningStatus(from: existingStatus, now: now)
+                auxiliaryState.agentStatus = newStatus
+                auxiliaryState.agentReducerState = Self.seededReducerState(
+                    PaneAgentReducerState(),
+                    from: newStatus
+                )
+                worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+                stopSignalLogger.debug(
+                    "codex.title.running cleared-blocked-status pane=\(paneID.rawValue, privacy: .public)"
+                )
+                return
+            }
         }
 
         auxiliaryState.agentReducerState = Self.seededReducerState(
@@ -526,7 +557,7 @@ extension WorklaneStore {
                         || existingStatus.state == .idle
                     )
                 )
-                || Self.codexStatusIsStaleGenericNeedsInput(existingStatus)
+                || Self.codexStatusMayClearFromReadyTitle(existingStatus)
               )
         else {
             stopSignalLogger.debug("codex.title.idle fallback skip pane=\(paneID.rawValue, privacy: .public) state=\(auxiliaryState.agentStatus?.state.rawValue ?? "<nil>", privacy: .public)")
@@ -702,7 +733,29 @@ extension WorklaneStore {
             return true
         }
 
-        return !codexStatusShouldBlockTitleDrivenResume(status)
+        return codexStatusMayClearFromReadyTitle(status)
+    }
+
+    private static func codexRunningTitleMayClearBlockedStatus(
+        _ status: PaneAgentStatus,
+        auxiliaryState: PaneAuxiliaryState
+    ) -> Bool {
+        guard status.tool == .codex,
+              status.state == .needsInput,
+              status.interactionKind.requiresHumanAttention else {
+            return false
+        }
+
+        if auxiliaryState.terminalProgress?.state.indicatesActivity == true {
+            return true
+        }
+
+        switch status.origin {
+        case .explicitHook, .explicitAPI:
+            return status.interactionKind == .approval
+        case .heuristic, .inferred, .compatibility, .shell:
+            return false
+        }
     }
 
     private static func codexStatusShouldBlockTitleDrivenResume(_ status: PaneAgentStatus) -> Bool {
@@ -727,6 +780,29 @@ extension WorklaneStore {
         case .inferred, .compatibility:
             let text = AgentInteractionClassifier.trimmed(status.text)?.lowercased() ?? ""
             return text.contains("waiting for your input")
+        case .explicitAPI, .explicitHook, .shell:
+            return false
+        }
+    }
+
+    private static func codexStatusMayClearFromReadyTitle(_ status: PaneAgentStatus) -> Bool {
+        guard status.tool == .codex,
+              status.state == .needsInput,
+              status.interactionKind == .genericInput else {
+            return false
+        }
+
+        if codexStatusIsStaleGenericNeedsInput(status) {
+            return true
+        }
+
+        guard status.confidence == .weak else {
+            return false
+        }
+
+        switch status.origin {
+        case .heuristic, .inferred, .compatibility:
+            return true
         case .explicitAPI, .explicitHook, .shell:
             return false
         }

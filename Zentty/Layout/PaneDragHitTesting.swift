@@ -218,15 +218,17 @@ enum PaneDragHitTest {
         paneFramesByID: [PaneID: CGRect],
         columnForPane: [PaneID: PaneColumnID],
         paneCountByColumn: [PaneColumnID: Int],
-        sourceColumnID: PaneColumnID,
+        excludedPaneID: PaneID,
         minimumPaneHeight: CGFloat
     ) -> SplitZoneHit? {
-        // Find the pane whose frame contains the cursor, excluding source column panes
+        // Find the pane whose frame contains the cursor, excluding the dragged pane
+        // itself. Source-column siblings are valid split targets — after a 2→1
+        // detach the lone remaining sibling must accept a 50/50 horizontal split.
         var hitPaneID: PaneID?
         var hitFrame: CGRect = .zero
 
         for (paneID, frame) in paneFramesByID {
-            guard columnForPane[paneID] != sourceColumnID else { continue }
+            guard paneID != excludedPaneID else { continue }
             guard frame.contains(cursorInContent) else { continue }
             hitPaneID = paneID
             hitFrame = frame

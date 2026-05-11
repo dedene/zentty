@@ -51,17 +51,21 @@ final class PaneStripView: NSView {
     var onPaneReorderRequested: ((PaneID, Int, Bool) -> Void)?
     var onPaneReorderInColumnRequested: ((PaneID, PaneColumnID, Int, Bool) -> Void)?
     var onPaneSplitDropRequested: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool, Bool) -> Void)?
-    var onPaneCrossWorklaneDropRequested: ((PaneID, WorklaneID, Bool) -> Void)?
+    var onPaneCrossWorklaneDropRequested: ((PaneID, WorklaneID, Int?, Bool) -> Void)?
     var sidebarWorklaneFrameProvider: (() -> [(WorklaneID, CGRect)])?
+    var sidebarPaneBoundaryProvider: (() -> [(WorklaneID, [PaneInsertionBoundary])])?
     var onDragApproachingSidebarEdge: ((Bool) -> Void)?
     var onHoveredSidebarWorklaneChanged: ((WorklaneID?) -> Void)?
-    var onNewWorklanePlaceholderVisibilityChanged: ((Bool) -> Void)?
+    var onNewWorklanePlaceholderVisibilityChanged: ((Int?) -> Void)?
     var onSidebarScrollRequested: ((CGFloat) -> Void)?
+    var onSidebarInsertionLineChanged: ((SidebarPaneInsertionLineTarget?) -> Void)?
     var onDragActiveChanged: ((Bool) -> Void)?
     var onLeadingInsetChangedDuringDrag: ((CGFloat) -> Void)?
     var activeWorklaneIDProvider: (() -> WorklaneID?)?
     var sidebarBoundsProvider: (() -> CGRect)?
     var worklaneCountProvider: (() -> Int)?
+    var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
+    var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var sidebarWidthProvider: (() -> CGFloat)?
     weak var dragOverlayView: NSView? {
         didSet { dragCoordinator.dragHostView = dragOverlayView }
@@ -107,6 +111,8 @@ final class PaneStripView: NSView {
     private var isTerminalRedrawScheduled = false
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resolvedLeadingVisibleInset: CGFloat = 0
+    private var viewportDiagnosticsWorklaneID: WorklaneID?
+    private var viewportDiagnosticsLaneRole: TerminalViewportLaneRole = .activeCanvas
     private var hoveredDivider: PaneDivider?
     private var activeDivider: PaneDivider?
     private var dividerDragSession: DividerDragSession?
@@ -220,7 +226,7 @@ final class PaneStripView: NSView {
         setupDragCoordinator()
     }
 
-    var onPaneNewWorklaneDropRequested: ((PaneID, Bool) -> Void)?
+    var onPaneNewWorklaneDropRequested: ((PaneID, Int, Bool) -> Void)?
 
     private func setupDragCoordinator() {
         dragCoordinator.onReorder = { [weak self] paneID, columnIndex, isDuplicate in
@@ -242,11 +248,11 @@ final class PaneStripView: NSView {
             }
             self.onDragActiveChanged?(active)
         }
-        dragCoordinator.onSidebarDrop = { [weak self] paneID, worklaneID, isDuplicate in
-            self?.onPaneCrossWorklaneDropRequested?(paneID, worklaneID, isDuplicate)
+        dragCoordinator.onSidebarDrop = { [weak self] paneID, worklaneID, paneIndex, isDuplicate in
+            self?.onPaneCrossWorklaneDropRequested?(paneID, worklaneID, paneIndex, isDuplicate)
         }
-        dragCoordinator.onSidebarNewWorklaneDrop = { [weak self] paneID, isDuplicate in
-            self?.onPaneNewWorklaneDropRequested?(paneID, isDuplicate)
+        dragCoordinator.onSidebarNewWorklaneDrop = { [weak self] paneID, insertionIndex, isDuplicate in
+            self?.onPaneNewWorklaneDropRequested?(paneID, insertionIndex, isDuplicate)
         }
         dragCoordinator.onHoveredSidebarWorklaneChanged = { [weak self] worklaneID in
             self?.onHoveredSidebarWorklaneChanged?(worklaneID)
@@ -269,11 +275,17 @@ final class PaneStripView: NSView {
         dragCoordinator.sidebarWidthProvider = { [weak self] in
             self?.sidebarWidthProvider?() ?? 0
         }
-        dragCoordinator.onNewWorklanePlaceholderVisibilityChanged = { [weak self] visible in
-            self?.onNewWorklanePlaceholderVisibilityChanged?(visible)
+        dragCoordinator.onNewWorklanePlaceholderVisibilityChanged = { [weak self] insertionIndex in
+            self?.onNewWorklanePlaceholderVisibilityChanged?(insertionIndex)
         }
         dragCoordinator.onSidebarScrollRequested = { [weak self] delta in
             self?.onSidebarScrollRequested?(delta)
+        }
+        dragCoordinator.onSidebarInsertionLineChanged = { [weak self] target in
+            self?.onSidebarInsertionLineChanged?(target)
+        }
+        dragCoordinator.sidebarPaneBoundaryProvider = { [weak self] in
+            self?.sidebarPaneBoundaryProvider?() ?? []
         }
     }
 
@@ -651,7 +663,9 @@ final class PaneStripView: NSView {
             if !isZoomedOut {
                 applyViewportSyncSuspension(to: [])
             }
-            forceTerminalViewportSync(for: newlyAttachedPaneIDs)
+            if !isZoomedOut {
+                forceTerminalViewportSync(for: newlyAttachedPaneIDs)
+            }
             if needsTerminalRedrawAfterRender {
                 refreshTerminalDisplaysIfNeeded()
             }
@@ -819,8 +833,10 @@ final class PaneStripView: NSView {
         }
         if needsTerminalRedrawAfterRender {
             refreshTerminalDisplaysIfNeeded()
-            forceTerminalViewportSync(for: Set(paneViews.keys))
-        } else {
+            if !isZoomedOut {
+                forceTerminalViewportSync(for: Set(paneViews.keys))
+            }
+        } else if !isZoomedOut {
             forceTerminalViewportSync(for: newlyAttachedPaneIDs)
         }
     }
@@ -923,6 +939,7 @@ final class PaneStripView: NSView {
 
                 let pane = state.panes[index]
                 let runtime = runtimeRegistry.runtime(for: pane)
+                let startsWithViewportSyncSuspended = isZoomedOut || suspendedPaneIDs.contains(pane.id)
                 let paneView = PaneContainerView(
                     pane: pane,
                     width: panePresentation.frame.width,
@@ -930,8 +947,13 @@ final class PaneStripView: NSView {
                     emphasis: panePresentation.emphasis,
                     isFocused: panePresentation.isFocused,
                     runtime: runtime,
-                    theme: currentTheme
+                    theme: currentTheme,
+                    initialViewportSyncSuspended: startsWithViewportSyncSuspended,
+                    viewportDiagnosticsWorklaneID: viewportDiagnosticsWorklaneID,
+                    viewportDiagnosticsLaneRole: viewportDiagnosticsLaneRole,
+                    viewportDiagnosticsIsZoomedOut: isZoomedOut
                 )
+                paneView.setZoomedOutBackdropVisible(isZoomedOut, animated: false)
                 paneView.onSelected = { [weak self] in
                     if let pendingPaneID = self?.pendingProgrammaticFocusPaneID,
                        pendingPaneID != pane.id {
@@ -948,7 +970,15 @@ final class PaneStripView: NSView {
                 paneView.onScrollWheel = { [weak self] event in
                     self?.handlePaneSwitchScroll(event) ?? false
                 }
-                paneView.setTerminalViewportSyncSuspended(suspendedPaneIDs.contains(pane.id))
+                paneView.rightPaneCommandPresentationProvider = { [weak self] in
+                    self?.rightPaneCommandPresentationProvider?() ?? .addsToWorklane
+                }
+                paneView.moveToWorklaneCatalogProvider = { [weak self] paneID in
+                    self?.moveToWorklaneCatalogProvider?(paneID)
+                }
+                if !startsWithViewportSyncSuspended {
+                    paneView.setTerminalViewportSyncSuspended(false)
+                }
                 if let insertionTransition, insertionTransition.paneID == pane.id {
                     paneView.frame = insertionTransition.initialFrame
                     paneView.alphaValue = insertionTransition.initialAlpha
@@ -964,6 +994,19 @@ final class PaneStripView: NSView {
                 }
                 paneViews[panePresentation.paneID] = paneView
                 viewportView.addSubview(paneView)
+                if startsWithViewportSyncSuspended {
+                    paneView.prepareSuspendedTerminalLayoutForPreviewMount()
+                }
+                TerminalViewportDiagnostics.shared.record(
+                    .paneMounted,
+                    context: TerminalViewportDiagnostics.Context(
+                        paneID: pane.id,
+                        worklaneID: viewportDiagnosticsWorklaneID,
+                        laneRole: viewportDiagnosticsLaneRole,
+                        isZoomedOut: isZoomedOut,
+                        containerBounds: paneView.bounds
+                    )
+                )
                 paneView.activateSessionIfNeeded()
 
             let dragZone = PaneDragZoneView(paneID: pane.id)
@@ -1132,6 +1175,21 @@ final class PaneStripView: NSView {
         settlePresentationNow()
     }
 
+    func configureViewportDiagnostics(
+        worklaneID: WorklaneID?,
+        laneRole: TerminalViewportLaneRole
+    ) {
+        viewportDiagnosticsWorklaneID = worklaneID
+        viewportDiagnosticsLaneRole = laneRole
+        for paneView in paneViews.values {
+            paneView.configureViewportDiagnostics(
+                worklaneID: worklaneID,
+                laneRole: laneRole,
+                isZoomedOut: isZoomedOut
+            )
+        }
+    }
+
     private func cleanupTransientStateForWindowDetachment() {
         focusGeneration &+= 1
         pendingProgrammaticFocusPaneID = nil
@@ -1140,7 +1198,7 @@ final class PaneStripView: NSView {
         hostDrivenResizeRenderRequestPending = false
         needsTerminalRedrawAfterLayout = false
         isTerminalRedrawScheduled = false
-        stopZoomAnimation()
+        zoomSpring.stop()
         isZoomedOut = false
         dragScrollOffsetX = 0
         viewportView.autoresizingMask = [.width, .height]
@@ -1360,48 +1418,17 @@ final class PaneStripView: NSView {
 
     // MARK: - Zoom
 
-    func toggleZoom(animated: Bool = true) {
-        guard !isDragActive else { return }
-        isZoomedOut.toggle()
-
-        if isZoomedOut {
-            // Freeze terminals so they don't re-render at the zoomed pixel size
-            for (_, paneView) in paneViews {
-                paneView.beginVerticalFreeze(gravity: .top)
-                paneView.setTerminalViewportSyncSuspended(true)
-            }
-            applyZoom(animated: animated)
-        } else {
-            // Zoom back first, then unfreeze after the animation completes
-            // so the terminal re-renders at the correct full-size backing
-            applyZoom(animated: animated)
-            let unfreezeDelay = animated ? 0.35 : 0
-            let deferredWorkGeneration = self.deferredWorkGeneration
-            DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
-                guard let self,
-                      deferredWorkGeneration == self.deferredWorkGeneration,
-                      !self.isZoomedOut else { return }
-                for (_, paneView) in self.paneViews {
-                    paneView.endVerticalFreeze()
-                    paneView.setTerminalViewportSyncSuspended(false)
-                }
-                // Force terminals to re-layout at correct backing size
-                for (_, paneView) in self.paneViews {
-                    paneView.needsLayout = true
-                    paneView.layoutSubtreeIfNeeded()
-                }
-            }
-        }
-    }
-
     /// Whether a zoom animation is currently in progress.
-    var isZoomAnimating: Bool { zoomAnimationTimer != nil }
-    private var zoomAnimationTimer: Timer?
-    private var zoomAnimationStart: CFTimeInterval = 0
-    private var zoomAnimationFrom: CGFloat = 1
-    private var zoomAnimationTo: CGFloat = 1
+    var isZoomAnimating: Bool { zoomSpring.isRunning }
+    private let zoomSpring = SpringAnimator()
     private var zoomAnchor: CGPoint = .zero
     private static let zoomAnimationDuration: CFTimeInterval = 0.35
+
+    /// Fires on every frame of the zoom animation (and once on completion),
+    /// plus on synchronous `applyZoomScale` calls. Used by the visual
+    /// worklane switcher overlay to keep the highlight border and HUD in
+    /// sync with the zoom transform and any `dragScrollOffsetX` shifts.
+    var onZoomTransformChanged: (() -> Void)?
 
     private func updateZoomAnchor() {
         let fw = viewportView.frame.width
@@ -1414,22 +1441,87 @@ final class PaneStripView: NSView {
         }
     }
 
-    private func applyZoom(animated: Bool) {
+    /// Override applied to the next zoom-out target scale. The Worklane Peek
+    /// uses this to put active + neighbor lanes at the same uniform scale
+    /// when multiple worklanes are visible. Reset to nil when zooming back in
+    /// so the drag-zoom path keeps using the static `Self.zoomScale`.
+    private var zoomOutScaleOverride: CGFloat?
+
+    private func applyZoom(animated: Bool, centerOnPaneID: PaneID? = nil) {
         // Compute the anchor: focused pane center in content space
         updateZoomAnchor()
 
-        let targetScale = isZoomedOut ? Self.zoomScale : 1.0
+        let zoomedOutScale = zoomOutScaleOverride ?? Self.zoomScale
+        let targetScale = isZoomedOut ? zoomedOutScale : 1.0
+        let targetScrollX = isZoomedOut
+            ? scrollOffsetCentering(paneID: centerOnPaneID, scale: targetScale)
+            : 0
 
         if animated {
-            zoomAnimationFrom = currentZoomScale()
-            zoomAnimationTo = targetScale
-            zoomAnimationFromScrollX = dragScrollOffsetX
-            zoomAnimationToScrollX = dragScrollOffsetX
-            zoomAnimationStart = CACurrentMediaTime()
-            startZoomAnimation()
+            let fromScale = currentZoomScale()
+            let fromScrollX = dragScrollOffsetX
+            // Decide how to interpolate scrollX:
+            //
+            // - When the scale is *changing* AND we want a pane held at the
+            //   visible center (zoom-out / zoom-in transitions), recompute
+            //   scrollX from the current scale each tick. The relationship
+            //   between scrollX and the on-screen pane position is
+            //   non-linear in `scale`, so a linear interpolation here would
+            //   cause the pane to drift sideways during the zoom.
+            //
+            // - When the scale stays put (pure pan: tab-navigation between
+            //   panes inside peek), the recomputed value is constant,
+            //   which would snap instantly. Fall back to linear
+            //   interpolation between fromScrollX and targetScrollX so the
+            //   spring's eased curve produces a smooth slide.
+            let scaleIsChanging = abs(targetScale - fromScale) > 0.001
+            let useDynamicScrollX = isZoomedOut && centerOnPaneID != nil && scaleIsChanging
+            zoomSpring.start(duration: Self.zoomAnimationDuration) { [weak self] eased in
+                guard let self else { return }
+                let scale = fromScale + (targetScale - fromScale) * eased
+                let scrollX: CGFloat = useDynamicScrollX
+                    ? self.scrollOffsetCentering(paneID: centerOnPaneID, scale: scale)
+                    : (fromScrollX + (targetScrollX - fromScrollX) * eased)
+                self.dragScrollOffsetX = scrollX
+                self.applyZoomScale(scale)
+                if self.isDragActive {
+                    self.dragCoordinator.updateDraggedPanePosition(zoomScale: scale)
+                }
+                self.onZoomTransformChanged?()
+            } complete: { [weak self] in
+                guard let self else { return }
+                self.dragScrollOffsetX = targetScrollX
+                self.applyZoomScale(targetScale)
+                if self.isDragActive {
+                    self.dragCoordinator.updateDraggedPanePosition(zoomScale: targetScale)
+                    self.dragCoordinator.recheckEdgeScroll()
+                }
+                self.onZoomTransformChanged?()
+            }
         } else {
+            dragScrollOffsetX = targetScrollX
             applyZoomScale(targetScale)
+            onZoomTransformChanged?()
         }
+    }
+
+    /// `dragScrollOffsetX` value that places `paneID`'s center at the
+    /// horizontal center of the *visible* viewport — i.e., between
+    /// `resolvedLeadingVisibleInset` and `viewportView.frame.width`. This
+    /// matters when the sidebar is open; the canvas spans the whole window
+    /// but the leading portion is obscured by the sidebar overlay, so the
+    /// perceived center sits to the right of the geometric viewport center.
+    /// Returns 0 (the natural unscrolled state) when no centering target is
+    /// requested or the pane isn't currently mounted.
+    private func scrollOffsetCentering(paneID: PaneID?, scale: CGFloat) -> CGFloat {
+        guard let paneID,
+              let frame = livePaneFrame(paneID),
+              scale > 0,
+              viewportView.frame.width > 0
+        else { return 0 }
+        let fw = viewportView.frame.width
+        let visibleCenter = (resolvedLeadingVisibleInset + fw) / 2
+        return frame.midX - visibleCenter / scale - zoomAnchor.x * (1 - 1 / scale)
     }
 
     func currentZoomScale() -> CGFloat {
@@ -1442,8 +1534,6 @@ final class PaneStripView: NSView {
 
     /// Extra horizontal scroll offset applied during drag (in content space).
     var dragScrollOffsetX: CGFloat = 0
-    private var zoomAnimationFromScrollX: CGFloat = 0
-    private var zoomAnimationToScrollX: CGFloat = 0
 
     private func composedBounds(scale: CGFloat, scrollX: CGFloat) -> CGRect {
         let fw = viewportView.frame.width
@@ -1467,58 +1557,6 @@ final class PaneStripView: NSView {
         applyZoomScale(currentZoomScale())
     }
 
-    private func startZoomAnimation() {
-        stopZoomAnimation()
-
-        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.zoomAnimationTick()
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        zoomAnimationTimer = timer
-    }
-
-    private func stopZoomAnimation() {
-        zoomAnimationTimer?.invalidate()
-        zoomAnimationTimer = nil
-    }
-
-    private func zoomAnimationTick() {
-        let elapsed = CACurrentMediaTime() - zoomAnimationStart
-        let duration = Self.zoomAnimationDuration
-        let progress = min(1, elapsed / duration)
-
-        // Critically damped spring with initial kick: snappy, no overshoot
-        let omega: CGFloat = 10
-        let v0: CGFloat = 5
-        let raw = 1 + ((v0 - omega) * progress - 1) * exp(-omega * progress)
-        let norm = 1 + ((v0 - omega) - 1) * exp(-omega)
-        let eased = raw / norm
-
-        let currentScale = zoomAnimationFrom + (zoomAnimationTo - zoomAnimationFrom) * eased
-        let currentScrollX = zoomAnimationFromScrollX
-            + (zoomAnimationToScrollX - zoomAnimationFromScrollX) * eased
-        dragScrollOffsetX = currentScrollX
-        applyZoomScale(currentScale)
-
-        if isDragActive {
-            dragCoordinator.updateDraggedPanePosition(zoomScale: currentScale)
-        }
-
-        if progress >= 1 {
-            dragScrollOffsetX = zoomAnimationToScrollX
-            applyZoomScale(zoomAnimationTo)
-            // Stop animation BEFORE recheckEdgeScroll so isZoomAnimating is false
-            // when the edge scroll timer guard checks it.
-            stopZoomAnimation()
-            if isDragActive {
-                dragCoordinator.updateDraggedPanePosition(zoomScale: zoomAnimationTo)
-                dragCoordinator.recheckEdgeScroll()
-            }
-        }
-    }
-
     // MARK: - Pane Drag
 
     private func handleDragActivated(paneID: PaneID, origin: CGPoint) {
@@ -1528,6 +1566,7 @@ final class PaneStripView: NSView {
         // Trigger zoom-out if not already zoomed
         if !isZoomedOut {
             isZoomedOut = true
+            setZoomedOutPaneBackdropsVisible(true, animated: true)
             // Freeze all non-dragged panes for zoom (dragged pane frozen by coordinator)
             for (id, paneView) in paneViews where id != paneID {
                 paneView.setTerminalViewportSyncSuspended(true)
@@ -1544,7 +1583,7 @@ final class PaneStripView: NSView {
             state: state,
             presentation: presentation,
             motionController: motionController,
-            previewBackgroundColor: currentTheme.windowBackground.srgbClamped.withAlphaComponent(1),
+            previewBackgroundColor: currentTheme.paneZoomFillFocused.srgbClamped,
             backingScaleFactor: currentBackingScaleFactor,
             leadingVisibleInset: resolvedLeadingVisibleInset
         )
@@ -1573,19 +1612,307 @@ final class PaneStripView: NSView {
         paneViews[paneID]?.frame
     }
 
+    /// Convert a pane's current frame into the coordinate system of `target`,
+    /// which must share an ancestor with this view. Returns `nil` if the pane
+    /// isn't currently mounted. Used by the Worklane Peek overlay to track
+    /// a highlighted pane through the zoom transform.
+    func convertPaneFrame(_ paneID: PaneID, to target: NSView) -> CGRect? {
+        guard let frame = livePaneFrame(paneID) else { return nil }
+        return viewportView.convert(frame, to: target)
+    }
+
+    /// Convert the bounding rect of the column containing `paneID` into the
+    /// coordinate system of `target`. The Worklane Peek uses this so the
+    /// HUD can anchor to the column (stable across pane changes within a
+    /// vertical split) rather than to an individual pane.
+    func convertColumnFrame(containingPaneID paneID: PaneID, to target: NSView) -> CGRect? {
+        guard let state = currentState,
+              let column = state.columns.first(where: { col in
+                  col.panes.contains(where: { $0.id == paneID })
+              })
+        else { return nil }
+
+        let frames = column.panes.compactMap { livePaneFrame($0.id) }
+        guard let first = frames.first else { return nil }
+        let union = frames.dropFirst().reduce(first) { $0.union($1) }
+        return viewportView.convert(union, to: target)
+    }
+
+    /// Enter peek zoom-out using the same approach drag-zoom uses
+    /// for *non-dragged* panes: only `setTerminalViewportSyncSuspended(true)`,
+    /// no `beginVerticalFreeze`. The vertical freeze is needed when a pane is
+    /// being snapshot-replaced (the dragged pane), but for static panes it
+    /// causes an extra layout pass that re-runs `syncViewport` and reflows
+    /// the terminal grid.
+    ///
+    /// `centerOnPaneID`, if provided, animates `dragScrollOffsetX` together
+    /// with the zoom so that pane's column lands at the horizontal center of
+    /// the viewport when the animation settles.
+    /// `scaleOverride` lets the Worklane Peek pick a smaller scale when
+    /// neighbor lanes need to fit alongside the active band.
+    func beginPeekZoomOut(
+        animated: Bool = true,
+        centerOnPaneID: PaneID? = nil,
+        scaleOverride: CGFloat? = nil
+    ) {
+        guard !isDragActive, !isZoomedOut else { return }
+        isZoomedOut = true
+        zoomOutScaleOverride = scaleOverride
+        setZoomedOutPaneBackdropsVisible(true, animated: animated)
+        for (_, paneView) in paneViews {
+            paneView.setTerminalViewportSyncSuspended(true)
+        }
+        applyZoom(animated: animated, centerOnPaneID: centerOnPaneID)
+    }
+
+    /// Prepares an empty neighbor preview strip before its first render so
+    /// newly mounted runtime host views inherit viewport-sync suspension while
+    /// they are being reparented into the preview carrier.
+    func preparePeekNeighborZoomOut(scale: CGFloat) {
+        guard !isDragActive, !isZoomedOut else { return }
+        isZoomedOut = true
+        zoomOutScaleOverride = scale
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborPrepareZoomOut,
+            context: TerminalViewportDiagnostics.Context(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut,
+                note: "scale=\(scale)"
+            )
+        )
+    }
+
+    /// Variant of `beginPeekZoomOut` for **neighbor preview lanes**:
+    /// puts the strip into the same internal zoom-out state synchronously.
+    /// Neighbor panes still suspend physical viewport sync so Ghostty keeps
+    /// the active-worklane grid while the preview carrier repositions them.
+    func enterPeekNeighborZoomOut(scale: CGFloat, centerOnPaneID: PaneID? = nil) {
+        guard !isDragActive else { return }
+        if !isZoomedOut {
+            isZoomedOut = true
+        }
+        zoomOutScaleOverride = scale
+        setZoomedOutPaneBackdropsVisible(true, animated: false)
+        for (_, paneView) in paneViews {
+            paneView.configureViewportDiagnostics(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+            paneView.setTerminalViewportSyncSuspended(true)
+        }
+        applyZoom(animated: false, centerOnPaneID: centerOnPaneID)
+    }
+
+    /// Synchronously leave neighbor peek state. Neighbor carriers are torn
+    /// down immediately on close/commit, so they cannot use the delayed
+    /// unsuspend path from the animated active-strip zoom-in.
+    func endPeekNeighborZoomOut() {
+        guard isZoomedOut else { return }
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborEndZoomOut,
+            context: TerminalViewportDiagnostics.Context(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+        )
+        isZoomedOut = false
+        zoomOutScaleOverride = nil
+        dragScrollOffsetX = 0
+        applyZoomScale(1)
+        onZoomTransformChanged?()
+        setZoomedOutPaneBackdropsVisible(false, animated: false)
+        for (_, paneView) in paneViews {
+            paneView.configureViewportDiagnostics(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+            paneView.setTerminalViewportSyncSuspended(false)
+        }
+    }
+
+    /// Tear down a neighbor preview carrier without publishing its temporary
+    /// geometry back to the terminal engine.
+    func abandonPeekNeighborZoomOutForTeardown() {
+        guard isZoomedOut else { return }
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborAbandonZoomOut,
+            context: TerminalViewportDiagnostics.Context(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+        )
+        zoomSpring.stop()
+        isZoomedOut = false
+        zoomOutScaleOverride = nil
+        dragScrollOffsetX = 0
+        applyZoomScale(1)
+        onZoomTransformChanged?()
+        setZoomedOutPaneBackdropsVisible(false, animated: false)
+        for (_, paneView) in paneViews {
+            paneView.configureViewportDiagnostics(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+        }
+    }
+
+    /// While zoomed out, animate `dragScrollOffsetX` so the given pane's
+    /// column ends up at the horizontal center of the viewport. No-op when
+    /// not currently zoomed.
+    func centerPeekOnPane(_ paneID: PaneID, animated: Bool = true) {
+        guard isZoomedOut else { return }
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborCenterOnPane,
+            context: TerminalViewportDiagnostics.Context(
+                paneID: paneID,
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+        )
+        applyZoom(animated: animated, centerOnPaneID: paneID)
+    }
+
+    /// While zoomed out, return the horizontal peek camera to a neutral
+    /// full-canvas view. Neighbor preview lanes use this whenever they are
+    /// visible but not selected, so a stale pane-centering offset cannot clip
+    /// split panes against the carrier mask.
+    func resetPeekHorizontalCentering() {
+        guard isZoomedOut else { return }
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborResetFullCanvas,
+            context: TerminalViewportDiagnostics.Context(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+        )
+        zoomSpring.stop()
+        zoomAnchor = CGPoint(x: viewportView.frame.width / 2, y: viewportView.frame.height / 2)
+        dragScrollOffsetX = 0
+        applyZoomScale(currentZoomScale())
+        onZoomTransformChanged?()
+    }
+
+    private func setZoomedOutPaneBackdropsVisible(_ visible: Bool, animated: Bool) {
+        let duration = animated ? Self.zoomAnimationDuration : ZenttyTheme.animationDuration
+        for (_, paneView) in paneViews {
+            paneView.setZoomedOutBackdropVisible(
+                visible,
+                animated: animated,
+                animationDuration: duration
+            )
+        }
+    }
+
+    /// Reverse `beginPeekZoomOut`. Pairs the zoom-in animation with a
+    /// deferred un-suspend so the terminal re-syncs its viewport to the new
+    /// (full) pixel size only after the animation settles.
+    ///
+    /// `centerOnPaneID`, if provided, is recorded for diagnostics. The
+    /// zoom-in always lands on the natural unscrolled origin so temporary
+    /// peek centering cannot leak into the normal pane-strip layout.
+    func endPeekZoomIn(animated: Bool = true, centerOnPaneID: PaneID? = nil) {
+        guard isZoomedOut else { return }
+        TerminalViewportDiagnostics.shared.record(
+            .activeZoomIn,
+            context: TerminalViewportDiagnostics.Context(
+                paneID: centerOnPaneID,
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+        )
+        isZoomedOut = false
+        applyZoom(animated: animated, centerOnPaneID: centerOnPaneID)
+        // Reset so the next drag-zoom (or another peek session)
+        // starts from the canonical static scale unless explicitly overridden.
+        zoomOutScaleOverride = nil
+
+        let unfreezeDelay: TimeInterval = animated ? Self.zoomAnimationDuration : 0
+        let deferredWorkGeneration = self.deferredWorkGeneration
+        if !animated {
+            setZoomedOutPaneBackdropsVisible(false, animated: false)
+            for (_, paneView) in paneViews {
+                paneView.configureViewportDiagnostics(
+                    worklaneID: viewportDiagnosticsWorklaneID,
+                    laneRole: viewportDiagnosticsLaneRole,
+                    isZoomedOut: isZoomedOut
+                )
+                TerminalViewportDiagnostics.shared.record(
+                    .activeZoomInUnsuspend,
+                    context: TerminalViewportDiagnostics.Context(
+                        paneID: paneView.paneID,
+                        worklaneID: viewportDiagnosticsWorklaneID,
+                        laneRole: viewportDiagnosticsLaneRole,
+                        isZoomedOut: isZoomedOut
+                    )
+                )
+                paneView.setTerminalViewportSyncSuspended(false)
+            }
+            return
+        }
+        setZoomedOutPaneBackdropsVisible(false, animated: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
+            guard let self,
+                  deferredWorkGeneration == self.deferredWorkGeneration,
+                  !self.isZoomedOut
+            else { return }
+            for (_, paneView) in self.paneViews {
+                paneView.configureViewportDiagnostics(
+                    worklaneID: self.viewportDiagnosticsWorklaneID,
+                    laneRole: self.viewportDiagnosticsLaneRole,
+                    isZoomedOut: self.isZoomedOut
+                )
+                TerminalViewportDiagnostics.shared.record(
+                    .activeZoomInUnsuspend,
+                    context: TerminalViewportDiagnostics.Context(
+                        paneID: paneView.paneID,
+                        worklaneID: self.viewportDiagnosticsWorklaneID,
+                        laneRole: self.viewportDiagnosticsLaneRole,
+                        isZoomedOut: self.isZoomedOut
+                    )
+                )
+                paneView.setTerminalViewportSyncSuspended(false)
+            }
+        }
+    }
+
     /// Called by PaneDragCoordinator after drop/cancel to trigger zoom-in.
     func endDragWithZoomIn() {
         guard isZoomedOut else { return }
         isZoomedOut = false
+        setZoomedOutPaneBackdropsVisible(false, animated: true)
         updateZoomAnchor()
         // Animate scroll back to 0 alongside the zoom-in
         let targetScale: CGFloat = 1.0
-        zoomAnimationFrom = currentZoomScale()
-        zoomAnimationTo = targetScale
-        zoomAnimationFromScrollX = dragScrollOffsetX
-        zoomAnimationToScrollX = 0
-        zoomAnimationStart = CACurrentMediaTime()
-        startZoomAnimation()
+        let fromScale = currentZoomScale()
+        let fromScrollX = dragScrollOffsetX
+        let toScrollX: CGFloat = 0
+
+        zoomSpring.start(duration: Self.zoomAnimationDuration) { [weak self] eased in
+            guard let self else { return }
+            let scale = fromScale + (targetScale - fromScale) * eased
+            self.dragScrollOffsetX = fromScrollX + (toScrollX - fromScrollX) * eased
+            self.applyZoomScale(scale)
+            if self.isDragActive {
+                self.dragCoordinator.updateDraggedPanePosition(zoomScale: scale)
+            }
+        } complete: { [weak self] in
+            guard let self else { return }
+            self.dragScrollOffsetX = toScrollX
+            self.applyZoomScale(targetScale)
+            if self.isDragActive {
+                self.dragCoordinator.updateDraggedPanePosition(zoomScale: targetScale)
+                self.dragCoordinator.recheckEdgeScroll()
+            }
+        }
 
         let unfreezeDelay: TimeInterval = Self.zoomAnimationDuration + 0.05
         let deferredWorkGeneration = self.deferredWorkGeneration

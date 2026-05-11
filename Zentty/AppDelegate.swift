@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
     private var aboutWindowController: AboutWindowController?
     private var licensesWindowController: LicensesWindowController?
+    private var taskManagerWindowController: TaskManagerWindowController?
     private var lastKeyWindowControllerID: ObjectIdentifier?
     private var configObserverID: UUID?
     private var nextWindowIndex = 0
@@ -141,6 +142,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     func showSettingsWindow(_ sender: Any?) {
         keyWindowController?.showSettingsWindow(sender)
+    }
+
+    @objc
+    func showTaskManager(_ sender: Any?) {
+        let controller = taskManagerWindowController ?? TaskManagerWindowController(
+            paneSourcesProvider: { [weak self] in
+                self?.orderedWindowControllersForDiscovery().flatMap { $0.taskManagerPaneSources() } ?? []
+            },
+            focusPaneHandler: { [weak self] windowID, worklaneID, paneID in
+                self?.windowController(with: windowID)?.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+            },
+            closePaneHandler: { [weak self] windowID, paneID in
+                self?.windowController(with: windowID)?.closePane(id: paneID)
+            }
+        )
+        taskManagerWindowController = controller
+        controller.show(sender: sender)
     }
 
     @objc
@@ -288,6 +306,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onMovePaneToNewWindowRequested = { [weak self] sourceController, paneID in
             self?.movePaneToNewWindow(from: sourceController, paneID: paneID)
         }
+        controller.moveToWorklaneCatalogProvider = { [weak self] sourceController, paneID in
+            self?.buildMoveToWorklaneCatalog(sourceController: sourceController, paneID: paneID)
+        }
+        controller.onMovePaneToWorklaneRequested = { [weak self] sourceController, request in
+            self?.movePaneToWorklane(from: sourceController, request: request)
+        }
+        controller.onMovePaneToNewWorklaneInThisWindowRequested = { [weak self] sourceController, paneID in
+            self?.movePaneToNewWorklaneInThisWindow(from: sourceController, paneID: paneID)
+        }
         controller.onWorkspaceStateDidChange = { [weak self] in
             self?.scheduleWorkspaceSnapshotSave()
         }
@@ -328,6 +355,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if extracted.result.sourceWindowShouldClose {
             sourceController.closeWindowBypassingConfirmation()
         }
+        scheduleWorkspaceSnapshotSave()
+    }
+
+    private func buildMoveToWorklaneCatalog(
+        sourceController: MainWindowController,
+        paneID: PaneID
+    ) -> WorklaneDestinationCatalog? {
+        guard let sourceWorklaneID = sourceController.worklaneID(containing: paneID) else {
+            return nil
+        }
+        let ordered = orderedControllers(sourceFirst: sourceController)
+
+        var groups: [WorklaneDestinationGroup] = []
+        for controller in ordered {
+            let exclude: WorklaneID? = (controller === sourceController) ? sourceWorklaneID : nil
+            let summaries = controller.availableWorklaneSummaries(excluding: exclude)
+            if !summaries.isEmpty {
+                groups.append(WorklaneDestinationGroup(windowID: controller.windowID, summaries: summaries))
+            }
+        }
+
+        let canCreateNewWorklane = sourceController.paneCount(in: sourceWorklaneID) > 1
+        return WorklaneDestinationCatalog(groups: groups, canCreateNewWorklane: canCreateNewWorklane)
+    }
+
+    private func orderedControllers(sourceFirst: MainWindowController) -> [MainWindowController] {
+        let sortedAll = windowControllers.values.sorted { $0.windowOrder < $1.windowOrder }
+        return [sourceFirst] + sortedAll.filter { $0 !== sourceFirst }
+    }
+
+    private func movePaneToWorklane(
+        from source: MainWindowController,
+        request: MovePaneToWorklaneRequest
+    ) {
+        if source.windowID == request.destinationWindowID {
+            source.transferPaneToWorklaneInThisWindow(
+                paneID: request.sourcePaneID,
+                targetWorklaneID: request.destinationWorklaneID
+            )
+            scheduleWorkspaceSnapshotSave()
+            return
+        }
+
+        guard let destination = windowControllers.values.first(where: { $0.windowID == request.destinationWindowID }),
+              destination.containsWorklane(request.destinationWorklaneID) else {
+            return
+        }
+
+        guard let extracted = source.extractPaneForCrossWindowTransfer(paneID: request.sourcePaneID) else {
+            return
+        }
+
+        destination.acceptCrossWindowPane(
+            payload: extracted.payload,
+            runtime: extracted.runtime,
+            targetWorklaneID: request.destinationWorklaneID
+        )
+
+        if extracted.payload.sourceWindowShouldClose {
+            source.closeWindowBypassingConfirmation()
+        }
+        scheduleWorkspaceSnapshotSave()
+    }
+
+    private func movePaneToNewWorklaneInThisWindow(
+        from source: MainWindowController,
+        paneID: PaneID
+    ) {
+        source.transferPaneToNewWorklaneInThisWindow(paneID: paneID)
         scheduleWorkspaceSnapshotSave()
     }
 

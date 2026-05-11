@@ -584,6 +584,48 @@ final class AppConfigStoreTests: XCTestCase {
         ])
     }
 
+    func test_store_persists_pane_split_behavior_preferences_in_toml() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.paneLayout.rightSplitBehaviorMode = .alwaysSplit
+            config.paneLayout.visibleSplitWindowWidth = .px1920
+        }
+
+        let persisted = try String(contentsOf: fileURL)
+        XCTAssertTrue(persisted.contains("[pane_layout]"))
+        XCTAssertTrue(persisted.contains("right_split_behavior = \"alwaysSplit\""))
+        XCTAssertTrue(persisted.contains("visible_split_window_width = 1920"))
+    }
+
+    func test_store_reads_pane_split_behavior_preferences_from_config_file() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [pane_layout]
+        laptop = "compact"
+        large_display = "balanced"
+        ultrawide = "roomy"
+        right_split_behavior = "alwaysAdd"
+        visible_split_window_width = 1680
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(store.current.paneLayout.rightSplitBehaviorMode, .alwaysAdd)
+        XCTAssertEqual(store.current.paneLayout.visibleSplitWindowWidth, .px1680)
+    }
+
     func test_store_drops_shortcut_overrides_without_command_control_or_option() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         try """

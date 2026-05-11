@@ -247,6 +247,8 @@ enum AgentSignalConfidence: String, Equatable, Sendable {
 enum AgentLifecycleEvent: String, Equatable, Sendable {
     case update
     case stopCandidate = "stop-candidate"
+    case toolActivity = "tool-activity"
+    case turnComplete = "turn-complete"
 }
 
 enum PaneAgentState: String, Equatable, Sendable {
@@ -541,15 +543,29 @@ enum AgentToolRecognizer {
 
     private static func codexFromVolatileTitle(_ title: String?) -> AgentTool? {
         guard let title,
-              containsCodexSpinner(in: title),
-              TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-            title,
-            recognizedTool: .codex
-        ) != nil else {
+              let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+                  title,
+                  recognizedTool: .codex
+              ) else {
             return nil
         }
 
-        return .codex
+        if containsCodexSpinner(in: title) {
+            return .codex
+        }
+
+        if TerminalMetadataChangeClassifier.codexTitleInteractionKind(for: title) != nil {
+            return .codex
+        }
+
+        if signature.phase == .idle,
+           title.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasPrefix("ready") {
+            return .codex
+        }
+
+        return nil
     }
 
     private static func containsCodexSpinner(in title: String) -> Bool {

@@ -65,6 +65,9 @@ struct SidebarWorklaneContextMenuContext {
     var bookmarkOriginID: UUID?
     var bookmarkName: String?
     var isOnlyWorklane: Bool
+    var rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
+    var moveToWorklaneCatalog: WorklaneDestinationCatalog?
+    var paneID: PaneID?
 }
 
 struct SidebarWorklaneContextMenuActions {
@@ -75,6 +78,8 @@ struct SidebarWorklaneContextMenuActions {
     var moveDownAction: Selector
     var splitHorizontalAction: Selector?
     var splitVerticalAction: Selector?
+    var forceSplitRightAction: Selector?
+    var forceAddPaneRightAction: Selector?
     var movePaneToNewWindowAction: Selector?
     var bookmarkAction: Selector
     var colorChanged: (WorklaneColor?) -> Void
@@ -219,9 +224,10 @@ enum SidebarWorklaneContextMenu {
            let splitVerticalAction = actions.splitVerticalAction
         {
             SidebarContextMenu.addSeparatorIfNeeded(to: menu)
+            let rightPaneCommandPresentation = context.rightPaneCommandPresentation
             menu.addItem(
                 SidebarContextMenu.item(
-                    title: "Split Horizontal",
+                    title: rightPaneCommandPresentation.primaryTitle,
                     action: splitHorizontalAction,
                     target: actions.target,
                     symbolName: "rectangle.split.2x1"
@@ -229,12 +235,23 @@ enum SidebarWorklaneContextMenu {
             )
             menu.addItem(
                 SidebarContextMenu.item(
-                    title: "Split Vertical",
+                    title: "New Pane Below",
                     action: splitVerticalAction,
                     target: actions.target,
                     symbolName: "rectangle.split.1x2"
                 )
             )
+            if let forceRightAction = rightPaneCommandPresentation.sidebarForceAction(from: actions) {
+                menu.addItem(
+                    SidebarContextMenu.item(
+                        title: rightPaneCommandPresentation.forceOppositeTitle,
+                        action: forceRightAction,
+                        target: actions.target,
+                        symbolName: "arrow.right.square",
+                        fallbackSymbolName: "rectangle.split.2x1"
+                    )
+                )
+            }
 
             if let movePaneToNewWindowAction = actions.movePaneToNewWindowAction {
                 SidebarContextMenu.addSeparatorIfNeeded(to: menu)
@@ -247,6 +264,24 @@ enum SidebarWorklaneContextMenu {
                 )
                 moveToWindowItem.isEnabled = !(context.isOnlyWorklane && isLastPaneInWorklane)
                 menu.addItem(moveToWindowItem)
+
+                if let catalog = context.moveToWorklaneCatalog,
+                   catalog.hasAnyDestination,
+                   let paneID = context.paneID {
+                    let parentItem = NSMenuItem(
+                        title: "Move Pane to Worklane",
+                        action: nil,
+                        keyEquivalent: ""
+                    )
+                    parentItem.image = NSImage(systemSymbolName: "rectangle.stack",
+                                               accessibilityDescription: "Move Pane to Worklane")?
+                        .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+                    parentItem.submenu = MoveToWorklaneMenuBuilder.makeSubmenu(
+                        catalog: catalog,
+                        paneID: paneID
+                    )
+                    menu.addItem(parentItem)
+                }
             }
         }
 
@@ -373,6 +408,19 @@ enum SidebarWorklaneContextMenu {
     }
 }
 
+private extension PaneRightCommandPresentation {
+    func sidebarForceAction(from actions: SidebarWorklaneContextMenuActions) -> Selector? {
+        switch forceOppositeCommand {
+        case .splitRightVisibly:
+            actions.forceSplitRightAction
+        case .addPaneRightWithoutResizing:
+            actions.forceAddPaneRightAction
+        default:
+            nil
+        }
+    }
+}
+
 // MARK: - SidebarInsetContainerView
 
 final class SidebarInsetContainerView: NSView {
@@ -438,6 +486,8 @@ final class SidebarPaneRowButton: NSButton {
     var onClosePane: ((PaneID) -> Void)?
     var onSplitHorizontal: ((PaneID) -> Void)?
     var onSplitVertical: ((PaneID) -> Void)?
+    var onForceSplitRight: ((PaneID) -> Void)?
+    var onForceAddPaneRight: ((PaneID) -> Void)?
     var onMovePaneToNewWindow: ((PaneID) -> Void)?
     var onPickWorklaneColor: ((PaneID, WorklaneColor?) -> Void)?
     var onBookmarkAction: ((SidebarBookmarkRowAction) -> Void)?
@@ -446,6 +496,8 @@ final class SidebarPaneRowButton: NSButton {
     var onWorklaneDragRequested: ((NSEvent) -> Bool)?
     var onMoveWorklane: ((SidebarWorklaneMoveDirection) -> Void)?
     var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
+    var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
+    var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
 
     private var activeContextPicker: WorklaneColorMenuItemView?
 
@@ -626,7 +678,10 @@ final class SidebarPaneRowButton: NSButton {
                 worklaneColor: currentWorklaneColor,
                 bookmarkOriginID: originID,
                 bookmarkName: originID.flatMap { bookmarkNameLookup?($0) },
-                isOnlyWorklane: isLastPaneInOnlyWorklane && isLastPaneInWorklane
+                isOnlyWorklane: isLastPaneInOnlyWorklane && isLastPaneInWorklane,
+                rightPaneCommandPresentation: rightPaneCommandPresentationProvider?() ?? .addsToWorklane,
+                moveToWorklaneCatalog: moveToWorklaneCatalogProvider?(paneID),
+                paneID: paneID
             ),
             actions: SidebarWorklaneContextMenuActions(
                 target: self,
@@ -636,6 +691,8 @@ final class SidebarPaneRowButton: NSButton {
                 moveDownAction: #selector(handleMoveWorklaneDown),
                 splitHorizontalAction: #selector(handleSplitHorizontal),
                 splitVerticalAction: #selector(handleSplitVertical),
+                forceSplitRightAction: #selector(handleForceSplitRight),
+                forceAddPaneRightAction: #selector(handleForceAddPaneRight),
                 movePaneToNewWindowAction: #selector(handleMovePaneToNewWindow),
                 bookmarkAction: #selector(handleBookmarkMenuItem(_:)),
                 colorChanged: { [weak self] color in
@@ -677,6 +734,14 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleSplitVertical() {
         onSplitVertical?(paneID)
+    }
+
+    @objc private func handleForceSplitRight() {
+        onForceSplitRight?(paneID)
+    }
+
+    @objc private func handleForceAddPaneRight() {
+        onForceAddPaneRight?(paneID)
     }
 
     @objc private func handleMovePaneToNewWindow() {

@@ -21,6 +21,7 @@ struct PaneDragActiveState: Equatable, Sendable {
     let sourceColumnID: PaneColumnID
     let sourceColumnIndex: Int
     let sourcePaneIndex: Int
+    let sourceFlatPaneIndex: Int
     let originalPaneState: PaneState
     let originalColumnWidth: CGFloat
     /// Offset from cursor to the pane snapshot's origin, captured at drag start.
@@ -42,9 +43,13 @@ enum PaneDropTarget: Equatable, Sendable {
     case verticalSplit(targetPaneID: PaneID, above: Bool)
     /// Split horizontally onto a target pane (leading or trailing).
     case horizontalSplit(targetPaneID: PaneID, leading: Bool)
-    /// Drop onto a sidebar worklane row.
+    /// Drop onto a sidebar worklane row (whole-row append, current behavior).
     case sidebarWorklane(WorklaneID)
-    /// Drop onto empty sidebar space to create a new worklane.
+    /// Drop onto a sidebar worklane at a specific pane insertion boundary.
+    case sidebarWorklanePane(WorklaneID, paneIndex: Int)
+    /// Create a new worklane at a specific position in the sidebar list.
+    case newWorklaneAtIndex(Int)
+    /// Drop onto empty sidebar space to create a new worklane (deprecated alias for newWorklaneAtIndex(count)).
     case newWorklane
     /// No valid drop target.
     case none
@@ -90,7 +95,10 @@ extension PaneDragActiveState {
             return columnID == sourceColumnID && paneIndex == sourcePaneIndex
         case .sidebarWorklane(let worklaneID):
             return worklaneID == currentSidebarWorklaneID
-        case .reorderGap, .verticalSplit, .horizontalSplit, .newWorklane, .none:
+        case .sidebarWorklanePane(let worklaneID, let paneIndex):
+            guard worklaneID == currentSidebarWorklaneID else { return false }
+            return paneIndex == sourceFlatPaneIndex || paneIndex == sourceFlatPaneIndex + 1
+        case .reorderGap, .verticalSplit, .horizontalSplit, .newWorklane, .newWorklaneAtIndex, .none:
             return false
         }
     }
@@ -134,9 +142,9 @@ enum DragReorderHapticClassifier {
         switch next {
         case .none:
             return .silent
-        case .reorderGap, .reorderInColumn, .sidebarWorklane:
+        case .reorderGap, .reorderInColumn, .sidebarWorklane, .sidebarWorklanePane:
             return .alignment
-        case .verticalSplit, .horizontalSplit, .newWorklane:
+        case .verticalSplit, .horizontalSplit, .newWorklane, .newWorklaneAtIndex:
             return .structural
         }
     }

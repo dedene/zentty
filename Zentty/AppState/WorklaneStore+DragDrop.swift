@@ -170,9 +170,30 @@ extension WorklaneStore {
         targetWorklaneID: WorklaneID,
         singleColumnWidth: CGFloat
     ) {
+        transferPaneToWorklane(
+            paneID: paneID,
+            targetWorklaneID: targetWorklaneID,
+            atPaneIndex: nil,
+            singleColumnWidth: singleColumnWidth
+        )
+    }
+
+    func transferPaneToWorklane(
+        paneID: PaneID,
+        targetWorklaneID: WorklaneID,
+        atPaneIndex flatPaneIndex: Int?,
+        singleColumnWidth: CGFloat
+    ) {
         guard let sourceIndex = worklanes.firstIndex(where: { $0.id == activeWorklaneID }),
               let targetIndex = worklanes.firstIndex(where: { $0.id == targetWorklaneID }),
               sourceIndex != targetIndex else {
+            if targetWorklaneID == activeWorklaneID {
+                transferPaneWithinActiveWorklane(
+                    paneID: paneID,
+                    atPaneIndex: flatPaneIndex,
+                    singleColumnWidth: singleColumnWidth
+                )
+            }
             return
         }
 
@@ -197,22 +218,39 @@ extension WorklaneStore {
 
         var targetWorklane = worklanes[targetIndex]
         let targetColumnCount = targetWorklane.paneStripState.columns.count
-        let insertWidth: CGFloat
-        if targetColumnCount == 0 {
-            insertWidth = layoutContext.singlePaneWidth
-        } else {
-            insertWidth = layoutContext.newPaneWidth(existingPaneCount: targetColumnCount)
-        }
+        let insertWidth = max(1, removal.pane.width)
 
         if targetColumnCount == 1, let firstPaneWidth = layoutContext.firstPaneWidthAfterSingleSplit {
             targetWorklane.paneStripState.resizeFirstColumn(to: firstPaneWidth)
         }
 
-        targetWorklane.paneStripState.insertPaneAsColumn(
-            removal.pane,
-            atColumnIndex: targetWorklane.paneStripState.columns.count,
-            width: insertWidth
-        )
+        if let flatPaneIndex, let action = flatInsertionAction(
+            for: flatPaneIndex,
+            in: targetWorklane.paneStripState
+        ) {
+            switch action {
+            case .asColumn(let index):
+                targetWorklane.paneStripState.insertPaneAsColumn(
+                    removal.pane,
+                    atColumnIndex: index,
+                    width: insertWidth
+                )
+            case .intoColumn(let columnID, let targetPaneID, let localIndex):
+                targetWorklane.paneStripState.insertPaneIntoColumn(
+                    removal.pane,
+                    columnID: columnID,
+                    targetPaneID: targetPaneID,
+                    atPaneIndex: localIndex,
+                    availableHeight: 1200
+                )
+            }
+        } else {
+            targetWorklane.paneStripState.insertPaneAsColumn(
+                removal.pane,
+                atColumnIndex: targetWorklane.paneStripState.columns.count,
+                width: insertWidth
+            )
+        }
 
         if let auxiliaryState {
             targetWorklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
@@ -244,6 +282,18 @@ extension WorklaneStore {
         paneID: PaneID,
         singleColumnWidth: CGFloat
     ) {
+        transferPaneToNewWorklane(
+            paneID: paneID,
+            atIndex: worklanes.count,
+            singleColumnWidth: singleColumnWidth
+        )
+    }
+
+    func transferPaneToNewWorklane(
+        paneID: PaneID,
+        atIndex insertionIndex: Int,
+        singleColumnWidth: CGFloat
+    ) {
         // Prevent transferring the last pane — would leave an empty worklane.
         // Option+drag (duplicate) is unaffected.
         guard let source = activeWorklane,
@@ -258,7 +308,8 @@ extension WorklaneStore {
             paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
             nextPaneNumber: 1
         )
-        worklanes.append(newWorklane)
+        let clampedIndex = max(0, min(insertionIndex, worklanes.count))
+        worklanes.insert(newWorklane, at: clampedIndex)
 
         // transferPaneToWorklane handles notifications. It fires .worklaneListChanged
         // when the source empties (covering both the removal and the addition). When
@@ -408,11 +459,146 @@ extension WorklaneStore {
         pane.sessionRequest = request
     }
 
+    // MARK: - Cross-Window Move (into existing worklane)
+
+    struct ExtractedPanePayload {
+        var pane: PaneState
+        let auxiliary: PaneAuxiliaryState?
+        let sourceWorklaneRemoved: Bool
+        let sourceWindowShouldClose: Bool
+    }
+
+    /// Removes a pane from its current worklane in preparation for cross-window
+    /// transfer into a different `WorklaneStore`. Mirrors the removal half of
+    /// `transferPaneToWorklane(...)` plus the source-worklane-empty bookkeeping
+    /// from `splitOutPaneToNewWindow(...)`.
+    func extractPaneForCrossWindowTransfer(
+        paneID: PaneID,
+        singleColumnWidth: CGFloat
+    ) -> ExtractedPanePayload? {
+        guard let sourceIndex = worklanes.firstIndex(where: { worklane in
+            worklane.paneStripState.panes.contains { $0.id == paneID }
+        }) else {
+            return nil
+        }
+
+        var sourceWorklane = worklanes[sourceIndex]
+        let previousSourceColumnCount = sourceWorklane.paneStripState.columns.count
+
+        guard let removal = sourceWorklane.paneStripState.removePane(
+            id: paneID,
+            singleColumnWidth: singleColumnWidth
+        ) else {
+            return nil
+        }
+
+        applyColumnWidthNormalization(
+            &sourceWorklane,
+            previousColumnCount: previousSourceColumnCount,
+            singleColumnWidth: singleColumnWidth
+        )
+
+        let auxiliaryState = sourceWorklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
+        worklanes[sourceIndex] = sourceWorklane
+
+        let sourceWorklaneID = sourceWorklane.id
+        let sourceIsEmpty = sourceWorklane.paneStripState.columns.isEmpty
+        var sourceWorklaneRemoved = false
+
+        if sourceIsEmpty, worklanes.count > 1 {
+            worklanes.remove(at: sourceIndex)
+            sourceWorklaneRemoved = true
+            if activeWorklaneID == sourceWorklaneID, let first = worklanes.first {
+                activeWorklaneID = first.id
+            }
+        }
+
+        let sourceWindowShouldClose = worklanes.allSatisfy { $0.paneStripState.panes.isEmpty }
+
+        refreshLastFocusedLocalWorkingDirectory()
+
+        if sourceWorklaneRemoved {
+            notify(.worklaneListChanged)
+        } else {
+            notify(.paneStructure(sourceWorklaneID))
+        }
+
+        return ExtractedPanePayload(
+            pane: removal.pane,
+            auxiliary: auxiliaryState,
+            sourceWorklaneRemoved: sourceWorklaneRemoved,
+            sourceWindowShouldClose: sourceWindowShouldClose
+        )
+    }
+
+    /// Inserts a pane previously produced by `extractPaneForCrossWindowTransfer`
+    /// into the named target worklane (assumed to live in this store's window).
+    /// Appends as a new rightmost column sized to this store's `singleColumnWidth`,
+    /// since the source's column width is relative to a different layout context.
+    /// Returns `true` on success; `false` if the target worklane no longer exists.
+    @discardableResult
+    func insertExtractedPane(
+        _ payload: ExtractedPanePayload,
+        intoWorklane targetWorklaneID: WorklaneID,
+        singleColumnWidth: CGFloat
+    ) -> Bool {
+        guard let targetIndex = worklanes.firstIndex(where: { $0.id == targetWorklaneID }) else {
+            return false
+        }
+
+        var targetWorklane = worklanes[targetIndex]
+        let targetColumnCount = targetWorklane.paneStripState.columns.count
+        var pane = payload.pane
+        let insertWidth = max(1, singleColumnWidth)
+
+        retargetPaneForSplitOut(
+            &pane,
+            destinationWindowID: windowID,
+            destinationWorklaneID: targetWorklaneID
+        )
+
+        if targetColumnCount == 1, let firstPaneWidth = layoutContext.firstPaneWidthAfterSingleSplit {
+            targetWorklane.paneStripState.resizeFirstColumn(to: firstPaneWidth)
+        }
+
+        targetWorklane.paneStripState.insertPaneAsColumn(
+            pane,
+            atColumnIndex: targetWorklane.paneStripState.columns.count,
+            width: insertWidth
+        )
+
+        if let auxiliaryState = payload.auxiliary {
+            targetWorklane.auxiliaryStateByPaneID[pane.id] = auxiliaryState
+        }
+
+        worklanes[targetIndex] = targetWorklane
+        activeWorklaneID = targetWorklaneID
+        refreshLastFocusedLocalWorkingDirectory()
+
+        notify(.paneStructure(targetWorklaneID))
+        notify(.activeWorklaneChanged)
+        return true
+    }
+
     // MARK: - Duplicate Pane
 
     func duplicatePaneToWorklane(
         paneID: PaneID,
         targetWorklaneID: WorklaneID,
+        singleColumnWidth: CGFloat
+    ) {
+        duplicatePaneToWorklane(
+            paneID: paneID,
+            targetWorklaneID: targetWorklaneID,
+            atPaneIndex: nil,
+            singleColumnWidth: singleColumnWidth
+        )
+    }
+
+    func duplicatePaneToWorklane(
+        paneID: PaneID,
+        targetWorklaneID: WorklaneID,
+        atPaneIndex flatPaneIndex: Int?,
         singleColumnWidth: CGFloat
     ) {
         guard let sourceWorklane = worklanes.first(where: { $0.paneStripState.columns.contains(where: { $0.panes.contains(where: { $0.id == paneID }) }) }),
@@ -424,6 +610,9 @@ extension WorklaneStore {
         let auxiliaryState = sourceWorklane.auxiliaryStateByPaneID[paneID]
         let workingDirectory = auxiliaryState?.raw.shellContext?.path
         let command = duplicateCommand(auxiliaryState: auxiliaryState)
+        let sourceColumnWidth = sourceWorklane.paneStripState.columns
+            .first(where: { $0.panes.contains(where: { $0.id == paneID }) })?
+            .width ?? layoutContext.singlePaneWidth
 
         var targetWorklane = worklanes[targetIndex]
 
@@ -437,22 +626,43 @@ extension WorklaneStore {
         )
 
         let targetColumnCount = targetWorklane.paneStripState.columns.count
-        let insertWidth: CGFloat
-        if targetColumnCount == 0 {
-            insertWidth = layoutContext.singlePaneWidth
-        } else {
-            insertWidth = layoutContext.newPaneWidth(existingPaneCount: targetColumnCount)
-        }
+        let insertWidth = sourceColumnWidth > 0
+            ? sourceColumnWidth
+            : layoutContext.singlePaneWidth
 
         if targetColumnCount == 1, let firstPaneWidth = layoutContext.firstPaneWidthAfterSingleSplit {
             targetWorklane.paneStripState.resizeFirstColumn(to: firstPaneWidth)
         }
 
-        targetWorklane.paneStripState.insertPaneAsColumn(
-            newPane,
-            atColumnIndex: targetWorklane.paneStripState.columns.count,
-            width: insertWidth
-        )
+        if let flatPaneIndex, let action = flatInsertionAction(
+            for: flatPaneIndex,
+            in: targetWorklane.paneStripState
+        ) {
+            switch action {
+            case .asColumn(let index):
+                targetWorklane.paneStripState.insertPaneAsColumn(
+                    newPane,
+                    atColumnIndex: index,
+                    width: insertWidth
+                )
+            case .intoColumn(let columnID, let targetPaneID, let localIndex):
+                guard targetWorklane.paneStripState.insertPaneIntoColumn(
+                    newPane,
+                    columnID: columnID,
+                    targetPaneID: targetPaneID,
+                    atPaneIndex: localIndex,
+                    availableHeight: 1200
+                ) else {
+                    return
+                }
+            }
+        } else {
+            targetWorklane.paneStripState.insertPaneAsColumn(
+                newPane,
+                atColumnIndex: targetWorklane.paneStripState.columns.count,
+                width: insertWidth
+            )
+        }
 
         worklanes[targetIndex] = targetWorklane
         activeWorklaneID = targetWorklaneID
@@ -464,6 +674,18 @@ extension WorklaneStore {
         paneID: PaneID,
         singleColumnWidth: CGFloat
     ) {
+        duplicatePaneToNewWorklane(
+            paneID: paneID,
+            atIndex: worklanes.count,
+            singleColumnWidth: singleColumnWidth
+        )
+    }
+
+    func duplicatePaneToNewWorklane(
+        paneID: PaneID,
+        atIndex insertionIndex: Int,
+        singleColumnWidth: CGFloat
+    ) {
         let newWorklaneID = runtimeIdentity.makeWorklaneID()
         let newWorklane = WorklaneState(
             id: newWorklaneID,
@@ -471,7 +693,8 @@ extension WorklaneStore {
             paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
             nextPaneNumber: 1
         )
-        worklanes.append(newWorklane)
+        let clampedIndex = max(0, min(insertionIndex, worklanes.count))
+        worklanes.insert(newWorklane, at: clampedIndex)
 
         // duplicatePaneToWorklane fires .activeWorklaneChanged but not .worklaneListChanged
         duplicatePaneToWorklane(
@@ -649,6 +872,71 @@ extension WorklaneStore {
         notify(.paneStructure(activeWorklaneID))
     }
 
+    // MARK: - Same-Worklane Flat Boundary Drop
+
+    private func transferPaneWithinActiveWorklane(
+        paneID: PaneID,
+        atPaneIndex flatPaneIndex: Int?,
+        singleColumnWidth: CGFloat
+    ) {
+        guard var worklane = activeWorklane,
+              let flatPaneIndex else {
+            return
+        }
+
+        let panes = worklane.paneStripState.panes
+        guard let sourceFlatIndex = panes.firstIndex(where: { $0.id == paneID }),
+              flatPaneIndex >= 0,
+              flatPaneIndex <= panes.count else {
+            return
+        }
+
+        guard flatPaneIndex != sourceFlatIndex,
+              flatPaneIndex != sourceFlatIndex + 1 else {
+            return
+        }
+
+        let reducedFlatIndex = flatPaneIndex > sourceFlatIndex
+            ? flatPaneIndex - 1
+            : flatPaneIndex
+        var reducedStrip = worklane.paneStripState
+        guard reducedStrip.removePane(id: paneID, singleColumnWidth: nil) != nil,
+              let action = flatInsertionAction(for: reducedFlatIndex, in: reducedStrip) else {
+            return
+        }
+
+        let previousColumnCount = worklane.paneStripState.columns.count
+        switch action {
+        case .asColumn(let index):
+            guard let removal = worklane.paneStripState.removePane(id: paneID, singleColumnWidth: nil) else {
+                return
+            }
+            worklane.paneStripState.insertPaneAsColumn(
+                removal.pane,
+                atColumnIndex: index,
+                width: removal.pane.width
+            )
+        case .intoColumn(let columnID, _, let localIndex):
+            guard worklane.paneStripState.movePane(
+                id: paneID,
+                toColumnID: columnID,
+                atPaneIndex: localIndex
+            ) else {
+                return
+            }
+        }
+
+        applyColumnWidthNormalization(
+            &worklane,
+            previousColumnCount: previousColumnCount,
+            singleColumnWidth: singleColumnWidth
+        )
+
+        activeWorklane = worklane
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(activeWorklaneID))
+    }
+
     // MARK: - Private — Duplicate Source Info
 
     private struct DuplicateSourceInfo {
@@ -718,7 +1006,52 @@ extension WorklaneStore {
         return nil
     }
 
-    // MARK: - Private — Column Width
+    // MARK: - Private - Flat Index to Column Mapping
+
+    /// Maps a flat pane insertion index (0...paneCount) to where the pane should be placed.
+    ///
+    /// Returns the appropriate action: `.asColumn(index)` for a new column at that position,
+    /// or `.intoColumn(columnID, targetPaneID, localIndex)` for same-column insertion.
+    /// Returns nil if the flat pane index is out of range.
+    private enum FlatInsertionAction {
+        case asColumn(index: Int)
+        case intoColumn(columnID: PaneColumnID, targetPaneID: PaneID, localIndex: Int)
+    }
+
+    private func flatInsertionAction(
+        for flatPaneIndex: Int,
+        in strip: PaneStripState
+    ) -> FlatInsertionAction? {
+        let paneCount = strip.panes.count
+        guard flatPaneIndex >= 0, flatPaneIndex <= paneCount else { return nil }
+
+        if flatPaneIndex == 0 { return .asColumn(index: 0) }
+        if flatPaneIndex == paneCount { return .asColumn(index: strip.columns.count) }
+
+        // Find the two panes between which we insert
+        let panes = strip.panes
+        let beforePane = panes[flatPaneIndex - 1]
+        let afterPane = panes[flatPaneIndex]
+
+        // Find their column indices
+        guard let beforeColIdx = strip.columns.firstIndex(where: { $0.panes.contains(where: { $0.id == beforePane.id }) }),
+              let afterColIdx = strip.columns.firstIndex(where: { $0.panes.contains(where: { $0.id == afterPane.id }) }) else {
+            return nil
+        }
+
+        if beforeColIdx == afterColIdx {
+            // Same column: insert between the two panes within that column.
+            let column = strip.columns[beforeColIdx]
+            guard let beforeLocal = column.panes.firstIndex(where: { $0.id == beforePane.id }) else {
+                return nil
+            }
+            let localInsertionIndex = beforeLocal + 1
+            return .intoColumn(columnID: column.id, targetPaneID: afterPane.id, localIndex: localInsertionIndex)
+        } else {
+            // Different columns: insert as a new column between them.
+            return .asColumn(index: afterColIdx)
+        }
+    }
 
     func applyColumnWidthNormalization(
         _ worklane: inout WorklaneState,

@@ -51,6 +51,11 @@ extension WorklaneStore {
                         now: now,
                         in: &worklane
                     )
+                    promoteCodexRunningIfCurrentTitleAndProgressIndicateRunning(
+                        paneID: paneID,
+                        now: now,
+                        in: &worklane
+                    )
                 }
             }
         case .userSubmittedInput:
@@ -60,6 +65,7 @@ extension WorklaneStore {
                 now: now,
                 in: worklane
             )
+            worklane.auxiliaryStateByPaneID[paneID]?.raw.codexInterruptSuppressionUntil = nil
             clearCodexTitleIdleSuppression(for: paneID, in: &worklane)
             clearReadyStatusIfNeeded(for: paneID, in: &worklane)
             promoteCodexAgentStateFromUserInput(
@@ -310,6 +316,29 @@ extension WorklaneStore {
             return
         }
 
+        if payload.signalKind == .paneRootPID {
+            guard let pidEvent = payload.pidEvent else {
+                return
+            }
+
+            switch pidEvent {
+            case .attach:
+                guard let pid = payload.pid, pid > 0 else {
+                    return
+                }
+                worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()].raw.paneRootPID = pid
+            case .clear:
+                worklane.auxiliaryStateByPaneID[payload.paneID]?.raw.paneRootPID = nil
+            }
+
+            worklanes[worklaneIndex] = worklane
+            let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+            if !impacts.isEmpty {
+                notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, impacts))
+            }
+            return
+        }
+
         let existingStatus = worklane.auxiliaryStateByPaneID[payload.paneID]?.agentStatus
         let tool = AgentTool.resolve(named: payload.toolName)
             ?? existingStatus?.tool
@@ -329,6 +358,16 @@ extension WorklaneStore {
             clearCodexTitleIdleSuppression(for: payload.paneID, in: &worklane)
         }
         var auxiliaryState = worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
+        if shouldSuppressCodexTurnCompleteForCurrentNeedsInputTitle(
+            payload: payload,
+            tool: tool,
+            auxiliaryState: auxiliaryState
+        ) {
+            stopSignalLogger.debug(
+                "codex.turnComplete skip=currentNeedsInputTitle pane=\(payload.paneID.rawValue, privacy: .public)"
+            )
+            return
+        }
         if shouldSuppressCodexPayloadDuringInterrupt(payload: payload, tool: tool, auxiliaryState: auxiliaryState) {
             auxiliaryState.agentReducerState.clearCodexSessionsFromUserInterrupt()
             if auxiliaryState.agentStatus?.tool == .codex {
@@ -518,6 +557,8 @@ extension WorklaneStore {
                     in: &worklane
                 )
             }
+        case .paneRootPID:
+            break
         case .paneContext:
             guard let paneContext = payload.paneContext else {
                 return
@@ -745,7 +786,7 @@ extension WorklaneStore {
             return state == .starting || state == .running || state == .needsInput
         case .pid:
             return payload.pidEvent == .attach
-        case .shellState, .paneContext:
+        case .shellState, .paneRootPID, .paneContext:
             return false
         }
     }
@@ -767,7 +808,7 @@ extension WorklaneStore {
             return payload.pidEvent == .attach
         case .shellState:
             return payload.shellActivityState == .commandRunning
-        case .paneContext:
+        case .paneRootPID, .paneContext:
             return false
         }
     }
@@ -1133,6 +1174,38 @@ extension WorklaneStore {
         )
     }
 
+    private func promoteCodexRunningIfCurrentTitleAndProgressIndicateRunning(
+        paneID: PaneID,
+        now: Date,
+        in worklane: inout WorklaneState
+    ) {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+              auxiliaryState.terminalProgress?.state.indicatesActivity == true,
+              !auxiliaryState.raw.codexInterruptSuppressionIsActive(now: now),
+              let existingStatus = auxiliaryState.agentStatus,
+              existingStatus.tool == .codex,
+              existingStatus.state == .needsInput,
+              existingStatus.interactionKind.requiresHumanAttention,
+              let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+                  auxiliaryState.metadata?.title,
+                  recognizedTool: .codex
+              ),
+              signature.phase == .running else {
+            return
+        }
+
+        let newStatus = Self.codexRunningStatus(from: existingStatus, now: now)
+        auxiliaryState.agentStatus = newStatus
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            PaneAgentReducerState(),
+            from: newStatus
+        )
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        stopSignalLogger.debug(
+            "codex.progress.running force pane=\(paneID.rawValue, privacy: .public) preState=needsInput => running"
+        )
+    }
+
     private func shouldAllowCodexNeedsInputResumeFromUserSubmittedInput(
         paneID: PaneID,
         now: Date,
@@ -1168,9 +1241,58 @@ extension WorklaneStore {
         switch payload.signalKind {
         case .lifecycle:
             return payload.state == .idle || payload.clearsStatus
-        case .pid, .shellState, .paneContext:
+        case .pid, .paneRootPID, .shellState, .paneContext:
             return false
         }
+    }
+
+    private func shouldSuppressCodexTurnCompleteForCurrentNeedsInputTitle(
+        payload: AgentStatusPayload,
+        tool: AgentTool?,
+        auxiliaryState: PaneAuxiliaryState
+    ) -> Bool {
+        guard tool == .codex,
+              payload.lifecycleEvent == .turnComplete else {
+            return false
+        }
+
+        return Self.codexCurrentTitleIndicatesNeedsInput(auxiliaryState)
+    }
+
+    static func codexRunningStatus(from existingStatus: PaneAgentStatus, now: Date) -> PaneAgentStatus {
+        PaneAgentStatus(
+            tool: .codex,
+            state: .running,
+            text: nil,
+            artifactLink: existingStatus.artifactLink,
+            updatedAt: now,
+            source: existingStatus.source,
+            origin: existingStatus.origin,
+            interactionKind: .none,
+            confidence: existingStatus.confidence,
+            shellActivityState: existingStatus.shellActivityState,
+            trackedPID: existingStatus.trackedPID,
+            workingDirectory: existingStatus.workingDirectory,
+            hasObservedRunning: true,
+            sessionID: existingStatus.sessionID,
+            parentSessionID: existingStatus.parentSessionID,
+            taskProgress: existingStatus.taskProgress
+        )
+    }
+
+    static func codexCurrentTitleIndicatesNeedsInput(_ auxiliaryState: PaneAuxiliaryState) -> Bool {
+        guard let title = auxiliaryState.metadata?.title else {
+            return false
+        }
+
+        if TerminalMetadataChangeClassifier.codexTitleInteractionKind(for: title) != nil {
+            return true
+        }
+
+        return TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            title,
+            recognizedTool: .codex
+        )?.phase == .needsInput
     }
 
     private func shouldClearCodexInterruptSuppression(
@@ -1189,7 +1311,7 @@ extension WorklaneStore {
                 return false
             }
             return state == .starting || state == .running || state == .needsInput
-        case .shellState, .paneContext:
+        case .shellState, .paneRootPID, .paneContext:
             return false
         }
     }

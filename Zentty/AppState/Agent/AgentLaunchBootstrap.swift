@@ -450,9 +450,10 @@ enum AgentLaunchBootstrap {
         appConfigProvider: () -> AppConfig
     ) throws -> AgentLaunchPlan {
         var setEnvironment = ["ZENTTY_AGENT_TOOL": "opencode"]
-        let sourceConfigPath = environment["ZENTTY_OPENCODE_BASE_CONFIG_DIR"]?.nilIfBlank
-            ?? environment["OPENCODE_CONFIG_DIR"]?.nilIfBlank
-            ?? ""
+        let sourceConfigPath = opencodeSourceConfigDirectoryPath(
+            environment: environment,
+            fileManager: fileManager
+        )
         setEnvironment["ZENTTY_OPENCODE_BASE_CONFIG_DIR"] = sourceConfigPath
         let appConfig = appConfigProvider()
 
@@ -477,6 +478,7 @@ enum AgentLaunchBootstrap {
                 try copyDirectoryContents(
                     from: URL(fileURLWithPath: sourceConfigPath, isDirectory: true),
                     to: overlayConfigURL,
+                    skippingNames: appConfig.appearance.syncOpenCodeThemeWithTerminal ? ["themes"] : [],
                     fileManager: fileManager
                 )
             }
@@ -503,6 +505,9 @@ enum AgentLaunchBootstrap {
                 )
                 setEnvironment["XDG_CONFIG_HOME"] = overlayRoots.configHomeURL.path
                 setEnvironment["XDG_STATE_HOME"] = overlayRoots.stateHomeURL.path
+                setEnvironment["OPENCODE_TUI_CONFIG"] = overlayConfigURL
+                    .appendingPathComponent("tui.json", isDirectory: false)
+                    .path
             }
             setEnvironment["OPENCODE_CONFIG_DIR"] = overlayConfigURL.path
         }
@@ -655,6 +660,32 @@ enum AgentLaunchBootstrap {
                 .path
         return URL(fileURLWithPath: basePath, isDirectory: true)
             .appendingPathComponent("opencode", isDirectory: true)
+    }
+
+    private static func opencodeSourceConfigDirectoryPath(
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> String {
+        if let explicitPath = environment["ZENTTY_OPENCODE_BASE_CONFIG_DIR"]?.nilIfBlank {
+            return explicitPath
+        }
+        if let explicitPath = environment["OPENCODE_CONFIG_DIR"]?.nilIfBlank {
+            return explicitPath
+        }
+
+        let fallbackPaths = [
+            environment["XDG_CONFIG_HOME"]?.nilIfBlank.map {
+                URL(fileURLWithPath: $0, isDirectory: true)
+                    .appendingPathComponent("opencode", isDirectory: true)
+                    .path
+            },
+            URL(fileURLWithPath: environment["HOME"]?.nilIfBlank ?? NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent(".config", isDirectory: true)
+                .appendingPathComponent("opencode", isDirectory: true)
+                .path,
+        ].compactMap { $0 }
+
+        return fallbackPaths.first { fileManager.fileExists(atPath: $0) } ?? ""
     }
 
     private static func prepareOpenCodeStateOverlay(
@@ -1257,11 +1288,25 @@ enum AgentLaunchBootstrap {
         to destinationURL: URL,
         fileManager: FileManager
     ) throws {
+        try copyDirectoryContents(
+            from: sourceURL,
+            to: destinationURL,
+            skippingNames: [],
+            fileManager: fileManager
+        )
+    }
+
+    private static func copyDirectoryContents(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        skippingNames: Set<String>,
+        fileManager: FileManager
+    ) throws {
         guard fileManager.fileExists(atPath: sourceURL.path) else {
             return
         }
         let entries = try fileManager.contentsOfDirectory(at: sourceURL, includingPropertiesForKeys: nil)
-        for entry in entries {
+        for entry in entries where !skippingNames.contains(entry.lastPathComponent) {
             try copyItemIfPossible(
                 at: entry,
                 to: destinationURL.appendingPathComponent(entry.lastPathComponent, isDirectory: false),

@@ -55,6 +55,8 @@ final class SidebarView: NSView {
     var onClosePaneRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitHorizontalRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitVerticalRequested: ((WorklaneID, PaneID) -> Void)?
+    var onForceSplitRightRequested: ((WorklaneID, PaneID) -> Void)?
+    var onForceAddPaneRightRequested: ((WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((WorklaneID, PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneReorderCommitted: ((WorklaneID, Int) -> Bool)?
@@ -62,6 +64,8 @@ final class SidebarView: NSView {
     var onOpenBookmarksPopoverRequested: ((NSView) -> Void)?
     var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
     var bookmarkNameLookup: ((UUID) -> String?)?
+    var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
+    var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onResized: ((CGFloat) -> Void)?
     var onPointerEntered: (() -> Void)?
@@ -91,7 +95,7 @@ final class SidebarView: NSView {
         resizeHandleView: resizeHandleView
     )
     private lazy var dragCoordinator = SidebarDragCoordinator(sidebarView: self)
-    private lazy var paneDropPresenter = SidebarPaneDropPresenter(targetStack: listStack)
+    private lazy var paneDropPresenter = SidebarPaneDropPresenter(targetStack: listStack, lineContainer: listDocumentView)
 
     private var worklaneButtons: [SidebarWorklaneRowButton] = []
     private var worklaneSummaries: [WorklaneSidebarSummary] = []
@@ -446,6 +450,18 @@ final class SidebarView: NSView {
         button.onSplitVerticalRequested = { [weak self] paneID in
             self?.onSplitVerticalRequested?(worklaneID, paneID)
         }
+        button.onForceSplitRightRequested = { [weak self] paneID in
+            self?.onForceSplitRightRequested?(worklaneID, paneID)
+        }
+        button.onForceAddPaneRightRequested = { [weak self] paneID in
+            self?.onForceAddPaneRightRequested?(worklaneID, paneID)
+        }
+        button.rightPaneCommandPresentationProvider = { [weak self] in
+            self?.rightPaneCommandPresentationProvider?() ?? .addsToWorklane
+        }
+        button.moveToWorklaneCatalogProvider = { [weak self] paneID in
+            self?.moveToWorklaneCatalogProvider?(paneID)
+        }
         button.onMovePaneToNewWindowRequested = { [weak self] paneID in
             self?.onMovePaneToNewWindowRequested?(worklaneID, paneID)
         }
@@ -555,6 +571,17 @@ final class SidebarView: NSView {
             guard let worklaneID = button.worklaneID else { return nil }
             let targetFrame = targetView.convert(button.bounds, from: button)
             return (worklaneID, targetFrame)
+        }
+    }
+
+    /// Returns pane insertion boundaries per worklane, in targetView coordinates.
+    /// Each element is (worklaneID, [PaneInsertionBoundary]) with count = paneCount + 1.
+    /// Excludes worklanes with no pane rows.
+    func paneInsertionBoundaries(in targetView: NSView) -> [(WorklaneID, [PaneInsertionBoundary])] {
+        worklaneButtons.compactMap { button in
+            guard let worklaneID = button.worklaneID else { return nil }
+            let boundaries = button.paneRowInsertionBoundaries(in: targetView)
+            return boundaries.isEmpty ? nil : (worklaneID, boundaries)
         }
     }
 
@@ -704,12 +731,26 @@ final class SidebarView: NSView {
         )
     }
 
-    func showNewWorklanePlaceholder() {
-        paneDropPresenter.showNewWorklanePlaceholder()
+    func showNewWorklanePlaceholder(atIndex insertionIndex: Int) {
+        paneDropPresenter.showNewWorklanePlaceholder(atIndex: insertionIndex)
     }
 
     func hideNewWorklanePlaceholder() {
         paneDropPresenter.hideNewWorklanePlaceholder()
+    }
+
+    func showInsertionLine(_ target: SidebarPaneInsertionLineTarget) {
+        paneDropPresenter.showInsertionLine(target, buttons: worklaneButtons)
+    }
+
+    func hideInsertionLine() {
+        paneDropPresenter.hideInsertionLine()
+    }
+
+    /// Converts a Y coordinate from the given source view (e.g., AppCanvasView)
+    /// into the sidebar's listDocumentView coordinate space.
+    func convertYForInsertionLine(_ y: CGFloat, from sourceView: NSView) -> CGFloat {
+        listDocumentView.convert(CGPoint(x: 0, y: y), from: sourceView).y
     }
 
     @objc

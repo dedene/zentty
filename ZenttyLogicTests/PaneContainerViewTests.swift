@@ -781,6 +781,219 @@ final class PaneContainerViewTests: AppKitTestCase {
         XCTAssertGreaterThan(paneView.shadowRadiusForTesting, 6)
     }
 
+    func test_zoomed_out_backdrop_uses_theme_zoom_fill_tokens() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.5,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: false
+        )
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: theme
+        )
+        let terminalHostView = findTerminalHostView(in: paneView)
+        XCTAssertNotNil(terminalHostView)
+
+        XCTAssertNotEqual(theme.paneZoomFillFocused.themeToken, theme.startupSurface.themeToken)
+
+        paneView.setZoomedOutBackdropVisible(true, animated: false)
+
+        XCTAssertEqual(theme.paneZoomFillFocused.themeToken, theme.paneZoomFillUnfocused.themeToken)
+        XCTAssertEqual(paneView.backgroundColorTokenForTesting, theme.paneZoomFillFocused.themeToken)
+        XCTAssertEqual(
+            paneView.contentClipBackgroundColorTokenForTesting,
+            theme.paneZoomFillFocused.themeToken
+        )
+        XCTAssertEqual(
+            backgroundColorToken(for: terminalHostView),
+            theme.paneZoomFillFocused.themeToken
+        )
+
+        paneView.render(
+            pane: pane,
+            emphasis: 0.92,
+            isFocused: false,
+            animated: false
+        )
+
+        XCTAssertEqual(paneView.backgroundColorTokenForTesting, theme.paneZoomFillUnfocused.themeToken)
+        XCTAssertEqual(
+            paneView.contentClipBackgroundColorTokenForTesting,
+            theme.paneZoomFillUnfocused.themeToken
+        )
+        XCTAssertEqual(
+            backgroundColorToken(for: terminalHostView),
+            theme.paneZoomFillUnfocused.themeToken
+        )
+
+        paneView.setZoomedOutBackdropVisible(false, animated: false)
+
+        XCTAssertEqual(paneView.backgroundColorTokenForTesting, theme.paneFillUnfocused.themeToken)
+        XCTAssertEqual(paneView.contentClipBackgroundColorTokenForTesting, theme.startupSurface.themeToken)
+        XCTAssertEqual(backgroundColorToken(for: terminalHostView), theme.startupSurface.themeToken)
+    }
+
+    func test_zoomed_out_unfocused_pane_uses_stronger_border() {
+        let theme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.5,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: false
+        )
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 0.92,
+            isFocused: false,
+            runtime: runtime,
+            theme: theme
+        )
+
+        XCTAssertEqual(paneView.insetBorderColorToken, theme.paneBorderUnfocused.themeToken)
+        XCTAssertEqual(paneView.insetBorderLineWidth, 1, accuracy: 0.001)
+
+        paneView.setZoomedOutBackdropVisible(true, animated: false)
+
+        XCTAssertEqual(paneView.insetBorderColorToken, theme.paneZoomBorderUnfocused.themeToken)
+        XCTAssertEqual(paneView.insetBorderLineWidth, 1.5, accuracy: 0.001)
+
+        paneView.render(
+            pane: pane,
+            emphasis: 1,
+            isFocused: true,
+            animated: false
+        )
+
+        XCTAssertEqual(paneView.insetBorderColorToken, theme.paneBorderFocused.themeToken)
+        XCTAssertEqual(paneView.insetBorderLineWidth, 1, accuracy: 0.001)
+    }
+
+    func test_theme_update_refreshes_visible_zoomed_out_backdrop() {
+        let initialTheme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.5,
+                backgroundBlurRadius: 25
+            )
+        )
+        let nextTheme = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#F7F4EC")!,
+                foreground: NSColor(hexString: "#1E2428")!,
+                cursorColor: NSColor(hexString: "#006DAD")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.5,
+                backgroundBlurRadius: 25
+            )
+        )
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: initialTheme
+        )
+
+        paneView.setZoomedOutBackdropVisible(true, animated: false)
+        paneView.apply(theme: nextTheme, animated: false)
+
+        XCTAssertEqual(paneView.backgroundColorTokenForTesting, nextTheme.paneZoomFillFocused.themeToken)
+        XCTAssertEqual(
+            paneView.contentClipBackgroundColorTokenForTesting,
+            nextTheme.paneZoomFillFocused.themeToken
+        )
+    }
+
+    func test_stale_container_does_not_resize_reparented_terminal_host() {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let previewPaneView = PaneContainerView(
+            pane: pane,
+            width: 480,
+            height: 288,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        let activePaneView = PaneContainerView(
+            pane: pane,
+            width: 1200,
+            height: 720,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        activePaneView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(runtime.hostView.frame.size, activePaneView.bounds.size)
+
+        previewPaneView.forceTerminalViewportSync()
+
+        XCTAssertEqual(runtime.hostView.frame.size, activePaneView.bounds.size)
+    }
+
     func test_animated_unfocused_render_updates_focus_chrome_without_mutating_alpha() {
         let theme = ZenttyTheme.fallback(for: nil)
         let adapter = PaneContainerTerminalAdapterSpy()
@@ -1392,11 +1605,12 @@ final class PaneContainerViewTests: AppKitTestCase {
                 "Paste",
                 "---",
                 "Add Pane Right",
-                "Add Pane Left",
-                "Add Pane Down",
-                "Add Pane Up",
+                "New Pane Below",
+                "Split Right",
                 "---",
                 "Move Pane to New Window",
+                "---",
+                "Close Pane",
                 "---",
                 "AutoFill",
                 "Services",
@@ -1427,13 +1641,12 @@ final class PaneContainerViewTests: AppKitTestCase {
 
         XCTAssertEqual(
             menu.items
-                .filter { $0.title.hasPrefix("Add Pane ") }
+                .filter { ["Add Pane Right", "New Pane Below", "Split Right"].contains($0.title) }
                 .map(\.action),
             [
                 #selector(MainWindowController.addPaneRight(_:)),
-                #selector(MainWindowController.addPaneLeft(_:)),
                 #selector(MainWindowController.addPaneDown(_:)),
-                #selector(MainWindowController.addPaneUp(_:)),
+                #selector(MainWindowController.forceSplitRight(_:)),
             ]
         )
     }
@@ -1463,10 +1676,10 @@ final class PaneContainerViewTests: AppKitTestCase {
             "Clean Copy",
             "Paste",
             "Add Pane Right",
-            "Add Pane Left",
-            "Add Pane Down",
-            "Add Pane Up",
+            "New Pane Below",
+            "Split Right",
             "Move Pane to New Window",
+            "Close Pane",
         ]
 
         for title in customTitles {
@@ -1616,6 +1829,20 @@ extension OverlayHostingTerminalView: TerminalMouseInteractionSuppressionControl
     func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {
         mouseInteractionSuppressionRects = rects
     }
+}
+
+private func findTerminalHostView(in view: NSView) -> TerminalPaneHostView? {
+    view.descendantSubviews().first { $0 is TerminalPaneHostView } as? TerminalPaneHostView
+}
+
+private func backgroundColorToken(for view: NSView?) -> String? {
+    guard let cgColor = view?.layer?.backgroundColor,
+          let color = NSColor(cgColor: cgColor)
+    else {
+        return nil
+    }
+
+    return color.themeToken
 }
 
 private extension NSView {

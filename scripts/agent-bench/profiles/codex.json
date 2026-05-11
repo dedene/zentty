@@ -10,6 +10,15 @@
       "workspace-write",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
+    "restart": [
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "tui_restart": [
+      "--no-alt-screen"
+    ],
     "approval": [
       "--sandbox",
       "workspace-write",
@@ -28,8 +37,26 @@
     "smoke": {
       "required_events": ["session-start", "prompt-submit", "pre-tool-use", "post-tool-use", "stop"]
     },
+    "restart": {
+      "required_events": [
+        "session-start",
+        "prompt-submit",
+        "pre-tool-use",
+        "post-tool-use",
+        "stop",
+        "session-start",
+        "prompt-submit",
+        "pre-tool-use",
+        "post-tool-use",
+        "stop"
+      ]
+    },
+    "tui_restart": {
+      "required_events": [],
+      "required_terminal_phases": ["idle", "starting", "idle", "starting"]
+    },
     "approval": {
-      "required_events": ["session-start", "prompt-submit", "permission-request", "stop"]
+      "required_events": ["session-start", "prompt-submit", "permission-request", "post-tool-use", "stop"]
     },
     "question": {
       "required_events": ["session-start", "prompt-submit"]
@@ -42,11 +69,13 @@
     "approval": [
       {
         "match": "trust",
-        "text": "1\n"
+        "text": "1\n",
+        "label": "trust-workspace"
       },
       {
         "match": "Would you like to run the following command",
-        "text": "y\n"
+        "text": "y\n",
+        "label": "approve-command"
       }
     ],
     "question": [
@@ -66,7 +95,23 @@
         "text": "\u0003",
         "label": "ctrl-c"
       }
+    ],
+    "tui_restart": [
+      {
+        "match": "trust",
+        "text": "1\n",
+        "label": "trust-workspace"
+      },
+      {
+        "match": "Context 100% left",
+        "text": "/quit\n",
+        "label": "quit"
+      }
     ]
+  },
+  "repeat_by_scenario": {
+    "restart": 2,
+    "tui_restart": 2
   },
   "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in", "no such option"]
 }

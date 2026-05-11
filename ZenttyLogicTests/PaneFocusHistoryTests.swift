@@ -120,6 +120,23 @@ final class PaneFocusHistoryTests: XCTestCase {
         XCTAssertEqual(history.backStack, [refs[2], refs[3], refs[4]])
     }
 
+    func test_recentReferences_returns_most_recent_unique_live_panes() {
+        var history = PaneFocusHistory()
+        let refA = ref("w1", "a")
+        let refB = ref("w1", "b")
+        let refC = ref("w1", "c")
+
+        history.record(refA)
+        history.record(refB)
+        history.record(refA)
+        history.record(refC)
+
+        XCTAssertEqual(
+            history.recentReferences(allPaneIDs: [refA, refB]),
+            [refA, refB]
+        )
+    }
+
     // MARK: - Empty stacks
 
     func test_empty_backStack_returns_nil() {

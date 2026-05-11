@@ -14,6 +14,7 @@ struct CommandPaletteResultRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            iconView
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
                     .font(.system(size: 13, weight: .medium))
@@ -47,14 +48,31 @@ struct CommandPaletteResultRow: View {
                     .fixedSize(horizontal: true, vertical: false)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, CommandPaletteLayoutMetrics.rowHorizontalPadding)
+        .padding(.vertical, CommandPaletteLayoutMetrics.rowVerticalPadding)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(isSelected ? selectedBackgroundColor : (isHovered ? hoverBackgroundColor : .clear))
         )
         .onHover { hovering in
             isHovered = hovering
+        }
+    }
+
+    @ViewBuilder
+    private var iconView: some View {
+        if let iconImage = item.iconImage {
+            Image(nsImage: iconImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: CommandPaletteLayoutMetrics.rowIconSize, height: CommandPaletteLayoutMetrics.rowIconSize)
+                .opacity(CommandPaletteLayoutMetrics.rowIconOpacity)
+        } else {
+            Image(systemName: item.iconSystemName)
+                .font(.system(size: CommandPaletteLayoutMetrics.rowIconSymbolSize, weight: .medium))
+                .foregroundStyle(isSelected ? .white : secondaryColor)
+                .frame(width: CommandPaletteLayoutMetrics.rowIconSize, height: CommandPaletteLayoutMetrics.rowIconSize)
+                .opacity(CommandPaletteLayoutMetrics.rowIconOpacity)
         }
     }
 }

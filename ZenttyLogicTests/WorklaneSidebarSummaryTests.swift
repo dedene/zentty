@@ -189,6 +189,62 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.paneRows.first?.detailText, "~/project")
     }
 
+    func test_builder_shows_codex_action_required_title_and_needs_input_badge() {
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "[ ! ] Action Required | zentty",
+                    currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                    processName: "codex",
+                    gitBranch: "main"
+                )
+            ]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(summary.primaryText, "[ ! ] Action Required | zentty")
+        XCTAssertEqual(paneRow.primaryText, "[ ! ] Action Required | zentty")
+        XCTAssertEqual(paneRow.trailingText, "main")
+        XCTAssertEqual(paneRow.attentionState, .needsInput)
+        XCTAssertEqual(paneRow.statusText, "Needs input")
+    }
+
+    func test_builder_infers_codex_action_required_title_without_process_name() {
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "[ . ] Action Required | zentty",
+                    currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                    processName: nil,
+                    gitBranch: "main"
+                )
+            ]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.primaryText, "[ . ] Action Required | zentty")
+        XCTAssertEqual(paneRow.attentionState, .needsInput)
+        XCTAssertEqual(paneRow.statusText, "Needs input")
+    }
+
     func test_builder_uses_inferred_ssh_identity_over_local_cwd_while_ssh_is_active() {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
@@ -614,7 +670,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.interactionSymbolName, "list.bullet")
     }
 
-    func test_builder_keeps_codex_action_required_title_out_of_pane_identity() {
+    func test_builder_surfaces_codex_action_required_title_as_pane_identity() {
         let paneID = PaneID("worklane-main-agent")
         var auxiliaryState = PaneAuxiliaryState(
             metadata: TerminalMetadata(
@@ -672,7 +728,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
         let paneRow = try! XCTUnwrap(summary.paneRows.first)
 
-        XCTAssertEqual(paneRow.primaryText, "Codex")
+        XCTAssertEqual(paneRow.primaryText, "[ ! ] Action Required | zentty")
         XCTAssertEqual(paneRow.statusText, "Needs input")
         XCTAssertEqual(paneRow.attentionState, .needsInput)
     }
@@ -1248,6 +1304,77 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let summary = try! XCTUnwrap(summaries.first)
         XCTAssertNil(summary.contextPrefixText)
+    }
+
+    func test_summaries_use_peek_focus_override_without_mutating_stored_focus() throws {
+        let shellPaneID = PaneID("worklane-main-shell")
+        let previewPaneID = PaneID("worklane-main-preview")
+        let activeWorklaneID = WorklaneID("worklane-active")
+        let previewWorklaneID = WorklaneID("worklane-main")
+        let worklanes = [
+            WorklaneState(
+                id: previewWorklaneID,
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [
+                        PaneState(id: shellPaneID, title: "shell"),
+                        PaneState(id: previewPaneID, title: "preview"),
+                    ],
+                    focusedPaneID: shellPaneID
+                ),
+                metadataByPaneID: [
+                    shellPaneID: TerminalMetadata(
+                        title: "zsh",
+                        currentWorkingDirectory: "/tmp/shell",
+                        processName: "zsh",
+                        gitBranch: "main"
+                    ),
+                    previewPaneID: TerminalMetadata(
+                        title: "zsh",
+                        currentWorkingDirectory: "/tmp/preview",
+                        processName: "zsh",
+                        gitBranch: "feature/peek"
+                    ),
+                ]
+            ),
+            WorklaneState(
+                id: activeWorklaneID,
+                title: "ACTIVE",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: PaneID("worklane-active-shell"), title: "shell")],
+                    focusedPaneID: PaneID("worklane-active-shell")
+                )
+            ),
+        ]
+
+        let baselineSummaries = WorklaneSidebarSummaryBuilder.summaries(
+            for: worklanes,
+            activeWorklaneID: activeWorklaneID
+        )
+        let baselinePreviewSummary = try XCTUnwrap(
+            baselineSummaries.first { $0.worklaneID == previewWorklaneID }
+        )
+        XCTAssertFalse(baselinePreviewSummary.isActive)
+        XCTAssertEqual(baselinePreviewSummary.paneRows.map(\.isFocused), [true, false])
+
+        let summaries = WorklaneSidebarSummaryBuilder.summaries(
+            for: worklanes,
+            activeWorklaneID: activeWorklaneID,
+            focusOverride: WorklaneSidebarFocusOverride(
+                worklaneID: previewWorklaneID,
+                paneID: previewPaneID
+            )
+        )
+
+        let previewSummary = try XCTUnwrap(summaries.first { $0.worklaneID == previewWorklaneID })
+        let activeSummary = try XCTUnwrap(summaries.first { $0.worklaneID == activeWorklaneID })
+
+        XCTAssertTrue(previewSummary.isActive)
+        XCTAssertFalse(activeSummary.isActive)
+        XCTAssertEqual(previewSummary.primaryText, "preview")
+        XCTAssertEqual(previewSummary.paneRows.map(\.paneID), [shellPaneID, previewPaneID])
+        XCTAssertEqual(previewSummary.paneRows.map(\.isFocused), [false, true])
+        XCTAssertEqual(worklanes[0].paneStripState.focusedPaneID, shellPaneID)
     }
 
     func test_builder_marks_worklane_as_working_when_background_terminal_progress_exists() {

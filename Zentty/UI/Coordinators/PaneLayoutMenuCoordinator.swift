@@ -30,13 +30,24 @@ final class PaneLayoutMenuCoordinator {
         menuButton.configure(theme: theme, animated: animated)
     }
 
-    func showMenu(worklaneStore: WorklaneStore) {
-        let menu = makeMenu(worklaneStore: worklaneStore)
+    func showMenu(
+        worklaneStore: WorklaneStore,
+        rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
+    ) {
+        let menu = makeMenu(
+            worklaneStore: worklaneStore,
+            rightPaneCommandPresentation: rightPaneCommandPresentation
+        )
         let menuLocation = NSPoint(x: 0, y: menuButton.bounds.height)
         menu.popUp(positioning: nil, at: menuLocation, in: menuButton)
     }
 
     func handleMenuItem(_ sender: NSMenuItem) {
+        if let paneCommand = sender.representedObject as? PaneCommand {
+            onAction?(.pane(paneCommand))
+            return
+        }
+
         guard let commandID = sender.representedObject as? AppCommandID else {
             return
         }
@@ -45,10 +56,27 @@ final class PaneLayoutMenuCoordinator {
 
     // MARK: - Menu Building
 
-    func makeMenu(worklaneStore: WorklaneStore) -> NSMenu {
+    func makeMenu(
+        worklaneStore: WorklaneStore,
+        rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
+    ) -> NSMenu {
         let menu = NSMenu(title: "")
         menu.autoenablesItems = false
-        addMenuItems([.splitHorizontally, .splitVertically], to: menu, worklaneStore: worklaneStore)
+        menu.addItem(makeMenuItem(
+            commandID: .splitHorizontally,
+            title: rightPaneCommandPresentation.primaryTitle,
+            worklaneStore: worklaneStore
+        ))
+        menu.addItem(makeMenuItem(
+            commandID: .splitVertically,
+            title: "New Pane Below",
+            worklaneStore: worklaneStore
+        ))
+        menu.addItem(makePaneCommandMenuItem(
+            title: rightPaneCommandPresentation.forceOppositeTitle,
+            command: rightPaneCommandPresentation.forceOppositeCommand,
+            enabled: isCommandEnabled(.splitHorizontally, worklaneStore: worklaneStore)
+        ))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(
             makeSubmenuItem(
@@ -111,14 +139,30 @@ final class PaneLayoutMenuCoordinator {
         }
     }
 
-    private func makeMenuItem(commandID: AppCommandID, worklaneStore: WorklaneStore) -> NSMenuItem {
+    private func makeMenuItem(
+        commandID: AppCommandID,
+        title overrideTitle: String? = nil,
+        worklaneStore: WorklaneStore
+    ) -> NSMenuItem {
         let definition = AppCommandRegistry.definition(for: commandID)
-        let title = definition.menuItem?.title ?? definition.title
+        let title = overrideTitle ?? definition.menuItem?.title ?? definition.title
         let item = NSMenuItem(title: title, action: menuItemAction, keyEquivalent: "")
         item.target = menuItemTarget
         item.representedObject = commandID
         item.isEnabled = isCommandEnabled(commandID, worklaneStore: worklaneStore)
         apply(shortcutManager.shortcut(for: commandID), to: item)
+        return item
+    }
+
+    private func makePaneCommandMenuItem(
+        title: String,
+        command: PaneCommand,
+        enabled: Bool
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: menuItemAction, keyEquivalent: "")
+        item.target = menuItemTarget
+        item.representedObject = command
+        item.isEnabled = enabled
         return item
     }
 

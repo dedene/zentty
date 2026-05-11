@@ -15,6 +15,8 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertEqual(preferences.laptopPreset, .compact)
         XCTAssertEqual(preferences.largeDisplayPreset, .balanced)
         XCTAssertEqual(preferences.ultrawidePreset, .balanced)
+        XCTAssertEqual(preferences.rightSplitBehaviorMode, .adaptive)
+        XCTAssertEqual(preferences.visibleSplitWindowWidth, .px1440)
     }
 
     func test_display_class_titles_use_behavior_labels() {
@@ -156,5 +158,130 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.pinnedOpen), .edgeAligned)
         XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.hidden), .edgeAligned)
         XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.hoverPeek), .edgeAligned)
+    }
+
+    func test_visible_split_window_width_title_uses_logical_points() {
+        XCTAssertEqual(PaneVisibleSplitWindowWidth.px1680.title, "1680 pt")
+    }
+
+    func test_right_pane_behavior_uses_adaptive_full_window_width_threshold() {
+        let preferences = PaneLayoutPreferences(
+            laptopPreset: .compact,
+            largeDisplayPreset: .balanced,
+            ultrawidePreset: .balanced,
+            rightSplitBehaviorMode: .adaptive,
+            visibleSplitWindowWidth: .px1440
+        )
+
+        let narrowContext = preferences.makeLayoutContext(
+            displayClass: .laptop,
+            viewportWidth: 1200,
+            leadingVisibleInset: 290
+        )
+        let thresholdContext = preferences.makeLayoutContext(
+            displayClass: .largeDisplay,
+            viewportWidth: 1440,
+            leadingVisibleInset: 290
+        )
+
+        XCTAssertEqual(narrowContext.rightPaneInsertionBehavior, .worklaneAdd)
+        XCTAssertLessThan(thresholdContext.availableWidth, CGFloat(PaneVisibleSplitWindowWidth.px1440.rawValue))
+        XCTAssertEqual(thresholdContext.rightPaneInsertionBehavior, .visibleSplit)
+        XCTAssertEqual(thresholdContext.visibleSplitColumnWidth, 572, accuracy: 0.001)
+    }
+
+    func test_right_pane_behavior_can_force_split_or_worklane_add() {
+        let alwaysSplit = PaneLayoutPreferences(
+            laptopPreset: .compact,
+            largeDisplayPreset: .balanced,
+            ultrawidePreset: .balanced,
+            rightSplitBehaviorMode: .alwaysSplit,
+            visibleSplitWindowWidth: .px2560
+        ).makeLayoutContext(
+            displayClass: .laptop,
+            viewportWidth: 1200,
+            leadingVisibleInset: 290
+        )
+        let alwaysAdd = PaneLayoutPreferences(
+            laptopPreset: .compact,
+            largeDisplayPreset: .balanced,
+            ultrawidePreset: .balanced,
+            rightSplitBehaviorMode: .alwaysAdd,
+            visibleSplitWindowWidth: .px1200
+        ).makeLayoutContext(
+            displayClass: .ultrawide,
+            viewportWidth: 3440,
+            leadingVisibleInset: 290
+        )
+
+        XCTAssertEqual(alwaysSplit.rightPaneInsertionBehavior, .visibleSplit)
+        XCTAssertEqual(alwaysAdd.rightPaneInsertionBehavior, .worklaneAdd)
+    }
+
+    func test_split_behavior_preview_layout_places_always_add_pane_outside_after_window() throws {
+        let layout = PaneSplitBehaviorPreviewLayout(
+            mode: .alwaysAdd,
+            bounds: CGRect(x: 0, y: 0, width: 260, height: 96)
+        )
+
+        let outcome = try XCTUnwrap(layout.outcomes.first)
+        let outsidePane = try XCTUnwrap(outcome.dottedOutsidePane)
+
+        XCTAssertGreaterThan(outsidePane.frame.minX, outcome.windowFrame.maxX)
+        XCTAssertEqual(outcome.solidPaneFrames.count, 1)
+        XCTAssertNotNil(outcome.scrollArrow)
+    }
+
+    func test_split_behavior_preview_layout_shows_adaptive_narrow_outside_and_wide_inside() throws {
+        let layout = PaneSplitBehaviorPreviewLayout(
+            mode: .adaptive,
+            bounds: CGRect(x: 0, y: 0, width: 300, height: 104)
+        )
+
+        let narrow = try XCTUnwrap(layout.outcomes.first { $0.label == "Narrow" })
+        let wide = try XCTUnwrap(layout.outcomes.first { $0.label == "Wide" })
+
+        let narrowOutsidePane = try XCTUnwrap(narrow.dottedOutsidePane)
+        XCTAssertGreaterThan(narrowOutsidePane.frame.minX, narrow.windowFrame.maxX)
+        XCTAssertEqual(narrow.solidPaneFrames.count, 1)
+        XCTAssertEqual(wide.solidPaneFrames.count, 2)
+        XCTAssertNil(wide.dottedOutsidePane)
+        XCTAssertTrue(wide.solidPaneFrames.allSatisfy { wide.windowFrame.contains($0) })
+    }
+
+    func test_split_behavior_preview_layout_omits_before_window_for_adaptive_only() {
+        let adaptive = PaneSplitBehaviorPreviewLayout(
+            mode: .adaptive,
+            bounds: CGRect(x: 0, y: 0, width: 300, height: 104)
+        )
+        let alwaysSplit = PaneSplitBehaviorPreviewLayout(
+            mode: .alwaysSplit,
+            bounds: CGRect(x: 0, y: 0, width: 260, height: 96)
+        )
+        let alwaysAdd = PaneSplitBehaviorPreviewLayout(
+            mode: .alwaysAdd,
+            bounds: CGRect(x: 0, y: 0, width: 260, height: 96)
+        )
+
+        XCTAssertNil(adaptive.beforeWindowFrame)
+        XCTAssertNil(adaptive.beforePaneFrame)
+        XCTAssertNotNil(alwaysSplit.beforeWindowFrame)
+        XCTAssertNotNil(alwaysSplit.beforePaneFrame)
+        XCTAssertNotNil(alwaysAdd.beforeWindowFrame)
+        XCTAssertNotNil(alwaysAdd.beforePaneFrame)
+    }
+
+    func test_split_behavior_preview_layout_keeps_always_split_panes_inside_after_window() throws {
+        let layout = PaneSplitBehaviorPreviewLayout(
+            mode: .alwaysSplit,
+            bounds: CGRect(x: 0, y: 0, width: 260, height: 96)
+        )
+
+        let outcome = try XCTUnwrap(layout.outcomes.first)
+
+        XCTAssertEqual(outcome.solidPaneFrames.count, 2)
+        XCTAssertNil(outcome.dottedOutsidePane)
+        XCTAssertTrue(outcome.solidPaneFrames.allSatisfy { outcome.windowFrame.contains($0) })
+        XCTAssertFalse(outcome.shrinkArrows.isEmpty)
     }
 }

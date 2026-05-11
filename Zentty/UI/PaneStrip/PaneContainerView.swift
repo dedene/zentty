@@ -276,6 +276,19 @@ private final class PaneFocusGlowLayer: CALayer {
     }
 }
 
+private extension PaneCommand {
+    var contextMenuSelector: Selector {
+        switch self {
+        case .splitRightVisibly:
+            #selector(MainWindowController.forceSplitRight(_:))
+        case .addPaneRightWithoutResizing:
+            #selector(MainWindowController.forceAddPaneRight(_:))
+        default:
+            #selector(MainWindowController.addPaneRight(_:))
+        }
+    }
+}
+
 @MainActor
 final class PaneContainerView: NSView {
     enum Layout {
@@ -310,14 +323,20 @@ final class PaneContainerView: NSView {
     private var statusState: StatusState = .hidden
     private var runtimeObserverID: UUID?
     private(set) var isTerminalAnimationFrozen = false
+    private var viewportDiagnosticsWorklaneID: WorklaneID?
+    private var viewportDiagnosticsLaneRole: TerminalViewportLaneRole = .unknown
+    private var viewportDiagnosticsIsZoomedOut = false
     private var isInsetBorderAnimationManaged = false
     private var currentTheme: ZenttyTheme
     private var currentEmphasis: CGFloat
     private var currentBorderGapWidth: CGFloat = 0
     private var currentBorderContext: PaneBorderContextDisplayModel?
     private var currentIsFocused: Bool
+    private var isZoomedOutBackdropVisible = false
     private var currentWorklaneColor: WorklaneColor?
     private var lastRenderedSearchState = PaneSearchState()
+    var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
+    var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     private var suppressSelectionOnNextProgrammaticFocus = false
     var onSelected: (() -> Void)?
     var onCloseRequested: (() -> Void)?
@@ -351,6 +370,10 @@ final class PaneContainerView: NSView {
         isFocused: Bool,
         runtime: PaneRuntime,
         theme: ZenttyTheme,
+        initialViewportSyncSuspended: Bool = false,
+        viewportDiagnosticsWorklaneID: WorklaneID? = nil,
+        viewportDiagnosticsLaneRole: TerminalViewportLaneRole = .unknown,
+        viewportDiagnosticsIsZoomedOut: Bool = false,
         backingScaleFactorProvider: @escaping () -> CGFloat = {
             NSScreen.main?.backingScaleFactor ?? 1
         }
@@ -363,8 +386,16 @@ final class PaneContainerView: NSView {
         self.currentTheme = theme
         self.currentEmphasis = emphasis
         self.currentIsFocused = isFocused
+        self.viewportDiagnosticsWorklaneID = viewportDiagnosticsWorklaneID
+        self.viewportDiagnosticsLaneRole = viewportDiagnosticsLaneRole
+        self.viewportDiagnosticsIsZoomedOut = viewportDiagnosticsIsZoomedOut
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
         translatesAutoresizingMaskIntoConstraints = true
+        updateTerminalViewportDiagnosticsContext()
+        if initialViewportSyncSuspended {
+            TerminalViewportDiagnostics.shared.record(.initialSuspension, context: viewportDiagnosticsContext())
+            terminalHostView.setViewportSyncSuspended(true)
+        }
         setup()
         render(pane: pane, emphasis: emphasis, isFocused: isFocused)
     }
@@ -386,7 +417,37 @@ final class PaneContainerView: NSView {
             isFocused: isFocused,
             runtime: runtime,
             theme: theme,
+            initialViewportSyncSuspended: false,
+            viewportDiagnosticsWorklaneID: nil,
+            viewportDiagnosticsLaneRole: .unknown,
+            viewportDiagnosticsIsZoomedOut: false,
             backingScaleFactorProvider: { NSScreen.main?.backingScaleFactor ?? 1 }
+        )
+    }
+
+    convenience init(
+        pane: PaneState,
+        width: CGFloat,
+        height: CGFloat,
+        emphasis: CGFloat,
+        isFocused: Bool,
+        runtime: PaneRuntime,
+        theme: ZenttyTheme,
+        backingScaleFactorProvider: @escaping () -> CGFloat
+    ) {
+        self.init(
+            pane: pane,
+            width: width,
+            height: height,
+            emphasis: emphasis,
+            isFocused: isFocused,
+            runtime: runtime,
+            theme: theme,
+            initialViewportSyncSuspended: false,
+            viewportDiagnosticsWorklaneID: nil,
+            viewportDiagnosticsLaneRole: .unknown,
+            viewportDiagnosticsIsZoomedOut: false,
+            backingScaleFactorProvider: backingScaleFactorProvider
         )
     }
 
@@ -433,6 +494,8 @@ final class PaneContainerView: NSView {
         contentClipView.addSubview(terminalAnchorView)
         terminalAnchorView.addSubview(terminalHostView)
         contentClipView.addSubview(statusOverlayView)
+        updateTerminalViewportDiagnosticsContext()
+        TerminalViewportDiagnostics.shared.record(.paneContainerReparent, context: viewportDiagnosticsContext())
 
         terminalHostView.onFocusDidChange = { [weak self] isFocused in
             guard let self else { return }
@@ -656,20 +719,62 @@ final class PaneContainerView: NSView {
 
     func activateSessionIfNeeded() {
         ZenttyPerformanceSignposts.interval("PaneContainerActivateSession") {
+            TerminalViewportDiagnostics.shared.record(.paneContainerSessionActivate, context: viewportDiagnosticsContext())
             runtime.ensureStarted()
         }
     }
 
+    func configureViewportDiagnostics(
+        worklaneID: WorklaneID?,
+        laneRole: TerminalViewportLaneRole,
+        isZoomedOut: Bool
+    ) {
+        viewportDiagnosticsWorklaneID = worklaneID
+        viewportDiagnosticsLaneRole = laneRole
+        viewportDiagnosticsIsZoomedOut = isZoomedOut
+        updateTerminalViewportDiagnosticsContext()
+    }
+
     func setTerminalViewportSyncSuspended(_ suspended: Bool) {
         needsLayout = true
-        syncFramesForCurrentBounds()
-        terminalHostView.setViewportSyncSuspended(suspended)
+        if suspended {
+            guard ownsTerminalHostView else { return }
+            updateTerminalViewportDiagnosticsContext(isViewportSyncSuspended: true)
+            terminalHostView.setViewportSyncSuspended(true)
+            syncFramesForCurrentBounds()
+        } else {
+            syncFramesForCurrentBounds()
+            guard ownsTerminalHostView else { return }
+            updateTerminalViewportDiagnosticsContext(isViewportSyncSuspended: false)
+            terminalHostView.setViewportSyncSuspended(false)
+        }
+    }
+
+    func prepareSuspendedTerminalLayoutForPreviewMount() {
+        guard ownsTerminalHostView else { return }
+        setTerminalViewportSyncSuspended(true)
+        terminalHostView.needsLayout = true
+        terminalHostView.layoutSubtreeIfNeeded()
     }
 
     func forceTerminalViewportSync() {
         needsLayout = true
         syncFramesForCurrentBounds()
+        guard ownsTerminalHostView else { return }
         terminalHostView.forceViewportSync()
+    }
+
+    func setZoomedOutBackdropVisible(
+        _ visible: Bool,
+        animated: Bool,
+        animationDuration: CFTimeInterval = ZenttyTheme.animationDuration
+    ) {
+        guard isZoomedOutBackdropVisible != visible else {
+            return
+        }
+
+        isZoomedOutBackdropVisible = visible
+        applyVisualState(animated: animated, animationDuration: animationDuration)
     }
 
     static let dragZoneHeight: CGFloat = 15
@@ -1148,29 +1253,24 @@ final class PaneContainerView: NSView {
             symbolName: "clipboard"
         ))
         customMenu.addItem(.separator())
+        let rightPaneCommandPresentation = rightPaneCommandPresentationProvider?() ?? .addsToWorklane
         customMenu.addItem(makeContextMenuItem(
-            title: "Add Pane Right",
+            title: rightPaneCommandPresentation.primaryTitle,
             action: #selector(MainWindowController.addPaneRight(_:)),
             symbolName: "arrow.right.square",
             fallbackSymbolName: "arrow.right"
         ))
         customMenu.addItem(makeContextMenuItem(
-            title: "Add Pane Left",
-            action: #selector(MainWindowController.addPaneLeft(_:)),
-            symbolName: "arrow.left.square",
-            fallbackSymbolName: "arrow.left"
-        ))
-        customMenu.addItem(makeContextMenuItem(
-            title: "Add Pane Down",
+            title: "New Pane Below",
             action: #selector(MainWindowController.addPaneDown(_:)),
             symbolName: "arrow.down.square",
             fallbackSymbolName: "arrow.down"
         ))
         customMenu.addItem(makeContextMenuItem(
-            title: "Add Pane Up",
-            action: #selector(MainWindowController.addPaneUp(_:)),
-            symbolName: "arrow.up.square",
-            fallbackSymbolName: "arrow.up"
+            title: rightPaneCommandPresentation.forceOppositeTitle,
+            action: rightPaneCommandPresentation.forceOppositeCommand.contextMenuSelector,
+            symbolName: "rectangle.split.2x1",
+            fallbackSymbolName: "arrow.right"
         ))
         customMenu.addItem(.separator())
         let moveToWindowItem = makeContextMenuItem(
@@ -1181,6 +1281,25 @@ final class PaneContainerView: NSView {
         )
         moveToWindowItem.representedObject = paneID
         customMenu.addItem(moveToWindowItem)
+        if let catalog = moveToWorklaneCatalogProvider?(paneID), catalog.hasAnyDestination {
+            let parentItem = NSMenuItem(
+                title: "Move Pane to Worklane",
+                action: nil,
+                keyEquivalent: ""
+            )
+            parentItem.image = NSImage(systemSymbolName: "rectangle.stack",
+                                       accessibilityDescription: "Move Pane to Worklane")?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+            parentItem.submenu = buildMoveToWorklaneSubmenu(catalog: catalog, paneID: paneID)
+            customMenu.addItem(parentItem)
+        }
+        customMenu.addItem(.separator())
+        customMenu.addItem(makeContextMenuItem(
+            title: "Close Pane",
+            action: #selector(MainWindowController.closeFocusedPane(_:)),
+            symbolName: "rectangle.badge.minus",
+            fallbackSymbolName: "xmark.square"
+        ))
 
         let mergedMenu = NSMenu(title: "")
         customMenu.items.forEach { mergedMenu.addItem($0.copy() as! NSMenuItem) }
@@ -1211,6 +1330,13 @@ final class PaneContainerView: NSView {
         )
     }
 
+    private func buildMoveToWorklaneSubmenu(
+        catalog: WorklaneDestinationCatalog,
+        paneID: PaneID
+    ) -> NSMenu {
+        MoveToWorklaneMenuBuilder.makeSubmenu(catalog: catalog, paneID: paneID)
+    }
+
     private static func shouldIncludeSystemContextMenuItem(_ item: NSMenuItem) -> Bool {
         if item.submenu != nil {
             return true
@@ -1222,7 +1348,9 @@ final class PaneContainerView: NSView {
              #selector(MainWindowController.addPaneRight(_:)),
              #selector(MainWindowController.addPaneLeft(_:)),
              #selector(MainWindowController.addPaneDown(_:)),
-             #selector(MainWindowController.addPaneUp(_:)):
+             #selector(MainWindowController.addPaneUp(_:)),
+             #selector(MainWindowController.forceSplitRight(_:)),
+             #selector(MainWindowController.forceAddPaneRight(_:)):
             return false
         default:
             return true
@@ -1236,12 +1364,41 @@ final class PaneContainerView: NSView {
 
         return max(1, backingScaleFactorProvider())
     }
+
+    private var ownsTerminalHostView: Bool {
+        terminalHostView.superview === terminalAnchorView
+    }
+
     private func syncFramesForCurrentBounds() {
         contentClipView.frame = bounds
         terminalAnchorView.frame = contentClipView.bounds
+        guard ownsTerminalHostView else { return }
         if !isTerminalAnimationFrozen {
             terminalHostView.frame = terminalAnchorView.bounds
         }
+        updateTerminalViewportDiagnosticsContext()
+        TerminalViewportDiagnostics.shared.record(.paneContainerFrameSync, context: viewportDiagnosticsContext())
+    }
+
+    private func updateTerminalViewportDiagnosticsContext(isViewportSyncSuspended: Bool? = nil) {
+        terminalHostView.updateViewportDiagnosticsContext(
+            viewportDiagnosticsContext(isViewportSyncSuspended: isViewportSyncSuspended)
+        )
+    }
+
+    private func viewportDiagnosticsContext(
+        isViewportSyncSuspended: Bool? = nil
+    ) -> TerminalViewportDiagnostics.Context {
+        TerminalViewportDiagnostics.Context(
+            paneID: paneID,
+            worklaneID: viewportDiagnosticsWorklaneID,
+            laneRole: viewportDiagnosticsLaneRole,
+            isZoomedOut: viewportDiagnosticsIsZoomedOut,
+            isViewportSyncSuspended: isViewportSyncSuspended,
+            windowAttached: window != nil,
+            containerBounds: bounds,
+            terminalHostBounds: terminalHostView.bounds
+        )
     }
 
     private func setupStatusOverlay() {
@@ -1388,7 +1545,11 @@ final class PaneContainerView: NSView {
         }
     }
 
-    private func applyVisualState(animated: Bool, useNeutralBackground: Bool = false) {
+    private func applyVisualState(
+        animated: Bool,
+        animationDuration: CFTimeInterval = ZenttyTheme.animationDuration,
+        useNeutralBackground: Bool = false
+    ) {
         let theme = currentTheme
         let emphasis = currentEmphasis
         let isFocused = currentIsFocused
@@ -1396,7 +1557,11 @@ final class PaneContainerView: NSView {
         let paneFillColor =
             useNeutralBackground
             ? theme.startupSurface
-            : (isFocused ? theme.paneFillFocused : theme.paneFillUnfocused)
+            : zoomAwarePaneFillColor(theme: theme, isFocused: isFocused)
+        let terminalBackingColor =
+            useNeutralBackground
+            ? theme.startupSurface
+            : zoomAwareTerminalBackingColor(theme: theme, isFocused: isFocused)
         let shadowOpacity = Float(max(0, emphasis - 0.88) * 2.2)
         let shadowRadius = 6 + max(0, emphasis - 0.92) * 24
 
@@ -1414,28 +1579,115 @@ final class PaneContainerView: NSView {
             glowColor = nil
         }
 
-        performThemeAnimation(animated: animated) {
-            let borderColor =
-                (isFocused
-                ? focusedStroke
-                : theme.paneBorderUnfocused).cgColor
+        performThemeAnimation(animated: animated, duration: animationDuration) {
+            let borderColor = self.zoomAwareBorderColor(
+                theme: theme,
+                focusedStroke: focusedStroke,
+                isFocused: isFocused
+            )
             self.insetBorderLayer.strokeColorValue = borderColor
+            self.insetBorderLayer.strokeWidth = self.zoomAwareBorderWidth(isFocused: isFocused)
             self.focusGlowLayer.glowColorValue = glowColor
             self.layer?.shadowColor = theme.paneShadow.cgColor
             self.layer?.shadowOpacity = shadowOpacity
             self.layer?.shadowRadius = shadowRadius
         }
-        performThemeAnimation(animated: animated && !useNeutralBackground) {
-            self.layer?.backgroundColor = paneFillColor.cgColor
+        updateLayerBackground(
+            layer,
+            color: paneFillColor.cgColor,
+            animated: animated && !useNeutralBackground,
+            duration: animationDuration
+        )
+        updateLayerBackground(
+            contentClipView.layer,
+            color: terminalBackingColor.cgColor,
+            animated: animated,
+            duration: animationDuration
+        )
+        updateLayerBackground(
+            terminalHostView.layer,
+            color: terminalBackingColor.cgColor,
+            animated: animated,
+            duration: animationDuration
+        )
+    }
+
+    private func updateLayerBackground(
+        _ layer: CALayer?,
+        color: CGColor,
+        animated: Bool,
+        duration: CFTimeInterval
+    ) {
+        guard let layer else { return }
+        let previousColor = (layer.presentation() ?? layer).backgroundColor ?? layer.backgroundColor
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.backgroundColor = color
+        CATransaction.commit()
+
+        guard animated, let previousColor, previousColor != color else {
+            return
         }
+
+        let animation = CABasicAnimation(keyPath: "backgroundColor")
+        animation.fromValue = previousColor
+        animation.toValue = color
+        animation.duration = duration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(animation, forKey: "backgroundColor")
+    }
+
+    private func zoomAwarePaneFillColor(theme: ZenttyTheme, isFocused: Bool) -> NSColor {
+        if isZoomedOutBackdropVisible {
+            return theme.paneZoomFillUnfocused
+        }
+
+        return isFocused ? theme.paneFillFocused : theme.paneFillUnfocused
+    }
+
+    private func zoomAwareBorderColor(
+        theme: ZenttyTheme,
+        focusedStroke: NSColor,
+        isFocused: Bool
+    ) -> CGColor {
+        if isFocused {
+            return focusedStroke.cgColor
+        }
+
+        if isZoomedOutBackdropVisible {
+            return theme.paneZoomBorderUnfocused.cgColor
+        }
+
+        return theme.paneBorderUnfocused.cgColor
+    }
+
+    private func zoomAwareBorderWidth(isFocused: Bool) -> CGFloat {
+        if !isFocused, isZoomedOutBackdropVisible {
+            return Layout.borderWidth * 1.5
+        }
+
+        return Layout.borderWidth
+    }
+
+    private func zoomAwareTerminalBackingColor(theme: ZenttyTheme, isFocused: Bool) -> NSColor {
+        if isZoomedOutBackdropVisible {
+            return zoomAwarePaneFillColor(theme: theme, isFocused: isFocused)
+        }
+
+        return theme.startupSurface
     }
 
     private func applyThemeColors(_ theme: ZenttyTheme, animated: Bool = false) {
         statusTitleLabel.textColor = theme.failurePrimaryText
         statusMessageLabel.textColor = theme.failureSecondaryText
         performThemeAnimation(animated: animated) {
-            self.contentClipView.layer?.backgroundColor = theme.startupSurface.cgColor
-            self.terminalHostView.layer?.backgroundColor = theme.startupSurface.cgColor
+            let terminalBackingColor = self.zoomAwareTerminalBackingColor(
+                theme: theme,
+                isFocused: self.currentIsFocused
+            )
+            self.contentClipView.layer?.backgroundColor = terminalBackingColor.cgColor
+            self.terminalHostView.layer?.backgroundColor = terminalBackingColor.cgColor
             self.statusOverlayView.layer?.backgroundColor = theme.failureOverlayBackground.cgColor
         }
     }

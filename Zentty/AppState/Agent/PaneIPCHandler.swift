@@ -6,7 +6,6 @@ enum PaneIPCSubcommand: String {
     case list
     case focus
     case close
-    case zoom
     case resize
     case layout
     case worklaneColor = "worklane-color"
@@ -57,8 +56,6 @@ enum PaneIPCHandler {
             return handleFocus(arguments: request.arguments, target: target, windowController: windowController)
         case .close:
             return handleClose(arguments: request.arguments, target: target, windowController: windowController)
-        case .zoom:
-            return handleZoom(windowController: windowController)
         case .resize:
             return handleResize(arguments: request.arguments, windowController: windowController)
         case .layout:
@@ -242,16 +239,6 @@ enum PaneIPCHandler {
         } else {
             windowController.closePane(id: target.paneID)
         }
-        return AgentIPCResponseResult()
-    }
-
-    // MARK: - Zoom
-
-    @MainActor
-    private static func handleZoom(
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
-        windowController.handlePaneIPCCommand(.toggleZoomOut)
         return AgentIPCResponseResult()
     }
 

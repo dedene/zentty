@@ -36,11 +36,14 @@ enum PaneCommand: Equatable, Sendable {
     case duplicateFocusedPane
     case split
     case splitHorizontally
+    case splitRightVisibly
+    case addPaneRightWithoutResizing
     case splitVertically
     case splitVerticallyBefore
     case splitAfterFocusedPane
     case splitBeforeFocusedPane
     case closeFocusedPane
+    case restoreClosedPane
     case focusPreviousPaneBySidebarOrder
     case focusNextPaneBySidebarOrder
     case focusLeft
@@ -59,5 +62,4 @@ enum PaneCommand: Equatable, Sendable {
     case arrangeVertically(PaneVerticalArrangement)
     case arrangeGoldenRatio(GoldenRatioPreset)
     case resetLayout
-    case toggleZoomOut
 }

@@ -706,6 +706,48 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].text, "Codex needs your approval")
     }
 
+    func test_codex_notify_ignores_automatic_approval_review_success() throws {
+        let json = """
+        {
+          "type": "notification",
+          "message": "Automatic approval review approved (risk: low, authorization: unknown): Auto-review returned a low-risk allow decision."
+        }
+        """
+
+        let payloads = try AgentEventBridge.codexNotifyAdapter(data: Data(json.utf8), environment: codexEnvironment())
+
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
+    func test_codex_notify_ignores_auto_reviewer_approved_success() throws {
+        let json = """
+        {
+          "type": "notification",
+          "message": "Auto-reviewer approved codex to run TEST_RUNNER_SWIFT_BACKTRACE=enable=no xcodebuild test -scheme Zentty this time"
+        }
+        """
+
+        let payloads = try AgentEventBridge.codexNotifyAdapter(data: Data(json.utf8), environment: codexEnvironment())
+
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
+    func test_codex_notify_permission_request_still_maps_to_approval() throws {
+        let json = """
+        {
+          "type": "permission-request",
+          "message": "Codex needs your approval to run xcodebuild test"
+        }
+        """
+
+        let payloads = try AgentEventBridge.codexNotifyAdapter(data: Data(json.utf8), environment: codexEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .approval)
+        XCTAssertEqual(payloads[0].text, "Codex needs your approval to run xcodebuild test")
+    }
+
     func test_codex_adapter_prompt_submit() throws {
         let json = #"{"hook_event_name": "UserPromptSubmit"}"#
         let payloads = try AgentEventBridge.codexAdapter(data: json.data(using: .utf8)!, defaultEventName: nil, environment: codexEnvironment())
@@ -720,7 +762,7 @@ final class AgentEventBridgeTests: XCTestCase {
 
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .idle)
-        XCTAssertEqual(payloads[0].lifecycleEvent, .update)
+        XCTAssertEqual(payloads[0].lifecycleEvent, .turnComplete)
     }
 
     // MARK: - Kimi Adapter

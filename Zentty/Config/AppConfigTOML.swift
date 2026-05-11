@@ -40,6 +40,8 @@ enum AppConfigTOML {
         lines.append("laptop = \(encode(string: config.paneLayout.laptopPreset.rawValue))")
         lines.append("large_display = \(encode(string: config.paneLayout.largeDisplayPreset.rawValue))")
         lines.append("ultrawide = \(encode(string: config.paneLayout.ultrawidePreset.rawValue))")
+        lines.append("right_split_behavior = \(encode(string: config.paneLayout.rightSplitBehaviorMode.rawValue))")
+        lines.append("visible_split_window_width = \(config.paneLayout.visibleSplitWindowWidth.rawValue)")
         lines.append("")
         lines.append("[panes]")
         lines.append("show_labels = \(config.panes.showLabels)")
@@ -384,18 +386,37 @@ enum AppConfigTOML {
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
     ) -> Bool {
-        guard let raw = decodeString(assignment.value),
-              let preset = PaneLayoutPreset(rawValue: raw) else {
-            return false
-        }
-
         switch assignment.key {
         case "laptop":
+            guard let raw = decodeString(assignment.value),
+                  let preset = PaneLayoutPreset(rawValue: raw) else {
+                return false
+            }
             config.paneLayout.laptopPreset = preset
         case "large_display":
+            guard let raw = decodeString(assignment.value),
+                  let preset = PaneLayoutPreset(rawValue: raw) else {
+                return false
+            }
             config.paneLayout.largeDisplayPreset = preset
         case "ultrawide":
+            guard let raw = decodeString(assignment.value),
+                  let preset = PaneLayoutPreset(rawValue: raw) else {
+                return false
+            }
             config.paneLayout.ultrawidePreset = preset
+        case "right_split_behavior":
+            guard let raw = decodeString(assignment.value),
+                  let mode = PaneSplitBehaviorMode(rawValue: raw) else {
+                return false
+            }
+            config.paneLayout.rightSplitBehaviorMode = mode
+        case "visible_split_window_width":
+            guard let value = Int(assignment.value),
+                  let width = PaneVisibleSplitWindowWidth(rawValue: value) else {
+                return false
+            }
+            config.paneLayout.visibleSplitWindowWidth = width
         default:
             return true
         }

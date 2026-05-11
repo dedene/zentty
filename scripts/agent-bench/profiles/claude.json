@@ -32,6 +32,12 @@
     },
     "approval": {
       "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest"]
+    },
+    "stop_race": {
+      "synthetic": true,
+      "fixture": "claude_stop_then_late_notification.jsonl",
+      "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop", "Notification"],
+      "post_stop_notification_required": true
     }
   },
   "input_by_scenario": {

@@ -254,8 +254,8 @@ final class AppDelegateTests: XCTestCase {
                 "Command Palette…",
                 "Show Bookmarks & Presets",
                 "Toggle Sidebar",
-                "Split Horizontally",
-                "Split Vertically",
+                "Add Pane Right",
+                "New Pane Below",
                 "Move Pane to New Window",
                 "Arrange Width",
                 "Arrange Height",
@@ -324,6 +324,21 @@ final class AppDelegateTests: XCTestCase {
 
         XCTAssertEqual(wideItem?.keyEquivalent, "w")
         XCTAssertEqual(wideItem?.keyEquivalentModifierMask, [.command, .option])
+    }
+
+    func test_application_launch_places_task_manager_in_window_menu() throws {
+        NSApp.mainMenu = nil
+
+        let delegate = AppDelegate(shouldOpenMainWindow: false)
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+
+        let windowMenu = try XCTUnwrap(menu(named: "Window"))
+        let viewMenu = try XCTUnwrap(menu(named: "View"))
+        let taskManagerItem = windowMenu.items.first(where: { $0.title == "Task Manager" })
+
+        XCTAssertEqual(taskManagerItem?.action, #selector(AppDelegate.showTaskManager(_:)))
+        XCTAssertNotNil(taskManagerItem?.image)
+        XCTAssertNil(recursiveMenuItem(matchingTitle: "Task Manager", action: nil, in: viewMenu))
     }
 
     @objc func test_application_launch_keeps_existing_main_menu_semantically_valid() {

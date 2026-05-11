@@ -163,6 +163,7 @@ struct PanePresentationState: Equatable, Sendable {
 struct PaneRawState: Equatable, Sendable {
     var metadata: TerminalMetadata?
     var shellContext: PaneShellContext?
+    var paneRootPID: Int32? = nil
     var agentStatus: PaneAgentStatus?
     var agentReducerState: PaneAgentReducerState = .init()
     var shellActivityState: PaneShellActivityState = .unknown
@@ -339,6 +340,7 @@ enum PanePresentationNormalizer {
             && (
                 raw.agentStatus?.hasObservedRunning == true
                 || titlePhase == .running
+                || (recognizedTool == .codex && titlePhase == .idle)
                 || previous?.runtimePhase == .running
             )
         let taskProgress =
@@ -823,7 +825,7 @@ enum PanePresentationNormalizer {
         case .gemini:
             return ["gemini", "gemini cli"].contains(normalized)
         case .kimi:
-            return ["kimi", "kimi cli"].contains(normalized)
+            return ["kimi", "kimi-cli", "kimi cli"].contains(normalized)
         case .openCode:
             return ["opencode", "open code"].contains(normalized)
         case .pi:

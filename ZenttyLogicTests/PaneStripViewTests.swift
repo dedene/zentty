@@ -426,7 +426,7 @@ final class PaneStripViewTests: AppKitTestCase {
 
         paneStripView.render(state)
         paneStripView.layoutSubtreeIfNeeded()
-        paneStripView.toggleZoom(animated: true)
+        paneStripView.beginPeekZoomOut(animated: true)
 
         XCTAssertTrue(paneStripView.isZoomAnimating)
 
@@ -496,7 +496,7 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
-    func test_pane_drag_preview_uses_opaque_window_background_while_dragging() throws {
+    func test_pane_drag_preview_uses_zoom_backdrop_while_dragging() throws {
         let theme = ZenttyTheme.fallback(for: nil)
         let paneStripView = makePaneStripView(width: 980)
         let state = PaneStripState(
@@ -514,6 +514,9 @@ final class PaneStripViewTests: AppKitTestCase {
         let paneView = try XCTUnwrap(
             paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
         )
+        let editorPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "editor" })
+        )
         let dragPoint = CGPoint(
             x: paneView.frame.midX,
             y: paneView.frame.maxY - (PaneContainerView.dragZoneHeight / 2)
@@ -529,10 +532,11 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertLessThan(theme.windowBackground.srgbClamped.alphaComponent, 1.0)
         XCTAssertEqual(
             backgroundColor.themeToken,
-            theme.windowBackground.srgbClamped.withAlphaComponent(1).themeToken
+            theme.paneZoomFillFocused.themeToken
         )
-        XCTAssertEqual(backgroundColor.srgbClamped.alphaComponent, 1.0, accuracy: 0.001)
-        XCTAssertEqual(paneView.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
+        XCTAssertLessThan(backgroundColor.srgbClamped.alphaComponent, 1.0)
+        XCTAssertEqual(paneView.backgroundColorTokenForTesting, theme.paneZoomFillFocused.themeToken)
+        XCTAssertEqual(editorPane.backgroundColorTokenForTesting, theme.paneZoomFillUnfocused.themeToken)
     }
 
     @MainActor
@@ -570,14 +574,90 @@ final class PaneStripViewTests: AppKitTestCase {
             cursorInStrip: dragPoint
         )
 
-        // Drag activation now reuses the pane snapshot and only samples the strip
+        let editorPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "editor" })
+        )
+
+        // Drag activation reuses the pane snapshot and may sample the strip
         // when that snapshot exposes partial transparency. Exact backdrop RGB is
         // therefore an implementation detail; the stable contract is that drag
-        // preview activation resolves a concrete opaque background without
-        // disturbing the original pane theming.
+        // preview activation resolves a concrete mostly opaque background and
+        // visible sibling panes use the zoom backdrop.
         let backgroundColor = try XCTUnwrap(paneStripView.dragPreviewBackgroundColorForTesting)
-        XCTAssertEqual(backgroundColor.srgbClamped.alphaComponent, 1.0, accuracy: 0.001)
-        XCTAssertEqual(paneView.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
+        XCTAssertGreaterThan(backgroundColor.srgbClamped.alphaComponent, 0.89)
+        XCTAssertEqual(editorPane.backgroundColorTokenForTesting, theme.paneZoomFillUnfocused.themeToken)
+    }
+
+    @MainActor
+    func test_peek_zoom_out_applies_zoom_backdrop_until_zoom_in_finishes() throws {
+        let theme = ZenttyTheme.fallback(for: nil)
+        let paneStripView = makePaneStripView(width: 980)
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 420),
+                PaneState(id: PaneID("editor"), title: "editor", width: 420),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        paneStripView.apply(theme: theme, animated: false)
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
+        )
+        let editorPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "editor" })
+        )
+
+        paneStripView.beginPeekZoomOut(animated: false)
+
+        XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.paneZoomFillFocused.themeToken)
+        XCTAssertEqual(editorPane.backgroundColorTokenForTesting, theme.paneZoomFillUnfocused.themeToken)
+
+        paneStripView.endPeekZoomIn(animated: false)
+
+        XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
+        XCTAssertEqual(editorPane.backgroundColorTokenForTesting, theme.paneFillUnfocused.themeToken)
+
+        paneStripView.beginPeekZoomOut(animated: true)
+
+        let animation = try XCTUnwrap(shellPane.layer?.animation(forKey: "backgroundColor"))
+        XCTAssertEqual(animation.duration, 0.35, accuracy: 0.001)
+
+        paneStripView.endPeekZoomIn(animated: true)
+
+        XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
+        let fadeOutAnimation = try XCTUnwrap(shellPane.layer?.animation(forKey: "backgroundColor"))
+        XCTAssertEqual(fadeOutAnimation.duration, 0.35, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_neighbor_peek_zoom_out_applies_zoom_backdrop() throws {
+        let theme = ZenttyTheme.fallback(for: nil)
+        let paneStripView = makePaneStripView(width: 980)
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 420),
+                PaneState(id: PaneID("editor"), title: "editor", width: 420),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        paneStripView.apply(theme: theme, animated: false)
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
+        )
+        let editorPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "editor" })
+        )
+
+        paneStripView.enterPeekNeighborZoomOut(scale: PaneStripView.zoomScale)
+
+        XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.paneZoomFillFocused.themeToken)
+        XCTAssertEqual(editorPane.backgroundColorTokenForTesting, theme.paneZoomFillUnfocused.themeToken)
     }
 
     @MainActor
@@ -3418,7 +3498,7 @@ final class PaneStripViewTests: AppKitTestCase {
 
         paneStripView.render(sourceState)
         paneStripView.layoutSubtreeIfNeeded()
-        paneStripView.toggleZoom(animated: false)
+        paneStripView.beginPeekZoomOut(animated: false)
 
         paneStripView.render(duplicateState)
         paneStripView.layoutSubtreeIfNeeded()
@@ -3437,6 +3517,184 @@ final class PaneStripViewTests: AppKitTestCase {
         )
     }
 
+    @MainActor
+    func test_peek_zoom_out_suspends_terminal_viewport_sync() {
+        // Peek mirrors drag-zoom's NON-dragged-pane handshake: just
+        // suspend terminal viewport sync, no vertical freeze. The freeze
+        // would trigger an extra layout pass that re-runs syncViewport and
+        // reflows the terminal grid.
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let state = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.beginPeekZoomOut(animated: false)
+
+        XCTAssertTrue(paneStripView.isZoomedOut)
+        XCTAssertEqual(paneStripView.currentZoomScale(), PaneStripView.zoomScale, accuracy: 0.001)
+
+        paneStripView.endPeekZoomIn(animated: false)
+
+        XCTAssertFalse(paneStripView.isZoomedOut)
+        XCTAssertEqual(paneStripView.currentZoomScale(), 1.0, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_peek_zoom_in_lands_neutral_after_left_focused_even_split() {
+        assertPeekZoomInLandsNeutralAfterEvenSplit(focusedColumnID: PaneColumnID("left"))
+    }
+
+    @MainActor
+    func test_peek_zoom_in_lands_neutral_after_right_focused_even_split() {
+        assertPeekZoomInLandsNeutralAfterEvenSplit(focusedColumnID: PaneColumnID("right"))
+    }
+
+    @MainActor
+    func test_neighbor_peek_zoom_out_suspends_viewport_sync_without_forcing_surface_resize() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 720),
+            runtimeRegistry: runtimeRegistry
+        )
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let state = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let alphaAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("alpha")))
+        let betaAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("beta")))
+
+        paneStripView.enterPeekNeighborZoomOut(
+            scale: PaneStripView.zoomScale,
+            centerOnPaneID: PaneID("alpha")
+        )
+
+        XCTAssertEqual(alphaAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
+        XCTAssertEqual(betaAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
+        XCTAssertEqual(alphaAdapter.terminalView.forceViewportSyncCallCount, 0)
+        XCTAssertEqual(betaAdapter.terminalView.forceViewportSyncCallCount, 0)
+        XCTAssertEqual(paneStripView.currentZoomScale(), PaneStripView.zoomScale, accuracy: 0.001)
+    }
+
+    @MainActor
+    func test_newly_attached_pane_while_peek_zoomed_out_inherits_viewport_sync_suspension() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 720),
+            runtimeRegistry: runtimeRegistry
+        )
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        paneStripView.render(
+            PaneStripState(
+                panes: [makePane("alpha")],
+                focusedPaneID: PaneID("alpha")
+            )
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.beginPeekZoomOut(animated: false)
+
+        paneStripView.render(
+            PaneStripState(
+                panes: [makePane("beta")],
+                focusedPaneID: PaneID("beta")
+            )
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let betaAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("beta")))
+        XCTAssertEqual(betaAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
+        XCTAssertEqual(betaAdapter.terminalView.forceViewportSyncCallCount, 0)
+        let startSessionBounds = try XCTUnwrap(betaAdapter.startSessionTerminalViewBounds)
+        XCTAssertGreaterThan(startSessionBounds.width, 0)
+        XCTAssertGreaterThan(startSessionBounds.height, 0)
+        XCTAssertEqual(startSessionBounds.width, betaAdapter.terminalView.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(startSessionBounds.height, betaAdapter.terminalView.bounds.height, accuracy: 0.5)
+
+        let layoutPassCountBeforeResume = betaAdapter.terminalView.layoutPassCount
+        paneStripView.endPeekZoomIn(animated: false)
+
+        XCTAssertEqual(betaAdapter.terminalView.viewportSyncSuspensionUpdates.suffix(2), [true, false])
+        let resumeIndex = try XCTUnwrap(
+            betaAdapter.terminalView.viewportSyncSuspensionUpdates.lastIndex(of: false)
+        )
+        XCTAssertGreaterThan(
+            betaAdapter.terminalView.layoutPassCountsAtViewportSyncSuspensionUpdates[resumeIndex],
+            layoutPassCountBeforeResume
+        )
+    }
+
+    @MainActor
+    func test_neighbor_peek_zoom_out_reset_resumes_viewport_sync_synchronously() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 720),
+            runtimeRegistry: runtimeRegistry
+        )
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let state = PaneStripState(
+            panes: [makePane("alpha")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let alphaAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("alpha")))
+
+        paneStripView.enterPeekNeighborZoomOut(scale: PaneStripView.zoomScale)
+        paneStripView.endPeekNeighborZoomOut()
+
+        XCTAssertFalse(paneStripView.isZoomedOut)
+        XCTAssertEqual(paneStripView.currentZoomScale(), 1, accuracy: 0.001)
+        XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, 0, accuracy: 0.001)
+        XCTAssertEqual(alphaAdapter.terminalView.viewportSyncSuspensionUpdates.suffix(2), [true, false])
+    }
+
+    @MainActor
+    func test_peek_zoom_out_skipped_during_active_drag() {
+        // The drag-zoom path owns the zoom while a pane is being dragged.
+        // Visual ctrl+tab must not stomp over it. (Defensive — controller
+        // already blocks this path, but the engine is the last line of
+        // defense.)
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let state = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.beginPaneDragForTesting(
+            paneID: PaneID("alpha"),
+            cursorInStrip: CGPoint(x: 100, y: 200)
+        )
+        XCTAssertTrue(paneStripView.isZoomedOut, "drag should have triggered zoom")
+
+        // Calling visual-mode entry while drag-zoom is active is a no-op.
+        paneStripView.beginPeekZoomOut(animated: false)
+        XCTAssertTrue(paneStripView.isZoomedOut)
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }
@@ -3453,6 +3711,46 @@ final class PaneStripViewTests: AppKitTestCase {
             focusedPaneID: paneIDs.first.map(PaneID.init),
             lastFocusedPaneID: paneIDs.first.map(PaneID.init)
         )
+    }
+
+    @MainActor
+    private func assertPeekZoomInLandsNeutralAfterEvenSplit(
+        focusedColumnID: PaneColumnID,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let columnWidth: CGFloat = 597
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: columnWidth),
+                makeColumn("right", paneIDs: ["right"], width: columnWidth),
+            ],
+            focusedColumnID: focusedColumnID
+        )
+        let focusedPaneID = PaneID(focusedColumnID.rawValue)
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.beginPeekZoomOut(animated: false, centerOnPaneID: focusedPaneID)
+        XCTAssertNotEqual(
+            paneStripView.dragScrollOffsetXForTesting,
+            0,
+            accuracy: 0.001,
+            "test setup should reproduce pane-centered peek scroll",
+            file: file,
+            line: line
+        )
+
+        paneStripView.endPeekZoomIn(animated: false, centerOnPaneID: focusedPaneID)
+
+        XCTAssertFalse(paneStripView.isZoomedOut, file: file, line: line)
+        XCTAssertEqual(paneStripView.currentZoomScale(), 1, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, 0, accuracy: 0.001, file: file, line: line)
     }
 
     private func makeScrollTestState(focusedPaneID: PaneID) -> PaneStripState {
@@ -3496,6 +3794,7 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
     private(set) var startSessionCallCount = 0
+    private(set) var startSessionTerminalViewBounds: CGSize?
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity()
 
     init(paneID: PaneID) {
@@ -3508,6 +3807,7 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
 
     func startSession(using request: TerminalSessionRequest) throws {
         startSessionCallCount += 1
+        startSessionTerminalViewBounds = terminalView.bounds.size
     }
 
     func close() {}
@@ -3522,8 +3822,10 @@ private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncContro
     var onFocusDidChange: ((Bool) -> Void)?
     private(set) var viewportSyncSuspensionUpdates: [Bool] = []
     private(set) var viewportSyncSuspensionBounds: [CGSize] = []
+    private(set) var layoutPassCountsAtViewportSyncSuspensionUpdates: [Int] = []
     private(set) var forceViewportSyncCallCount = 0
     private(set) var displayIfNeededCallCount = 0
+    private(set) var layoutPassCount = 0
     let detachedFocusTarget = NSView()
     var usesDetachedFocusTarget = false
 
@@ -3536,9 +3838,15 @@ private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncContro
         super.displayIfNeeded()
     }
 
+    override func layout() {
+        layoutPassCount += 1
+        super.layout()
+    }
+
     func setViewportSyncSuspended(_ suspended: Bool) {
         viewportSyncSuspensionUpdates.append(suspended)
         viewportSyncSuspensionBounds.append(bounds.size)
+        layoutPassCountsAtViewportSyncSuspensionUpdates.append(layoutPassCount)
     }
 
     func forceViewportSync() {

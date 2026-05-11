@@ -169,6 +169,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     var onCheckForUpdatesRequested: (() -> Void)?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((MainWindowController, PaneID?) -> Void)?
+    var onMovePaneToWorklaneRequested: ((MainWindowController, MovePaneToWorklaneRequest) -> Void)?
+    var onMovePaneToNewWorklaneInThisWindowRequested: ((MainWindowController, PaneID) -> Void)?
+    var moveToWorklaneCatalogProvider: ((MainWindowController, PaneID) -> WorklaneDestinationCatalog?)?
     var onWorkspaceStateDidChange: (() -> Void)?
 
     init(
@@ -272,6 +275,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onShowSettingsRequested = { [weak self] in
             self?.showSettingsWindow(section: .general, sender: nil)
         }
+        rootViewController.onShowSettingsSectionRequested = { [weak self] section in
+            self?.showSettingsWindow(section: section, sender: nil)
+        }
         rootViewController.onCheckForUpdatesRequested = { [weak self] in
             self?.onCheckForUpdatesRequested?()
         }
@@ -281,6 +287,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onMovePaneToNewWindowRequested = { [weak self] paneID in
             guard let self else { return }
             self.onMovePaneToNewWindowRequested?(self, paneID)
+        }
+        rootViewController.moveToWorklaneCatalogProvider = { [weak self] paneID in
+            guard let self else { return nil }
+            return self.moveToWorklaneCatalogProvider?(self, paneID)
         }
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
@@ -488,6 +498,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func forceSplitRight(_ sender: Any?) {
+        handle(.pane(.splitRightVisibly))
+    }
+
+    @objc
+    func forceAddPaneRight(_ sender: Any?) {
+        handle(.pane(.addPaneRightWithoutResizing))
+    }
+
+    @objc
     func addPaneLeft(_ sender: Any?) {
         handle(.pane(.splitBeforeFocusedPane))
     }
@@ -563,6 +583,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func closeFocusedPane(_ sender: Any?) {
+        handle(.pane(.closeFocusedPane))
+    }
+
+    @objc
+    func restoreClosedPane(_ sender: Any?) {
+        handle(.pane(.restoreClosedPane))
+    }
+
+    @objc
     func focusLeftPane(_ sender: Any?) {
         handle(.pane(.focusLeft))
     }
@@ -625,11 +655,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @objc
     func resetPaneLayout(_ sender: Any?) {
         handle(.pane(.resetLayout))
-    }
-
-    @objc
-    func toggleZoomOut(_ sender: Any?) {
-        handle(.pane(.toggleZoomOut))
     }
 
     @objc
@@ -749,12 +774,112 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         onMovePaneToNewWindowRequested?(self, representedPaneID(from: sender) ?? rootViewController.focusedPaneID())
     }
 
+    @objc
+    func movePaneToWorklane(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem,
+              let request = item.representedObject as? MovePaneToWorklaneRequest else {
+            return
+        }
+        onMovePaneToWorklaneRequested?(self, request)
+    }
+
+    @objc
+    func movePaneToNewWorklaneInThisWindow(_ sender: Any?) {
+        guard let paneID = representedPaneID(from: sender) ?? rootViewController.focusedPaneID() else {
+            return
+        }
+        onMovePaneToNewWorklaneInThisWindowRequested?(self, paneID)
+    }
+
     func canMovePaneToNewWindow(paneID: PaneID?) -> Bool {
         guard let paneID = paneID ?? rootViewController.focusedPaneID() else {
             return false
         }
 
         return rootViewController.canSplitOutPaneToNewWindow(paneID: paneID)
+    }
+
+    func availableWorklaneSummaries(excluding worklaneID: WorklaneID?) -> [WorklaneDestinationSummary] {
+        rootViewController.worklaneStore.destinationSummaries(
+            windowID: windowID,
+            excluding: worklaneID
+        )
+    }
+
+    func paneCount(in worklaneID: WorklaneID) -> Int {
+        rootViewController.worklaneStore.worklanes
+            .first(where: { $0.id == worklaneID })?
+            .paneStripState.panes.count ?? 0
+    }
+
+    func transferPaneToWorklaneInThisWindow(paneID: PaneID, targetWorklaneID: WorklaneID) {
+        let store = rootViewController.worklaneStore
+        ensureSourceWorklaneActive(for: paneID, in: store)
+        store.transferPaneToWorklane(
+            paneID: paneID,
+            targetWorklaneID: targetWorklaneID,
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+    }
+
+    func transferPaneToNewWorklaneInThisWindow(paneID: PaneID) {
+        let store = rootViewController.worklaneStore
+        ensureSourceWorklaneActive(for: paneID, in: store)
+        store.transferPaneToNewWorklane(
+            paneID: paneID,
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+    }
+
+    /// `transferPaneToWorklane` and `transferPaneToNewWorklane` use
+    /// `activeWorklaneID` as the source. When the menu fires from the sidebar
+    /// (or any context where the right-clicked pane isn't in the active
+    /// worklane), pre-select so the transfer targets the right source.
+    private func ensureSourceWorklaneActive(for paneID: PaneID, in store: WorklaneStore) {
+        guard let sourceWorklaneID = store.worklanes.first(where: { worklane in
+            worklane.paneStripState.panes.contains { $0.id == paneID }
+        })?.id, sourceWorklaneID != store.activeWorklaneID else {
+            return
+        }
+        store.selectWorklane(id: sourceWorklaneID)
+    }
+
+    func extractPaneForCrossWindowTransfer(
+        paneID: PaneID
+    ) -> (payload: WorklaneStore.ExtractedPanePayload, runtime: PaneRuntime?)? {
+        let store = rootViewController.worklaneStore
+        let runtime = runtimeRegistry.detachRuntime(for: paneID)
+        guard let payload = store.extractPaneForCrossWindowTransfer(
+            paneID: paneID,
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        ) else {
+            if let runtime { runtimeRegistry.adoptRuntime(runtime, for: paneID) }
+            return nil
+        }
+        return (payload, runtime)
+    }
+
+    /// Adopts the runtime and inserts the pane into the destination worklane.
+    /// Returns `true` on success. On failure (target worklane gone), neither the
+    /// runtime nor the pane state is added — the caller still owns the runtime.
+    @discardableResult
+    func acceptCrossWindowPane(
+        payload: WorklaneStore.ExtractedPanePayload,
+        runtime: PaneRuntime?,
+        targetWorklaneID: WorklaneID
+    ) -> Bool {
+        let store = rootViewController.worklaneStore
+        guard store.worklanes.contains(where: { $0.id == targetWorklaneID }) else {
+            return false
+        }
+        if let runtime {
+            runtimeRegistry.adoptRuntime(runtime, for: payload.pane.id)
+        }
+        return store.insertExtractedPane(
+            payload,
+            intoWorklane: targetWorklaneID,
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
     }
 
     func splitOutPaneForNewWindow(
@@ -826,6 +951,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func paneListEntries(for worklaneID: WorklaneID) -> [PaneListEntry] {
         rootViewController.paneListEntries(for: worklaneID)
+    }
+
+    func taskManagerPaneSources() -> [TaskManagerPaneSource] {
+        rootViewController.taskManagerPaneSources(
+            windowID: windowID,
+            windowTitle: window.title.isEmpty ? "Window \(windowOrder + 1)" : window.title
+        )
     }
 
     func resolvePaneID(_ target: String, in worklaneID: WorklaneID) -> PaneID? {
@@ -1542,7 +1674,10 @@ extension MainWindowController: NSMenuItemValidation {
         }
 
         switch menuItem.action {
-        case #selector(addPaneRight(_:)), #selector(addPaneLeft(_:)):
+        case #selector(addPaneRight(_:)),
+             #selector(addPaneLeft(_:)),
+             #selector(forceSplitRight(_:)),
+             #selector(forceAddPaneRight(_:)):
             return rootViewController.isCommandAvailable(.splitHorizontally)
         case #selector(addPaneDown(_:)), #selector(addPaneUp(_:)):
             return rootViewController.isCommandAvailable(.splitVertically)

@@ -4,12 +4,7 @@ import QuartzCore
 @MainActor
 final class SidebarWorklaneRowChrome {
     private enum DropTargetHighlightAnimation {
-        static let scaleKey = "dropTargetScale"
         static let shadowOpacityKey = "dropTargetShadowOpacity"
-        static let scale: CGFloat = 1.025
-        static let springMass: CGFloat = 1.0
-        static let springStiffness: CGFloat = 300
-        static let springDamping: CGFloat = 20
         static let shadowFadeDuration: CFTimeInterval = 0.15
     }
 
@@ -58,37 +53,19 @@ final class SidebarWorklaneRowChrome {
         guard highlighted != isDropTargetHighlighted else { return }
         isDropTargetHighlighted = highlighted
 
-        let targetTransform = highlighted
-            ? CATransform3DMakeScale(
-                DropTargetHighlightAnimation.scale,
-                DropTargetHighlightAnimation.scale,
-                1
-            )
-            : CATransform3DIdentity
         let targetShadowStyle = highlighted ? highlightedShadowStyle() : normalShadowStyle
 
-        layer.removeAnimation(forKey: DropTargetHighlightAnimation.scaleKey)
         layer.removeAnimation(forKey: DropTargetHighlightAnimation.shadowOpacityKey)
 
-        let currentTransform = layer.presentation()?.transform ?? layer.transform
         let currentShadowOpacity = layer.presentation()?.shadowOpacity ?? layer.shadowOpacity
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.transform = targetTransform
+        layer.transform = CATransform3DIdentity
         apply(targetShadowStyle, to: layer)
         CATransaction.commit()
 
         guard reducedMotion == false else { return }
-
-        let spring = CASpringAnimation(keyPath: "transform")
-        spring.mass = DropTargetHighlightAnimation.springMass
-        spring.stiffness = DropTargetHighlightAnimation.springStiffness
-        spring.damping = DropTargetHighlightAnimation.springDamping
-        spring.fromValue = currentTransform
-        spring.toValue = targetTransform
-        spring.isRemovedOnCompletion = true
-        layer.add(spring, forKey: DropTargetHighlightAnimation.scaleKey)
 
         let fade = CABasicAnimation(keyPath: "shadowOpacity")
         fade.fromValue = currentShadowOpacity

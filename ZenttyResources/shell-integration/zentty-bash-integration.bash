@@ -101,6 +101,13 @@ _zentty_report_shell_activity() {
     _zentty_agent_signal shell-state "$state"
 }
 
+_zentty_report_pane_root_pid() {
+    local pid="$$"
+    [[ "$_zentty_pane_root_pid_last" == "$pid" ]] && return 0
+    _zentty_pane_root_pid_last="$pid"
+    _zentty_agent_signal pane-root-pid attach "$pid"
+}
+
 _zentty_is_remote_shell() {
     [[ -n "${SSH_CONNECTION:-}" || -n "${SSH_CLIENT:-}" || -n "${SSH_TTY:-}" ]]
 }
@@ -175,6 +182,7 @@ _zentty_bash_prompt_hook() {
     # entries to clear multi-level stacks (e.g., Ink/React TUI layers).
     # Extra pops beyond the stack depth are harmless no-ops.
     _zentty_print_tty $'\e[<99u'
+    _zentty_report_pane_root_pid
     _zentty_report_shell_activity prompt
     _zentty_emit_pane_context
     if [[ -n "$_zentty_bash_original_prompt_command" ]]; then

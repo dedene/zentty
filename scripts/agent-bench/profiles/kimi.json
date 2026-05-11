@@ -1,7 +1,7 @@
 {
   "name": "kimi",
   "command": "kimi",
-  "real_binary_names": ["kimi"],
+  "real_binary_names": ["kimi", "kimi-cli"],
   "version_args": ["--version"],
   "launch_args_by_scenario": {
     "smoke": [

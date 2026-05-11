@@ -91,7 +91,7 @@ private final class LibghosttyScrollView: NSScrollView {
 }
 
 @MainActor
-final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalMouseInteractionSuppressionControlling, TerminalContextMenuConfiguring, LibghosttyScrollbarHandling {
+final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalMouseInteractionSuppressionControlling, TerminalContextMenuConfiguring, TerminalViewportDiagnosticsContextConfiguring, LibghosttyScrollbarHandling {
     private struct ScrollHostSyncMetrics {
         let geometryApplied: Bool
         let documentHeightChanged: Bool
@@ -120,6 +120,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private var userScrolledAwayFromBottom = false
     private var lastSentRow: Int?
     private var scrollbarUpdate: LibghosttySurfaceScrollbarUpdate?
+    private var viewportDiagnosticsContext = TerminalViewportDiagnostics.Context()
     private let selectionAutoscrollController = LibghosttySelectionAutoscrollController()
     private var selectionAutoscrollTimer: Timer?
     private var lastSelectionAutoscrollTickTime: TimeInterval?
@@ -243,6 +244,8 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             overlayHostView.frame = bounds
             surfaceView.frame.size = scrollView.bounds.size
             documentView.frame.size.width = scrollView.bounds.width
+            updateSurfaceViewportDiagnosticsContext()
+            recordViewportDiagnostics(.scrollHostLayout)
             recordScrollHostSync { synchronizeScrollView() }
             synchronizeSurfaceView()
             synchronizeCoreSurface()
@@ -274,7 +277,14 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     }
 
     func setViewportSyncSuspended(_ suspended: Bool) {
-        surfaceView.setViewportSyncSuspended(suspended)
+        recordViewportDiagnostics(.scrollHostSyncSuspended, suspended: suspended)
+        if suspended {
+            surfaceView.setViewportSyncSuspended(true)
+        } else {
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+            surfaceView.setViewportSyncSuspended(false)
+        }
     }
 
     func forceViewportSync() {
@@ -390,11 +400,40 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         }
 
         let startedAt = DispatchTime.now().uptimeNanoseconds
+        updateSurfaceViewportDiagnosticsContext()
+        recordViewportDiagnostics(.scrollHostSync)
         surfaceView.syncViewport()
         diagnostics.recordViewportSync(
             paneID: paneID,
             durationNanoseconds: DispatchTime.now().uptimeNanoseconds - startedAt
         )
+    }
+
+    func updateViewportDiagnosticsContext(_ context: TerminalViewportDiagnostics.Context) {
+        viewportDiagnosticsContext = context
+        updateSurfaceViewportDiagnosticsContext()
+    }
+
+    private func updateSurfaceViewportDiagnosticsContext() {
+        var context = viewportDiagnosticsContext
+        context.scrollHostBounds = bounds
+        context.surfaceBounds = surfaceView.bounds
+        context.windowAttached = window != nil
+        surfaceView.updateViewportDiagnosticsContext(context)
+    }
+
+    private func recordViewportDiagnostics(
+        _ source: TerminalViewportEventSource,
+        suspended: Bool? = nil
+    ) {
+        var context = viewportDiagnosticsContext
+        context.scrollHostBounds = bounds
+        context.surfaceBounds = surfaceView.bounds
+        context.windowAttached = window != nil
+        if let suspended {
+            context.isViewportSyncSuspended = suspended
+        }
+        TerminalViewportDiagnostics.shared.record(source, context: context)
     }
 
     private func synchronizeScrollView() -> ScrollHostSyncMetrics {
@@ -557,7 +596,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     }
 }
 
-final class LibghosttyView: NSView, TerminalFocusReporting {
+final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiagnosticsContextConfiguring {
     private struct ViewportSignature: Equatable {
         let size: CGSize
         let scale: CGFloat
@@ -594,6 +633,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
     private var surfaceController: (any LibghosttySurfaceControlling)?
     private var lastViewportSignature: ViewportSignature?
     private var isViewportSyncSuspended = false
+    private var viewportDiagnosticsContext = TerminalViewportDiagnostics.Context()
     private var keyTextAccumulator = ""
     private var markedTextStorage = ""
     private var markedTextSelection = NSRange(location: NSNotFound, length: 0)
@@ -1088,9 +1128,22 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         }
 
         isViewportSyncSuspended = suspended
+        recordViewportDiagnostics(suspended ? .syncSuspended : .syncUnsuspended)
         if !suspended {
             syncViewport()
         }
+    }
+
+    func updateViewportDiagnosticsContext(_ context: TerminalViewportDiagnostics.Context) {
+        viewportDiagnosticsContext = context
+    }
+
+    var viewportDiagnosticsContextForSurface: TerminalViewportDiagnostics.Context {
+        var context = viewportDiagnosticsContext
+        context.surfaceBounds = bounds
+        context.windowAttached = window != nil
+        context.isViewportSyncSuspended = isViewportSyncSuspended
+        return context
     }
 
     var currentDisplayID: UInt32? {
@@ -1109,25 +1162,29 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         window?.backingScaleFactor ?? layer?.contentsScale ?? NSScreen.main?.backingScaleFactor ?? 1
     }
 
+    var normalizedBackingViewportSize: CGSize {
+        Self.normalizedBackingViewportSize(from: convertToBacking(bounds).size)
+    }
+
     fileprivate func syncViewport() {
+        recordViewportDiagnostics(.syncAttempt)
         guard bounds.width > 0, bounds.height > 0 else {
+            recordViewportDiagnostics(.syncSkippedZeroBounds)
             return
         }
 
         guard window != nil else {
+            recordViewportDiagnostics(.syncSkippedNoWindow)
             return
         }
 
         if isViewportSyncSuspended {
+            recordViewportDiagnostics(.syncSkippedSuspended)
             return
         }
 
-        let backingBounds = convertToBacking(bounds)
-        syncLayerGeometry(backingBounds: backingBounds)
-        let viewportSize = CGSize(
-            width: max(1, backingBounds.width),
-            height: max(1, backingBounds.height)
-        )
+        let viewportSize = normalizedBackingViewportSize
+        syncLayerGeometry(viewportSize: viewportSize)
         let viewportSignature = ViewportSignature(
             size: viewportSize,
             scale: currentScaleFactor,
@@ -1135,16 +1192,39 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         )
 
         guard viewportSignature != lastViewportSignature else {
+            recordViewportDiagnostics(.syncSkippedDuplicate, nextSignature: viewportSignature)
             return
         }
 
+        let previousSignature = lastViewportSignature
         lastViewportSignature = viewportSignature
+        recordViewportDiagnostics(
+            .libghosttyUpdateViewport,
+            previousSignature: previousSignature,
+            nextSignature: viewportSignature
+        )
         surfaceController?.updateViewport(
             size: viewportSignature.size,
             scale: viewportSignature.scale,
             displayID: viewportSignature.displayID
         )
         surfaceController?.refresh()
+    }
+
+    private func recordViewportDiagnostics(
+        _ source: TerminalViewportEventSource,
+        previousSignature: ViewportSignature? = nil,
+        nextSignature: ViewportSignature? = nil
+    ) {
+        var context = viewportDiagnosticsContext
+        context.surfaceBounds = bounds
+        context.windowAttached = window != nil
+        context.isViewportSyncSuspended = isViewportSyncSuspended
+        context.previousViewportSize = previousSignature?.size ?? lastViewportSignature?.size
+        context.viewportSize = nextSignature?.size
+        context.scale = nextSignature?.scale ?? currentScaleFactor
+        context.displayID = nextSignature?.displayID ?? currentDisplayID
+        TerminalViewportDiagnostics.shared.record(source, context: context)
     }
 
     func invalidateAndSyncViewport() {
@@ -1164,18 +1244,21 @@ final class LibghosttyView: NSView, TerminalFocusReporting {
         scrollbarHandler?.applyScrollbarUpdate(update)
     }
 
-    private func syncLayerGeometry(backingBounds: CGRect) {
-        let scale = currentScaleFactor
-        let drawableSize = CGSize(
-            width: max(1, floor(backingBounds.width)),
-            height: max(1, floor(backingBounds.height))
+    private static func normalizedBackingViewportSize(from backingSize: CGSize) -> CGSize {
+        CGSize(
+            width: max(1, backingSize.width.rounded()),
+            height: max(1, backingSize.height.rounded())
         )
+    }
+
+    private func syncLayerGeometry(viewportSize: CGSize) {
+        let scale = currentScaleFactor
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.contentsScale = scale
-        if let metalLayer = layer as? CAMetalLayer, metalLayer.drawableSize != drawableSize {
-            metalLayer.drawableSize = drawableSize
+        if let metalLayer = layer as? CAMetalLayer, metalLayer.drawableSize != viewportSize {
+            metalLayer.drawableSize = viewportSize
         }
         CATransaction.commit()
     }

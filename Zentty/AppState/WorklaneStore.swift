@@ -286,7 +286,7 @@ final class WorklaneStore {
     let gitContextResolver: any PaneGitContextResolving
     let terminalDiagnostics: TerminalDiagnostics
     private(set) var layoutContext: PaneLayoutContext
-    private var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
+    private(set) var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
     private var lastFocusedPaneReference: PaneReference?
     private var lastFocusedLocalPaneReference: PaneReference?
     private var lastFocusedLocalWorkingDirectory: String?
@@ -297,7 +297,7 @@ final class WorklaneStore {
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     private var pendingReadyStatusTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
     private var pendingAgentStatusSweepTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
-    private let processEnvironment: [String: String]
+    let processEnvironment: [String: String]
     private let readyStatusDebounceInterval: TimeInterval
     let nonRepositoryRetryInterval: TimeInterval
     let currentDateProvider: @MainActor () -> Date
@@ -314,6 +314,14 @@ final class WorklaneStore {
     let serverRegistry: ServerRegistry
     let focusHistoryController = PaneFocusHistoryController()
     private var isNavigatingHistory = false
+
+    /// Per-window LIFO stack of recently closed panes for ⌘⇧T restore.
+    /// Populated in `closePane(id:source:)` for `.userCommand` closures only.
+    var closedPaneStack = ClosedPaneStack()
+
+    /// Set by the view layer to provide pane scrollback right before close.
+    /// Returns nil if the runtime is gone or the read fails.
+    var scrollbackProvider: ((PaneID) -> String?)?
 
     var activeWorklaneID: WorklaneID
 
@@ -530,12 +538,20 @@ final class WorklaneStore {
         return PaneReference(worklaneID: worklane.id, paneID: paneID)
     }
 
+    var currentPaneReferenceForCommandPalette: PaneReference? {
+        currentPaneReference
+    }
+
     private var allLivePaneReferences: Set<PaneReference> {
         Set(worklanes.flatMap { worklane in
             worklane.paneStripState.panes.map {
                 PaneReference(worklaneID: worklane.id, paneID: $0.id)
             }
         })
+    }
+
+    var recentPaneReferencesForCommandPalette: [PaneReference] {
+        focusHistoryController.history.recentReferences(allPaneIDs: allLivePaneReferences)
     }
 
     private var paneReferencesInSidebarOrder: [PaneReference] {
@@ -684,7 +700,16 @@ final class WorklaneStore {
                 recordFocusTransition(from: previousPaneRef)
             }
             return
-        case .split, .splitHorizontally, .splitAfterFocusedPane:
+        case .split, .splitHorizontally:
+            insertNewPaneRight(into: &worklane, behavior: layoutContext.rightPaneInsertionBehavior)
+            changeType = .paneStructure(activeWorklaneID)
+        case .splitRightVisibly:
+            insertNewPaneRight(into: &worklane, behavior: .visibleSplit)
+            changeType = .paneStructure(activeWorklaneID)
+        case .addPaneRightWithoutResizing:
+            insertNewPaneRight(into: &worklane, behavior: .worklaneAdd)
+            changeType = .paneStructure(activeWorklaneID)
+        case .splitAfterFocusedPane:
             insertNewPaneHorizontally(into: &worklane, placement: .afterFocused)
             changeType = .paneStructure(activeWorklaneID)
         case .splitVertically:
@@ -745,7 +770,7 @@ final class WorklaneStore {
             .arrangeVertically,
             .arrangeGoldenRatio,
             .resetLayout,
-            .toggleZoomOut:
+            .restoreClosedPane:
             activeWorklane = worklane
             return
         }
@@ -1303,6 +1328,41 @@ final class WorklaneStore {
         worklane.paneStripState.insertPaneHorizontally(insertedPane, placement: placement)
     }
 
+    private func insertNewPaneRight(
+        into worklane: inout WorklaneState,
+        behavior: PaneRightInsertionBehavior,
+        sessionRequest: TerminalSessionRequest? = nil
+    ) {
+        switch behavior {
+        case .visibleSplit:
+            insertNewPaneRightVisibly(into: &worklane, sessionRequest: sessionRequest)
+        case .worklaneAdd:
+            insertNewPaneHorizontally(
+                into: &worklane,
+                placement: .afterFocused,
+                sessionRequest: sessionRequest
+            )
+        }
+    }
+
+    private func insertNewPaneRightVisibly(
+        into worklane: inout WorklaneState,
+        sessionRequest: TerminalSessionRequest? = nil
+    ) {
+        let existingColumnCount = worklane.paneStripState.columns.count
+        var insertedPane = makePane(in: &worklane, existingPaneCount: existingColumnCount)
+        applySessionRequestOverride(sessionRequest, to: &insertedPane)
+        insertedPane.width = layoutContext.visibleSplitColumnWidth
+
+        _ = worklane.paneStripState.resizeFocusedColumnToWidth(
+            layoutContext.visibleSplitColumnWidth,
+            availableWidth: layoutContext.availableWidth,
+            minimumSizeByPaneID: [:]
+        )
+
+        worklane.paneStripState.insertPaneHorizontally(insertedPane, placement: .afterFocused)
+    }
+
     private func insertNewPaneVertically(
         into worklane: inout WorklaneState,
         placement: PanePlacement = .afterFocused,
@@ -1550,11 +1610,11 @@ final class WorklaneStore {
             return .notFound
         }
 
-        return closePane(id: paneID)
+        return closePane(id: paneID, source: .userCommand)
     }
 
     @discardableResult
-    func closePane(id: PaneID) -> PaneCloseResult {
+    func closePane(id: PaneID, source: PaneCloseSource = .userCommand) -> PaneCloseResult {
         guard var worklane = activeWorklane else {
             return .notFound
         }
@@ -1570,13 +1630,23 @@ final class WorklaneStore {
             return .notFound
         }
 
-        if worklane.paneStripState.columns.count == 1,
-           worklane.paneStripState.panes.count == 1 {
-            if worklanes.count == 1 {
-                serverRegistry.clear(worklaneID: worklane.id, paneID: id)
-                return .closeWindow
-            }
+        let isLastPaneInLastColumn = worklane.paneStripState.columns.count == 1
+            && worklane.paneStripState.panes.count == 1
 
+        // Closing the last pane in the only worklane just signals the view
+        // layer to close the window — the pane itself isn't removed here, and
+        // the user may still cancel the window-close prompt. Skip capture in
+        // that case to avoid leaving a stack entry pointing at a still-live
+        // pane (which would let ⌘⇧T duplicate it).
+        if isLastPaneInLastColumn, worklanes.count == 1 {
+            return .closeWindow
+        }
+
+        if source == .userCommand {
+            captureClosedPane(paneID: id, in: worklane)
+        }
+
+        if isLastPaneInLastColumn {
             guard removeActiveWorklaneIfPossible() else {
                 refreshLastFocusedLocalWorkingDirectory()
                 notify(.paneStructure(activeWorklaneID))

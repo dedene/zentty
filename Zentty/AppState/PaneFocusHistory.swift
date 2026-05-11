@@ -19,6 +19,18 @@ struct PaneFocusHistory: Equatable, Sendable {
         !forwardStack.isEmpty
     }
 
+    func recentReferences(
+        allPaneIDs: Set<WorklaneStore.PaneReference>
+    ) -> [WorklaneStore.PaneReference] {
+        var seen: Set<WorklaneStore.PaneReference> = []
+        return backStack.reversed().compactMap { reference in
+            guard allPaneIDs.contains(reference), seen.insert(reference).inserted else {
+                return nil
+            }
+            return reference
+        }
+    }
+
     /// Record the current pane reference before transitioning to a new one.
     /// Clears the forward stack (browser model).
     mutating func record(_ reference: WorklaneStore.PaneReference) {

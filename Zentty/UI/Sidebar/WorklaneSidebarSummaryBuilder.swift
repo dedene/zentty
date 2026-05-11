@@ -1,5 +1,10 @@
 import AppKit
 
+struct WorklaneSidebarFocusOverride: Equatable {
+    let worklaneID: WorklaneID
+    let paneID: PaneID
+}
+
 enum WorklaneSidebarSummaryBuilder {
     private struct SidebarStatusPresentation {
         let statusText: String?
@@ -50,19 +55,23 @@ enum WorklaneSidebarSummaryBuilder {
 
     static func summaries(
         for worklanes: [WorklaneState],
-        activeWorklaneID: WorklaneID
+        activeWorklaneID: WorklaneID,
+        focusOverride: WorklaneSidebarFocusOverride? = nil
     ) -> [WorklaneSidebarSummary] {
+        let focusOverride = validFocusOverride(focusOverride, in: worklanes)
+        let effectiveActiveWorklaneID = focusOverride?.worklaneID ?? activeWorklaneID
         let identitiesByWorklaneID = Dictionary(
             uniqueKeysWithValues: worklanes.map { worklane in
-                (worklane.id, worklaneIdentity(for: worklane))
+                (worklane.id, worklaneIdentity(for: worklane, focusOverride: focusOverride))
             }
         )
         let baseSummaries = worklanes.enumerated().map { index, worklane in
             summary(
                 for: worklane,
-                isActive: worklane.id == activeWorklaneID,
+                isActive: worklane.id == effectiveActiveWorklaneID,
                 identity: identitiesByWorklaneID[worklane.id],
-                displayOrder: index + 1
+                displayOrder: index + 1,
+                focusOverride: focusOverride
             )
         }
 
@@ -89,23 +98,30 @@ enum WorklaneSidebarSummaryBuilder {
         for worklane: WorklaneState,
         isActive: Bool,
         identity: WorklaneSidebarIdentity?,
-        displayOrder: Int
+        displayOrder: Int,
+        focusOverride: WorklaneSidebarFocusOverride? = nil
     ) -> WorklaneSidebarSummary {
         let orderedPaneContexts = orderedPaneContexts(for: worklane)
+        let focusedPaneID = effectiveFocusedPaneID(
+            for: worklane,
+            focusOverride: focusOverride
+        )
         let paneRows = paneRows(
             for: worklane,
-            orderedPaneContexts: orderedPaneContexts
+            orderedPaneContexts: orderedPaneContexts,
+            focusedPaneID: focusedPaneID
         )
         let isWorking = paneRows.contains(where: \.isWorking) || worklaneIsWorking(for: worklane)
         let badgeText = badge(for: worklane.meaningfulTitle, displayOrder: displayOrder)
         let identity = identity ?? worklaneIdentity(
             for: worklane,
-            orderedPaneContexts: orderedPaneContexts
+            orderedPaneContexts: orderedPaneContexts,
+            focusOverride: focusOverride
         )
         let primaryText = identity.primaryText
         let focusedPaneLineIndex = focusedPaneLineIndex(
-            for: worklane,
-            orderedPaneContexts: orderedPaneContexts
+            orderedPaneContexts: orderedPaneContexts,
+            focusedPaneID: focusedPaneID
         )
         let topLabel = visibleTopLabel(
             worklane.meaningfulTitle,
@@ -114,7 +130,8 @@ enum WorklaneSidebarSummaryBuilder {
         let sidebarDetailLines = detailLines(
             for: worklane,
             primaryText: primaryText,
-            orderedPaneContexts: orderedPaneContexts
+            orderedPaneContexts: orderedPaneContexts,
+            focusedPaneID: focusedPaneID
         )
         let statusPresentation = paneRows.isEmpty
             ? sidebarStatusPresentation(
@@ -220,12 +237,13 @@ enum WorklaneSidebarSummaryBuilder {
 
     private static func paneRows(
         for worklane: WorklaneState,
-        orderedPaneContexts: [WorklanePaneContext]
+        orderedPaneContexts: [WorklanePaneContext],
+        focusedPaneID: PaneID?
     ) -> [WorklaneSidebarPaneRow] {
         let isSinglePane = orderedPaneContexts.count == 1
 
         return orderedPaneContexts.map { paneContext in
-            let isFocused = worklane.paneStripState.focusedPaneID == paneContext.paneID
+            let isFocused = focusedPaneID == paneContext.paneID
             let statusPresentation = paneSidebarStatusPresentation(for: paneContext.presentation)
             let paneIdentity = paneIdentity(
                 metadata: paneContext.metadata,
@@ -294,14 +312,15 @@ enum WorklaneSidebarSummaryBuilder {
 
     private static func worklaneIdentity(
         for worklane: WorklaneState,
-        orderedPaneContexts candidatePaneContexts: [WorklanePaneContext]? = nil
+        orderedPaneContexts candidatePaneContexts: [WorklanePaneContext]? = nil,
+        focusOverride: WorklaneSidebarFocusOverride? = nil
     ) -> WorklaneSidebarIdentity {
         let orderedPaneContexts = candidatePaneContexts ?? self.orderedPaneContexts(for: worklane)
         let isSinglePane = orderedPaneContexts.count == 1
 
         if let focusedPaneContext = focusedPaneContext(
-            for: worklane,
-            orderedPaneContexts: orderedPaneContexts
+            orderedPaneContexts: orderedPaneContexts,
+            focusedPaneID: effectiveFocusedPaneID(for: worklane, focusOverride: focusOverride)
         ) {
             return identity(for: focusedPaneContext, isSinglePane: isSinglePane)
                 ?? fallbackIdentity(for: focusedPaneContext)
@@ -323,14 +342,15 @@ enum WorklaneSidebarSummaryBuilder {
     private static func paneDetailTexts(
         for worklane: WorklaneState,
         primaryText: String,
-        orderedPaneContexts candidatePaneContexts: [WorklanePaneContext]? = nil
+        orderedPaneContexts candidatePaneContexts: [WorklanePaneContext]? = nil,
+        focusedPaneID candidateFocusedPaneID: PaneID? = nil
     ) -> [String] {
         let paneContexts = candidatePaneContexts ?? self.orderedPaneContexts(for: worklane)
         if paneContexts.count == 1 {
             return []
         }
 
-        let focusedPaneID = worklane.paneStripState.focusedPaneID
+        let focusedPaneID = candidateFocusedPaneID ?? worklane.paneStripState.focusedPaneID
         let candidates = paneContexts.compactMap { paneContext -> PaneDetailCandidate? in
             guard paneContext.paneID != focusedPaneID else {
                 return nil
@@ -349,12 +369,14 @@ enum WorklaneSidebarSummaryBuilder {
     private static func detailLines(
         for worklane: WorklaneState,
         primaryText: String,
-        orderedPaneContexts: [WorklanePaneContext]? = nil
+        orderedPaneContexts: [WorklanePaneContext]? = nil,
+        focusedPaneID: PaneID? = nil
     ) -> [WorklaneSidebarDetailLine] {
         paneDetailTexts(
             for: worklane,
             primaryText: primaryText,
-            orderedPaneContexts: orderedPaneContexts
+            orderedPaneContexts: orderedPaneContexts,
+            focusedPaneID: focusedPaneID
         ).enumerated().map { index, text in
             WorklaneSidebarDetailLine(
                 text: text,
@@ -442,8 +464,7 @@ enum WorklaneSidebarSummaryBuilder {
         let branch = presentation.branchDisplayText
         let workingDirectory = compactWorkingDirectory(for: presentation)
 
-        if presentation.runtimePhase != .needsInput,
-           let recognizedTool = presentation.recognizedTool,
+        if let recognizedTool = presentation.recognizedTool,
            let volatileTitle = WorklaneContextFormatter.trimmed(metadata?.title),
            TerminalMetadataChangeClassifier.isRealtimeAgentStatusTitle(
                volatileTitle,
@@ -760,11 +781,36 @@ enum WorklaneSidebarSummaryBuilder {
         }
     }
 
-    private static func focusedPaneContext(
+    private static func validFocusOverride(
+        _ focusOverride: WorklaneSidebarFocusOverride?,
+        in worklanes: [WorklaneState]
+    ) -> WorklaneSidebarFocusOverride? {
+        guard let focusOverride,
+              let worklane = worklanes.first(where: { $0.id == focusOverride.worklaneID }),
+              worklane.paneStripState.panes.contains(where: { $0.id == focusOverride.paneID })
+        else {
+            return nil
+        }
+
+        return focusOverride
+    }
+
+    private static func effectiveFocusedPaneID(
         for worklane: WorklaneState,
-        orderedPaneContexts: [WorklanePaneContext]
+        focusOverride: WorklaneSidebarFocusOverride?
+    ) -> PaneID? {
+        guard focusOverride?.worklaneID == worklane.id else {
+            return worklane.paneStripState.focusedPaneID
+        }
+
+        return focusOverride?.paneID
+    }
+
+    private static func focusedPaneContext(
+        orderedPaneContexts: [WorklanePaneContext],
+        focusedPaneID: PaneID?
     ) -> WorklanePaneContext? {
-        guard let focusedPaneID = worklane.paneStripState.focusedPaneID else {
+        guard let focusedPaneID else {
             return orderedPaneContexts.first
         }
 
@@ -781,11 +827,11 @@ enum WorklaneSidebarSummaryBuilder {
     }
 
     private static func focusedPaneLineIndex(
-        for worklane: WorklaneState,
-        orderedPaneContexts: [WorklanePaneContext]
+        orderedPaneContexts: [WorklanePaneContext],
+        focusedPaneID: PaneID?
     ) -> Int {
         guard orderedPaneContexts.count > 1,
-              let focusedPaneID = worklane.paneStripState.focusedPaneID else {
+              let focusedPaneID else {
             return 0
         }
 

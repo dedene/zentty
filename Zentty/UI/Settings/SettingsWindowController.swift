@@ -1,6 +1,6 @@
 import AppKit
 
-enum SettingsSection: String, CaseIterable, Equatable, Sendable {
+enum SettingsSection: String, CaseIterable, Hashable, Sendable {
     case general
     case appearance
     case shortcuts
@@ -521,7 +521,7 @@ final class SettingsViewController: NSTabViewController {
             agentCaffeination: config.agentCaffeination
         )
         shortcutsViewController.apply(shortcuts: config.shortcuts)
-        paneLayoutViewController.apply(panes: config.panes)
+        paneLayoutViewController.apply(panes: config.panes, paneLayout: config.paneLayout)
         openWithViewController.apply(preferences: config.openWith)
         serverBrowserSettingsViewController.apply(serverDetection: config.serverDetection)
         synchronizeWindow(animated: false, transitionID: currentTransitionID)

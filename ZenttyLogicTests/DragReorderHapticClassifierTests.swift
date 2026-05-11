@@ -9,6 +9,7 @@ final class DragReorderHapticClassifierTests: XCTestCase {
             sourceColumnID: PaneColumnID("src"),
             sourceColumnIndex: 0,
             sourcePaneIndex: 1,
+            sourceFlatPaneIndex: 1,
             originalPaneState: PaneState(id: PaneID("dragged"), title: "dragged"),
             originalColumnWidth: 480,
             grabOffset: .zero,
@@ -58,6 +59,33 @@ final class DragReorderHapticClassifierTests: XCTestCase {
         let state = makeActiveState()
         let worklane = WorklaneID("active")
         XCTAssertTrue(state.isNoOpDrop(.sidebarWorklane(worklane), currentSidebarWorklaneID: worklane))
+    }
+
+    func test_isNoOpDrop_sidebarWorklanePane_currentSlotBoundaries_areTrue() {
+        let state = makeActiveState()
+        let worklane = WorklaneID("active")
+        XCTAssertTrue(
+            state.isNoOpDrop(
+                .sidebarWorklanePane(worklane, paneIndex: 1),
+                currentSidebarWorklaneID: worklane
+            )
+        )
+        XCTAssertTrue(
+            state.isNoOpDrop(
+                .sidebarWorklanePane(worklane, paneIndex: 2),
+                currentSidebarWorklaneID: worklane
+            )
+        )
+    }
+
+    func test_isNoOpDrop_sidebarWorklanePane_otherActiveBoundary_isFalse() {
+        let state = makeActiveState()
+        XCTAssertFalse(
+            state.isNoOpDrop(
+                .sidebarWorklanePane(WorklaneID("active"), paneIndex: 0),
+                currentSidebarWorklaneID: WorklaneID("active")
+            )
+        )
     }
 
     func test_isNoOpDrop_sidebarWorklane_doesNotMatch_isFalse() {
@@ -145,6 +173,34 @@ final class DragReorderHapticClassifierTests: XCTestCase {
             DragReorderHapticClassifier.event(
                 from: .none,
                 to: .sidebarWorklane(worklane),
+                activeState: state,
+                currentSidebarWorklaneID: worklane
+            ),
+            .silent
+        )
+    }
+
+    func test_event_alignmentForActiveSidebarPaneBoundaryThatMovesPane() {
+        let state = makeActiveState()
+        let worklane = WorklaneID("active")
+        XCTAssertEqual(
+            DragReorderHapticClassifier.event(
+                from: .none,
+                to: .sidebarWorklanePane(worklane, paneIndex: 0),
+                activeState: state,
+                currentSidebarWorklaneID: worklane
+            ),
+            .alignment
+        )
+    }
+
+    func test_event_silentForActiveSidebarPaneBoundaryAtCurrentSlot() {
+        let state = makeActiveState()
+        let worklane = WorklaneID("active")
+        XCTAssertEqual(
+            DragReorderHapticClassifier.event(
+                from: .none,
+                to: .sidebarWorklanePane(worklane, paneIndex: 2),
                 activeState: state,
                 currentSidebarWorklaneID: worklane
             ),

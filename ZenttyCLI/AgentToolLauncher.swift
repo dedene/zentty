@@ -157,7 +157,11 @@ struct AgentToolLauncher {
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
             "CODEX_HOME",
             "COPILOT_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "OPENCODE_CONFIG",
             "OPENCODE_CONFIG_DIR",
+            "OPENCODE_TUI_CONFIG",
             "ZENTTY_OPENCODE_BASE_CONFIG_DIR",
         ]
 

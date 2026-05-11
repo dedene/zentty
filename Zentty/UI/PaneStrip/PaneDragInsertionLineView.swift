@@ -18,6 +18,7 @@ final class PaneDragInsertionLineView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.systemBlue.cgColor
         layer?.cornerRadius = 3
+        layer?.masksToBounds = true
     }
 
     @available(*, unavailable)

@@ -72,16 +72,18 @@ final class PaneDragCoordinator {
     var onReorderInColumn: ((PaneID, PaneColumnID, Int, Bool) -> Void)?
     var onSplitDrop: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool, Bool) -> Void)?
     var onDragActiveChanged: ((Bool) -> Void)?
-    var onSidebarDrop: ((PaneID, WorklaneID, Bool) -> Void)?
-    var onSidebarNewWorklaneDrop: ((PaneID, Bool) -> Void)?
+    var onSidebarDrop: ((PaneID, WorklaneID, Int?, Bool) -> Void)?
+    var onSidebarNewWorklaneDrop: ((PaneID, Int, Bool) -> Void)?
     var onHoveredSidebarWorklaneChanged: ((WorklaneID?) -> Void)?
     var onDragApproachingSidebarEdge: ((Bool) -> Void)?
-    var onNewWorklanePlaceholderVisibilityChanged: ((Bool) -> Void)?
+    var onNewWorklanePlaceholderVisibilityChanged: ((Int?) -> Void)?
     var onSidebarScrollRequested: ((CGFloat) -> Void)?
+    var onSidebarInsertionLineChanged: ((SidebarPaneInsertionLineTarget?) -> Void)?
 
     // MARK: - Sidebar Providers
 
     var sidebarWorklaneFrameProvider: (() -> [(WorklaneID, CGRect)])?
+    var sidebarPaneBoundaryProvider: (() -> [(WorklaneID, [PaneInsertionBoundary])])?
     var activeWorklaneIDProvider: (() -> WorklaneID?)?
     var sidebarBoundsProvider: (() -> CGRect)?
     var worklaneCountProvider: (() -> Int)?
@@ -159,7 +161,7 @@ final class PaneDragCoordinator {
     private var currentSidebarTarget: WorklaneID?
     private var isCursorInSidebarZone: Bool = false
     private var isApproachingSidebar: Bool = false
-    private var isShowingNewWorklanePlaceholder: Bool = false
+    private var newWorklanePlaceholderIndex: Int?
     private(set) var isOptionHeld: Bool = false
     private var sidebarEdgeScrollTimer: Timer?
     private var sidebarEdgeScrollVelocity: CGFloat = 0
@@ -315,6 +317,7 @@ final class PaneDragCoordinator {
             sourceColumnID: column.id,
             sourceColumnIndex: columnIndex,
             sourcePaneIndex: paneIndex,
+            sourceFlatPaneIndex: state.panes.firstIndex { $0.id == paneID } ?? paneIndex,
             originalPaneState: pane,
             originalColumnWidth: column.width,
             grabOffset: grabOffsetInContent,
@@ -814,9 +817,13 @@ final class PaneDragCoordinator {
 
         // Sidebar drops take priority
         if case .sidebarWorklane(let worklaneID) = activeState.currentDropTarget {
-            completeSidebarDrop(targetWorklaneID: worklaneID)
+            completeSidebarDrop(targetWorklaneID: worklaneID, paneIndex: nil)
+        } else if case .sidebarWorklanePane(let worklaneID, let paneIndex) = activeState.currentDropTarget {
+            completeSidebarDrop(targetWorklaneID: worklaneID, paneIndex: paneIndex)
         } else if case .newWorklane = activeState.currentDropTarget {
-            completeSidebarNewWorklaneDrop()
+            completeSidebarNewWorklaneDrop(atIndex: nil)
+        } else if case .newWorklaneAtIndex(let index) = activeState.currentDropTarget {
+            completeSidebarNewWorklaneDrop(atIndex: index)
         } else if let stackGapHit = currentStackGapHit {
             completeInColumnDrop(stackGapHit: stackGapHit)
         } else if let splitHit = currentSplitHit {
@@ -846,7 +853,8 @@ final class PaneDragCoordinator {
         clearSplitMode()
         cancelSplitDwell()
         onHoveredSidebarWorklaneChanged?(nil)
-        onNewWorklanePlaceholderVisibilityChanged?(false)
+        newWorklanePlaceholderIndex = nil
+        onNewWorklanePlaceholderVisibilityChanged?(nil)
         onDragApproachingSidebarEdge?(false)
 
         // Restore original layout
@@ -1261,11 +1269,11 @@ final class PaneDragCoordinator {
 
     // MARK: - Private — Sidebar Drop
 
-    private func completeSidebarDrop(targetWorklaneID: WorklaneID) {
+    private func completeSidebarDrop(targetWorklaneID: WorklaneID, paneIndex: Int?) {
         guard let paneStripView else {
             let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
             let isDuplicate = isOptionHeld
-            onSidebarDrop?(paneID, targetWorklaneID, isDuplicate)
+            onSidebarDrop?(paneID, targetWorklaneID, paneIndex, isDuplicate)
             teardown()
             return
         }
@@ -1295,18 +1303,19 @@ final class PaneDragCoordinator {
                 self.restoreDraggedPane()
                 self.teardown()
                 if let paneID {
-                    self.onSidebarDrop?(paneID, targetWorklaneID, isDuplicate)
+                    self.onSidebarDrop?(paneID, targetWorklaneID, paneIndex, isDuplicate)
                 }
                 stripView.endDragWithZoomIn()
             }
         }
     }
 
-    private func completeSidebarNewWorklaneDrop() {
+    private func completeSidebarNewWorklaneDrop(atIndex insertionIndex: Int?) {
         guard let paneStripView else {
             let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
             let isDuplicate = isOptionHeld
-            onSidebarNewWorklaneDrop?(paneID, isDuplicate)
+            let index = insertionIndex ?? (sidebarWorklaneFrameProvider?().count ?? 0)
+            onSidebarNewWorklaneDrop?(paneID, index, isDuplicate)
             teardown()
             return
         }
@@ -1336,7 +1345,8 @@ final class PaneDragCoordinator {
                 self.restoreDraggedPane()
                 self.teardown()
                 if let paneID {
-                    self.onSidebarNewWorklaneDrop?(paneID, isDuplicate)
+                    let index = insertionIndex ?? (self.sidebarWorklaneFrameProvider?().count ?? 0)
+                    self.onSidebarNewWorklaneDrop?(paneID, index, isDuplicate)
                 }
                 stripView.endDragWithZoomIn()
             }
@@ -1522,7 +1532,7 @@ final class PaneDragCoordinator {
             paneFramesByID: layout.paneFramesByID,
             columnForPane: columnForPane,
             paneCountByColumn: paneCountByColumn,
-            sourceColumnID: activeState.sourceColumnID,
+            excludedPaneID: activeState.draggedPaneID,
             minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
         )
 
@@ -1618,6 +1628,7 @@ final class PaneDragCoordinator {
 
     private func evaluateSidebarTarget(cursorInStrip: CGPoint, activeState: inout PaneDragActiveState) {
         let worklaneFrames = sidebarWorklaneFrameProvider?() ?? []
+        let paneBoundaries = sidebarPaneBoundaryProvider?() ?? []
         let activeID = activeWorklaneIDProvider?()
         let sidebarBounds = sidebarBoundsProvider?() ?? .zero
 
@@ -1625,8 +1636,16 @@ final class PaneDragCoordinator {
             cursorInStrip: cursorInStrip,
             worklaneFrames: worklaneFrames,
             activeWorklaneID: activeID,
-            sidebarBottomY: sidebarBounds.minY
+            sidebarBottomY: sidebarBounds.minY,
+            paneBoundaries: paneBoundaries
         )
+
+        // Compute insertion-line target; nil means hide the line.
+        let insertionLineTarget = SidebarPaneDropHitTesting.insertionLineTarget(
+            for: hit,
+            paneBoundaries: paneBoundaries
+        )
+        onSidebarInsertionLineChanged?(insertionLineTarget)
 
         switch hit {
         case .existingWorklane(let worklaneID):
@@ -1634,9 +1653,9 @@ final class PaneDragCoordinator {
                 currentSidebarTarget = worklaneID
                 onHoveredSidebarWorklaneChanged?(worklaneID)
             }
-            if isShowingNewWorklanePlaceholder {
-                isShowingNewWorklanePlaceholder = false
-                onNewWorklanePlaceholderVisibilityChanged?(false)
+            if newWorklanePlaceholderIndex != nil {
+                newWorklanePlaceholderIndex = nil
+                onNewWorklanePlaceholderVisibilityChanged?(nil)
             }
             let previousDropTarget = activeState.currentDropTarget
             activeState.currentDropTarget = .sidebarWorklane(worklaneID)
@@ -1647,17 +1666,35 @@ final class PaneDragCoordinator {
                 activeWorklaneID: activeID
             )
 
-        case .newWorklane:
+        case .existingWorklaneAtPaneIndex(let worklaneID, let paneIndex):
+            if currentSidebarTarget != worklaneID {
+                currentSidebarTarget = worklaneID
+                onHoveredSidebarWorklaneChanged?(worklaneID)
+            }
+            if newWorklanePlaceholderIndex != nil {
+                newWorklanePlaceholderIndex = nil
+                onNewWorklanePlaceholderVisibilityChanged?(nil)
+            }
+            let previousDropTarget = activeState.currentDropTarget
+            activeState.currentDropTarget = .sidebarWorklanePane(worklaneID, paneIndex: paneIndex)
+            notifyDropTargetChange(
+                from: previousDropTarget,
+                to: activeState.currentDropTarget,
+                activeState: activeState,
+                activeWorklaneID: activeID
+            )
+
+        case .newWorklane(let insertionIndex):
             if currentSidebarTarget != nil {
                 currentSidebarTarget = nil
                 onHoveredSidebarWorklaneChanged?(nil)
             }
-            if !isShowingNewWorklanePlaceholder {
-                isShowingNewWorklanePlaceholder = true
-                onNewWorklanePlaceholderVisibilityChanged?(true)
+            if newWorklanePlaceholderIndex != insertionIndex {
+                newWorklanePlaceholderIndex = insertionIndex
+                onNewWorklanePlaceholderVisibilityChanged?(insertionIndex)
             }
             let previousDropTarget = activeState.currentDropTarget
-            activeState.currentDropTarget = .newWorklane
+            activeState.currentDropTarget = .newWorklaneAtIndex(insertionIndex)
             notifyDropTargetChange(
                 from: previousDropTarget,
                 to: activeState.currentDropTarget,
@@ -1669,9 +1706,9 @@ final class PaneDragCoordinator {
                 currentSidebarTarget = nil
                 onHoveredSidebarWorklaneChanged?(nil)
             }
-            if isShowingNewWorklanePlaceholder {
-                isShowingNewWorklanePlaceholder = false
-                onNewWorklanePlaceholderVisibilityChanged?(false)
+            if newWorklanePlaceholderIndex != nil {
+                newWorklanePlaceholderIndex = nil
+                onNewWorklanePlaceholderVisibilityChanged?(nil)
             }
             activeState.currentDropTarget = .none
         }
@@ -1722,10 +1759,11 @@ final class PaneDragCoordinator {
             currentSidebarTarget = nil
             onHoveredSidebarWorklaneChanged?(nil)
         }
-        if isShowingNewWorklanePlaceholder {
-            isShowingNewWorklanePlaceholder = false
-            onNewWorklanePlaceholderVisibilityChanged?(false)
+        if newWorklanePlaceholderIndex != nil {
+            newWorklanePlaceholderIndex = nil
+            onNewWorklanePlaceholderVisibilityChanged?(nil)
         }
+        onSidebarInsertionLineChanged?(nil)
         stopSidebarEdgeScroll()
     }
 
@@ -2081,8 +2119,10 @@ final class PaneDragCoordinator {
         duplicateBadgeLayer = nil
 
         onHoveredSidebarWorklaneChanged?(nil)
-        onNewWorklanePlaceholderVisibilityChanged?(false)
+        newWorklanePlaceholderIndex = nil
+        onNewWorklanePlaceholderVisibilityChanged?(nil)
         onDragApproachingSidebarEdge?(false)
+        onSidebarInsertionLineChanged?(nil)
     }
 
     // MARK: - Private — Haptic Feedback
@@ -2168,14 +2208,15 @@ final class PaneDragCoordinator {
         currentSidebarTarget = nil
         isCursorInSidebarZone = false
         isApproachingSidebar = false
-        isShowingNewWorklanePlaceholder = false
+        newWorklanePlaceholderIndex = nil
         isOptionHeld = false
 
         NSCursor.pop()
 
         onHoveredSidebarWorklaneChanged?(nil)
-        onNewWorklanePlaceholderVisibilityChanged?(false)
+        onNewWorklanePlaceholderVisibilityChanged?(nil)
         onDragApproachingSidebarEdge?(false)
+        onSidebarInsertionLineChanged?(nil)
 
         onDragActiveChanged?(false)
     }

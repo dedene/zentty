@@ -178,14 +178,24 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
 final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionViewController {
     private let configStore: AppConfigStore
     private var panes: AppConfig.Panes
+    private var paneLayout: PaneLayoutPreferences
     private let showLabelsSwitch = NSSwitch()
     private let inactiveOpacitySlider = NSSlider()
     private let inactiveOpacityValueLabel = NSTextField(labelWithString: "")
+    private let visibleSplitWindowWidthSlider = NSSlider()
+    private let visibleSplitWindowWidthValueLabel = NSTextField(labelWithString: "")
+    private let visibleSplitWindowWidthTitleLabel = NSTextField(labelWithString: "Adaptive split threshold:")
+    private let visibleSplitWindowWidthHintLabel = NSTextField(
+        wrappingLabelWithString: "Below this width, ⌘D adds a pane. At this width or wider, it splits right."
+    )
+    private var behaviorOptionViews: [PaneSplitBehaviorMode: PaneSplitBehaviorOptionView] = [:]
     private var isApplyingPanes = false
+    private var isApplyingPaneLayout = false
 
     init(configStore: AppConfigStore) {
         self.configStore = configStore
         self.panes = configStore.current.panes
+        self.paneLayout = configStore.current.paneLayout
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -210,11 +220,16 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         stackView.addArrangedSubview(subtitleLabel)
         subtitleLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
+        let splitBehaviorCard = makeSplitBehaviorCard()
+        stackView.addArrangedSubview(splitBehaviorCard)
+        splitBehaviorCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
         let displayCard = makeDisplayCard()
         stackView.addArrangedSubview(displayCard)
         displayCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         configureInactiveOpacitySlider()
+        configureVisibleSplitWindowWidthSlider()
 
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -224,6 +239,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         ])
 
         apply(panes: panes)
+        apply(paneLayout: paneLayout)
     }
 
     var showsPaneLabelsForTesting: Bool {
@@ -234,6 +250,14 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         Int(round(inactiveOpacitySlider.doubleValue * 100))
     }
 
+    var selectedRightSplitBehaviorModeForTesting: PaneSplitBehaviorMode {
+        paneLayout.rightSplitBehaviorMode
+    }
+
+    var visibleSplitWindowWidthForTesting: PaneVisibleSplitWindowWidth {
+        paneLayout.visibleSplitWindowWidth
+    }
+
     func apply(panes: AppConfig.Panes) {
         self.panes = panes
         guard isViewLoaded else { return }
@@ -242,6 +266,113 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         inactiveOpacitySlider.doubleValue = Double(panes.inactiveOpacity)
         updateInactiveOpacityLabel(panes.inactiveOpacity)
         isApplyingPanes = false
+    }
+
+    func apply(panes: AppConfig.Panes, paneLayout: PaneLayoutPreferences) {
+        apply(panes: panes)
+        apply(paneLayout: paneLayout)
+    }
+
+    private func apply(paneLayout: PaneLayoutPreferences) {
+        self.paneLayout = paneLayout
+        guard isViewLoaded else { return }
+        isApplyingPaneLayout = true
+        behaviorOptionViews.forEach { mode, optionView in
+            optionView.isSelected = mode == paneLayout.rightSplitBehaviorMode
+        }
+        if let selectedIndex = PaneVisibleSplitWindowWidth.allCases.firstIndex(of: paneLayout.visibleSplitWindowWidth) {
+            visibleSplitWindowWidthSlider.integerValue = selectedIndex
+        }
+        updateVisibleSplitWindowWidthLabel(paneLayout.visibleSplitWindowWidth)
+        visibleSplitWindowWidthSlider.isEnabled = paneLayout.rightSplitBehaviorMode == .adaptive
+        updateVisibleSplitWindowWidthLabelColors(isAdaptive: paneLayout.rightSplitBehaviorMode == .adaptive)
+        isApplyingPaneLayout = false
+    }
+
+    private func makeSplitBehaviorCard() -> NSView {
+        let card = SettingsCardView()
+        let contentStack = NSStackView()
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 14
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(contentStack)
+
+        let titleLabel = makeLabel(
+            text: "Pane right behavior",
+            font: .systemFont(ofSize: 13, weight: .semibold)
+        )
+        contentStack.addArrangedSubview(titleLabel)
+
+        let subtitleLabel = makeLabel(
+            text: "Choose what the right-pane command does, and where Adaptive starts splitting visibly.",
+            font: .systemFont(ofSize: 12, weight: .regular)
+        )
+        subtitleLabel.textColor = .secondaryLabelColor
+        contentStack.addArrangedSubview(subtitleLabel)
+        subtitleLabel.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        let optionsRow = NSStackView()
+        optionsRow.orientation = .horizontal
+        optionsRow.alignment = .top
+        optionsRow.distribution = .fillEqually
+        optionsRow.spacing = 10
+        optionsRow.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(optionsRow)
+        optionsRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        PaneSplitBehaviorMode.allCases.forEach { mode in
+            let optionView = PaneSplitBehaviorOptionView(
+                mode: mode,
+                title: title(for: mode),
+                subtitle: subtitle(for: mode)
+            )
+            optionView.target = self
+            optionView.action = #selector(handleRightSplitBehaviorChanged(_:))
+            behaviorOptionViews[mode] = optionView
+            optionsRow.addArrangedSubview(optionView)
+        }
+
+        let thresholdStack = NSStackView()
+        thresholdStack.orientation = .vertical
+        thresholdStack.alignment = .leading
+        thresholdStack.spacing = 3
+        thresholdStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(thresholdStack)
+        thresholdStack.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        visibleSplitWindowWidthTitleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        thresholdStack.addArrangedSubview(visibleSplitWindowWidthTitleLabel)
+
+        visibleSplitWindowWidthHintLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        visibleSplitWindowWidthHintLabel.maximumNumberOfLines = 0
+        thresholdStack.addArrangedSubview(visibleSplitWindowWidthHintLabel)
+        visibleSplitWindowWidthHintLabel.widthAnchor.constraint(equalTo: thresholdStack.widthAnchor).isActive = true
+
+        let sliderRow = NSStackView()
+        sliderRow.orientation = .horizontal
+        sliderRow.alignment = .centerY
+        sliderRow.spacing = 12
+        sliderRow.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(sliderRow)
+        sliderRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        visibleSplitWindowWidthSlider.translatesAutoresizingMaskIntoConstraints = false
+        sliderRow.addArrangedSubview(visibleSplitWindowWidthSlider)
+
+        visibleSplitWindowWidthValueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        visibleSplitWindowWidthValueLabel.alignment = .right
+        visibleSplitWindowWidthValueLabel.setContentHuggingPriority(.required, for: .horizontal)
+        visibleSplitWindowWidthValueLabel.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        sliderRow.addArrangedSubview(visibleSplitWindowWidthValueLabel)
+
+        NSLayoutConstraint.activate([
+            contentStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            contentStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            contentStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            contentStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+        ])
+        return card
     }
 
     private func makeDisplayCard() -> NSView {
@@ -391,8 +522,50 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         inactiveOpacitySlider.action = #selector(handleInactiveOpacityChanged(_:))
     }
 
+    private func configureVisibleSplitWindowWidthSlider() {
+        visibleSplitWindowWidthSlider.minValue = 0
+        visibleSplitWindowWidthSlider.maxValue = Double(PaneVisibleSplitWindowWidth.allCases.count - 1)
+        visibleSplitWindowWidthSlider.numberOfTickMarks = PaneVisibleSplitWindowWidth.allCases.count
+        visibleSplitWindowWidthSlider.allowsTickMarkValuesOnly = true
+        visibleSplitWindowWidthSlider.isContinuous = true
+        visibleSplitWindowWidthSlider.target = self
+        visibleSplitWindowWidthSlider.action = #selector(handleVisibleSplitWindowWidthChanged(_:))
+    }
+
     private func updateInactiveOpacityLabel(_ opacity: CGFloat) {
         inactiveOpacityValueLabel.stringValue = "\(Int(round(opacity * 100)))%"
+    }
+
+    private func updateVisibleSplitWindowWidthLabel(_ width: PaneVisibleSplitWindowWidth) {
+        visibleSplitWindowWidthValueLabel.stringValue = width.title
+    }
+
+    private func updateVisibleSplitWindowWidthLabelColors(isAdaptive: Bool) {
+        visibleSplitWindowWidthTitleLabel.textColor = isAdaptive ? .labelColor : .secondaryLabelColor
+        visibleSplitWindowWidthHintLabel.textColor = isAdaptive ? .secondaryLabelColor : .tertiaryLabelColor
+        visibleSplitWindowWidthValueLabel.textColor = isAdaptive ? .labelColor : .secondaryLabelColor
+    }
+
+    private func title(for mode: PaneSplitBehaviorMode) -> String {
+        switch mode {
+        case .adaptive:
+            "Adaptive"
+        case .alwaysSplit:
+            "Always Split"
+        case .alwaysAdd:
+            "Always Add"
+        }
+    }
+
+    private func subtitle(for mode: PaneSplitBehaviorMode) -> String {
+        switch mode {
+        case .adaptive:
+            "Split visibly once the window reaches the selected width."
+        case .alwaysSplit:
+            "Shrink the current pane into a true side-by-side split."
+        case .alwaysAdd:
+            "Add the pane to the worklane without shrinking the current pane."
+        }
     }
 
     private func makeLabel(text: String, font: NSFont) -> NSTextField {
@@ -418,6 +591,36 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         guard !isApplyingPanes else { return }
         try? configStore.update {
             $0.panes.inactiveOpacity = opacity
+        }
+    }
+
+    @objc
+    private func handleRightSplitBehaviorChanged(_ sender: PaneSplitBehaviorOptionView) {
+        let mode = sender.mode
+        apply(paneLayout: PaneLayoutPreferences(
+            laptopPreset: paneLayout.laptopPreset,
+            largeDisplayPreset: paneLayout.largeDisplayPreset,
+            ultrawidePreset: paneLayout.ultrawidePreset,
+            rightSplitBehaviorMode: mode,
+            visibleSplitWindowWidth: paneLayout.visibleSplitWindowWidth
+        ))
+        guard !isApplyingPaneLayout else { return }
+        try? configStore.update {
+            $0.paneLayout.rightSplitBehaviorMode = mode
+        }
+    }
+
+    @objc
+    private func handleVisibleSplitWindowWidthChanged(_ sender: NSSlider) {
+        let index = min(
+            max(0, sender.integerValue),
+            PaneVisibleSplitWindowWidth.allCases.count - 1
+        )
+        let width = PaneVisibleSplitWindowWidth.allCases[index]
+        updateVisibleSplitWindowWidthLabel(width)
+        guard !isApplyingPaneLayout else { return }
+        try? configStore.update {
+            $0.paneLayout.visibleSplitWindowWidth = width
         }
     }
 }

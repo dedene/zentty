@@ -76,8 +76,29 @@ final class AgentStatusSupportTests: XCTestCase {
 
     func test_agent_tool_recognizes_kimi_for_explicit_and_known_tool_resolution() {
         XCTAssertEqual(AgentTool.resolve(named: "kimi"), .kimi)
+        XCTAssertEqual(AgentTool.resolve(named: "kimi-cli"), .kimi)
         XCTAssertEqual(AgentTool.resolve(named: "Kimi CLI"), .kimi)
         XCTAssertEqual(AgentTool.resolveKnown(named: "Kimi"), .kimi)
+    }
+
+    func test_agent_tool_recognizer_infers_codex_from_explicit_attention_title() {
+        XCTAssertEqual(
+            AgentToolRecognizer.recognize(metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            )),
+            .codex
+        )
+        XCTAssertNil(
+            AgentToolRecognizer.recognize(metadata: TerminalMetadata(
+                title: "Waiting for build",
+                currentWorkingDirectory: "/tmp/project",
+                processName: nil,
+                gitBranch: "main"
+            ))
+        )
     }
 
     func test_agent_tool_recognizes_cursor() {
@@ -181,6 +202,26 @@ final class AgentStatusSupportTests: XCTestCase {
             XCTAssertTrue(
                 source.contains("\"\(flag)\""),
                 "kimiEarlyExitFlags should contain \(flag)"
+            )
+        }
+    }
+
+    func test_agent_tool_launcher_forwards_opencode_tui_and_xdg_environment() throws {
+        // AgentToolLauncher lives in the ZenttyCLI target which tests don't
+        // import, so read the source file directly to protect the bootstrap
+        // environment forwarding contract.
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        for key in ["XDG_CONFIG_HOME", "XDG_STATE_HOME", "OPENCODE_CONFIG", "OPENCODE_TUI_CONFIG"] {
+            XCTAssertTrue(
+                source.contains("\"\(key)\""),
+                "AgentToolLauncher should forward \(key) into the bootstrap request"
             )
         }
     }
@@ -403,6 +444,46 @@ final class AgentStatusSupportTests: XCTestCase {
             AgentStatusHelper.enabledWrapperDirectoryPaths(in: bundle, processEnvironment: environment)
                 .contains(binURL.appendingPathComponent("cursor", isDirectory: true).path),
             "cursor wrapper should only activate when cursor-agent is on PATH, not the Cursor IDE launcher"
+        )
+    }
+
+    func test_agent_status_helper_enables_kimi_wrapper_when_only_kimi_cli_is_on_path() throws {
+        let bundleRoot = try makeTemporaryBundleRoot(named: "KimiCliOnlyPath")
+        let resourcesURL = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+        let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
+
+        for (dirName, fileName) in wrapperLayoutPairs {
+            let wrapperDirectoryURL = binURL.appendingPathComponent(dirName, isDirectory: true)
+            try FileManager.default.createDirectory(at: wrapperDirectoryURL, withIntermediateDirectories: true)
+            let wrapperURL = wrapperDirectoryURL.appendingPathComponent(fileName, isDirectory: false)
+            try "#!/bin/sh\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+        }
+        let sharedURL = binURL.appendingPathComponent("shared", isDirectory: true)
+        try FileManager.default.createDirectory(at: sharedURL, withIntermediateDirectories: true)
+        let sharedWrapperURL = sharedURL.appendingPathComponent("zentty-agent-wrapper", isDirectory: false)
+        try "#!/bin/sh\n".write(to: sharedWrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapperURL.path)
+
+        let realBinURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
+        // Only `kimi-cli` exists — `kimi` is absent.
+        let kimiCli = realBinURL.appendingPathComponent("kimi-cli", isDirectory: false)
+        try "#!/bin/sh\n".write(to: kimiCli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: kimiCli.path)
+
+        let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
+        let environment = [
+            "PATH": [realBinURL.path, "/usr/bin", "/bin"].joined(separator: ":"),
+        ]
+
+        XCTAssertTrue(
+            AgentStatusHelper.enabledWrapperDirectoryPaths(in: bundle, processEnvironment: environment)
+                .contains(binURL.appendingPathComponent("kimi", isDirectory: true).path),
+            "kimi wrapper should activate when kimi-cli is on PATH"
         )
     }
 
@@ -897,14 +978,16 @@ final class AgentStatusSupportTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
 
-        let kimiWrapper = try String(contentsOf: repositoryRoot
-            .appendingPathComponent("ZenttyResources", isDirectory: true)
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("kimi", isDirectory: true)
-            .appendingPathComponent("kimi", isDirectory: false), encoding: .utf8)
-        XCTAssertTrue(kimiWrapper.contains("ZENTTY_AGENT_TOOL=\"kimi\""))
-        XCTAssertTrue(kimiWrapper.contains("zentty-agent-wrapper"))
-        XCTAssertFalse(kimiWrapper.contains("ZENTTY_AGENT_BIN"))
+        for name in ["kimi", "kimi-cli"] {
+            let kimiWrapper = try String(contentsOf: repositoryRoot
+                .appendingPathComponent("ZenttyResources", isDirectory: true)
+                .appendingPathComponent("bin", isDirectory: true)
+                .appendingPathComponent("kimi", isDirectory: true)
+                .appendingPathComponent(name, isDirectory: false), encoding: .utf8)
+            XCTAssertTrue(kimiWrapper.contains("ZENTTY_AGENT_TOOL=\"kimi\""), name)
+            XCTAssertTrue(kimiWrapper.contains("zentty-agent-wrapper"), name)
+            XCTAssertFalse(kimiWrapper.contains("ZENTTY_AGENT_BIN"), name)
+        }
     }
 
     func test_repository_cursor_wrapper_exposes_cursor_agent_and_agent() throws {
@@ -945,6 +1028,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let project = try String(contentsOf: projectURL, encoding: .utf8)
 
         XCTAssertTrue(project.contains("-o -path \"*/kimi/kimi\""))
+        XCTAssertTrue(project.contains("-o -path \"*/kimi/kimi-cli\""))
         XCTAssertTrue(project.contains("-o -path \"*/shared/zentty-agent-wrapper\""))
     }
 
@@ -2749,7 +2833,14 @@ final class AgentStatusSupportTests: XCTestCase {
         )
         let xdgConfigHome: String = try XCTUnwrap(plan.setEnvironment["XDG_CONFIG_HOME"])
         let xdgStateHome: String = try XCTUnwrap(plan.setEnvironment["XDG_STATE_HOME"])
+        let opencodeConfigDirectory: String = try XCTUnwrap(plan.setEnvironment["OPENCODE_CONFIG_DIR"])
+        let opencodeTUIConfig: String = try XCTUnwrap(plan.setEnvironment["OPENCODE_TUI_CONFIG"])
         XCTAssertEqual(overlayConfigDirectory.path, URL(fileURLWithPath: xdgConfigHome, isDirectory: true).appendingPathComponent("opencode", isDirectory: true).path)
+        XCTAssertEqual(opencodeConfigDirectory, overlayConfigDirectory.path)
+        XCTAssertEqual(
+            opencodeTUIConfig,
+            overlayConfigDirectory.appendingPathComponent("tui.json", isDirectory: false).path
+        )
 
         XCTAssertTrue(
             FileManager.default.fileExists(
@@ -2778,6 +2869,173 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNil(overlayKV["theme_mode"])
         XCTAssertNil(overlayKV["theme_mode_lock"])
         XCTAssertEqual(overlayKV["unrelated"] as? String, "preserved")
+    }
+
+    func test_agent_launch_bootstrap_uses_xdg_config_home_as_default_opencode_source() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-xdg-source-runtime")
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-opencode-xdg-source-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try "export const ZenttyOpenCodePlugin = async () => ({})\n".write(
+            to: pluginDirectory.appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let xdgConfigHome = try makeTemporaryDirectory(named: "agent-launch-opencode-xdg-config-home")
+        let sourceConfigDirectory = xdgConfigHome.appendingPathComponent("opencode", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: sourceConfigDirectory.appendingPathComponent("markers", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "from-xdg".write(
+            to: sourceConfigDirectory
+                .appendingPathComponent("markers", isDirectory: true)
+                .appendingPathComponent("user.txt", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var appConfig = AppConfig.default
+        appConfig.appearance.syncOpenCodeThemeWithTerminal = true
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["run", "hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/opencode",
+                "XDG_CONFIG_HOME": xdgConfigHome.path,
+            ],
+            expectsResponse: true,
+            tool: .opencode
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory,
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot)),
+            appConfigProvider: { appConfig }
+        )
+
+        let overlayConfigDirectory = URL(
+            fileURLWithPath: try XCTUnwrap(plan.setEnvironment["OPENCODE_CONFIG_DIR"]),
+            isDirectory: true
+        )
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_OPENCODE_BASE_CONFIG_DIR"], sourceConfigDirectory.path)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: overlayConfigDirectory
+                    .appendingPathComponent("markers", isDirectory: true)
+                    .appendingPathComponent("user.txt", isDirectory: false)
+                    .path
+            )
+        )
+    }
+
+    func test_agent_launch_bootstrap_excludes_source_opencode_themes_when_sync_enabled() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-theme-quarantine-runtime")
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-opencode-theme-quarantine-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try "export const ZenttyOpenCodePlugin = async () => ({})\n".write(
+            to: pluginDirectory.appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sourceConfigDirectory = try makeTemporaryDirectory(named: "agent-launch-opencode-theme-quarantine-source")
+        try FileManager.default.createDirectory(
+            at: sourceConfigDirectory.appendingPathComponent("themes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try #"{"theme": {}}"#.write(
+            to: sourceConfigDirectory
+                .appendingPathComponent("themes", isDirectory: true)
+                .appendingPathComponent("stale-user-theme.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.createDirectory(
+            at: sourceConfigDirectory.appendingPathComponent("markers", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "preserved".write(
+            to: sourceConfigDirectory
+                .appendingPathComponent("markers", isDirectory: true)
+                .appendingPathComponent("user.txt", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var appConfig = AppConfig.default
+        appConfig.appearance.syncOpenCodeThemeWithTerminal = true
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["run", "hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/opencode",
+                "ZENTTY_OPENCODE_BASE_CONFIG_DIR": sourceConfigDirectory.path,
+            ],
+            expectsResponse: true,
+            tool: .opencode
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory,
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot)),
+            appConfigProvider: { appConfig }
+        )
+
+        let overlayConfigDirectory = URL(
+            fileURLWithPath: try XCTUnwrap(plan.setEnvironment["OPENCODE_CONFIG_DIR"]),
+            isDirectory: true
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: overlayConfigDirectory
+                    .appendingPathComponent("themes", isDirectory: true)
+                    .appendingPathComponent("stale-user-theme.json", isDirectory: false)
+                    .path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: overlayConfigDirectory
+                    .appendingPathComponent("themes", isDirectory: true)
+                    .appendingPathComponent("zentty-synced.json", isDirectory: false)
+                    .path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: overlayConfigDirectory
+                    .appendingPathComponent("markers", isDirectory: true)
+                    .appendingPathComponent("user.txt", isDirectory: false)
+                    .path
+            )
+        )
     }
 
     func test_agent_ipc_authentication_is_pane_scoped() {
@@ -4002,7 +4260,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .running)
-        XCTAssertEqual(payload.lifecycleEvent, .update)
+        XCTAssertEqual(payload.lifecycleEvent, .toolActivity)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
@@ -4023,7 +4281,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .running)
-        XCTAssertEqual(payload.lifecycleEvent, .update)
+        XCTAssertEqual(payload.lifecycleEvent, .toolActivity)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
@@ -4136,7 +4394,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .idle)
-        XCTAssertEqual(payload.lifecycleEvent, .update)
+        XCTAssertEqual(payload.lifecycleEvent, .turnComplete)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
     }
@@ -5073,6 +5331,159 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(recorder.requests.first?.soundName, "Glass")
     }
 
+    func test_notification_coordinator_debounces_transient_needs_input_system_notification() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            needsInputSystemNotificationDelay: 0.05
+        )
+        let paneID = PaneID("worklane-main-input")
+        let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: paneID,
+                    attentions: [
+                        .init(
+                            paneID: paneID,
+                            title: "Review plan",
+                            state: .needsInput,
+                            interactionKind: .approval,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        XCTAssertTrue(recorder.requests.isEmpty)
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: paneID,
+                    attentions: [
+                        .init(
+                            paneID: paneID,
+                            title: "Review plan",
+                            state: .running,
+                            updatedAt: Date(timeIntervalSince1970: 51)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        try? await Task.sleep(for: .milliseconds(80))
+        XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
+    func test_notification_coordinator_cancels_pending_needs_input_when_focused() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            needsInputSystemNotificationDelay: 0.05
+        )
+        let paneID = PaneID("worklane-main-input")
+        let otherPaneID = PaneID("worklane-main-other")
+        let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: otherPaneID,
+                    attentions: [
+                        .init(
+                            paneID: paneID,
+                            title: "Review plan",
+                            state: .needsInput,
+                            interactionKind: .approval,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+        XCTAssertTrue(recorder.requests.isEmpty)
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: paneID,
+                    attentions: [
+                        .init(
+                            paneID: paneID,
+                            title: "Review plan",
+                            state: .needsInput,
+                            interactionKind: .approval,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+
+        try? await Task.sleep(for: .milliseconds(80))
+        XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
+    func test_notification_coordinator_delivers_persistent_needs_input_system_notification_after_debounce() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            needsInputSystemNotificationDelay: 0.01
+        )
+        let paneID = PaneID("worklane-main-input")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            windowID: WindowID("window-main"),
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: paneID,
+                    attentions: [
+                        .init(
+                            paneID: paneID,
+                            title: "Review plan",
+                            state: .needsInput,
+                            interactionKind: .approval,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        XCTAssertTrue(recorder.requests.isEmpty)
+
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(recorder.requests.first?.title, "Claude Code needs approval")
+    }
+
     func test_notification_coordinator_uses_explicit_needs_input_text_and_compact_location_for_system_notification() {
         let recorder = WorklaneAttentionNotificationRecorder()
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
@@ -5371,7 +5782,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(presentation.statusText, "Needs input")
     }
 
-    func test_codex_action_required_title_survives_ready_title_tick() throws {
+    func test_codex_ready_title_clears_action_required_title_state() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         let cwd = "/tmp/codex-action-required-ready"
@@ -5397,9 +5808,8 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
-        XCTAssertEqual(presentation.runtimePhase, .needsInput)
-        XCTAssertEqual(presentation.interactionKind, .genericInput)
-        XCTAssertEqual(presentation.statusText, "Needs input")
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertEqual(presentation.interactionKind, .none)
     }
 
     func test_codex_needs_input_title_uses_generic_input_status_text() throws {
@@ -5483,6 +5893,105 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(presentation.statusText, "Running")
     }
 
+    func test_codex_tool_activity_clears_prior_explicit_approval() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let sessionID = "session-approval-tool-activity"
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .needsInput,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: "Codex needs your approval",
+            interactionKind: .approval,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            lifecycleEvent: .toolActivity,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_codex_turn_complete_does_not_clear_current_action_required_title() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let cwd = "/tmp/codex-action-required-turn-complete"
+        let sessionID = "session-action-required-turn-complete"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .idle,
+            origin: .explicitAPI,
+            toolName: "Codex",
+            text: nil,
+            lifecycleEvent: .turnComplete,
+            interactionKind: .none,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .needsInput)
+        XCTAssertEqual(presentation.statusText, "Needs input")
+    }
+
     func test_codex_approval_survives_passive_progress_activity_until_user_submits_input() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -5530,6 +6039,83 @@ final class AgentStatusSupportTests: XCTestCase {
         store.handleTerminalEvent(paneID: paneID, event: .userSubmittedInput)
 
         presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_codex_approval_clears_when_working_title_and_progress_resume_after_approval() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let cwd = "/tmp/codex-approval-working-progress"
+        let sessionID = "session-approval-working-progress"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .needsInput,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: "Codex needs your approval",
+            interactionKind: .approval,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ codex-approval-working-progress",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .progressReport(TerminalProgressReport(state: .indeterminate, progress: nil))
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_codex_recognized_process_progress_surfaces_running_without_hook_status() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let cwd = "/tmp/codex-progress-only"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "codex-progress-only",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .progressReport(TerminalProgressReport(state: .indeterminate, progress: nil))
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
         XCTAssertEqual(presentation.runtimePhase, .running)
         XCTAssertEqual(presentation.statusText, "Running")
     }
@@ -6096,6 +6682,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ("droid", "droid"),
             ("gemini", "gemini"),
             ("kimi", "kimi"),
+            ("kimi", "kimi-cli"),
             ("opencode", "opencode"),
             ("pi", "pi"),
         ]

@@ -193,7 +193,7 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
         store.updateMetadata(
             paneID: paneID,
             metadata: TerminalMetadata(
-                title: "Working ⠋ zentty",
+                title: "[ ! ] Action Required | zentty",
                 currentWorkingDirectory: "/tmp/project",
                 processName: "codex",
                 gitBranch: "main"
@@ -209,7 +209,7 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
         store.updateMetadata(
             paneID: paneID,
             metadata: TerminalMetadata(
-                title: "Working ⠙ zentty",
+                title: "[ . ] Action Required | zentty",
                 currentWorkingDirectory: "/tmp/project",
                 processName: "codex",
                 gitBranch: "main"
@@ -225,6 +225,117 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
             0,
             "fast path must decline while the agent state requires human attention"
         )
+    }
+
+    func test_codex_approval_clears_when_running_title_resumes_without_progress_report() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let sessionID = "session-auto-approved"
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .toolActivity,
+                sessionID: sessionID,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: "Codex needs your approval",
+                interactionKind: .approval,
+                confidence: .explicit,
+                sessionID: sessionID,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Requires approval")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+    }
+
+    func test_codex_generic_input_survives_when_running_title_resumes_without_progress_report() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let sessionID = "session-awaiting-input"
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .toolActivity,
+                sessionID: sessionID,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: "Codex needs your input",
+                interactionKind: .genericInput,
+                confidence: .explicit,
+                sessionID: sessionID,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Needs input")
     }
 
     func test_codex_stale_idle_running_tick_declinesFastPath_and_recovers_running() throws {
@@ -291,6 +402,116 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
             "fast path must decline when Codex title says Working but stored status is stale Idle"
         )
         XCTAssertGreaterThan(auxiliaryUpdates.count, 0)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+    }
+
+    func test_codex_running_tick_without_status_declinesFastPath_and_recovers_after_interruptSuppression() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.worklanes[0].auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
+            .raw.codexInterruptSuppressionUntil = Date().addingTimeInterval(10)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+
+        store.worklanes[0].auxiliaryStateByPaneID[paneID]?
+            .raw.codexInterruptSuppressionUntil = Date().addingTimeInterval(-1)
+
+        var received: [WorklaneChange] = []
+        let subscription = store.subscribe { change in
+            received.append(change)
+        }
+        defer { store.unsubscribe(subscription) }
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠙ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let volatileUpdates = received.filter { change in
+            if case .volatileAgentTitleUpdated = change { return true }
+            return false
+        }
+        let auxiliaryUpdates = received.filter { change in
+            if case .auxiliaryStateUpdated = change { return true }
+            return false
+        }
+        XCTAssertEqual(
+            volatileUpdates.count,
+            0,
+            "fast path must decline when there is no Codex status to keep in sync"
+        )
+        XCTAssertGreaterThan(auxiliaryUpdates.count, 0)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
+    }
+
+    func test_codex_new_prompt_after_interrupt_clearsSuppression_andRecoversRunning() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        store.handleTerminalEvent(paneID: paneID, event: .userInterrupted)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertTrue(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw
+                .codexInterruptSuppressionIsActive() == true
+        )
+
+        store.handleTerminalEvent(paneID: paneID, event: .userSubmittedInput)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠙ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
     }

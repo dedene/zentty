@@ -59,6 +59,47 @@ final class LibghosttyViewScrollRoutingTests: AppKitTestCase {
         XCTAssertTrue(surface.viewportUpdates.isEmpty)
     }
 
+    func test_fractional_backing_jitter_does_not_push_viewport_resize() throws {
+        view.frame = NSRect(x: 0, y: 0, width: 1429.5, height: 1028)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1200),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        ).prepareForAppKitTesting()
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
+        let contentView = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 1600, height: 1200))
+        window.contentView = contentView
+        contentView.addSubview(view)
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
+        view.layoutSubtreeIfNeeded()
+
+        let scale = window.backingScaleFactor
+        let stableViewport = try XCTUnwrap(surface.viewportUpdates.last?.size)
+
+        surface.clearViewportUpdates()
+
+        view.frame.size = NSSize(width: 1429.500004550596, height: 1028.0000008206673)
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(surface.viewportUpdates.isEmpty, "Unexpected tiny jitter updates: \(surface.viewportUpdates.map(\.size))")
+
+        view.frame.size = NSSize(width: 1429.55297, height: 1028.03809)
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(surface.viewportUpdates.isEmpty, "Unexpected larger jitter updates: \(surface.viewportUpdates.map(\.size))")
+
+        view.frame.size = NSSize(width: (stableViewport.width + 1) / scale, height: stableViewport.height / scale)
+        view.layoutSubtreeIfNeeded()
+
+        let latestViewport = try XCTUnwrap(surface.viewportUpdates.last?.size)
+        XCTAssertEqual(latestViewport.width, stableViewport.width + 1, accuracy: 0.001)
+        XCTAssertEqual(latestViewport.height, stableViewport.height, accuracy: 0.001)
+    }
+
     func test_mouse_entered_forwards_local_position() throws {
         let event = try makeMouseEvent(type: .mouseEntered, location: CGPoint(x: 120, y: 180))
 
@@ -152,6 +193,9 @@ private final class ScrollRoutingSurfaceSpy: LibghosttySurfaceControlling {
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {
         viewportUpdates.append((size: size, scale: scale, displayID: displayID))
+    }
+    func clearViewportUpdates() {
+        viewportUpdates.removeAll()
     }
     func setFocused(_ isFocused: Bool) {}
     func setOcclusionVisible(_ isVisible: Bool) {}

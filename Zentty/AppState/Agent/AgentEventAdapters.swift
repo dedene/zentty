@@ -926,11 +926,25 @@ extension AgentEventBridge {
                 artifactURL: nil
             )]
         case "PreToolUse", "PostToolUse":
-            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                lifecycleEvent: .toolActivity,
+                sessionID: sessionID,
+                cwd: cwd
+            )]
         case "UserPromptSubmit":
             return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
         case "Stop":
-            return [lifecyclePayload(target: target, toolName: toolName, state: .idle, sessionID: sessionID, cwd: cwd)]
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .idle,
+                lifecycleEvent: .turnComplete,
+                sessionID: sessionID,
+                cwd: cwd
+            )]
         default:
             return []
         }
@@ -989,7 +1003,7 @@ extension AgentEventBridge {
                 origin: .explicitAPI,
                 toolName: toolName,
                 text: nil,
-                lifecycleEvent: .update,
+                lifecycleEvent: .turnComplete,
                 interactionKind: .none,
                 confidence: .explicit,
                 sessionID: sessionID,
@@ -1023,6 +1037,10 @@ extension AgentEventBridge {
             return []
         }
 
+        if codexNotifyIsAutoApprovalSuccessMessage(normalizedMessage) {
+            return []
+        }
+
         return [AgentStatusPayload(
             windowID: target.windowID,
             worklaneID: target.worklaneID,
@@ -1039,6 +1057,25 @@ extension AgentEventBridge {
             artifactLabel: nil,
             artifactURL: nil
         )]
+    }
+
+    private static func codexNotifyIsAutoApprovalSuccessMessage(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        let compact = normalized.filter { $0.isLetter || $0.isNumber }
+
+        let mentionsAutoApprovalSuccess = [
+            "automaticapprovalreviewapproved",
+            "autoreviewerapproved",
+            "autoreviewreturned",
+        ].contains(where: compact.contains)
+
+        guard mentionsAutoApprovalSuccess else {
+            return false
+        }
+
+        return compact.contains("approved")
+            || compact.contains("allowdecision")
+            || compact.contains("allowed")
     }
 
     private static func codexNotifyInteractionKind(
@@ -1478,10 +1515,20 @@ extension AgentEventBridge {
 
         case "Stop":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            // Clear any cached structured interaction (PreToolUse(AskUserQuestion),
+            // PermissionRequest) so a late Notification arriving after Stop
+            // can't re-enter the structured-cache branch and flip the pane
+            // back to needsInput.
+            if let sessionID = input.sessionID {
+                try sessionStore.clearInteractionContext(sessionID: sessionID)
+            }
             return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID)]
 
         case "SubagentStop":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            if let sessionID = input.sessionID {
+                try sessionStore.clearInteractionContext(sessionID: sessionID)
+            }
             return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID)]
 
         case "SessionEnd":

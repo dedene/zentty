@@ -79,6 +79,45 @@ class EventInferenceTests(unittest.TestCase):
         self.assertEqual(agent, "opencode")
 
 
+class SyntheticScenarioTests(unittest.TestCase):
+    def test_post_stop_notification_detector_flags_late_notification(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="stop_race", event_name="SessionStart"),
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="stop_race", event_name="Stop"),
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="stop_race", event_name="Notification"),
+        ]
+        self.assertTrue(agent_bench._trace_contains_post_stop_notification(records))
+
+    def test_post_stop_notification_detector_ignores_notification_before_stop(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="stop_race", event_name="Notification"),
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="stop_race", event_name="Stop"),
+        ]
+        self.assertFalse(agent_bench._trace_contains_post_stop_notification(records))
+
+    def test_load_profiles_parses_synthetic_fields_for_stop_race_scenario(self):
+        profile_dir = ROOT / "profiles"
+        profiles = agent_bench.load_profiles(profile_dir)
+        stop_race = profiles["claude"].expectations["stop_race"]
+        self.assertTrue(stop_race.synthetic)
+        self.assertEqual(stop_race.fixture, "claude_stop_then_late_notification.jsonl")
+        self.assertTrue(stop_race.post_stop_notification_required)
+
+    def test_stop_race_fixture_contains_late_notification_after_stop(self):
+        fixture_path = ROOT / "fixtures" / "claude_stop_then_late_notification.jsonl"
+        events = []
+        for line in fixture_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            events.append(json.loads(stripped)["hook_event_name"])
+        self.assertIn("Stop", events)
+        self.assertIn("Notification", events)
+        # The bug-trigger ordering: Notification must follow Stop in the
+        # fixture so a synthetic replay reproduces the timing pattern.
+        self.assertGreater(events.index("Notification"), events.index("Stop"))
+
+
 class ExpectationTests(unittest.TestCase):
     def test_validation_reports_missing_required_events(self):
         scenario = agent_bench.ScenarioExpectation(
@@ -109,6 +148,21 @@ class ExpectationTests(unittest.TestCase):
 
         self.assertTrue(result.passed)
         self.assertEqual(result.result_kind, "hook-pass")
+
+    def test_validation_counts_duplicate_required_events(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="restart",
+            required_events=["session-start", "stop", "session-start", "stop"],
+        )
+        observed = [
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="restart", event_name="session-start"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="restart", event_name="stop"),
+        ]
+
+        result = agent_bench.validate_scenario("codex", scenario, observed)
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.missing_events, ["session-start", "stop"])
 
     def test_timeout_without_required_hooks_is_classified_by_taxonomy(self):
         result = agent_bench.classify_timeout_result(
@@ -292,6 +346,119 @@ class ExpectationTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.result_kind, "hook-pass")
 
+    def test_question_interrupt_scenario_rejects_trust_input_as_scripted_interrupt(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="session-start"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="prompt-submit"),
+        ]
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="question_interrupt",
+            expectation=agent_bench.ScenarioExpectation("question_interrupt", ["session-start", "prompt-submit"]),
+            records=records,
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="[ ! ] Action Required | codex-question", offset=0),
+                agent_bench.TerminalObservation(kind="input", text="trust-workspace", offset=12),
+            ],
+            output="",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=True,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "missing-scripted-input")
+
+    def test_question_interrupt_scenario_fails_when_action_required_persists_after_ctrl_c(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="session-start"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="question_interrupt", event_name="prompt-submit"),
+        ]
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="question_interrupt",
+            expectation=agent_bench.ScenarioExpectation("question_interrupt", ["session-start", "prompt-submit"]),
+            records=records,
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="[ ! ] Action Required | codex-question", offset=0),
+                agent_bench.TerminalObservation(kind="input", text="ctrl-c", offset=12),
+                agent_bench.TerminalObservation(kind="title", text="[ ! ] Action Required | codex-question", offset=30),
+            ],
+            output="",
+            skip_patterns=[],
+            exit_code=130,
+            completed_by_predicate=True,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "stale-terminal-needs-input")
+
+    def test_approval_scenario_rejects_stale_terminal_approval_after_scripted_approval(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="approval", event_name="session-start"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="approval", event_name="prompt-submit"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="approval", event_name="permission-request"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="approval", event_name="post-tool-use"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="approval", event_name="stop"),
+        ]
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="approval",
+            expectation=agent_bench.ScenarioExpectation(
+                "approval",
+                ["session-start", "prompt-submit", "permission-request", "post-tool-use", "stop"],
+            ),
+            records=records,
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="Requires approval", offset=0),
+                agent_bench.TerminalObservation(kind="input", text="approve-command", offset=12),
+                agent_bench.TerminalObservation(kind="title", text="[ . ] Action Required | codex-approval", offset=24),
+            ],
+            output="",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "stale-terminal-needs-input")
+
+    def test_non_codex_approval_scenario_does_not_require_codex_scripted_input_label(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="approval", event_name="SessionStart"),
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="approval", event_name="UserPromptSubmit"),
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="approval", event_name="PreToolUse"),
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="approval", event_name="PermissionRequest"),
+        ]
+        result = agent_bench.classify_completed_result(
+            agent="claude",
+            scenario="approval",
+            expectation=agent_bench.ScenarioExpectation(
+                "approval",
+                ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest"],
+            ),
+            records=records,
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="input", text="approve-tool", offset=12),
+            ],
+            output="",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=True,
+            strict=False,
+        )
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.result_kind, "hook-pass")
+
+    def test_codex_approval_profile_requires_post_tool_use_resume_signal(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["codex"]
+
+        self.assertIn("post-tool-use", profile.expectations["approval"].required_events)
+
 
 class TimelineTests(unittest.TestCase):
     def test_extracts_terminal_title_and_osc9_observations(self):
@@ -303,6 +470,13 @@ class TimelineTests(unittest.TestCase):
             [(item.kind, item.text) for item in observations],
             [("title", "Codex Working 1/3"), ("progress", "Codex Working 1/3"), ("osc9", "Codex needs input")],
         )
+
+    def test_requires_approval_title_counts_as_needs_input_phase(self):
+        phase = agent_bench.terminal_observation_phase(
+            agent_bench.TerminalObservation(kind="title", text="Requires approval", offset=0)
+        )
+
+        self.assertEqual(phase, "needs-input")
 
     def test_extracts_copilot_asking_question_title_as_progress_observation(self):
         output = "\x1b]0;Asking question\x07"
@@ -619,6 +793,46 @@ class ProfileTests(unittest.TestCase):
         )
         self.assertEqual(profile.input_by_scenario["question"][0]["match"], "trust")
         self.assertEqual(profile.input_by_scenario["question_interrupt"][-1]["label"], "ctrl-c")
+
+    def test_codex_restart_profile_runs_smoke_twice_in_same_pane(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["codex"]
+
+        self.assertEqual(profile.repeat_by_scenario["restart"], 2)
+        self.assertEqual(
+            profile.launch_args_by_scenario["restart"],
+            profile.launch_args_by_scenario["smoke"],
+        )
+        self.assertEqual(
+            profile.expectations["restart"].required_events,
+            [
+                "session-start",
+                "prompt-submit",
+                "pre-tool-use",
+                "post-tool-use",
+                "stop",
+                "session-start",
+                "prompt-submit",
+                "pre-tool-use",
+                "post-tool-use",
+                "stop",
+            ],
+        )
+
+    def test_codex_tui_restart_profile_quits_interactive_codex_twice(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["codex"]
+
+        self.assertEqual(profile.repeat_by_scenario["tui_restart"], 2)
+        self.assertIn("--no-alt-screen", profile.launch_args_by_scenario["tui_restart"])
+        self.assertEqual(
+            profile.expectations["tui_restart"].required_events,
+            [],
+        )
+        self.assertEqual(
+            profile.expectations["tui_restart"].required_terminal_phases,
+            ["idle", "starting", "idle", "starting"],
+        )
+        self.assertEqual(profile.input_by_scenario["tui_restart"][0]["label"], "trust-workspace")
+        self.assertEqual(profile.input_by_scenario["tui_restart"][1]["label"], "quit")
 
     def test_gemini_smoke_profile_skips_trust_prompt_for_headless_runs(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["gemini"]
