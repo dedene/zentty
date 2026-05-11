@@ -47,6 +47,7 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
         var id: String
         var titleSeed: String?
         var workingDirectory: String?
+        var lastActivityTitle: String? = nil
     }
 }
 
@@ -112,11 +113,17 @@ enum WorkspaceRecipeExporter {
             pane: pane,
             auxiliary: auxiliary
         )
+        let lastActivityTitle = exportedLastActivityTitle(
+            pane: pane,
+            auxiliary: auxiliary,
+            titleSeed: titleSeed
+        )
 
         return WorkspaceRecipe.Pane(
             id: pane.id.rawValue,
             titleSeed: titleSeed,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            lastActivityTitle: lastActivityTitle
         )
     }
 
@@ -139,12 +146,82 @@ enum WorkspaceRecipeExporter {
                 candidate,
                 recognizedTool: recognizedTool,
                 isRemoteShell: isRemoteShell
-            ) {
+            ),
+               !isLocalLiveProcessTitle(candidate, auxiliary: auxiliary) {
                 return candidate
             }
         }
 
         return nil
+    }
+
+    private static func exportedLastActivityTitle(
+        pane: PaneState,
+        auxiliary: PaneAuxiliaryState?,
+        titleSeed: String?
+    ) -> String? {
+        guard titleSeed == nil else {
+            return nil
+        }
+        guard auxiliary?.presentation.recognizedTool == nil,
+              auxiliary?.agentStatus?.tool == nil,
+              auxiliary?.shellContext?.scope != .remote else {
+            return nil
+        }
+        if let restoredTitle = trimmedTitle(auxiliary?.presentation.lastActivityTitle),
+           shouldPersistLastActivityTitle(restoredTitle) {
+            return restoredTitle
+        }
+        guard let metadata = auxiliary?.metadata else {
+            return nil
+        }
+
+        let liveIdentities = Set(
+            [
+                WorklaneContextFormatter.normalizeDisplayIdentity(metadata.title),
+                WorklaneContextFormatter.normalizeDisplayIdentity(metadata.processName),
+            ].compactMap { $0 }
+        )
+        guard !liveIdentities.isEmpty else {
+            return nil
+        }
+
+        for candidate in [
+            trimmedTitle(auxiliary?.presentation.rememberedTitle),
+            trimmedTitle(pane.title),
+        ] {
+            guard let candidate else {
+                continue
+            }
+            guard liveIdentities.contains(candidate) else {
+                continue
+            }
+            guard shouldPersistLastActivityTitle(candidate) else {
+                continue
+            }
+            return candidate
+        }
+
+        return nil
+    }
+
+    private static func isLocalLiveProcessTitle(
+        _ candidate: String,
+        auxiliary: PaneAuxiliaryState?
+    ) -> Bool {
+        guard auxiliary?.presentation.recognizedTool == nil,
+              auxiliary?.agentStatus?.tool == nil,
+              auxiliary?.shellContext?.scope != .remote,
+              let metadata = auxiliary?.metadata else {
+            return false
+        }
+
+        let liveIdentities = [
+            WorklaneContextFormatter.normalizeDisplayIdentity(metadata.title),
+            WorklaneContextFormatter.normalizeDisplayIdentity(metadata.processName),
+        ].compactMap { $0 }
+
+        return liveIdentities.contains(candidate)
     }
 
     private static func shouldPersistTitleSeed(
@@ -162,6 +239,11 @@ enum WorkspaceRecipeExporter {
 
     private static func looksLikeTransientSSHCommandTitle(_ value: String) -> Bool {
         WorklaneContextFormatter.looksLikeSSHCommandTitle(value)
+    }
+
+    private static func shouldPersistLastActivityTitle(_ candidate: String) -> Bool {
+        !looksLikeTransientSSHCommandTitle(candidate)
+            && !isGenericLocalShellTitle(candidate)
     }
 
     private static func isGenericLocalShellTitle(_ value: String) -> Bool {
@@ -322,10 +404,14 @@ enum WorkspaceRecipeImporter {
         let prefillText = restoreDraftWindow
             .flatMap { $0.draft(forPaneID: paneID) }
             .flatMap(AgentResumeCommandBuilder.command(for:))
+        let legacyLastActivityTitle = legacyLastActivityTitle(from: recipe)
+        let titleSeed = legacyLastActivityTitle == nil ? recipe.titleSeed : nil
+        let lastActivityTitle = recipe.lastActivityTitle ?? legacyLastActivityTitle
 
         let inputs = PaneRestorationBuilder.PaneInputs(
             id: paneID,
-            titleSeed: recipe.titleSeed,
+            titleSeed: titleSeed,
+            lastActivityTitle: lastActivityTitle,
             requestedWorkingDirectory: recipe.workingDirectory,
             command: nil,
             prefillText: prefillText,
@@ -349,6 +435,39 @@ enum WorkspaceRecipeImporter {
         )
         auxiliaryStateByPaneID[paneID] = result.auxiliary
         return result.pane
+    }
+
+    private static func legacyLastActivityTitle(from recipe: WorkspaceRecipe.Pane) -> String? {
+        guard recipe.lastActivityTitle == nil,
+              let titleSeed = trimmedTitle(recipe.titleSeed),
+              looksLikeLegacyLocalProcessTitle(titleSeed) else {
+            return nil
+        }
+
+        return titleSeed
+    }
+
+    private static func looksLikeLegacyLocalProcessTitle(_ title: String) -> Bool {
+        if WorklaneContextFormatter.looksLikeSSHCommandTitle(title) {
+            return false
+        }
+
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let firstWord = normalized.split(separator: " ").first.map(String.init),
+              firstWord == firstWord.lowercased(),
+              firstWord.rangeOfCharacter(from: .letters) != nil else {
+            return false
+        }
+
+        return normalized.contains(" ")
+    }
+
+    private static func trimmedTitle(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+
+        return value
     }
 }
 
@@ -398,6 +517,10 @@ enum WorkspaceRecipeMeaningfulness {
         }
 
         if let titleSeed = pane.titleSeed, titleSeed != "shell" {
+            return true
+        }
+
+        if let lastActivityTitle = pane.lastActivityTitle, lastActivityTitle != "shell" {
             return true
         }
 

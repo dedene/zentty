@@ -445,6 +445,7 @@ extension WorklaneStore {
             auxiliaryState.shellActivityState = shellActivityState
             if shellActivityState == .commandRunning {
                 auxiliaryState.hasCommandHistory = true
+                auxiliaryState.presentation.lastActivityTitle = nil
             }
 
             if var existingStatus {

@@ -3618,6 +3618,67 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], "/tmp/local-project")
     }
 
+    func test_shell_prompt_idle_preserves_restored_last_activity_until_command_starts() throws {
+        let paneID = PaneID("pane-main")
+        let worklaneID = WorklaneID("worklane-main")
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    presentation: PanePresentationState(
+                        cwd: NSHomeDirectory(),
+                        lastActivityTitle: "cmatrix -C cyan"
+                    )
+                )
+            ]
+        )
+        let store = WorklaneStore(worklanes: [worklane])
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .promptIdle,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.lastActivityTitle,
+            "cmatrix -C cyan"
+        )
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .commandRunning,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.lastActivityTitle)
+    }
+
     func test_split_after_ignores_agent_working_directory_and_uses_terminal_cwd() throws {
         let store = WorklaneStore()
         let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)

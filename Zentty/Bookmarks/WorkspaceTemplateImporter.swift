@@ -129,6 +129,7 @@ enum WorkspaceTemplateImporter {
         let inputs = PaneRestorationBuilder.PaneInputs(
             id: paneID,
             titleSeed: templatePane.titleSeed,
+            lastActivityTitle: nil,
             requestedWorkingDirectory: requested,
             command: runnableCommand,
             prefillText: prefillCommand,

@@ -942,6 +942,62 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertNil(presentation.rememberedTitle)
     }
 
+    func test_normalize_preserves_last_activity_when_prompt_metadata_arrives_after_restore() {
+        var previous = PanePresentationState()
+        previous.lastActivityTitle = "cmatrix -C cyan"
+
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "~/Development/project",
+                currentWorkingDirectory: "\(NSHomeDirectory())/Development/project",
+                processName: "zsh",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: previous
+        )
+
+        XCTAssertNil(presentation.rememberedTitle)
+        XCTAssertEqual(presentation.lastActivityTitle, "cmatrix -C cyan")
+    }
+
+    func test_normalize_clears_last_activity_when_fresh_command_title_arrives() {
+        var previous = PanePresentationState()
+        previous.lastActivityTitle = "cmatrix -C cyan"
+
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "drift --showcase",
+                currentWorkingDirectory: "\(NSHomeDirectory())/Development/project",
+                processName: "drift",
+                gitBranch: nil
+            ),
+            shellContext: nil,
+            agentStatus: nil,
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: nil
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: previous
+        )
+
+        XCTAssertEqual(presentation.rememberedTitle, "drift --showcase")
+        XCTAssertNil(presentation.lastActivityTitle)
+    }
+
     func test_normalize_preserves_agent_remembered_title_when_title_reverts_to_cwd() {
         var previous = PanePresentationState()
         previous.rememberedTitle = "Investigate flaky test"

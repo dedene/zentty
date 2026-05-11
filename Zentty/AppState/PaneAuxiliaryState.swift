@@ -118,6 +118,7 @@ struct PanePresentationState: Equatable, Sendable {
     var identityText: String?
     var contextText: String?
     var rememberedTitle: String?
+    var lastActivityTitle: String?
     var sshConnectionLabel: String? = nil
     var isRemoteShell = false
     var remoteHostLabel: String? = nil
@@ -308,6 +309,7 @@ enum PanePresentationNormalizer {
         } else {
             rememberedTitle = nil
         }
+        let lastActivityTitle = latestMeaningfulTitle == nil ? previous?.lastActivityTitle : nil
         let titlePhase = codexTitlePhase(from: raw.metadata, recognizedTool: recognizedTool)
         let copilotTitleNeedsInput = copilotTitleIndicatesNeedsInput(
             metadata: raw.metadata,
@@ -421,6 +423,7 @@ enum PanePresentationNormalizer {
             identityText: identityText,
             contextText: contextText,
             rememberedTitle: rememberedTitle,
+            lastActivityTitle: lastActivityTitle,
             sshConnectionLabel: sshConnectionLabel,
             isRemoteShell: raw.shellContext?.scope == .remote,
             remoteHostLabel: remoteHostLabel,
