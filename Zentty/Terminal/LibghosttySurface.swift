@@ -137,6 +137,11 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     private var hasEmittedShellReady = false
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
 
+    var mouseCaptured: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_mouse_captured(surface)
+    }
+
     var cellWidth: CGFloat {
         guard let surface else { return 0 }
         let size = ghostty_surface_size(surface)

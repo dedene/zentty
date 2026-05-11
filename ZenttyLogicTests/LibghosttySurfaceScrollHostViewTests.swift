@@ -153,6 +153,26 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         XCTAssertEqual(presentationCount, 0)
     }
 
+    func test_scroll_view_control_secondary_drag_forwards_to_surface() throws {
+        let harness = makeScrollHostHarness()
+        let scrollView = try scrollView(from: harness.hostView)
+        harness.surface.mouseButtonResults[GHOSTTY_MOUSE_LEFT] = true
+
+        scrollView.rightMouseDown(with: try makeMouseEvent(
+            type: .rightMouseDown,
+            location: CGPoint(x: 120, y: 80),
+            modifierFlags: [.control]
+        ))
+        scrollView.rightMouseDragged(with: try makeMouseEvent(
+            type: .rightMouseDragged,
+            location: CGPoint(x: 150, y: 90),
+            modifierFlags: [.control]
+        ))
+
+        XCTAssertEqual(harness.surface.mouseButtons.last?.button, GHOSTTY_MOUSE_LEFT)
+        XCTAssertEqual(harness.surface.sentMousePositions.last?.position, CGPoint(x: 150, y: 70))
+    }
+
     func test_overlay_host_hit_testing_passes_through_to_terminal_when_empty() throws {
         let harness = makeScrollHostHarness()
 

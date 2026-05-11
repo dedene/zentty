@@ -38,6 +38,7 @@ enum TerminalKeyAction: Equatable {
 @MainActor
 protocol LibghosttySurfaceControlling: AnyObject {
     var hasScrollback: Bool { get }
+    var mouseCaptured: Bool { get }
     var cellWidth: CGFloat { get }
     var cellHeight: CGFloat { get }
     var searchDidChange: ((TerminalSearchEvent) -> Void)? { get set }
@@ -58,6 +59,10 @@ protocol LibghosttySurfaceControlling: AnyObject {
     func hasSelection() -> Bool
     func close()
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s?
+}
+
+extension LibghosttySurfaceControlling {
+    var mouseCaptured: Bool { false }
 }
 
 @MainActor
