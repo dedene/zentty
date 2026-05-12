@@ -5500,7 +5500,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
     }
 
-    func test_shell_origin_codex_idle_does_not_surface_agent_ready() throws {
+    func test_shell_origin_codex_idle_does_not_display_agent_ready() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
@@ -5533,8 +5533,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
-        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
-        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Idle")
     }
 
     func test_shell_ready_clears_stale_transient_agent_ready_status() throws {
@@ -6692,7 +6691,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind, .approval)
     }
 
-    func test_completion_notification_phrase_agent_turn_complete_surfaces_agent_ready() throws {
+    func test_completion_notification_phrase_agent_turn_complete_without_current_run_evidence_does_not_surface_agent_ready() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
@@ -6715,9 +6714,9 @@ final class PaneStripStoreTests: XCTestCase {
 
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
-            "Agent ready"
+            "Codex: Agent turn complete"
         )
-        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
     func test_completion_notification_phrase_session_complete_surfaces_agent_ready_for_gemini() throws {
