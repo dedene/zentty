@@ -1159,7 +1159,8 @@ final class WorklaneStore {
         delta: CGFloat,
         availableSize: CGSize,
         leadingVisibleInset: CGFloat = 0,
-        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize],
+        animation: WorklaneLayoutResizeAnimation = .splitCurve
     ) -> Bool {
         guard var worklane = activeWorklane else {
             return false
@@ -1176,7 +1177,7 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
-        notifyLayoutResized(animation: .splitCurve)
+        notifyLayoutResized(animation: animation)
         return true
     }
 

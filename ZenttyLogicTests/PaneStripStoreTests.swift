@@ -2579,6 +2579,93 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_resize_focused_pane_vertical_with_immediate_animation_emits_immediate_change() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("only"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 800,
+                                paneHeights: [300, 300],
+                                focusedPaneID: PaneID("top")
+                            )
+                        ]
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+        var changes: [WorklaneChange] = []
+        store.subscribe { changes.append($0) }
+
+        _ = store.resizeFocusedPane(
+            in: PaneResizeAxis.vertical,
+            delta: 40,
+            availableSize: CGSize(width: 800, height: 800),
+            minimumSizeByPaneID: [
+                PaneID("top"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("bottom"): PaneMinimumSize(width: 320, height: 160),
+            ],
+            animation: WorklaneLayoutResizeAnimation.immediate
+        )
+
+        XCTAssertEqual(
+            changes,
+            [.layoutResized(WorklaneID("main"), animation: .immediate)]
+        )
+    }
+
+    func test_resize_focused_pane_default_still_emits_split_curve_change() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("only"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 800,
+                                paneHeights: [300, 300],
+                                focusedPaneID: PaneID("top")
+                            )
+                        ]
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+        var changes: [WorklaneChange] = []
+        store.subscribe { changes.append($0) }
+
+        _ = store.resizeFocusedPane(
+            in: PaneResizeAxis.vertical,
+            delta: 40,
+            availableSize: CGSize(width: 800, height: 800),
+            minimumSizeByPaneID: [
+                PaneID("top"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("bottom"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        XCTAssertEqual(
+            changes,
+            [.layoutResized(WorklaneID("main"), animation: .splitCurve)]
+        )
+    }
+
     func test_resize_focused_last_pane_right_shrinks_it_without_resizing_neighbors() {
         let store = WorklaneStore(
             worklanes: [

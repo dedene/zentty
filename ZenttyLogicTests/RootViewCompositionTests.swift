@@ -2097,6 +2097,27 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertGreaterThan(afterHeights[1], beforeHeights[1])
     }
 
+    func test_vertical_keyboard_resize_up_renders_immediately_when_visible() throws {
+        let controller = makeController()
+        hostInVisibleWindow(controller)
+
+        controller.handle(.pane(.splitVertically))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusUp))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let beforeHeights = try resolvedFocusedColumnHeights(controller)
+
+        controller.handle(.pane(.resizeUp))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let afterHeights = try resolvedFocusedColumnHeights(controller)
+
+        XCTAssertLessThan(afterHeights[0], beforeHeights[0])
+        XCTAssertGreaterThan(afterHeights[1], beforeHeights[1])
+        XCTAssertFalse(controller.appCanvasViewForTesting.lastPaneStripRenderWasAnimatedForTesting)
+    }
+
     func test_vertical_keyboard_resize_down_grows_top_pane_when_top_pane_is_focused() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()

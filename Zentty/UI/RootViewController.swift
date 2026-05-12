@@ -1269,7 +1269,8 @@ final class RootViewController: NSViewController {
                 delta: delta,
                 availableSize: appCanvasView.bounds.size,
                 leadingVisibleInset: appCanvasView.leadingVisibleInset,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID()
+                minimumSizeByPaneID: paneMinimumSizesByPaneID(),
+                animation: .immediate
             )
             if shouldCenterMiddlePane, !didResize {
                 appCanvasView.clearPendingPaneStripTargetOffsetOverride()
@@ -1300,21 +1301,19 @@ final class RootViewController: NSViewController {
             appCanvasView.settlePaneStripPresentationNow()
             worklaneStore.resizeFocusedPane(
                 in: .vertical,
-                delta: resolvedVerticalKeyboardResizeDelta(
-                    keyboardResizeStep(for: .vertical)
-                ),
+                delta: resolvedVerticalKeyboardResizeDelta(keyboardResizeStep(for: .vertical)),
                 availableSize: appCanvasView.bounds.size,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID()
+                minimumSizeByPaneID: paneMinimumSizesByPaneID(),
+                animation: .immediate
             )
         case .resizeDown:
             appCanvasView.settlePaneStripPresentationNow()
             worklaneStore.resizeFocusedPane(
                 in: .vertical,
-                delta: resolvedVerticalKeyboardResizeDelta(
-                    -keyboardResizeStep(for: .vertical)
-                ),
+                delta: resolvedVerticalKeyboardResizeDelta(-keyboardResizeStep(for: .vertical)),
                 availableSize: appCanvasView.bounds.size,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID()
+                minimumSizeByPaneID: paneMinimumSizesByPaneID(),
+                animation: .immediate
             )
         case .arrangeHorizontally(let arrangement):
             appCanvasView.settlePaneStripPresentationNow()
