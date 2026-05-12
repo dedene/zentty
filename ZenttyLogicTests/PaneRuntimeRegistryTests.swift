@@ -634,7 +634,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertEqual(adapter.sentTexts, [])
 
         wait(for: [sent], timeout: 0.2)
-        XCTAssertEqual(adapter.sentTexts, ["drift --showcase\n"])
+        XCTAssertEqual(adapter.sentTexts, ["drift --showcase\r"])
     }
 
     func test_runtime_waits_for_shell_ready_before_prefilling_restore_draft() {
@@ -803,7 +803,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertEqual(adapter.sentTexts, [])
 
         wait(for: [sent], timeout: 0.2)
-        XCTAssertEqual(adapter.sentTexts, ["echo ready\n"])
+        XCTAssertEqual(adapter.sentTexts, ["echo ready\r"])
     }
 
     func test_runtime_reschedules_startup_text_until_metadata_settles() {
@@ -834,7 +834,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         }
 
         wait(for: [sent], timeout: 0.2)
-        XCTAssertEqual(adapter.sentTexts, ["codex\n"])
+        XCTAssertEqual(adapter.sentTexts, ["codex\r"])
     }
 }
 

@@ -2172,6 +2172,41 @@ final class RootViewController: NSViewController {
         )
     }
 
+    @discardableResult
+    func applyGrid(
+        sourcePaneID: PaneID,
+        rows: Int,
+        columns: Int,
+        command: String?,
+        includeSource: Bool,
+        focus: GridFocus
+    ) throws -> GridApplicationResult {
+        appCanvasView.settlePaneStripPresentationNow()
+        return try worklaneStore.applyGrid(
+            sourcePaneID: sourcePaneID,
+            rows: rows,
+            columns: columns,
+            command: command,
+            includeSource: includeSource,
+            focus: focus
+        )
+    }
+
+    @discardableResult
+    func createWorklaneForGrid() -> WorklaneID {
+        worklaneStore.createWorklane()
+    }
+
+    func gridWindowWorkspaceState(
+        inheritingFrom sourcePaneID: PaneID,
+        destinationWindowID: WindowID
+    ) -> WindowWorkspaceState? {
+        worklaneStore.gridWindowWorkspaceState(
+            inheritingFrom: sourcePaneID,
+            destinationWindowID: destinationWindowID
+        )
+    }
+
     func focusPaneByID(_ paneID: PaneID, in worklaneID: WorklaneID) {
         worklaneStore.selectWorklane(id: worklaneID)
         worklaneStore.focusPane(id: paneID)

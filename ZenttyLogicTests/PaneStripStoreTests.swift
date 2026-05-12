@@ -9080,4 +9080,249 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(request.environmentVariables["GHOSTTY_LOG"], "stderr")
     }
 
+    func test_grid_command_builder_only_quotes_tokens_when_needed_and_rejects_newlines() throws {
+        XCTAssertEqual(
+            try GridLaunchCommandBuilder.command(from: ["claude", "--dangerously-skip-permissions"]),
+            "claude --dangerously-skip-permissions"
+        )
+        XCTAssertEqual(
+            try GridLaunchCommandBuilder.command(from: ["codex", "--model", "gpt 5", "it's ok"]),
+            "codex --model 'gpt 5' 'it'\"'\"'s ok'"
+        )
+        XCTAssertEqual(
+            try GridLaunchCommandBuilder.command(from: ["cmd", "$HOME", "a;b", ""]),
+            "cmd '$HOME' 'a;b' ''"
+        )
+        XCTAssertThrowsError(try GridLaunchCommandBuilder.command(from: ["codex\nnow"]))
+        XCTAssertThrowsError(try GridLaunchCommandBuilder.command(from: ["codex\rnow"]))
+    }
+
+    func test_grid_creates_equal_two_by_two_from_single_pane_worklane() throws {
+        let nextIDs = TestIDSequence(["a", "b", "c", "d"])
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1206,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: PaneID("source"), title: "source", width: 1200)],
+                        focusedPaneID: PaneID("source")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: WorklaneID("main"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        let result = try store.applyGrid(
+            sourcePaneID: PaneID("source"),
+            rows: 2,
+            columns: 2,
+            command: "claude",
+            includeSource: false,
+            focus: .source
+        )
+
+        let worklane = try XCTUnwrap(store.activeWorklane)
+        let columns = worklane.paneStripState.columns
+        let expectedWidth = (layoutContext.availableWidth - layoutContext.sizing.interPaneSpacing) / 2
+
+        XCTAssertEqual(result.createdPaneIDs.count, 3)
+        XCTAssertEqual(columns.count, 2)
+        XCTAssertEqual(columns.map { $0.panes.map(\.id) }, [
+            [PaneID("source"), PaneID("pn_a")],
+            [PaneID("pn_b"), PaneID("pn_c")],
+        ])
+        XCTAssertEqual(columns[0].width, expectedWidth, accuracy: 0.01)
+        XCTAssertEqual(columns[1].width, expectedWidth, accuracy: 0.01)
+        XCTAssertEqual(columns[0].paneHeights, [1, 1])
+        XCTAssertEqual(columns[1].paneHeights, [1, 1])
+        XCTAssertEqual(columns[0].panes[0].sessionRequest.command, nil)
+        XCTAssertEqual(columns[0].panes[1].sessionRequest.command, "claude")
+        XCTAssertEqual(columns[1].panes[0].sessionRequest.command, "claude")
+        XCTAssertEqual(columns[1].panes[1].sessionRequest.command, "claude")
+        XCTAssertNil(columns[0].panes[1].sessionRequest.nativeCommand)
+        XCTAssertNil(columns[1].panes[0].sessionRequest.nativeCommand)
+        XCTAssertNil(columns[1].panes[1].sessionRequest.nativeCommand)
+        XCTAssertEqual(worklane.paneStripState.focusedPaneID, PaneID("source"))
+    }
+
+    func test_grid_applies_command_to_source_pane_when_included() throws {
+        let nextIDs = TestIDSequence(["a", "b", "c"])
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: PaneID("source"), title: "source", width: 900)],
+                        focusedPaneID: PaneID("source")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        _ = try store.applyGrid(
+            sourcePaneID: PaneID("source"),
+            rows: 2,
+            columns: 2,
+            command: "claude --dangerously-skip-permissions",
+            includeSource: true,
+            focus: .source
+        )
+
+        let commands = try XCTUnwrap(store.activeWorklane).paneStripState.panes.map(\.sessionRequest.command)
+        XCTAssertEqual(
+            commands,
+            Array(repeating: "claude --dangerously-skip-permissions", count: 4)
+        )
+    }
+
+    func test_create_worklane_returns_new_worklane_and_inherits_focused_pane_directory() throws {
+        let nextIDs = TestIDSequence(["worklane", "pane"])
+        let shellPaneID = PaneID("source")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(
+                                id: shellPaneID,
+                                title: "source",
+                                sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project")
+                            ),
+                        ],
+                        focusedPaneID: shellPaneID
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        let worklaneID = store.createWorklane()
+
+        let worklane = try XCTUnwrap(store.activeWorklane)
+        XCTAssertEqual(worklaneID, WorklaneID("wl_worklane"))
+        XCTAssertEqual(worklane.id, WorklaneID("wl_worklane"))
+        XCTAssertEqual(worklane.paneStripState.focusedPaneID, PaneID("pn_pane"))
+        XCTAssertEqual(worklane.paneStripState.focusedPane?.sessionRequest.workingDirectory, "/tmp/project")
+        XCTAssertEqual(
+            worklane.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            shellPaneID
+        )
+    }
+
+    func test_grid_window_workspace_state_inherits_source_pane_directory() throws {
+        let nextIDs = TestIDSequence(["worklane", "pane"])
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(
+                                id: PaneID("source"),
+                                title: "source",
+                                sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project")
+                            ),
+                        ],
+                        focusedPaneID: PaneID("source")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        let workspace = try XCTUnwrap(
+            store.gridWindowWorkspaceState(
+                inheritingFrom: PaneID("source"),
+                destinationWindowID: WindowID("wd_new")
+            )
+        )
+
+        XCTAssertEqual(workspace.activeWorklaneID, WorklaneID("wl_worklane"))
+        let worklane = try XCTUnwrap(workspace.worklanes.first)
+        XCTAssertEqual(workspace.worklanes.count, 1)
+        XCTAssertEqual(worklane.paneStripState.focusedPaneID, PaneID("pn_pane"))
+        XCTAssertEqual(
+            worklane.paneStripState.focusedPane?.sessionRequest.workingDirectory,
+            "/tmp/project"
+        )
+        XCTAssertEqual(
+            worklane.paneStripState.focusedPane?.sessionRequest.environmentVariables["ZENTTY_WINDOW_ID"],
+            "wd_new"
+        )
+        XCTAssertNil(worklane.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID)
+    }
+
+    func test_grid_moves_source_to_new_worklane_when_other_panes_exist() throws {
+        let nextIDs = TestIDSequence(["grid", "a", "b", "c"])
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: PaneID("source"), title: "source", width: 900),
+                            PaneState(id: PaneID("other"), title: "other", width: 900),
+                        ],
+                        focusedPaneID: PaneID("source")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        let result = try store.applyGrid(
+            sourcePaneID: PaneID("source"),
+            rows: 1,
+            columns: 2,
+            command: nil,
+            includeSource: false,
+            focus: .last
+        )
+
+        XCTAssertEqual(result.worklaneID, WorklaneID("wl_grid"))
+        XCTAssertEqual(store.worklanes.map(\.id), [WorklaneID("main"), WorklaneID("wl_grid")])
+        XCTAssertEqual(store.worklanes[0].paneStripState.panes.map(\.id), [PaneID("other")])
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("wl_grid"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.id), [PaneID("source"), PaneID("pn_a")])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPaneID, PaneID("pn_a"))
+    }
+
+}
+
+private final class TestIDSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String]
+
+    init(_ values: [String]) {
+        self.values = values
+    }
+
+    func next() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !values.isEmpty else {
+            return UUID().uuidString
+        }
+        return values.removeFirst()
+    }
 }

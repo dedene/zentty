@@ -19,6 +19,7 @@ struct ZenttyCLI: ParsableCommand {
             SplitCommand.self,
             HSplitCommand.self,
             VSplitCommand.self,
+            GridCommand.self,
             PaneCommandGroup.self,
             LayoutCommand.self,
             NotifyCommand.self,
@@ -233,6 +234,297 @@ struct VSplitCommand: ParsableCommand {
             subcommand: "split",
             arguments: ["down"] + layout.layoutArguments() + target.selectorArguments()
         )
+    }
+}
+
+struct GridCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "grid",
+        abstract: "Turn the focused pane into a rows-by-columns grid."
+    )
+
+    @Argument(
+        parsing: .captureForPassthrough,
+        help: "Use ROWSxCOLUMNS [--include-source] [--focus source|first|last] [-- command ...]."
+    )
+    var rawArguments: [String] = []
+
+    mutating func run() throws {
+        if shouldPrintHelp {
+            print(Self.helpText)
+            return
+        }
+
+        let invocation = try parseInvocation()
+        let dimensions = try parseDimensions(invocation.rowsOrGrid)
+        guard dimensions.rows * dimensions.columns <= 36 else {
+            throw ValidationError("Grid dimensions may create at most 36 panes.")
+        }
+        guard ["source", "first", "last"].contains(invocation.focus) else {
+            throw ValidationError("Invalid focus '\(invocation.focus)'. Use: source, first, last.")
+        }
+
+        var arguments = [
+            "--rows", String(dimensions.rows),
+            "--columns", String(dimensions.columns),
+        ]
+        if !invocation.includeSource {
+            arguments.append("--new-only")
+        }
+        arguments.append(contentsOf: ["--focus", invocation.focus])
+        arguments.append(contentsOf: invocation.destinationArguments)
+
+        if !invocation.command.isEmpty {
+            let data = try JSONEncoder().encode(invocation.command)
+            guard let json = String(data: data, encoding: .utf8) else {
+                throw ValidationError("Unable to encode grid command.")
+            }
+            arguments.append(contentsOf: ["--command-json", json])
+        }
+
+        _ = try PaneIPC.send(
+            subcommand: "grid",
+            arguments: arguments + invocation.targetArguments
+        )
+    }
+
+    private var shouldPrintHelp: Bool {
+        let gridArguments = rawArguments.prefix { $0 != "--" }
+        return gridArguments.contains("--help") || gridArguments.contains("-h")
+    }
+
+    private static let helpText = """
+    OVERVIEW: Turn the focused pane into a rows-by-columns grid.
+
+    USAGE: zentty grid <ROWSxCOLUMNS> [--new-only] [--focus <focus>] [--window-id <window-id|new>] [--worklane-id <worklane-id|new>] [--pane-id <pane-id>] [--pane-index <pane-index>] [--pane-token <pane-token>] [-- <command> ...]
+
+    ARGUMENTS:
+      <ROWSxCOLUMNS>          Grid size, for example 2x3.
+      <command>               Optional command to run in each grid pane.
+
+    OPTIONS:
+      --new-only              Run the command only in newly-created panes.
+      --include-source        Run the command in the source pane too. This is the default.
+      --focus <focus>         Pane to focus after creating the grid: source, first, or last. (default: source)
+      --window-id <window-id|new>
+                              Target a specific window, or use 'new' to create a new window.
+      --worklane-id <worklane-id|new>
+                              Target a specific worklane, or use 'new' to create a new worklane.
+      --pane-id <pane-id>     Target a specific pane ID.
+      --pane-index <pane-index>
+                              Target a specific 1-based pane index within the selected worklane.
+      --pane-token <pane-token>
+                              Use this pane token for out-of-pane control.
+      -h, --help              Show help information.
+    """
+
+    private struct Invocation {
+        var rowsOrGrid: String
+        var includeSource: Bool
+        var focus: String
+        var targetArguments: [String]
+        var destinationArguments: [String]
+        var command: [String]
+    }
+
+    private func parseInvocation() throws -> Invocation {
+        var rowsOrGrid: String?
+        var includeSource = true
+        var focus = "source"
+        var targetArguments: [String] = []
+        var destinationArguments: [String] = []
+        var destinationWindowIsNew = false
+        var hasExistingWorklaneSelector = false
+        var index = 0
+
+        while index < rawArguments.count {
+            let argument = rawArguments[index]
+            if argument == "--" {
+                return try makeInvocation(
+                    rowsOrGrid: requireRowsOrGrid(rowsOrGrid),
+                    includeSource: includeSource,
+                    focus: focus,
+                    targetArguments: targetArguments,
+                    destinationArguments: destinationArguments,
+                    destinationWindowIsNew: destinationWindowIsNew,
+                    hasExistingWorklaneSelector: hasExistingWorklaneSelector,
+                    command: Array(rawArguments[(index + 1)...])
+                )
+            }
+
+            if argument == "--include-source" {
+                includeSource = true
+                index += 1
+                continue
+            }
+            if argument == "--new-only" {
+                includeSource = false
+                index += 1
+                continue
+            }
+
+            if let value = optionValue(argument, prefix: "--focus=") {
+                focus = value
+                index += 1
+                continue
+            }
+            if argument == "--focus" {
+                focus = try value(after: argument, at: &index)
+                continue
+            }
+
+            if let parsedTarget = try parseTargetOption(argument, index: &index) {
+                targetArguments.append(contentsOf: parsedTarget.selectorArguments)
+                destinationArguments.append(contentsOf: parsedTarget.destinationArguments)
+                destinationWindowIsNew = destinationWindowIsNew || parsedTarget.createsNewWindow
+                hasExistingWorklaneSelector = hasExistingWorklaneSelector || parsedTarget.usesExistingWorklane
+                continue
+            }
+
+            if argument.hasPrefix("-") {
+                throw ValidationError("Unknown grid option '\(argument)'.")
+            }
+
+            guard rowsOrGrid == nil else {
+                throw ValidationError("Unexpected grid argument '\(argument)'. Use '--' before a command to run.")
+            }
+            rowsOrGrid = argument
+            index += 1
+        }
+
+        return try makeInvocation(
+            rowsOrGrid: requireRowsOrGrid(rowsOrGrid),
+            includeSource: includeSource,
+            focus: focus,
+            targetArguments: targetArguments,
+            destinationArguments: destinationArguments,
+            destinationWindowIsNew: destinationWindowIsNew,
+            hasExistingWorklaneSelector: hasExistingWorklaneSelector,
+            command: []
+        )
+    }
+
+    private struct ParsedTargetOption {
+        var selectorArguments: [String]
+        var destinationArguments: [String]
+        var createsNewWindow: Bool
+        var usesExistingWorklane: Bool
+    }
+
+    private func parseTargetOption(_ argument: String, index: inout Int) throws -> ParsedTargetOption? {
+        let valueOptions = [
+            "--window-id",
+            "--worklane-id",
+            "--pane-id",
+            "--pane-index",
+            "--pane-token",
+        ]
+
+        for option in valueOptions {
+            if let value = optionValue(argument, prefix: "\(option)=") {
+                try validateTargetValue(value, option: option)
+                index += 1
+                return parsedTargetOption(option: option, value: value)
+            }
+            if argument == option {
+                let value = try value(after: argument, at: &index)
+                try validateTargetValue(value, option: option)
+                return parsedTargetOption(option: option, value: value)
+            }
+        }
+        return nil
+    }
+
+    private func parsedTargetOption(option: String, value: String) -> ParsedTargetOption {
+        if option == "--window-id", value == "new" {
+            return ParsedTargetOption(
+                selectorArguments: [],
+                destinationArguments: ["--new-window"],
+                createsNewWindow: true,
+                usesExistingWorklane: false
+            )
+        }
+        if option == "--worklane-id", value == "new" {
+            return ParsedTargetOption(
+                selectorArguments: [],
+                destinationArguments: ["--new-worklane"],
+                createsNewWindow: false,
+                usesExistingWorklane: false
+            )
+        }
+        return ParsedTargetOption(
+            selectorArguments: [option, value],
+            destinationArguments: [],
+            createsNewWindow: false,
+            usesExistingWorklane: option == "--worklane-id"
+        )
+    }
+
+    private func makeInvocation(
+        rowsOrGrid: String,
+        includeSource: Bool,
+        focus: String,
+        targetArguments: [String],
+        destinationArguments: [String],
+        destinationWindowIsNew: Bool,
+        hasExistingWorklaneSelector: Bool,
+        command: [String]
+    ) throws -> Invocation {
+        if destinationWindowIsNew, hasExistingWorklaneSelector {
+            throw ValidationError("--window-id new cannot be combined with an existing --worklane-id. Use --worklane-id new or omit --worklane-id.")
+        }
+        return Invocation(
+            rowsOrGrid: rowsOrGrid,
+            includeSource: includeSource,
+            focus: focus,
+            targetArguments: targetArguments,
+            destinationArguments: destinationArguments,
+            command: command
+        )
+    }
+
+    private func value(after option: String, at index: inout Int) throws -> String {
+        let valueIndex = index + 1
+        guard valueIndex < rawArguments.count, rawArguments[valueIndex] != "--" else {
+            throw ValidationError("Missing value for \(option).")
+        }
+        index += 2
+        return rawArguments[valueIndex]
+    }
+
+    private func validateTargetValue(_ value: String, option: String) throws {
+        guard !value.isEmpty else {
+            throw ValidationError("Missing value for \(option).")
+        }
+        if option == "--pane-index", Int(value) == nil {
+            throw ValidationError("--pane-index must be an integer.")
+        }
+    }
+
+    private func optionValue(_ argument: String, prefix: String) -> String? {
+        guard argument.hasPrefix(prefix) else {
+            return nil
+        }
+        return String(argument.dropFirst(prefix.count))
+    }
+
+    private func requireRowsOrGrid(_ rowsOrGrid: String?) throws -> String {
+        guard let rowsOrGrid else {
+            throw ValidationError("Grid size must be ROWSxCOLUMNS, for example 2x3.")
+        }
+        return rowsOrGrid
+    }
+
+    private func parseDimensions(_ rowsOrGrid: String) throws -> (rows: Int, columns: Int) {
+        let parts = rowsOrGrid.lowercased().split(separator: "x", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              let rows = Int(parts[0]),
+              let columns = Int(parts[1]),
+              rows > 0,
+              columns > 0 else {
+            throw ValidationError("Grid size must be ROWSxCOLUMNS, for example 2x3.")
+        }
+        return (rows, columns)
     }
 }
 

@@ -38,6 +38,8 @@
 - **Scriptable control** Interaction with worklanes or panes is scriptable via the embedded zentty CLI.
 - **Built on Ghostty.** GPU-accelerated rendering via `libghostty`, wrapped in a native Swift and AppKit shell. No Electron, no web views. It feels like a Mac app because it is one.
 
+See [Zentty CLI](docs/cli.md) for command-line usage.
+
 ## Install
 
 Download the latest `.dmg` from the [releases page](https://github.com/dedene/zentty/releases/latest), open it, and drag Zentty to your Applications folder.

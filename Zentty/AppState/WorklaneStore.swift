@@ -80,6 +80,75 @@ struct PaneSplitOutResult: Equatable, Sendable {
     let sourceWindowShouldClose: Bool
 }
 
+enum GridFocus: String, Equatable, Sendable {
+    case source
+    case first
+    case last
+}
+
+struct GridApplicationResult: Equatable, Sendable {
+    let worklaneID: WorklaneID
+    let sourcePaneID: PaneID
+    let createdPaneIDs: [PaneID]
+}
+
+enum GridApplicationError: LocalizedError {
+    case invalidDimensions
+    case tooManyCells
+    case sourcePaneNotFound
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidDimensions:
+            "Grid dimensions must be positive."
+        case .tooManyCells:
+            "Grid dimensions may create at most 36 panes."
+        case .sourcePaneNotFound:
+            "Source pane is not in the active worklane."
+        }
+    }
+}
+
+enum GridLaunchCommandError: LocalizedError {
+    case emptyCommand
+    case unsupportedToken(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyCommand:
+            "Missing grid launch command."
+        case .unsupportedToken:
+            "Grid launch command tokens may not contain newlines."
+        }
+    }
+}
+
+enum GridLaunchCommandBuilder {
+    private static let bareTokenScalars = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_@%+=:,./-")
+
+    static func command(from tokens: [String]) throws -> String {
+        let normalized = tokens.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard normalized.contains(where: { !$0.isEmpty }) else {
+            throw GridLaunchCommandError.emptyCommand
+        }
+        for token in tokens where token.contains("\n") || token.contains("\r") {
+            throw GridLaunchCommandError.unsupportedToken(token)
+        }
+        return tokens.map(shellQuote).joined(separator: " ")
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        if canUseBareToken(value) {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private static func canUseBareToken(_ value: String) -> Bool {
+        !value.isEmpty && value.unicodeScalars.allSatisfy { bareTokenScalars.contains($0) }
+    }
+}
+
 struct PaneBorderContextDisplayModel: Equatable, Sendable {
     let text: String
     /// True when this pane is the recorded leader of a Claude Code agent
@@ -802,6 +871,143 @@ final class WorklaneStore {
         return newPaneID
     }
 
+    @discardableResult
+    func applyGrid(
+        sourcePaneID: PaneID,
+        rows: Int,
+        columns: Int,
+        command: String?,
+        includeSource: Bool,
+        focus: GridFocus
+    ) throws -> GridApplicationResult {
+        guard rows > 0, columns > 0 else {
+            throw GridApplicationError.invalidDimensions
+        }
+        let cellCount = rows * columns
+        guard cellCount <= 36 else {
+            throw GridApplicationError.tooManyCells
+        }
+        guard let startingWorklane = activeWorklane,
+              startingWorklane.paneStripState.panes.contains(where: { $0.id == sourcePaneID }) else {
+            throw GridApplicationError.sourcePaneNotFound
+        }
+
+        if startingWorklane.paneStripState.panes.count > 1 {
+            transferPaneToNewWorklane(
+                paneID: sourcePaneID,
+                singleColumnWidth: layoutContext.singlePaneWidth
+            )
+        }
+
+        guard var worklane = activeWorklane,
+              let sourcePane = worklane.paneStripState.panes.first(where: { $0.id == sourcePaneID }) else {
+            throw GridApplicationError.sourcePaneNotFound
+        }
+
+        let readableWidth = layoutContext.sizing.readableWidth(
+            for: layoutContext.viewportWidth,
+            leadingVisibleInset: layoutContext.leadingVisibleInset
+        )
+        let totalSpacing = layoutContext.sizing.interPaneSpacing * CGFloat(max(0, columns - 1))
+        let columnWidth = max(1, (readableWidth - totalSpacing) / CGFloat(columns))
+        let launchRequest = command.map {
+            TerminalSessionRequest(command: $0)
+        }
+
+        var panes: [PaneState] = {
+            var pane = sourcePane
+            pane.width = columnWidth
+            if includeSource {
+                applySessionRequestOverride(launchRequest, to: &pane)
+            }
+            return [pane]
+        }()
+        var createdPaneIDs: [PaneID] = []
+        panes.reserveCapacity(cellCount)
+
+        while panes.count < cellCount {
+            var pane = makePane(in: &worklane, existingPaneCount: panes.count)
+            pane.width = columnWidth
+            applySessionRequestOverride(launchRequest, to: &pane)
+            createdPaneIDs.append(pane.id)
+            panes.append(pane)
+        }
+
+        var rebuiltColumns: [PaneColumnState] = []
+        rebuiltColumns.reserveCapacity(columns)
+        var usedColumnIDs: Set<PaneColumnID> = []
+        let previousColumns = worklane.paneStripState.columns
+        for columnIndex in 0..<columns {
+            let start = columnIndex * rows
+            let end = min(start + rows, panes.count)
+            let paneSlice = Array(panes[start..<end])
+            guard let firstPane = paneSlice.first else {
+                continue
+            }
+            let preferredID = columnIndex < previousColumns.count
+                ? previousColumns[columnIndex].id
+                : runtimeIdentity.makeColumnID()
+            let columnID = uniqueGridColumnID(preferredID, usedColumnIDs: &usedColumnIDs)
+            let focusedPaneID = paneSlice.contains(where: { $0.id == sourcePaneID })
+                ? sourcePaneID
+                : firstPane.id
+            rebuiltColumns.append(
+                PaneColumnState(
+                    id: columnID,
+                    panes: paneSlice,
+                    width: columnWidth,
+                    paneHeights: Array(repeating: 1, count: paneSlice.count),
+                    focusedPaneID: focusedPaneID,
+                    lastFocusedPaneID: focusedPaneID
+                )
+            )
+        }
+
+        let focusPaneID: PaneID = switch focus {
+        case .source, .first:
+            panes[0].id
+        case .last:
+            panes[panes.count - 1].id
+        }
+        let focusedColumnID = rebuiltColumns.first { column in
+            column.panes.contains { $0.id == focusPaneID }
+        }?.id ?? rebuiltColumns.first?.id
+
+        worklane.paneStripState = PaneStripState(
+            columns: rebuiltColumns,
+            focusedColumnID: focusedColumnID,
+            layoutSizing: layoutContext.sizing
+        )
+        worklane.paneStripState.focusPane(id: focusPaneID)
+        activeWorklane = worklane
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(activeWorklaneID))
+        notify(.layoutResized(activeWorklaneID, animation: .splitCurve))
+
+        return GridApplicationResult(
+            worklaneID: activeWorklaneID,
+            sourcePaneID: sourcePaneID,
+            createdPaneIDs: createdPaneIDs
+        )
+    }
+
+    private func uniqueGridColumnID(
+        _ preferredID: PaneColumnID,
+        usedColumnIDs: inout Set<PaneColumnID>
+    ) -> PaneColumnID {
+        if !usedColumnIDs.contains(preferredID) {
+            usedColumnIDs.insert(preferredID)
+            return preferredID
+        }
+        while true {
+            let candidate = runtimeIdentity.makeColumnID()
+            if !usedColumnIDs.contains(candidate) {
+                usedColumnIDs.insert(candidate)
+                return candidate
+            }
+        }
+    }
+
     func markDividerInteraction(_ divider: PaneDivider) {
         guard var worklane = activeWorklane else {
             return
@@ -1367,7 +1573,8 @@ final class WorklaneStore {
         selectWorklane(id: worklanes[previousIndex].id)
     }
 
-    func createWorklane() {
+    @discardableResult
+    func createWorklane() -> WorklaneID {
         let previousPaneRef = currentPaneReference
         let id = runtimeIdentity.makeWorklaneID()
         let workingDirectory = resolveWorkingDirectoryForNewWorklane()
@@ -1391,6 +1598,40 @@ final class WorklaneStore {
         recordFocusTransition(from: previousPaneRef)
         refreshLastFocusedLocalWorkingDirectory()
         notify(.worklaneListChanged)
+        return id
+    }
+
+    func gridWindowWorkspaceState(
+        inheritingFrom sourcePaneID: PaneID,
+        destinationWindowID: WindowID
+    ) -> WindowWorkspaceState? {
+        guard let sourceWorklane = worklanes.first(where: { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == sourcePaneID })
+        }) else {
+            return nil
+        }
+
+        let launchContext = resolveLaunchContext(for: sourcePaneID, in: sourceWorklane)
+        let workingDirectory: String
+        if let launchContext, launchContext.scope != .remote {
+            workingDirectory = launchContext.path
+        } else {
+            workingDirectory = lastFocusedLocalWorkingDirectory ?? Self.defaultWorkingDirectory()
+        }
+
+        let worklaneID = runtimeIdentity.makeWorklaneID()
+        let worklane = Self.makeDefaultWorklane(
+            id: worklaneID,
+            title: "",
+            windowID: destinationWindowID,
+            layoutContext: layoutContext,
+            workingDirectory: workingDirectory,
+            surfaceContext: .window,
+            processEnvironment: processEnvironment,
+            runtimeIdentity: runtimeIdentity,
+            agentTeamsEnabled: agentTeamsEnabledProvider()
+        )
+        return WindowWorkspaceState(worklanes: [worklane], activeWorklaneID: worklaneID)
     }
 
     @discardableResult

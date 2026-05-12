@@ -4,6 +4,131 @@ import XCTest
 @testable import Zentty
 
 final class TmuxCompatCLITests: XCTestCase {
+    func test_real_cli_grid_help_prints_grid_usage_and_flags() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["grid", "--help"]
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        let stdout = String(
+            data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        let stderr = String(
+            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertTrue(stdout.contains("USAGE: zentty grid"))
+        XCTAssertTrue(stdout.contains("--new-only"))
+        XCTAssertTrue(stdout.contains("--include-source"))
+        XCTAssertTrue(stdout.contains("--focus"))
+        XCTAssertTrue(stdout.contains("--window-id <window-id|new>"))
+        XCTAssertTrue(stdout.contains("--worklane-id <worklane-id|new>"))
+        XCTAssertTrue(stdout.contains("ROWSxCOLUMNS"))
+        XCTAssertEqual(stderr, "")
+    }
+
+    func test_real_cli_grid_forwards_dimensions_focus_and_passthrough_command_to_all_panes_by_default() throws {
+        let server = try TmuxCaptureServer(
+            response: AgentIPCResponse(id: "grid-1", ok: true, result: nil)
+        )
+        defer { server.invalidate() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = [
+            "grid", "3x2",
+            "--focus", "last",
+            "--",
+            "codex", "--model", "gpt-5.2",
+        ]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_WINDOW_ID"] = "window-main"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment["ZENTTY_PANE_TOKEN"] = "token-main"
+        process.environment = environment
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "grid")
+        XCTAssertTrue(request.expectsResponse)
+        XCTAssertEqual(
+            request.arguments,
+            [
+                "--rows", "3",
+                "--columns", "2",
+                "--focus", "last",
+                "--command-json", "[\"codex\",\"--model\",\"gpt-5.2\"]",
+            ]
+        )
+    }
+
+    func test_real_cli_grid_forwards_new_destinations_and_new_only() throws {
+        let server = try TmuxCaptureServer(
+            response: AgentIPCResponse(id: "grid-2", ok: true, result: nil)
+        )
+        defer { server.invalidate() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = [
+            "grid", "2x2",
+            "--window-id", "new",
+            "--worklane-id", "new",
+            "--new-only",
+            "--",
+            "claude", "--dangerously-skip-permissions",
+        ]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_WINDOW_ID"] = "window-main"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment["ZENTTY_PANE_TOKEN"] = "token-main"
+        process.environment = environment
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "grid")
+        XCTAssertEqual(
+            request.arguments,
+            [
+                "--rows", "2",
+                "--columns", "2",
+                "--new-only",
+                "--focus", "source",
+                "--new-window",
+                "--new-worklane",
+                "--command-json", "[\"claude\",\"--dangerously-skip-permissions\"]",
+            ]
+        )
+    }
+
     func test_real_cli_tmux_compat_forwards_subcommand_and_args() throws {
         let server = try TmuxCaptureServer(
             response: AgentIPCResponse(
@@ -154,7 +279,13 @@ final class TmuxCompatCLITests: XCTestCase {
                 .appendingPathComponent("zentty", isDirectory: false)
                 .path
         }
-        throw XCTSkip("BUILT_PRODUCTS_DIR is unavailable.")
+        let fallback = Bundle(for: Self.self).bundleURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("zentty", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: fallback.path) else {
+            throw XCTSkip("Built zentty CLI is unavailable.")
+        }
+        return fallback.path
     }
 }
 

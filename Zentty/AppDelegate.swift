@@ -676,6 +676,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         paneNotificationCoordinator.deliver(request)
     }
 
+    @discardableResult
+    func createGridWindow(
+        inheritingFrom sourceController: MainWindowController,
+        sourcePaneID: PaneID,
+        rows: Int,
+        columns: Int,
+        command: String?,
+        includeSource: Bool,
+        focus: GridFocus
+    ) throws -> GridApplicationResult? {
+        let destinationWindowID = makeWindowID()
+        guard let workspaceState = sourceController.gridWindowWorkspaceState(
+            inheritingFrom: sourcePaneID,
+            destinationWindowID: destinationWindowID
+        ),
+              let destinationWorklaneID = workspaceState.activeWorklaneID,
+              let destinationPaneID = workspaceState.worklanes
+                .first(where: { $0.id == destinationWorklaneID })?
+                .paneStripState
+                .focusedPaneID else {
+            return nil
+        }
+
+        let destinationController = makeWindowController(
+            windowID: destinationWindowID,
+            initialWorkspaceState: workspaceState
+        )
+        destinationController.showSplitOutWindow(cascadingFrom: sourceController.window.frame)
+        destinationController.focusPane(id: destinationPaneID, in: destinationWorklaneID)
+        let result = try destinationController.applyGrid(
+            sourcePaneID: destinationPaneID,
+            rows: rows,
+            columns: columns,
+            command: command,
+            includeSource: includeSource,
+            focus: focus
+        )
+        if includeSource, let command {
+            _ = destinationController.sendText(
+                TerminalCommandSubmission.submittedText(for: command),
+                to: result.sourcePaneID
+            )
+        }
+        scheduleWorkspaceSnapshotSave()
+        return result
+    }
+
     func windowController(with windowID: WindowID) -> MainWindowController? {
         windowControllers.values.first { $0.windowID == windowID }
     }

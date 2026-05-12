@@ -918,6 +918,44 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @discardableResult
+    func applyGrid(
+        sourcePaneID: PaneID,
+        rows: Int,
+        columns: Int,
+        command: String?,
+        includeSource: Bool,
+        focus: GridFocus
+    ) throws -> GridApplicationResult {
+        try rootViewController.applyGrid(
+            sourcePaneID: sourcePaneID,
+            rows: rows,
+            columns: columns,
+            command: command,
+            includeSource: includeSource,
+            focus: focus
+        )
+    }
+
+    @discardableResult
+    func createWorklaneForGrid() -> (worklaneID: WorklaneID, paneID: PaneID)? {
+        let worklaneID = rootViewController.createWorklaneForGrid()
+        guard let paneID = rootViewController.focusedPaneID() else {
+            return nil
+        }
+        return (worklaneID, paneID)
+    }
+
+    func gridWindowWorkspaceState(
+        inheritingFrom sourcePaneID: PaneID,
+        destinationWindowID: WindowID
+    ) -> WindowWorkspaceState? {
+        rootViewController.gridWindowWorkspaceState(
+            inheritingFrom: sourcePaneID,
+            destinationWindowID: destinationWindowID
+        )
+    }
+
+    @discardableResult
     func launchDeferredPane(id paneID: PaneID, nativeCommand: String) -> Bool {
         rootViewController.launchDeferredPane(id: paneID, nativeCommand: nativeCommand)
     }

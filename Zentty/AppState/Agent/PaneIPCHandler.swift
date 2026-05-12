@@ -3,6 +3,7 @@ import Foundation
 
 enum PaneIPCSubcommand: String {
     case split
+    case grid
     case list
     case focus
     case close
@@ -10,6 +11,142 @@ enum PaneIPCSubcommand: String {
     case layout
     case notify
     case worklaneColor = "worklane-color"
+}
+
+enum PaneGridIPCError: LocalizedError {
+    case missingValue(String)
+    case invalidValue(String, String)
+    case invalidCommandJSON
+    case unexpectedArgument(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingValue(let option):
+            return "Missing value for \(option)."
+        case .invalidValue(let option, let value):
+            return "Invalid value for \(option): \(value)."
+        case .invalidCommandJSON:
+            return "Invalid grid command payload."
+        case .unexpectedArgument(let argument):
+            return "Unexpected grid argument: \(argument)."
+        }
+    }
+}
+
+private struct PaneGridIPCOptions {
+    enum Destination: Equatable {
+        case current
+        case newWorklane
+        case newWindow
+    }
+
+    let rows: Int
+    let columns: Int
+    let command: String?
+    let includeSource: Bool
+    let focus: GridFocus
+    let destination: Destination
+
+    static func parse(arguments: [String]) throws -> PaneGridIPCOptions {
+        var rows: Int?
+        var columns: Int?
+        var commandTokens: [String] = []
+        var includeSource = true
+        var focus = GridFocus.source
+        var newWorklane = false
+        var newWindow = false
+        var index = 0
+
+        while index < arguments.count {
+            let argument = arguments[index]
+            switch argument {
+            case "--rows":
+                rows = try positiveIntegerValue(after: argument, in: arguments, at: index)
+                index += 2
+            case "--columns":
+                columns = try positiveIntegerValue(after: argument, in: arguments, at: index)
+                index += 2
+            case "--command-json":
+                let valueIndex = index + 1
+                guard arguments.indices.contains(valueIndex) else {
+                    throw PaneGridIPCError.missingValue(argument)
+                }
+                guard let data = arguments[valueIndex].data(using: .utf8),
+                      let decoded = try? JSONDecoder().decode([String].self, from: data) else {
+                    throw PaneGridIPCError.invalidCommandJSON
+                }
+                commandTokens = decoded
+                index += 2
+            case "--include-source":
+                includeSource = true
+                index += 1
+            case "--new-only":
+                includeSource = false
+                index += 1
+            case "--new-worklane":
+                newWorklane = true
+                index += 1
+            case "--new-window":
+                newWindow = true
+                index += 1
+            case "--focus":
+                let valueIndex = index + 1
+                guard arguments.indices.contains(valueIndex) else {
+                    throw PaneGridIPCError.missingValue(argument)
+                }
+                let raw = arguments[valueIndex]
+                guard let parsed = GridFocus(rawValue: raw) else {
+                    throw PaneGridIPCError.invalidValue(argument, raw)
+                }
+                focus = parsed
+                index += 2
+            default:
+                throw PaneGridIPCError.unexpectedArgument(argument)
+            }
+        }
+
+        guard let rows else {
+            throw PaneGridIPCError.missingValue("--rows")
+        }
+        guard let columns else {
+            throw PaneGridIPCError.missingValue("--columns")
+        }
+
+        let command = commandTokens.isEmpty
+            ? nil
+            : try GridLaunchCommandBuilder.command(from: commandTokens)
+        let destination: Destination = if newWindow {
+            .newWindow
+        } else if newWorklane {
+            .newWorklane
+        } else {
+            .current
+        }
+        return PaneGridIPCOptions(
+            rows: rows,
+            columns: columns,
+            command: command,
+            includeSource: includeSource,
+            focus: focus,
+            destination: destination
+        )
+    }
+
+    private static func positiveIntegerValue(
+        after option: String,
+        in arguments: [String],
+        at index: Int
+    ) throws -> Int {
+        let valueIndex = index + 1
+        guard arguments.indices.contains(valueIndex) else {
+            throw PaneGridIPCError.missingValue(option)
+        }
+        let raw = arguments[valueIndex]
+        guard let value = Int(raw), value > 0 else {
+            throw PaneGridIPCError.invalidValue(option, raw)
+        }
+        return value
+    }
 }
 
 enum PaneNotificationIPCError: LocalizedError {
@@ -143,6 +280,13 @@ enum PaneIPCHandler {
         switch subcommand {
         case .split:
             return handleSplit(arguments: request.arguments, windowController: windowController)
+        case .grid:
+            return try handleGrid(
+                arguments: request.arguments,
+                target: target,
+                windowController: windowController,
+                appDelegate: appDelegate
+            )
         case .list:
             return handleList(target: target, windowController: windowController)
         case .focus:
@@ -158,6 +302,62 @@ enum PaneIPCHandler {
         case .worklaneColor:
             return handleWorklaneColor(arguments: request.arguments, target: target, windowController: windowController)
         }
+    }
+
+    @MainActor
+    private static func handleGrid(
+        arguments: [String],
+        target: AgentIPCTarget,
+        windowController: MainWindowController,
+        appDelegate: AppDelegate
+    ) throws -> AgentIPCResponseResult {
+        let options = try PaneGridIPCOptions.parse(arguments: arguments)
+        switch options.destination {
+        case .current:
+            let result = try windowController.applyGrid(
+                sourcePaneID: target.paneID,
+                rows: options.rows,
+                columns: options.columns,
+                command: options.command,
+                includeSource: false,
+                focus: options.focus
+            )
+            if options.includeSource, let command = options.command {
+                _ = windowController.sendText(
+                    TerminalCommandSubmission.submittedText(for: command),
+                    to: result.sourcePaneID
+                )
+            }
+        case .newWorklane:
+            guard let source = windowController.createWorklaneForGrid() else {
+                throw GridApplicationError.sourcePaneNotFound
+            }
+            let result = try windowController.applyGrid(
+                sourcePaneID: source.paneID,
+                rows: options.rows,
+                columns: options.columns,
+                command: options.command,
+                includeSource: options.includeSource,
+                focus: options.focus
+            )
+            if options.includeSource, let command = options.command {
+                _ = windowController.sendText(
+                    TerminalCommandSubmission.submittedText(for: command),
+                    to: result.sourcePaneID
+                )
+            }
+        case .newWindow:
+            _ = try appDelegate.createGridWindow(
+                inheritingFrom: windowController,
+                sourcePaneID: target.paneID,
+                rows: options.rows,
+                columns: options.columns,
+                command: options.command,
+                includeSource: options.includeSource,
+                focus: options.focus
+            )
+        }
+        return AgentIPCResponseResult()
     }
 
     @MainActor

@@ -48,6 +48,12 @@ struct TerminalSessionRequest: Equatable, Sendable {
     }
 }
 
+enum TerminalCommandSubmission {
+    static func submittedText(for command: String) -> String {
+        command + "\r"
+    }
+}
+
 struct TerminalSurfaceActivity: Equatable, Sendable {
     var keepsRuntimeLive: Bool
     var isVisible: Bool
