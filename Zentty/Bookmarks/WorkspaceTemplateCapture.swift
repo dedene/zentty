@@ -1,6 +1,8 @@
 import Foundation
 
 enum WorkspaceTemplateCapture {
+    typealias ProcessTreeProvider = (Int32) -> TaskManagerProcessTree?
+
     private static let shellProcessNames: Set<String> = [
         "zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh",
         "-zsh", "-bash", "-sh", "-fish", "-dash", "-ksh", "-tcsh", "-csh",
@@ -10,14 +12,16 @@ enum WorkspaceTemplateCapture {
     static func capture(
         worklane: WorklaneState,
         kind: WorkspaceTemplate.Kind,
-        name: String
+        name: String,
+        processTreeProvider: ProcessTreeProvider? = nil
     ) -> WorkspaceTemplate {
         let columns = worklane.paneStripState.columns.map { column -> WorkspaceTemplate.Column in
             let panes = column.panes.map { pane -> WorkspaceTemplate.Pane in
                 makePane(
                     pane: pane,
                     auxiliary: worklane.auxiliaryStateByPaneID[pane.id],
-                    kind: kind
+                    kind: kind,
+                    processTreeProvider: processTreeProvider
                 )
             }
             return WorkspaceTemplate.Column(
@@ -50,7 +54,8 @@ enum WorkspaceTemplateCapture {
     private static func makePane(
         pane: PaneState,
         auxiliary: PaneAuxiliaryState?,
-        kind: WorkspaceTemplate.Kind
+        kind: WorkspaceTemplate.Kind,
+        processTreeProvider: ProcessTreeProvider?
     ) -> WorkspaceTemplate.Pane {
         let workingDirectory: String? = {
             guard kind == .bookmark else {
@@ -65,7 +70,7 @@ enum WorkspaceTemplateCapture {
             id: pane.id.rawValue,
             titleSeed: trimmed(auxiliary?.presentation.rememberedTitle) ?? trimmed(pane.title),
             workingDirectory: workingDirectory,
-            command: detectedCommand(auxiliary: auxiliary),
+            command: detectedCommand(auxiliary: auxiliary, processTreeProvider: processTreeProvider),
             environment: WorklaneSessionEnvironment.templateSafeOverrides(
                 from: pane.sessionRequest.environmentVariables
             ),
@@ -73,13 +78,52 @@ enum WorkspaceTemplateCapture {
         )
     }
 
-    private static func detectedCommand(auxiliary: PaneAuxiliaryState?) -> String? {
+    private static func detectedCommand(
+        auxiliary: PaneAuxiliaryState?,
+        processTreeProvider: ProcessTreeProvider?
+    ) -> String? {
         let processName = trimmed(auxiliary?.metadata?.processName)
-        guard let processName,
-              !shellProcessNames.contains(processName.lowercased()) else {
+        if let processName, !isShellProcessName(processName) {
+            return processName
+        }
+
+        guard auxiliary?.shellActivityState == .commandRunning else {
             return nil
         }
-        return processName
+
+        return runningCommandTitle(auxiliary: auxiliary)
+            ?? runningChildProcessName(auxiliary: auxiliary, processTreeProvider: processTreeProvider)
+    }
+
+    private static func runningCommandTitle(auxiliary: PaneAuxiliaryState?) -> String? {
+        guard let title = trimmed(auxiliary?.metadata?.title),
+              !isShellProcessName(title),
+              title != trimmed(auxiliary?.metadata?.currentWorkingDirectory)
+        else {
+            return nil
+        }
+        return title
+    }
+
+    private static func runningChildProcessName(
+        auxiliary: PaneAuxiliaryState?,
+        processTreeProvider: ProcessTreeProvider?
+    ) -> String? {
+        guard let rootPID = auxiliary?.raw.paneRootPID,
+              let processTree = processTreeProvider?(rootPID) else {
+            return nil
+        }
+
+        let descendants = processTree.processes
+            .filter { $0.pid != rootPID && !isShellProcessName($0.name) }
+            .sorted { $0.pid < $1.pid }
+
+        return descendants.first { $0.parentPID == rootPID }?.name
+            ?? descendants.first?.name
+    }
+
+    private static func isShellProcessName(_ value: String) -> Bool {
+        shellProcessNames.contains(value.lowercased())
     }
 
     static func longestCommonAncestor(of paths: [String]) -> String? {

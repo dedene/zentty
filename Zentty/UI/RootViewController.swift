@@ -2931,7 +2931,7 @@ private extension RootViewController {
             // Phase 4 will host the save sheet that captures cwds from the focused worklane.
             // For now, take focused worklane's panes' cwds as the binding target.
             guard let worklane = worklaneStore.focusedWorklaneSnapshot else { return }
-            let captured = WorkspaceTemplateCapture.capture(
+            let captured = captureWorkspaceTemplate(
                 worklane: worklane,
                 kind: .bookmark,
                 name: bookmark(name: template.name)
@@ -3022,7 +3022,7 @@ private extension RootViewController {
                 for: worklane,
                 kind: initialKind
             )
-            initialTemplate = WorkspaceTemplateCapture.capture(
+            initialTemplate = captureWorkspaceTemplate(
                 worklane: worklane,
                 kind: initialKind,
                 name: suggestedName
@@ -3091,7 +3091,7 @@ private extension RootViewController {
 
     private func silentlyUpdateBookmark(templateID: UUID, from worklane: WorklaneState) {
         guard let existing = bookmarkStore.template(withID: templateID) else { return }
-        let captured = WorkspaceTemplateCapture.capture(
+        let captured = captureWorkspaceTemplate(
             worklane: worklane,
             kind: existing.kind,
             name: existing.name
@@ -3123,6 +3123,22 @@ private extension RootViewController {
             return column
         }
         bookmarkStore.upsert(updated)
+    }
+
+    private func captureWorkspaceTemplate(
+        worklane: WorklaneState,
+        kind: WorkspaceTemplate.Kind,
+        name: String
+    ) -> WorkspaceTemplate {
+        let sampler = TaskManagerProcessSampler()
+        return WorkspaceTemplateCapture.capture(
+            worklane: worklane,
+            kind: kind,
+            name: name,
+            processTreeProvider: { rootPID in
+                sampler.sample(rootPID: rootPID)
+            }
+        )
     }
 }
 

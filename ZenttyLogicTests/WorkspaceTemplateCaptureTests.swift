@@ -90,6 +90,87 @@ final class WorkspaceTemplateCaptureTests: XCTestCase {
         }
     }
 
+    func test_capture_uses_running_shell_title_as_command_when_process_is_shell() {
+        let worklane = makeWorklane(
+            panes: [
+                paneFixture(
+                    id: "p1",
+                    cwd: "/Users/peter/proj",
+                    title: "npm run dev",
+                    processName: "zsh",
+                    shellActivityState: .commandRunning
+                ),
+            ],
+            color: nil
+        )
+
+        let template = WorkspaceTemplateCapture.capture(
+            worklane: worklane,
+            kind: .bookmark,
+            name: "Dev"
+        )
+
+        XCTAssertEqual(template.allPanes.first?.command, "npm run dev")
+    }
+
+    func test_capture_does_not_use_directory_title_as_running_command() {
+        let worklane = makeWorklane(
+            panes: [
+                paneFixture(
+                    id: "p1",
+                    cwd: "/Users/peter/proj",
+                    title: "/Users/peter/proj",
+                    processName: "zsh",
+                    shellActivityState: .commandRunning
+                ),
+            ],
+            color: nil
+        )
+
+        let template = WorkspaceTemplateCapture.capture(
+            worklane: worklane,
+            kind: .bookmark,
+            name: "Dev"
+        )
+
+        XCTAssertNil(template.allPanes.first?.command)
+    }
+
+    func test_capture_uses_direct_child_process_when_shell_metadata_has_no_command_title() {
+        let worklane = makeWorklane(
+            panes: [
+                paneFixture(
+                    id: "p1",
+                    cwd: "/Users/peter/proj",
+                    processName: "zsh",
+                    paneRootPID: 100,
+                    shellActivityState: .commandRunning
+                ),
+            ],
+            color: nil
+        )
+        let processTree = TaskManagerProcessTree(
+            rootPID: 100,
+            processes: [
+                TaskManagerProcessMetric(pid: 100, parentPID: nil, name: "zsh", cpuPercent: 0, memoryBytes: 10),
+                TaskManagerProcessMetric(pid: 101, parentPID: 100, name: "xcodebuild", cpuPercent: 0, memoryBytes: 20),
+                TaskManagerProcessMetric(pid: 102, parentPID: 101, name: "swift-frontend", cpuPercent: 0, memoryBytes: 30),
+            ],
+            networkBytesPerSecond: nil
+        )
+
+        let template = WorkspaceTemplateCapture.capture(
+            worklane: worklane,
+            kind: .bookmark,
+            name: "Build",
+            processTreeProvider: { pid in
+                pid == 100 ? processTree : nil
+            }
+        )
+
+        XCTAssertEqual(template.allPanes.first?.command, "xcodebuild")
+    }
+
     func test_capture_uses_remembered_title_as_title_seed_when_present() {
         let pane = paneFixture(id: "p1", cwd: "/Users/peter", processName: nil, rememberedTitle: "My favourite shell")
         let worklane = makeWorklane(panes: [pane], color: nil)
@@ -131,8 +212,11 @@ final class WorkspaceTemplateCaptureTests: XCTestCase {
     private func paneFixture(
         id: String,
         cwd: String,
+        title: String? = nil,
         processName: String?,
         rememberedTitle: String? = nil,
+        paneRootPID: Int32? = nil,
+        shellActivityState: PaneShellActivityState = .unknown,
         environment: [String: String] = [:]
     ) -> PaneFixture {
         let paneID = PaneID(id)
@@ -145,7 +229,7 @@ final class WorkspaceTemplateCaptureTests: XCTestCase {
             )
         )
         let metadata = TerminalMetadata(
-            title: nil,
+            title: title,
             currentWorkingDirectory: cwd,
             processName: processName,
             gitBranch: nil
@@ -154,7 +238,11 @@ final class WorkspaceTemplateCaptureTests: XCTestCase {
         presentation.cwd = cwd
         presentation.rememberedTitle = rememberedTitle
         let auxiliary = PaneAuxiliaryState(
-            metadata: metadata,
+            raw: PaneRawState(
+                metadata: metadata,
+                paneRootPID: paneRootPID,
+                shellActivityState: shellActivityState
+            ),
             presentation: presentation
         )
         return PaneFixture(pane: pane, auxiliary: auxiliary)
