@@ -728,6 +728,9 @@ struct NotifyCommand: ParsableCommand {
     @Option(name: .long, help: "Optional notification subtitle.")
     var subtitle: String?
 
+    @Option(name: .long, help: "Optional notification body.")
+    var body: String?
+
     @Flag(name: .long, help: "Do not add the notification to Zentty's inbox.")
     var noInbox = false
 
@@ -745,10 +748,14 @@ struct NotifyCommand: ParsableCommand {
             throw ValidationError("Missing notification title.")
         }
         let subtitle = trimmed(subtitle)
+        let body = trimmed(body)
 
         var arguments = ["--title", title]
         if let subtitle {
             arguments.append(contentsOf: ["--subtitle", subtitle])
+        }
+        if let body {
+            arguments.append(contentsOf: ["--body", body])
         }
         if noInbox {
             arguments.append("--no-inbox")

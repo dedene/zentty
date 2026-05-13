@@ -265,6 +265,54 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertEqual(request.standardInput, payload)
     }
 
+    func test_real_cli_notify_forwards_body_to_pane_ipc() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let body = """
+        mise ERROR No version is set for shim: codex
+        Set a global default version with mise use -g node@22.22.1
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = [
+            "notify",
+            "--title", "Codex failed to start",
+            "--subtitle", "mise ERROR No version is set for shim: codex",
+            "--body", body,
+            "--silent",
+        ]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        process.environment = environment
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+        process.standardInput = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest { request in
+            AgentIPCResponse(id: request.id, ok: true, result: AgentIPCResponseResult(), error: nil)
+        }
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "notify")
+        XCTAssertEqual(
+            request.arguments,
+            [
+                "--title", "Codex failed to start",
+                "--subtitle", "mise ERROR No version is set for shim: codex",
+                "--body", body,
+                "--silent",
+            ]
+        )
+    }
+
     func test_real_cli_gemini_hook_forwards_payload_to_gemini_adapter_and_returns_empty_json() throws {
         let server = try IPCRequestCaptureServer()
         defer { server.invalidate() }
@@ -457,6 +505,147 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertEqual(try harness.readArgumentCalls(named: "cli-args.log"), [["launch", "codex", "hello"]])
         XCTAssertEqual(try harness.readLines(named: "cli-env.log"), [harness.cliPath])
         XCTAssertTrue(try harness.readLines(named: "real-args.log").isEmpty)
+    }
+
+    func test_launch_command_reports_inactive_mise_shim_before_bootstrap() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let fakeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let shimDirectory = fakeRoot
+            .appendingPathComponent("mise", isDirectory: true)
+            .appendingPathComponent("shims", isDirectory: true)
+        let miseDirectory = fakeRoot.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: miseDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fakeRoot) }
+
+        let codexShim = shimDirectory.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 99\n".write(to: codexShim, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: codexShim.path)
+
+        let mise = miseDirectory.appendingPathComponent("mise", isDirectory: false)
+        try """
+        #!/bin/sh
+        echo 'mise ERROR No version is set for shim: codex' >&2
+        echo 'Set a global default version with mise use -g node@22.22.1' >&2
+        exit 1
+        """.write(to: mise, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mise.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["launch", "codex"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = [shimDirectory.path, miseDirectory.path, "/usr/bin", "/bin"].joined(separator: ":")
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment.removeValue(forKey: "ZENTTY_CLI_BIN")
+        process.environment = environment
+        process.standardInput = Pipe()
+        process.standardOutput = Pipe()
+        let stderr = Pipe()
+        process.standardError = stderr
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        let stderrString = String(
+            data: stderr.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertNotEqual(process.terminationStatus, 0)
+        XCTAssertTrue(stderrString.contains("mise ERROR No version is set for shim: codex"), stderrString)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "notify")
+        XCTAssertTrue(request.arguments.contains("Codex failed to start"), request.arguments.joined(separator: " "))
+        XCTAssertTrue(request.arguments.contains("mise ERROR No version is set for shim: codex"), request.arguments.joined(separator: " "))
+    }
+
+    func test_launch_command_resolves_active_mise_shim_before_bootstrap() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let fakeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let shimDirectory = fakeRoot
+            .appendingPathComponent("mise", isDirectory: true)
+            .appendingPathComponent("shims", isDirectory: true)
+        let miseDirectory = fakeRoot.appendingPathComponent("bin", isDirectory: true)
+        let realBinDirectory = fakeRoot.appendingPathComponent("real-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: miseDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: realBinDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fakeRoot) }
+
+        let codexShim = shimDirectory.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 99\n".write(to: codexShim, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: codexShim.path)
+
+        let realCodex = realBinDirectory.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 42\n".write(to: realCodex, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realCodex.path)
+
+        let mise = miseDirectory.appendingPathComponent("mise", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "which" ] && [ "$2" = "codex" ]; then
+          printf '%s\\n' '\(realCodex.path)'
+          exit 0
+        fi
+        exit 1
+        """.write(to: mise, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mise.path)
+
+        let process = Process()
+        let cliPath = try builtCLIPath()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = ["launch", "codex", "hello"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = [shimDirectory.path, miseDirectory.path, "/usr/bin", "/bin"].joined(separator: ":")
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment.removeValue(forKey: "ZENTTY_CLI_BIN")
+        process.environment = environment
+        process.standardInput = Pipe()
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest { request in
+            AgentIPCResponse(
+                id: request.id,
+                ok: true,
+                result: AgentIPCResponseResult(
+                    launchPlan: AgentLaunchPlan(
+                        executablePath: "/usr/bin/true",
+                        arguments: [],
+                        setEnvironment: [:],
+                        unsetEnvironment: [],
+                        preLaunchActions: []
+                    )
+                ),
+                error: nil
+            )
+        }
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .bootstrap)
+        XCTAssertEqual(request.tool, .codex)
+        XCTAssertEqual(request.environment["ZENTTY_REAL_BINARY"], realCodex.path)
+        XCTAssertEqual(
+            request.environment["ZENTTY_CLI_BIN"],
+            URL(fileURLWithPath: cliPath).resolvingSymlinksInPath().standardizedFileURL.path
+        )
     }
 
     func test_launch_command_forwards_invoking_cli_path_when_environment_omits_cli_bin() throws {

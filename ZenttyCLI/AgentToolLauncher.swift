@@ -7,7 +7,16 @@ struct AgentToolLauncher {
     let environment: [String: String]
 
     func run() throws {
-        let executablePath = try findRealBinary()
+        var executablePath = try findRealBinary()
+        switch resolveMiseShimIfNeeded(executablePath) {
+        case .success(let resolvedPath):
+            executablePath = resolvedPath
+        case .failure(let diagnostic):
+            failLaunch(with: diagnostic)
+        case .none:
+            break
+        }
+
         let directEnvironment = directEnvironmentPatch()
 
         guard shouldAttemptBootstrap,
@@ -134,6 +143,124 @@ struct AgentToolLauncher {
         }
 
         throw POSIXError(.ENOENT)
+    }
+
+    private func resolveMiseShimIfNeeded(_ executablePath: String) -> Result<String, LaunchFailureDiagnostic>? {
+        guard isMiseShimPath(executablePath) else {
+            return nil
+        }
+
+        let binaryName = URL(fileURLWithPath: executablePath).lastPathComponent
+        let result = runMiseWhich(binaryName: binaryName)
+        if result.exitCode == 0, let resolvedPath = result.stdout.nonBlankFirstLine {
+            return .success(resolvedPath)
+        }
+
+        let message = result.stderr.nonBlank
+            ?? result.stdout.nonBlank
+            ?? "mise which \(binaryName) failed with exit code \(result.exitCode)."
+        return .failure(LaunchFailureDiagnostic(message: message, exitCode: result.exitCode))
+    }
+
+    private func isMiseShimPath(_ executablePath: String) -> Bool {
+        let components = URL(fileURLWithPath: executablePath)
+            .standardizedFileURL
+            .pathComponents
+
+        guard components.count >= 2 else {
+            return false
+        }
+
+        for index in 0..<(components.count - 1) {
+            if components[index] == "mise", components[index + 1] == "shims" {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func runMiseWhich(binaryName: String) -> ProcessOutput {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["mise", "which", binaryName]
+        process.environment = environment
+        process.standardInput = Pipe()
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return ProcessOutput(
+                exitCode: 127,
+                stdout: "",
+                stderr: "mise which \(binaryName) failed: \(error.localizedDescription)"
+            )
+        }
+
+        return ProcessOutput(
+            exitCode: process.terminationStatus,
+            stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
+    }
+
+    private func failLaunch(with diagnostic: LaunchFailureDiagnostic) -> Never {
+        let message = diagnostic.message.hasSuffix("\n")
+            ? diagnostic.message
+            : diagnostic.message + "\n"
+        FileHandle.standardError.write(Data(message.utf8))
+        sendLaunchFailureNotification(message: diagnostic.message)
+        Darwin.exit(diagnostic.exitCode == 0 ? 1 : diagnostic.exitCode)
+    }
+
+    private func sendLaunchFailureNotification(message: String) {
+        guard let socketPath = environment["ZENTTY_INSTANCE_SOCKET"]?.nonEmpty,
+              IPCCommand.hasRequiredRoutingEnvironment(environment) else {
+            return
+        }
+
+        let summary = message.nonBlankFirstLine ?? "\(toolDisplayName) failed to start."
+        let request = AgentIPCRequest(
+            kind: .pane,
+            arguments: [
+                "--title", "\(toolDisplayName) failed to start",
+                "--subtitle", summary,
+                "--body", message,
+            ],
+            standardInput: nil,
+            environment: IPCCommand.forwardedEnvironment(from: environment),
+            expectsResponse: false,
+            subcommand: "notify"
+        )
+        _ = try? AgentIPCClient.send(request: request, socketPath: socketPath)
+    }
+
+    private var toolDisplayName: String {
+        switch tool {
+        case .claude:
+            return "Claude"
+        case .codex:
+            return "Codex"
+        case .copilot:
+            return "Copilot"
+        case .cursor:
+            return "Cursor"
+        case .droid:
+            return "Droid"
+        case .gemini:
+            return "Gemini"
+        case .kimi:
+            return "Kimi"
+        case .opencode:
+            return "OpenCode"
+        case .pi:
+            return "Pi"
+        }
     }
 
     private func bootstrapEnvironment(realBinaryPath: String) -> [String: String] {
@@ -345,8 +472,31 @@ private struct EnvironmentPatch {
     var unset: [String] = []
 }
 
+private struct LaunchFailureDiagnostic: Error {
+    let message: String
+    let exitCode: Int32
+}
+
+private struct ProcessOutput {
+    let exitCode: Int32
+    let stdout: String
+    let stderr: String
+}
+
 private extension String {
     var nonEmpty: String? {
         isEmpty ? nil : self
+    }
+
+    var nonBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var nonBlankFirstLine: String? {
+        split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .compactMap(\.nonBlank)
+            .first
     }
 }

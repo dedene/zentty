@@ -169,12 +169,14 @@ enum PaneNotificationIPCError: LocalizedError {
 private struct PaneNotificationIPCOptions {
     let title: String
     let subtitle: String?
+    let body: String?
     let includeInbox: Bool
     let isSilent: Bool
 
     static func parse(arguments: [String]) throws -> PaneNotificationIPCOptions {
         var title: String?
         var subtitle: String?
+        var body: String?
         var includeInbox = true
         var isSilent = false
         var index = 0
@@ -196,6 +198,13 @@ private struct PaneNotificationIPCOptions {
                 }
                 subtitle = trimmed(arguments[valueIndex])
                 index += 2
+            case "--body":
+                let valueIndex = index + 1
+                guard arguments.indices.contains(valueIndex) else {
+                    throw PaneNotificationIPCError.missingValue(argument)
+                }
+                body = trimmed(arguments[valueIndex])
+                index += 2
             case "--no-inbox":
                 includeInbox = false
                 index += 1
@@ -214,6 +223,7 @@ private struct PaneNotificationIPCOptions {
         return PaneNotificationIPCOptions(
             title: title,
             subtitle: subtitle,
+            body: body,
             includeInbox: includeInbox,
             isSilent: isSilent
         )
@@ -375,6 +385,7 @@ enum PaneIPCHandler {
             PaneNotificationRequest(
                 title: options.title,
                 subtitle: options.subtitle,
+                body: options.body,
                 includeInbox: options.includeInbox,
                 isSilent: options.isSilent,
                 windowID: windowID,

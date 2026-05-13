@@ -95,6 +95,37 @@ final class PaneNotificationCoordinatorTests: XCTestCase {
         XCTAssertEqual(store.notifications.first?.primaryText, "Notification from pane.")
     }
 
+    func test_deliver_uses_body_as_inbox_detail_when_present() {
+        let recorder = PaneNotificationRecorder()
+        let store = NotificationStore()
+        let coordinator = PaneNotificationCoordinator(
+            center: recorder,
+            notificationStore: store,
+            configStore: nil
+        )
+        let body = """
+        mise ERROR No version is set for shim: codex
+        Set a global default version with mise use -g node@22.22.1
+        """
+
+        coordinator.deliver(
+            PaneNotificationRequest(
+                title: "Codex failed to start",
+                subtitle: "mise ERROR No version is set for shim: codex",
+                body: body,
+                includeInbox: true,
+                isSilent: false,
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            )
+        )
+
+        XCTAssertEqual(recorder.requests.first?.body, body)
+        XCTAssertEqual(store.notifications.first?.statusText, "Codex failed to start")
+        XCTAssertEqual(store.notifications.first?.primaryText, body)
+    }
+
     func test_deliver_keeps_multiple_inbox_items_from_same_pane_unresolved() {
         let recorder = PaneNotificationRecorder()
         let store = NotificationStore()
