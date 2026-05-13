@@ -970,4 +970,114 @@ final class WorkspaceRecipeTests: XCTestCase {
             ]
         )
     }
+
+    func test_exporter_persists_idle_codex_restore_draft_after_visible_status_expires() {
+        let paneID = PaneID("pane-agent")
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let expiredAt = startedAt.addingTimeInterval(PaneAgentReducerState.idleVisibilityWindow + 10)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("main"),
+                paneID: paneID,
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-codex",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("main"),
+                paneID: paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-codex",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("main"),
+                paneID: paneID,
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-codex",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(2)
+        )
+        reducerState.sweep(now: expiredAt, isProcessAlive: { $0 == 4242 })
+
+        XCTAssertNil(reducerState.reducedStatus(now: expiredAt))
+        XCTAssertEqual(reducerState.sessionsByID["session-codex"]?.trackedPID, 4242)
+
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Codex")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        agentStatus: reducerState.reducedStatus(now: expiredAt),
+                        agentReducerState: reducerState
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { $0 == 4242 }
+        )
+
+        XCTAssertEqual(
+            drafts?.paneDrafts,
+            [
+                PaneRestoreDraft(
+                    paneID: "pane-agent",
+                    kind: .agentResume,
+                    toolName: "Codex",
+                    sessionID: "session-codex",
+                    workingDirectory: "/tmp/project",
+                    trackedPID: 4242
+                )
+            ]
+        )
+    }
 }

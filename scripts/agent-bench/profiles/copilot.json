@@ -18,6 +18,9 @@
       "--allow-all-paths",
       "--output-format",
       "json"
+    ],
+    "restore_launch": [
+      "--resume=237d8c32-2a27-4850-8da8-3a110f13682c"
     ]
   },
   "expectations": {
@@ -26,6 +29,10 @@
     },
     "approval": {
       "required_events": ["session-start", "user-prompt-submitted", "pre-tool-use"]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["--resume=237d8c32-2a27-4850-8da8-3a110f13682c"]]
     }
   },
   "input_by_scenario": {

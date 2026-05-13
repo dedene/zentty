@@ -31,6 +31,10 @@
     ],
     "question_interrupt": [
       "Ask me one short random question using the askuserquestion tool. Do not answer it yourself."
+    ],
+    "restore_launch": [
+      "resume",
+      "session-codex"
     ]
   },
   "expectations": {
@@ -63,6 +67,10 @@
     },
     "question_interrupt": {
       "required_events": ["session-start", "prompt-submit"]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["resume", "session-codex"]]
     }
   },
   "input_by_scenario": {

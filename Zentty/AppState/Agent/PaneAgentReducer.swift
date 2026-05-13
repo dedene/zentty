@@ -117,6 +117,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             }
 
             let shouldExpireIdle = session.state == .idle
+                && session.trackedPID == nil
                 && (session.idleVisibleUntil.map { now >= $0 } ?? false)
             let shouldExpireUnresolvedStop = session.state == .unresolvedStop
                 && (session.unresolvedStopVisibleUntil.map { now >= $0 } ?? false)
@@ -885,6 +886,14 @@ struct PaneAgentReducerState: Equatable, Sendable {
 
     private func resolvedSessionID(for payload: AgentStatusPayload, tool: AgentTool) -> String {
         if let sessionID = normalized(payload.sessionID) {
+            return sessionID
+        }
+
+        if let sessionID = sessionsByID.values
+            .filter({ $0.tool == tool && $0.sessionID != fallbackSessionID(for: tool) })
+            .sorted(by: Self.preferred(lhs:rhs:))
+            .first?
+            .sessionID {
             return sessionID
         }
 

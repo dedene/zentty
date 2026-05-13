@@ -75,6 +75,7 @@ class ScenarioExpectation:
     name: str
     required_events: list[str]
     required_terminal_phases: list[str] = dataclasses.field(default_factory=list)
+    required_bootstrap_arguments: list[list[str]] = dataclasses.field(default_factory=list)
     synthetic: bool = False
     fixture: str | None = None
     post_stop_notification_required: bool = False
@@ -250,6 +251,23 @@ def validate_scenario(agent: str, expectation: ScenarioExpectation, records: lis
             observed_counts[event] -= 1
         else:
             missing.append(event)
+    observed_bootstrap_arguments = [
+        bootstrap_arguments(record)
+        for record in records
+        if record.kind == "bootstrap" and record.agent == agent and record.scenario == expectation.name
+    ]
+    for required_arguments in expectation.required_bootstrap_arguments:
+        if required_arguments in observed_bootstrap_arguments:
+            continue
+        missing.append("bootstrap:" + " ".join(required_arguments))
+    if missing:
+        result_kind = "missing-bootstrap" if any(item.startswith("bootstrap:") for item in missing) else "missing-hook"
+    else:
+        result_kind = (
+            "bootstrap-pass"
+            if expectation.required_bootstrap_arguments and not expectation.required_events
+            else "hook-pass"
+        )
     return ScenarioResult(
         agent=agent,
         scenario=expectation.name,
@@ -257,8 +275,16 @@ def validate_scenario(agent: str, expectation: ScenarioExpectation, records: lis
         missing_events=missing,
         observed_events=observed_values,
         status="pass" if not missing else "fail",
-        result_kind="hook-pass" if not missing else "missing-hook",
+        result_kind=result_kind,
     )
+
+
+def bootstrap_arguments(record: TraceRecord) -> list[str]:
+    extra = record.extra if isinstance(record.extra, dict) else {}
+    arguments = extra.get("arguments")
+    if not isinstance(arguments, list):
+        return []
+    return [str(argument) for argument in arguments]
 
 
 def missing_required_terminal_phases(
@@ -294,7 +320,10 @@ def classify_completed_result(
 ) -> ScenarioResult:
     result = validate_scenario(agent, expectation, records)
     if not result.passed:
-        if bench_marker_observed(output):
+        if result.result_kind == "missing-bootstrap":
+            result.status = "fail"
+            result.detail = "restore launch command did not reach bootstrap with required arguments"
+        elif bench_marker_observed(output):
             result.passed = False
             result.status = "fail"
             result.detail = "bench command completed but required hooks were missing"
@@ -359,11 +388,12 @@ def classify_completed_result(
             if expectation.required_terminal_phases and not expectation.required_events
             else "required events observed"
         )
-    result.result_kind = (
-        "terminal-pass"
-        if expectation.required_terminal_phases and not expectation.required_events
-        else "hook-pass"
-    )
+    if result.result_kind != "bootstrap-pass":
+        result.result_kind = (
+            "terminal-pass"
+            if expectation.required_terminal_phases and not expectation.required_events
+            else "hook-pass"
+        )
     return result
 
 
@@ -415,17 +445,22 @@ def classify_timeout_result(
                 if expectation.required_terminal_phases and not expectation.required_events
                 else f"required events observed before {timeout}s timeout"
             )
-            partial.result_kind = (
-                "terminal-pass"
-                if expectation.required_terminal_phases and not expectation.required_events
-                else "hook-pass"
-            )
+            if partial.result_kind != "bootstrap-pass":
+                partial.result_kind = (
+                    "terminal-pass"
+                    if expectation.required_terminal_phases and not expectation.required_events
+                    else "hook-pass"
+                )
             partial.warnings.append("process timed out after required hooks were observed")
     elif bench_marker_observed(output):
         partial.passed = False
         partial.status = "fail"
         partial.detail = "bench command completed but required hooks were missing"
         partial.result_kind = "missing-hook"
+    elif partial.result_kind == "missing-bootstrap":
+        partial.passed = False
+        partial.status = "fail"
+        partial.detail = "restore launch command did not reach bootstrap with required arguments"
     elif matches_any(output, skip_patterns):
         partial.passed = not strict
         partial.status = "fail" if strict else "skip"
@@ -847,7 +882,18 @@ class CaptureServer:
             run_dir=self.run_dir,
             resources_dir=self.resources_dir,
         ).plan(request)
-        self.recorder.append(TraceRecord(kind="bootstrap", agent=tool, scenario=self.scenario, extra={"plan": plan}))
+        arguments = request.get("arguments") if isinstance(request.get("arguments"), list) else []
+        self.recorder.append(
+            TraceRecord(
+                kind="bootstrap",
+                agent=tool,
+                scenario=self.scenario,
+                extra={
+                    "arguments": [str(argument) for argument in arguments],
+                    "plan": plan,
+                },
+            )
+        )
         return {
             "version": 1,
             "id": request.get("id", ""),
@@ -905,6 +951,8 @@ class LaunchPlanner:
         executable = str(environment.get("ZENTTY_REAL_BINARY") or self.profile.command)
         arguments = [str(arg) for arg in request.get("arguments", [])]
         cli_path = str(environment.get("ZENTTY_CLI_BIN") or "")
+        if self.scenario == "restore_launch":
+            return self._launch_plan("/usr/bin/true", [], {"ZENTTY_AGENT_TOOL": self.profile.name})
         method = getattr(self, f"_plan_{self.profile.name}", self._direct_plan)
         return method(executable, arguments, environment, cli_path)
 
@@ -1138,6 +1186,10 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                 name=name,
                 required_events=list(value.get("required_events", [])),
                 required_terminal_phases=list(value.get("required_terminal_phases", [])),
+                required_bootstrap_arguments=[
+                    [str(argument) for argument in arguments]
+                    for arguments in value.get("required_bootstrap_arguments", [])
+                ],
                 synthetic=bool(value.get("synthetic", False)),
                 fixture=value.get("fixture"),
                 post_stop_notification_required=bool(value.get("post_stop_notification_required", False)),

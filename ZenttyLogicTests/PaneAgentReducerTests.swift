@@ -690,6 +690,88 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertEqual(status?.trackedPID, 4242)
     }
 
+    func test_nil_session_codex_turn_complete_does_not_replace_restorable_session() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .turnComplete,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(2)
+        )
+        reducerState.sessionsByID["session-1"]?.source = .inferred
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitAPI,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .turnComplete,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                sessionID: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(2.1)
+        )
+
+        let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(2.1))
+        XCTAssertEqual(status?.sessionID, "session-1")
+        XCTAssertEqual(status?.state, .idle)
+        XCTAssertEqual(status?.trackedPID, 4242)
+        XCTAssertNil(reducerState.sessionsByID["pane-codex"])
+    }
+
     func test_reduced_status_preserves_task_progress_across_lifecycle_updates() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()

@@ -103,6 +103,14 @@ class SyntheticScenarioTests(unittest.TestCase):
         self.assertEqual(stop_race.fixture, "claude_stop_then_late_notification.jsonl")
         self.assertTrue(stop_race.post_stop_notification_required)
 
+    def test_load_profiles_parses_restore_launch_bootstrap_requirements(self):
+        profile_dir = ROOT / "profiles"
+        profiles = agent_bench.load_profiles(profile_dir)
+        restore_launch = profiles["codex"].expectations["restore_launch"]
+
+        self.assertEqual(restore_launch.required_events, [])
+        self.assertEqual(restore_launch.required_bootstrap_arguments, [["resume", "session-codex"]])
+
     def test_stop_race_fixture_contains_late_notification_after_stop(self):
         fixture_path = ROOT / "fixtures" / "claude_stop_then_late_notification.jsonl"
         events = []
@@ -119,6 +127,47 @@ class SyntheticScenarioTests(unittest.TestCase):
 
 
 class ExpectationTests(unittest.TestCase):
+    def test_validation_reports_missing_required_bootstrap_arguments(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="restore_launch",
+            required_events=[],
+            required_bootstrap_arguments=[["resume", "session-codex"]],
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="bootstrap",
+                agent="codex",
+                scenario="restore_launch",
+                extra={"arguments": ["exec", "do work"]},
+            )
+        ]
+
+        result = agent_bench.validate_scenario("codex", scenario, observed)
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.missing_events, ["bootstrap:resume session-codex"])
+        self.assertEqual(result.result_kind, "missing-bootstrap")
+
+    def test_validation_marks_required_bootstrap_arguments_as_passed(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="restore_launch",
+            required_events=[],
+            required_bootstrap_arguments=[["resume", "session-codex"]],
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="bootstrap",
+                agent="codex",
+                scenario="restore_launch",
+                extra={"arguments": ["resume", "session-codex"]},
+            )
+        ]
+
+        result = agent_bench.validate_scenario("codex", scenario, observed)
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.result_kind, "bootstrap-pass")
+
     def test_validation_reports_missing_required_events(self):
         scenario = agent_bench.ScenarioExpectation(
             name="smoke",

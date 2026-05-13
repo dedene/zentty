@@ -16,6 +16,12 @@ Run live scenarios:
 python3 scripts/agent-bench/agent_bench.py run --agents all --scenarios smoke,approval
 ```
 
+Probe restored-agent launch wiring without model auth:
+
+```sh
+python3 scripts/agent-bench/agent_bench.py run --agents all --scenarios restore_launch --no-build
+```
+
 Useful options:
 
 - `--agents codex,claude` limits the agent set.
@@ -32,7 +38,8 @@ hook, and terminal observations.
 `summary.json` keeps the original pass/fail fields and adds:
 
 - `result_kind`: `hook-pass`, `process-timeout`, `agent-refusal`,
-  `auth-skip`, `missing-hook`, `scenario-skip`, or `binary-skip`.
+  `auth-skip`, `missing-hook`, `bootstrap-pass`, `missing-bootstrap`,
+  `scenario-skip`, or `binary-skip`.
 - `timeline`: relative-millisecond events for that scenario.
 - `terminal_observations`: advisory OSC title, OSC 9, and progress signals.
 - `warnings`: non-fatal diagnostics.

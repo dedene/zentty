@@ -8,11 +8,18 @@
       "--print",
       "--no-session",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "restore_launch": [
+      "-c"
     ]
   },
   "expectations": {
     "smoke": {
       "required_events": ["session.start", "agent.running", "agent.idle", "session.end"]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["-c"]]
     }
   },
   "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in"]

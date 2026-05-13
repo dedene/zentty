@@ -321,29 +321,97 @@ enum SessionRestoreDraftExporter {
         auxiliary: PaneAuxiliaryState,
         isProcessAlive: (Int32) -> Bool
     ) -> PaneRestoreDraft? {
-        guard let agentStatus = auxiliary.agentStatus else {
-            return nil
+        if let agentStatus = auxiliary.agentStatus,
+           let sessionID = trimmed(agentStatus.sessionID),
+           let trackedPID = agentStatus.trackedPID,
+           isProcessAlive(trackedPID) {
+            return PaneRestoreDraft(
+                paneID: paneID.rawValue,
+                kind: .agentResume,
+                toolName: agentStatus.tool.displayName,
+                sessionID: sessionID,
+                workingDirectory: workingDirectory(
+                    agentStatus: agentStatus,
+                    auxiliary: auxiliary,
+                    pane: pane,
+                    restoredDraft: nil
+                ),
+                trackedPID: trackedPID
+            )
         }
-        guard let sessionID = trimmed(agentStatus.sessionID) else {
-            return nil
-        }
-        guard let trackedPID = agentStatus.trackedPID, isProcessAlive(trackedPID) else {
+
+        guard let session = restorableHiddenSession(
+            in: auxiliary.agentReducerState,
+            isProcessAlive: isProcessAlive
+        ) else {
             return nil
         }
 
         return PaneRestoreDraft(
             paneID: paneID.rawValue,
             kind: .agentResume,
-            toolName: agentStatus.tool.displayName,
-            sessionID: sessionID,
+            toolName: session.tool.displayName,
+            sessionID: session.sessionID,
             workingDirectory: workingDirectory(
-                agentStatus: agentStatus,
+                agentStatus: auxiliary.agentStatus,
                 auxiliary: auxiliary,
                 pane: pane,
                 restoredDraft: nil
             ),
-            trackedPID: trackedPID
+            trackedPID: session.trackedPID ?? 0
         )
+    }
+
+    private static func restorableHiddenSession(
+        in reducerState: PaneAgentReducerState,
+        isProcessAlive: (Int32) -> Bool
+    ) -> PaneAgentSessionState? {
+        reducerState.sessionsByID.values
+            .filter { session in
+                guard trimmed(session.sessionID) != nil,
+                      let trackedPID = session.trackedPID,
+                      isProcessAlive(trackedPID) else {
+                    return false
+                }
+
+                switch session.state {
+                case .starting, .running, .needsInput, .idle:
+                    return AgentResumeCommandBuilder.command(for: PaneRestoreDraft(
+                        paneID: "",
+                        kind: .agentResume,
+                        toolName: session.tool.displayName,
+                        sessionID: session.sessionID,
+                        workingDirectory: nil,
+                        trackedPID: trackedPID
+                    )) != nil
+                case .unresolvedStop:
+                    return false
+                }
+            }
+            .sorted { lhs, rhs in
+                let lhsRank = restoreRank(for: lhs)
+                let rhsRank = restoreRank(for: rhs)
+                if lhsRank != rhsRank {
+                    return lhsRank < rhsRank
+                }
+                return lhs.updatedAt > rhs.updatedAt
+            }
+            .first
+    }
+
+    private static func restoreRank(for session: PaneAgentSessionState) -> Int {
+        switch session.state {
+        case .needsInput:
+            return 0
+        case .running:
+            return 1
+        case .starting:
+            return 2
+        case .idle:
+            return 3
+        case .unresolvedStop:
+            return 4
+        }
     }
 
     private static func workingDirectory(

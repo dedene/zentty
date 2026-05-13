@@ -11,6 +11,11 @@
     "approval": [
       "exec",
       "Run this exact shell command: touch ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ],
+    "restore_launch": [
+      "exec",
+      "-s",
+      "session-droid"
     ]
   },
   "expectations": {
@@ -19,6 +24,10 @@
     },
     "approval": {
       "required_events": ["SessionStart", "PreToolUse"]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["exec", "-s", "session-droid"]]
     }
   },
   "input_by_scenario": {},

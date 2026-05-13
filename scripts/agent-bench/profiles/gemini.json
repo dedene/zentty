@@ -18,6 +18,9 @@
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK",
       "--approval-mode",
       "default"
+    ],
+    "restore_launch": [
+      "--resume"
     ]
   },
   "expectations": {
@@ -26,6 +29,10 @@
     },
     "approval": {
       "required_events": ["SessionStart", "BeforeAgent", "Notification"]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["--resume"]]
     }
   },
   "input_by_scenario": {
