@@ -98,6 +98,10 @@ assert_equal(
   ["glitchtip-cli", "debug-files", "upload", "/tmp/build", "--org", "zenjoy", "--project", "zentty"],
   ReleaseAutomation.glitchtip_debug_files_upload_command(upload_root: "/tmp/build", org: "zenjoy", project: "zentty")
 )
+assert_equal(
+  ["codex", "exec", "--ephemeral", "--output-last-message", "/tmp/release-notes.md", "Draft notes"],
+  ReleaseAutomation.codex_release_notes_command(output_path: "/tmp/release-notes.md", prompt: "Draft notes")
+)
 
 error = assert_raises(ArgumentError) { ReleaseAutomation.validate_version!(channel: "stable", version: "1.2.3-beta.1") }
 assert_match(/Stable releases/, error.message)

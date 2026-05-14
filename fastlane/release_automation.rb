@@ -110,4 +110,8 @@ module ReleaseAutomation
 
     command
   end
+
+  def codex_release_notes_command(output_path:, prompt:)
+    ["codex", "exec", "--ephemeral", "--output-last-message", output_path, prompt]
+  end
 end

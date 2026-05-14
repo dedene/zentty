@@ -586,10 +586,10 @@ rescue JSON::ParserError => e
   UI.user_error!("Could not parse generated release notes: #{e.message}")
 end
 
-def draft_release_notes_with_claude(tag_name:, previous_tag_name:, fallback_text:)
+def draft_release_notes_with_codex(tag_name:, previous_tag_name:, fallback_text:)
   return fallback_text if ENV["ZENTTY_RELEASE_NOTES_AI"] == "0"
   return fallback_text if previous_tag_name.to_s.strip.empty?
-  return fallback_text unless command_success?("which", "claude")
+  return fallback_text unless command_success?("which", "codex")
 
   git_log = capture_command!(
     "git", "-C", PROJECT_ROOT, "log",
@@ -634,23 +634,29 @@ def draft_release_notes_with_claude(tag_name:, previous_tag_name:, fallback_text
     #{git_log}
   PROMPT
 
-  UI.message("Drafting release notes with Claude (#{previous_tag_name}..#{tag_name})...")
-  stdout, stderr, status = Open3.capture3(
-    "claude", "-p", prompt,
-    "--no-session-persistence",
-    chdir: PROJECT_ROOT
-  )
+  UI.message("Drafting release notes with Codex (#{previous_tag_name}..#{tag_name})...")
+  Tempfile.create(["zentty-codex-release-notes-", ".md"]) do |file|
+    output_path = file.path
+    file.close
 
-  if status.success? && !stdout.strip.empty?
-    UI.success("Claude drafted release notes (#{stdout.lines.count} lines)")
-    "#{stdout.strip}\n"
-  else
-    UI.important("Claude draft failed; falling back to GitHub-generated notes")
-    UI.important(stderr.strip[0..300]) unless stderr.strip.empty?
-    fallback_text
+    stdout, stderr, status = Open3.capture3(
+      *ReleaseAutomation.codex_release_notes_command(output_path: output_path, prompt: prompt),
+      chdir: PROJECT_ROOT
+    )
+    draft = File.read(output_path).strip
+
+    if status.success? && !draft.empty?
+      UI.success("Codex drafted release notes (#{draft.lines.count} lines)")
+      "#{draft}\n"
+    else
+      UI.important("Codex draft failed; falling back to GitHub-generated notes")
+      diagnostic = stderr.strip.empty? ? stdout.strip : stderr.strip
+      UI.important(diagnostic[0..300]) unless diagnostic.empty?
+      fallback_text
+    end
   end
 rescue StandardError => e
-  UI.important("Claude draft errored (#{e.message}); falling back to GitHub-generated notes")
+  UI.important("Codex draft errored (#{e.message}); falling back to GitHub-generated notes")
   fallback_text
 end
 
@@ -728,7 +734,7 @@ end
 def prepare_release_notes!(tag_name:, archive_basename:)
   previous_tag = previous_release_tag_for(tag_name)
   generated = generated_release_notes(tag_name: tag_name, previous_tag_name: previous_tag.to_s)
-  initial_text = draft_release_notes_with_claude(
+  initial_text = draft_release_notes_with_codex(
     tag_name: tag_name,
     previous_tag_name: previous_tag.to_s,
     fallback_text: generated
