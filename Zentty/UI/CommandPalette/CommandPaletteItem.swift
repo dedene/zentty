@@ -7,6 +7,7 @@ enum CommandPaletteItemID: Hashable {
     case worklaneColor(WorklaneColor?)
     case settings(SettingsSection)
     case pane(worklaneID: WorklaneID, paneID: PaneID)
+    case restoredCommand(paneID: PaneID)
 }
 
 enum CommandPaletteItemFamily: Hashable {
@@ -167,6 +168,25 @@ enum CommandPaletteItemBuilder {
                 rankingBoost: 0.05
             )
         }
+    }
+
+    static func buildRestoredCommandItem(
+        paneID: PaneID,
+        command: String
+    ) -> CommandPaletteItem {
+        CommandPaletteItem(
+            id: .restoredCommand(paneID: paneID),
+            title: "Run Last Command Again",
+            subtitle: command,
+            shortcutDisplay: nil,
+            category: "Pane",
+            searchText: [
+                "run last command again rerun repeat restored previous",
+                command,
+            ].joined(separator: " "),
+            iconSystemName: "arrow.clockwise",
+            rankingBoost: 0.2
+        )
     }
 
     static func buildPaneItems(

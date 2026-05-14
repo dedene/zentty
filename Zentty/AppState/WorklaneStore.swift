@@ -588,6 +588,36 @@ final class WorklaneStore {
         focusHistoryController.history.recentReferences(allPaneIDs: allLivePaneReferences)
     }
 
+    func restoredRerunnableCommand(for paneID: PaneID) -> String? {
+        guard let auxiliaryState = liveAuxiliaryState(for: paneID),
+              auxiliaryState.shellActivityState == .promptIdle,
+              auxiliaryState.terminalProgress?.state.indicatesActivity != true,
+              agentStatusAllowsRestoredCommand(auxiliaryState.agentStatus),
+              let command = Self.trimmedRestoredCommand(auxiliaryState.raw.restoredRerunnableCommand)
+        else {
+            return nil
+        }
+
+        return command
+    }
+
+    func consumeRestoredRerunnableCommand(for paneID: PaneID) {
+        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
+        }) else {
+            return
+        }
+
+        guard worklanes[worklaneIndex]
+            .auxiliaryStateByPaneID[paneID]?.raw.restoredRerunnableCommand != nil
+        else {
+            return
+        }
+
+        worklanes[worklaneIndex].auxiliaryStateByPaneID[paneID]?.raw.restoredRerunnableCommand = nil
+        notify(.auxiliaryStateUpdated(worklanes[worklaneIndex].id, paneID, .sidebar))
+    }
+
     private var paneReferencesInSidebarOrder: [PaneReference] {
         worklanes.flatMap { worklane in
             worklane.paneStripState.panes.map { pane in
@@ -2670,6 +2700,32 @@ final class WorklaneStore {
 
     private func pane(for paneID: PaneID, in worklane: WorklaneState) -> PaneState? {
         worklane.paneStripState.panes.first { $0.id == paneID }
+    }
+
+    private func liveAuxiliaryState(for paneID: PaneID) -> PaneAuxiliaryState? {
+        for worklane in worklanes {
+            guard worklane.paneStripState.panes.contains(where: { $0.id == paneID }) else {
+                continue
+            }
+            return worklane.auxiliaryStateByPaneID[paneID]
+        }
+        return nil
+    }
+
+    private func agentStatusAllowsRestoredCommand(_ status: PaneAgentStatus?) -> Bool {
+        guard let status else { return true }
+        switch status.state {
+        case .starting, .running, .needsInput:
+            return false
+        case .idle, .unresolvedStop:
+            return true
+        }
+    }
+
+    private static func trimmedRestoredCommand(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func defaultWorkingDirectory() -> String {

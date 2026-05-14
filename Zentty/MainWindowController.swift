@@ -486,6 +486,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func runLastCommandAgain(_ sender: Any?) {
+        let paneID = (sender as? NSMenuItem)?.representedObject as? PaneID
+        rootViewController.runLastCommandAgain(in: paneID)
+    }
+
+    @objc
     func addPaneLeft(_ sender: Any?) {
         handle(.pane(.splitBeforeFocusedPane))
     }

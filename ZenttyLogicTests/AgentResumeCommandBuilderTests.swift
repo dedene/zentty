@@ -164,4 +164,62 @@ final class AgentResumeCommandBuilderTests: XCTestCase {
 
         XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
     }
+
+    func test_builder_returns_gemini_resume_command_when_working_directory_exists_without_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-gemini",
+            kind: .agentResume,
+            toolName: "Gemini",
+            sessionID: "",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "gemini --resume"
+        )
+    }
+
+    func test_builder_returns_nil_for_gemini_when_working_directory_is_missing() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-gemini",
+            kind: .agentResume,
+            toolName: "Gemini",
+            sessionID: "",
+            workingDirectory: nil,
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
+    func test_builder_returns_pi_resume_command_when_working_directory_exists_without_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-pi",
+            kind: .agentResume,
+            toolName: "Pi",
+            sessionID: "",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "pi -c"
+        )
+    }
+
+    func test_builder_returns_nil_for_pi_when_working_directory_is_missing() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-pi",
+            kind: .agentResume,
+            toolName: "Pi",
+            sessionID: "",
+            workingDirectory: nil,
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
 }

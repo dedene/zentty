@@ -208,9 +208,9 @@ _zentty_preexec() {
     agent_tool="$(_zentty_agent_tool_for_command "$cmd" 2>/dev/null || true)"
     if ! _zentty_is_navigation_command "$cmd"; then
         if [[ -n "$agent_tool" ]]; then
-            _zentty_report_shell_activity running --tool "$agent_tool"
+            _zentty_report_shell_activity running --tool "$agent_tool" --command "$1"
         else
-            _zentty_report_shell_activity running
+            _zentty_report_shell_activity running --command "$1"
         fi
     fi
     # Set terminal title to the running command (first line only)

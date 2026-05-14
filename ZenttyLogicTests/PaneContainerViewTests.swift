@@ -1675,6 +1675,39 @@ final class PaneContainerViewTests: AppKitTestCase {
         )
     }
 
+    func test_context_menu_places_restored_command_rerun_first_when_available() throws {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let command = "pnpm start:staging\nnpm run smoke"
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        paneView.restoredRerunnableCommandProvider = { paneID in
+            paneID == pane.id ? command : nil
+        }
+
+        let menu = try XCTUnwrap(paneView.contextMenuForTesting())
+
+        XCTAssertEqual(menu.items[0].title, "Run Last Command Again")
+        XCTAssertEqual(menu.items[0].action, #selector(MainWindowController.runLastCommandAgain(_:)))
+        XCTAssertEqual(menu.items[0].representedObject as? PaneID, pane.id)
+        XCTAssertEqual(menu.items[0].toolTip, command)
+        XCTAssertNotNil(menu.items[0].image)
+        XCTAssertTrue(menu.items[1].isSeparatorItem)
+    }
+
     func test_context_menu_actions_route_directional_add_pane_selectors() throws {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")

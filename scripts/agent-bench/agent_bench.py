@@ -71,11 +71,18 @@ OSC_TERMINAL_PATTERN = re.compile(r"\x1b\](?P<code>0|2|9);(?P<text>[^\x07\x1b]*)
 
 
 @dataclasses.dataclass
+class SessionIdentityExpectation:
+    session_id_pattern: str
+    tracked_pid: bool = True
+
+
+@dataclasses.dataclass
 class ScenarioExpectation:
     name: str
     required_events: list[str]
     required_terminal_phases: list[str] = dataclasses.field(default_factory=list)
     required_bootstrap_arguments: list[list[str]] = dataclasses.field(default_factory=list)
+    session_identity: SessionIdentityExpectation | None = None
     synthetic: bool = False
     fixture: str | None = None
     post_stop_notification_required: bool = False
@@ -143,6 +150,7 @@ class ScenarioResult:
     terminal_phase_sequence: list[str] = dataclasses.field(default_factory=list)
     terminal_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     task_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    session_identity_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     timeline: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     rerun_command: str = ""
 
@@ -260,8 +268,12 @@ def validate_scenario(agent: str, expectation: ScenarioExpectation, records: lis
         if required_arguments in observed_bootstrap_arguments:
             continue
         missing.append("bootstrap:" + " ".join(required_arguments))
+    session_missing, session_observations = validate_session_identity(agent, expectation, records)
+    missing.extend(session_missing)
     if missing:
         result_kind = "missing-bootstrap" if any(item.startswith("bootstrap:") for item in missing) else "missing-hook"
+        if not any(item.startswith("bootstrap:") for item in missing) and session_missing and len(missing) == len(session_missing):
+            result_kind = "missing-session-identity"
     else:
         result_kind = (
             "bootstrap-pass"
@@ -276,6 +288,7 @@ def validate_scenario(agent: str, expectation: ScenarioExpectation, records: lis
         observed_events=observed_values,
         status="pass" if not missing else "fail",
         result_kind=result_kind,
+        session_identity_observations=session_observations,
     )
 
 
@@ -285,6 +298,112 @@ def bootstrap_arguments(record: TraceRecord) -> list[str]:
     if not isinstance(arguments, list):
         return []
     return [str(argument) for argument in arguments]
+
+
+def validate_session_identity(
+    agent: str,
+    expectation: ScenarioExpectation,
+    records: list[TraceRecord],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    if expectation.session_identity is None:
+        return ([], [])
+
+    observations = session_identity_observations_for_records(
+        agent,
+        expectation.name,
+        records,
+        expectation.session_identity.session_id_pattern,
+    )
+    missing: list[str] = []
+    if not any(observation.get("session_id_valid") is True for observation in observations):
+        missing.append(f"session-id:{expectation.session_identity.session_id_pattern}")
+    if expectation.session_identity.tracked_pid and not any(observation.get("tracked_pid") for observation in observations):
+        missing.append("tracked-pid")
+    return (missing, observations)
+
+
+def session_identity_observations_for_records(
+    agent: str,
+    scenario: str,
+    records: list[TraceRecord],
+    session_id_pattern: str,
+) -> list[dict[str, Any]]:
+    observations: list[dict[str, Any]] = []
+    for record in records:
+        if record.agent != agent or record.scenario != scenario or record.kind != "hook":
+            continue
+
+        payload = parse_json_object(record.standard_input)
+        session_id, session_source = extract_session_id(payload)
+        tracked_pid, pid_source = extract_tracked_pid(agent, payload, record.environment or {})
+        if session_id is None and tracked_pid is None:
+            continue
+
+        observation: dict[str, Any] = {"event": record.event_name or ""}
+        if session_id is not None:
+            observation["session_id"] = session_id
+            observation["session_id_pattern"] = session_id_pattern
+            observation["session_id_valid"] = session_id_matches_pattern(session_id, session_id_pattern)
+            observation["session_id_source"] = session_source
+        if tracked_pid is not None:
+            observation["tracked_pid"] = tracked_pid
+            observation["tracked_pid_source"] = pid_source
+        observations.append(observation)
+    return observations
+
+
+def extract_session_id(payload: dict[str, Any]) -> tuple[str | None, str | None]:
+    for key in ("session_id", "sessionId"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return (value.strip(), key)
+    session = payload.get("session")
+    if isinstance(session, dict):
+        value = session.get("id")
+        if isinstance(value, str) and value.strip():
+            return (value.strip(), "session.id")
+    return (None, None)
+
+
+def extract_tracked_pid(agent: str, payload: dict[str, Any], environment: dict[str, str]) -> tuple[int | None, str | None]:
+    expected_key = f"ZENTTY_{agent.upper()}_PID"
+    pid = parse_positive_int(environment.get(expected_key))
+    if pid is not None:
+        return (pid, expected_key)
+    payload_agent = payload.get("agent")
+    if isinstance(payload_agent, dict):
+        pid = parse_positive_int(payload_agent.get("pid"))
+        if pid is not None:
+            return (pid, "agent.pid")
+    return (None, None)
+
+
+def parse_positive_int(value: Any) -> int | None:
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.isdigit():
+            parsed = int(stripped)
+            return parsed if parsed > 0 else None
+    return None
+
+
+def session_id_matches_pattern(session_id: str, pattern: str) -> bool:
+    if pattern == "non-empty":
+        return bool(session_id.strip())
+    if pattern == "uuid":
+        return re.fullmatch(
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            session_id,
+        ) is not None
+    if pattern == "codex":
+        return session_id_matches_pattern(session_id, "uuid") or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", session_id) is not None
+    if pattern == "droid":
+        return re.fullmatch(r"[A-Za-z0-9_.:-]+", session_id) is not None
+    if pattern == "opencode":
+        return re.fullmatch(r"ses_[A-Za-z0-9]+", session_id) is not None
+    return False
 
 
 def missing_required_terminal_phases(
@@ -323,6 +442,9 @@ def classify_completed_result(
         if result.result_kind == "missing-bootstrap":
             result.status = "fail"
             result.detail = "restore launch command did not reach bootstrap with required arguments"
+        elif result.result_kind == "missing-session-identity":
+            result.status = "fail"
+            result.detail = "required hooks observed but resumable session identity was missing"
         elif bench_marker_observed(output):
             result.passed = False
             result.status = "fail"
@@ -452,15 +574,19 @@ def classify_timeout_result(
                     else "hook-pass"
                 )
             partial.warnings.append("process timed out after required hooks were observed")
+    elif partial.result_kind == "missing-bootstrap":
+        partial.passed = False
+        partial.status = "fail"
+        partial.detail = "restore launch command did not reach bootstrap with required arguments"
+    elif partial.result_kind == "missing-session-identity":
+        partial.passed = False
+        partial.status = "fail"
+        partial.detail = "required hooks observed but resumable session identity was missing"
     elif bench_marker_observed(output):
         partial.passed = False
         partial.status = "fail"
         partial.detail = "bench command completed but required hooks were missing"
         partial.result_kind = "missing-hook"
-    elif partial.result_kind == "missing-bootstrap":
-        partial.passed = False
-        partial.status = "fail"
-        partial.detail = "restore launch command did not reach bootstrap with required arguments"
     elif matches_any(output, skip_patterns):
         partial.passed = not strict
         partial.status = "fail" if strict else "skip"
@@ -1181,8 +1307,18 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
     profiles: dict[str, AgentProfile] = {}
     for profile_path in sorted(path.glob("*.json")):
         raw = json.loads(profile_path.read_text(encoding="utf-8"))
-        expectations = {
-            name: ScenarioExpectation(
+        expectations: dict[str, ScenarioExpectation] = {}
+        for name, value in raw.get("expectations", {}).items():
+            session_identity_raw = value.get("session_identity")
+            session_identity = None
+            if isinstance(session_identity_raw, dict):
+                session_id_pattern = session_identity_raw.get("session_id_pattern")
+                if isinstance(session_id_pattern, str) and session_id_pattern.strip():
+                    session_identity = SessionIdentityExpectation(
+                        session_id_pattern=session_id_pattern.strip(),
+                        tracked_pid=bool(session_identity_raw.get("tracked_pid", True)),
+                    )
+            expectations[name] = ScenarioExpectation(
                 name=name,
                 required_events=list(value.get("required_events", [])),
                 required_terminal_phases=list(value.get("required_terminal_phases", [])),
@@ -1190,12 +1326,11 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                     [str(argument) for argument in arguments]
                     for arguments in value.get("required_bootstrap_arguments", [])
                 ],
+                session_identity=session_identity,
                 synthetic=bool(value.get("synthetic", False)),
                 fixture=value.get("fixture"),
                 post_stop_notification_required=bool(value.get("post_stop_notification_required", False)),
             )
-            for name, value in raw.get("expectations", {}).items()
-        }
         profile = AgentProfile(
             name=raw["name"],
             command=raw["command"],
@@ -1649,6 +1784,13 @@ class BenchRunner:
                 )
                 suffix = "..." if len(result.task_observations) > 3 else ""
                 lines.append(f"  Tasks: {tasks}{suffix}")
+            if result.session_identity_observations:
+                identities = ", ".join(
+                    f"{item.get('event', 'hook')} session={item.get('session_id', '-')} pid={item.get('tracked_pid', '-')}"
+                    for item in result.session_identity_observations[:3]
+                )
+                suffix = "..." if len(result.session_identity_observations) > 3 else ""
+                lines.append(f"  Session identity: {identities}{suffix}")
             if result.rerun_command:
                 lines.append(f"  Rerun: {result.rerun_command}")
         (self.run_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

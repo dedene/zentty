@@ -22,6 +22,12 @@ Probe restored-agent launch wiring without model auth:
 python3 scripts/agent-bench/agent_bench.py run --agents all --scenarios restore_launch --no-build
 ```
 
+Verify live hooks contain the identity needed to create restore drafts:
+
+```sh
+python3 scripts/agent-bench/agent_bench.py run --agents all --scenarios session_capture --no-build --app-path /Applications/Zentty.app
+```
+
 Useful options:
 
 - `--agents codex,claude` limits the agent set.
@@ -39,9 +45,11 @@ hook, and terminal observations.
 
 - `result_kind`: `hook-pass`, `process-timeout`, `agent-refusal`,
   `auth-skip`, `missing-hook`, `bootstrap-pass`, `missing-bootstrap`,
-  `scenario-skip`, or `binary-skip`.
+  `missing-session-identity`, `scenario-skip`, or `binary-skip`.
 - `timeline`: relative-millisecond events for that scenario.
 - `terminal_observations`: advisory OSC title, OSC 9, and progress signals.
+- `session_identity_observations`: hook-provided session IDs and tracked PIDs
+  observed by `session_capture`.
 - `warnings`: non-fatal diagnostics.
 - `rerun_command`: a single-agent/single-scenario command using the same app.
 

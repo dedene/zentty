@@ -15,6 +15,7 @@ final class CommandPaletteController {
     var onSetWorklaneColor: ((WorklaneColor?) -> Void)?
     var onShowSettingsSection: ((SettingsSection) -> Void)?
     var onNavigateToPane: ((WorklaneID, PaneID) -> Void)?
+    var onRunRestoredCommand: ((PaneID) -> Void)?
 
     var isShown: Bool { panel != nil }
 
@@ -26,6 +27,7 @@ final class CommandPaletteController {
         availabilityContext: CommandAvailabilityContext,
         focusedPanePath: String?,
         focusedBranchName: String?,
+        focusedRestoredCommand: String? = nil,
         worklanes: [WorklaneState] = [],
         currentPaneReference: WorklaneStore.PaneReference? = nil,
         recentPaneReferences: [WorklaneStore.PaneReference] = [],
@@ -59,8 +61,17 @@ final class CommandPaletteController {
             worklanes: worklanes,
             currentPaneReference: currentPaneReference
         )
-        let allItems = commandItems + paneItems + settingsItems + openWithItems + worklaneColorItems
-        let emptyActionIDs = Self.emptyActionIDs
+        let restoredCommandItem = currentPaneReference.flatMap { reference in
+            focusedRestoredCommand.map {
+                CommandPaletteItemBuilder.buildRestoredCommandItem(
+                    paneID: reference.paneID,
+                    command: $0
+                )
+            }
+        }
+        let restoredCommandItems = restoredCommandItem.map { [$0] } ?? []
+        let allItems = restoredCommandItems + commandItems + paneItems + settingsItems + openWithItems + worklaneColorItems
+        let emptyActionIDs = restoredCommandItems.map(\.id) + Self.emptyActionIDs
         let recentPaneIDs = recentPaneReferences.map {
             CommandPaletteItemID.pane(worklaneID: $0.worklaneID, paneID: $0.paneID)
         }
@@ -211,6 +222,8 @@ final class CommandPaletteController {
             onShowSettingsSection?(section)
         case .pane(let worklaneID, let paneID):
             onNavigateToPane?(worklaneID, paneID)
+        case .restoredCommand(let paneID):
+            onRunRestoredCommand?(paneID)
         }
     }
 
@@ -260,7 +273,7 @@ final class CommandPaletteController {
 private extension CommandPaletteItemID {
     var shouldRecordAsRecentCommand: Bool {
         switch self {
-        case .pane:
+        case .pane, .restoredCommand:
             false
         case .command, .openWith, .worklaneColor, .settings:
             true

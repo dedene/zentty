@@ -800,6 +800,9 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.moveToWorklaneCatalogProvider = { [weak self] paneID in
             self?.moveToWorklaneCatalogProvider?(paneID)
         }
+        appCanvasView.paneStripView.restoredRerunnableCommandProvider = { [weak self] paneID in
+            self?.worklaneStore.restoredRerunnableCommand(for: paneID)
+        }
         appCanvasView.paneStripView.sidebarWidthProvider = { [weak self] in
             self?.sidebarMotionCoordinator.currentSidebarWidth ?? 0
         }
@@ -866,9 +869,17 @@ final class RootViewController: NSViewController {
         sidebarView.moveToWorklaneCatalogProvider = { [weak self] paneID in
             self?.moveToWorklaneCatalogProvider?(paneID)
         }
+        sidebarView.restoredRerunnableCommandProvider = { [weak self] paneID in
+            self?.worklaneStore.restoredRerunnableCommand(for: paneID)
+        }
         sidebarView.onMovePaneToNewWindowRequested = { [weak self] worklaneID, paneID in
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
             self?.onMovePaneToNewWindowRequested?(paneID)
+        }
+        sidebarView.onRunRestoredCommandRequested = { [weak self] worklaneID, paneID in
+            guard let self else { return }
+            self.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+            self.runLastCommandAgain(in: paneID)
         }
         sidebarView.onWorklaneColorChanged = { [weak self] worklaneID, color in
             self?.worklaneStore.setColor(color, on: worklaneID)
@@ -1034,6 +1045,9 @@ final class RootViewController: NSViewController {
             }
             commandPaletteController.onNavigateToPane = { [weak self] worklaneID, paneID in
                 self?.navigateToPaneFromCommandPalette(worklaneID: worklaneID, paneID: paneID)
+            }
+            commandPaletteController.onRunRestoredCommand = { [weak self] paneID in
+                self?.runLastCommandAgain(in: paneID)
             }
         }
         syncSidebarWidthToAvailableWidth(persist: false, forceLayout: false)
@@ -1563,6 +1577,10 @@ final class RootViewController: NSViewController {
             guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
         }()
+        let focusedRestoredCommand: String? = {
+            guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
+            return worklaneStore.restoredRerunnableCommand(for: paneID)
+        }()
 
         let openWithTargets =
             focusedOpenWithContext != nil
@@ -1576,6 +1594,7 @@ final class RootViewController: NSViewController {
             availabilityContext: availabilityContext,
             focusedPanePath: focusedPanePath,
             focusedBranchName: focusedBranchName,
+            focusedRestoredCommand: focusedRestoredCommand,
             worklanes: worklaneStore.worklanes,
             currentPaneReference: worklaneStore.currentPaneReferenceForCommandPalette,
             recentPaneReferences: worklaneStore.recentPaneReferencesForCommandPalette,
@@ -1597,6 +1616,37 @@ final class RootViewController: NSViewController {
             self.runtimeRegistry.runtime(for: paneID)?.forceViewportSync()
             self.runtimeRegistry.runtime(for: paneID)?.hostView.focusTerminalIfReady()
         }
+    }
+
+    @discardableResult
+    func runLastCommandAgain(in requestedPaneID: PaneID? = nil) -> Bool {
+        guard let paneID = requestedPaneID ?? worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
+              let command = worklaneStore.restoredRerunnableCommand(for: paneID),
+              let runtime = runtimeRegistry.runtime(for: paneID)
+        else {
+            showCommandFailureToast()
+            return false
+        }
+
+        if let worklaneID = worklaneID(containing: paneID) {
+            navigateToPane(worklaneID: worklaneID, paneID: paneID)
+            view.layoutSubtreeIfNeeded()
+            runtime.forceViewportSync()
+        }
+
+        runtime.adapter.sendText(TerminalCommandSubmission.submittedText(for: command))
+        worklaneStore.consumeRestoredRerunnableCommand(for: paneID)
+
+        DispatchQueue.main.async { [weak self] in
+            self?.runtimeRegistry.runtime(for: paneID)?.hostView.focusTerminalIfReady()
+        }
+        return true
+    }
+
+    private func showCommandFailureToast() {
+        let toast = PathCopiedToastView()
+        pathCopiedToastView = toast
+        toast.show(message: "Couldn’t run command", in: appCanvasView, theme: currentTheme)
     }
 
     private func openWithFromPalette(stableID: String, workingDirectory: String) {

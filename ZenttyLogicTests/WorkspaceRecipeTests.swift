@@ -354,6 +354,260 @@ final class WorkspaceRecipeTests: XCTestCase {
         XCTAssertEqual(pane.lastActivityTitle, "cmatrix -C cyan")
     }
 
+    func test_export_persists_last_run_command() throws {
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.WorkspaceRecipe.last-run-command", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: workingDirectory)
+        }
+
+        let paneID = PaneID("pane-main")
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(
+                        id: paneID,
+                        title: "shell",
+                        sessionRequest: TerminalSessionRequest(
+                            workingDirectory: workingDirectory.path,
+                            surfaceContext: .window
+                        ),
+                        width: 640
+                    )
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        metadata: TerminalMetadata(
+                            title: workingDirectory.path,
+                            currentWorkingDirectory: workingDirectory.path,
+                            processName: "zsh",
+                            gitBranch: nil
+                        ),
+                        lastRunCommand: "pnpm start:staging\nnpm run smoke"
+                    ),
+                    presentation: PanePresentationState(
+                        cwd: workingDirectory.path,
+                        lastActivityTitle: "pnpm start:staging"
+                    )
+                )
+            ]
+        )
+
+        let window = WorkspaceRecipeExporter.makeWindow(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        let pane = try XCTUnwrap(window.worklanes.first?.columns.first?.panes.first)
+        XCTAssertEqual(pane.lastRunCommand, "pnpm start:staging\nnpm run smoke")
+    }
+
+    func test_export_drops_last_run_command_for_remote_shell() throws {
+        let paneID = PaneID("pane-main")
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(
+                        id: paneID,
+                        title: "shell",
+                        sessionRequest: TerminalSessionRequest(
+                            workingDirectory: "/Users/peter",
+                            surfaceContext: .window
+                        ),
+                        width: 640
+                    )
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .remote,
+                            path: "/srv/app",
+                            home: "/home/peter",
+                            user: "peter",
+                            host: "example.com"
+                        ),
+                        lastRunCommand: "pnpm start:staging"
+                    ),
+                    presentation: PanePresentationState(cwd: "/srv/app")
+                )
+            ]
+        )
+
+        let window = WorkspaceRecipeExporter.makeWindow(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        let pane = try XCTUnwrap(window.worklanes.first?.columns.first?.panes.first)
+        XCTAssertNil(pane.workingDirectory)
+        XCTAssertNil(pane.lastRunCommand)
+    }
+
+    func test_import_restores_last_run_command_as_one_shot() throws {
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.WorkspaceRecipe.import-last-run-command", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: workingDirectory)
+        }
+
+        let window = WorkspaceRecipe.Window(
+            id: "window-main",
+            worklanes: [
+                WorkspaceRecipe.Worklane(
+                    id: "main",
+                    title: nil,
+                    nextPaneNumber: 2,
+                    focusedColumnID: "column-main",
+                    columns: [
+                        WorkspaceRecipe.Column(
+                            id: "column-main",
+                            width: 640,
+                            focusedPaneID: "pane-main",
+                            lastFocusedPaneID: "pane-main",
+                            paneHeights: [480],
+                            panes: [
+                                WorkspaceRecipe.Pane(
+                                    id: "pane-main",
+                                    titleSeed: "shell",
+                                    workingDirectory: workingDirectory.path,
+                                    lastActivityTitle: "pnpm start:staging",
+                                    lastRunCommand: "pnpm start:staging\nnpm run smoke"
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ],
+            activeWorklaneID: "main"
+        )
+
+        let restored = WorkspaceRecipeImporter.makeWorklanes(
+            from: window,
+            windowID: WindowID("window-main"),
+            layoutContext: .fallback,
+            processEnvironment: ["HOME": "/Users/peter", "USER": "peter"]
+        )
+
+        let pane = try XCTUnwrap(restored.worklanes[0].paneStripState.panes.first)
+        let auxiliary = try XCTUnwrap(restored.worklanes[0].auxiliaryStateByPaneID[pane.id])
+        XCTAssertEqual(auxiliary.raw.lastRunCommand, "pnpm start:staging\nnpm run smoke")
+        XCTAssertEqual(auxiliary.raw.restoredRerunnableCommand, "pnpm start:staging\nnpm run smoke")
+    }
+
+    func test_import_drops_rerunnable_command_when_working_directory_is_missing() throws {
+        let missingPath = "/path/that/does/not/exist/\(UUID().uuidString)"
+        let window = WorkspaceRecipe.Window(
+            id: "window-main",
+            worklanes: [
+                WorkspaceRecipe.Worklane(
+                    id: "main",
+                    title: nil,
+                    nextPaneNumber: 2,
+                    focusedColumnID: "column-main",
+                    columns: [
+                        WorkspaceRecipe.Column(
+                            id: "column-main",
+                            width: 640,
+                            focusedPaneID: "pane-main",
+                            lastFocusedPaneID: "pane-main",
+                            paneHeights: [480],
+                            panes: [
+                                WorkspaceRecipe.Pane(
+                                    id: "pane-main",
+                                    titleSeed: "shell",
+                                    workingDirectory: missingPath,
+                                    lastActivityTitle: "pnpm start:staging",
+                                    lastRunCommand: "pnpm start:staging"
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ],
+            activeWorklaneID: "main"
+        )
+
+        let restored = WorkspaceRecipeImporter.makeWorklanes(
+            from: window,
+            windowID: WindowID("window-main"),
+            layoutContext: .fallback,
+            processEnvironment: ["HOME": "/Users/peter", "USER": "peter"]
+        )
+
+        let pane = try XCTUnwrap(restored.worklanes[0].paneStripState.panes.first)
+        let auxiliary = try XCTUnwrap(restored.worklanes[0].auxiliaryStateByPaneID[pane.id])
+        XCTAssertEqual(auxiliary.presentation.statusText, "Original path unavailable")
+        XCTAssertNil(auxiliary.raw.lastRunCommand)
+        XCTAssertNil(auxiliary.raw.restoredRerunnableCommand)
+    }
+
+    func test_import_legacy_last_activity_status_is_not_rerunnable() throws {
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.WorkspaceRecipe.legacy-status-rerun", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: workingDirectory)
+        }
+
+        let window = WorkspaceRecipe.Window(
+            id: "window-main",
+            worklanes: [
+                WorkspaceRecipe.Worklane(
+                    id: "main",
+                    title: nil,
+                    nextPaneNumber: 2,
+                    focusedColumnID: "column-main",
+                    columns: [
+                        WorkspaceRecipe.Column(
+                            id: "column-main",
+                            width: 640,
+                            focusedPaneID: "pane-main",
+                            lastFocusedPaneID: "pane-main",
+                            paneHeights: [480],
+                            panes: [
+                                WorkspaceRecipe.Pane(
+                                    id: "pane-main",
+                                    titleSeed: "shell",
+                                    workingDirectory: workingDirectory.path,
+                                    lastActivityTitle: "\u{273b} we need to...me ago, somehow (Branch)"
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ],
+            activeWorklaneID: "main"
+        )
+
+        let restored = WorkspaceRecipeImporter.makeWorklanes(
+            from: window,
+            windowID: WindowID("window-main"),
+            layoutContext: .fallback,
+            processEnvironment: ["HOME": "/Users/peter", "USER": "peter"]
+        )
+
+        let pane = try XCTUnwrap(restored.worklanes[0].paneStripState.panes.first)
+        let auxiliary = try XCTUnwrap(restored.worklanes[0].auxiliaryStateByPaneID[pane.id])
+        XCTAssertEqual(auxiliary.presentation.lastActivityTitle, "\u{273b} we need to...me ago, somehow (Branch)")
+        XCTAssertNil(auxiliary.raw.restoredRerunnableCommand)
+    }
+
     func test_export_drops_restored_generated_pane_title_as_last_activity() throws {
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ZenttyTests.WorkspaceRecipe.generated-pane-last-activity", isDirectory: true)
@@ -765,7 +1019,7 @@ final class WorkspaceRecipeTests: XCTestCase {
                             updatedAt: Date(),
                             trackedPID: 4242,
                             workingDirectory: "/tmp/project",
-                            sessionID: "session-123"
+                            sessionID: "237d8c32-2a27-4850-8da8-3a110f13682c"
                         )
                     ),
                     presentation: PanePresentationState(cwd: "/tmp/project")
@@ -812,7 +1066,7 @@ final class WorkspaceRecipeTests: XCTestCase {
                             updatedAt: Date(),
                             trackedPID: 4242,
                             workingDirectory: "/tmp/project",
-                            sessionID: "session-123"
+                            sessionID: "237d8c32-2a27-4850-8da8-3a110f13682c"
                         )
                     ),
                     presentation: PanePresentationState(cwd: "/tmp/project")
@@ -833,7 +1087,164 @@ final class WorkspaceRecipeTests: XCTestCase {
                     paneID: "pane-agent",
                     kind: .agentResume,
                     toolName: "Claude Code",
-                    sessionID: "session-123",
+                    sessionID: "237d8c32-2a27-4850-8da8-3a110f13682c",
+                    workingDirectory: "/tmp/project",
+                    trackedPID: 4242
+                )
+            ]
+        )
+    }
+
+    func test_exporter_persists_pi_restore_draft_without_session_id_when_cwd_and_pid_exist() {
+        let paneID = PaneID("pane-pi")
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Pi")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        agentStatus: PaneAgentStatus(
+                            tool: .pi,
+                            state: .idle,
+                            text: nil,
+                            artifactLink: nil,
+                            updatedAt: Date(),
+                            trackedPID: 4242,
+                            workingDirectory: "/tmp/project",
+                            sessionID: nil
+                        )
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { $0 == 4242 }
+        )
+
+        XCTAssertEqual(
+            drafts?.paneDrafts,
+            [
+                PaneRestoreDraft(
+                    paneID: "pane-pi",
+                    kind: .agentResume,
+                    toolName: "Pi",
+                    sessionID: "",
+                    workingDirectory: "/tmp/project",
+                    trackedPID: 4242
+                )
+            ]
+        )
+    }
+
+    func test_exporter_skips_pi_restore_draft_without_session_id_when_cwd_is_missing() {
+        let paneID = PaneID("pane-pi")
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Pi")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        agentStatus: PaneAgentStatus(
+                            tool: .pi,
+                            state: .idle,
+                            text: nil,
+                            artifactLink: nil,
+                            updatedAt: Date(),
+                            trackedPID: 4242,
+                            workingDirectory: nil,
+                            sessionID: nil
+                        )
+                    )
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { $0 == 4242 }
+        )
+
+        XCTAssertNil(drafts)
+    }
+
+    func test_exporter_persists_gemini_restore_draft_without_session_id_when_cwd_and_pid_exist() {
+        let paneID = PaneID("pane-gemini")
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Gemini")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        agentStatus: PaneAgentStatus(
+                            tool: .gemini,
+                            state: .idle,
+                            text: nil,
+                            artifactLink: nil,
+                            updatedAt: Date(),
+                            trackedPID: 4242,
+                            workingDirectory: "/tmp/project",
+                            sessionID: nil
+                        )
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { $0 == 4242 }
+        )
+
+        XCTAssertEqual(
+            drafts?.paneDrafts,
+            [
+                PaneRestoreDraft(
+                    paneID: "pane-gemini",
+                    kind: .agentResume,
+                    toolName: "Gemini",
+                    sessionID: "",
                     workingDirectory: "/tmp/project",
                     trackedPID: 4242
                 )

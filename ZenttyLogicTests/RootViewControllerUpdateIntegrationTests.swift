@@ -78,6 +78,38 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         XCTAssertEqual(callCount, 0)
     }
 
+    func test_runLastCommandAgain_sendsSubmittedTextAndConsumesRestoredCommand() {
+        let adapter = RecordingRootTerminalAdapter()
+        let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
+        let controller = makeController(runtimeRegistry: registry)
+        controller.loadViewIfNeeded()
+        let paneID = PaneID("pane-main")
+        let command = "pnpm start:staging\nnpm run smoke"
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellActivityState: .promptIdle,
+                        restoredRerunnableCommand: command
+                    )
+                )
+            ]
+        )
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+
+        XCTAssertTrue(controller.runLastCommandAgain(in: paneID))
+        XCTAssertEqual(adapter.sentTexts, [TerminalCommandSubmission.submittedText(for: command)])
+
+        XCTAssertFalse(controller.runLastCommandAgain(in: paneID))
+        XCTAssertEqual(adapter.sentTexts.count, 1)
+    }
+
     func test_root_controller_global_search_aggregates_results_across_worklanes() {
         let controller = makeController()
         controller.loadViewIfNeeded()
@@ -219,4 +251,27 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         XCTAssertFalse(controller.isGlobalSearchHUDVisibleForTesting)
     }
 
+}
+
+private final class RecordingRootTerminalAdapter: TerminalAdapter {
+    var metadataDidChange: ((TerminalMetadata) -> Void)?
+    var eventDidOccur: ((TerminalEvent) -> Void)?
+    let hasScrollback = false
+    let cellWidth: CGFloat = 8
+    let cellHeight: CGFloat = 16
+    private(set) var sentTexts: [String] = []
+
+    func makeTerminalView() -> NSView {
+        NSView()
+    }
+
+    func startSession(using request: TerminalSessionRequest) throws {}
+
+    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {}
+
+    func sendText(_ text: String) {
+        sentTexts.append(text)
+    }
+
+    func close() {}
 }

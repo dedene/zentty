@@ -16,6 +16,18 @@
       "1.00",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
+    "session_capture": [
+      "--setting-sources",
+      "project,local",
+      "--print",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--include-hook-events",
+      "--max-budget-usd",
+      "1.00",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
     "approval": [
       "--setting-sources",
       "project,local",
@@ -33,6 +45,13 @@
   "expectations": {
     "smoke": {
       "required_events": ["SessionStart", "UserPromptSubmit", "Stop"]
+    },
+    "session_capture": {
+      "required_events": ["SessionStart", "UserPromptSubmit", "Stop"],
+      "session_identity": {
+        "session_id_pattern": "uuid",
+        "tracked_pid": true
+      }
     },
     "approval": {
       "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest"]

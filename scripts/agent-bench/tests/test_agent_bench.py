@@ -127,6 +127,14 @@ class SyntheticScenarioTests(unittest.TestCase):
 
 
 class ExpectationTests(unittest.TestCase):
+    def test_load_profiles_parses_session_identity_requirements(self):
+        profile_dir = ROOT / "profiles"
+        profiles = agent_bench.load_profiles(profile_dir)
+        session_capture = profiles["codex"].expectations["session_capture"]
+
+        self.assertEqual(session_capture.session_identity.session_id_pattern, "codex")
+        self.assertTrue(session_capture.session_identity.tracked_pid)
+
     def test_validation_reports_missing_required_bootstrap_arguments(self):
         scenario = agent_bench.ScenarioExpectation(
             name="restore_launch",
@@ -167,6 +175,122 @@ class ExpectationTests(unittest.TestCase):
 
         self.assertTrue(result.passed)
         self.assertEqual(result.result_kind, "bootstrap-pass")
+
+    def test_validation_reports_missing_session_identity(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="session_capture",
+            required_events=["session-start"],
+            session_identity=agent_bench.SessionIdentityExpectation(
+                session_id_pattern="codex",
+                tracked_pid=True,
+            ),
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="codex",
+                scenario="session_capture",
+                event_name="session-start",
+                standard_input='{"hook_event_name":"SessionStart"}',
+                environment={"ZENTTY_PANE_ID": "pane-1"},
+            )
+        ]
+
+        result = agent_bench.validate_scenario("codex", scenario, observed)
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "missing-session-identity")
+        self.assertEqual(result.missing_events, ["session-id:codex", "tracked-pid"])
+
+    def test_validation_accepts_session_identity_from_payload_and_environment(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="session_capture",
+            required_events=["session-start"],
+            session_identity=agent_bench.SessionIdentityExpectation(
+                session_id_pattern="codex",
+                tracked_pid=True,
+            ),
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="codex",
+                scenario="session_capture",
+                event_name="session-start",
+                standard_input='{"hook_event_name":"SessionStart","session_id":"019e213c-12ca-7bd2-8fa8-514563f745a6"}',
+                environment={"ZENTTY_CODEX_PID": "5925"},
+            )
+        ]
+
+        result = agent_bench.validate_scenario("codex", scenario, observed)
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.result_kind, "hook-pass")
+        self.assertEqual(
+            result.session_identity_observations,
+            [
+                {
+                    "event": "session-start",
+                    "session_id": "019e213c-12ca-7bd2-8fa8-514563f745a6",
+                    "session_id_pattern": "codex",
+                    "session_id_valid": True,
+                    "session_id_source": "session_id",
+                    "tracked_pid": 5925,
+                    "tracked_pid_source": "ZENTTY_CODEX_PID",
+                }
+            ],
+        )
+
+    def test_validation_accepts_nested_session_identity_from_payload(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="session_capture",
+            required_events=["session.start"],
+            session_identity=agent_bench.SessionIdentityExpectation(
+                session_id_pattern="opencode",
+                tracked_pid=True,
+            ),
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="opencode",
+                scenario="session_capture",
+                event_name="session.start",
+                standard_input='{"event":"session.start","session":{"id":"ses_ZenttyBenchRestore"},"agent":{"name":"OpenCode","pid":19405}}',
+            )
+        ]
+
+        result = agent_bench.validate_scenario("opencode", scenario, observed)
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.session_identity_observations[0]["session_id_source"], "session.id")
+        self.assertEqual(result.session_identity_observations[0]["tracked_pid_source"], "agent.pid")
+
+    def test_validation_ignores_pid_environment_for_other_agents(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="session_capture",
+            required_events=["SessionStart"],
+            session_identity=agent_bench.SessionIdentityExpectation(
+                session_id_pattern="uuid",
+                tracked_pid=True,
+            ),
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="claude",
+                scenario="session_capture",
+                event_name="SessionStart",
+                standard_input='{"hook_event_name":"SessionStart","session_id":"0943211c-e3cf-4327-9334-cdacb3f4ec29"}',
+                environment={"ZENTTY_CODEX_PID": "5925"},
+            )
+        ]
+
+        result = agent_bench.validate_scenario("claude", scenario, observed)
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.missing_events, ["tracked-pid"])
+        self.assertNotIn("tracked_pid", result.session_identity_observations[0])
 
     def test_validation_reports_missing_required_events(self):
         scenario = agent_bench.ScenarioExpectation(
@@ -624,6 +748,48 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(summary[0]["timeline"][0]["event"], "session-start")
         self.assertIn("Result kind: missing-hook", report)
         self.assertIn("Rerun: python3 scripts/agent-bench/agent_bench.py run --agents codex --scenarios approval", report)
+
+    def test_report_writes_session_identity_observations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = type(
+                "Args",
+                (),
+                {
+                    "run_dir": tmp,
+                    "app_path": "/tmp/Zentty.app",
+                    "no_build": True,
+                    "timeout": 30,
+                    "strict": False,
+                    "agents": "codex",
+                    "scenarios": "session_capture",
+                },
+            )()
+            runner = agent_bench.BenchRunner(args)
+            result = agent_bench.ScenarioResult(
+                agent="codex",
+                scenario="session_capture",
+                passed=True,
+                missing_events=[],
+                observed_events=["session-start"],
+                status="pass",
+                result_kind="hook-pass",
+                session_identity_observations=[
+                    {
+                        "event": "session-start",
+                        "session_id": "session-codex",
+                        "session_id_valid": True,
+                        "tracked_pid": 5925,
+                    }
+                ],
+            )
+
+            runner._write_report([result])
+
+            summary = json.loads((pathlib.Path(tmp) / "summary.json").read_text(encoding="utf-8"))
+            report = (pathlib.Path(tmp) / "report.md").read_text(encoding="utf-8")
+
+        self.assertEqual(summary[0]["session_identity_observations"][0]["session_id"], "session-codex")
+        self.assertIn("Session identity: session-start session=session-codex pid=5925", report)
 
     def test_self_test_rerun_command_uses_self_test_subcommand(self):
         args = type(

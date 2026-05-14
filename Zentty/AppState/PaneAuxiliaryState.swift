@@ -174,6 +174,8 @@ struct PaneRawState: Equatable, Sendable {
     var agentReducerState: PaneAgentReducerState = .init()
     var shellActivityState: PaneShellActivityState = .unknown
     var hasCommandHistory = false
+    var lastRunCommand: String?
+    var restoredRerunnableCommand: String?
     var terminalProgress: TerminalProgressReport?
     var restoredAgentRestoreDraft: PaneRestoreDraft?
     var restoredAgentAutoResumePending = false
@@ -196,6 +198,8 @@ struct PaneRawState: Equatable, Sendable {
         agentReducerState: PaneAgentReducerState = .init(),
         shellActivityState: PaneShellActivityState = .unknown,
         hasCommandHistory: Bool = false,
+        lastRunCommand: String? = nil,
+        restoredRerunnableCommand: String? = nil,
         terminalProgress: TerminalProgressReport? = nil,
         restoredAgentRestoreDraft: PaneRestoreDraft? = nil,
         restoredAgentAutoResumePending: Bool = false,
@@ -216,6 +220,8 @@ struct PaneRawState: Equatable, Sendable {
         self.agentReducerState = agentReducerState
         self.shellActivityState = shellActivityState
         self.hasCommandHistory = hasCommandHistory
+        self.lastRunCommand = lastRunCommand
+        self.restoredRerunnableCommand = restoredRerunnableCommand
         self.terminalProgress = terminalProgress
         self.restoredAgentRestoreDraft = restoredAgentRestoreDraft
         self.restoredAgentAutoResumePending = restoredAgentAutoResumePending

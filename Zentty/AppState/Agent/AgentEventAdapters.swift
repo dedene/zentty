@@ -1230,13 +1230,14 @@ extension AgentEventBridge {
 
         let target = try currentTarget(from: environment)
         let cwd = firstString(in: jsonObject, keys: ["cwd", "current_working_directory", "currentWorkingDirectory"])
+        let sessionID = firstString(in: jsonObject, keys: ["session_id", "sessionId", "sessionID"])
         let toolName = AgentTool.copilot.displayName
 
         switch event {
         case .sessionStart:
             var payloads: [AgentStatusPayload] = []
             if let pid = parseAgentPID(from: environment, key: "ZENTTY_COPILOT_PID") {
-                payloads.append(pidPayload(target: target, toolName: toolName, pid: pid, event: .attach, sessionID: nil))
+                payloads.append(pidPayload(target: target, toolName: toolName, pid: pid, event: .attach, sessionID: sessionID))
             }
             // Seed at .idle so CopilotOSCProgressReducer can promote to .running
             // when libghostty reports OSC 9;4 activity.
@@ -1251,6 +1252,7 @@ extension AgentEventBridge {
                 lifecycleEvent: .update,
                 interactionKind: .none,
                 confidence: .explicit,
+                sessionID: sessionID,
                 artifactKind: nil,
                 artifactLabel: nil,
                 artifactURL: nil,
@@ -1259,7 +1261,23 @@ extension AgentEventBridge {
             return payloads
 
         case .userPromptSubmitted:
-            return []
+            return [AgentStatusPayload(
+                windowID: target.windowID,
+                worklaneID: target.worklaneID,
+                paneID: target.paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: toolName,
+                text: nil,
+                lifecycleEvent: .update,
+                interactionKind: .none,
+                confidence: .explicit,
+                sessionID: sessionID,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentWorkingDirectory: cwd
+            )]
 
         case .preToolUse:
             let toolArg = firstString(in: jsonObject, keys: ["toolName", "tool_name"])
@@ -1279,6 +1297,7 @@ extension AgentEventBridge {
                 lifecycleEvent: .update,
                 interactionKind: .question,
                 confidence: .explicit,
+                sessionID: sessionID,
                 artifactKind: nil,
                 artifactLabel: nil,
                 artifactURL: nil,
@@ -1301,6 +1320,7 @@ extension AgentEventBridge {
                 lifecycleEvent: .update,
                 interactionKind: .none,
                 confidence: .explicit,
+                sessionID: sessionID,
                 artifactKind: nil,
                 artifactLabel: nil,
                 artifactURL: nil,
@@ -1311,20 +1331,24 @@ extension AgentEventBridge {
             return []
 
         case .sessionEnd:
-            return [AgentStatusPayload(
-                windowID: target.windowID,
-                worklaneID: target.worklaneID,
-                paneID: target.paneID,
-                state: nil,
-                origin: .explicitHook,
-                toolName: toolName,
-                text: nil,
-                lifecycleEvent: .update,
-                artifactKind: nil,
-                artifactLabel: nil,
-                artifactURL: nil,
-                agentWorkingDirectory: cwd
-            )]
+            return [
+                AgentStatusPayload(
+                    windowID: target.windowID,
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: nil,
+                    origin: .explicitHook,
+                    toolName: toolName,
+                    text: nil,
+                    lifecycleEvent: .update,
+                    sessionID: sessionID,
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil,
+                    agentWorkingDirectory: cwd
+                ),
+                pidPayload(target: target, toolName: toolName, pid: nil, event: .clear, sessionID: sessionID),
+            ]
         }
     }
 

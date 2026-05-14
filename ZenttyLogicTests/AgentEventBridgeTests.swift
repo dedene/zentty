@@ -943,25 +943,28 @@ final class AgentEventBridgeTests: XCTestCase {
     // MARK: - Copilot Adapter
 
     func test_copilot_adapter_session_start_seeds_idle() throws {
-        let json = #"{"cwd": "/tmp/project"}"#
+        let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd": "/tmp/project"}"#
         let env = copilotEnvironment(pid: "99")
         let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "session-start", environment: env)
 
         XCTAssertEqual(payloads.count, 2)
         XCTAssertEqual(payloads[0].signalKind, .pid)
         XCTAssertEqual(payloads[0].pid, 99)
+        XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
         XCTAssertEqual(payloads[1].state, .idle)
         XCTAssertEqual(payloads[1].interactionKind, .none)
+        XCTAssertEqual(payloads[1].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
     func test_copilot_adapter_pre_tool_use_question() throws {
-        let json = #"{"toolName": "AskUserQuestion", "toolArgs": "{\"question\": \"Which file?\"}"}"#
+        let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","toolName": "AskUserQuestion", "toolArgs": "{\"question\": \"Which file?\"}"}"#
         let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "pre-tool-use", environment: copilotEnvironment())
 
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .needsInput)
         XCTAssertEqual(payloads[0].interactionKind, .question)
         XCTAssertEqual(payloads[0].text, "Which file?")
+        XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
     func test_copilot_adapter_pre_tool_use_non_question_is_noop() throws {
@@ -971,23 +974,35 @@ final class AgentEventBridgeTests: XCTestCase {
     }
 
     func test_copilot_adapter_post_tool_use_question_resets_to_idle() throws {
-        let json = #"{"toolName": "AskUserQuestion"}"#
+        let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","toolName": "AskUserQuestion"}"#
         let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "post-tool-use", environment: copilotEnvironment())
 
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .idle)
         XCTAssertEqual(payloads[0].interactionKind, .none)
+        XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
     func test_copilot_adapter_session_end_clears() throws {
-        let payloads = try AgentEventBridge.copilotAdapter(data: Data(), defaultEventName: "session-end", environment: copilotEnvironment())
-        XCTAssertEqual(payloads.count, 1)
+        let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f"}"#
+        let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "session-end", environment: copilotEnvironment())
+        XCTAssertEqual(payloads.count, 2)
         XCTAssertTrue(payloads[0].clearsStatus)
+        XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
+        XCTAssertEqual(payloads[1].signalKind, .pid)
+        XCTAssertEqual(payloads[1].pidEvent, .clear)
+        XCTAssertEqual(payloads[1].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
-    func test_copilot_adapter_user_prompt_is_noop() throws {
-        let payloads = try AgentEventBridge.copilotAdapter(data: Data(), defaultEventName: "user-prompt-submitted", environment: copilotEnvironment())
-        XCTAssertTrue(payloads.isEmpty)
+    func test_copilot_adapter_user_prompt_marks_session_running() throws {
+        let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project"}"#
+        let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "user-prompt-submitted", environment: copilotEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].interactionKind, .none)
+        XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
+        XCTAssertEqual(payloads[0].agentWorkingDirectory, "/tmp/project")
     }
 
     // MARK: - Claude Adapter

@@ -48,6 +48,7 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
         var titleSeed: String?
         var workingDirectory: String?
         var lastActivityTitle: String? = nil
+        var lastRunCommand: String? = nil
     }
 }
 
@@ -118,12 +119,17 @@ enum WorkspaceRecipeExporter {
             auxiliary: auxiliary,
             titleSeed: titleSeed
         )
+        let lastRunCommand =
+            terminalLocation.scope == .remote || workingDirectory == nil
+            ? nil
+            : trimmedCommand(auxiliary?.raw.lastRunCommand)
 
         return WorkspaceRecipe.Pane(
             id: pane.id.rawValue,
             titleSeed: titleSeed,
             workingDirectory: workingDirectory,
-            lastActivityTitle: lastActivityTitle
+            lastActivityTitle: lastActivityTitle,
+            lastRunCommand: lastRunCommand
         )
     }
 
@@ -277,6 +283,14 @@ enum WorkspaceRecipeExporter {
         }
 
         return value
+    }
+
+    private static func trimmedCommand(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func trimmedWorkingDirectory(_ value: String?) -> String? {
@@ -444,6 +458,18 @@ enum WorkspaceRecipeImporter {
             processEnvironment: processEnvironment
         )
         var auxiliary = result.auxiliary
+        let canRestoreRerunnableCommand =
+            trimmedCommand(recipe.workingDirectory) != nil
+            && !result.didFallBackForWorkingDirectory
+        let lastRunCommand = canRestoreRerunnableCommand
+            ? trimmedCommand(recipe.lastRunCommand)
+            : nil
+        let restoredRerunnableCommand = canRestoreRerunnableCommand
+            ? lastRunCommand
+                ?? legacyRerunnableCommand(from: recipe.lastActivityTitle ?? legacyLastActivityTitle)
+            : nil
+        auxiliary.raw.lastRunCommand = lastRunCommand
+        auxiliary.raw.restoredRerunnableCommand = restoredRerunnableCommand
         if let restoreDraft, resumeCommand != nil {
             auxiliary.raw.restoredAgentRestoreDraft = restoreDraft
             auxiliary.raw.restoredAgentAutoResumePending = true
@@ -460,6 +486,83 @@ enum WorkspaceRecipeImporter {
         }
 
         return titleSeed
+    }
+
+    private static func legacyRerunnableCommand(from value: String?) -> String? {
+        guard let command = trimmedCommand(value) else {
+            return nil
+        }
+
+        guard !looksLikeTransientSSHCommandTitle(command),
+              !isGenericLocalShellTitle(command),
+              !looksLikeAgentStatusTitle(command),
+              !looksLikeUIPhrase(command)
+        else {
+            return nil
+        }
+
+        return command
+    }
+
+    private static func looksLikeAgentStatusTitle(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.unicodeScalars.first else {
+            return true
+        }
+        if !CharacterSet.alphanumerics.contains(first),
+           ![".", "/", "~", "$", "_"].contains(String(first)) {
+            return true
+        }
+
+        let normalized = trimmed.lowercased()
+        if normalized.contains("(branch)") {
+            return true
+        }
+
+        let statusFragments = [
+            "waiting for your input",
+            "waiting for your decision",
+            "needs your input",
+            "needs your attention",
+            "needs your approval",
+            "press esc",
+            "esc to",
+            "tokens",
+        ]
+        return statusFragments.contains { normalized.contains($0) }
+    }
+
+    private static func looksLikeTransientSSHCommandTitle(_ value: String) -> Bool {
+        WorklaneContextFormatter.looksLikeSSHCommandTitle(value)
+    }
+
+    private static func isGenericLocalShellTitle(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.range(of: #"^pane \d+$"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        return [
+            "shell",
+            "shell pane",
+            "terminal",
+            "pane",
+            "zsh",
+            "bash",
+            "sh",
+            "fish",
+        ].contains(normalized)
+    }
+
+    private static func looksLikeUIPhrase(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.contains("...") || normalized.contains("\u{2026}") {
+            return true
+        }
+        if normalized.range(of: #"\bago\b"#, options: .regularExpression) != nil {
+            return true
+        }
+        return false
     }
 
     private static func looksLikeLegacyLocalProcessTitle(_ title: String) -> Bool {
@@ -483,6 +586,14 @@ enum WorkspaceRecipeImporter {
         }
 
         return value
+    }
+
+    private static func trimmedCommand(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
@@ -539,7 +650,18 @@ enum WorkspaceRecipeMeaningfulness {
             return true
         }
 
+        if let lastRunCommand = normalizedMeaningfulText(pane.lastRunCommand), lastRunCommand != "shell" {
+            return true
+        }
+
         return false
+    }
+
+    private static func normalizedMeaningfulText(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private static func normalizedPath(_ path: String?) -> String? {

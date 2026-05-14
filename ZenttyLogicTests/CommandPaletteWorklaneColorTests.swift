@@ -2,6 +2,47 @@ import XCTest
 @testable import Zentty
 
 final class CommandPaletteWorklaneColorTests: XCTestCase {
+    func test_restoredCommandItem_uses_command_as_subtitle_and_search_text() {
+        let paneID = PaneID("shell")
+        let command = "pnpm start:staging\nnpm run smoke"
+
+        let item = CommandPaletteItemBuilder.buildRestoredCommandItem(
+            paneID: paneID,
+            command: command
+        )
+
+        XCTAssertEqual(item.id, .restoredCommand(paneID: paneID))
+        XCTAssertEqual(item.title, "Run Last Command Again")
+        XCTAssertEqual(item.subtitle, command)
+        XCTAssertTrue(item.searchText.contains("npm run smoke"))
+        XCTAssertEqual(item.group, .action)
+    }
+
+    func test_restoredCommandItem_is_first_empty_query_action_when_available() {
+        let paneID = PaneID("shell")
+        let item = CommandPaletteItemBuilder.buildRestoredCommandItem(
+            paneID: paneID,
+            command: "pnpm start:staging"
+        )
+        let newWorklane = CommandPaletteItem(
+            id: .command(.newWorklane),
+            title: "New Worklane",
+            subtitle: "",
+            shortcutDisplay: nil,
+            category: "Window",
+            searchText: "new worklane"
+        )
+
+        let results = CommandPaletteResultsResolver.resolve(
+            searchText: "",
+            items: [newWorklane, item],
+            recentItems: [],
+            emptyActionIDs: [.restoredCommand(paneID: paneID), .command(.newWorklane)]
+        )
+
+        XCTAssertEqual(results.items.first?.item.id, .restoredCommand(paneID: paneID))
+    }
+
     func test_builder_emits_13_worklane_color_items() {
         let items = CommandPaletteItemBuilder.buildWorklaneColorItems()
         XCTAssertEqual(items.count, WorklaneColor.allCases.count + 1)

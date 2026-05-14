@@ -539,6 +539,26 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_repository_shell_integrations_include_running_command() throws {
+        for shell in [ShellIntegrationTestShell.zsh, .bash] {
+            let commandText = "pnpm start:staging -- --host 127.0.0.1"
+            let signals = try runShellIntegration(
+                shell: shell,
+                command: shell == .zsh
+                    ? #"_zentty_preexec "pnpm start:staging -- --host 127.0.0.1""#
+                    : #"pnpm start:staging -- --host 127.0.0.1 2>/dev/null || true"#
+            )
+
+            XCTAssertTrue(
+                signals.contains(where: { signal in
+                    signal.contains("shell-state running")
+                        && signal.contains("--command \(commandText)")
+                }),
+                "Expected \(shell) integration to include the full command, got: \(signals)"
+            )
+        }
+    }
+
     func test_zsh_shell_integration_does_not_write_terminal_sequences_to_stdout_or_stderr_when_loaded() throws {
         let result = try runShellIntegrationCommand(shell: .zsh, command: ":", extraEnvironment: ["TTY": "/dev/null"])
 
@@ -1090,6 +1110,27 @@ final class AgentStatusSupportTests: XCTestCase {
                 artifactURL: nil
             ),
         ])
+    }
+
+    func test_agent_signal_shell_state_parses_command_option() throws {
+        let command = try AgentSignalCommand.parse(
+            arguments: [
+                "zentty",
+                "agent-signal",
+                "shell-state",
+                "running",
+                "--command", "pnpm start:staging\nnpm run smoke",
+            ],
+            environment: [
+                "ZENTTY_WINDOW_ID": "window-main",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+            ]
+        )
+
+        XCTAssertEqual(command.payload.signalKind, .shellState)
+        XCTAssertEqual(command.payload.shellActivityState, .commandRunning)
+        XCTAssertEqual(command.payload.shellCommand, "pnpm start:staging\nnpm run smoke")
     }
 
     func test_agent_ipc_request_round_trips_bootstrap_payload() throws {
@@ -4628,7 +4669,7 @@ final class AgentStatusSupportTests: XCTestCase {
     func test_copilot_hook_session_start_emits_pid_attach_and_idle_seed_payloads() throws {
         let payloads = try AgentEventBridge.copilotAdapter(
             data: Data("""
-            {"cwd":"/tmp/project"}
+            {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project"}
             """.utf8),
             defaultEventName: "sessionStart",
             environment: [
@@ -4645,6 +4686,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(pidPayload.pidEvent, .attach)
         XCTAssertEqual(pidPayload.toolName, "Copilot")
         XCTAssertEqual(pidPayload.origin, .explicitHook)
+        XCTAssertEqual(pidPayload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
 
         // Seed at .idle — the normalizer's copilot OSC fallthrough promotes
         // to .running based on terminal-progress activity, then drops back
@@ -4656,13 +4698,14 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(lifecyclePayload.origin, .explicitHook)
         XCTAssertEqual(lifecyclePayload.confidence, .explicit)
         XCTAssertNil(lifecyclePayload.interactionKind)
+        XCTAssertEqual(lifecyclePayload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
         XCTAssertEqual(lifecyclePayload.agentWorkingDirectory, "/tmp/project")
     }
 
-    func test_copilot_hook_user_prompt_submitted_is_noop() throws {
+    func test_copilot_hook_user_prompt_submitted_marks_session_running() throws {
         let payloads = try AgentEventBridge.copilotAdapter(
             data: Data("""
-            {"cwd":"/tmp/project","prompt":"fix the bug"}
+            {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","prompt":"fix the bug"}
             """.utf8),
             defaultEventName: "userPromptSubmitted",
             environment: [
@@ -4671,15 +4714,20 @@ final class AgentStatusSupportTests: XCTestCase {
             ]
         )
 
-        // Running state is driven by OSC 9;4 progress, not by this hook.
-        XCTAssertTrue(payloads.isEmpty)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.toolName, "Copilot")
+        XCTAssertEqual(payload.interactionKind, .none)
+        XCTAssertEqual(payload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
     func test_copilot_hook_pre_tool_use_ask_user_question_emits_needs_input() throws {
         let payload = try XCTUnwrap(
             AgentEventBridge.copilotAdapter(
                 data: Data("""
-                {"cwd":"/tmp/project","toolName":"askuserquestiontool","toolArgs":"{\\"question\\":\\"Which option do you want?\\"}"}
+                {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","toolName":"askuserquestiontool","toolArgs":"{\\"question\\":\\"Which option do you want?\\"}"}
                 """.utf8),
                 defaultEventName: "preToolUse",
                 environment: [
@@ -4694,6 +4742,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.text, "Which option do you want?")
         XCTAssertEqual(payload.interactionKind, .question)
         XCTAssertEqual(payload.confidence, .explicit)
+        XCTAssertEqual(payload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
@@ -4716,7 +4765,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let payload = try XCTUnwrap(
             AgentEventBridge.copilotAdapter(
                 data: Data("""
-                {"cwd":"/tmp/project","toolName":"askUserQuestion","toolArgs":"{}"}
+                {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","toolName":"askUserQuestion","toolArgs":"{}"}
                 """.utf8),
                 defaultEventName: "postToolUse",
                 environment: [
@@ -4729,26 +4778,33 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.state, .idle)
         XCTAssertNil(payload.interactionKind)
         XCTAssertEqual(payload.toolName, "Copilot")
+        XCTAssertEqual(payload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
-    func test_copilot_hook_session_end_emits_clear_status_payload() throws {
-        let payload = try XCTUnwrap(
-            AgentEventBridge.copilotAdapter(
-                data: Data("""
-                {"cwd":"/tmp/project","reason":"user-quit"}
-                """.utf8),
-                defaultEventName: "sessionEnd",
-                environment: [
-                    "ZENTTY_WORKLANE_ID": "worklane-main",
-                    "ZENTTY_PANE_ID": "worklane-main-shell",
-                ]
-            ).first
+    func test_copilot_hook_session_end_emits_clear_status_and_pid_payloads() throws {
+        let payloads = try AgentEventBridge.copilotAdapter(
+            data: Data("""
+            {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","reason":"user-quit"}
+            """.utf8),
+            defaultEventName: "sessionEnd",
+            environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
         )
 
+        XCTAssertEqual(payloads.count, 2)
+        let payload = payloads[0]
         XCTAssertEqual(payload.signalKind, .lifecycle)
         XCTAssertNil(payload.state)
         XCTAssertTrue(payload.clearsStatus)
         XCTAssertEqual(payload.toolName, "Copilot")
+        XCTAssertEqual(payload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
+
+        let pidPayload = payloads[1]
+        XCTAssertEqual(pidPayload.signalKind, .pid)
+        XCTAssertEqual(pidPayload.pidEvent, .clear)
+        XCTAssertEqual(pidPayload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
     func test_copilot_hook_parse_input_rejects_unknown_event() {

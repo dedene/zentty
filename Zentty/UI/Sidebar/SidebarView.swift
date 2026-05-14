@@ -58,6 +58,7 @@ final class SidebarView: NSView {
     var onForceSplitRightRequested: ((WorklaneID, PaneID) -> Void)?
     var onForceAddPaneRightRequested: ((WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((WorklaneID, PaneID) -> Void)?
+    var onRunRestoredCommandRequested: ((WorklaneID, PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneReorderCommitted: ((WorklaneID, Int) -> Bool)?
     var onNewWorklaneRequested: (() -> Void)?
@@ -66,6 +67,7 @@ final class SidebarView: NSView {
     var bookmarkNameLookup: ((UUID) -> String?)?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
+    var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onResized: ((CGFloat) -> Void)?
     var onPointerEntered: (() -> Void)?
@@ -462,8 +464,14 @@ final class SidebarView: NSView {
         button.moveToWorklaneCatalogProvider = { [weak self] paneID in
             self?.moveToWorklaneCatalogProvider?(paneID)
         }
+        button.restoredRerunnableCommandProvider = { [weak self] paneID in
+            self?.restoredRerunnableCommandProvider?(paneID)
+        }
         button.onMovePaneToNewWindowRequested = { [weak self] paneID in
             self?.onMovePaneToNewWindowRequested?(worklaneID, paneID)
+        }
+        button.onRunRestoredCommand = { [weak self] paneID in
+            self?.onRunRestoredCommandRequested?(worklaneID, paneID)
         }
         button.onWorklaneColorChanged = { [weak self] id, color in
             self?.onWorklaneColorChanged?(id, color)

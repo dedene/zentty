@@ -329,6 +329,52 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         }
     }
 
+    func test_paneRowContextMenu_places_restored_command_rerun_first_when_available() throws {
+        let row = makeRow(width: 320, height: 110)
+        let command = "pnpm start:staging\nnpm run smoke"
+        row.restoredRerunnableCommandProvider = { paneID in
+            paneID == PaneID("worklane-main-pane") ? command : nil
+        }
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [makePaneRow(isFocused: true)]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let menu = try XCTUnwrap(row.debugMenuForTesting(.firstPaneRow, event: try makeContextMenuEvent()))
+
+        XCTAssertEqual(menu.items[0].title, "Run Last Command Again")
+        XCTAssertEqual(menu.items[0].toolTip, command)
+        XCTAssertNotNil(menu.items[0].image)
+        XCTAssertTrue(menu.items[1].isSeparatorItem)
+    }
+
+    func test_paneRowContextMenu_rerunCommandInvokesPaneCallback() throws {
+        let row = makeRow(width: 320, height: 110)
+        let paneID = PaneID("worklane-main-pane")
+        var requestedPaneID: PaneID?
+        row.restoredRerunnableCommandProvider = { $0 == paneID ? "pnpm start:staging" : nil }
+        row.onRunRestoredCommand = { requestedPaneID = $0 }
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [makePaneRow(isFocused: true)]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let menu = try XCTUnwrap(row.debugMenuForTesting(.firstPaneRow, event: try makeContextMenuEvent()))
+        let item = try XCTUnwrap(menu.item(withTitle: "Run Last Command Again"))
+
+        NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
+
+        XCTAssertEqual(requestedPaneID, paneID)
+    }
+
     func test_paneRowContextMenu_showsClosePaneOnlyWhenMultiplePanesExist() throws {
         let row = makeRow(width: 320, height: 170)
         row.configure(

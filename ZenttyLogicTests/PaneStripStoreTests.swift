@@ -3924,6 +3924,164 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.lastActivityTitle)
     }
 
+    func test_shell_command_running_captures_last_run_command_and_consumes_restored_rerun() throws {
+        let paneID = PaneID("pane-main")
+        let worklaneID = WorklaneID("worklane-main")
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        restoredRerunnableCommand: "pnpm start:staging"
+                    ),
+                    presentation: PanePresentationState(
+                        cwd: NSHomeDirectory(),
+                        lastActivityTitle: "pnpm start:staging"
+                    )
+                )
+            ]
+        )
+        let store = WorklaneStore(worklanes: [worklane])
+        let command = "pnpm start:staging\nnpm run smoke"
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .commandRunning,
+                shellCommand: command,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        let auxiliary = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(auxiliary.raw.lastRunCommand, command)
+        XCTAssertNil(auxiliary.raw.restoredRerunnableCommand)
+        XCTAssertNil(auxiliary.presentation.lastActivityTitle)
+        XCTAssertTrue(auxiliary.hasCommandHistory)
+    }
+
+    func test_shell_prompt_idle_preserves_restored_rerun_command() throws {
+        let paneID = PaneID("pane-main")
+        let worklaneID = WorklaneID("worklane-main")
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(restoredRerunnableCommand: "pnpm start:staging"),
+                    presentation: PanePresentationState(cwd: NSHomeDirectory())
+                )
+            ]
+        )
+        let store = WorklaneStore(worklanes: [worklane])
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .promptIdle,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.restoredRerunnableCommand,
+            "pnpm start:staging"
+        )
+    }
+
+    func test_restoredRerunnableCommand_requires_prompt_idle_pane() throws {
+        let paneID = PaneID("pane-main")
+        let worklaneID = WorklaneID("worklane-main")
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellActivityState: .commandRunning,
+                        restoredRerunnableCommand: "pnpm start:staging"
+                    )
+                )
+            ]
+        )
+        let store = WorklaneStore(worklanes: [worklane])
+
+        XCTAssertNil(store.restoredRerunnableCommand(for: paneID))
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .promptIdle,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.restoredRerunnableCommand(for: paneID), "pnpm start:staging")
+    }
+
+    func test_consumeRestoredRerunnableCommand_clears_oneShotCommand() throws {
+        let paneID = PaneID("pane-main")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellActivityState: .promptIdle,
+                        restoredRerunnableCommand: "pnpm start:staging"
+                    )
+                )
+            ]
+        )
+        let store = WorklaneStore(worklanes: [worklane])
+
+        store.consumeRestoredRerunnableCommand(for: paneID)
+
+        XCTAssertNil(store.restoredRerunnableCommand(for: paneID))
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.restoredRerunnableCommand)
+    }
+
     func test_split_after_ignores_agent_working_directory_and_uses_terminal_cwd() throws {
         let store = WorklaneStore()
         let shellPaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)

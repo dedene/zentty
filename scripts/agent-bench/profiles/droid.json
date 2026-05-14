@@ -8,6 +8,10 @@
       "exec",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
+    "session_capture": [
+      "exec",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
     "approval": [
       "exec",
       "Run this exact shell command: touch ZENTTY_AGENT_BENCH_APPROVAL_OK"
@@ -21,6 +25,13 @@
   "expectations": {
     "smoke": {
       "required_events": ["SessionStart", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"]
+    },
+    "session_capture": {
+      "required_events": ["SessionStart", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"],
+      "session_identity": {
+        "session_id_pattern": "droid",
+        "tracked_pid": true
+      }
     },
     "approval": {
       "required_events": ["SessionStart", "PreToolUse"]

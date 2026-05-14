@@ -13,6 +13,15 @@
       "--output-format",
       "stream-json"
     ],
+    "session_capture": [
+      "--prompt",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK",
+      "--skip-trust",
+      "--approval-mode",
+      "yolo",
+      "--output-format",
+      "stream-json"
+    ],
     "approval": [
       "--prompt-interactive",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK",
@@ -26,6 +35,13 @@
   "expectations": {
     "smoke": {
       "required_events": ["SessionStart", "BeforeAgent", "BeforeTool", "AfterAgent", "SessionEnd"]
+    },
+    "session_capture": {
+      "required_events": ["SessionStart", "BeforeAgent", "BeforeTool", "AfterAgent", "SessionEnd"],
+      "session_identity": {
+        "session_id_pattern": "non-empty",
+        "tracked_pid": true
+      }
     },
     "approval": {
       "required_events": ["SessionStart", "BeforeAgent", "Notification"]

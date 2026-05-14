@@ -518,6 +518,8 @@ extension WorklaneStore {
             auxiliaryState.shellActivityState = shellActivityState
             if shellActivityState == .commandRunning {
                 auxiliaryState.hasCommandHistory = true
+                auxiliaryState.raw.lastRunCommand = Self.trimmedShellCommand(payload.shellCommand)
+                auxiliaryState.raw.restoredRerunnableCommand = nil
                 auxiliaryState.presentation.lastActivityTitle = nil
                 if auxiliaryState.raw.restoredAgentRestoreDraft != nil {
                     if auxiliaryState.raw.restoredAgentAutoResumePending {
@@ -1618,5 +1620,13 @@ extension WorklaneStore {
         }
 
         return errno == EPERM
+    }
+
+    private static func trimmedShellCommand(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

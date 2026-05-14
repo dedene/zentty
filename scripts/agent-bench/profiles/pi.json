@@ -9,6 +9,10 @@
       "--no-session",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
+    "session_capture": [
+      "--print",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
     "restore_launch": [
       "-c"
     ]
@@ -16,6 +20,13 @@
   "expectations": {
     "smoke": {
       "required_events": ["session.start", "agent.running", "agent.idle", "session.end"]
+    },
+    "session_capture": {
+      "required_events": ["session.start", "agent.running", "agent.idle", "session.end"],
+      "session_identity": {
+        "session_id_pattern": "non-empty",
+        "tracked_pid": true
+      }
     },
     "restore_launch": {
       "required_events": [],

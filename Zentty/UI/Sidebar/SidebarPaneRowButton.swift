@@ -68,10 +68,12 @@ struct SidebarWorklaneContextMenuContext {
     var rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
     var moveToWorklaneCatalog: WorklaneDestinationCatalog?
     var paneID: PaneID?
+    var restoredRerunnableCommand: String? = nil
 }
 
 struct SidebarWorklaneContextMenuActions {
     var target: AnyObject
+    var runRestoredCommandAction: Selector?
     var closeWorklaneAction: Selector
     var closePaneAction: Selector?
     var moveUpAction: Selector
@@ -170,6 +172,21 @@ enum SidebarWorklaneContextMenu {
         actions: SidebarWorklaneContextMenuActions
     ) -> Result {
         let menu = NSMenu()
+
+        if case .paneRow = context.origin,
+           let restoredCommand = context.restoredRerunnableCommand,
+           let runRestoredCommandAction = actions.runRestoredCommandAction
+        {
+            let item = SidebarContextMenu.item(
+                title: "Run Last Command Again",
+                action: runRestoredCommandAction,
+                target: actions.target,
+                symbolName: "arrow.clockwise"
+            )
+            item.toolTip = restoredCommand
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
 
         menu.addItem(
             SidebarContextMenu.item(
@@ -489,6 +506,7 @@ final class SidebarPaneRowButton: NSButton {
     var onForceSplitRight: ((PaneID) -> Void)?
     var onForceAddPaneRight: ((PaneID) -> Void)?
     var onMovePaneToNewWindow: ((PaneID) -> Void)?
+    var onRunRestoredCommand: ((PaneID) -> Void)?
     var onPickWorklaneColor: ((PaneID, WorklaneColor?) -> Void)?
     var onBookmarkAction: ((SidebarBookmarkRowAction) -> Void)?
     var bookmarkOriginID: UUID?
@@ -498,6 +516,7 @@ final class SidebarPaneRowButton: NSButton {
     var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
+    var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
 
     private var activeContextPicker: WorklaneColorMenuItemView?
 
@@ -681,10 +700,12 @@ final class SidebarPaneRowButton: NSButton {
                 isOnlyWorklane: isLastPaneInOnlyWorklane && isLastPaneInWorklane,
                 rightPaneCommandPresentation: rightPaneCommandPresentationProvider?() ?? .addsToWorklane,
                 moveToWorklaneCatalog: moveToWorklaneCatalogProvider?(paneID),
-                paneID: paneID
+                paneID: paneID,
+                restoredRerunnableCommand: restoredRerunnableCommandProvider?(paneID)
             ),
             actions: SidebarWorklaneContextMenuActions(
                 target: self,
+                runRestoredCommandAction: #selector(handleRunRestoredCommand),
                 closeWorklaneAction: #selector(handleCloseWorklane),
                 closePaneAction: #selector(handleClosePane),
                 moveUpAction: #selector(handleMoveWorklaneUp),
@@ -746,5 +767,9 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleMovePaneToNewWindow() {
         onMovePaneToNewWindow?(paneID)
+    }
+
+    @objc private func handleRunRestoredCommand() {
+        onRunRestoredCommand?(paneID)
     }
 }

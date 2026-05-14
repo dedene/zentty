@@ -584,6 +584,51 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertEqual(Array(reducerState.sessionsByID.keys), ["session-1"])
     }
 
+    func test_opencode_session_id_lifecycle_preserves_prelaunch_pid_from_fallback_session() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                sessionID: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "OpenCode",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "ses_1de868207ffebJ66ISsfrf7AzW",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+
+        let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(1))
+        XCTAssertEqual(status?.sessionID, "ses_1de868207ffebJ66ISsfrf7AzW")
+        XCTAssertEqual(status?.trackedPID, 4242)
+        XCTAssertNil(reducerState.sessionsByID["pane-opencode"])
+    }
+
     func test_prompt_idle_clears_explicit_running_session_into_idle() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()

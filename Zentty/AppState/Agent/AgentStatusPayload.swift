@@ -31,6 +31,7 @@ struct AgentStatusPayload: Equatable, Sendable {
     let signalKind: AgentSignalKind
     let state: PaneAgentState?
     let shellActivityState: PaneShellActivityState?
+    let shellCommand: String?
     let pid: Int32?
     let pidEvent: AgentPIDSignalEvent?
     let paneContext: PaneShellContext?
@@ -72,6 +73,9 @@ struct AgentStatusPayload: Equatable, Sendable {
         }
         if let shellActivityState {
             userInfo["shellActivityState"] = shellActivityState.rawValue
+        }
+        if let shellCommand {
+            userInfo["shellCommand"] = shellCommand
         }
         if let pid {
             userInfo["pid"] = NSNumber(value: pid)
@@ -147,6 +151,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         signalKind: AgentSignalKind = .lifecycle,
         state: PaneAgentState?,
         shellActivityState: PaneShellActivityState? = nil,
+        shellCommand: String? = nil,
         pid: Int32? = nil,
         pidEvent: AgentPIDSignalEvent? = nil,
         paneContext: PaneShellContext? = nil,
@@ -171,6 +176,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         self.signalKind = signalKind
         self.state = state
         self.shellActivityState = shellActivityState
+        self.shellCommand = shellCommand
         self.pid = pid
         self.pidEvent = pidEvent
         self.paneContext = paneContext
@@ -202,6 +208,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         let state = (userInfo["state"] as? String).flatMap(PaneAgentState.transportValue(_:))
         let shellActivityState = (userInfo["shellActivityState"] as? String)
             .flatMap(PaneShellActivityState.init(rawValue:))
+        let shellCommand = userInfo["shellCommand"] as? String
         let pid = (userInfo["pid"] as? NSNumber)?.int32Value
         let pidEvent = (userInfo["pidEvent"] as? String).flatMap(AgentPIDSignalEvent.init(rawValue:))
         let paneContext = (userInfo["paneContextScope"] as? String)
@@ -229,6 +236,7 @@ struct AgentStatusPayload: Equatable, Sendable {
             signalKind: signalKind,
             state: state,
             shellActivityState: shellActivityState,
+            shellCommand: shellCommand,
             pid: pid,
             pidEvent: pidEvent,
             paneContext: paneContext,

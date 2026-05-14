@@ -337,6 +337,7 @@ final class PaneContainerView: NSView {
     private var lastRenderedSearchState = PaneSearchState()
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
+    var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
     private var suppressSelectionOnNextProgrammaticFocus = false
     var onSelected: (() -> Void)?
     var onCloseRequested: (() -> Void)?
@@ -1240,6 +1241,17 @@ final class PaneContainerView: NSView {
         focusTerminal()
 
         let customMenu = NSMenu(title: "")
+        if let restoredCommand = restoredRerunnableCommandProvider?(paneID) {
+            let item = makeContextMenuItem(
+                title: "Run Last Command Again",
+                action: #selector(MainWindowController.runLastCommandAgain(_:)),
+                symbolName: "arrow.clockwise"
+            )
+            item.representedObject = paneID
+            item.toolTip = restoredCommand
+            customMenu.addItem(item)
+            customMenu.addItem(.separator())
+        }
         customMenu.addItem(makeContextMenuItem(
             title: "Copy",
             action: #selector(NSText.copy(_:)),

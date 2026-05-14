@@ -213,16 +213,17 @@ _zentty_bash_preexec_hook() {
     [[ -n "${COMP_LINE:-}" ]] && return 0
     [[ "$_zentty_bash_in_prompt" == "1" ]] && return 0
     _zentty_ensure_wrapper_path
-    local cmd="${BASH_COMMAND%%[[:space:]]*}"
+    local full_command="$BASH_COMMAND"
+    local cmd="${full_command%%[[:space:]]*}"
     local agent_tool=""
     agent_tool="$(_zentty_agent_tool_for_command "$cmd" 2>/dev/null || true)"
     if [[ -n "$agent_tool" ]]; then
-        _zentty_report_shell_activity running --tool "$agent_tool"
+        _zentty_report_shell_activity running --tool "$agent_tool" --command "$full_command"
     else
-        _zentty_report_shell_activity running
+        _zentty_report_shell_activity running --command "$full_command"
     fi
     # Set terminal title to the running command (first line only)
-    _zentty_print_tty $'\e]2;'"${BASH_COMMAND%%$'\n'*}"$'\a'
+    _zentty_print_tty $'\e]2;'"${full_command%%$'\n'*}"$'\a'
 }
 
 cd() {
