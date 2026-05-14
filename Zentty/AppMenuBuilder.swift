@@ -39,6 +39,21 @@ enum AppMenuBuilder {
             action: #selector(AppDelegate.showSettingsWindow(_:)),
             keyEquivalent: ""
         )
+        let hideItem = NSMenuItem(
+            title: "Hide \(appName)",
+            action: #selector(NSApplication.hide(_:)),
+            keyEquivalent: "h"
+        )
+        let hideOthersItem = NSMenuItem(
+            title: "Hide Others",
+            action: #selector(NSApplication.hideOtherApplications(_:)),
+            keyEquivalent: "h"
+        )
+        let showAllItem = NSMenuItem(
+            title: "Show All",
+            action: #selector(NSApplication.unhideAllApplications(_:)),
+            keyEquivalent: ""
+        )
         let quitItem = NSMenuItem(
             title: "Quit \(appName)",
             action: #selector(NSApplication.terminate(_:)),
@@ -46,11 +61,18 @@ enum AppMenuBuilder {
         )
 
         apply(shortcutManager.shortcut(for: .openSettings), to: settingsItem)
+        hideItem.keyEquivalentModifierMask = [.command]
+        hideOthersItem.keyEquivalentModifierMask = [.command, .option]
+        showAllItem.keyEquivalentModifierMask = []
         quitItem.keyEquivalentModifierMask = [.command]
         appMenu.addItem(aboutItem)
         appMenu.addItem(updatesItem)
         appMenu.addItem(makeSeparatorItem())
         appMenu.addItem(settingsItem)
+        appMenu.addItem(makeSeparatorItem())
+        appMenu.addItem(hideItem)
+        appMenu.addItem(hideOthersItem)
+        appMenu.addItem(showAllItem)
         appMenu.addItem(makeSeparatorItem())
         appMenu.addItem(quitItem)
         appMenuItem.submenu = appMenu
@@ -261,6 +283,18 @@ enum AppMenuBuilder {
             $0.action == #selector(AppDelegate.checkForUpdates(_:)) &&
             $0.title == "Check for Updates…"
         })
+        let hasHideItem = appMenu.items.contains(where: {
+            $0.action == #selector(NSApplication.hide(_:)) &&
+            $0.title == "Hide \(appName)"
+        })
+        let hasHideOthersItem = appMenu.items.contains(where: {
+            $0.action == #selector(NSApplication.hideOtherApplications(_:)) &&
+            $0.title == "Hide Others"
+        })
+        let hasShowAllItem = appMenu.items.contains(where: {
+            $0.action == #selector(NSApplication.unhideAllApplications(_:)) &&
+            $0.title == "Show All"
+        })
         let fileMenu = menu(named: AppMenuSection.file.rawValue, in: mainMenu)
         let editMenu = menu(named: AppMenuSection.edit.rawValue, in: mainMenu)
         let navigationMenu = menu(named: AppMenuSection.navigation.rawValue, in: mainMenu)
@@ -312,6 +346,9 @@ enum AppMenuBuilder {
         return hasAboutItem &&
             hasUpdatesItem &&
             hasSettingsItem &&
+            hasHideItem &&
+            hasHideOthersItem &&
+            hasShowAllItem &&
             hasQuitItem &&
             hasFileItems &&
             hasEditItems &&
