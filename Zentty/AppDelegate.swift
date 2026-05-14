@@ -215,14 +215,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = "Quit Zentty?"
         alert.informativeText = "All windows, panes, and running processes will be terminated."
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Cancel")
-        alert.window.appearance = blockingController.terminalAppearance
+        let quitButton = alert.addButton(withTitle: "Quit")
+        quitButton.keyEquivalent = "\r"
+        let cancelButton = alert.addButton(withTitle: "Cancel")
+        cancelButton.keyEquivalent = "\u{1b}"
+        let presentationController = quitConfirmationPresentationController(blockingController: blockingController)
+        alert.window.appearance = presentationController.terminalAppearance
         let restoreToggle = makeRestoreToggleButton()
         alert.accessoryView = restoreToggle
 
-        let window = blockingController.window
+        let window = presentationController.window
         if window.isVisible {
+            if !window.isKeyWindow {
+                window.makeKeyAndOrderFront(nil)
+            }
             alert.beginSheetModal(for: window) { [weak self] response in
                 if response == .alertFirstButtonReturn {
                     self?.persistRestorePreferenceIfNeeded(from: restoreToggle)
@@ -239,6 +245,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return .terminateCancel
+    }
+
+    private func quitConfirmationPresentationController(
+        blockingController: MainWindowController
+    ) -> MainWindowController {
+        if let keyController = windowControllers.values.first(where: { controller in
+            controller.window.isKeyWindow && controller.window.isVisible && !controller.window.isMiniaturized
+        }) {
+            return keyController
+        }
+
+        if let lastKeyWindowControllerID,
+           let lastKeyController = windowControllers[lastKeyWindowControllerID],
+           lastKeyController.window.isVisible,
+           !lastKeyController.window.isMiniaturized {
+            return lastKeyController
+        }
+
+        return blockingController
     }
 
     func applicationWillTerminate(_ notification: Notification) {
