@@ -855,6 +855,10 @@ final class RootViewController: NSViewController {
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
             self?.worklaneStore.send(.splitVertically)
         }
+        sidebarView.onAddPaneLeftRequested = { [weak self] worklaneID, paneID in
+            self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+            self?.worklaneStore.send(.splitBeforeFocusedPane)
+        }
         sidebarView.onForceSplitRightRequested = { [weak self] worklaneID, paneID in
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
             self?.worklaneStore.send(.splitRightVisibly)
@@ -1634,7 +1638,7 @@ final class RootViewController: NSViewController {
             runtime.forceViewportSync()
         }
 
-        runtime.adapter.sendText(TerminalCommandSubmission.submittedText(for: command))
+        runtime.adapter.submitCommand(command)
         worklaneStore.consumeRestoredRerunnableCommand(for: paneID)
 
         DispatchQueue.main.async { [weak self] in

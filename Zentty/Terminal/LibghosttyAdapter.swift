@@ -55,6 +55,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
         modifiers: NSEvent.ModifierFlags
     ) -> Bool
     func sendText(_ text: String)
+    func submitReturn()
     func performBindingAction(_ action: String) -> Bool
     func hasSelection() -> Bool
     func close()
@@ -146,6 +147,17 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
 
     func sendText(_ text: String) {
         surfaceController?.sendText(text)
+    }
+
+    // Paste the command via ghostty_surface_text (which paste-wraps the bytes
+    // when bracketed paste is enabled) and then fire a separate synthetic
+    // Return *key* event. The key event bypasses bracketed-paste wrapping, so
+    // zsh's zle widget sees a real `accept-line` instead of a literal `\r`
+    // inside paste content (which it would otherwise treat as a multi-line
+    // edit and never execute).
+    func submitCommand(_ command: String) {
+        surfaceController?.sendText(command)
+        surfaceController?.submitReturn()
     }
 
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String? {

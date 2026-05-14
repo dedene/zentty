@@ -104,7 +104,9 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
 
         XCTAssertTrue(controller.runLastCommandAgain(in: paneID))
-        XCTAssertEqual(adapter.sentTexts, [TerminalCommandSubmission.submittedText(for: command)])
+        // RecordingRootTerminalAdapter inherits the default protocol implementation
+        // of submitCommand, which appends \r and forwards through sendText.
+        XCTAssertEqual(adapter.sentTexts, [command + "\r"])
 
         XCTAssertFalse(controller.runLastCommandAgain(in: paneID))
         XCTAssertEqual(adapter.sentTexts.count, 1)

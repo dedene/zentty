@@ -333,10 +333,7 @@ enum PaneIPCHandler {
                 focus: options.focus
             )
             if options.includeSource, let command = options.command {
-                _ = windowController.sendText(
-                    TerminalCommandSubmission.submittedText(for: command),
-                    to: result.sourcePaneID
-                )
+                _ = windowController.submitCommand(command, to: result.sourcePaneID)
             }
         case .newWorklane:
             guard let source = windowController.createWorklaneForGrid() else {
@@ -351,10 +348,7 @@ enum PaneIPCHandler {
                 focus: options.focus
             )
             if options.includeSource, let command = options.command {
-                _ = windowController.sendText(
-                    TerminalCommandSubmission.submittedText(for: command),
-                    to: result.sourcePaneID
-                )
+                _ = windowController.submitCommand(command, to: result.sourcePaneID)
             }
         case .newWindow:
             _ = try appDelegate.createGridWindow(

@@ -263,6 +263,7 @@ private final class ScrollHostSurfaceSpy: LibghosttySurfaceControlling {
         return mouseButtonResults[button] ?? false
     }
     func sendText(_ text: String) {}
+    func submitReturn() {}
     func performBindingAction(_ action: String) -> Bool { true }
     func hasSelection() -> Bool { false }
     func close() {}

@@ -117,6 +117,7 @@ private final class SurfaceTextSpy: LibghosttySurfaceControlling {
         modifiers: NSEvent.ModifierFlags
     ) -> Bool { false }
     func sendText(_ text: String) { sentTexts.append(text) }
+    func submitReturn() {}
     func performBindingAction(_ action: String) -> Bool { true }
     func hasSelection() -> Bool { false }
     func close() {}

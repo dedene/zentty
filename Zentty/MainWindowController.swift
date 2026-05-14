@@ -1006,6 +1006,15 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return true
     }
 
+    @discardableResult
+    func submitCommand(_ command: String, to paneID: PaneID) -> Bool {
+        guard let runtime = runtimeRegistry.runtime(for: paneID) else {
+            return false
+        }
+        runtime.adapter.submitCommand(command)
+        return true
+    }
+
     func readText(from paneID: PaneID, includeScrollback: Bool, lineLimit: Int?) -> String? {
         guard let runtime = runtimeRegistry.runtime(for: paneID),
               let reader = runtime.adapter as? TerminalTextReading

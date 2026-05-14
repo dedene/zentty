@@ -722,10 +722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             focus: focus
         )
         if includeSource, let command {
-            _ = destinationController.sendText(
-                TerminalCommandSubmission.submittedText(for: command),
-                to: result.sourcePaneID
-            )
+            _ = destinationController.submitCommand(command, to: result.sourcePaneID)
         }
         scheduleWorkspaceSnapshotSave()
         return result
