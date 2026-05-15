@@ -393,10 +393,6 @@ extension SidebarView {
         debugAccessForTesting.globalSearchRowView.activeQueryTrailingConstraintTargetForTesting
     }
 
-    var isGlobalSearchFieldFocused: Bool {
-        debugAccessForTesting.globalSearchRowView.isFieldFocused
-    }
-
     func globalSearchControlPointInWindowForTesting(
         _ control: SidebarGlobalSearchRowView.ControlKind
     ) -> NSPoint? {

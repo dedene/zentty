@@ -822,6 +822,10 @@ final class SidebarView: NSView {
         globalSearchRowView.focusField(selectAll: selectAll)
     }
 
+    var isGlobalSearchFieldFocused: Bool {
+        globalSearchRowView.isFieldFocused
+    }
+
     func updateHeaderLayout(
         visibilityMode: SidebarVisibilityMode,
         pinnedContentMinX: CGFloat
