@@ -250,6 +250,7 @@ struct PaneRestoreDraft: Codable, Equatable, Sendable {
     var sessionID: String
     var workingDirectory: String?
     var trackedPID: Int32
+    var agentLaunchSnapshot: AgentLaunchSnapshot? = nil
 }
 
 enum SessionRestoreDraftExporter {
@@ -336,7 +337,8 @@ enum SessionRestoreDraftExporter {
                 tool: agentStatus.tool,
                 sessionID: agentStatus.sessionID,
                 workingDirectory: resolvedWorkingDirectory,
-                trackedPID: trackedPID
+                trackedPID: trackedPID,
+                agentLaunchSnapshot: agentStatus.agentLaunchSnapshot
             )
         }
 
@@ -357,7 +359,8 @@ enum SessionRestoreDraftExporter {
             tool: session.tool,
             sessionID: session.sessionID,
             workingDirectory: resolvedWorkingDirectory,
-            trackedPID: trackedPID
+            trackedPID: trackedPID,
+            agentLaunchSnapshot: session.agentLaunchSnapshot
         )
     }
 
@@ -408,7 +411,8 @@ enum SessionRestoreDraftExporter {
         tool: AgentTool,
         sessionID rawSessionID: String?,
         workingDirectory rawWorkingDirectory: String?,
-        trackedPID: Int32
+        trackedPID: Int32,
+        agentLaunchSnapshot: AgentLaunchSnapshot? = nil
     ) -> PaneRestoreDraft? {
         let workingDirectory = trimmed(rawWorkingDirectory)
         let sessionID: String
@@ -434,7 +438,8 @@ enum SessionRestoreDraftExporter {
             toolName: tool.displayName,
             sessionID: sessionID,
             workingDirectory: workingDirectory,
-            trackedPID: trackedPID
+            trackedPID: trackedPID,
+            agentLaunchSnapshot: agentLaunchSnapshot
         )
 
         guard AgentResumeCommandBuilder.command(for: draft) != nil else {
@@ -446,7 +451,7 @@ enum SessionRestoreDraftExporter {
 
     private static func restoreIdentityRequirement(for tool: AgentTool) -> RestoreIdentityRequirement {
         switch tool {
-        case .claudeCode, .codex, .copilot, .droid, .kimi, .openCode:
+        case .amp, .claudeCode, .codex, .copilot, .droid, .kimi, .openCode:
             return .sessionID
         case .gemini, .pi:
             return .workingDirectory
@@ -519,6 +524,18 @@ enum AgentResumeCommandBuilder {
         }
 
         switch AgentTool.resolve(named: draft.toolName) {
+        case .amp:
+            guard let sessionID = validatedAmpThreadID(from: draft.sessionID) else {
+                logRejectedSessionID(for: draft)
+                return nil
+            }
+            guard let resumeArguments = AmpResumeArgumentSanitizer.sanitizedAmpResumeArguments(
+                from: draft.agentLaunchSnapshot?.arguments ?? []
+            ) else {
+                return nil
+            }
+            let commandArguments = ["amp", "threads", "continue"] + resumeArguments + [sessionID]
+            return commandArguments.map(shellQuotedArgument(_:)).joined(separator: " ")
         case .claudeCode:
             guard let sessionID = validatedClaudeSessionID(from: draft.sessionID) else {
                 logRejectedSessionID(for: draft)
@@ -629,6 +646,21 @@ enum AgentResumeCommandBuilder {
             return nil
         }
         return sessionID
+    }
+
+    private static func validatedAmpThreadID(from sessionID: String) -> String? {
+        let pattern = #"^T-[A-Za-z0-9_-]+$"#
+        guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
+            return nil
+        }
+        return sessionID
+    }
+
+    private static func shellQuotedArgument(_ argument: String) -> String {
+        if argument.range(of: #"^[A-Za-z0-9_./:=+-]+$"#, options: .regularExpression) != nil {
+            return argument
+        }
+        return "'" + argument.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private static func hasWorkingDirectory(_ draft: PaneRestoreDraft) -> Bool {

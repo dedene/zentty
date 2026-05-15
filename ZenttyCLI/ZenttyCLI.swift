@@ -877,6 +877,7 @@ struct IPCCommand: ParsableCommand {
         "ZENTTY_PANE_ID",
         "ZENTTY_PANE_TOKEN",
         "ZENTTY_INSTANCE_ID",
+        "ZENTTY_AMP_PID",
         "ZENTTY_CLAUDE_PID",
         "ZENTTY_CODEX_PID",
         "ZENTTY_COPILOT_PID",
@@ -973,7 +974,7 @@ struct LaunchCommand: ParsableCommand {
         shouldDisplay: false
     )
 
-    @Argument(help: "Supported values: claude, codex, copilot, cursor, gemini, kimi, opencode, pi")
+    @Argument(help: "Supported values: amp, claude, codex, copilot, cursor, droid, gemini, kimi, opencode, pi")
     var tool: String
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments forwarded to the real tool.")

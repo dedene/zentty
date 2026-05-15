@@ -14,6 +14,7 @@ enum AgentIPCRequestKind: String, Codable, Equatable {
 }
 
 enum AgentBootstrapTool: String, Codable, Equatable {
+    case amp
     case claude
     case codex
     case copilot
@@ -31,7 +32,7 @@ enum AgentBootstrapTool: String, Codable, Equatable {
         switch self {
         case .cursor:
             return ["cursor-agent"]
-        case .claude, .codex, .copilot, .droid, .gemini, .opencode, .pi:
+        case .amp, .claude, .codex, .copilot, .droid, .gemini, .opencode, .pi:
             return [rawValue]
         case .kimi:
             return [rawValue, "kimi-cli"]

@@ -19,6 +19,7 @@ struct AgentEventInput {
     let artifactLabel: String?
     let artifactURL: String?
     let workingDirectory: String?
+    let agentLaunchSnapshot: AgentLaunchSnapshot?
 }
 
 enum AgentEventBridge {
@@ -125,6 +126,7 @@ enum AgentEventBridge {
         let progress = json["progress"] as? [String: Any]
         let artifact = json["artifact"] as? [String: Any]
         let context = json["context"] as? [String: Any]
+        let launch = context?["launch"] as? [String: Any]
 
         return AgentEventInput(
             event: event,
@@ -141,7 +143,8 @@ enum AgentEventBridge {
             artifactKind: firstString(in: artifact, keys: ["kind"]),
             artifactLabel: firstString(in: artifact, keys: ["label"]),
             artifactURL: firstString(in: artifact, keys: ["url"]),
-            workingDirectory: firstString(in: context, keys: ["workingDirectory"])
+            workingDirectory: firstString(in: context, keys: ["workingDirectory"]),
+            agentLaunchSnapshot: firstStringArray(in: launch, keys: ["arguments"]).map(AgentLaunchSnapshot.init(arguments:))
         )
     }
 
@@ -201,7 +204,8 @@ enum AgentEventBridge {
                 artifactKind: nil,
                 artifactLabel: nil,
                 artifactURL: nil,
-                agentWorkingDirectory: input.workingDirectory
+                agentWorkingDirectory: input.workingDirectory,
+                agentLaunchSnapshot: input.agentLaunchSnapshot
             ))
             return payloads
 
@@ -259,7 +263,8 @@ enum AgentEventBridge {
                 artifactKind: input.artifactKind.flatMap(WorklaneArtifactKind.init(rawValue:)),
                 artifactLabel: input.artifactLabel,
                 artifactURL: artifactURL,
-                agentWorkingDirectory: input.workingDirectory
+                agentWorkingDirectory: input.workingDirectory,
+                agentLaunchSnapshot: input.agentLaunchSnapshot
             )]
 
         case "agent.idle":
@@ -281,7 +286,8 @@ enum AgentEventBridge {
                 artifactKind: input.artifactKind.flatMap(WorklaneArtifactKind.init(rawValue:)),
                 artifactLabel: input.artifactLabel,
                 artifactURL: artifactURL,
-                agentWorkingDirectory: input.workingDirectory
+                agentWorkingDirectory: input.workingDirectory,
+                agentLaunchSnapshot: input.agentLaunchSnapshot
             )]
 
         case "agent.needs-input":
@@ -305,7 +311,8 @@ enum AgentEventBridge {
                 artifactKind: nil,
                 artifactLabel: nil,
                 artifactURL: nil,
-                agentWorkingDirectory: input.workingDirectory
+                agentWorkingDirectory: input.workingDirectory,
+                agentLaunchSnapshot: input.agentLaunchSnapshot
             )]
 
         case "agent.input-resolved":
@@ -325,7 +332,8 @@ enum AgentEventBridge {
                 artifactKind: nil,
                 artifactLabel: nil,
                 artifactURL: nil,
-                agentWorkingDirectory: input.workingDirectory
+                agentWorkingDirectory: input.workingDirectory,
+                agentLaunchSnapshot: input.agentLaunchSnapshot
             )]
 
         case "task.progress":
@@ -344,7 +352,8 @@ enum AgentEventBridge {
                 artifactKind: nil,
                 artifactLabel: nil,
                 artifactURL: nil,
-                agentWorkingDirectory: input.workingDirectory
+                agentWorkingDirectory: input.workingDirectory,
+                agentLaunchSnapshot: input.agentLaunchSnapshot
             )]
 
         default:
@@ -377,6 +386,31 @@ enum AgentEventBridge {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     return trimmed
+                }
+            }
+        }
+        return nil
+    }
+
+    static func firstStringArray(in object: [String: Any]?, keys: [String]) -> [String]? {
+        guard let object else { return nil }
+        for key in keys {
+            if let values = object[key] as? [String] {
+                let trimmedValues = values.map {
+                    $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                }.filter { !$0.isEmpty }
+                if !trimmedValues.isEmpty {
+                    return trimmedValues
+                }
+            }
+            if let values = object[key] as? [Any] {
+                let trimmedValues = values.compactMap { value -> String? in
+                    guard let string = value as? String else { return nil }
+                    let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return trimmed.isEmpty ? nil : trimmed
+                }
+                if !trimmedValues.isEmpty {
+                    return trimmedValues
                 }
             }
         }

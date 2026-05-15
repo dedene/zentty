@@ -1,5 +1,13 @@
 import Foundation
 
+struct AgentLaunchSnapshot: Codable, Equatable, Sendable {
+    var arguments: [String]
+
+    init(arguments: [String]) {
+        self.arguments = arguments
+    }
+}
+
 enum AgentStatusPayloadError: Error {
     case missingPaneID
     case missingPID
@@ -49,6 +57,7 @@ struct AgentStatusPayload: Equatable, Sendable {
     let artifactURL: URL?
     let agentWorkingDirectory: String?
     let agentTranscriptPath: String?
+    let agentLaunchSnapshot: AgentLaunchSnapshot?
 
     var clearsStatus: Bool {
         signalKind == .lifecycle && state == nil
@@ -141,6 +150,11 @@ struct AgentStatusPayload: Equatable, Sendable {
         if let agentTranscriptPath {
             userInfo["agentTranscriptPath"] = agentTranscriptPath
         }
+        if let agentLaunchSnapshot,
+           let data = try? JSONEncoder().encode(agentLaunchSnapshot),
+           let json = String(data: data, encoding: .utf8) {
+            userInfo["agentLaunchSnapshot"] = json
+        }
         return userInfo
     }
 
@@ -168,7 +182,8 @@ struct AgentStatusPayload: Equatable, Sendable {
         artifactLabel: String?,
         artifactURL: URL?,
         agentWorkingDirectory: String? = nil,
-        agentTranscriptPath: String? = nil
+        agentTranscriptPath: String? = nil,
+        agentLaunchSnapshot: AgentLaunchSnapshot? = nil
     ) {
         self.windowID = windowID
         self.worklaneID = worklaneID
@@ -194,6 +209,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         self.artifactURL = artifactURL
         self.agentWorkingDirectory = agentWorkingDirectory
         self.agentTranscriptPath = agentTranscriptPath
+        self.agentLaunchSnapshot = agentLaunchSnapshot
     }
 
     init(userInfo: [AnyHashable: Any]) throws {
@@ -228,6 +244,9 @@ struct AgentStatusPayload: Equatable, Sendable {
             doneCount: (userInfo["taskProgressDoneCount"] as? NSNumber)?.intValue ?? 0,
             totalCount: (userInfo["taskProgressTotalCount"] as? NSNumber)?.intValue ?? 0
         )
+        let agentLaunchSnapshot = (userInfo["agentLaunchSnapshot"] as? String)
+            .flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONDecoder().decode(AgentLaunchSnapshot.self, from: $0) }
 
         self.init(
             windowID: (userInfo["windowID"] as? String).map(WindowID.init),
@@ -253,7 +272,8 @@ struct AgentStatusPayload: Equatable, Sendable {
             artifactLabel: userInfo["artifactLabel"] as? String,
             artifactURL: artifactURL,
             agentWorkingDirectory: userInfo["agentWorkingDirectory"] as? String,
-            agentTranscriptPath: userInfo["agentTranscriptPath"] as? String
+            agentTranscriptPath: userInfo["agentTranscriptPath"] as? String,
+            agentLaunchSnapshot: agentLaunchSnapshot
         )
     }
 }

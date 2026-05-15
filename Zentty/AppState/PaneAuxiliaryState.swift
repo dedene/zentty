@@ -875,6 +875,8 @@ enum PanePresentationNormalizer {
         switch tool {
         case .zentty:
             return normalized == "zentty"
+        case .amp:
+            return normalized == "amp"
         case .claudeCode:
             return ["claude", "claude code"].contains(normalized)
         case .codex:

@@ -980,6 +980,7 @@ extension WorklaneStore {
         if let tool = recognizedTool {
             switch tool {
             case .zentty: return nil
+            case .amp: return "amp"
             case .claudeCode: return "claude"
             case .codex: return "codex"
             case .copilot: return "gh copilot"

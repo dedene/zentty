@@ -6,6 +6,7 @@ private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "
 struct PaneAgentSessionState: Equatable, Sendable {
     var sessionID: String
     var parentSessionID: String?
+    var agentLaunchSnapshot: AgentLaunchSnapshot? = nil
     var tool: AgentTool
     var state: PaneAgentState
     var text: String?
@@ -421,6 +422,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             hasObservedRunning: session.hasObservedRunning,
             sessionID: session.sessionID,
             parentSessionID: session.parentSessionID,
+            agentLaunchSnapshot: session.agentLaunchSnapshot,
             taskProgress: session.taskProgress
         )
     }
@@ -452,6 +454,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         var session = sessionsByID[sessionID] ?? PaneAgentSessionState(
             sessionID: sessionID,
             parentSessionID: normalized(payload.parentSessionID),
+            agentLaunchSnapshot: payload.agentLaunchSnapshot,
             tool: tool,
             state: .starting,
             text: nil,
@@ -490,6 +493,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         let previousOrigin = session.origin
 
         session.parentSessionID = normalized(payload.parentSessionID) ?? session.parentSessionID
+        session.agentLaunchSnapshot = payload.agentLaunchSnapshot ?? session.agentLaunchSnapshot
         session.tool = tool
         session.source = statusSource(for: payload.origin)
         session.origin = payload.origin
@@ -599,6 +603,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             session.artifactLink = session.artifactLink ?? inferredSession.artifactLink
             session.text = session.text ?? inferredSession.text
             session.taskProgress = session.taskProgress ?? inferredSession.taskProgress
+            session.agentLaunchSnapshot = session.agentLaunchSnapshot ?? inferredSession.agentLaunchSnapshot
             if inferredSession.updatedAt > session.updatedAt {
                 session.updatedAt = inferredSession.updatedAt
             }
@@ -624,6 +629,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.text = session.text ?? fallbackSession.text
         session.trackedPID = session.trackedPID ?? fallbackSession.trackedPID
         session.taskProgress = session.taskProgress ?? fallbackSession.taskProgress
+        session.agentLaunchSnapshot = session.agentLaunchSnapshot ?? fallbackSession.agentLaunchSnapshot
         if session.shellActivityState == .unknown {
             session.shellActivityState = fallbackSession.shellActivityState
         }
@@ -644,6 +650,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             var session = sessionsByID[sessionID] ?? PaneAgentSessionState(
                 sessionID: sessionID,
                 parentSessionID: normalized(payload.parentSessionID),
+                agentLaunchSnapshot: payload.agentLaunchSnapshot,
                 tool: tool,
                 state: .starting,
                 text: nil,
@@ -671,6 +678,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             session.updatedAt = now
             session.trackedPID = pid
             session.parentSessionID = normalized(payload.parentSessionID) ?? session.parentSessionID
+            session.agentLaunchSnapshot = payload.agentLaunchSnapshot ?? session.agentLaunchSnapshot
             sessionsByID[sessionID] = session
         case .clear:
             if let sessionID = normalized(payload.sessionID), var session = sessionsByID[sessionID] {

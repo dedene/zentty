@@ -2,6 +2,7 @@ import Foundation
 
 enum AgentTool: Equatable, Sendable {
     case zentty
+    case amp
     case claudeCode
     case codex
     case copilot
@@ -17,6 +18,8 @@ enum AgentTool: Equatable, Sendable {
         switch self {
         case .zentty:
             return "Zentty"
+        case .amp:
+            return "Amp"
         case .claudeCode:
             return "Claude Code"
         case .codex:
@@ -85,6 +88,8 @@ enum AgentTool: Equatable, Sendable {
                 return normalized.contains(needle)
             case .containsAny(let needles):
                 return needles.contains { normalized.contains($0) }
+            case .leadingToken(let tokens):
+                return matchesLeadingToken(normalized, tokens: tokens)
             case .pi:
                 return matchesPi(normalized)
             }
@@ -94,10 +99,12 @@ enum AgentTool: Equatable, Sendable {
     private enum Match: Sendable {
         case contains(String)
         case containsAny([String])
+        case leadingToken([String])
         case pi
     }
 
     private static let knownToolMatchers: [ToolNameMatcher] = [
+        ToolNameMatcher(tool: .amp, isHookDrivenOnly: false, match: .leadingToken(["amp"])),
         ToolNameMatcher(tool: .claudeCode, isHookDrivenOnly: false, match: .contains("claude")),
         ToolNameMatcher(tool: .codex, isHookDrivenOnly: false, match: .contains("codex")),
         // Keep hook-driven-only tools out of metadata recognition so generic
@@ -121,6 +128,13 @@ enum AgentTool: Equatable, Sendable {
             if token == "pi" || token == "π" { return true }
         }
         return false
+    }
+
+    private static func matchesLeadingToken(_ normalized: String, tokens expectedTokens: [String]) -> Bool {
+        guard let token = normalized.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).first else {
+            return false
+        }
+        return expectedTokens.contains(String(token))
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -363,6 +377,7 @@ struct PaneAgentStatus: Equatable, Sendable {
     var hasObservedRunning: Bool
     var sessionID: String?
     var parentSessionID: String?
+    var agentLaunchSnapshot: AgentLaunchSnapshot?
     var taskProgress: PaneAgentTaskProgress?
 
     init(
@@ -382,6 +397,7 @@ struct PaneAgentStatus: Equatable, Sendable {
         hasObservedRunning: Bool? = nil,
         sessionID: String? = nil,
         parentSessionID: String? = nil,
+        agentLaunchSnapshot: AgentLaunchSnapshot? = nil,
         taskProgress: PaneAgentTaskProgress? = nil
     ) {
         self.tool = tool
@@ -401,6 +417,7 @@ struct PaneAgentStatus: Equatable, Sendable {
         self.hasObservedRunning = hasObservedRunning ?? Self.defaultHasObservedRunning(for: state)
         self.sessionID = sessionID
         self.parentSessionID = parentSessionID
+        self.agentLaunchSnapshot = agentLaunchSnapshot
         self.taskProgress = taskProgress
     }
 

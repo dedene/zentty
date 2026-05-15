@@ -27,16 +27,21 @@ from collections import Counter
 from typing import Any
 
 
-SUPPORTED_AGENTS = ("claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi")
+SUPPORTED_AGENTS = ("amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi")
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 DEFAULT_RUNS_DIR = REPO_ROOT / ".agent-bench-runs"
+AMP_PLUGIN_FILE_NAME = "zentty-amp-zentty.ts"
+AMP_PLUGIN_OWNERSHIP_MARKER = "zentty-amp-plugin-v1"
 ROUTING_ENV_KEYS = {
     "ZENTTY_WINDOW_ID",
     "ZENTTY_WORKLANE_ID",
     "ZENTTY_PANE_ID",
     "ZENTTY_INSTANCE_ID",
     "ZENTTY_AGENT_TOOL",
+    "ZENTTY_AMP_PID",
+    "ZENTTY_AMP_RESUME_ARGUMENTS_JSON",
+    "PLUGINS",
     "ZENTTY_CLAUDE_PID",
     "ZENTTY_CODEX_PID",
     "ZENTTY_COPILOT_PID",
@@ -401,6 +406,8 @@ def session_id_matches_pattern(session_id: str, pattern: str) -> bool:
         return session_id_matches_pattern(session_id, "uuid") or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", session_id) is not None
     if pattern == "droid":
         return re.fullmatch(r"[A-Za-z0-9_.:-]+", session_id) is not None
+    if pattern == "amp":
+        return re.fullmatch(r"T-[A-Za-z0-9_-]+", session_id) is not None
     if pattern == "opencode":
         return re.fullmatch(r"ses_[A-Za-z0-9]+", session_id) is not None
     return False
@@ -1084,6 +1091,60 @@ class LaunchPlanner:
 
     def _direct_plan(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
         return self._launch_plan(executable, arguments, {"ZENTTY_AGENT_TOOL": self.profile.name})
+
+    def _plan_amp(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        source_home = pathlib.Path(str(environment.get("HOME") or pathlib.Path.home())).expanduser()
+        config_home = pathlib.Path(str(environment.get("XDG_CONFIG_HOME") or source_home / ".config")).expanduser()
+        env = {
+            "ZENTTY_AGENT_TOOL": "amp",
+        }
+        if self._install_amp_plugin(config_home):
+            env["PLUGINS"] = "all"
+
+        resume_arguments = sanitized_amp_resume_arguments(arguments)
+        if resume_arguments:
+            env["ZENTTY_AMP_RESUME_ARGUMENTS_JSON"] = compact_json(resume_arguments)
+        session_start = compact_json({
+            "version": 1,
+            "event": "session.start",
+            "agent": {"name": "Amp", "pid": "__ZENTTY_SELF_PID__"},
+            "context": {"launch": {"arguments": resume_arguments}},
+        })
+        agent_running = compact_json({
+            "version": 1,
+            "event": "agent.running",
+            "agent": {"name": "Amp", "pid": "__ZENTTY_SELF_PID__"},
+            "context": {"launch": {"arguments": resume_arguments}},
+        })
+        return self._launch_plan(
+            executable,
+            arguments,
+            env,
+            prelaunch=[
+                {"subcommand": "agent-event", "arguments": [], "standardInput": session_start},
+                {"subcommand": "agent-event", "arguments": [], "standardInput": agent_running},
+            ],
+        )
+
+    def _install_amp_plugin(self, config_home: pathlib.Path) -> bool:
+        if not self.resources_dir:
+            return False
+        source = self.resources_dir / "amp" / "plugins" / AMP_PLUGIN_FILE_NAME
+        if not source.exists():
+            return False
+
+        destination = config_home / "amp" / "plugins" / AMP_PLUGIN_FILE_NAME
+        if destination.exists():
+            try:
+                existing = destination.read_text(encoding="utf-8")
+            except OSError:
+                existing = ""
+            if AMP_PLUGIN_OWNERSHIP_MARKER not in existing:
+                return False
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        return True
 
     def _plan_claude(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
         hook_command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=claude'
@@ -2116,6 +2177,67 @@ def copy_directory_contents(source: pathlib.Path, destination: pathlib.Path) -> 
             shutil.copytree(child, target, dirs_exist_ok=True)
         else:
             shutil.copy2(child, target)
+
+
+def sanitized_amp_resume_arguments(arguments: list[str]) -> list[str]:
+    remaining = list(arguments)
+    if remaining and remaining[0] == "amp":
+        remaining = remaining[1:]
+    if len(remaining) >= 2 and remaining[0] in {"threads", "thread", "t"} and remaining[1] in {"continue", "c"}:
+        remaining = remaining[2:]
+        if remaining and re.fullmatch(r"T-[A-Za-z0-9_-]+", remaining[0]):
+            remaining = remaining[1:]
+    if remaining and remaining[0] in {
+        "login",
+        "logout",
+        "mcp",
+        "permission",
+        "permissions",
+        "review",
+        "skill",
+        "skills",
+        "tool",
+        "tools",
+        "update",
+        "up",
+        "usage",
+        "version",
+    }:
+        return []
+    rejected_flags = {"--execute", "--print", "-x", "--help", "-h", "--version", "-V", "--jetbrains"}
+    if any(amp_option_name(argument) in rejected_flags for argument in remaining):
+        return []
+
+    safe_value_options = {"--mode", "-m", "--effort", "--settings-file", "--log-level", "--log-file", "--mcp-config", "--visibility"}
+    dropped_value_options = {"--label", "-l"}
+    dropped_flags = {"--archive", "--stream-json", "--stream-json-input", "--stream-json-thinking", "--json", "--output-format"}
+    sanitized: list[str] = []
+    index = 0
+    while index < len(remaining):
+        argument = remaining[index]
+        option_name = argument.split("=", 1)[0] if argument.startswith("--") else argument
+        if option_name in safe_value_options:
+            if "=" in argument:
+                sanitized.append(argument)
+            elif index + 1 < len(remaining) and not remaining[index + 1].startswith("-"):
+                sanitized.extend([argument, remaining[index + 1]])
+                index += 1
+        elif option_name in dropped_value_options:
+            if "=" not in argument and index + 1 < len(remaining) and not remaining[index + 1].startswith("-"):
+                index += 1
+        elif option_name in dropped_flags:
+            if option_name == "--output-format" and "=" not in argument and index + 1 < len(remaining) and not remaining[index + 1].startswith("-"):
+                index += 1
+        elif argument.startswith("-"):
+            pass
+        else:
+            break
+        index += 1
+    return sanitized
+
+
+def amp_option_name(argument: str) -> str:
+    return argument.split("=", 1)[0] if argument.startswith("--") else argument
 
 
 def shell_escape_double_quoted(value: str) -> str:

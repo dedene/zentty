@@ -2,6 +2,68 @@ import XCTest
 @testable import Zentty
 
 final class AgentResumeCommandBuilderTests: XCTestCase {
+    func test_builder_returns_amp_thread_continue_command_for_valid_thread_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-amp",
+            kind: .agentResume,
+            toolName: "Amp",
+            sessionID: "T-ZenttyBenchRestore",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "amp threads continue T-ZenttyBenchRestore"
+        )
+    }
+
+    func test_builder_preserves_sanitized_amp_resume_arguments() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-amp",
+            kind: .agentResume,
+            toolName: "Amp",
+            sessionID: "T-ZenttyBenchRestore",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242,
+            agentLaunchSnapshot: AgentLaunchSnapshot(
+                arguments: ["--mode", "smart", "--effort", "high", "--settings-file", "/tmp/amp settings.json"]
+            )
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            #"amp threads continue --mode smart --effort high --settings-file '/tmp/amp settings.json' T-ZenttyBenchRestore"#
+        )
+    }
+
+    func test_builder_returns_nil_for_unsafe_amp_thread_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-amp",
+            kind: .agentResume,
+            toolName: "Amp",
+            sessionID: "T-safe; rm -rf /",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
+    func test_builder_returns_nil_for_amp_execute_resume_argument_with_value() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-amp",
+            kind: .agentResume,
+            toolName: "Amp",
+            sessionID: "T-ZenttyBenchRestore",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242,
+            agentLaunchSnapshot: AgentLaunchSnapshot(arguments: ["--execute=echo hi"])
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
     func test_builder_returns_claude_resume_command_for_uuid_session_id() {
         let draft = PaneRestoreDraft(
             paneID: "pane-claude",

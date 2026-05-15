@@ -52,6 +52,17 @@ struct AgentToolLauncher {
         }
 
         switch tool {
+        case .amp:
+            if environment["ZENTTY_AMP_HOOKS_DISABLED"] == "1" {
+                return false
+            }
+            if Self.ampPassthroughSubcommands.contains(arguments.first ?? "") {
+                return false
+            }
+            if arguments.contains(where: Self.isAmpEarlyExitFlag) {
+                return false
+            }
+            return true
         case .claude:
             if environment["ZENTTY_CLAUDE_HOOKS_DISABLED"] == "1" {
                 return false
@@ -107,6 +118,22 @@ struct AgentToolLauncher {
     static let piEarlyExitFlags: Set<String> = [
         "--help", "-h", "--version", "-v", "--list-models", "--export",
     ]
+
+    static let ampPassthroughSubcommands: Set<String> = [
+        "login", "logout", "mcp", "permission", "permissions", "review",
+        "skill", "skills", "tool", "tools", "update", "up", "usage", "version",
+    ]
+
+    static let ampEarlyExitFlags: Set<String> = [
+        "--help", "-h", "--version", "-V", "--jetbrains",
+    ]
+
+    private static func isAmpEarlyExitFlag(_ argument: String) -> Bool {
+        let optionName = argument.hasPrefix("--")
+            ? (argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument)
+            : argument
+        return ampEarlyExitFlags.contains(optionName)
+    }
 
     static let kimiPassthroughSubcommands: Set<String> = [
         "login", "logout", "term", "acp", "info", "export", "mcp", "plugin", "vis", "web",
@@ -242,6 +269,8 @@ struct AgentToolLauncher {
 
     private var toolDisplayName: String {
         switch tool {
+        case .amp:
+            return "Amp"
         case .claude:
             return "Claude"
         case .codex:
@@ -267,6 +296,7 @@ struct AgentToolLauncher {
         let forwardedKeys = [
             "HOME",
             "PATH",
+            "AMP_SETTINGS_FILE",
             "ZENTTY_CLI_BIN",
             "ZENTTY_INSTANCE_SOCKET",
             "ZENTTY_WINDOW_ID",
@@ -274,6 +304,7 @@ struct AgentToolLauncher {
             "ZENTTY_PANE_ID",
             "ZENTTY_PANE_TOKEN",
             "ZENTTY_INSTANCE_ID",
+            "ZENTTY_AMP_HOOKS_DISABLED",
             "ZENTTY_CLAUDE_HOOKS_DISABLED",
             "ZENTTY_COPILOT_HOOKS_DISABLED",
             "ZENTTY_CURSOR_HOOKS_DISABLED",
@@ -336,7 +367,7 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi:
+        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi:
             return EnvironmentPatch()
         }
     }
@@ -348,6 +379,8 @@ struct AgentToolLauncher {
         )
 
         switch tool {
+        case .amp:
+            environmentPatch.set["ZENTTY_AMP_PID"] = "\(getpid())"
         case .claude:
             environmentPatch.set["ZENTTY_CLAUDE_PID"] = "\(getpid())"
         case .codex:
@@ -402,6 +435,7 @@ struct AgentToolLauncher {
             "ZENTTY_WORKLANE_ID",
             "ZENTTY_PANE_ID",
             "ZENTTY_PANE_TOKEN",
+            "ZENTTY_AMP_PID",
             "ZENTTY_CLAUDE_PID",
             "ZENTTY_CODEX_PID",
             "ZENTTY_COPILOT_PID",

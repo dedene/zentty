@@ -942,10 +942,24 @@ class ProfileTests(unittest.TestCase):
 
         self.assertEqual(
             sorted(profiles),
-            ["claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"],
+            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"],
         )
         for profile in profiles.values():
             self.assertIn("smoke", profile.expectations)
+
+    def test_amp_profile_covers_session_capture_and_restore_launch(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["amp"]
+
+        self.assertEqual(profile.command, "amp")
+        self.assertIn("--execute", profile.launch_args_by_scenario["smoke"])
+        self.assertEqual(
+            profile.expectations["session_capture"].session_identity.session_id_pattern,
+            "amp",
+        )
+        self.assertEqual(
+            profile.expectations["restore_launch"].required_bootstrap_arguments,
+            [["threads", "continue", "T-ZenttyBenchRestore"]],
+        )
 
     def test_cursor_smoke_profile_uses_headless_hook_events(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["cursor"]
@@ -1457,6 +1471,111 @@ class LaunchPlannerTests(unittest.TestCase):
             self.assertEqual(plan["setEnvironment"]["OPENCODE_CONFIG"], str(overlay / "opencode.json"))
             self.assertTrue(merged["autoupdate"])
             self.assertEqual(merged["permission"]["bash"], "ask")
+
+    def test_amp_plan_installs_plugin_into_user_config_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            real_home = root / "real-home"
+            real_plugin = real_home / ".config" / "amp" / "plugins" / "user.ts"
+            real_plugin.parent.mkdir(parents=True)
+            real_plugin.write_text("// user plugin\n", encoding="utf-8")
+            real_marker = real_home / ".config" / "amp" / "settings.json"
+            real_marker.write_text('{"amp.notifications.enabled":false}\n', encoding="utf-8")
+            real_agents = real_home / ".config" / "amp" / "AGENTS.md"
+            real_agents.write_text("personal amp guidance\n", encoding="utf-8")
+            resources = root / "resources"
+            plugin = resources / "amp" / "plugins" / "zentty-amp-zentty.ts"
+            plugin.parent.mkdir(parents=True)
+            plugin.write_text("// zentty plugin\n", encoding="utf-8")
+            profile = agent_bench.AgentProfile(
+                name="amp",
+                command="amp",
+                real_binary_names=["amp"],
+                version_args=["--version"],
+                launch_args_by_scenario={"smoke": []},
+                expectations={"smoke": agent_bench.ScenarioExpectation("smoke", ["session.start"])},
+            )
+
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="smoke",
+                run_dir=root / "run",
+                resources_dir=resources,
+            ).plan(
+                {
+                    "arguments": ["--mode", "smart", "hello"],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/amp",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                        "HOME": str(real_home),
+                    },
+                }
+            )
+
+            self.assertNotIn("HOME", plan["setEnvironment"])
+            self.assertNotIn("XDG_CONFIG_HOME", plan["setEnvironment"])
+            self.assertNotIn("AMP_SETTINGS_FILE", plan["setEnvironment"])
+            amp_config = real_home / ".config" / "amp"
+            installed_plugin = amp_config / "plugins" / "zentty-amp-zentty.ts"
+            self.assertTrue(installed_plugin.exists())
+            user_plugin = amp_config / "plugins" / "user.ts"
+            self.assertFalse(user_plugin.is_symlink())
+            self.assertEqual(user_plugin.resolve(), real_plugin.resolve())
+            settings = amp_config / "settings.json"
+            self.assertFalse(settings.is_symlink())
+            self.assertEqual(settings.resolve(), real_marker.resolve())
+            agents = amp_config / "AGENTS.md"
+            self.assertFalse(agents.is_symlink())
+            self.assertEqual(agents.resolve(), real_agents.resolve())
+            self.assertEqual(real_plugin.read_text(encoding="utf-8"), "// user plugin\n")
+            self.assertEqual(plan["setEnvironment"]["ZENTTY_AGENT_TOOL"], "amp")
+            self.assertEqual(plan["setEnvironment"]["PLUGINS"], "all")
+            self.assertEqual(plan["setEnvironment"]["ZENTTY_AMP_RESUME_ARGUMENTS_JSON"], '["--mode","smart"]')
+            self.assertEqual([action["standardInput"] for action in plan["preLaunchActions"]], [
+                '{"version":1,"event":"session.start","agent":{"name":"Amp","pid":"__ZENTTY_SELF_PID__"},"context":{"launch":{"arguments":["--mode","smart"]}}}',
+                '{"version":1,"event":"agent.running","agent":{"name":"Amp","pid":"__ZENTTY_SELF_PID__"},"context":{"launch":{"arguments":["--mode","smart"]}}}',
+            ])
+
+    def test_amp_plan_refuses_to_overwrite_unmarked_plugin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            home = root / "home"
+            existing_plugin = home / ".config" / "amp" / "plugins" / "zentty-amp-zentty.ts"
+            existing_plugin.parent.mkdir(parents=True)
+            existing_plugin.write_text("// user-owned file\n", encoding="utf-8")
+            resources = root / "resources"
+            plugin = resources / "amp" / "plugins" / "zentty-amp-zentty.ts"
+            plugin.parent.mkdir(parents=True)
+            plugin.write_text("// zentty-amp-plugin-v1\n", encoding="utf-8")
+            profile = agent_bench.AgentProfile(
+                name="amp",
+                command="amp",
+                real_binary_names=["amp"],
+                version_args=["--version"],
+                launch_args_by_scenario={"smoke": []},
+                expectations={"smoke": agent_bench.ScenarioExpectation("smoke", ["session.start"])},
+            )
+
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="smoke",
+                run_dir=root / "run",
+                resources_dir=resources,
+            ).plan(
+                {
+                    "arguments": ["hello"],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/amp",
+                        "HOME": str(home),
+                    },
+                }
+            )
+
+            self.assertEqual(existing_plugin.read_text(encoding="utf-8"), "// user-owned file\n")
+            self.assertNotIn("PLUGINS", plan["setEnvironment"])
+
+    def test_amp_resume_argument_sanitizer_rejects_execute_with_value(self):
+        self.assertEqual(agent_bench.sanitized_amp_resume_arguments(["--execute=echo hi"]), [])
 
     def test_timeout_with_skip_pattern_is_classified_as_prerequisite_skip(self):
         result = agent_bench.classify_timeout_result(

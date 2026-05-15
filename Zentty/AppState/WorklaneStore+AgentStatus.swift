@@ -183,6 +183,10 @@ extension WorklaneStore {
                Self.isProcessAlive(pid: trackedPID) {
                 break
             }
+            if shouldPromoteIdleStatusToReadyOnCommandFinished(existingStatus) {
+                requestReadyStatusIfNeeded(for: paneID, in: &worklane)
+                break
+            }
             if shouldClearWeakCodexStatusOnCommandFinished(existingStatus) {
                 clearTransientCodexState(
                     paneID: paneID,
@@ -194,6 +198,7 @@ extension WorklaneStore {
             if existingStatus?.state != .idle,
                existingStatus?.state != .needsInput,
                existingStatus?.state != .starting,
+               existingStatus?.state != .unresolvedStop,
                existingStatus?.source == .explicit {
                 var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
                 auxiliaryState.agentReducerState = Self.seededReducerState(
@@ -494,7 +499,8 @@ extension WorklaneStore {
                     artifactLabel: payload.artifactLabel,
                     artifactURL: payload.artifactURL,
                     agentWorkingDirectory: payload.agentWorkingDirectory,
-                    agentTranscriptPath: payload.agentTranscriptPath
+                    agentTranscriptPath: payload.agentTranscriptPath,
+                    agentLaunchSnapshot: payload.agentLaunchSnapshot
                 )
             )
             auxiliaryState.agentStatus = Self.hydratedStatus(
@@ -531,6 +537,23 @@ extension WorklaneStore {
                 } else {
                     auxiliaryState.raw.restoredAgentAutoResumePending = false
                 }
+            }
+
+            if shouldClearAmpStatusForNonAgentCommand(existingStatus, payload: payload) {
+                auxiliaryState.agentStatus = nil
+                auxiliaryState.agentReducerState = PaneAgentReducerState()
+                auxiliaryState.terminalProgress = nil
+                auxiliaryState.raw.wantsReadyStatus = false
+                auxiliaryState.raw.showsReadyStatus = false
+                worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
+                cancelPendingReadyStatus(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
+                recomputePresentation(for: payload.paneID, in: &worklane)
+                worklanes[worklaneIndex] = worklane
+                let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+                if !impacts.isEmpty {
+                    notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, impacts))
+                }
+                return
             }
 
             if var existingStatus {
@@ -605,7 +628,8 @@ extension WorklaneStore {
                         artifactLabel: nil,
                         artifactURL: nil,
                         agentWorkingDirectory: payload.agentWorkingDirectory,
-                        agentTranscriptPath: payload.agentTranscriptPath
+                        agentTranscriptPath: payload.agentTranscriptPath,
+                        agentLaunchSnapshot: payload.agentLaunchSnapshot
                     )
                 )
                 var status = Self.hydratedStatus(
@@ -1016,6 +1040,42 @@ extension WorklaneStore {
         return nextStatus.state != .idle
     }
 
+    private func shouldPromoteIdleStatusToReadyOnCommandFinished(_ status: PaneAgentStatus?) -> Bool {
+        guard let status,
+              status.tool == .amp,
+              status.state == .idle,
+              status.hasObservedRunning,
+              status.origin != .shell,
+              status.source == .explicit else {
+            return false
+        }
+
+        return true
+    }
+
+    private func shouldClearAmpStatusForNonAgentCommand(
+        _ status: PaneAgentStatus?,
+        payload: AgentStatusPayload
+    ) -> Bool {
+        guard payload.signalKind == .shellState,
+              payload.shellActivityState == .commandRunning,
+              let status,
+              status.tool == .amp,
+              status.source == .explicit,
+              status.origin != .shell,
+              status.state == .idle || status.state == .unresolvedStop else {
+            return false
+        }
+
+        if AgentTool.resolveKnown(named: payload.toolName) == .amp {
+            return false
+        }
+        if AgentTool.resolveKnown(named: payload.shellCommand) == .amp {
+            return false
+        }
+        return true
+    }
+
     private func shouldClearReadyStatusForProgressReport(
         existingStatus: PaneAgentStatus?,
         showsReadyStatus: Bool
@@ -1189,6 +1249,7 @@ extension WorklaneStore {
         seededReducerState.sessionsByID[sessionID] = PaneAgentSessionState(
             sessionID: sessionID,
             parentSessionID: existingStatus.parentSessionID,
+            agentLaunchSnapshot: existingStatus.agentLaunchSnapshot,
             tool: existingStatus.tool,
             state: existingStatus.state,
             text: existingStatus.text,
@@ -1224,6 +1285,7 @@ extension WorklaneStore {
 
         status.workingDirectory = WorklaneContextFormatter.trimmed(payloadWorkingDirectory)
             ?? existingStatus?.workingDirectory
+        status.agentLaunchSnapshot = status.agentLaunchSnapshot ?? existingStatus?.agentLaunchSnapshot
         return status
     }
 

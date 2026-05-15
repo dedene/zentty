@@ -1277,6 +1277,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
         switch tool {
         case .zentty:
             return "zentty"
+        case .amp:
+            return "amp"
         case .claudeCode:
             return "claude"
         case .codex:

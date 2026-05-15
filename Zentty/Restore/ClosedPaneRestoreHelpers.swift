@@ -119,7 +119,8 @@ enum ClosedPaneRestoreCommandResolver {
                 toolName: snapshot.toolDisplayName,
                 sessionID: snapshot.sessionID ?? "",
                 workingDirectory: snapshot.workingDirectory ?? entry.workingDirectory,
-                trackedPID: 0
+                trackedPID: 0,
+                agentLaunchSnapshot: snapshot.agentLaunchSnapshot
             )
 
             if let resumeCommand = AgentResumeCommandBuilder.command(for: draft) {

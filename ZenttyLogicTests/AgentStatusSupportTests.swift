@@ -68,6 +68,14 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNil(AgentTool.resolveKnown(named: "copilot"))
     }
 
+    func test_agent_tool_recognizes_amp_only_as_leading_token() {
+        XCTAssertEqual(AgentTool.resolve(named: "amp"), .amp)
+        XCTAssertEqual(AgentTool.resolve(named: "amp - Greeting"), .amp)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "amp - Greeting"), .amp)
+        XCTAssertEqual(AgentTool.resolve(named: "feature/amp"), .custom("feature/amp"))
+        XCTAssertNil(AgentTool.resolveKnown(named: "/Users/peter/Development/worktrees/feature/amp"))
+    }
+
     func test_agent_tool_recognizes_gemini_for_explicit_and_known_tool_resolution() {
         XCTAssertEqual(AgentTool.resolve(named: "gemini"), .gemini)
         XCTAssertEqual(AgentTool.resolve(named: "Gemini CLI"), .gemini)
@@ -206,6 +214,29 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_amp_passthrough_list_matches_management_commands_snapshot() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        for subcommand in ["login", "logout", "mcp", "permission", "permissions", "review", "skill", "skills", "tool", "tools", "update", "up", "usage", "version"] {
+            XCTAssertTrue(
+                source.contains("\"\(subcommand)\""),
+                "ampPassthroughSubcommands should contain \(subcommand)"
+            )
+        }
+        for flag in ["--help", "-h", "--version", "-V", "--jetbrains"] {
+            XCTAssertTrue(
+                source.contains("\"\(flag)\""),
+                "ampEarlyExitFlags should contain \(flag)"
+            )
+        }
+    }
+
     func test_agent_tool_launcher_forwards_opencode_tui_and_xdg_environment() throws {
         // AgentToolLauncher lives in the ZenttyCLI target which tests don't
         // import, so read the source file directly to protect the bootstrap
@@ -222,6 +253,23 @@ final class AgentStatusSupportTests: XCTestCase {
             XCTAssertTrue(
                 source.contains("\"\(key)\""),
                 "AgentToolLauncher should forward \(key) into the bootstrap request"
+            )
+        }
+    }
+
+    func test_agent_tool_launcher_forwards_amp_routing_environment() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        for key in ["AMP_SETTINGS_FILE", "ZENTTY_AMP_HOOKS_DISABLED", "ZENTTY_AMP_PID"] {
+            XCTAssertTrue(
+                source.contains("\"\(key)\""),
+                "AgentToolLauncher should forward \(key) for AMP bootstrap and plugin events"
             )
         }
     }
@@ -268,7 +316,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"].map {
+            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -372,7 +420,7 @@ final class AgentStatusSupportTests: XCTestCase {
         try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
         // Real binaries Zentty's wrappers expect on PATH. Note cursor resolves to `cursor-agent`,
         // not `cursor` (which is the Cursor IDE launcher).
-        for name in ["claude", "cursor-agent", "gemini", "kimi", "opencode"] {
+        for name in ["amp", "claude", "cursor-agent", "gemini", "kimi", "opencode"] {
             let fileURL = realBinURL.appendingPathComponent(name, isDirectory: false)
             try "#!/bin/sh\n".write(to: fileURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
@@ -380,6 +428,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let environment = [
             "PATH": [
+                binURL.appendingPathComponent("amp", isDirectory: true).path,
                 binURL.appendingPathComponent("claude", isDirectory: true).path,
                 binURL.appendingPathComponent("codex", isDirectory: true).path,
                 binURL.appendingPathComponent("copilot", isDirectory: true).path,
@@ -398,6 +447,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(
             AgentStatusHelper.enabledWrapperDirectoryPaths(in: bundle, processEnvironment: environment),
             [
+                binURL.appendingPathComponent("amp", isDirectory: true).path,
                 binURL.appendingPathComponent("claude", isDirectory: true).path,
                 binURL.appendingPathComponent("cursor", isDirectory: true).path,
                 binURL.appendingPathComponent("gemini", isDirectory: true).path,
@@ -539,6 +589,22 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_repository_shell_integrations_tag_amp_shell_activity() throws {
+        for shell in [ShellIntegrationTestShell.zsh, .bash] {
+            let signals = try runShellIntegration(
+                shell: shell,
+                command: shell == .zsh
+                    ? #"_zentty_preexec "amp \"summarize this\"""#
+                    : #"amp "summarize this" 2>/dev/null || true"#
+            )
+
+            XCTAssertTrue(
+                signals.contains(where: { $0.contains("shell-state running --tool Amp") }),
+                "Expected \(shell) integration to tag amp shell activity, got: \(signals)"
+            )
+        }
+    }
+
     func test_repository_shell_integrations_include_running_command() throws {
         for shell in [ShellIntegrationTestShell.zsh, .bash] {
             let commandText = "pnpm start:staging -- --host 127.0.0.1"
@@ -665,6 +731,36 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
     }
 
+    func test_shell_integration_does_not_enable_amp_wrapper_when_wrapper_executable_is_missing() throws {
+        for shell in [ShellIntegrationTestShell.zsh, .bash] {
+            let wrapperRoot = try makeTemporaryDirectory(named: "shell-\(shell)-missing-amp-wrapper-root")
+            let wrapperDir = wrapperRoot.appendingPathComponent("amp", isDirectory: true)
+            try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+
+            let realBinDir = try makeTemporaryDirectory(named: "shell-\(shell)-real-amp")
+            let realBinaryURL = realBinDir.appendingPathComponent("amp", isDirectory: false)
+            try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realBinaryURL.path)
+
+            let result = try runShellIntegrationCommand(
+                shell: shell,
+                command: """
+                PATH="\(realBinDir.path):/usr/bin:/bin"
+                export PATH
+                _zentty_ensure_wrapper_path
+                printf 'active=<%s>\\n' "${ZENTTY_WRAPPER_BIN_DIRS-}"
+                command -v amp
+                """,
+                extraEnvironment: [
+                    "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+                ]
+            )
+
+            XCTAssertTrue(result.stdout.contains("active=<>"), "\(shell) should not export a missing amp wrapper: \(result.stdout)")
+            XCTAssertEqual(lastAbsolutePath(in: result.stdout), realBinaryURL.path)
+        }
+    }
+
     func test_zsh_shell_integration_prefers_tmux_shim_when_agent_teams_enabled() throws {
         let shimDir = try makeTemporaryDirectory(named: "shell-zsh-tmux-shim")
         let shimURL = shimDir.appendingPathComponent("tmux", isDirectory: false)
@@ -789,6 +885,56 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(script.contains("ZENTTY_AGENT_TOOL=\"codex\""))
         XCTAssertTrue(script.contains("zentty-agent-wrapper"))
         XCTAssertFalse(script.contains("python3"))
+    }
+
+    func test_repository_amp_wrapper_delegates_to_launch_cli() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperURL = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: false)
+
+        let wrapper = try String(contentsOf: wrapperURL, encoding: .utf8)
+
+        XCTAssertTrue(wrapper.contains("ZENTTY_AGENT_TOOL=\"amp\""))
+        XCTAssertTrue(wrapper.contains("zentty-agent-wrapper"))
+        XCTAssertFalse(wrapper.contains("ZENTTY_AGENT_BIN"))
+    }
+
+    func test_copy_agent_resources_build_script_syncs_amp_support_directory() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let projectFileURL = repositoryRoot.appendingPathComponent("Zentty.xcodeproj/project.pbxproj", isDirectory: false)
+
+        let project = try String(contentsOf: projectFileURL, encoding: .utf8)
+
+        XCTAssertTrue(project.contains("${RESOURCES_DST}/amp/plugins"))
+        XCTAssertTrue(project.contains("${RESOURCES_SRC}/amp/"))
+        XCTAssertTrue(project.contains("${RESOURCES_DST}/amp/"))
+    }
+
+    func test_repository_amp_plugin_guards_routing_and_sanitizes_ipc_environment() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let pluginURL = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent("zentty-amp-zentty.ts", isDirectory: false)
+
+        let plugin = try String(contentsOf: pluginURL, encoding: .utf8)
+
+        XCTAssertTrue(plugin.contains("ZENTTY_INSTANCE_SOCKET"))
+        XCTAssertTrue(plugin.contains("ZENTTY_WORKLANE_ID"))
+        XCTAssertTrue(plugin.contains("ZENTTY_PANE_ID"))
+        XCTAssertTrue(plugin.contains("if (!hasZenttyRoutingEnvironment()) return"))
+        XCTAssertTrue(plugin.contains("delete env.AMP_API_KEY"))
+        XCTAssertTrue(plugin.contains("ampEvent.status !== 'done'"))
     }
 
     func test_copy_agent_resources_build_script_syncs_opencode_support_directory() throws {
@@ -3093,6 +3239,185 @@ final class AgentStatusSupportTests: XCTestCase {
                     .path
             )
         )
+    }
+
+    func test_agent_launch_bootstrap_builds_amp_plan_with_plugin_and_launch_snapshot() throws {
+        let home = try makeTemporaryDirectory(named: "agent-launch-amp-home")
+        let userPluginURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent("user-plugin.ts", isDirectory: false)
+        try FileManager.default.createDirectory(at: userPluginURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "// user plugin\n".write(to: userPluginURL, atomically: true, encoding: .utf8)
+        let userSettingsURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("settings.json", isDirectory: false)
+        try #"{"amp.notifications.enabled":false}"#
+            .write(to: userSettingsURL, atomically: true, encoding: .utf8)
+        let userAgentsURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("AGENTS.md", isDirectory: false)
+        try "personal amp guidance\n".write(to: userAgentsURL, atomically: true, encoding: .utf8)
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-amp-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        let pluginURL = pluginDirectory.appendingPathComponent(AmpPluginInstaller.pluginFileName, isDirectory: false)
+        try "// \(AmpPluginInstaller.ownershipMarker)\nexport default function ampPlugin() {}\n"
+            .write(to: pluginURL, atomically: true, encoding: .utf8)
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["--mode", "smart", "--execute", "ignored"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/amp",
+                "HOME": home.path,
+            ],
+            expectsResponse: true,
+            tool: .amp
+        )
+
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-amp-runtime")
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory,
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot))
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/amp")
+        XCTAssertEqual(plan.arguments, ["--mode", "smart", "--execute", "ignored"])
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "amp")
+        XCTAssertEqual(plan.setEnvironment["PLUGINS"], "all")
+        XCTAssertNil(plan.setEnvironment["HOME"])
+        XCTAssertNil(plan.setEnvironment["XDG_CONFIG_HOME"])
+        XCTAssertNil(plan.setEnvironment["AMP_SETTINGS_FILE"])
+        XCTAssertNil(plan.setEnvironment["ZENTTY_AMP_RESUME_ARGUMENTS_JSON"])
+        XCTAssertEqual(plan.preLaunchActions.count, 2)
+        XCTAssertEqual(plan.preLaunchActions.map(\.subcommand), ["agent-event", "agent-event"])
+        XCTAssertTrue(plan.preLaunchActions[0].standardInput?.contains("\"event\":\"session.start\"") == true)
+        XCTAssertTrue(plan.preLaunchActions[1].standardInput?.contains("\"event\":\"agent.running\"") == true)
+        XCTAssertTrue(plan.preLaunchActions[0].standardInput?.contains("\"name\":\"Amp\"") == true)
+        XCTAssertTrue(plan.preLaunchActions[1].standardInput?.contains("\"arguments\":[]") == true)
+
+        let installedPluginURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(AmpPluginInstaller.pluginFileName, isDirectory: false)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installedPluginURL.path))
+        XCTAssertTrue(try String(contentsOf: installedPluginURL, encoding: .utf8).contains(AmpPluginInstaller.ownershipMarker))
+        let userPluginStillPresentURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent("user-plugin.ts", isDirectory: false)
+        XCTAssertEqual(try String(contentsOf: userPluginStillPresentURL, encoding: .utf8), "// user plugin\n")
+
+        let settingsStillPresentURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("settings.json", isDirectory: false)
+        XCTAssertEqual(try String(contentsOf: settingsStillPresentURL, encoding: .utf8), try String(contentsOf: userSettingsURL, encoding: .utf8))
+
+        let agentsStillPresentURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("AGENTS.md", isDirectory: false)
+        XCTAssertEqual(try String(contentsOf: agentsStillPresentURL, encoding: .utf8), try String(contentsOf: userAgentsURL, encoding: .utf8))
+    }
+
+    func test_agent_launch_bootstrap_amp_refuses_to_overwrite_unmarked_plugin() throws {
+        let home = try makeTemporaryDirectory(named: "agent-launch-amp-conflict-home")
+        let installedPluginURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(AmpPluginInstaller.pluginFileName, isDirectory: false)
+        try FileManager.default.createDirectory(at: installedPluginURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "// user-owned plugin\n".write(to: installedPluginURL, atomically: true, encoding: .utf8)
+
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-amp-conflict-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try "// \(AmpPluginInstaller.ownershipMarker)\n"
+            .write(
+                to: pluginDirectory.appendingPathComponent(AmpPluginInstaller.pluginFileName, isDirectory: false),
+                atomically: true,
+                encoding: .utf8
+            )
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/amp",
+                "HOME": home.path,
+            ],
+            expectsResponse: true,
+            tool: .amp
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: try makeTemporaryDirectory(named: "agent-launch-amp-conflict-runtime"),
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot))
+        )
+
+        XCTAssertEqual(try String(contentsOf: installedPluginURL, encoding: .utf8), "// user-owned plugin\n")
+        XCTAssertNil(plan.setEnvironment["PLUGINS"])
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "amp")
+    }
+
+    func test_agent_launch_bootstrap_amp_respects_hooks_disabled() throws {
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["--mode", "smart"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/amp",
+                "ZENTTY_AMP_HOOKS_DISABLED": "1",
+            ],
+            expectsResponse: true,
+            tool: .amp
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: try makeTemporaryDirectory(named: "agent-launch-amp-disabled-runtime"),
+            bundle: try makeTemporaryBundle(named: "agent-launch-amp-disabled-bundle")
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/amp")
+        XCTAssertEqual(plan.arguments, ["--mode", "smart"])
+        XCTAssertTrue(plan.setEnvironment.isEmpty)
+        XCTAssertTrue(plan.preLaunchActions.isEmpty)
     }
 
     func test_agent_ipc_authentication_is_pane_scoped() {
@@ -5954,6 +6279,192 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(presentation.statusText, "Needs input")
     }
 
+    func test_amp_running_payload_updates_pane_and_sidebar_status() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Amp",
+            text: nil,
+            sessionID: "amp-session-1",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        let worklane = try XCTUnwrap(store.activeWorklane)
+        let presentation = try XCTUnwrap(worklane.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool, .amp)
+        XCTAssertEqual(presentation.recognizedTool, .amp)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+        let row = try XCTUnwrap(summary.paneRows.first)
+        XCTAssertEqual(row.statusText, "Running")
+        XCTAssertEqual(row.attentionState, .running)
+        XCTAssertTrue(row.isWorking)
+    }
+
+    func test_amp_command_finished_promotes_stale_idle_status_to_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
+            agentStatus: PaneAgentStatus(
+                tool: .amp,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                source: .explicit,
+                origin: .explicitHook,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                hasObservedRunning: true,
+                sessionID: "amp-session-1"
+            )
+        )
+        store.activeWorklane = worklane
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .commandFinished(exitCode: 0, durationNanoseconds: 250_000_000)
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertEqual(presentation.statusText, "Agent ready")
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_amp_idle_status_clears_when_non_agent_command_starts() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
+            agentStatus: PaneAgentStatus(
+                tool: .amp,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                source: .explicit,
+                origin: .explicitHook,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                hasObservedRunning: true,
+                sessionID: "amp-session-1"
+            )
+        )
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus = true
+        store.activeWorklane = worklane
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "pwd",
+            origin: .shell,
+            toolName: nil,
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        let auxiliaryState = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliaryState.agentStatus)
+        XCTAssertFalse(auxiliaryState.raw.showsReadyStatus)
+        XCTAssertNil(auxiliaryState.presentation.statusText)
+    }
+
+    func test_amp_unresolved_stop_status_clears_when_non_agent_command_starts() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
+            agentStatus: PaneAgentStatus(
+                tool: .amp,
+                state: .unresolvedStop,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                source: .explicit,
+                origin: .explicitHook,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                hasObservedRunning: true,
+                sessionID: "amp-session-1"
+            )
+        )
+        store.activeWorklane = worklane
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "ls",
+            origin: .shell,
+            toolName: nil,
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        let auxiliaryState = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliaryState.agentStatus)
+        XCTAssertNil(auxiliaryState.presentation.statusText)
+    }
+
+    func test_amp_unresolved_stop_command_finished_does_not_refresh_status() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let oldDate = Date(timeIntervalSince1970: 1_700_000_000)
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
+            agentStatus: PaneAgentStatus(
+                tool: .amp,
+                state: .unresolvedStop,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: oldDate,
+                source: .explicit,
+                origin: .explicitHook,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                hasObservedRunning: true,
+                sessionID: "amp-session-1"
+            )
+        )
+        store.activeWorklane = worklane
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .commandFinished(exitCode: 0, durationNanoseconds: 100_000_000)
+        )
+
+        let status = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertEqual(status.state, .unresolvedStop)
+        XCTAssertEqual(status.updatedAt, oldDate)
+    }
+
     func test_codex_action_required_title_survives_passive_progress_activity() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -6906,6 +7417,29 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(decoded, payload)
     }
 
+    func test_agent_status_payload_round_trips_agent_launch_snapshot() throws {
+        let payload = AgentStatusPayload(
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            signalKind: .lifecycle,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Amp",
+            text: nil,
+            sessionID: "T-ZenttyBenchRestore",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil,
+            agentLaunchSnapshot: AgentLaunchSnapshot(arguments: ["--mode", "smart"])
+        )
+
+        let userInfo = try XCTUnwrap(payload.notificationUserInfo)
+        let decoded = try AgentStatusPayload(userInfo: userInfo)
+
+        XCTAssertEqual(decoded.agentLaunchSnapshot, AgentLaunchSnapshot(arguments: ["--mode", "smart"]))
+        XCTAssertEqual(decoded, payload)
+    }
+
     func test_agent_status_payload_round_trips_window_id() throws {
         let payload = AgentStatusPayload(
             windowID: WindowID("window-main"),
@@ -7017,6 +7551,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ("kimi", "kimi"),
             ("kimi", "kimi-cli"),
             ("opencode", "opencode"),
+            ("amp", "amp"),
             ("pi", "pi"),
         ]
     }

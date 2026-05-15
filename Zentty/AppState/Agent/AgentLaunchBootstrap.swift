@@ -30,6 +30,14 @@ enum AgentLaunchBootstrap {
         }
 
         switch tool {
+        case .amp:
+            return try ampPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
+                bundle: bundle,
+                fileManager: fileManager
+            )
         case .claude:
             return try claudePlan(
                 executablePath: executablePath,
@@ -108,6 +116,60 @@ enum AgentLaunchBootstrap {
                 fileManager: fileManager
             )
         }
+    }
+
+    private static func ampPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        bundle: Bundle,
+        fileManager: FileManager
+    ) throws -> AgentLaunchPlan {
+        if environment["ZENTTY_AMP_HOOKS_DISABLED"] == "1" {
+            return directPlan(executablePath: executablePath, arguments: arguments)
+        }
+
+        var setEnvironment = ["ZENTTY_AGENT_TOOL": "amp"]
+        let configHomeURL = AmpPluginInstaller.defaultUserConfigHomeURL(environment: environment)
+        if AmpPluginInstaller.installBundledPluginIfPossible(
+            destinationConfigHomeURL: configHomeURL,
+            bundle: bundle,
+            fileManager: fileManager
+        ) {
+            setEnvironment["PLUGINS"] = "all"
+        }
+
+        if let sanitizedArguments = AmpResumeArgumentSanitizer.sanitizedAmpResumeArguments(from: arguments),
+           !sanitizedArguments.isEmpty,
+           let data = try? JSONSerialization.data(withJSONObject: sanitizedArguments),
+           let json = String(data: data, encoding: .utf8) {
+            setEnvironment["ZENTTY_AMP_RESUME_ARGUMENTS_JSON"] = json
+        }
+
+        let sessionStartJSON = """
+        {"version":1,"event":"session.start","agent":{"name":"Amp","pid":\(AgentIPCProtocol.selfPIDPlaceholder)},"context":{"launch":{"arguments":\(setEnvironment["ZENTTY_AMP_RESUME_ARGUMENTS_JSON"] ?? "[]")}}}
+        """
+        let agentRunningJSON = """
+        {"version":1,"event":"agent.running","agent":{"name":"Amp","pid":\(AgentIPCProtocol.selfPIDPlaceholder)},"context":{"launch":{"arguments":\(setEnvironment["ZENTTY_AMP_RESUME_ARGUMENTS_JSON"] ?? "[]")}}}
+        """
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: setEnvironment,
+            unsetEnvironment: [],
+            preLaunchActions: [
+                AgentLaunchAction(
+                    subcommand: "agent-event",
+                    arguments: [],
+                    standardInput: sessionStartJSON
+                ),
+                AgentLaunchAction(
+                    subcommand: "agent-event",
+                    arguments: [],
+                    standardInput: agentRunningJSON
+                ),
+            ]
+        )
     }
 
     private static func cursorPlan(

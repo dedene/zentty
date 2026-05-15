@@ -40,7 +40,12 @@ final class AgentEventBridgeTests: XCTestCase {
           },
           "progress": { "done": 3, "total": 7 },
           "artifact": { "kind": "pull-request", "label": "PR #42", "url": "https://github.com/org/repo/pull/42" },
-          "context": { "workingDirectory": "/tmp/project" }
+          "context": {
+            "workingDirectory": "/tmp/project",
+            "launch": {
+              "arguments": ["--mode", "smart"]
+            }
+          }
         }
         """
         let input = try AgentEventBridge.parseInput(json.data(using: .utf8)!)
@@ -60,6 +65,7 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(input.artifactLabel, "PR #42")
         XCTAssertEqual(input.artifactURL, "https://github.com/org/repo/pull/42")
         XCTAssertEqual(input.workingDirectory, "/tmp/project")
+        XCTAssertEqual(input.agentLaunchSnapshot, AgentLaunchSnapshot(arguments: ["--mode", "smart"]))
     }
 
     func test_parseInput_handles_minimal_payload() throws {
