@@ -39,6 +39,7 @@ struct ZenttyCLI: ParsableCommand {
 private enum IntegrationTarget: String, CaseIterable {
     case cursorHooks = "cursor-hooks"
     case kimiHooks = "kimi-hooks"
+    case grokHooks = "grok-hooks"
 
     static func resolve(_ raw: String) throws -> IntegrationTarget {
         guard let target = IntegrationTarget(rawValue: raw) else {
@@ -94,6 +95,9 @@ struct InstallCommand: ParsableCommand {
                 cliPath: resolveInvokingCLIPath()
             )
             print("Installed Zentty Kimi hooks at \(configURL.path).")
+        case .grokHooks:
+            try GrokHooksInstaller.install(cliPath: resolveInvokingCLIPath())
+            print("Installed Zentty Grok hooks (JSON + ~/.grok/hooks/) under \(GrokHooksInstaller.defaultUserHooksURL().path).")
         }
     }
 }
@@ -118,6 +122,9 @@ struct UninstallCommand: ParsableCommand {
             let configURL = KimiHooksInstaller.defaultUserConfigURL()
             try KimiHooksInstaller.uninstall(at: configURL)
             print("Removed Zentty Kimi hook entries from \(configURL.path).")
+        case .grokHooks:
+            try GrokHooksInstaller.uninstall()
+            print("Removed Zentty Grok hook entries (JSON + directory) from \(GrokHooksInstaller.defaultUserHooksURL().path).")
         }
     }
 }
@@ -929,10 +936,63 @@ struct IPCCommand: ParsableCommand {
             ipcCLILogger.debug("ipc \(localSubcommand, privacy: .public) sent (args: \(localArguments.joined(separator: " "), privacy: .private))")
         } catch {
             ipcCLILogger.error("ipc \(localSubcommand, privacy: .public) send failed: \(error.localizedDescription, privacy: .private)")
-            guard environment["ZENTTY_CLI_DEBUG"] == "1" else {
-                return
+            if environment["ZENTTY_CLI_DEBUG"] == "1" {
+                FileHandle.standardError.write(Data(("zentty ipc send failed: \(error.localizedDescription)\n").utf8))
             }
-            FileHandle.standardError.write(Data(("zentty ipc send failed: \(error.localizedDescription)\n").utf8))
+        }
+
+        // Fan-out: when forwarding a raw agent hook payload, also emit any
+        // canonical Agent Status Protocol events that the payload implies
+        // (`task.progress` for TodoWrite, `agent.needs-input` for ask/approval,
+        // `session.start` for SessionStart). Dispatch is by `--adapter=<name>`
+        // via `HookCanonicalReEmitterRegistry`. This used to be done in shell
+        // with `jq`; it now lives in Swift so the hook scripts can stay as a
+        // single `exec` line with zero external runtime dependencies.
+        Self.fanOutCanonicalReEmissions(
+            primaryArguments: localArguments,
+            stdinPayload: stdinPayload,
+            environment: environment,
+            socketPath: socketPath,
+            subcommand: localSubcommand
+        )
+    }
+
+    private static func fanOutCanonicalReEmissions(
+        primaryArguments: [String],
+        stdinPayload: String?,
+        environment: [String: String],
+        socketPath: String,
+        subcommand: String
+    ) {
+        guard subcommand == "agent-event",
+              let reEmitter = HookCanonicalReEmitterRegistry.reEmitter(forArguments: primaryArguments),
+              let payload = stdinPayload,
+              let payloadData = payload.data(using: .utf8) else {
+            return
+        }
+
+        let canonicalEnvelopes = reEmitter.reEmissions(forHookPayload: payloadData)
+        guard !canonicalEnvelopes.isEmpty else { return }
+
+        let forwardedEnv = Self.forwardedEnvironment(from: environment)
+        for envelope in canonicalEnvelopes {
+            let canonicalRequest = AgentIPCRequest(
+                kind: .ipc,
+                arguments: [],
+                standardInput: envelope,
+                environment: forwardedEnv,
+                expectsResponse: false,
+                subcommand: "agent-event"
+            )
+            do {
+                _ = try AgentIPCClient.send(request: canonicalRequest, socketPath: socketPath)
+                ipcCLILogger.debug("ipc agent-event canonical re-emit sent")
+            } catch {
+                ipcCLILogger.error("ipc agent-event canonical re-emit failed: \(error.localizedDescription, privacy: .private)")
+                if environment["ZENTTY_CLI_DEBUG"] == "1" {
+                    FileHandle.standardError.write(Data(("zentty ipc canonical re-emit failed: \(error.localizedDescription)\n").utf8))
+                }
+            }
         }
     }
 
@@ -974,7 +1034,7 @@ struct LaunchCommand: ParsableCommand {
         shouldDisplay: false
     )
 
-    @Argument(help: "Supported values: amp, claude, codex, copilot, cursor, droid, gemini, kimi, opencode, pi")
+    @Argument(help: "Supported values: amp, claude, codex, copilot, cursor, droid, gemini, kimi, opencode, pi, grok")
     var tool: String
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments forwarded to the real tool.")

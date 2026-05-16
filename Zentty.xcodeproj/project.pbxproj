@@ -68,6 +68,7 @@
 		267DEF07DD871705091F0BC8 /* SidebarMotionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA3810175E866C6CB11A8C87 /* SidebarMotionCoordinatorTests.swift */; };
 		269DD148F3D616460B3E5DE2 /* ScrollSwitchGestureHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905DD9FD69FFEA7991390EA4 /* ScrollSwitchGestureHandler.swift */; };
 		26D68604F3403C3BC9299DEC /* SidebarVisibilityControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25A34A831CA0E3FE65355578 /* SidebarVisibilityControllerTests.swift */; };
+		2835550C9EC2274B56BB12EC /* GrokCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65EC1382544ECD4896FE2CBD /* GrokCanonicalReEmitter.swift */; };
 		28E673F10881B25E277F61A6 /* AgentResumeCommandBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44EC40C277824843955668D /* AgentResumeCommandBuilderTests.swift */; };
 		2981D4239A341D2CAE58FDD7 /* TmuxCompatCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ABED86877FD29F83E4196E0 /* TmuxCompatCommand.swift */; };
 		2A08D5A8D71D847DA5EBB8FC /* DiscoveryIPCHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8132E7564D882D85A155D2B5 /* DiscoveryIPCHandlerTests.swift */; };
@@ -89,6 +90,7 @@
 		371FB2F8A67CC747CF1FFD4F /* CommandPaletteResultRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1664363F6DAF16AD33EECA9D /* CommandPaletteResultRow.swift */; };
 		37683223FAC33E2284C333DB /* WorklaneStoreClosedPaneRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B7DFA52E9F279C81A803C23 /* WorklaneStoreClosedPaneRestoreTests.swift */; };
 		38097CB04F82C5C29109E67B /* SidebarWorklaneRowPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EC3C3E57E52AACEA9F6C90C /* SidebarWorklaneRowPresentation.swift */; };
+		38BB62E606C7332C7D3365B9 /* GrokHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84F4F997E86D364090463A67 /* GrokHooksInstaller.swift */; };
 		38DB18B3D68AD8CDA8D85C4E /* AppMenuBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB3C0ACB087A96811645CE3 /* AppMenuBuilder.swift */; };
 		3925C220A36A4A21D42A8024 /* SidebarActiveWorklaneAutoScroller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10A9C67A7088C8A8109787C2 /* SidebarActiveWorklaneAutoScroller.swift */; };
 		39721130F49DA6F5A8ACE5DB /* PresentationReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F44720E310A2D65A5867D5AC /* PresentationReducer.swift */; };
@@ -126,6 +128,7 @@
 		505E896AF0143A27234A8FD0 /* GhosttyAppearanceSettingsCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F616D86BF9A658C1E1A9D7 /* GhosttyAppearanceSettingsCoordinator.swift */; };
 		52278F4B3EDD364F309993FF /* AgentIPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D33B3653DD17B96C1CA6222 /* AgentIPC.swift */; };
 		522DDD2A865C44F69EA80545 /* AboutWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59013577D95CD9373F8802A /* AboutWindowController.swift */; };
+		524C7A988B5E9E576C456A69 /* GrokCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65EC1382544ECD4896FE2CBD /* GrokCanonicalReEmitter.swift */; };
 		53A5FEA4F303782A33EFB427 /* WorklaneStore+Reordering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 201F759D378A9A4EC12F40A7 /* WorklaneStore+Reordering.swift */; };
 		53C04E574AF84DBCF050718B /* PaneStripViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94042661C850159F74FC9F69 /* PaneStripViewTests.swift */; };
 		54429983035325D5F12099E2 /* SidebarWorklaneRowButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6036CEA3DA007CEA2955C180 /* SidebarWorklaneRowButton.swift */; };
@@ -155,12 +158,14 @@
 		65C5388D0DFD8FB84B5FCD14 /* AppConfigTOML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25C38CE6BD2D5F5D24B1B7FE /* AppConfigTOML.swift */; };
 		661F1B3E5187816B392E2100 /* CommandAvailabilityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E5788E143BDA3D1DF37882 /* CommandAvailabilityResolver.swift */; };
 		667A04C8CFE0127371DF68C6 /* BookmarksPopoverViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 483D9BCEB73BBB83700BF024 /* BookmarksPopoverViewModel.swift */; };
+		6763F2DC7655B039F55D08F4 /* JSONKeyAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58B814CCB50A93D946D971E /* JSONKeyAccess.swift */; };
 		67EA47F52A1B60F0F570A8DE /* AgentLaunchBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF50EC996DD0097909E99875 /* AgentLaunchBootstrap.swift */; };
 		68068C5699D9E8997BC39256 /* PaneDragSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A60B6840D10C04CE85782D /* PaneDragSession.swift */; };
 		68542C40B0F24B31DDB1E9A2 /* PaneLayoutSettingsWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F435FA119C97C5F497FBD9 /* PaneLayoutSettingsWindowControllerTests.swift */; };
 		68971AE9A84508C3E111C8E7 /* GhosttyThemeResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F32F85F7274DE278E845FF4A /* GhosttyThemeResolverTests.swift */; };
 		68E3A02B546C3A1943743AB6 /* WorklaneColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBB77B77BCACDE8C2DDA5E0E /* WorklaneColor.swift */; };
 		6910CC9A449CF438EEFE8022 /* ThirdPartyLicenseCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CA937E13903E6F4629AE7AA /* ThirdPartyLicenseCatalogTests.swift */; };
+		69EE6C583CFC2132C81D9491 /* JSONKeyAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58B814CCB50A93D946D971E /* JSONKeyAccess.swift */; };
 		6AF1CD2BF77470AF7368F0F5 /* ClaudeCodeTitleOverrideReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 893F6E481A2B8E457B238DE7 /* ClaudeCodeTitleOverrideReducer.swift */; };
 		6BDA3DD6058C31E9C1635868 /* AgentStatusCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DB0F3E90C5CCF115A2E27B /* AgentStatusCommand.swift */; };
 		6C9EB4F61C57A150765111CC /* NotificationChromeCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C34091F1CB5D75D73EF939 /* NotificationChromeCoordinatorTests.swift */; };
@@ -242,6 +247,7 @@
 		9C885D2B4DAD71748F42EDE8 /* ClosedPaneCWDResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ED6DB175BCF8A6E62E5BAAF /* ClosedPaneCWDResolverTests.swift */; };
 		9D7CF3435362B15C9801875B /* PaneFocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54894343178398AA618315E4 /* PaneFocusHistory.swift */; };
 		9DD40EDD3E3E8C67BB115B53 /* TaskManagerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7DDB5C51065221110FF22C3 /* TaskManagerModels.swift */; };
+		9EF24FD6CCCD76CD8AD4F0BE /* HookCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C0FDE2EFAFDF416D3D66490 /* HookCanonicalReEmitter.swift */; };
 		9F1FB182E98F22E9F961AFE0 /* KimiHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1703E7CBF1D46D10D30281FC /* KimiHooksInstaller.swift */; };
 		A1D6E61EF7D669A5DAE672B0 /* SidebarStatusResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02126D22E8F87E9B608D3CB9 /* SidebarStatusResolver.swift */; };
 		A313F3492C53D5CEF8A025F5 /* PaneFocusHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FE6D2FE3D589C3CEF772F6 /* PaneFocusHistoryTests.swift */; };
@@ -314,10 +320,12 @@
 		D0C44C284C252D950CB890FA /* WorklaneAttentionChipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9B72357CA80C59A161F7BE2 /* WorklaneAttentionChipView.swift */; };
 		D11DCA299BC0C937EAED0001 /* PaneSplitBehaviorOptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7137F467A63630BC5D08A61 /* PaneSplitBehaviorOptionView.swift */; };
 		D1563C751D1009F259B1BB08 /* PaneLayoutMenuCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07F4CE288A07931095E26D13 /* PaneLayoutMenuCoordinator.swift */; };
+		D1609E62F241375A9A62A4CB /* GrokHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84F4F997E86D364090463A67 /* GrokHooksInstaller.swift */; };
 		D161E7BDB5AF34AED3D1DEA7 /* TmuxFormatRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B409385EC57C8C7A65441BD /* TmuxFormatRenderer.swift */; };
 		D1911336945EA3268771D96A /* SidebarUpdateRowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2DAA76C6247F60AA55ACB5D /* SidebarUpdateRowTests.swift */; };
 		D30BFC88CE52F92960ADE15C /* WorklaneSidebarSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F486F3A22B74F1699C4D18B9 /* WorklaneSidebarSummary.swift */; };
 		D3152FCD6CDE3BD0FA49A39D /* WorklaneSessionEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6F07CFD4C44251C24400B38 /* WorklaneSessionEnvironment.swift */; };
+		D33E6B305950A8E1822AA404 /* HookCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C0FDE2EFAFDF416D3D66490 /* HookCanonicalReEmitter.swift */; };
 		D3987EA55548B9FB2FAF2535 /* SidebarDropHitTestingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C88D5D3BFE9433DCC2E7090 /* SidebarDropHitTestingTests.swift */; };
 		D3B45C25D1794724A766C6DA /* WorklaneStoreGitContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78A6A6B85882097AFFAE3EE /* WorklaneStoreGitContextTests.swift */; };
 		D44B2E46DBB0E3EC6205B148 /* WorkspaceTemplateImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D167BBBE4C7B3318C151C7 /* WorkspaceTemplateImporter.swift */; };
@@ -585,6 +593,7 @@
 		63590216920018B71F1ACB7A /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		64E9FAF117E638BB9CC15508 /* CopilotTitleNeedsInputReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotTitleNeedsInputReducer.swift; sourceTree = "<group>"; };
 		65672683D929537DA2ACF986 /* TaskManagerProcessSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerProcessSampler.swift; sourceTree = "<group>"; };
+		65EC1382544ECD4896FE2CBD /* GrokCanonicalReEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokCanonicalReEmitter.swift; sourceTree = "<group>"; };
 		664E62FC352B56CA7B035AC1 /* TaskManagerPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerPresentationTests.swift; sourceTree = "<group>"; };
 		677818B56188202E6289EC96 /* WorklaneColorMenuItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneColorMenuItemView.swift; sourceTree = "<group>"; };
 		69E99517E9EAA4D99552859C /* WorkspaceTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTemplate.swift; sourceTree = "<group>"; };
@@ -626,6 +635,7 @@
 		8132E7564D882D85A155D2B5 /* DiscoveryIPCHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryIPCHandlerTests.swift; sourceTree = "<group>"; };
 		81A2C70428D2C375764E7ABC /* GhosttyAppearanceSettingsCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyAppearanceSettingsCoordinatorTests.swift; sourceTree = "<group>"; };
 		82E1E9FF5B98D7124B6E65AC /* VendoredGhosttyResourcesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VendoredGhosttyResourcesTests.swift; sourceTree = "<group>"; };
+		84F4F997E86D364090463A67 /* GrokHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokHooksInstaller.swift; sourceTree = "<group>"; };
 		859E02462A30A35800CA0123 /* NotificationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStoreTests.swift; sourceTree = "<group>"; };
 		8626016D68E310751E9D7E91 /* ClosedPaneStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedPaneStack.swift; sourceTree = "<group>"; };
 		86917D1F9201725F12438AD5 /* WindowChromeRowLayoutPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeRowLayoutPlannerTests.swift; sourceTree = "<group>"; };
@@ -663,6 +673,7 @@
 		994F524FDC5F10D6A7A96354 /* AboutMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutMetadata.swift; sourceTree = "<group>"; };
 		9B4AE87CC3F4EB591D08B9A7 /* WorkspaceTemplateExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTemplateExporterTests.swift; sourceTree = "<group>"; };
 		9B89A97084B5AF5AFF873E2C /* BookmarkRestoreLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkRestoreLogger.swift; sourceTree = "<group>"; };
+		9C0FDE2EFAFDF416D3D66490 /* HookCanonicalReEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookCanonicalReEmitter.swift; sourceTree = "<group>"; };
 		9C9964E75CAB137C49B15001 /* AboutMetadataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutMetadataTests.swift; sourceTree = "<group>"; };
 		9D4020F350259F84864071D9 /* PathCopiedToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathCopiedToastView.swift; sourceTree = "<group>"; };
 		9DBF3974DC90A1B68DB02135 /* BookmarksPopoverMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksPopoverMetrics.swift; sourceTree = "<group>"; };
@@ -767,6 +778,7 @@
 		D40A07AF51FBC28C9CC07ABA /* CursorHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorHooksInstaller.swift; sourceTree = "<group>"; };
 		D468A4AAC25D668673CC51CE /* PaneContainerViewWorklaneBorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerViewWorklaneBorderTests.swift; sourceTree = "<group>"; };
 		D52DE33FBF1E4C9F22B1E569 /* OpenCodeThemeSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeThemeSync.swift; sourceTree = "<group>"; };
+		D58B814CCB50A93D946D971E /* JSONKeyAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONKeyAccess.swift; sourceTree = "<group>"; };
 		D649A4BADA61361091434B5E /* GhosttyThemeLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyThemeLibraryTests.swift; sourceTree = "<group>"; };
 		D9B72357CA80C59A161F7BE2 /* WorklaneAttentionChipView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneAttentionChipView.swift; sourceTree = "<group>"; };
 		D9C47104BD130C28676BA079 /* SparkleAppUpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleAppUpdateController.swift; sourceTree = "<group>"; };
@@ -1111,7 +1123,11 @@
 				8E60EACABB7717596CA70DEE /* DiscoveryIPCHandler.swift */,
 				6E98A96BAD466E5847C42948 /* DroidHooksInstaller.swift */,
 				1BCA77C435DCC7E4F338789C /* DroidTaskStore.swift */,
+				65EC1382544ECD4896FE2CBD /* GrokCanonicalReEmitter.swift */,
+				84F4F997E86D364090463A67 /* GrokHooksInstaller.swift */,
+				9C0FDE2EFAFDF416D3D66490 /* HookCanonicalReEmitter.swift */,
 				24AFCE0DB1F7E072081C9D41 /* JSONCRelaxedParse.swift */,
+				D58B814CCB50A93D946D971E /* JSONKeyAccess.swift */,
 				1703E7CBF1D46D10D30281FC /* KimiHooksInstaller.swift */,
 				898B152AC508F23715DB2518 /* OpenCodeLiveThemeSync.swift */,
 				14B5D7C3DB0445971F90C314 /* OpenCodeOverlayLayout.swift */,
@@ -1737,7 +1753,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n\nRESOURCES_SRC=\"${PROJECT_DIR}/ZenttyResources\"\nRESOURCES_DST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n\nmkdir -p \"${RESOURCES_DST}/bin\" \"${RESOURCES_DST}/shell-integration\" \"${RESOURCES_DST}/amp/plugins\" \"${RESOURCES_DST}/opencode/plugins\" \"${RESOURCES_DST}/pi/extensions\" \"${RESOURCES_DST}/ghostty\" \"${RESOURCES_DST}/terminfo\"\nrsync -a --delete \"${RESOURCES_SRC}/bin/\" \"${RESOURCES_DST}/bin/\"\ninstall -m 755 \"${BUILT_PRODUCTS_DIR}/zentty\" \"${RESOURCES_DST}/bin/shared/zentty\"\nfind \"${RESOURCES_DST}/bin\" -type f \\( -path \"*/amp/amp\" -o -path \"*/claude/claude\" -o -path \"*/codex/codex\" -o -path \"*/copilot/copilot\" -o -path \"*/cursor/cursor-agent\" -o -path \"*/droid/droid\" -o -path \"*/gemini/gemini\" -o -path \"*/kimi/kimi\" -o -path \"*/kimi/kimi-cli\" -o -path \"*/opencode/opencode\" -o -path \"*/pi/pi\" -o -path \"*/shared/zentty\" -o -path \"*/shared/zentty-agent-wrapper\" -o -path \"*/tmux-shim/tmux\" \\) -exec chmod 755 {} +\nrsync -a --delete \"${RESOURCES_SRC}/shell-integration/\" \"${RESOURCES_DST}/shell-integration/\"\nrsync -a --delete \"${RESOURCES_SRC}/amp/\" \"${RESOURCES_DST}/amp/\"\nrsync -a --delete \"${RESOURCES_SRC}/opencode/\" \"${RESOURCES_DST}/opencode/\"\nrsync -a --delete \"${RESOURCES_SRC}/pi/\" \"${RESOURCES_DST}/pi/\"\nrsync -a --delete \"${RESOURCES_SRC}/ghostty/\" \"${RESOURCES_DST}/ghostty/\"\nrsync -a --delete \"${RESOURCES_SRC}/terminfo/\" \"${RESOURCES_DST}/terminfo/\"\n";
+			shellScript = "set -euo pipefail\n\nRESOURCES_SRC=\"${PROJECT_DIR}/ZenttyResources\"\nRESOURCES_DST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n\nmkdir -p \"${RESOURCES_DST}/bin\" \"${RESOURCES_DST}/shell-integration\" \"${RESOURCES_DST}/amp/plugins\" \"${RESOURCES_DST}/opencode/plugins\" \"${RESOURCES_DST}/pi/extensions\" \"${RESOURCES_DST}/ghostty\" \"${RESOURCES_DST}/terminfo\"\nrsync -a --delete \"${RESOURCES_SRC}/bin/\" \"${RESOURCES_DST}/bin/\"\ninstall -m 755 \"${BUILT_PRODUCTS_DIR}/zentty\" \"${RESOURCES_DST}/bin/shared/zentty\"\nfind \"${RESOURCES_DST}/bin\" -type f \\( -path \"*/amp/amp\" -o -path \"*/claude/claude\" -o -path \"*/codex/codex\" -o -path \"*/copilot/copilot\" -o -path \"*/cursor/cursor-agent\" -o -path \"*/droid/droid\" -o -path \"*/gemini/gemini\" -o -path \"*/grok/grok\" -o -path \"*/kimi/kimi\" -o -path \"*/kimi/kimi-cli\" -o -path \"*/opencode/opencode\" -o -path \"*/pi/pi\" -o -path \"*/shared/zentty\" -o -path \"*/shared/zentty-agent-wrapper\" -o -path \"*/tmux-shim/tmux\" \\) -exec chmod 755 {} +\nrsync -a --delete \"${RESOURCES_SRC}/shell-integration/\" \"${RESOURCES_DST}/shell-integration/\"\nrsync -a --delete \"${RESOURCES_SRC}/amp/\" \"${RESOURCES_DST}/amp/\"\nrsync -a --delete \"${RESOURCES_SRC}/opencode/\" \"${RESOURCES_DST}/opencode/\"\nrsync -a --delete \"${RESOURCES_SRC}/pi/\" \"${RESOURCES_DST}/pi/\"\nrsync -a --delete \"${RESOURCES_SRC}/ghostty/\" \"${RESOURCES_DST}/ghostty/\"\nrsync -a --delete \"${RESOURCES_SRC}/terminfo/\" \"${RESOURCES_DST}/terminfo/\"\n";
 		};
 		C7055FCE2E5119172F74E931 /* Verify GhosttyKit */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1959,7 +1975,11 @@
 				E35D333286219155A79F8E92 /* GhosttyThemeResolver.swift in Sources */,
 				A92728F291D5458A677DDD7B /* GlassSurfaceView.swift in Sources */,
 				A6A1F413A649AAE4E833DE30 /* GlobalSearchCoordinator.swift in Sources */,
+				524C7A988B5E9E576C456A69 /* GrokCanonicalReEmitter.swift in Sources */,
+				38BB62E606C7332C7D3365B9 /* GrokHooksInstaller.swift in Sources */,
+				D33E6B305950A8E1822AA404 /* HookCanonicalReEmitter.swift in Sources */,
 				2BC7421FF9D00CF7851A5E32 /* JSONCRelaxedParse.swift in Sources */,
+				69EE6C583CFC2132C81D9491 /* JSONKeyAccess.swift in Sources */,
 				F33474EA4FEC1975F4FB4754 /* KeyboardShortcut.swift in Sources */,
 				DE22542885A2BE164FE9090E /* KeyboardShortcutPreview.swift in Sources */,
 				066389EC522A58949B0D4A67 /* KeyboardShortcutPreviewView.swift in Sources */,
@@ -2170,7 +2190,11 @@
 				F5A26C1A6A89ED60FFF6F341 /* AgentToolLauncher.swift in Sources */,
 				BF98C820ECF82C8A5810259F /* CursorHooksInstaller.swift in Sources */,
 				DB99D15DBBA9E04854EE979F /* DroidHooksInstaller.swift in Sources */,
+				2835550C9EC2274B56BB12EC /* GrokCanonicalReEmitter.swift in Sources */,
+				D1609E62F241375A9A62A4CB /* GrokHooksInstaller.swift in Sources */,
+				9EF24FD6CCCD76CD8AD4F0BE /* HookCanonicalReEmitter.swift in Sources */,
 				99451BC2B09FAA072A3B3A88 /* JSONCRelaxedParse.swift in Sources */,
+				6763F2DC7655B039F55D08F4 /* JSONKeyAccess.swift in Sources */,
 				B32F85F567CD87464A187C57 /* KimiHooksInstaller.swift in Sources */,
 				2981D4239A341D2CAE58FDD7 /* TmuxCompatCommand.swift in Sources */,
 				0353FE3D437A0B9370A6261B /* TopologyCLI.swift in Sources */,

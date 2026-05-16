@@ -1297,6 +1297,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "opencode"
         case .pi:
             return "pi"
+        case .grok:
+            return "grok"
         case .custom(let name):
             return name
         case nil:

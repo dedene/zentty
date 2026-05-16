@@ -72,6 +72,8 @@ enum AgentEventBridge {
                 payloads = try cursorAdapter(data: inputData, environment: environment)
             case "kimi":
                 payloads = try kimiAdapter(data: inputData, environment: environment)
+            case "grok":
+                payloads = try grokAdapter(data: inputData, environment: environment)
             case .none:
                 let input = try parseInput(inputData)
                 payloads = try makePayloads(from: input, environment: environment)
@@ -85,7 +87,7 @@ enum AgentEventBridge {
             return EXIT_SUCCESS
         } catch {
             agentEventBridgeLogger.error("run adapter=\(adapterLabel, privacy: .public) threw: \(error.localizedDescription, privacy: .public)")
-            if adapter == "claude" {
+            if adapter == "claude" || adapter == "grok" {
                 return EXIT_SUCCESS
             }
             writeError(error)
@@ -130,21 +132,21 @@ enum AgentEventBridge {
 
         return AgentEventInput(
             event: event,
-            agentName: firstString(in: agent, keys: ["name"]),
-            agentPID: firstInt32(in: agent, keys: ["pid"]),
-            sessionID: firstString(in: session, keys: ["id"]),
-            parentSessionID: firstString(in: session, keys: ["parentId"]),
-            stateText: firstString(in: state, keys: ["text"]),
+            agentName: JSONKeyAccess.firstString(in: agent, keys: ["name"]),
+            agentPID: JSONKeyAccess.firstInt32(in: agent, keys: ["pid"]),
+            sessionID: JSONKeyAccess.firstString(in: session, keys: ["id"]),
+            parentSessionID: JSONKeyAccess.firstString(in: session, keys: ["parentId"]),
+            stateText: JSONKeyAccess.firstString(in: state, keys: ["text"]),
             stopCandidate: (state?["stopCandidate"] as? Bool) ?? false,
-            interactionKind: firstString(in: interaction, keys: ["kind"]),
-            interactionText: firstString(in: interaction, keys: ["text"]),
-            progressDone: firstInt(in: progress, keys: ["done"]),
-            progressTotal: firstInt(in: progress, keys: ["total"]),
-            artifactKind: firstString(in: artifact, keys: ["kind"]),
-            artifactLabel: firstString(in: artifact, keys: ["label"]),
-            artifactURL: firstString(in: artifact, keys: ["url"]),
-            workingDirectory: firstString(in: context, keys: ["workingDirectory"]),
-            agentLaunchSnapshot: firstStringArray(in: launch, keys: ["arguments"]).map(AgentLaunchSnapshot.init(arguments:))
+            interactionKind: JSONKeyAccess.firstString(in: interaction, keys: ["kind"]),
+            interactionText: JSONKeyAccess.firstString(in: interaction, keys: ["text"]),
+            progressDone: JSONKeyAccess.firstInt(in: progress, keys: ["done"]),
+            progressTotal: JSONKeyAccess.firstInt(in: progress, keys: ["total"]),
+            artifactKind: JSONKeyAccess.firstString(in: artifact, keys: ["kind"]),
+            artifactLabel: JSONKeyAccess.firstString(in: artifact, keys: ["label"]),
+            artifactURL: JSONKeyAccess.firstString(in: artifact, keys: ["url"]),
+            workingDirectory: JSONKeyAccess.firstString(in: context, keys: ["workingDirectory"]),
+            agentLaunchSnapshot: JSONKeyAccess.firstStringArray(in: launch, keys: ["arguments"]).map(AgentLaunchSnapshot.init(arguments:))
         )
     }
 
@@ -379,67 +381,4 @@ enum AgentEventBridge {
         FileHandle.standardInput.readDataToEndOfFile()
     }
 
-    static func firstString(in object: [String: Any]?, keys: [String]) -> String? {
-        guard let object else { return nil }
-        for key in keys {
-            if let value = object[key] as? String {
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            }
-        }
-        return nil
-    }
-
-    static func firstStringArray(in object: [String: Any]?, keys: [String]) -> [String]? {
-        guard let object else { return nil }
-        for key in keys {
-            if let values = object[key] as? [String] {
-                let trimmedValues = values.map {
-                    $0.trimmingCharacters(in: .whitespacesAndNewlines)
-                }.filter { !$0.isEmpty }
-                if !trimmedValues.isEmpty {
-                    return trimmedValues
-                }
-            }
-            if let values = object[key] as? [Any] {
-                let trimmedValues = values.compactMap { value -> String? in
-                    guard let string = value as? String else { return nil }
-                    let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-                    return trimmed.isEmpty ? nil : trimmed
-                }
-                if !trimmedValues.isEmpty {
-                    return trimmedValues
-                }
-            }
-        }
-        return nil
-    }
-
-    static func firstInt(in object: [String: Any]?, keys: [String]) -> Int? {
-        guard let object else { return nil }
-        for key in keys {
-            if let value = object[key] as? NSNumber {
-                return value.intValue
-            }
-            if let value = object[key] as? Int {
-                return value
-            }
-        }
-        return nil
-    }
-
-    static func firstInt32(in object: [String: Any]?, keys: [String]) -> Int32? {
-        guard let object else { return nil }
-        for key in keys {
-            if let value = object[key] as? NSNumber {
-                return value.int32Value
-            }
-            if let value = object[key] as? Int {
-                return Int32(value)
-            }
-        }
-        return nil
-    }
 }

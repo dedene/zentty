@@ -232,6 +232,94 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertEqual(request.environment["ZENTTY_DROID_PID"], "4242")
     }
 
+    /// End-to-end coverage for the Grok fan-out: piping a TodoWrite PreToolUse
+    /// payload to `zentty ipc agent-event --adapter=grok` must produce two
+    /// captured IPC requests — the raw forward and the canonical task.progress
+    /// re-emit. This is the load-bearing wiring that replaced the bash `jq`
+    /// pipeline.
+    func test_real_cli_grok_todowrite_payload_emits_raw_forward_plus_canonical_task_progress() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let payload = #"{"hook_event_name":"PreToolUse","tool_name":"TodoWrite","tool_input":{"todos":[{"status":"completed"},{"status":"in_progress"},{"status":"pending"}]}}"#
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["ipc", "agent-event", "--adapter=grok"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        process.environment = environment
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+        let stdinPipe = Pipe()
+        process.standardInput = stdinPipe
+
+        try process.run()
+        stdinPipe.fileHandleForWriting.write(Data(payload.utf8))
+        try? stdinPipe.fileHandleForWriting.close()
+
+        let requests = try server.receiveRequests(count: 2)
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(requests.count, 2)
+
+        // First: raw forward via the grok adapter.
+        XCTAssertEqual(requests[0].subcommand, "agent-event")
+        XCTAssertEqual(requests[0].arguments, ["--adapter=grok"])
+        XCTAssertEqual(requests[0].standardInput, payload)
+
+        // Second: canonical task.progress envelope minted by GrokCanonicalReEmitter.
+        XCTAssertEqual(requests[1].subcommand, "agent-event")
+        XCTAssertEqual(requests[1].arguments, [])
+        let canonical = try XCTUnwrap(requests[1].standardInput)
+        XCTAssertTrue(canonical.contains("\"event\":\"task.progress\""), "expected task.progress event in canonical re-emit, got: \(canonical)")
+        XCTAssertTrue(canonical.contains("\"done\":1"))
+        XCTAssertTrue(canonical.contains("\"total\":3"))
+    }
+
+    /// End-to-end coverage for the nested-key session id resolution: a
+    /// SessionStart payload that nests the id under `context.session_id` should
+    /// still surface as a canonical `session.start` envelope carrying the id.
+    func test_real_cli_grok_session_start_with_nested_id_emits_canonical_session_start() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let payload = #"{"hook_event_name":"SessionStart","context":{"session_id":"ses_nested_id"}}"#
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["ipc", "agent-event", "--adapter=grok"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        process.environment = environment
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+        let stdinPipe = Pipe()
+        process.standardInput = stdinPipe
+
+        try process.run()
+        stdinPipe.fileHandleForWriting.write(Data(payload.utf8))
+        try? stdinPipe.fileHandleForWriting.close()
+
+        let requests = try server.receiveRequests(count: 2)
+        process.waitUntilExit()
+
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests[0].arguments, ["--adapter=grok"])
+        let canonical = try XCTUnwrap(requests[1].standardInput)
+        XCTAssertTrue(canonical.contains("\"event\":\"session.start\""))
+        XCTAssertTrue(canonical.contains("\"id\":\"ses_nested_id\""))
+    }
+
     func test_real_cli_codex_notify_reads_payload_from_standard_input_when_argument_is_omitted() throws {
         let server = try IPCRequestCaptureServer()
         defer { server.invalidate() }
@@ -436,7 +524,7 @@ final class AgentWrapperTests: XCTestCase {
     }
 
     func test_tool_wrappers_delegate_to_launch_command_when_cli_is_available() throws {
-        for tool in ["claude", "codex", "copilot", "cursor-agent", "droid", "gemini", "kimi", "kimi-cli", "opencode", "pi"] {
+        for tool in ["amp", "claude", "codex", "copilot", "cursor-agent", "droid", "gemini", "grok", "kimi", "kimi-cli", "opencode", "pi"] {
             let harness = try WrapperHarness(copyingScriptsNamed: [tool, "zentty-agent-wrapper"])
             try harness.installRealBinary(
                 named: tool,
@@ -820,7 +908,7 @@ private final class IPCRequestCaptureServer {
             throw error
         }
 
-        guard listen(fileDescriptor, 1) == 0 else {
+        guard listen(fileDescriptor, 8) == 0 else {
             let error = POSIXError(.init(rawValue: errno) ?? .EIO)
             close(fileDescriptor)
             throw error
@@ -927,6 +1015,90 @@ private final class IPCRequestCaptureServer {
             throw capturedError
         }
         return try XCTUnwrap(capturedRequest)
+    }
+
+    /// Accepts `count` sequential connections, reading one framed JSON request
+    /// per connection, and returns the captured requests in arrival order.
+    /// Used to verify the CLI's canonical-event fan-out, which sends a primary
+    /// `--adapter=<name>` IPC request followed by zero or more canonical
+    /// re-emits over fresh connections.
+    func receiveRequests(
+        count: Int,
+        timeout: TimeInterval = 5
+    ) throws -> [AgentIPCRequest] {
+        precondition(count > 0)
+        let expectation = XCTestExpectation(description: "receive \(count) IPC requests")
+        let lock = NSLock()
+        var captured: [AgentIPCRequest] = []
+        var capturedError: Error?
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { expectation.fulfill() }
+            for _ in 0..<count {
+                let client = accept(self.fileDescriptor, nil, nil)
+                guard client >= 0 else {
+                    lock.lock()
+                    capturedError = POSIXError(.init(rawValue: errno) ?? .EIO)
+                    lock.unlock()
+                    return
+                }
+
+                var data = Data()
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                var readOK = true
+                while true {
+                    let n = recv(client, &buffer, buffer.count, 0)
+                    if n > 0 {
+                        data.append(buffer, count: n)
+                        if data.contains(UInt8(ascii: "\n")) { break }
+                        continue
+                    }
+                    if n == 0 { break }
+                    if errno == EINTR { continue }
+                    lock.lock()
+                    capturedError = POSIXError(.init(rawValue: errno) ?? .EIO)
+                    lock.unlock()
+                    readOK = false
+                    break
+                }
+                close(client)
+                guard readOK else { return }
+
+                let requestData: Data
+                if let newlineIndex = data.firstIndex(of: UInt8(ascii: "\n")) {
+                    requestData = data.prefix(upTo: newlineIndex)
+                } else {
+                    requestData = data
+                }
+
+                do {
+                    let request = try JSONDecoder().decode(AgentIPCRequest.self, from: requestData)
+                    lock.lock()
+                    captured.append(request)
+                    lock.unlock()
+                } catch {
+                    lock.lock()
+                    capturedError = error
+                    lock.unlock()
+                    return
+                }
+            }
+        }
+
+        let waiterResult = XCTWaiter.wait(for: [expectation], timeout: timeout)
+        if waiterResult != .completed {
+            throw NSError(
+                domain: "AgentWrapperTests.IPCRequestCaptureServer",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(count) IPC requests"]
+            )
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        if let capturedError {
+            throw capturedError
+        }
+        return captured
     }
 }
 
@@ -1102,7 +1274,7 @@ private struct WrapperHarness {
     }
 
     private var publicWrapperDirectories: [URL] {
-        ["claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"]
+        ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"]
             .map { wrapperBinURL.appendingPathComponent($0, isDirectory: true) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }

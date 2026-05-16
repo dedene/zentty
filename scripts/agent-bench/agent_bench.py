@@ -27,7 +27,7 @@ from collections import Counter
 from typing import Any
 
 
-SUPPORTED_AGENTS = ("amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi")
+SUPPORTED_AGENTS = ("amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi")
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 DEFAULT_RUNS_DIR = REPO_ROOT / ".agent-bench-runs"
@@ -49,6 +49,7 @@ ROUTING_ENV_KEYS = {
     "ZENTTY_CURSOR_PID",
     "ZENTTY_DROID_PID",
     "ZENTTY_KIMI_PID",
+    "ZENTTY_GROK_PID",
     "CODEX_HOME",
     "COPILOT_HOME",
     "KIMI_HOME",
@@ -783,21 +784,57 @@ def task_observations_for_records(agent: str, scenario: str, records: list[Trace
         if record.agent != agent or record.scenario != scenario or record.kind != "hook":
             continue
         payload = parse_json_object(record.standard_input)
+
+        # Case 1: Raw PreToolUse / tool call with TodoWrite (traditional path, now grok-flexible)
+        # Support top-level and nested (e.g. grok may use tool_use.name / tool_use.input or input.*)
         tool_name = first_string(payload, ["tool_name", "toolName", "tool"])
-        if not tool_name or tool_name.lower() != "todowrite":
-            continue
-        tool_input = first_object(payload, ["tool_input", "toolInput", "input"])
-        progress = todo_progress(tool_input)
-        if not progress:
-            continue
-        observations.append(
-            {
-                "event": record.event_name or "",
-                "tool": tool_name,
-                "done": progress[0],
-                "total": progress[1],
-            }
-        )
+        if not tool_name:
+            for nest_key in ("tool_use", "toolUse", "tool_use_input", "input"):
+                nested = payload.get(nest_key)
+                if isinstance(nested, dict):
+                    tool_name = first_string(nested, ["name", "tool_name", "toolName", "tool"])
+                    if tool_name:
+                        break
+        if tool_name:
+            ln = tool_name.lower()
+            if any(x in ln for x in ("todowrite", "todo_write", "writetodos", "todo")):
+                tool_input = first_object(payload, ["tool_input", "toolInput", "input"])
+                if not tool_input:
+                    for nest_key in ("tool_use", "toolUse", "tool_use_input"):
+                        nested = payload.get(nest_key)
+                        if isinstance(nested, dict):
+                            tool_input = first_object(nested, ["input", "tool_input", "toolInput"]) or nested
+                            if tool_input:
+                                break
+                progress = todo_progress(tool_input)
+                if progress:
+                    observations.append(
+                        {
+                            "event": record.event_name or "",
+                            "tool": tool_name,
+                            "done": progress[0],
+                            "total": progress[1],
+                            "source": "raw_tool_call",
+                        }
+                    )
+                continue
+
+        # Case 2: Canonical task.progress emitted by smart hook scripts (Grok, future agents)
+        if record.event_name == "task.progress" or payload.get("event") == "task.progress":
+            progress = payload.get("progress") or payload
+            if isinstance(progress, dict):
+                done = progress.get("done")
+                total = progress.get("total")
+                if isinstance(done, int) and isinstance(total, int) and total > 0:
+                    observations.append(
+                        {
+                            "event": "task.progress",
+                            "tool": "TodoWrite",
+                            "done": done,
+                            "total": total,
+                            "source": "canonical",
+                        }
+                    )
     return observations
 
 
@@ -1314,6 +1351,75 @@ class LaunchPlanner:
             prelaunch=[{"subcommand": "agent-event", "arguments": [], "standardInput": prelaunch}],
         )
 
+    def _plan_grok(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        # Build a sandboxed HOME that mirrors what the real `GrokHooksInstaller`
+        # would drop on disk in production:
+        #   ~/.grok/hooks/zentty-status.json      (the "Always trusted" config)
+        #   ~/.grok/hooks/zentty-status/01-zentty-status.sh   (the forwarder)
+        #
+        # Skip `hooks`, `config.toml`, and `plugins` from the real-home symlink
+        # set so the overlay only has what we put there (no leaked broken
+        # installs from previous Zentty versions).
+        home = self._overlay_home("grok", environment, {".grok": {"hooks", "config.toml", "plugins"}})
+        grok_hooks_root = home / ".grok" / "hooks"
+        grok_hooks_root.mkdir(parents=True, exist_ok=True)
+
+        # The overlay must NOT have a legacy user-settings.json or hooks-paths
+        # — those were never hook sources in Grok and we don't write them
+        # anymore. Drop them if they leaked in via the symlink set.
+        for reg_name in ("user-settings.json", "hooks-paths"):
+            reg_path = home / ".grok" / reg_name
+            if reg_path.is_symlink() or reg_path.exists():
+                try:
+                    reg_path.unlink()
+                except OSError:
+                    pass
+
+        # Forwarder script — hardcode the absolute CLI path so grok-launched
+        # children find `zentty` even if grok strips ZENTTY_CLI_BIN.
+        escaped_cli = shell_escape_double_quoted(cli_path)
+        ipc_grok_cmd = f'"{escaped_cli}" ipc agent-event --adapter=grok'
+        forwarder_dir = grok_hooks_root / "zentty-status"
+        forwarder_dir.mkdir(exist_ok=True)
+        script_path = forwarder_dir / "01-zentty-status.sh"
+        script_path.write_text(
+            "#!/usr/bin/env bash\n"
+            "# Zentty bench overlay forwarder for Grok hooks.\n"
+            f"exec {ipc_grok_cmd}\n"
+        )
+        script_path.chmod(0o755)
+
+        # Single JSON hook config at the "Always trusted" location.
+        # SCHEMA: lifecycle events MUST NOT carry a `matcher`; tool-use events
+        # may. Binary string: "lifecycle hooks () must not specify a matcher
+        # in v0". Including a matcher on a lifecycle event silently invalidates
+        # the entry — that's exactly the bug this rewrite fixes.
+        lifecycle_events = [
+            "SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Notification",
+            "BeforeAgent", "AfterAgent",
+        ]
+        tool_events = ["PreToolUse", "PostToolUse"]
+        hooks_json: dict[str, Any] = {"hooks": {}}
+        for event_name in lifecycle_events:
+            hooks_json["hooks"][event_name] = [
+                {"hooks": [{"type": "command", "command": str(script_path), "timeout": 15}]}
+            ]
+        for event_name in tool_events:
+            hooks_json["hooks"][event_name] = [
+                {"matcher": ".*", "hooks": [{"type": "command", "command": str(script_path), "timeout": 15}]}
+            ]
+        (grok_hooks_root / "zentty-status.json").write_text(json.dumps(hooks_json, indent=2))
+
+        # This launch plan is only reached when the agent wrapper goes through
+        # bootstrap. That requires ZENTTY_PANE_TOKEN/WORKLANE_ID/PANE_ID in
+        # the env — see `BenchRunner.run` where we set those alongside the
+        # capture socket.
+        return self._launch_plan(
+            executable,
+            arguments,
+            {"ZENTTY_AGENT_TOOL": "grok", "HOME": str(home)},
+        )
+
     def _launch_plan(
         self,
         executable: str,
@@ -1359,6 +1465,10 @@ def agent_from_adapter(adapter: str | None, environment: dict[str, Any], standar
             return "claude"
         if normalized == "opencode":
             return "opencode"
+        # Grok Build (xAI) — Claude Code compatible; may self-report as "Grok", "Grok Build", "xAI Grok", etc.
+        # Also handle direct normalized match.
+        if normalized.startswith("grok") or normalized in ("xaigrok", "grokbuild"):
+            return "grok"
         if normalized in SUPPORTED_AGENTS:
             return normalized
     return adapter
@@ -1440,6 +1550,15 @@ class BenchRunner:
                 try:
                     scenario_env = dict(env)
                     scenario_env["ZENTTY_INSTANCE_SOCKET"] = str(server.socket_path)
+                    # The agent wrapper (`AgentToolLauncher.shouldAttemptBootstrap`)
+                    # only routes through our bootstrap planner when these three
+                    # routing keys are present. Without them it bypasses bootstrap
+                    # and exec's the real agent binary against the real HOME, so
+                    # `_plan_*` overlay setup becomes dead code. Setting static
+                    # values is fine — they're routing identifiers, not secrets.
+                    scenario_env["ZENTTY_PANE_TOKEN"] = "agent-bench-pane-token"
+                    scenario_env["ZENTTY_WORKLANE_ID"] = "agent-bench-worklane"
+                    scenario_env["ZENTTY_PANE_ID"] = "agent-bench-pane"
                     for agent in agents:
                         results.append(self._run_agent_scenario(agent, scenario, scenario_env))
                 finally:

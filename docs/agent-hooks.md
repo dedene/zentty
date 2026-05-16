@@ -335,3 +335,60 @@ Each hook calls:
 Zentty injects a local OpenCode plugin overlay via the shared agent wrapper. The plugin forwards `session.status`, `session.idle`, permission/question events, and `todo.updated`.
 
 `todo.updated` is normalized inside the plugin into `taskProgressDoneCount` / `taskProgressTotalCount`. The Swift bridge treats those as the authoritative OpenCode task counts and uses them only for the main session's running label.
+
+## Grok Build (Early Beta — May 2026)
+
+Grok Build (the `grok` CLI from xAI) is in early beta. Per Grok's official docs (`~/.grok/docs/user-guide/10-hooks.md`), its "Always trusted" global hook source is `~/.grok/hooks/*.json` — a single JSON file there registers hooks that fire on every grok session with no `/hooks-trust` ceremony and no `/plugins enable`.
+
+Zentty's `GrokHooksInstaller` writes exactly two files into that location:
+
+| Path | Purpose |
+|---|---|
+| `~/.grok/hooks/zentty-status.json` | Registers all managed events. JSON only — Grok ignores `.sh` files at this depth. |
+| `~/.grok/hooks/zentty-status/01-zentty-status.sh` | Thin forwarder that `exec`s `zentty ipc agent-event --adapter=grok`. Lives in a subdirectory so the `*.json` glob doesn't pick it up. |
+
+Zentty provides first-class support:
+
+- **Automatic on first run**: the first time `grok` (or `zentty launch grok`) runs inside a Zentty pane, Zentty drops the two files above. You get "Running (N/M)" for `TodoWrite` task lists and proper `needs-input` badges immediately.
+- **Manual**: `zentty install grok-hooks` / `zentty uninstall grok-hooks`.
+- `--adapter=grok` plus a Swift-side re-emitter produces canonical `task.progress`, `agent.needs-input`, and `session.start` events alongside the raw forward.
+
+Disable with `ZENTTY_GROK_HOOKS_DISABLED=1`.
+
+### Schema gotcha (lifecycle events vs tool-use events)
+
+Grok's hook schema strictly forbids a `matcher` field on lifecycle events. From the binary's own runtime log: `"lifecycle hooks () must not specify a matcher in v0"`. Including a matcher on `SessionStart`, `Stop`, `Notification`, etc. silently invalidates the entry — Grok loads the file, drops the bogus event, and you see no firings.
+
+Only `PreToolUse` and `PostToolUse` may specify a `matcher`. Our installer enforces this split: the lifecycle events come out matcher-free; the tool-use events get `matcher: ".*"`. There are Logic tests that pin this shape (`test_grok_hooks_installer_lifecycle_events_have_no_matcher_field`, `test_grok_hooks_installer_tool_use_events_have_matcher_dot_star`).
+
+### Zero external runtime dependencies
+
+The forwarder is a single `exec "$ZENTTY_BIN" ipc agent-event --adapter=grok` line. All payload parsing lives in Swift — see [`GrokCanonicalReEmitter`](../Zentty/AppState/Agent/GrokCanonicalReEmitter.swift). The CLI inspects the forwarded payload and, when it represents a TodoWrite update, an ask/permission prompt, or a SessionStart, fans out an additional `zentty ipc agent-event` request carrying the canonical Agent Status Protocol envelope.
+
+### Diagnostic commands
+
+```bash
+grok inspect          # should list our entries under Hooks
+# In the Grok TUI:
+# /hooks               # opens the hooks/plugins modal
+```
+
+`grok inspect`'s Hooks section primarily lists plugin-derived entries, so our settings-file hooks may not show up by name there. The easiest end-to-end check is to launch grok and watch the Zentty sidebar — `Running` ↔ `Idle` transitions plus task progress confirm the forwarders are firing.
+
+### Events with smart detection
+
+Detection runs in Swift inside the `zentty ipc agent-event --adapter=grok` CLI; the shell scripts only forward stdin.
+
+- `PreToolUse` — when `tool_name`/`tool_use.name` resolves to `TodoWrite`/`todo_write`/`WriteTodos`, emits canonical `task.progress` with `done`/`total` derived from the `todos[]` shape (top-level or nested under `tool_use.input` / `tool_input` / `input`).
+- `PreToolUse` — when the tool is `AskUserQuestion`/`ask_user_question`/similar, emits canonical `agent.needs-input` with `kind: "question"`.
+- `Notification` — emits `agent.needs-input` when `notification_type` is on a structured allowlist (`permission`, `ask`, `question`, …) or the message contains unambiguous words (`permission`, `approve`, `needs input`). Uses word-boundary matching so "Task completed" never falsely triggers needs-input.
+- `SessionStart` — emits canonical `session.start` with the session id resolved from any of `session_id`, `session.id`, `context.session_id`, `data.id`, etc.
+- `SessionEnd`, `UserPromptSubmit`, `Stop`, `PostToolUse`, etc. — forwarded raw; the `grokAdapter` updates lifecycle state.
+
+### Uninstall cleans up legacy artifacts
+
+Earlier Zentty versions wrote to several places that Grok does not actually read as hook sources: `~/.grok/user-settings.json`, `~/.grok/hooks-paths`, and a plugin manifest at `~/.grok/plugins/zentty-status/`. None of these fire hooks, but they linger on disk for users upgrading. `zentty uninstall grok-hooks` removes the current layout AND all of those legacy artifacts so re-installing leaves a clean state.
+
+See the [Agent Status Protocol](agent-status-protocol.md) for the canonical events Zentty expects.
+
+Feedback via `/feedback` inside Grok is welcome.

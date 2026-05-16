@@ -453,7 +453,7 @@ enum SessionRestoreDraftExporter {
         switch tool {
         case .amp, .claudeCode, .codex, .copilot, .droid, .kimi, .openCode:
             return .sessionID
-        case .gemini, .pi:
+        case .gemini, .pi, .grok:
             return .workingDirectory
         case .cursor, .zentty, .custom:
             return .unsupported
@@ -589,6 +589,17 @@ enum AgentResumeCommandBuilder {
                 return nil
             }
             return "pi -c"
+        case .grok:
+            if let sessionID = validatedGrokSessionID(from: draft.sessionID) {
+                return "grok --resume \(sessionID)"
+            }
+            // Fall back to directory-based resume (Grok can resume the last session
+            // for the current working directory).
+            guard hasWorkingDirectory(draft) else {
+                logRejectedWorkingDirectory(for: draft)
+                return nil
+            }
+            return "grok --resume"
         default:
             return nil
         }
@@ -628,6 +639,20 @@ enum AgentResumeCommandBuilder {
             return nil
         }
         return uuid.uuidString.lowercased()
+    }
+
+    private static func validatedGrokSessionID(from sessionID: String) -> String? {
+        // Grok Build sessions are typically UUIDs. We also accept reasonable
+        // alphanumeric session identifiers (Grok may use short IDs in some modes).
+        if let uuid = UUID(uuidString: sessionID) {
+            return uuid.uuidString.lowercased()
+        }
+
+        let pattern = "^[A-Za-z0-9][A-Za-z0-9_-]{3,}$"
+        guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
+            return nil
+        }
+        return sessionID
     }
 
     private static func validatedKimiSessionID(from sessionID: String) -> String? {

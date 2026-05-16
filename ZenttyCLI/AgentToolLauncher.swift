@@ -106,6 +106,15 @@ struct AgentToolLauncher {
                 return false
             }
             return true
+        case .grok:
+            if environment["ZENTTY_GROK_HOOKS_DISABLED"] == "1" {
+                return false
+            }
+            // Grok supports -p for headless/plan mode and standard --help/-v.
+            // For now let the bootstrap run; the grokPlan emits a clean session.start
+            // and the adapter is best-effort. Add passthrough lists later if
+            // `grok login` or other management commands appear.
+            return true
         case .codex, .gemini, .opencode:
             return true
         }
@@ -289,6 +298,8 @@ struct AgentToolLauncher {
             return "OpenCode"
         case .pi:
             return "Pi"
+        case .grok:
+            return "Grok"
         }
     }
 
@@ -311,6 +322,7 @@ struct AgentToolLauncher {
             "ZENTTY_CURSOR_VERBOSE_HOOKS",
             "ZENTTY_DROID_HOOKS_DISABLED",
             "ZENTTY_KIMI_HOOKS_DISABLED",
+            "ZENTTY_GROK_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
             "CODEX_HOME",
@@ -367,7 +379,7 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi:
+        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok:
             return EnvironmentPatch()
         }
     }
@@ -395,6 +407,8 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_DROID_PID"] = "\(getpid())"
         case .kimi:
             environmentPatch.set["ZENTTY_KIMI_PID"] = "\(getpid())"
+        case .grok:
+            environmentPatch.set["ZENTTY_GROK_PID"] = "\(getpid())"
         case .opencode, .pi:
             break
         }
@@ -443,6 +457,7 @@ struct AgentToolLauncher {
             "ZENTTY_CURSOR_PID",
             "ZENTTY_DROID_PID",
             "ZENTTY_KIMI_PID",
+            "ZENTTY_GROK_PID",
         ]
         return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
             guard let value = environment[key], !value.isEmpty else {

@@ -316,7 +316,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"].map {
+            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -2355,6 +2355,489 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let uninstalled = try String(contentsOf: configURL, encoding: .utf8)
         XCTAssertEqual(uninstalled, original)
+    }
+
+    // MARK: - GrokHooksInstaller
+
+    /// Creates `<root>/.grok/hooks/` under a fresh tmp dir and returns (grokRoot, hooksRoot).
+    /// Sibling files (user-settings.json, hooks-paths, plugins/) are written under grokRoot.
+    private func makeGrokHooksRoot() throws -> (grokRoot: URL, hooksRoot: URL) {
+        let directory = try makeTemporaryDirectory(named: "grok-hooks-installer")
+        let grokRoot = directory.appendingPathComponent(".grok", isDirectory: true)
+        let hooksRoot = grokRoot.appendingPathComponent("hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: hooksRoot, withIntermediateDirectories: true)
+        return (grokRoot, hooksRoot)
+    }
+
+    private func defaultManagedEvents() -> [String] {
+        GrokHooksInstaller.defaultManagedEvents
+    }
+
+    private func toolUseEventNames() -> Set<String> {
+        ["PreToolUse", "PostToolUse"]
+    }
+
+    private func forwarderScriptURL(under hooksRoot: URL) -> URL {
+        hooksRoot
+            .appendingPathComponent("zentty-status", isDirectory: true)
+            .appendingPathComponent("01-zentty-status.sh", isDirectory: false)
+    }
+
+    private func hookConfigURL(under hooksRoot: URL) -> URL {
+        hooksRoot.appendingPathComponent("zentty-status.json", isDirectory: false)
+    }
+
+    func test_grok_hooks_installer_writes_single_json_config_at_always_trusted_location() throws {
+        // Grok's "Always trusted" hook source is `~/.grok/hooks/*.json`. The
+        // installer must write exactly one JSON file there listing every
+        // managed event, pointing at the single forwarder script.
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let configURL = hookConfigURL(under: hooksRoot)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: configURL.path), "config JSON missing")
+
+        let parsed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: configURL)) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(parsed["hooks"] as? [String: Any])
+        let forwarder = forwarderScriptURL(under: hooksRoot).path
+        for event in defaultManagedEvents() {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]], "missing entry for \(event)")
+            let firstEntry = try XCTUnwrap(entries.first)
+            let nested = try XCTUnwrap(firstEntry["hooks"] as? [[String: Any]])
+            let command = try XCTUnwrap(nested.first?["command"] as? String)
+            XCTAssertEqual(command, forwarder, "\(event) must point at the single forwarder script")
+        }
+    }
+
+    func test_grok_hooks_installer_lifecycle_events_have_no_matcher_field() throws {
+        // Regression for the schema bug: lifecycle events MUST NOT specify a
+        // `matcher` field (binary string: "lifecycle hooks () must not specify
+        // a matcher in v0"). Including one silently invalidates the entry.
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let parsed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hookConfigURL(under: hooksRoot))) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(parsed["hooks"] as? [String: Any])
+
+        let toolEvents = toolUseEventNames()
+        for event in defaultManagedEvents() where !toolEvents.contains(event) {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]])
+            for entry in entries {
+                XCTAssertNil(entry["matcher"], "lifecycle event \(event) must not have a matcher field")
+            }
+        }
+    }
+
+    func test_grok_hooks_installer_tool_use_events_have_matcher_dot_star() throws {
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let parsed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hookConfigURL(under: hooksRoot))) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(parsed["hooks"] as? [String: Any])
+
+        for event in toolUseEventNames() {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]], "missing tool-use entry for \(event)")
+            let firstEntry = try XCTUnwrap(entries.first)
+            XCTAssertEqual(firstEntry["matcher"] as? String, ".*", "\(event) must specify matcher .*")
+        }
+    }
+
+    func test_grok_hooks_installer_writes_executable_forwarder_script_with_marker() throws {
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let scriptURL = forwarderScriptURL(under: hooksRoot)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: scriptURL.path), "forwarder script missing")
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: scriptURL.path)
+        let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber)
+        XCTAssertEqual(permissions.intValue & 0o777, 0o755, "forwarder must be executable (0o755)")
+
+        let content = try String(contentsOf: scriptURL, encoding: .utf8)
+        XCTAssertTrue(content.contains(GrokHooksInstaller.hookMarker), "forwarder must carry the uninstall marker")
+        XCTAssertTrue(
+            content.contains("exec \"$ZENTTY_BIN\" ipc agent-event --adapter=grok"),
+            "forwarder must be a thin exec into the Swift CLI"
+        )
+    }
+
+    func test_grok_hooks_installer_does_not_write_legacy_user_settings_or_plugin() throws {
+        // Regression for the wrong-file bug: we used to write user-settings.json,
+        // hooks-paths, and a plugin manifest. None of those are hook sources for
+        // Grok — the only thing that actually fires is the JSON under
+        // ~/.grok/hooks/. On a fresh install nothing else should be created.
+        let (grokRoot, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let userSettingsURL = grokRoot.appendingPathComponent("user-settings.json", isDirectory: false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: userSettingsURL.path), "must not write user-settings.json — Grok ignores it")
+        let hooksPathsURL = grokRoot.appendingPathComponent("hooks-paths", isDirectory: false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hooksPathsURL.path), "must not write hooks-paths — unrelated to hook discovery")
+        let pluginDir = grokRoot.appendingPathComponent("plugins").appendingPathComponent("zentty-status")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pluginDir.path), "must not install plugin manifest — disabled by default in TUI")
+    }
+
+    func test_grok_hooks_installer_is_idempotent() throws {
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let parsed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hookConfigURL(under: hooksRoot))) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(parsed["hooks"] as? [String: Any])
+        // Every event should still have exactly one entry — re-installing must
+        // not multiply registrations.
+        for event in defaultManagedEvents() {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]])
+            XCTAssertEqual(entries.count, 1, "\(event) must have exactly one entry after repeated installs")
+        }
+    }
+
+    func test_grok_hooks_installer_scripts_have_no_external_runtime_dependencies() throws {
+        // Regression guard: the generated forwarder must be a thin shell exec.
+        // Parsing lives in Swift (`GrokCanonicalReEmitter`) so the script must
+        // not reach for `jq`, `yq`, `gron`, `awk`, etc.
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let script = try String(contentsOf: forwarderScriptURL(under: hooksRoot), encoding: .utf8)
+        for forbidden in ["jq ", "yq ", "gron ", "awk ", " sed "] {
+            XCTAssertFalse(
+                script.contains(forbidden),
+                "forwarder must not depend on \(forbidden.trimmingCharacters(in: .whitespaces)); parsing lives in GrokCanonicalReEmitter"
+            )
+        }
+        XCTAssertTrue(
+            script.contains("exec \"$ZENTTY_BIN\" ipc agent-event --adapter=grok"),
+            "forwarder must be a thin forwarder"
+        )
+    }
+
+    // MARK: - GrokCanonicalReEmitter
+
+    func test_grok_canonical_reemitter_emits_task_progress_for_todowrite() throws {
+        let payload = """
+        {
+          "hook_event_name": "PreToolUse",
+          "tool_name": "TodoWrite",
+          "tool_input": {
+            "todos": [
+              {"status": "completed"},
+              {"status": "in_progress"},
+              {"status": "pending"}
+            ]
+          }
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        XCTAssertEqual(emissions.count, 1, "TodoWrite payload should emit exactly one canonical task.progress event")
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"task.progress\""))
+        XCTAssertTrue(envelope.contains("\"done\":1"))
+        XCTAssertTrue(envelope.contains("\"total\":3"))
+    }
+
+    func test_grok_canonical_reemitter_handles_grok_nested_tool_use_shape() throws {
+        // Grok nests the tool call under tool_use.input (vs Claude's tool_input).
+        let payload = """
+        {
+          "hook_event_name": "PreToolUse",
+          "tool_use": {
+            "name": "todo_write",
+            "input": {
+              "todos": [
+                {"status": "done"},
+                {"status": "done"},
+                {"status": "pending"}
+              ]
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"task.progress\""))
+        XCTAssertTrue(envelope.contains("\"done\":2"))
+        XCTAssertTrue(envelope.contains("\"total\":3"))
+    }
+
+    func test_grok_canonical_reemitter_emits_needs_input_for_notification() throws {
+        let payload = """
+        {
+          "hook_event_name": "Notification",
+          "notification_type": "permission",
+          "message": "Permission required to run rm -rf /tmp/foo"
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"agent.needs-input\""))
+        XCTAssertTrue(envelope.contains("\"text\":\"Permission required to run rm -rf /tmp/foo\""))
+        XCTAssertTrue(envelope.contains("\"kind\":\"approval\""))
+    }
+
+    func test_grok_canonical_reemitter_classifies_question_notifications() throws {
+        let payload = """
+        {
+          "hook_event_name": "Notification",
+          "notification_type": "question",
+          "message": "Which approach should we take?"
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"kind\":\"question\""))
+    }
+
+    func test_grok_canonical_reemitter_does_not_emit_needs_input_for_info_notifications() throws {
+        // Regression for the old shell regex that matched "ask" inside "task" —
+        // routine messages like "Task completed" must not produce a needs-input
+        // record. The structured allowlist gates this: notification_type=info
+        // with no input-related words → no emission.
+        let payload = """
+        {
+          "hook_event_name": "Notification",
+          "notification_type": "info",
+          "message": "Task completed"
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        XCTAssertTrue(emissions.isEmpty, "info-type notification with no input-request signal must not emit needs-input")
+    }
+
+    func test_grok_canonical_reemitter_emits_question_for_trailing_question_mark() throws {
+        // Permission-typed notifications still emit, and a trailing "?" tilts
+        // the kind from "approval" to "question".
+        let payload = """
+        {
+          "hook_event_name": "Notification",
+          "notification_type": "permission",
+          "message": "Should I rerun the migration?"
+        }
+        """.data(using: .utf8)!
+
+        let envelope = try XCTUnwrap(GrokCanonicalReEmitter.reEmissions(forHookPayload: payload).first)
+        XCTAssertTrue(envelope.contains("\"kind\":\"question\""))
+    }
+
+    func test_grok_canonical_reemitter_emits_session_start_with_nested_id() throws {
+        let payload = """
+        {
+          "hook_event_name": "SessionStart",
+          "context": {
+            "session_id": "ses_abc123"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"session.start\""))
+        XCTAssertTrue(envelope.contains("\"id\":\"ses_abc123\""))
+    }
+
+    func test_grok_canonical_reemitter_resolves_session_id_under_data_id() throws {
+        let payload = """
+        {
+          "hook_event_name": "session_start",
+          "data": {
+            "id": "ses_data_id"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"id\":\"ses_data_id\""))
+    }
+
+    func test_grok_canonical_reemitter_skips_already_canonical_payloads() throws {
+        // Canonical v1 payloads should pass through the adapter directly — re-emitting
+        // would duplicate the record.
+        let payload = """
+        {"version":1,"event":"task.progress","progress":{"done":1,"total":2}}
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        XCTAssertTrue(emissions.isEmpty, "already-canonical payloads must not be re-emitted")
+    }
+
+    func test_grok_canonical_reemitter_escapes_message_text() throws {
+        let payload = """
+        {
+          "hook_event_name": "Notification",
+          "notification_type": "permission",
+          "message": "Quote \\"this\\"\\nand a newline"
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        // The envelope itself must be valid JSON when the message contains quotes/newlines.
+        XCTAssertNoThrow(try JSONSerialization.jsonObject(with: envelope.data(using: .utf8)!))
+    }
+
+    func test_grok_canonical_reemitter_falls_through_to_nested_when_primary_todos_is_empty() throws {
+        // Defensive: a payload where the primary `todos` location is an empty
+        // array but a fallback nesting carries the real list must still produce
+        // a task.progress emission. Earlier the candidate scan returned `.first`
+        // non-nil unconditionally and stopped on the empty array.
+        let payload = """
+        {
+          "hook_event_name": "PreToolUse",
+          "tool_name": "TodoWrite",
+          "tool_input": {
+            "todos": [],
+            "input": {
+              "todos": [
+                {"status": "completed"},
+                {"status": "in_progress"}
+              ]
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"task.progress\""))
+        XCTAssertTrue(envelope.contains("\"done\":1"))
+        XCTAssertTrue(envelope.contains("\"total\":2"))
+    }
+
+    func test_grok_canonical_reemitter_returns_nothing_for_unrelated_events() throws {
+        let payload = """
+        {"hook_event_name": "PostToolUse", "tool_name": "Bash"}
+        """.data(using: .utf8)!
+
+        XCTAssertTrue(GrokCanonicalReEmitter.reEmissions(forHookPayload: payload).isEmpty)
+    }
+
+    func test_grok_hooks_installer_uninstall_removes_new_layout() throws {
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hookConfigURL(under: hooksRoot).path), "JSON config must be removed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: forwarderScriptURL(under: hooksRoot).path), "forwarder script must be removed")
+        let forwarderDir = hooksRoot.appendingPathComponent("zentty-status", isDirectory: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: forwarderDir.path), "forwarder subdir must be removed when empty")
+    }
+
+    func test_grok_hooks_installer_uninstall_cleans_up_legacy_per_event_scripts() throws {
+        // Users upgrading from earlier Zentty versions have the broken
+        // per-event-subdir layout. Uninstall must mop those up so they don't
+        // linger as dead files.
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        let legacyDir = hooksRoot.appendingPathComponent("PreToolUse", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+        let legacyScript = legacyDir.appendingPathComponent("01-zentty-status.sh", isDirectory: false)
+        let legacyContent = "#!/usr/bin/env bash\n# Marker: \(GrokHooksInstaller.hookMarker)\nexec foo\n"
+        try legacyContent.write(to: legacyScript, atomically: true, encoding: .utf8)
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyScript.path), "legacy per-event script must be removed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyDir.path), "empty legacy event dir must be removed")
+    }
+
+    func test_grok_hooks_installer_uninstall_preserves_user_scripts_in_legacy_event_dir() throws {
+        // Even when cleaning up legacy artifacts, non-Zentty scripts that happen
+        // to live alongside ours under `~/.grok/hooks/<Event>/` must survive.
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        let legacyDir = hooksRoot.appendingPathComponent("Stop", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+        let ourScript = legacyDir.appendingPathComponent("01-zentty-status.sh", isDirectory: false)
+        try "#!/usr/bin/env bash\n# Marker: \(GrokHooksInstaller.hookMarker)\n".write(to: ourScript, atomically: true, encoding: .utf8)
+        let userScript = legacyDir.appendingPathComponent("99-user-cleanup.sh", isDirectory: false)
+        try "#!/usr/bin/env bash\necho user\n".write(to: userScript, atomically: true, encoding: .utf8)
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ourScript.path), "our marker-tagged script must be removed")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: userScript.path), "user-managed sibling script must survive")
+    }
+
+    func test_grok_hooks_installer_uninstall_strips_legacy_user_settings_entries_preserving_user_entries() throws {
+        let (grokRoot, hooksRoot) = try makeGrokHooksRoot()
+        let settingsURL = grokRoot.appendingPathComponent("user-settings.json", isDirectory: false)
+        // Seed the legacy shape with one of our entries (recognised by marker)
+        // alongside a user-managed entry.
+        let legacyZenttyCommand = hooksRoot
+            .appendingPathComponent("Stop", isDirectory: true)
+            .appendingPathComponent("01-zentty-status.sh", isDirectory: false)
+            .path
+        let seeded: [String: Any] = [
+            "theme": "dark",
+            "hooks": [
+                "Stop": [
+                    ["matcher": ".*", "hooks": [["type": "command", "command": legacyZenttyCommand]]],
+                    ["matcher": ".*", "hooks": [["type": "command", "command": "/custom/user-stop.sh"]]],
+                ]
+            ]
+        ]
+        try JSONSerialization.data(withJSONObject: seeded, options: [.prettyPrinted]).write(to: settingsURL)
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: settingsURL)) as? [String: Any]
+        )
+        XCTAssertEqual(object["theme"] as? String, "dark", "unrelated key must survive uninstall")
+        let hooks = try XCTUnwrap(object["hooks"] as? [String: Any])
+        let stopEntries = try XCTUnwrap(hooks["Stop"] as? [[String: Any]])
+        let commands = stopEntries.compactMap { entry -> String? in
+            (entry["hooks"] as? [[String: Any]])?.first?["command"] as? String ?? entry["command"] as? String
+        }
+        XCTAssertEqual(commands, ["/custom/user-stop.sh"], "only user-managed Stop entry should remain")
+    }
+
+    func test_grok_hooks_installer_uninstall_removes_legacy_plugin_directory() throws {
+        let (grokRoot, hooksRoot) = try makeGrokHooksRoot()
+        let pluginDir = grokRoot
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent("zentty-status", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
+        try "{}".write(
+            to: pluginDir.appendingPathComponent("plugin.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pluginDir.path), "legacy plugin directory must be removed on uninstall")
+    }
+
+    func test_grok_hooks_installer_uninstall_legacy_hooks_paths_line_exact_not_substring() throws {
+        // Unrelated lines that *contain* our hooks path as a prefix must
+        // survive a legacy hooks-paths cleanup.
+        let (grokRoot, hooksRoot) = try makeGrokHooksRoot()
+        let pathsURL = grokRoot.appendingPathComponent("hooks-paths", isDirectory: false)
+        let unrelatedPath = hooksRoot.path + "-extra"
+        try (hooksRoot.path + "\n" + unrelatedPath + "\n").write(to: pathsURL, atomically: true, encoding: .utf8)
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        if FileManager.default.fileExists(atPath: pathsURL.path) {
+            let remaining = try String(contentsOf: pathsURL, encoding: .utf8).components(separatedBy: .newlines)
+            XCTAssertTrue(remaining.contains(unrelatedPath), "unrelated path with our prefix must be preserved by uninstall")
+            XCTAssertFalse(remaining.contains(hooksRoot.path), "our line must be removed")
+        }
     }
 
     func test_agent_launch_bootstrap_builds_kimi_overlay_from_default_user_config() throws {
@@ -7548,6 +8031,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ("cursor", "cursor-agent"),
             ("droid", "droid"),
             ("gemini", "gemini"),
+            ("grok", "grok"),
             ("kimi", "kimi"),
             ("kimi", "kimi-cli"),
             ("opencode", "opencode"),

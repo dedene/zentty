@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import Darwin
 import Foundation
 import os
 
@@ -113,6 +114,15 @@ enum AgentLaunchBootstrap {
                 executablePath: executablePath,
                 arguments: request.arguments,
                 bundle: bundle,
+                fileManager: fileManager
+            )
+        case .grok:
+            return grokPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
+                target: target,
+                runtimeDirectoryURL: runtimeDirectoryURL,
                 fileManager: fileManager
             )
         }
@@ -262,6 +272,55 @@ enum AgentLaunchBootstrap {
                     arguments: [],
                     standardInput: sessionStartJSON
                 ),
+            ]
+        )
+    }
+
+    private static func grokPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        target: AgentIPCTarget,
+        runtimeDirectoryURL: URL,
+        fileManager: FileManager
+    ) -> AgentLaunchPlan {
+        // Grok Build (early beta) discovers hooks from ~/.grok/hooks/ and .grok/hooks/
+        // (project-local, may require `/hooks-trust` in the TUI).
+        //
+        // We automatically ensure Zentty status hooks are installed in the user's
+        // ~/.grok/hooks/ on first launch (idempotent). This gives full explicit
+        // hook-driven status (todo progress via TodoWrite + needs-input via ask_user_question)
+        // without the user having to run `zentty install grok-hooks` manually.
+        //
+        // ZENTTY_GROK_HOOKS_DISABLED=1 short-circuits at AgentToolLauncher.shouldAttemptBootstrap,
+        // so reaching this point already means hooks are enabled. Users who want manual
+        // control can still use `zentty install/uninstall grok-hooks`.
+        if let cliPath = environment["ZENTTY_CLI_BIN"] {
+            try? GrokHooksInstaller.ensureInstalledForCurrentUser(cliPath: cliPath, fileManager: fileManager)
+        }
+
+        let setEnvironment: [String: String] = [
+            "ZENTTY_AGENT_TOOL": "grok",
+            "ZENTTY_GROK_PID": "\(getpid())"
+        ]
+
+        // Best-effort: emit a session.start via preLaunchAction so even without hooks
+        // the sidebar gets a clean "Grok" entry with the right PID for crash detection.
+        let sessionStartJSON = """
+        {"version":1,"event":"session.start","agent":{"name":"Grok","pid":\(AgentIPCProtocol.selfPIDPlaceholder)}}
+        """
+
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: setEnvironment,
+            unsetEnvironment: [],
+            preLaunchActions: [
+                AgentLaunchAction(
+                    subcommand: "agent-event",
+                    arguments: ["--adapter=grok"],
+                    standardInput: sessionStartJSON
+                )
             ]
         )
     }

@@ -942,7 +942,7 @@ class ProfileTests(unittest.TestCase):
 
         self.assertEqual(
             sorted(profiles),
-            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"],
+            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"],
         )
         for profile in profiles.values():
             self.assertIn("smoke", profile.expectations)

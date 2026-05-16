@@ -990,6 +990,7 @@ extension WorklaneStore {
             case .kimi: return "kimi"
             case .openCode: return "opencode"
             case .pi: return "pi"
+            case .grok: return "grok"
             case .custom(let name): return name
             }
         }

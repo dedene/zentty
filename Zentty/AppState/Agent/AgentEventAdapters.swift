@@ -13,7 +13,7 @@ extension AgentEventBridge {
         taskStore: DroidTaskStore = DroidTaskStore()
     ) throws -> [AgentStatusPayload] {
         let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
-        guard let hookEventName = firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"]) else {
+        guard let hookEventName = JSONKeyAccess.firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"]) else {
             throw AgentStatusPayloadError.invalidHookPayload
         }
 
@@ -23,11 +23,11 @@ extension AgentEventBridge {
 
         let target = try currentTarget(from: environment)
         let toolName = AgentTool.droid.displayName
-        let sessionID = firstString(in: jsonObject, keys: ["session_id", "sessionId"])
-        let cwd = firstString(in: jsonObject, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"])
-        let message = firstString(in: jsonObject, keys: ["message", "body", "text", "prompt", "description"])
-        let hookToolName = firstString(in: jsonObject, keys: ["tool_name", "toolName"])
-        let permissionMode = firstString(in: jsonObject, keys: ["permission_mode", "permissionMode"])
+        let sessionID = JSONKeyAccess.firstString(in: jsonObject, keys: ["session_id", "sessionId"])
+        let cwd = JSONKeyAccess.firstString(in: jsonObject, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"])
+        let message = JSONKeyAccess.firstString(in: jsonObject, keys: ["message", "body", "text", "prompt", "description"])
+        let hookToolName = JSONKeyAccess.firstString(in: jsonObject, keys: ["tool_name", "toolName"])
+        let permissionMode = JSONKeyAccess.firstString(in: jsonObject, keys: ["permission_mode", "permissionMode"])
         let toolInput = (jsonObject["tool_input"] as? [String: Any])
             ?? (jsonObject["toolInput"] as? [String: Any])
         let pid = parseAgentPID(from: environment, key: "ZENTTY_DROID_PID")
@@ -240,7 +240,7 @@ extension AgentEventBridge {
         text: String?,
         kind: PaneAgentInteractionKind?
     ) {
-        let text = firstString(in: toolInput, keys: ["question", "prompt", "message", "text"])
+        let text = JSONKeyAccess.firstString(in: toolInput, keys: ["question", "prompt", "message", "text"])
         let options = droidStringArray(in: toolInput, keys: ["options", "choices"])
         guard let text, !options.isEmpty else {
             return (text, nil)
@@ -251,17 +251,17 @@ extension AgentEventBridge {
 
     private static func droidApprovalText(toolName: String?, toolInput: [String: Any]?) -> String {
         let tool = toolName ?? "tool"
-        if let command = firstString(in: toolInput, keys: ["command"]) {
+        if let command = JSONKeyAccess.firstString(in: toolInput, keys: ["command"]) {
             return "Allow \(tool): \(command)"
         }
-        if let path = firstString(in: toolInput, keys: ["file_path", "filePath", "path"]) {
+        if let path = JSONKeyAccess.firstString(in: toolInput, keys: ["file_path", "filePath", "path"]) {
             return "Allow \(tool) on \(path)?"
         }
         return "Droid needs your permission to use \(tool)"
     }
 
     private static func droidSpecProposalText(toolInput: [String: Any]?) -> String? {
-        guard let plan = firstString(in: toolInput, keys: ["plan", "spec", "proposal"]) else {
+        guard let plan = JSONKeyAccess.firstString(in: toolInput, keys: ["plan", "spec", "proposal"]) else {
             return nil
         }
         let firstLine = plan
@@ -280,7 +280,7 @@ extension AgentEventBridge {
                     .filter { !$0.isEmpty }
             }
             if let values = object[key] as? [[String: Any]] {
-                return values.compactMap { firstString(in: $0, keys: ["label", "text", "value", "name"]) }
+                return values.compactMap { JSONKeyAccess.firstString(in: $0, keys: ["label", "text", "value", "name"]) }
             }
         }
         return []
@@ -317,7 +317,7 @@ extension AgentEventBridge {
         }
 
         let statuses = todoObjects.compactMap { todo in
-            firstString(in: todo, keys: ["status", "state"])
+            JSONKeyAccess.firstString(in: todo, keys: ["status", "state"])
         }
         guard !statuses.isEmpty else { return nil }
 
@@ -374,7 +374,7 @@ extension AgentEventBridge {
         environment: [String: String]
     ) throws -> [AgentStatusPayload] {
         let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
-        guard let hookEventName = firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"]) else {
+        guard let hookEventName = JSONKeyAccess.firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"]) else {
             throw AgentStatusPayloadError.invalidHookPayload
         }
 
@@ -383,9 +383,9 @@ extension AgentEventBridge {
         }
 
         let target = try currentTarget(from: environment)
-        let sessionID = firstString(in: jsonObject, keys: ["session_id", "sessionId"])
-        let cwd = firstString(in: jsonObject, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"])
-        let notificationType = firstString(in: jsonObject, keys: ["notification_type", "notificationType"])
+        let sessionID = JSONKeyAccess.firstString(in: jsonObject, keys: ["session_id", "sessionId"])
+        let cwd = JSONKeyAccess.firstString(in: jsonObject, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"])
+        let notificationType = JSONKeyAccess.firstString(in: jsonObject, keys: ["notification_type", "notificationType"])
         let message = geminiNotificationMessage(from: jsonObject)
         let pid = parseAgentPID(from: environment, key: "ZENTTY_GEMINI_PID")
         let toolName = AgentTool.gemini.displayName
@@ -453,7 +453,7 @@ extension AgentEventBridge {
 
     private static func geminiNotificationMessage(from jsonObject: [String: Any]) -> String? {
         let summary = AgentInteractionClassifier.trimmed(
-            firstString(in: jsonObject, keys: ["message", "body", "text", "prompt", "description"])
+            JSONKeyAccess.firstString(in: jsonObject, keys: ["message", "body", "text", "prompt", "description"])
         )
 
         guard let details = jsonObject["details"] else {
@@ -476,8 +476,8 @@ extension AgentEventBridge {
             return AgentInteractionClassifier.trimmed(details as? String)
         }
 
-        let tool = firstString(in: details, keys: ["tool_name", "toolName", "tool", "name"])
-        let path = firstString(in: details, keys: ["file_path", "filePath", "path"])
+        let tool = JSONKeyAccess.firstString(in: details, keys: ["tool_name", "toolName", "tool", "name"])
+        let path = JSONKeyAccess.firstString(in: details, keys: ["file_path", "filePath", "path"])
 
         switch (AgentInteractionClassifier.trimmed(tool), AgentInteractionClassifier.trimmed(path)) {
         case let (tool?, path?):
@@ -500,7 +500,7 @@ extension AgentEventBridge {
         environment: [String: String]
     ) throws -> [AgentStatusPayload] {
         let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
-        guard let hookEventName = firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"]) else {
+        guard let hookEventName = JSONKeyAccess.firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"]) else {
             throw AgentStatusPayloadError.invalidHookPayload
         }
 
@@ -510,10 +510,10 @@ extension AgentEventBridge {
 
         let target = try currentTarget(from: environment)
         let toolName = AgentTool.kimi.displayName
-        let sessionID = firstString(in: jsonObject, keys: ["session_id", "sessionId"])
-        let cwd = firstString(in: jsonObject, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"])
-        let notificationType = firstString(in: jsonObject, keys: ["notification_type", "notificationType"])
-        let payloadToolName = firstString(in: jsonObject, keys: ["tool_name", "toolName"])
+        let sessionID = JSONKeyAccess.firstString(in: jsonObject, keys: ["session_id", "sessionId"])
+        let cwd = JSONKeyAccess.firstString(in: jsonObject, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"])
+        let notificationType = JSONKeyAccess.firstString(in: jsonObject, keys: ["notification_type", "notificationType"])
+        let payloadToolName = JSONKeyAccess.firstString(in: jsonObject, keys: ["tool_name", "toolName"])
         let toolInput = jsonObject["tool_input"] as? [String: Any]
         let pid = parseAgentPID(from: environment, key: "ZENTTY_KIMI_PID")
 
@@ -556,7 +556,7 @@ extension AgentEventBridge {
                 return []
             }
             let message = AgentInteractionClassifier.trimmed(
-                firstString(in: jsonObject, keys: ["title", "body", "message", "text"])
+                JSONKeyAccess.firstString(in: jsonObject, keys: ["title", "body", "message", "text"])
             ) ?? "Kimi needs your approval"
             return [AgentStatusPayload(
                 windowID: target.windowID,
@@ -651,7 +651,7 @@ extension AgentEventBridge {
         guard let toolInput else {
             return nil
         }
-        return firstString(in: toolInput, keys: ["question", "prompt", "message", "title"])
+        return JSONKeyAccess.firstString(in: toolInput, keys: ["question", "prompt", "message", "title"])
     }
 
     private static func kimiToolRequiresApproval(_ toolName: String?) -> Bool {
@@ -673,17 +673,17 @@ extension AgentEventBridge {
 
         switch normalized {
         case "strreplacefile":
-            if let path = firstString(in: toolInput ?? [:], keys: ["path", "file_path", "filePath"]) {
+            if let path = JSONKeyAccess.firstString(in: toolInput ?? [:], keys: ["path", "file_path", "filePath"]) {
                 return "StrReplaceFile is requesting approval to edit file: \(path)"
             }
             return "StrReplaceFile is requesting approval to edit a file"
         case "writefile":
-            if let path = firstString(in: toolInput ?? [:], keys: ["path", "file_path", "filePath"]) {
+            if let path = JSONKeyAccess.firstString(in: toolInput ?? [:], keys: ["path", "file_path", "filePath"]) {
                 return "WriteFile is requesting approval to write file: \(path)"
             }
             return "WriteFile is requesting approval to write a file"
         case "shell":
-            if let command = firstString(in: toolInput ?? [:], keys: ["command", "cmd"]) {
+            if let command = JSONKeyAccess.firstString(in: toolInput ?? [:], keys: ["command", "cmd"]) {
                 return "Shell is requesting approval to run command: \(command)"
             }
             return "Shell is requesting approval to run a command"
@@ -702,7 +702,7 @@ extension AgentEventBridge {
         taskStore: CursorTaskStore = CursorTaskStore()
     ) throws -> [AgentStatusPayload] {
         let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
-        guard let hookEventName = firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"]) else {
+        guard let hookEventName = JSONKeyAccess.firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"]) else {
             throw AgentStatusPayloadError.invalidHookPayload
         }
 
@@ -712,9 +712,9 @@ extension AgentEventBridge {
 
         let target = try currentTarget(from: environment)
         let toolName = AgentTool.cursor.displayName
-        let sessionID = firstString(in: jsonObject, keys: ["conversation_id", "conversationId"])
+        let sessionID = JSONKeyAccess.firstString(in: jsonObject, keys: ["conversation_id", "conversationId"])
         let cwd = cursorWorkspaceRoot(from: jsonObject)
-        let hookToolName = firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
+        let hookToolName = JSONKeyAccess.firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
         let toolInput = (jsonObject["tool_input"] as? [String: Any])
             ?? (jsonObject["toolInput"] as? [String: Any])
             ?? (jsonObject["input"] as? [String: Any])
@@ -767,7 +767,7 @@ extension AgentEventBridge {
             ]
 
         case "stop":
-            let status = firstString(in: jsonObject, keys: ["status"])?.lowercased()
+            let status = JSONKeyAccess.firstString(in: jsonObject, keys: ["status"])?.lowercased()
             let taskProgress = try taskStore.taskProgress(sessionID: sessionID)
             switch status {
             case "error":
@@ -887,7 +887,7 @@ extension AgentEventBridge {
         environment: [String: String]
     ) throws -> [AgentStatusPayload] {
         let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
-        let hookEventName = firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"])
+        let hookEventName = JSONKeyAccess.firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"])
             ?? codexMappedEvent(defaultEventName)
 
         guard let hookEventName else {
@@ -899,9 +899,9 @@ extension AgentEventBridge {
         }
 
         let target = try currentTarget(from: environment)
-        let sessionID = firstString(in: jsonObject, keys: ["session_id", "sessionId"])
-        let cwd = firstString(in: jsonObject, keys: ["cwd", "current_working_directory", "currentWorkingDirectory"])
-        let transcriptPath = firstString(in: jsonObject, keys: ["transcript_path", "transcriptPath"])
+        let sessionID = JSONKeyAccess.firstString(in: jsonObject, keys: ["session_id", "sessionId"])
+        let cwd = JSONKeyAccess.firstString(in: jsonObject, keys: ["cwd", "current_working_directory", "currentWorkingDirectory"])
+        let transcriptPath = JSONKeyAccess.firstString(in: jsonObject, keys: ["transcript_path", "transcriptPath"])
         let pid = parseAgentPID(from: environment, key: "ZENTTY_CODEX_PID")
         let toolName = AgentTool.codex.displayName
 
@@ -921,7 +921,7 @@ extension AgentEventBridge {
             ))
             return payloads
         case "PermissionRequest":
-            let requestedToolName = firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
+            let requestedToolName = JSONKeyAccess.firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
             let interaction = codexPermissionRequestInteraction(toolName: requestedToolName)
             let prompt = codexPermissionRequestIsUserInput(requestedToolName)
                 ? codexQuestionPrompt(from: jsonObject)
@@ -945,7 +945,7 @@ extension AgentEventBridge {
             )]
         case "PreToolUse", "PostToolUse":
             if hookEventName == "PreToolUse" {
-                let requestedToolName = firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
+                let requestedToolName = JSONKeyAccess.firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
                 if codexPermissionRequestIsUserInput(requestedToolName),
                    let prompt = codexQuestionPrompt(from: jsonObject) {
                     return [AgentStatusPayload(
@@ -1044,7 +1044,7 @@ extension AgentEventBridge {
             return CodexTranscriptQuestionExtractor.question(fromToolInput: toolInput)
         }
         for key in ["tool_args", "toolArgs", "arguments"] {
-            guard let string = firstString(in: jsonObject, keys: [key]),
+            guard let string = JSONKeyAccess.firstString(in: jsonObject, keys: [key]),
                   let data = string.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let question = CodexTranscriptQuestionExtractor.question(fromToolInput: object) else {
@@ -1060,8 +1060,8 @@ extension AgentEventBridge {
         environment: [String: String]
     ) throws -> [AgentStatusPayload] {
         let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
-        let payloadType = firstString(in: jsonObject, keys: ["type", "event_type", "eventType"]) ?? ""
-        let sessionID = firstString(in: jsonObject, keys: ["session_id", "sessionId"])
+        let payloadType = JSONKeyAccess.firstString(in: jsonObject, keys: ["type", "event_type", "eventType"]) ?? ""
+        let sessionID = JSONKeyAccess.firstString(in: jsonObject, keys: ["session_id", "sessionId"])
         let target = try currentTarget(from: environment)
         let toolName = AgentTool.codex.displayName
 
@@ -1084,7 +1084,7 @@ extension AgentEventBridge {
             )]
         }
 
-        var message = firstString(in: jsonObject, keys: [
+        var message = JSONKeyAccess.firstString(in: jsonObject, keys: [
             "title",
             "message",
             "body",
@@ -1216,7 +1216,7 @@ extension AgentEventBridge {
         environment: [String: String]
     ) throws -> [AgentStatusPayload] {
         let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
-        let rawEvent = firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"])
+        let rawEvent = JSONKeyAccess.firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"])
             ?? copilotMappedEvent(defaultEventName)
             ?? defaultEventName
 
@@ -1229,8 +1229,8 @@ extension AgentEventBridge {
         }
 
         let target = try currentTarget(from: environment)
-        let cwd = firstString(in: jsonObject, keys: ["cwd", "current_working_directory", "currentWorkingDirectory"])
-        let sessionID = firstString(in: jsonObject, keys: ["session_id", "sessionId", "sessionID"])
+        let cwd = JSONKeyAccess.firstString(in: jsonObject, keys: ["cwd", "current_working_directory", "currentWorkingDirectory"])
+        let sessionID = JSONKeyAccess.firstString(in: jsonObject, keys: ["session_id", "sessionId", "sessionID"])
         let toolName = AgentTool.copilot.displayName
 
         switch event {
@@ -1280,11 +1280,11 @@ extension AgentEventBridge {
             )]
 
         case .preToolUse:
-            let toolArg = firstString(in: jsonObject, keys: ["toolName", "tool_name"])
+            let toolArg = JSONKeyAccess.firstString(in: jsonObject, keys: ["toolName", "tool_name"])
             guard copilotIsUserQuestionTool(toolArg) else {
                 return []
             }
-            let toolArgs = firstString(in: jsonObject, keys: ["toolArgs", "tool_args"])
+            let toolArgs = JSONKeyAccess.firstString(in: jsonObject, keys: ["toolArgs", "tool_args"])
             let questionText = copilotExtractQuestionText(from: toolArgs) ?? "Copilot is asking a question"
             return [AgentStatusPayload(
                 windowID: target.windowID,
@@ -1305,7 +1305,7 @@ extension AgentEventBridge {
             )]
 
         case .postToolUse:
-            let toolArg = firstString(in: jsonObject, keys: ["toolName", "tool_name"])
+            let toolArg = JSONKeyAccess.firstString(in: jsonObject, keys: ["toolName", "tool_name"])
             guard copilotIsUserQuestionTool(toolArg) else {
                 return []
             }
@@ -1402,7 +1402,7 @@ extension AgentEventBridge {
               let object = jsonObject as? [String: Any] else {
             return nil
         }
-        return firstString(in: object, keys: ["question", "prompt", "message", "title"])
+        return JSONKeyAccess.firstString(in: object, keys: ["question", "prompt", "message", "title"])
     }
 }
 
@@ -1439,21 +1439,21 @@ extension AgentEventBridge {
     static func claudeParseInput(_ data: Data) throws -> ClaudeAdapterInput {
         guard !data.isEmpty,
               let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hookEventName = firstString(in: json, keys: ["hook_event_name"]) else {
+              let hookEventName = JSONKeyAccess.firstString(in: json, keys: ["hook_event_name"]) else {
             throw AgentStatusPayloadError.invalidHookPayload
         }
 
         return ClaudeAdapterInput(
             hookEventName: hookEventName,
-            sessionID: firstString(in: json, keys: ["session_id", "sessionId"]),
-            message: firstString(in: json, keys: ["message", "body", "text", "prompt", "error", "description"]),
-            notificationType: firstString(in: json, keys: ["notification_type", "notificationType"]),
-            cwd: firstString(in: json, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"]),
-            transcriptPath: firstString(in: json, keys: ["transcript_path", "transcriptPath"]),
-            toolName: firstString(in: json, keys: ["tool_name", "toolName"]),
+            sessionID: JSONKeyAccess.firstString(in: json, keys: ["session_id", "sessionId"]),
+            message: JSONKeyAccess.firstString(in: json, keys: ["message", "body", "text", "prompt", "error", "description"]),
+            notificationType: JSONKeyAccess.firstString(in: json, keys: ["notification_type", "notificationType"]),
+            cwd: JSONKeyAccess.firstString(in: json, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"]),
+            transcriptPath: JSONKeyAccess.firstString(in: json, keys: ["transcript_path", "transcriptPath"]),
+            toolName: JSONKeyAccess.firstString(in: json, keys: ["tool_name", "toolName"]),
             toolInput: (json["tool_input"] as? [String: Any]) ?? [:],
-            taskID: firstString(in: json, keys: ["task_id", "taskId"]),
-            taskSubject: firstString(in: json, keys: ["task", "task_subject", "taskSubject", "title"])
+            taskID: JSONKeyAccess.firstString(in: json, keys: ["task_id", "taskId"]),
+            taskSubject: JSONKeyAccess.firstString(in: json, keys: ["task", "task_subject", "taskSubject", "title"])
         )
     }
 
@@ -1847,5 +1847,103 @@ extension AgentEventBridge {
             artifactLabel: nil,
             artifactURL: nil
         )
+    }
+}
+
+// MARK: - Grok Build Adapter
+
+extension AgentEventBridge {
+    /// Adapter for Grok Build (`grok`) hooks.
+    ///
+    /// Grok Build is in early beta. It supports both:
+    /// - Direct canonical Agent Status Protocol payloads (preferred for new integrations)
+    /// - Raw hook event payloads (`PreToolUse`, `Notification`, etc.) that this
+    ///   adapter maps to coarse lifecycle transitions.
+    ///
+    /// Payload-derived signals (`task.progress`, `agent.needs-input`,
+    /// `session.start` with id) are minted as canonical events by
+    /// `GrokCanonicalReEmitter` in the CLI fan-out. The adapter intentionally
+    /// does **not** parse `tool_name` / `tool_input` itself — the re-emitter is
+    /// the single source of truth so detection logic lives in one place.
+    static func grokAdapter(
+        data: Data,
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
+
+        guard currentTargetIfAvailable(from: environment) != nil else {
+            return []
+        }
+
+        let target = try currentTarget(from: environment)
+        let toolName = AgentTool.grok.displayName
+        let sessionID = JSONKeyAccess.firstString(in: jsonObject, keys: ["session_id", "sessionId", "sessionID"])
+        let cwd = JSONKeyAccess.firstString(in: jsonObject, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"])
+        let hookEventName = JSONKeyAccess.firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName", "event", "type"])
+        let pid = parseAgentPID(from: environment, key: "ZENTTY_GROK_PID")
+
+        // Fast path: if this is already a canonical Agent Status Protocol payload, defer to
+        // the shared makePayloads. The tool label resolves to "Grok" either because the hook
+        // included "agent":{"name":"Grok"} or, when the name is omitted, because process/title
+        // recognition (now that .grok is in AgentTool) picks it up from the wrapped binary name.
+        if let version = jsonObject["version"] as? Int, version == 1,
+           let eventName = jsonObject["event"] as? String, !eventName.isEmpty {
+            return try makePayloads(from: parseInput(data), environment: environment)
+        }
+
+        // Hook-style path: coarse lifecycle only. Fine-grained state (task
+        // progress, needs-input, session id for resume) arrives via the
+        // canonical re-emit from `GrokCanonicalReEmitter`.
+        switch hookEventName?.lowercased() {
+        case "sessionstart", "session_start", "start":
+            var payloads: [AgentStatusPayload] = []
+            if let pid {
+                payloads.append(pidPayload(target: target, toolName: toolName, pid: pid, event: .attach, sessionID: sessionID))
+            }
+            payloads.append(lifecyclePayload(target: target, toolName: toolName, state: .starting, sessionID: sessionID, cwd: cwd))
+            return payloads
+
+        case "userpromptsubmit", "user_prompt_submit", "promptsubmit", "prompt_submit":
+            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
+
+        case "stop", "turncomplete", "turn_complete":
+            return [lifecyclePayload(target: target, toolName: toolName, state: .idle, sessionID: sessionID, cwd: cwd)]
+
+        case "sessionend", "session_end", "end":
+            return [
+                AgentStatusPayload(
+                    windowID: target.windowID,
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    signalKind: .lifecycle,
+                    state: nil,
+                    origin: .explicitHook,
+                    toolName: toolName,
+                    text: nil,
+                    sessionID: sessionID,
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil
+                ),
+                pidPayload(target: target, toolName: toolName, pid: nil, event: .clear, sessionID: sessionID)
+            ]
+
+        case "pretooluse", "pre_tool_use", "pretool",
+             "posttooluse", "post_tool_use":
+            // Real tool activity. Canonical re-emit upgrades to needs-input
+            // for ask_user_question and attaches taskProgress for todo writes.
+            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
+
+        case "notification", "permission", "approval":
+            // No-op for the lifecycle channel. Grok fires Notification after
+            // Stop (e.g. "turn complete") and during needs-input waits;
+            // emitting .running here would downgrade .idle or .needsInput.
+            // The canonical re-emit (GrokCanonicalReEmitter) is the source of
+            // truth for any legitimate state change derived from these.
+            return []
+
+        default:
+            return []
+        }
     }
 }

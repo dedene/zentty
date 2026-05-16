@@ -24,6 +24,7 @@ enum AgentBootstrapTool: String, Codable, Equatable {
     case kimi
     case opencode
     case pi
+    case grok
 
     /// Names of the real CLI binary (or binaries) this wrapped tool resolves to on PATH.
     /// For most tools this matches `rawValue`, but cursor's CLI is shipped as `cursor-agent`
@@ -32,7 +33,7 @@ enum AgentBootstrapTool: String, Codable, Equatable {
         switch self {
         case .cursor:
             return ["cursor-agent"]
-        case .amp, .claude, .codex, .copilot, .droid, .gemini, .opencode, .pi:
+        case .amp, .claude, .codex, .copilot, .droid, .gemini, .opencode, .pi, .grok:
             return [rawValue]
         case .kimi:
             return [rawValue, "kimi-cli"]
