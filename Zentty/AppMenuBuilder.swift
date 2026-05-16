@@ -163,7 +163,7 @@ enum AppMenuBuilder {
         menu.addItem(makeStandardMenuActionItem(
             title: "Close Window",
             action: #selector(NSWindow.performClose(_:)),
-            keyEquivalent: "w"
+            keyEquivalent: ""
         ))
         menu.addItem(makeStandardMenuActionItem(
             title: "Minimize",
@@ -226,7 +226,7 @@ enum AppMenuBuilder {
         keyEquivalent: String
     ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
-        item.keyEquivalentModifierMask = [.command]
+        item.keyEquivalentModifierMask = keyEquivalent.isEmpty ? [] : [.command]
         return item
     }
 

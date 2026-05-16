@@ -12,17 +12,83 @@ active_display_name="$display_name"
 display_lock_fd=""
 display_lease_registered=0
 display_cleanup_ran=0
+betterdisplay_transport=""
+betterdisplay_command_path=""
 
 betterdisplay_command() {
-  if [[ -n "${ZENTTY_BETTERDISPLAY_COMMAND:-}" ]]; then
-    print -r -- "${ZENTTY_BETTERDISPLAY_COMMAND}"
-  elif command -v betterdisplaycli >/dev/null 2>&1; then
+  if command -v betterdisplaycli >/dev/null 2>&1; then
     command -v betterdisplaycli
   elif [[ -x /Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay ]]; then
     print -r -- "/Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay"
   else
     return 1
   fi
+}
+
+betterdisplay_http_base() {
+  print -r -- "${ZENTTY_BETTERDISPLAY_HTTP_BASE:-http://localhost:55777}"
+}
+
+betterdisplay_http_available() {
+  [[ -z "${ZENTTY_BETTERDISPLAY_COMMAND:-}" ]] || return 1
+  command -v curl >/dev/null 2>&1 || return 1
+  curl -fsS --max-time 2 "$(betterdisplay_http_base)/help" >/dev/null 2>&1
+}
+
+betterdisplay_http_request() {
+  local operation="$1"
+  shift
+
+  local curl_args arg parameter
+  curl_args=(-fsS --max-time "${ZENTTY_BETTERDISPLAY_HTTP_TIMEOUT:-10}" --get "$(betterdisplay_http_base)/command/${operation}")
+  for arg in "$@"; do
+    parameter="${arg#--}"
+    parameter="${parameter#-}"
+    curl_args+=(--data-urlencode "$parameter")
+  done
+
+  curl "${curl_args[@]}" >/dev/null
+}
+
+resolve_betterdisplay_transport() {
+  if [[ -n "$betterdisplay_transport" ]]; then
+    return 0
+  fi
+
+  if [[ -n "${ZENTTY_BETTERDISPLAY_COMMAND:-}" ]]; then
+    betterdisplay_transport="command"
+    betterdisplay_command_path="$ZENTTY_BETTERDISPLAY_COMMAND"
+    return 0
+  fi
+
+  if betterdisplay_http_available; then
+    betterdisplay_transport="http"
+    return 0
+  fi
+
+  if betterdisplay_command_path="$(betterdisplay_command)"; then
+    betterdisplay_transport="command"
+    return 0
+  fi
+
+  return 1
+}
+
+betterdisplay_request() {
+  resolve_betterdisplay_transport || return 1
+
+  case "$betterdisplay_transport" in
+    command) "$betterdisplay_command_path" "$@" ;;
+    http) betterdisplay_http_request "$@" ;;
+    *) return 1 ;;
+  esac
+}
+
+print_betterdisplay_integration_help() {
+  print -u2 "error: BetterDisplay integration not available"
+  print -u2 "Enable BetterDisplay HTTP integration, install CLI with: brew install waydabber/betterdisplay/betterdisplaycli"
+  print -u2 "Fallback supported if BetterDisplay.app is installed at /Applications/BetterDisplay.app."
+  print -u2 "Tests may also provide ZENTTY_BETTERDISPLAY_COMMAND to override the BetterDisplay command."
 }
 
 matched_screen_name() {
@@ -135,13 +201,13 @@ wait_for_screen() {
 resolve_provider() {
   case "$provider" in
     auto)
-      if betterdisplay_command >/dev/null 2>&1; then
+      if resolve_betterdisplay_transport; then
         print -r -- "betterdisplay"
       elif command -v simpledisplayctl >/dev/null 2>&1; then
         print -r -- "simpledisplay"
       else
-        print -u2 "error: no virtual display provider CLI found"
-        print -u2 "Install BetterDisplay CLI with: brew install waydabber/betterdisplay/betterdisplaycli"
+        print -u2 "error: no virtual display provider integration found"
+        print_betterdisplay_integration_help
         print -u2 "Or install SimpleDisplay CLI and set ZENTTY_TEST_DISPLAY_PROVIDER=simpledisplay."
         return 1
       fi
@@ -158,48 +224,42 @@ resolve_provider() {
 }
 
 connect_existing_betterdisplay() {
-  local bd="$1"
-
-  "$bd" set -serial="$display_serial" -connected=on >/dev/null 2>&1 && return 0
-  "$bd" set -name="$display_name" -virtualScreenSerial="$display_serial" -connected=on >/dev/null 2>&1 && return 0
+  betterdisplay_request set -serial="$display_serial" -connected=on >/dev/null 2>&1 && return 0
+  betterdisplay_request set -name="$display_name" -virtualScreenSerial="$display_serial" -connected=on >/dev/null 2>&1 && return 0
   return 1
 }
 
 ensure_betterdisplay() {
-  local bd
-  if ! bd="$(betterdisplay_command)"; then
-    print -u2 "error: BetterDisplay CLI not found"
-    print -u2 "Install it with: brew install waydabber/betterdisplay/betterdisplaycli"
-    print -u2 "Fallback supported if BetterDisplay.app is installed at /Applications/BetterDisplay.app."
+  if ! resolve_betterdisplay_transport; then
+    print_betterdisplay_integration_help
     return 1
   fi
 
   if screen_exists; then
     active_display_name="$(matched_screen_name || print -r -- "$display_name")"
     print -r -- "Using existing display '${active_display_name}'. It will be removed by the last test run using it."
-    "$bd" set -name="$active_display_name" -virtualScreenSerial="$display_serial" >/dev/null 2>&1 || true
+    betterdisplay_request set -name="$active_display_name" -virtualScreenSerial="$display_serial" >/dev/null 2>&1 || true
     return 0
   fi
 
-  if connect_existing_betterdisplay "$bd"; then
+  if connect_existing_betterdisplay; then
     wait_for_screen
     active_display_name="$(matched_screen_name || print -r -- "$display_name")"
     print -r -- "Connected existing BetterDisplay virtual display '${active_display_name}'. It will be removed by the last test run using it."
     return 0
   fi
 
-  "$bd" create -devicetype=virtualscreen -virtualscreenname="$display_name" -virtualScreenSerial="$display_serial" -aspectWidth=16 -aspectHeight=10 -virtualScreenHiDPI=on
-  "$bd" set -serial="$display_serial" -connected=on
+  betterdisplay_request create -type=VirtualScreen -virtualScreenName="$display_name" -virtualScreenSerial="$display_serial" -aspectWidth=16 -aspectHeight=10 -virtualScreenHiDPI=on
+  betterdisplay_request set -serial="$display_serial" -connected=on
   wait_for_screen
   active_display_name="$(matched_screen_name || print -r -- "$display_name")"
 }
 
 cleanup_betterdisplay() {
-  local bd
-  bd="$(betterdisplay_command)" || return 0
-  "$bd" discard -serial="$display_serial" >/dev/null 2>&1 || \
-    "$bd" discard -name="$active_display_name" >/dev/null 2>&1 || \
-    "$bd" discard -name="$display_name" >/dev/null 2>&1 || true
+  resolve_betterdisplay_transport || return 0
+  betterdisplay_request discard -serial="$display_serial" >/dev/null 2>&1 || \
+    betterdisplay_request discard -name="$active_display_name" >/dev/null 2>&1 || \
+    betterdisplay_request discard -name="$display_name" >/dev/null 2>&1 || true
 }
 
 ensure_simpledisplay() {

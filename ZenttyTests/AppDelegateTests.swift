@@ -230,13 +230,18 @@ final class AppDelegateTests: XCTestCase {
         let minimizeItem = try XCTUnwrap(windowMenu.items.first(where: { $0.action == #selector(NSWindow.performMiniaturize(_:)) }))
 
         XCTAssertEqual(windowMenu.title, "Window")
-        XCTAssertEqual(closeWindowItem.keyEquivalent, "w")
-        XCTAssertEqual(closeWindowItem.keyEquivalentModifierMask, [.command])
+        XCTAssertEqual(closeWindowItem.keyEquivalent, "")
+        XCTAssertEqual(closeWindowItem.keyEquivalentModifierMask, [])
         XCTAssertEqual(minimizeItem.keyEquivalent, "m")
         XCTAssertEqual(minimizeItem.keyEquivalentModifierMask, [.command])
         XCTAssertNotNil(windowMenu.items.first(where: { $0.action == #selector(NSWindow.performZoom(_:)) }))
         XCTAssertNotNil(windowMenu.items.first(where: { $0.action == #selector(NSApplication.arrangeInFront(_:)) }))
         XCTAssertTrue(NSApp.windowsMenu === windowMenu)
+
+        let fileMenu = try XCTUnwrap(menu(named: "File"))
+        let closePaneItem = try XCTUnwrap(fileMenu.items.first(where: { $0.action == #selector(MainWindowController.closeFocusedPane(_:)) }))
+        XCTAssertEqual(closePaneItem.keyEquivalent, "w")
+        XCTAssertEqual(closePaneItem.keyEquivalentModifierMask, [.command])
     }
 
     func test_application_launch_installs_view_menu_with_arrange_submenus_and_layout_actions() throws {

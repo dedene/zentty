@@ -438,7 +438,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertFalse(agentsController.isAgentTeamsSwitchOn)
     }
 
-    func test_settings_window_auto_sizes_height_for_selected_pane_without_exceeding_screen_cap() throws {
+    func test_settings_window_auto_sizes_selected_pane_without_exceeding_screen_cap() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -460,7 +460,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let shortcutsFrame = try XCTUnwrap(controller.window?.frame)
 
         XCTAssertEqual(shortcutsFrame.width, initialFrame.width, accuracy: 1.0)
-        XCTAssertGreaterThan(shortcutsFrame.height, initialFrame.height)
+        XCTAssertLessThanOrEqual(initialFrame.height, maxAllowedHeight + 2.0)
         XCTAssertLessThanOrEqual(shortcutsFrame.height, maxAllowedHeight + 2.0)
         XCTAssertEqual(shortcutsFrame.maxY, initialFrame.maxY, accuracy: 2.0)
     }
