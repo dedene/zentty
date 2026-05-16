@@ -91,6 +91,7 @@ final class WindowChromeView: NSView {
         reviewChips: []
     )
     private var currentOpenWithState: WindowChromeOpenWithState?
+    private var currentPanesConfig: AppConfig.Panes = .default
     private var displayedReviewChips: [WorklaneReviewChip] = []
     private var reviewChipViews: [WindowChromeReviewChipView] = []
     private var branchURL: URL?
@@ -289,6 +290,12 @@ final class WindowChromeView: NSView {
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = theme.topChromeBackground.cgColor
         }
+    }
+
+    func apply(panes: AppConfig.Panes) {
+        guard panes != currentPanesConfig else { return }
+        currentPanesConfig = panes
+        renderFocusedProxyIcon()
     }
 
     func render(openWith state: WindowChromeOpenWithState?) {
@@ -853,7 +860,8 @@ final class WindowChromeView: NSView {
         focusedProxyIconView.render(
             cwdPath: WorklaneContextFormatter.trimmed(currentSummary.cwdPath),
             tintColor: currentTheme.secondaryText,
-            size: Self.proxyIconSize
+            size: Self.proxyIconSize,
+            useProjectIcon: currentPanesConfig.showProjectIcons
         )
     }
 
@@ -929,6 +937,8 @@ final class WindowChromeView: NSView {
     var isFocusedProxyIconTemplate: Bool { focusedProxyIconView.image?.isTemplate == true }
     var isFocusedProxyIconUsingPopupMenu: Bool { focusedProxyIconView.usesPopupMenuForTesting }
     var focusedProxyIconFrame: NSRect { focusedProxyIconView.frame }
+    var currentPanesConfigForTesting: AppConfig.Panes { currentPanesConfig }
+    var focusedProxyIconImage: NSImage? { focusedProxyIconView.image }
     var focusedLabelText: String { focusedLabel.stringValue }
     var focusedLabelFrame: NSRect { focusedLabel.frame }
     var remoteContextLabelText: String { remoteContextLabel.stringValue }
@@ -1121,17 +1131,24 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
     private static let accessibilityDescription = "Focused working directory"
     private static let menuIconSize = NSSize(width: 16, height: 16)
     private static let minimumHitTargetSize = NSSize(width: 30, height: 22)
+    private static var projectIconRenderSize: NSSize { ProjectIconResolver.defaultRenderSize }
+    private static let projectIconShadowRadius: CGFloat = 2
+    private static let projectIconShadowOpacity: Float = 0.55
 
     private let iconView = WindowChromePassiveImageView()
     private(set) var cwdPath: String?
     private var currentDirectoryURL: URL?
     private var iconSize: NSSize = .zero
+    private var currentRenderSize: NSSize = .zero
     private(set) var contentTintColor: NSColor?
     private var suppressedWindow: NSWindow?
     private var previousWindowMovableState: Bool?
     private var isDragSessionActive = false
     private var didArmWindowDragSuppression = false
     private var lastHandledMouseDownTimestamp: TimeInterval = -1
+    private var pendingResolveToken: UUID?
+    private var currentTintColor: NSColor?
+    private static let crossfadeHalfDuration: TimeInterval = 0.075
     var revealPath: (URL) -> Void = { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: $0.path) }
     var openComputerLocation: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
@@ -1210,11 +1227,12 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
     override func layout() {
         super.layout()
 
+        let renderSize = currentRenderSize == .zero ? iconSize : currentRenderSize
         let iconOrigin = NSPoint(
-            x: max(0, floor(bounds.width - iconSize.width)),
-            y: floor((bounds.height - iconSize.height) / 2)
+            x: max(0, floor(bounds.width - renderSize.width)),
+            y: floor((bounds.height - renderSize.height) / 2)
         )
-        iconView.frame = NSRect(origin: iconOrigin, size: iconSize)
+        iconView.frame = NSRect(origin: iconOrigin, size: renderSize)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -1253,15 +1271,19 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
         presentPathMenu(with: event)
     }
 
-    func render(cwdPath: String?, tintColor: NSColor, size: NSSize) {
+    func render(cwdPath: String?, tintColor: NSColor, size: NSSize, useProjectIcon: Bool) {
         iconSize = size
         invalidateIntrinsicContentSize()
         self.cwdPath = cwdPath
         contentTintColor = nil
+        currentTintColor = tintColor
         needsLayout = true
+        pendingResolveToken = nil
 
         guard let trimmedPath = WorklaneContextFormatter.trimmed(cwdPath) else {
             iconView.image = nil
+            iconView.alphaValue = 1
+            currentRenderSize = .zero
             currentDirectoryURL = nil
             isHidden = true
             alphaValue = 0
@@ -1271,14 +1293,70 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
             return
         }
 
-        let image = NSWorkspace.shared.icon(forFile: trimmedPath)
-        image.size = size
+        let fallback = NSWorkspace.shared.icon(forFile: trimmedPath)
+        fallback.size = size
 
-        iconView.image = image
         iconView.contentTintColor = nil
+        iconView.alphaValue = 1
         currentDirectoryURL = URL(fileURLWithPath: trimmedPath, isDirectory: true)
         isHidden = false
         alphaValue = 1
+
+        guard useProjectIcon else {
+            applyFallback(fallback, size: size)
+            return
+        }
+
+        switch ProjectIconResolver.shared.cachedLookup(cwd: trimmedPath) {
+        case .hit(let image):
+            applyProjectIcon(image)
+        case .miss:
+            applyFallback(fallback, size: size)
+        case .unknown:
+            applyFallback(fallback, size: size)
+            let token = UUID()
+            pendingResolveToken = token
+            ProjectIconResolver.shared.resolve(cwd: trimmedPath, size: Self.projectIconRenderSize) { [weak self] image in
+                guard let self,
+                      let image,
+                      self.pendingResolveToken == token,
+                      self.cwdPath == trimmedPath else {
+                    return
+                }
+                self.crossfade(to: image)
+            }
+        }
+    }
+
+    private func applyFallback(_ image: NSImage, size: NSSize) {
+        iconView.image = image
+        iconView.layer?.shadowOpacity = 0
+        currentRenderSize = size
+        needsLayout = true
+    }
+
+    private func applyProjectIcon(_ image: NSImage) {
+        image.size = Self.projectIconRenderSize
+        iconView.image = image
+        iconView.layer?.shadowColor = currentTintColor?.cgColor
+        iconView.layer?.shadowRadius = Self.projectIconShadowRadius
+        iconView.layer?.shadowOpacity = Self.projectIconShadowOpacity
+        currentRenderSize = Self.projectIconRenderSize
+        needsLayout = true
+    }
+
+    private func crossfade(to image: NSImage) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.crossfadeHalfDuration
+            iconView.animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            guard let self else { return }
+            self.applyProjectIcon(image)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Self.crossfadeHalfDuration
+                self.iconView.animator().alphaValue = 1
+            }
+        }
     }
 
     var image: NSImage? { iconView.image }
@@ -1317,6 +1395,9 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
         iconView.imageScaling = .scaleProportionallyDown
+        iconView.wantsLayer = true
+        iconView.layer?.masksToBounds = false
+        iconView.layer?.shadowOffset = .zero
         addSubview(iconView)
         setAccessibilityLabel(Self.accessibilityDescription)
     }

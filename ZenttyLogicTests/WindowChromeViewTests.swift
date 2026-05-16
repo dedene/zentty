@@ -1311,4 +1311,42 @@ final class WindowChromeViewTests: AppKitTestCase {
 
         return nil
     }
+
+    func test_apply_panes_propagates_show_project_icons_toggle() throws {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+        let cwdPath = "/tmp/no-project-icon-\(UUID().uuidString)"
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Project",
+            cwdPath: cwdPath,
+            branch: nil,
+            branchURL: nil,
+            pullRequest: nil,
+            reviewChips: []
+        ))
+
+        XCTAssertTrue(view.currentPanesConfigForTesting.showProjectIcons)
+
+        view.apply(panes: AppConfig.Panes(
+            showLabels: true,
+            inactiveOpacity: 0.7,
+            showProjectIcons: false
+        ))
+        XCTAssertFalse(view.currentPanesConfigForTesting.showProjectIcons)
+        XCTAssertFalse(view.isFocusedProxyIconHidden)
+
+        let workspaceIcon = NSWorkspace.shared.icon(forFile: cwdPath)
+        workspaceIcon.size = NSSize(width: 14, height: 14)
+        XCTAssertEqual(view.focusedProxyIconImage?.tiffRepresentation, workspaceIcon.tiffRepresentation)
+
+        view.apply(panes: AppConfig.Panes(
+            showLabels: true,
+            inactiveOpacity: 0.7,
+            showProjectIcons: true
+        ))
+        XCTAssertTrue(view.currentPanesConfigForTesting.showProjectIcons)
+        XCTAssertFalse(view.isFocusedProxyIconHidden)
+    }
 }

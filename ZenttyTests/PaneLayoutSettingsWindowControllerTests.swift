@@ -80,6 +80,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         try store.update { config in
             config.panes.showLabels = false
+            config.panes.showProjectIcons = false
             config.panes.inactiveOpacity = 0.85
             config.paneLayout.rightSplitBehaviorMode = .alwaysSplit
             config.paneLayout.visibleSplitWindowWidth = .px1920
@@ -103,6 +104,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
 
         XCTAssertFalse(panesController.showsPaneLabelsForTesting)
+        XCTAssertFalse(panesController.showsProjectIconsForTesting)
         XCTAssertEqual(panesController.inactivePaneOpacityPercentageForTesting, 85)
         XCTAssertEqual(panesController.selectedRightSplitBehaviorModeForTesting, .alwaysSplit)
         XCTAssertEqual(panesController.visibleSplitWindowWidthForTesting, .px1920)

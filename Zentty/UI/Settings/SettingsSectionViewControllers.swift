@@ -180,6 +180,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     private var panes: AppConfig.Panes
     private var paneLayout: PaneLayoutPreferences
     private let showLabelsSwitch = NSSwitch()
+    private let showProjectIconsSwitch = NSSwitch()
     private let inactiveOpacitySlider = NSSlider()
     private let inactiveOpacityValueLabel = NSTextField(labelWithString: "")
     private let visibleSplitWindowWidthSlider = NSSlider()
@@ -246,6 +247,10 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         showLabelsSwitch.state == .on
     }
 
+    var showsProjectIconsForTesting: Bool {
+        showProjectIconsSwitch.state == .on
+    }
+
     var inactivePaneOpacityPercentageForTesting: Int {
         Int(round(inactiveOpacitySlider.doubleValue * 100))
     }
@@ -263,6 +268,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         guard isViewLoaded else { return }
         isApplyingPanes = true
         showLabelsSwitch.state = panes.showLabels ? .on : .off
+        showProjectIconsSwitch.state = panes.showProjectIcons ? .on : .off
         inactiveOpacitySlider.doubleValue = Double(panes.inactiveOpacity)
         updateInactiveOpacityLabel(panes.inactiveOpacity)
         isApplyingPanes = false
@@ -392,6 +398,15 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         )
         contentStack.addArrangedSubview(labelsRow)
         labelsRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        let projectIconsRow = makeSwitchRow(
+            title: "Show project icons",
+            subtitle: "Display the project's favicon or app icon in the title bar when one is found.",
+            toggle: showProjectIconsSwitch,
+            action: #selector(handleShowProjectIconsChanged(_:))
+        )
+        contentStack.addArrangedSubview(projectIconsRow)
+        projectIconsRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
 
         let separator = NSBox()
         separator.boxType = .separator
@@ -581,6 +596,14 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         guard !isApplyingPanes else { return }
         try? configStore.update {
             $0.panes.showLabels = sender.state == .on
+        }
+    }
+
+    @objc
+    private func handleShowProjectIconsChanged(_ sender: NSSwitch) {
+        guard !isApplyingPanes else { return }
+        try? configStore.update {
+            $0.panes.showProjectIcons = sender.state == .on
         }
     }
 

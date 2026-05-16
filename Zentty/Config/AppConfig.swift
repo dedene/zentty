@@ -48,13 +48,15 @@ struct AppConfig: Equatable, Sendable {
     struct Panes: Equatable, Sendable {
         var showLabels: Bool
         var inactiveOpacity: CGFloat
+        var showProjectIcons: Bool
 
         static let minimumInactiveOpacity: CGFloat = 0.6
         static let maximumInactiveOpacity: CGFloat = 1.0
 
         static let `default` = Panes(
             showLabels: true,
-            inactiveOpacity: 0.7
+            inactiveOpacity: 0.7,
+            showProjectIcons: true
         )
     }
 
@@ -275,7 +277,8 @@ extension AppConfig.Panes {
             inactiveOpacity: min(
                 max(inactiveOpacity, AppConfig.Panes.minimumInactiveOpacity),
                 AppConfig.Panes.maximumInactiveOpacity
-            )
+            ),
+            showProjectIcons: showProjectIcons
         )
     }
 }

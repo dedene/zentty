@@ -274,6 +274,10 @@ final class RootViewController: NSViewController {
         }
         ClosedPaneScrollbackArchive.purgeStale()
         preloadOpenWithIcons()
+        preloadProjectIcons()
+        _ = worklaneStore.subscribe { [weak self] _ in
+            self?.preloadProjectIcons()
+        }
         wirePeek()
     }
 
@@ -374,6 +378,7 @@ final class RootViewController: NSViewController {
         view.layer?.masksToBounds = true
         view.layer?.borderWidth = 0
         apply(theme: currentTheme, animated: false)
+        windowChromeView.apply(panes: configStore.current.panes)
     }
 
     override func viewDidLoad() {
@@ -2921,6 +2926,8 @@ final class RootViewController: NSViewController {
         paneLayoutMenuCoordinator.updateShortcutManager(shortcutManager)
         refreshShortcutTooltips()
         preloadOpenWithIcons()
+        windowChromeView.apply(panes: config.panes)
+        preloadProjectIcons()
         sidebarMotionCoordinator.applyPersistedSidebarSettings(
             config.sidebar,
             availableWidth: resolvedSidebarAvailableWidth()
@@ -2973,6 +2980,18 @@ final class RootViewController: NSViewController {
 
     private func preloadOpenWithIcons() {
         openWithService.preloadIcons(for: availableOpenWithTargets)
+    }
+
+    private func preloadProjectIcons() {
+        guard configStore.current.panes.showProjectIcons else { return }
+        for worklane in worklaneStore.worklanes {
+            for pane in worklane.paneStripState.panes {
+                guard let cwd = worklane.auxiliaryStateByPaneID[pane.id]?.presentation.cwd else {
+                    continue
+                }
+                ProjectIconResolver.shared.prewarm(cwd: cwd)
+            }
+        }
     }
 
     private func updatePaneLayoutContextIfNeeded(
@@ -3638,10 +3657,19 @@ extension RootViewController: WorklanePeekControllerDelegate {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return (trimmed?.isEmpty ?? true) ? nil : trimmed
         }()
+        let icon: NSImage? = {
+            guard configStore.current.panes.showProjectIcons,
+                  let cwd = presentation.cwd else { return nil }
+            if case .hit(let image) = ProjectIconResolver.shared.cachedLookup(cwd: cwd) {
+                return image
+            }
+            return nil
+        }()
         return WorklanePeekHUDView.Content(
             proctitle: proctitle,
             folder: folder,
-            branch: branch
+            branch: branch,
+            icon: icon
         )
     }
 }
